@@ -1,0 +1,14 @@
+.ansible/
+.cache/
+.venv/
+.codex/
+*.retry
+.DS_Store
+log/*.log
+blitzecdn
+generated/*.yml
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/*.yml

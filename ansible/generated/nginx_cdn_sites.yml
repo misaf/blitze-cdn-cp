@@ -1,0 +1,14 @@
+nginx_cdn_sites:
+- server_names:
+  - shervinsouri.ir
+  origin_host: 185.155.9.250
+  origin_scheme: https
+  enabled: true
+  ssl_enabled: true
+  ssl_provider: letsencrypt
+  letsencrypt_manage: true
+  letsencrypt_email: admin@shervinsouri.ir
+  http2_enabled: true
+  cache_enabled: true
+  cache_valid_success: 30m
+  name: client-a

@@ -1,0 +1,13 @@
+- name: Provision CDN edge servers
+  hosts: all
+  pre_tasks:
+    - name: Load API-generated CDN site variables
+      ansible.builtin.include_vars:
+        file: ../generated/nginx_cdn_sites.yml
+      when: lookup('ansible.builtin.fileglob', playbook_dir + '/../generated/nginx_cdn_sites.yml') | length > 0
+  roles:
+    - base
+    - sysctl
+    - firewall
+    - nginx
+    - fail2ban
