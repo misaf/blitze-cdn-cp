@@ -1,0 +1,6 @@
+[mcp_servers.ansible]
+command = "npx"
+args = ["-y", "@ansible/ansible-mcp-server", "--stdio"]
+
+[mcp_servers.ansible.env]
+WORKSPACE_ROOT = "."

@@ -1,0 +1,2 @@
+ansible>=14.1,<15
+ansible-lint>=26.4,<27

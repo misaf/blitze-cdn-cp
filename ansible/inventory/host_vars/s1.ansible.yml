@@ -1,0 +1,8 @@
+home_directory: "ansible"
+ansible_user: root
+ansible_ssh_private_key_file: blitzecdn
+nginx_cdn_sites:
+  - name: example-cdn
+    server_names:
+      - example.com
+    origin_host: 192.0.2.10

@@ -1,0 +1,9 @@
+all:
+  hosts:
+    s1.ansible:
+      ansible_host: 185.155.9.223
+
+  children:
+    blitze:
+      hosts:
+        s1.ansible:
