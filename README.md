@@ -1,132 +1,120 @@
-# Blitze CDN
+# BlitzeCDN
 
-Blitze CDN is a small CDN edge management project made of two parts:
+BlitzeCDN is a small, security-focused control plane for converging Nginx CDN
+edge servers. Python owns validation, desired state, deployment history,
+planning, rollback, audit records, and process execution. Ansible exclusively
+owns remote Linux state.
 
-- `api/` - a FastAPI control plane for creating and updating CDN site definitions.
-- `ansible/` - Ansible automation for provisioning edge servers and rendering Nginx CDN configs.
+The project is intentionally opinionated: Debian 12+ and Ubuntu 24.04+ edges,
+OpenSSH host-key verification, non-root SSH users with explicit sudo, UFW,
+Fail2Ban, and existing TLS certificate paths. Automatic per-edge ACME issuance
+is excluded because it is unsafe for an uncoordinated multi-edge cluster.
 
-The API and Ansible project work together through shared YAML files. The API stores
-site definitions in `api/data/cdn_sites.yml`, then writes the same data in an
-Ansible-ready format to `ansible/generated/nginx_cdn_sites.yml`. The Ansible
-playbook loads that generated file and applies the Nginx configuration to the
-edge servers.
+## Install
 
-## Repository Structure
-
-```text
-api/
-  app/                         FastAPI application
-  data/cdn_sites.yml           API-managed CDN site store
-  README.md                    API usage details
-ansible/
-  playbooks/defaults.yml       Main edge provisioning playbook
-  inventory/main.yml           Ansible inventory
-  roles/                       Base, sysctl, firewall, nginx, fail2ban roles
-  generated/nginx_cdn_sites.yml API-generated Nginx CDN vars
-  README.md                    Ansible usage details
-```
-
-## How It Works
-
-1. Add or update CDN sites through the API.
-2. The API validates the site payload and writes YAML data.
-3. Ansible reads `ansible/generated/nginx_cdn_sites.yml` before running roles.
-4. The Nginx role renders one Nginx site config per CDN site.
-5. The API can optionally trigger the Ansible playbook through `POST /deploy`.
-
-## Setup
-
-Install the Ansible dependencies:
+Python 3.12–3.14 is supported; development and CI currently use Python 3.14.
 
 ```bash
-cd ansible
-python -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/ansible-galaxy collection install -r requirements.yml
+python3.14 -m venv .venv
+.venv/bin/pip install -e '.[dev]'
+.venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
 ```
 
-Install the API dependencies:
+Create local configuration and inventory:
 
 ```bash
-cd ../api
-python -m venv .venv
-.venv/bin/pip install -r requirements-dev.txt
+.venv/bin/blitzecdn init --output .env
+cp ansible/inventory/hosts.example.yml ansible/inventory/hosts.yml
+set -a; source .env; set +a
 ```
 
-## Run the API
+Edit `ansible/inventory/hosts.yml`. Verify every SSH fingerprint through a
+trusted channel and add it to the controller's `known_hosts`. Use an SSH agent
+or a key path outside this repository. Never disable host-key checking.
+
+## Configuration
+
+Precedence is explicit:
+
+1. CLI arguments affect only the requested invocation.
+2. `BLITZE_*` environment variables configure the control plane.
+3. Inventory/group/host variables describe environment policy.
+4. Namespaced role defaults provide non-secret implementation defaults.
+
+The CLI does not automatically source `.env`; use your shell, systemd
+`EnvironmentFile`, or a secret manager. API secrets must be at least 32
+characters. Named credentials use `BLITZE_API_KEYS=alice:secret,bob:secret`.
+Store Ansible secrets in Vault-encrypted vars or an external secret plugin.
+
+Non-secret defaults can be copied from
+[`blitzecdn.example.toml`](blitzecdn.example.toml) to `blitzecdn.toml`.
+Environment variables override matching TOML fields; secrets are deliberately
+not valid TOML keys. Important environment variables are documented in
+[.env.example](.env.example). Runtime state, generated Ansible vars, locks, and
+SQLite data live under `.state/` by default and are ignored by Git.
+
+## Common workflows
 
 ```bash
-cd api
-.venv/bin/uvicorn app.main:app --reload
+blitzecdn doctor
+blitzecdn site add --file examples/site.yml
+blitzecdn site list
+blitzecdn validate
+blitzecdn plan
+blitzecdn deploy --yes
+blitzecdn status
+blitzecdn audit
+blitzecdn rollback DEPLOYMENT_ID --yes
 ```
 
-The API will be available at `http://127.0.0.1:8000`.
+`plan` runs Ansible check mode. `deploy` and applied rollback require
+confirmation unless `--yes` is supplied. Use `--json` on read and deployment
+commands in automation. Exit codes are 0 success, 2 invalid input, 3 invalid
+configuration, 4 conflict, and 5 failed deployment.
 
-Useful endpoints:
-
-- `GET /health` - health check.
-- `GET /cdn-sites` - list CDN sites.
-- `POST /cdn-sites` - create a CDN site and generate Ansible vars.
-- `PATCH /cdn-sites/{name}` - update a CDN site.
-- `DELETE /cdn-sites/{name}` - delete a CDN site.
-- `POST /deploy?wait=true` - run Ansible and return the result.
-- `POST /deploy` - queue an Ansible run in the background.
-
-## Create a CDN Site
+The optional API is synchronous by design so work is not falsely queued in a
+process-local background task:
 
 ```bash
-curl -X POST http://127.0.0.1:8000/cdn-sites \
-  -H 'Content-Type: application/json' \
-  -d '{
-    "name": "client-a",
-    "server_names": ["cdn.client-a.com"],
-    "origin_host": "192.0.2.10",
-    "ssl_enabled": true,
-    "ssl_provider": "letsencrypt",
-    "letsencrypt_email": "admin@example.com",
-    "http2_enabled": true,
-    "cache_enabled": true,
-    "cache_valid_success": "30m"
-  }'
+blitzecdn serve --host 127.0.0.1 --port 8000
 ```
 
-After this request, the API updates:
+Only `GET /health` is public. Control routes live under `/v1` and require
+`X-API-Key`. Put the API behind authenticated TLS if it is exposed beyond
+localhost. Interactive API documentation is disabled in production code.
 
-- `api/data/cdn_sites.yml`
-- `ansible/generated/nginx_cdn_sites.yml`
+## Failure and recovery
 
-## Run Ansible Directly
+- A filesystem lock permits one deployment at a time.
+- Each run uses an immutable desired-state snapshot and bounded logs.
+- Timeout and failed runs remain recorded and never become canonical rollbacks.
+- Startup marks orphaned queued/running records `abandoned`.
+- Rollback first converges the selected snapshot; canonical desired state changes
+  only after Ansible succeeds.
+- An invalid Nginx configuration fails `nginx -t` before reload, leaving the
+  running worker configuration active. Correct desired state and deploy again.
+- Ansible uses `serial: 25%` and `any_errors_fatal` to limit partial rollout.
 
-Validate the playbook:
+SQLite and local locks support one control-plane node. Back up `.state/` before
+controller maintenance. Restore the database and rerun `validate`/`plan` after
+recovery. For active/active operation, replace SQLite and filesystem locking
+with transactional shared infrastructure.
+
+## Development
 
 ```bash
-cd ansible
-.venv/bin/ansible-playbook --syntax-check playbooks/defaults.yml
-HOME="$PWD" .venv/bin/ansible-lint playbooks/defaults.yml
+ruff format --check src tests
+ruff check src tests
+mypy src
+pytest
+ANSIBLE_LOCAL_TEMP=.state/ansible-local ansible-playbook \
+  -i ansible/inventory/hosts.example.yml ansible/playbooks/edge.yml \
+  --syntax-check --extra-vars @tests/fixtures/desired-state.yml
+ansible-lint ansible/playbooks/edge.yml
+yamllint .
+bandit -c pyproject.toml -r src
+python -m build
 ```
 
-Apply the playbook:
-
-```bash
-cd ansible
-.venv/bin/ansible-playbook playbooks/defaults.yml
-```
-
-## Deploy Through the API
-
-```bash
-curl -X POST 'http://127.0.0.1:8000/deploy?wait=true'
-```
-
-The API uses `ansible/.venv/bin/ansible-playbook` when it exists. If that binary
-does not exist, it falls back to `ansible-playbook` from `PATH`.
-
-## Production Notes
-
-- Configure `ansible/inventory/main.yml` before running against real edge servers.
-- Keep SSH keys and private SSL certificates out of Git.
-- Use `ssl_provider: custom` for multi-node CDN clusters unless certificate
-  issuance is coordinated outside each edge node.
-- The `firewall` role is currently a placeholder, so add firewall rules before
-  exposing production servers.
-- See `api/README.md` and `ansible/README.md` for more detailed options.
+See [architecture](docs/architecture.md), [operations](docs/operations.md),
+[security policy](SECURITY.md), and [contributing guide](CONTRIBUTING.md).
