@@ -1,0 +1,11 @@
+---
+all:
+  children:
+    blitzecdn_edges:
+      hosts:
+        edge-01.example.net:
+          ansible_host: 192.0.2.10
+          ansible_user: deploy
+      vars:
+        blitzecdn_firewall_ssh_sources:
+          - 198.51.100.0/24

@@ -1,0 +1,6 @@
+---
+blitzecdn_base_timezone: UTC
+blitzecdn_firewall_enabled: true
+blitzecdn_firewall_ssh_port: 22
+blitzecdn_firewall_ssh_sources: []
+blitzecdn_nginx_sites: []
