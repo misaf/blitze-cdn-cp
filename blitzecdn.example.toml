@@ -1,0 +1,10 @@
+[blitzecdn]
+state_dir = ".state"
+ansible_dir = "ansible"
+inventory_path = "ansible/inventory/hosts.yml"
+playbook_path = "ansible/playbooks/edge.yml"
+generated_vars_path = ".state/desired-state.yml"
+deployment_lock_path = ".state/deployment.lock"
+ansible_playbook = "ansible-playbook"
+deployment_timeout_seconds = 900
+output_limit_bytes = 1048576

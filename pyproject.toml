@@ -1,0 +1,69 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blitzecdn"
+version = "0.1.0"
+description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { file = "LICENSE" }
+dependencies = [
+  "fastapi>=0.116,<1",
+  "pydantic>=2.11,<3",
+  "PyYAML>=6.0.2,<7",
+  "typer>=0.16,<1",
+  "uvicorn[standard]>=0.35,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "ansible-core>=2.21,<2.22",
+  "ansible-lint>=26.6,<27",
+  "bandit[toml]>=1.8,<2",
+  "build>=1.2,<2",
+  "httpx>=0.28,<1",
+  "mypy>=1.17,<2",
+  "pip-audit>=2.9,<3",
+  "pre-commit>=4.2,<5",
+  "pytest>=9.0.3,<10",
+  "pytest-cov>=6.2,<7",
+  "ruff>=0.12,<1",
+  "types-PyYAML>=6.0.12,<7",
+  "yamllint>=1.37,<2",
+]
+
+[project.scripts]
+blitzecdn = "blitzecdn.cli:run"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blitzecdn"]
+
+[tool.pytest.ini_options]
+addopts = "--strict-config --strict-markers --cov=blitzecdn --cov-report=term-missing --cov-fail-under=85"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["A", "ASYNC", "B", "BLE", "C4", "E", "F", "I", "N", "PERF", "RUF", "S", "SIM", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["blitzecdn"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+# This adapter must launch Ansible. It uses a fixed argument array, never a
+# shell, rejects missing executables, closes stdin, and enforces a timeout.
+skips = ["B404", "B603"]
