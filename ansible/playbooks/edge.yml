@@ -1,0 +1,30 @@
+---
+- name: Converge BlitzeCDN edge servers
+  hosts: blitzecdn_edges
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  max_fail_percentage: 0
+  serial: "25%"
+  pre_tasks:
+    - name: Validate supported operating system
+      ansible.builtin.assert:
+        that:
+          - >-
+            (ansible_facts.distribution == 'Debian' and
+             ansible_facts.distribution_major_version | int >= 12) or
+            (ansible_facts.distribution == 'Ubuntu' and
+             ansible_facts.distribution_major_version | int >= 24)
+        fail_msg: BlitzeCDN supports Debian 12+ and Ubuntu 24.04+.
+      tags: [always]
+  roles:
+    - role: blitzecdn_base
+      tags: [base]
+    - role: blitzecdn_kernel
+      tags: [kernel]
+    - role: blitzecdn_firewall
+      tags: [firewall]
+    - role: blitzecdn_nginx
+      tags: [nginx]
+    - role: blitzecdn_fail2ban
+      tags: [security]
