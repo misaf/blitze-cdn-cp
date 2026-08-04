@@ -10,9 +10,11 @@ readme = "README.md"
 requires-python = ">=3.12,<3.15"
 license = { file = "LICENSE" }
 dependencies = [
+  "cryptography>=45,<51",
   "fastapi>=0.116,<1",
   "pydantic>=2.11,<3",
   "PyYAML>=6.0.2,<7",
+  "python-multipart>=0.0.20,<1",
   "typer>=0.16,<1",
   "uvicorn[standard]>=0.35,<1",
 ]
@@ -24,6 +26,8 @@ dev = [
   "bandit[toml]>=1.8,<2",
   "build>=1.2,<2",
   "httpx>=0.28,<1",
+  # Used directly by tests/test_contract.py to render the role templates.
+  "Jinja2>=3.1,<4",
   "mypy>=1.17,<2",
   "pip-audit>=2.9,<3",
   "pre-commit>=4.2,<5",

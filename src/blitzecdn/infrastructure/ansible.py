@@ -12,6 +12,7 @@ from types import TracebackType
 
 from blitzecdn.config import Settings
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
+from blitzecdn.infrastructure.process import terminate_process_group
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,39 @@ class AnsibleRunner:
             timeout=self._settings.deployment_timeout_seconds,
         )
 
+    def run_acme_challenge(
+        self, *, action: str, domain: str, token: str, validation: str = ""
+    ) -> CommandResult:
+        self._validate_paths()
+        if not self._settings.acme_challenge_playbook_path.is_file():
+            raise ConfigurationError(
+                "ACME challenge playbook does not exist: "
+                f"{self._settings.acme_challenge_playbook_path}"
+            )
+        variables = self._settings.state_dir / "acme-challenge.yml"
+        from blitzecdn.infrastructure.filesystem import atomic_write_yaml
+
+        atomic_write_yaml(
+            variables,
+            {
+                "blitzecdn_acme_action": action,
+                "blitzecdn_acme_domain": domain,
+                "blitzecdn_acme_token": token,
+                "blitzecdn_acme_validation": validation,
+            },
+        )
+        command = [
+            self._settings.ansible_playbook,
+            str(self._settings.acme_challenge_playbook_path),
+            "--inventory",
+            str(self._settings.inventory_path),
+            "--extra-vars",
+            f"@{variables}",
+            "--limit",
+            "blitzecdn_edges",
+        ]
+        return self._execute(command, timeout=120)
+
     def _validate_paths(self) -> None:
         errors = self._settings.validate_runtime()
         if errors:
@@ -112,24 +146,26 @@ class AnsibleRunner:
         )
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             try:
-                completed = subprocess.run(  # noqa: S603 -- fixed executable and argument array
+                process = subprocess.Popen(  # noqa: S603 -- fixed executable and argument array
                     command,
                     cwd=self._settings.ansible_dir,
                     env=environment,
                     stdin=subprocess.DEVNULL,
                     stdout=stdout,
                     stderr=stderr,
-                    check=False,
-                    timeout=timeout,
                     start_new_session=True,
                 )
-                timed_out = False
-                return_code = completed.returncode
-            except subprocess.TimeoutExpired:
-                timed_out = True
-                return_code = 124
             except OSError as exc:
                 raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
+            try:
+                return_code = process.wait(timeout=timeout)
+                timed_out = False
+            except subprocess.TimeoutExpired:
+                # Ansible forks a worker per host; killing only the playbook
+                # leaves them converging edges behind our back.
+                terminate_process_group(process, process.wait)
+                timed_out = True
+                return_code = 124
             return CommandResult(
                 return_code=return_code,
                 stdout=self._read_bounded(stdout),

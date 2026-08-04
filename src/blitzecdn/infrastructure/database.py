@@ -246,15 +246,16 @@ class Repository:
         return cursor.rowcount
 
     def successful_rollback_target(self, current_snapshot: str) -> Deployment:
-        successful = [
-            item
-            for item in self.list_deployments(100)
-            if item.status is DeploymentStatus.SUCCEEDED and not item.check_mode
-        ]
-        for item in successful:
-            if self.deployment_snapshot(item.id) != current_snapshot:
-                return item
-        raise NotFoundError("no different successful deployment is available")
+        with self._connection() as connection:
+            row = connection.execute(
+                """SELECT * FROM deployments
+                   WHERE status = ? AND check_mode = 0 AND snapshot != ?
+                   ORDER BY created_at DESC LIMIT 1""",
+                (DeploymentStatus.SUCCEEDED, current_snapshot),
+            ).fetchone()
+        if row is None:
+            raise NotFoundError("no different successful deployment is available")
+        return self._deployment(row)
 
     def audit(
         self,

@@ -1,0 +1,54 @@
+---
+- name: Synchronize an ACME HTTP-01 challenge
+  hosts: blitzecdn_edges
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  max_fail_percentage: 0
+  serial: "100%"
+  pre_tasks:
+    - name: Require the shared ACME webroot
+      ansible.builtin.assert:
+        that: blitzecdn_acme_root is defined
+        fail_msg: >-
+          blitzecdn_acme_root is unset. It is defined in
+          inventory/group_vars/blitzecdn_edges.yml, which Ansible only loads
+          when it sits beside the inventory file.
+
+    # Kept separate and silent: the token and validation value are secrets, and
+    # a failing assert echoes every value it was given.
+    - name: Validate ACME challenge inputs
+      ansible.builtin.assert:
+        that:
+          - blitzecdn_acme_action in ['present', 'absent']
+          - blitzecdn_acme_domain is match('^[A-Za-z0-9.-]{1,253}$')
+          - blitzecdn_acme_token is match('^[A-Za-z0-9_-]{1,512}$')
+          - >-
+            blitzecdn_acme_action == 'absent' or
+            blitzecdn_acme_validation is match('^[A-Za-z0-9_.-]{1,2048}$')
+      no_log: true
+  tasks:
+    - name: Create ACME challenge directory
+      ansible.builtin.file:
+        path: "{{ blitzecdn_acme_root }}/.well-known/acme-challenge"
+        state: directory
+        owner: root
+        group: www-data
+        mode: "0750"
+      when: blitzecdn_acme_action == 'present'
+
+    - name: Publish ACME challenge
+      ansible.builtin.copy:
+        content: "{{ blitzecdn_acme_validation }}"
+        dest: "{{ blitzecdn_acme_root }}/.well-known/acme-challenge/{{ blitzecdn_acme_token }}"
+        owner: root
+        group: www-data
+        mode: "0640"
+      when: blitzecdn_acme_action == 'present'
+      no_log: true
+
+    - name: Remove ACME challenge
+      ansible.builtin.file:
+        path: "{{ blitzecdn_acme_root }}/.well-known/acme-challenge/{{ blitzecdn_acme_token }}"
+        state: absent
+      when: blitzecdn_acme_action == 'absent'

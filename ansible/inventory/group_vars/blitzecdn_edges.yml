@@ -1,0 +1,12 @@
+---
+# Single source of truth for the ACME webroot. The nginx role serves challenges
+# from it and the acme-challenge playbook writes them into it; if the two ever
+# disagree, HTTP-01 validation fails with no useful error.
+blitzecdn_acme_root: /var/lib/blitzecdn/acme
+blitzecdn_nginx_acme_root: "{{ blitzecdn_acme_root }}"
+
+blitzecdn_base_timezone: UTC
+blitzecdn_firewall_enabled: true
+blitzecdn_firewall_ssh_port: 22
+blitzecdn_firewall_ssh_sources: []
+blitzecdn_nginx_sites: []

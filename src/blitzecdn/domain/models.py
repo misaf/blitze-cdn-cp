@@ -12,6 +12,32 @@ _DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 _SITE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _DURATION = re.compile(r"^(?:0|[1-9]\d*)(?:ms|[smhdw])$")
 
+#: Version of the desired-state document handed to Ansible.
+#:
+#: This is the contract between the control plane and the edge roles, which
+#: ship and version independently. Bump it whenever the shape of
+#: ``blitzecdn_nginx_sites`` changes in a way an older role cannot honour —
+#: a new required key, a renamed key, or new semantics for an existing one.
+#: Adding a key that older roles can safely ignore does not need a bump.
+#: The nginx role refuses to run against a version it does not support, so
+#: skew fails before a host is touched instead of midway through a rollout.
+DESIRED_STATE_VERSION = 1
+
+#: Certificates BlitzeCDN installs itself live here, one directory per site.
+MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
+
+#: Deploying a site makes Ansible write these paths on every edge as root, so an
+#: operator must not be able to aim them at arbitrary files such as /etc/cron.d.
+_CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
+
+
+def managed_certificate_paths(site_name: str) -> tuple[str, str]:
+    """Return the chain and key paths BlitzeCDN manages for ``site_name``."""
+    return (
+        f"{MANAGED_TLS_ROOT}/{site_name}/fullchain.pem",
+        f"{MANAGED_TLS_ROOT}/{site_name}/privkey.pem",
+    )
+
 
 class OriginScheme(StrEnum):
     HTTP = "http"
@@ -21,6 +47,13 @@ class OriginScheme(StrEnum):
 class CertificateMode(StrEnum):
     DISABLED = "disabled"
     EXISTING = "existing"
+    UPLOADED = "uploaded"
+    REQUESTED = "requested"
+
+
+class CertificateSource(StrEnum):
+    UPLOADED = "uploaded"
+    ACME = "acme"
 
 
 class DeploymentStatus(StrEnum):
@@ -121,19 +154,41 @@ class CdnSite(BaseModel):
             raise ValueError(
                 "certificate paths must be absolute and cannot contain '..'"
             )
+        if not value.startswith(_CERTIFICATE_ROOTS):
+            raise ValueError(
+                "certificate paths must live under one of: "
+                + ", ".join(_CERTIFICATE_ROOTS)
+            )
         return value
 
     @model_validator(mode="after")
     def validate_certificate_pair(self) -> Self:
+        """Keep certificate mode and the two paths mutually consistent.
+
+        Turning TLS off means clearing ``certificate_mode``, ``certificate_path``
+        and ``certificate_key_path`` together in a single update; a patch that
+        only sets the mode to ``disabled`` is rejected.
+        """
         supplied = (
             self.certificate_path is not None or self.certificate_key_path is not None
         )
-        if self.certificate_mode is CertificateMode.EXISTING and not (
+        if self.certificate_mode is not CertificateMode.DISABLED and not (
             self.certificate_path and self.certificate_key_path
         ):
-            raise ValueError("existing certificates require both certificate paths")
+            raise ValueError("TLS certificate modes require both certificate paths")
         if self.certificate_mode is CertificateMode.DISABLED and supplied:
             raise ValueError("certificate paths require certificate_mode='existing'")
+        if self.certificate_mode in {
+            CertificateMode.UPLOADED,
+            CertificateMode.REQUESTED,
+        } and (self.certificate_path, self.certificate_key_path) != (
+            managed_certificate_paths(self.name)
+        ):
+            raise ValueError(
+                f"certificate_mode={self.certificate_mode.value!r} is set by the "
+                "certificate upload and request endpoints, which own the paths "
+                f"under {MANAGED_TLS_ROOT}/<site>/"
+            )
         return self
 
     def to_ansible(self) -> dict[str, Any]:
@@ -189,3 +244,35 @@ class AuditEvent(BaseModel):
     resource_type: str
     resource_id: str | None = None
     details: dict[str, Any] = Field(default_factory=dict)
+
+
+class CertificateInfo(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    site: str
+    source: CertificateSource
+    domains: tuple[str, ...]
+    not_before: datetime
+    not_after: datetime
+    fingerprint_sha256: str
+    email: str | None = None
+
+
+class CertificateRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: str | None = Field(default=None, max_length=254)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        candidate = value.strip().lower()
+        if candidate.count("@") != 1 or any(char.isspace() for char in candidate):
+            raise ValueError("email must be a valid address")
+        local, domain = candidate.rsplit("@", 1)
+        if not local or not domain:
+            raise ValueError("email must be a valid address")
+        _hostname(domain)
+        return candidate

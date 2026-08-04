@@ -3,10 +3,12 @@ extends: default
 ignore: |
   .state/
   .venv/
-  api/.venv/
   ansible/.venv/
   ansible/.ansible/
   ansible/.cache/
+  web/node_modules/
+  web/.next/
+  web/out/
 rules:
   braces:
     max-spaces-inside: 1

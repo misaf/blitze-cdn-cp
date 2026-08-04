@@ -35,3 +35,28 @@ def atomic_write_yaml(
             os.close(directory_descriptor)
     finally:
         temporary.unlink(missing_ok=True)
+
+
+def atomic_write_bytes(path: Path, payload: bytes, *, mode: int = 0o600) -> None:
+    """Atomically write sensitive bytes without following a destination symlink."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.is_symlink():
+        raise ConfigurationError(f"refusing to replace symlink: {path}")
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.", dir=path.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(payload)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    finally:
+        temporary.unlink(missing_ok=True)

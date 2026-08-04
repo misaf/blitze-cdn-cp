@@ -21,6 +21,10 @@ _PROJECT_KEYS = {
     "ansible_playbook",
     "deployment_timeout_seconds",
     "output_limit_bytes",
+    "certificate_dir",
+    "acme_challenge_playbook_path",
+    "certbot",
+    "acme_default_email",
 }
 
 
@@ -35,7 +39,11 @@ class Settings(BaseModel):
     playbook_path: Path
     generated_vars_path: Path
     deployment_lock_path: Path
+    certificate_dir: Path
+    acme_challenge_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
+    certbot: str = "certbot"
+    acme_default_email: str | None = None
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
@@ -49,6 +57,8 @@ class Settings(BaseModel):
         "playbook_path",
         "generated_vars_path",
         "deployment_lock_path",
+        "certificate_dir",
+        "acme_challenge_playbook_path",
         mode="before",
     )
     @classmethod
@@ -111,12 +121,32 @@ class Settings(BaseModel):
                     "deployment_lock_path",
                     state / "deployment.lock",
                 ),
+                certificate_dir=path_value(
+                    "BLITZE_CERTIFICATE_DIR",
+                    "certificate_dir",
+                    state / "certificates",
+                ),
+                acme_challenge_playbook_path=path_value(
+                    "BLITZE_ACME_CHALLENGE_PLAYBOOK",
+                    "acme_challenge_playbook_path",
+                    root / "ansible/playbooks/acme-challenge.yml",
+                ),
                 ansible_playbook=str(
                     value(
                         "BLITZE_ANSIBLE_PLAYBOOK",
                         "ansible_playbook",
                         "ansible-playbook",
                     )
+                ),
+                certbot=str(value("BLITZE_CERTBOT", "certbot", "certbot")),
+                acme_default_email=(
+                    str(raw_email).strip().lower()
+                    if (
+                        raw_email := value(
+                            "BLITZE_ACME_DEFAULT_EMAIL", "acme_default_email", ""
+                        )
+                    )
+                    else None
                 ),
                 deployment_timeout_seconds=int(
                     str(
@@ -194,10 +224,7 @@ class Settings(BaseModel):
         ):
             if not path.exists():
                 errors.append(f"{label} does not exist: {path}")
-        if (
-            self.generated_vars_path.parent == self.ansible_dir
-            or self.generated_vars_path.parent in self.ansible_dir.parents
-        ):
+        if not self.generated_vars_path.is_relative_to(self.state_dir):
             errors.append(
                 "generated vars must be a file under the state directory, "
                 "not the Ansible source directory"
