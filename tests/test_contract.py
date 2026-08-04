@@ -24,6 +24,7 @@ Install the collection first, or these tests skip:
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,7 @@ from typing import Any
 import pytest
 import yaml
 
+from blitzecdn import EDGE_COLLECTION_VERSION
 from blitzecdn.application import ControlPlane
 from blitzecdn.domain.models import (
     DESIRED_STATE_VERSION,
@@ -125,6 +127,42 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     )
     control._write_desired_state(repository.snapshot())
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
+
+
+def test_edge_pin_matches_the_published_constant():
+    """`EDGE_COLLECTION_VERSION` is what downstream consumers see.
+
+    The wheel does not ship `ansible/requirements.yml`, so the documentation
+    site reads the constant instead. If the two disagree, the site documents
+    roles this control plane does not deploy.
+    """
+    document = yaml.safe_load(
+        (PROJECT_DIR / "ansible/requirements.yml").read_text(encoding="utf-8")
+    )
+    pinned = next(
+        entry["version"]
+        for entry in document["collections"]
+        if entry["name"] == "blitzecdn.edge"
+    )
+    assert pinned == EDGE_COLLECTION_VERSION, (
+        f"ansible/requirements.yml pins blitzecdn.edge {pinned} but "
+        f"EDGE_COLLECTION_VERSION is {EDGE_COLLECTION_VERSION}. Bump both."
+    )
+
+
+def test_installed_collection_is_the_pinned_one():
+    """Guard against testing green against an unpinned local collection."""
+    manifest = ROLE_DIR.parent.parent / "MANIFEST.json"
+    if not manifest.is_file():
+        pytest.skip("collection installed from a source checkout; no MANIFEST.json")
+    installed = json.loads(manifest.read_text(encoding="utf-8"))["collection_info"][
+        "version"
+    ]
+    assert installed == EDGE_COLLECTION_VERSION, (
+        f"blitzecdn.edge {installed} is installed but this control plane pins "
+        f"{EDGE_COLLECTION_VERSION}. Reinstall with "
+        "`ansible-galaxy collection install -r ansible/requirements.yml`."
+    )
 
 
 def test_desired_state_declares_a_version_the_role_supports(desired_state):
