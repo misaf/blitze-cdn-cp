@@ -1,15 +1,12 @@
 .ansible/
 .cache/
 .venv/
-.codex/
 *.retry
 .DS_Store
 log/*.log
-/ansible/blitzecdn
 generated/*.yml
 .venv/
 .env
-api/.env
 __pycache__/
 .pytest_cache/
 *.pyc

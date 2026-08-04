@@ -1,8 +1,12 @@
 """Verify what the control plane emits against what the edge roles declare.
 
-These two halves ship as separate repositories, so nothing else stops a new
-`CdnSite` field from reaching an edge role that has never heard of it. Every
-assertion here is about the boundary between them, not about either side alone:
+The edge roles live in the `blitzecdn.edge` collection, pinned in
+`ansible/requirements.yml`. These tests read the *installed* collection rather
+than a copy in this repository, so they check this control plane against the
+exact edge version an operator would deploy. Nothing else stops a new `CdnSite`
+field from reaching a role that has never heard of it.
+
+Every assertion here is about the boundary between them, not either side alone:
 
 * the desired-state document carries a schema version the role supports;
 * every key `CdnSite.to_ansible()` emits is declared in `argument_specs.yml`;
@@ -12,6 +16,10 @@ assertion here is about the boundary between them, not about either side alone:
 
 When one of these fails, the fix is to change both repositories together and
 bump `DESIRED_STATE_VERSION` if older roles cannot honour the new shape.
+
+Install the collection first, or these tests skip:
+
+    ansible-galaxy collection install -r ansible/requirements.yml
 """
 
 from __future__ import annotations
@@ -34,8 +42,31 @@ from blitzecdn.infrastructure.database import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 
-ROLE_DIR = Path(__file__).resolve().parent.parent / "ansible/roles/blitzecdn_nginx"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures/desired-state.yml"
+
+#: Where ansible-galaxy puts collections, mirroring collections_path in
+#: ansible/ansible.cfg. The first hit wins, as it does for Ansible itself.
+_COLLECTION_PATHS = (
+    PROJECT_DIR / ".state/collections",
+    Path.home() / ".ansible/collections",
+    Path("/usr/share/ansible/collections"),
+)
+
+
+def _installed_role(name: str) -> Path:
+    for root in _COLLECTION_PATHS:
+        candidate = root / "ansible_collections/blitzecdn/edge/roles" / name
+        if candidate.is_dir():
+            return candidate
+    pytest.skip(
+        "the blitzecdn.edge collection is not installed; run "
+        "`ansible-galaxy collection install -r ansible/requirements.yml`",
+        allow_module_level=True,
+    )
+
+
+ROLE_DIR = _installed_role("blitzecdn_nginx")
 
 
 class _IndentedDumper(yaml.SafeDumper):
@@ -112,10 +143,12 @@ def test_every_emitted_key_is_declared_by_the_role(desired_state):
     for site in desired_state["blitzecdn_nginx_sites"]:
         undeclared = set(site) - declared
         assert not undeclared, (
-            f"CdnSite emits {sorted(undeclared)}, which "
-            "ansible/roles/blitzecdn_nginx/meta/argument_specs.yml does not "
-            "declare. Add them there and bump DESIRED_STATE_VERSION if older "
-            "roles cannot ignore them."
+            f"CdnSite emits {sorted(undeclared)}, which the pinned "
+            "blitzecdn.edge collection does not declare in "
+            "roles/blitzecdn_nginx/meta/argument_specs.yml. Add them in the "
+            "edge repository, release it, bump the pin in "
+            "ansible/requirements.yml, and bump DESIRED_STATE_VERSION if "
+            "older roles cannot ignore them."
         )
 
 
