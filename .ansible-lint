@@ -2,5 +2,4 @@
 profile: production
 exclude_paths:
   - .state/
-  - ansible/.venv/
-  - api/.venv/
+  - .venv/
