@@ -10,7 +10,35 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+      web: ${{ steps.filter.outputs.web }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'src/**'
+              - 'tests/**'
+              - 'ansible/**'
+              - 'pyproject.toml'
+              - '.github/workflows/ci.yml'
+            web:
+              - 'web/**'
+              - 'src/**'
+              - 'ansible/**'
+              - '.github/workflows/ci.yml'
+
   quality:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -45,10 +73,50 @@ jobs:
             ansible/playbooks/edge.yml \
             --syntax-check \
             --extra-vars @tests/fixtures/desired-state.yml
-          ansible-lint ansible/playbooks/edge.yml
+          ansible-playbook \
+            -i ansible/inventory/hosts.example.yml \
+            ansible/playbooks/acme-challenge.yml \
+            --syntax-check
+          ansible-lint ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml
       - name: Security checks
         run: |
           bandit -c pyproject.toml -r src
           pip-audit
       - name: Build package
         run: python -m build
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      # The reference generators import blitzecdn and read the role specs.
+      - name: Install the control plane
+        working-directory: .
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e .
+      - name: Install site dependencies
+        run: npm ci
+      - name: Verify generated reference is current
+        run: python scripts/generate_reference.py --check
+      - name: Dependency audit
+        run: npm audit --audit-level=high
+      - name: Build site
+        run: npm run build

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import CommandResult
@@ -48,6 +53,8 @@ def settings(tmp_path: Path) -> Settings:
         playbook_path=playbook,
         generated_vars_path=state / "desired-state.yml",
         deployment_lock_path=state / "deployment.lock",
+        certificate_dir=state / "certificates",
+        acme_challenge_playbook_path=ansible / "playbooks/acme-challenge.yml",
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": "x" * 32},
     )
@@ -60,3 +67,44 @@ def site_payload() -> dict[str, object]:
         "server_names": ["cdn.example.com"],
         "origin_host": "origin.example.com",
     }
+
+
+@pytest.fixture
+def certificate_pair():
+    def generate(
+        domains: tuple[str, ...] = ("cdn.example.com",),
+        *,
+        valid: bool = True,
+    ) -> tuple[bytes, bytes]:
+        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        now = datetime.now(UTC)
+        start = now - timedelta(days=1) if valid else now - timedelta(days=10)
+        end = now + timedelta(days=30) if valid else now - timedelta(days=1)
+        certificate = (
+            x509.CertificateBuilder()
+            .subject_name(
+                x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, domains[0])])
+            )
+            .issuer_name(
+                x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test CA")])
+            )
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(start)
+            .not_valid_after(end)
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName(name) for name in domains]),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+        return (
+            certificate.public_bytes(serialization.Encoding.PEM),
+            key.private_bytes(
+                serialization.Encoding.PEM,
+                serialization.PrivateFormat.PKCS8,
+                serialization.NoEncryption(),
+            ),
+        )
+
+    return generate

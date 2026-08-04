@@ -39,6 +39,23 @@ def test_runtime_validation_reports_missing_files(tmp_path):
     assert any("inventory does not exist" in item for item in errors)
 
 
+def test_runtime_validation_requires_generated_vars_beneath_state(settings):
+    nested_in_ansible = settings.model_copy(
+        update={"generated_vars_path": settings.ansible_dir / "generated/state.yml"}
+    )
+    assert any(
+        "generated vars must be a file under the state directory" in error
+        for error in nested_in_ansible.validate_runtime()
+    )
+
+    nested_in_state = settings.model_copy(
+        update={"generated_vars_path": settings.state_dir / "generated/state.yml"}
+    )
+    assert not any(
+        "generated vars" in error for error in nested_in_state.validate_runtime()
+    )
+
+
 def test_project_toml_is_loaded_below_environment_precedence(tmp_path):
     (tmp_path / "blitzecdn.toml").write_text(
         "[blitzecdn]\nstate_dir = 'runtime'\ndeployment_timeout_seconds = 300\n",
