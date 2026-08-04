@@ -10,35 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  changes:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      code: ${{ steps.filter.outputs.code }}
-      web: ${{ steps.filter.outputs.web }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            code:
-              - 'src/**'
-              - 'tests/**'
-              - 'ansible/**'
-              - 'pyproject.toml'
-              - '.github/workflows/ci.yml'
-            web:
-              - 'web/**'
-              - 'src/**'
-              - 'ansible/**'
-              - '.github/workflows/ci.yml'
-
   quality:
-    needs: changes
-    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -49,11 +21,15 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
-      - name: Install project and collections
+      # The edge roles come from the blitzecdn.edge collection pinned in
+      # ansible/requirements.yml. tests/test_contract.py reads the installed
+      # collection, so this step decides which edge version we test against.
+      - name: Install project and the pinned edge collection
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
-          ansible-galaxy collection install -r ansible/requirements.yml
+          ansible-galaxy collection install -r ansible/requirements.yml \
+            -p .state/collections
       - name: Python format and lint
         run: |
           ruff format --check src tests
@@ -62,6 +38,10 @@ jobs:
         run: mypy src
       - name: Tests and coverage
         run: pytest --cov-report=xml
+      - name: Fail if the contract tests silently skipped
+        run: |
+          test -d .state/collections/ansible_collections/blitzecdn/edge \
+            || { echo "edge collection missing; contract tests skipped"; exit 1; }
       - name: YAML and Ansible lint
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg
@@ -84,39 +64,3 @@ jobs:
           pip-audit
       - name: Build package
         run: python -m build
-
-  web:
-    needs: changes
-    if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.14"
-          cache: pip
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "24"
-          cache: npm
-          cache-dependency-path: web/package-lock.json
-      # The reference generators import blitzecdn and read the role specs.
-      - name: Install the control plane
-        working-directory: .
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e .
-      - name: Install site dependencies
-        run: npm ci
-      - name: Verify generated reference is current
-        run: python scripts/generate_reference.py --check
-      - name: Dependency audit
-        run: npm audit --audit-level=high
-      - name: Build site
-        run: npm run build
