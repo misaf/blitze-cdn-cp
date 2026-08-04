@@ -5,7 +5,6 @@
 .DS_Store
 log/*.log
 generated/*.yml
-.venv/
 .env
 __pycache__/
 .pytest_cache/
@@ -14,7 +13,6 @@ data/*.yml
 data/*.db
 data/*.db-shm
 data/*.db-wal
-data/*.lock
 **/*.lock
 .state/
 dist/
