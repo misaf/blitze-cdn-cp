@@ -10,3 +10,13 @@ blitzecdn_firewall_enabled: true
 blitzecdn_firewall_ssh_port: 22
 blitzecdn_firewall_ssh_sources: []
 blitzecdn_nginx_sites: []
+
+# Edges accept public keys only. The role refuses to disable passwords unless
+# the connecting account already has a working key on the host, so this cannot
+# strand an edge — but it will fail a deploy against a host reached by
+# password. Install the operator key first.
+blitzecdn_sshd_enabled: true
+blitzecdn_sshd_permit_root_login: 'no'
+# Empty means "the account this control plane connects as". Set an explicit
+# list to close SSH to a named set of operators.
+blitzecdn_sshd_allow_users: []
