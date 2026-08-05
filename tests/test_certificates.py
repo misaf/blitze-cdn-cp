@@ -157,7 +157,7 @@ def test_certbot_issuer_builds_http01_command(
     def fake_popen(command, **_kwargs):
         captured.extend(command)
         config_dir = command[command.index("--config-dir") + 1]
-        live = settings.project_dir.__class__(config_dir) / "live/example-cdn"
+        live = settings.project_dir.__class__(config_dir) / "live/cdn-example-com"
         live.mkdir(parents=True)
         (live / "fullchain.pem").write_bytes(certificate)
         (live / "privkey.pem").write_bytes(key)

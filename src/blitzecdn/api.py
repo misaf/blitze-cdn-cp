@@ -20,6 +20,7 @@ from fastapi import (
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from blitzecdn import __version__
 from blitzecdn.application import ControlPlane
 from blitzecdn.config import Settings
 from blitzecdn.domain.models import (
@@ -28,7 +29,10 @@ from blitzecdn.domain.models import (
     CertificateInfo,
     CertificateRequest,
     Deployment,
-    SitePatch,
+    DnsRecord,
+    Domain,
+    RecordPatch,
+    RecordType,
 )
 from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
 
@@ -94,7 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application = FastAPI(
         title="BlitzeCDN control plane",
-        version="0.1.0",
+        version=__version__,
         description=(
             "Manage CDN sites, certificates, deployments, rollbacks, and audit "
             "history. Control endpoints require the X-API-Key header."
@@ -149,25 +153,71 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    # Sites are derived from DNS records and are therefore read-only here.
+    # Create, change, or remove a record instead; the site follows.
     @application.get("/v1/sites", response_model=list[CdnSite])
     def list_sites(_operator: operator_dependency) -> list[CdnSite]:
         return control_plane.repository.list_sites()
 
+    @application.get("/v1/domains", response_model=list[Domain])
+    def list_domains(_operator: operator_dependency) -> list[Domain]:
+        return control_plane.list_domains()
+
     @application.post(
-        "/v1/sites", response_model=CdnSite, status_code=status.HTTP_201_CREATED
+        "/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED
     )
-    def create_site(site: CdnSite, operator: operator_dependency) -> CdnSite:
-        return control_plane.create_site(site, operator)
+    def create_domain(domain: Domain, operator: operator_dependency) -> Domain:
+        return control_plane.create_domain(domain, operator)
 
-    @application.patch("/v1/sites/{name}", response_model=CdnSite)
-    def update_site(
-        name: str, patch: SitePatch, operator: operator_dependency
-    ) -> CdnSite:
-        return control_plane.update_site(name, patch, operator)
+    @application.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
+    def delete_domain(domain: str, operator: operator_dependency) -> None:
+        control_plane.delete_domain(domain, operator)
 
-    @application.delete("/v1/sites/{name}", status_code=status.HTTP_204_NO_CONTENT)
-    def delete_site(name: str, operator: operator_dependency) -> None:
-        control_plane.delete_site(name, operator)
+    @application.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
+    def list_records(domain: str, _operator: operator_dependency) -> list[DnsRecord]:
+        return control_plane.list_records(domain)
+
+    @application.post(
+        "/v1/domains/{domain}/records",
+        response_model=DnsRecord,
+        status_code=status.HTTP_201_CREATED,
+    )
+    def create_record(
+        domain: str, record: DnsRecord, operator: operator_dependency
+    ) -> DnsRecord:
+        if record.domain != domain:
+            raise ConflictError(
+                f"record domain {record.domain!r} does not match the path "
+                f"segment {domain!r}"
+            )
+        return control_plane.create_record(record, operator)
+
+    # The proxy switch is a PATCH of {"proxied": true|false} on this route.
+    @application.patch("/v1/domains/{domain}/records/{name}", response_model=DnsRecord)
+    def update_record(
+        domain: str,
+        name: str,
+        patch: RecordPatch,
+        operator: operator_dependency,
+        type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
+    ) -> DnsRecord:
+        return control_plane.update_record(domain, name, type_, patch, operator)
+
+    @application.delete(
+        "/v1/domains/{domain}/records/{name}",
+        status_code=status.HTTP_204_NO_CONTENT,
+    )
+    def delete_record(
+        domain: str,
+        name: str,
+        operator: operator_dependency,
+        type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
+    ) -> None:
+        control_plane.delete_record(domain, name, type_, operator)
+
+    @application.get("/v1/dns/export")
+    def dns_export(_operator: operator_dependency) -> list[dict[str, object]]:
+        return control_plane.dns_export()
 
     @application.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
     def certificate(name: str, _operator: operator_dependency) -> CertificateInfo:

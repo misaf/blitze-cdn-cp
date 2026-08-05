@@ -1,0 +1,12 @@
+---
+name: example-cdn
+server_names:
+  - cdn.example.com
+origin_host: origin.example.com
+origin_scheme: https
+origin_request_host: origin.example.com
+origin_sni: origin.example.com
+certificate_mode: disabled
+cache_enabled: true
+cache_valid_success: 10m
+cache_valid_not_found: 1m

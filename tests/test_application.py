@@ -6,25 +6,168 @@ import pytest
 from conftest import FakeRunner
 
 from blitzecdn.application import ControlPlane
-from blitzecdn.domain.models import CdnSite, DeploymentStatus, SitePatch
-from blitzecdn.exceptions import ExecutionError, NotFoundError
+from blitzecdn.domain.models import (
+    CdnSite,
+    CertificateMode,
+    DeploymentStatus,
+    DnsRecord,
+    Domain,
+    RecordPatch,
+    RecordType,
+)
+from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.infrastructure.ansible import CommandResult
 from blitzecdn.infrastructure.database import Repository
 
 
-def test_crud_validate_and_successful_deploy(settings, site_payload):
+def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
+    """Create the one zone and proxied record most tests need.
+
+    Sites can no longer be inserted directly — proxying a record is the only
+    way one comes into existence — so this is the shared setup for anything
+    that needs `cdn-example-com` to exist.
+    """
+    control.create_domain(Domain(name="example.com"), "alice")
+    return control.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
+
+
+def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner(
         [CommandResult(0, "syntax ok", ""), CommandResult(0, "applied", "")]
     )
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    site = control.create_site(CdnSite.model_validate(site_payload), "alice")
-    control.update_site(site.name, SitePatch(cache_enabled=False), "alice")
+    control.create_domain(Domain(name="example.com"), "alice")
+    record = control.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
+    control.update_record(
+        "example.com", "cdn", RecordType.A, RecordPatch(cache_enabled=False), "alice"
+    )
+    assert repository.get_site(record.site_name).cache_enabled is False
     assert control.validate() == []
     result = control.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
     assert result.stdout == "syntax ok"
     assert settings.generated_vars_path.exists()
+
+
+def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
+    """The CDN on/off switch is what decides whether the edge serves a name."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control.create_domain(Domain(name="example.com"), "alice")
+    control.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
+    control.create_record(
+        DnsRecord(domain="example.com", name="db", value="198.51.100.11"), "alice"
+    )
+
+    # Only the proxied record reaches the edge.
+    assert [site.server_names[0] for site in repository.list_sites()] == [
+        "cdn.example.com"
+    ]
+
+    control.set_proxied("example.com", "cdn", RecordType.A, False, "alice")
+    assert repository.list_sites() == []
+
+    control.set_proxied("example.com", "cdn", RecordType.A, True, "alice")
+    assert [site.server_names[0] for site in repository.list_sites()] == [
+        "cdn.example.com"
+    ]
+
+
+def test_removing_a_domain_takes_its_virtual_hosts_off_the_edge(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control.create_domain(Domain(name="example.com"), "alice")
+    control.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
+    control.delete_domain("example.com", "alice")
+    assert repository.list_records() == []
+    assert repository.list_sites() == []
+
+
+def test_records_that_collide_on_a_derived_site_name_are_refused(settings):
+    """'a.b.example.com' and 'a-b.example.com' both flatten to a-b-example-com."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control.create_domain(Domain(name="example.com"), "alice")
+    control.create_record(
+        DnsRecord(
+            domain="example.com", name="a.b", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
+    with pytest.raises(ConflictError, match="internal site name"):
+        control.create_record(
+            DnsRecord(
+                domain="example.com", name="a-b", value="198.51.100.11", proxied=True
+            ),
+            "alice",
+        )
+
+
+def test_validate_reports_a_collision_that_bypassed_the_create_check(settings):
+    """Backstop for records restored from a snapshot rather than created."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control.create_domain(Domain(name="example.com"), "alice")
+    for label in ("a.b", "a-b"):
+        repository.create_record(
+            DnsRecord(
+                domain="example.com", name=label, value="198.51.100.10", proxied=True
+            )
+        )
+    assert any("derive the internal site name" in error for error in control.validate())
+    # Deriving must survive the collision rather than fail to write. Any record
+    # change triggers the re-derivation, so use one to exercise that path.
+    control.create_record(
+        DnsRecord(
+            domain="example.com", name="www", value="198.51.100.12", proxied=True
+        ),
+        "alice",
+    )
+    assert sorted(site.name for site in repository.list_sites()) == [
+        "a-b-example-com",
+        "www-example-com",
+    ]
+
+
+def test_validate_rejects_acme_on_a_reserved_domain(settings):
+    """No public CA issues for .test, so catch it before certbot is invoked."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control.create_domain(Domain(name="vendra.test"), "alice")
+    control.create_record(
+        DnsRecord(
+            domain="vendra.test",
+            name="api",
+            value="198.51.100.10",
+            proxied=True,
+            certificate_mode=CertificateMode.REQUESTED,
+            certificate_path="/etc/blitzecdn/tls/api-vendra-test/fullchain.pem",
+            certificate_key_path="/etc/blitzecdn/tls/api-vendra-test/privkey.pem",
+        ),
+        "alice",
+    )
+    assert any("reserved name" in error for error in control.validate())
 
 
 def test_failed_and_timed_out_deployments_are_recorded(settings):
@@ -48,13 +191,23 @@ def test_rollback_updates_canonical_state_only_after_success(settings, site_payl
         repository,
         FakeRunner([CommandResult(0, "first", ""), CommandResult(0, "rollback", "")]),
     )  # type: ignore[arg-type]
-    original = CdnSite.model_validate(site_payload)
-    repository.create_site(original)
+    control.create_domain(Domain(name="example.com"), "alice")
+    original = control.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
     successful = control.deploy("alice")
-    repository.replace_site(original.model_copy(update={"origin_host": "192.0.2.99"}))
+    control.update_record(
+        "example.com", "cdn", RecordType.A, RecordPatch(value="192.0.2.99"), "alice"
+    )
     result = control.rollback("alice", successful.id)
     assert result.status is DeploymentStatus.SUCCEEDED
-    assert repository.get_site(original.name).origin_host == original.origin_host
+    # Rollback restores the record, and the derived site follows from it.
+    restored = repository.get_record("example.com", "cdn", RecordType.A)
+    assert restored.value == original.value
+    assert repository.get_site(original.site_name).origin_host == original.value
 
 
 def test_rollback_holds_the_lock_across_the_canonical_state_swap(
@@ -202,7 +355,7 @@ def test_upload_and_request_certificate_activate_managed_tls(
 ):
     class FakeIssuer:
         def issue(self, site, email):
-            assert site.name == "example-cdn"
+            assert site.name == "cdn-example-com"
             assert email == "owner@example.com"
             return certificate_pair()
 
@@ -213,17 +366,19 @@ def test_upload_and_request_certificate_activate_managed_tls(
         FakeRunner(),
         issuer=FakeIssuer(),
     )  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    _seed_proxied_record(control)
     certificate, key = certificate_pair()
 
-    uploaded = control.upload_certificate("example-cdn", certificate, key, "alice")
+    uploaded = control.upload_certificate("cdn-example-com", certificate, key, "alice")
     assert uploaded.source == "uploaded"
-    assert repository.get_site("example-cdn").certificate_mode == "uploaded"
+    assert repository.get_site("cdn-example-com").certificate_mode == "uploaded"
 
-    requested = control.request_certificate("example-cdn", "alice", "owner@example.com")
+    requested = control.request_certificate(
+        "cdn-example-com", "alice", "owner@example.com"
+    )
     assert requested.source == "acme"
-    assert control.certificate("example-cdn") == requested
-    assert repository.get_site("example-cdn").certificate_mode == "requested"
+    assert control.certificate("cdn-example-com") == requested
+    assert repository.get_site("cdn-example-com").certificate_mode == "requested"
 
     result = control.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -239,7 +394,7 @@ def test_request_certificate_requires_email(settings, site_payload):
     from blitzecdn.exceptions import ConflictError
 
     with pytest.raises(ConflictError, match="email"):
-        control.request_certificate("example-cdn", "alice")
+        control.request_certificate("cdn-example-com", "alice")
 
 
 def test_certificate_upload_holds_deployment_lock(
@@ -267,15 +422,16 @@ def test_certificate_upload_holds_deployment_lock(
             )
 
     repository = Repository(settings.database_path)
-    repository.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(
         settings,
         repository,
         LockingRunner(),
         certificate_store=RecordingStore(),  # type: ignore[arg-type]
     )
+    _seed_proxied_record(control)
+    events.clear()  # seeding does not take the deployment lock
     certificate, key = certificate_pair()
 
-    control.upload_certificate("example-cdn", certificate, key, "alice")
+    control.upload_certificate("cdn-example-com", certificate, key, "alice")
 
     assert events == ["locked", "installed", "unlocked"]
