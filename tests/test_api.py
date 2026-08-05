@@ -2,6 +2,7 @@ import time
 
 from fastapi.testclient import TestClient
 
+from blitzecdn import __version__
 from blitzecdn.api import create_app
 
 
@@ -19,6 +20,7 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
         assert client.get("/docs").status_code == 200
         assert client.get("/redoc").status_code == 200
         schema = client.get("/openapi.json").json()
+        assert schema["info"]["version"] == __version__
         paths = schema["paths"]
         assert "/v1/sites" in paths
         assert "/v1/deployments" in paths
@@ -26,23 +28,96 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
         assert "/v1/sites/{name}/certificate/upload" in paths
 
 
-def test_site_crud_and_errors(settings, site_payload):
+def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payload):
     headers = {"X-API-Key": "x" * 32}
     with TestClient(create_app(settings)) as client:
-        created = client.post("/v1/sites", json=site_payload, headers=headers)
-        assert created.status_code == 201
         assert (
-            client.post("/v1/sites", json=site_payload, headers=headers).status_code
+            client.post("/v1/domains", json=domain_payload, headers=headers).status_code
+            == 201
+        )
+        assert (
+            client.post("/v1/domains", json=domain_payload, headers=headers).status_code
             == 409
         )
-        patched = client.patch(
-            "/v1/sites/example-cdn", json={"cache_enabled": False}, headers=headers
+        # A record cannot exist without its zone.
+        orphan = client.post(
+            "/v1/domains/absent.example/records",
+            json={**record_payload, "domain": "absent.example"},
+            headers=headers,
         )
-        assert patched.json()["cache_enabled"] is False
+        assert orphan.status_code == 404
+
+        created = client.post(
+            "/v1/domains/example.com/records", json=record_payload, headers=headers
+        )
+        assert created.status_code == 201
+        assert created.json()["proxied"] is True
+
+        # The body's domain must agree with the path.
+        mismatched = client.post(
+            "/v1/domains/example.com/records",
+            json={**record_payload, "domain": "other.example", "name": "x"},
+            headers=headers,
+        )
+        assert mismatched.status_code == 409
+
+        # Proxying a record is what creates the edge virtual host.
+        assert len(client.get("/v1/sites", headers=headers).json()) == 1
+
+        toggled = client.patch(
+            "/v1/domains/example.com/records/cdn",
+            json={"proxied": False},
+            headers=headers,
+        )
+        assert toggled.json()["proxied"] is False
+        assert client.get("/v1/sites", headers=headers).json() == []
+
         assert (
-            client.delete("/v1/sites/example-cdn", headers=headers).status_code == 204
+            client.delete(
+                "/v1/domains/example.com/records/cdn", headers=headers
+            ).status_code
+            == 204
+        )
+        assert (
+            client.delete("/v1/domains/example.com", headers=headers).status_code == 204
         )
         assert client.get("/v1/deployments/missing", headers=headers).status_code == 404
+
+
+def test_sites_are_read_only(settings, site_payload):
+    """Sites are derived, so the mutation routes must not exist."""
+    headers = {"X-API-Key": "x" * 32}
+    with TestClient(create_app(settings)) as client:
+        assert (
+            client.post("/v1/sites", json=site_payload, headers=headers).status_code
+            == 405
+        )
+        schema = client.get("/openapi.json").json()
+        assert set(schema["paths"]["/v1/sites"]) == {"get"}
+
+
+def test_dns_export_omits_addresses_for_proxied_records(
+    settings, domain_payload, record_payload
+):
+    """A proxied name must resolve to an edge, and edge IPs are not ours."""
+    headers = {"X-API-Key": "x" * 32}
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json=domain_payload, headers=headers)
+        client.post(
+            "/v1/domains/example.com/records", json=record_payload, headers=headers
+        )
+        client.post(
+            "/v1/domains/example.com/records",
+            json={**record_payload, "name": "db", "proxied": False},
+            headers=headers,
+        )
+        exported = {
+            row["fqdn"]: row
+            for row in client.get("/v1/dns/export", headers=headers).json()
+        }
+        assert "value" not in exported["cdn.example.com"]
+        assert exported["cdn.example.com"]["origin"] == "198.51.100.10"
+        assert exported["db.example.com"]["value"] == "198.51.100.10"
 
 
 def test_api_fails_closed_without_keys(settings):
@@ -57,8 +132,18 @@ def test_deploy_returns_202_immediately_and_finishes_in_background(
     """A convergence can outlast any HTTP client, so the request must not block."""
     headers = {"X-API-Key": "x" * 32}
     with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
         assert (
-            client.post("/v1/sites", json=site_payload, headers=headers).status_code
+            client.post(
+                "/v1/domains/example.com/records",
+                json={
+                    "domain": "example.com",
+                    "name": "cdn",
+                    "value": "198.51.100.10",
+                    "proxied": True,
+                },
+                headers=headers,
+            ).status_code
             == 201
         )
         queued = client.post("/v1/deployments", json={"check": True}, headers=headers)
@@ -105,12 +190,22 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
     headers = {"X-API-Key": "x" * 32}
     certificate, key = certificate_pair()
     with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
         assert (
-            client.post("/v1/sites", json=site_payload, headers=headers).status_code
+            client.post(
+                "/v1/domains/example.com/records",
+                json={
+                    "domain": "example.com",
+                    "name": "cdn",
+                    "value": "198.51.100.10",
+                    "proxied": True,
+                },
+                headers=headers,
+            ).status_code
             == 201
         )
         uploaded = client.post(
-            "/v1/sites/example-cdn/certificate/upload",
+            "/v1/sites/cdn-example-com/certificate/upload",
             files={
                 "certificate": ("fullchain.pem", certificate, "application/x-pem-file"),
                 "private_key": ("privkey.pem", key, "application/x-pem-file"),
@@ -121,5 +216,5 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
         body = uploaded.json()
         assert body["source"] == "uploaded"
         assert "private_key" not in body
-        metadata = client.get("/v1/sites/example-cdn/certificate", headers=headers)
+        metadata = client.get("/v1/sites/cdn-example-com/certificate", headers=headers)
         assert metadata.json() == body

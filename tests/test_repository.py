@@ -29,7 +29,7 @@ def test_deployment_transitions_snapshots_and_recovery(settings, site_payload):
         repository.decode_snapshot(repository.deployment_snapshot(deployment.id))[
             0
         ].name
-        == "example-cdn"
+        == "cdn-example-com"
     )
     running = repository.transition(
         deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING

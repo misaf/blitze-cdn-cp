@@ -62,11 +62,63 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def site_payload() -> dict[str, object]:
+    """A site as a proxied record derives it.
+
+    ``name`` is not free-form any more: it is what ``derive_site_name`` produces
+    for ``cdn.example.com``, so a test that builds a site by hand still matches
+    one the control plane would derive.
+    """
     return {
-        "name": "example-cdn",
+        "name": "cdn-example-com",
         "server_names": ["cdn.example.com"],
-        "origin_host": "origin.example.com",
+        "origin_host": "198.51.100.10",
     }
+
+
+@pytest.fixture
+def domain_payload() -> dict[str, object]:
+    return {"name": "example.com"}
+
+
+@pytest.fixture
+def record_payload() -> dict[str, object]:
+    return {
+        "domain": "example.com",
+        "name": "cdn",
+        "type": "A",
+        "value": "198.51.100.10",
+        "proxied": True,
+    }
+
+
+@pytest.fixture
+def seeded(settings):
+    """A control plane holding one zone with one proxied record.
+
+    Returns ``(control, repository)``. Most tests need a site to exist, and the
+    only supported way to make one now is to proxy a record.
+    """
+
+    def build(runner=None):
+        from blitzecdn.application import ControlPlane
+        from blitzecdn.domain.models import DnsRecord, Domain
+        from blitzecdn.infrastructure.database import Repository
+
+        repository = Repository(settings.database_path)
+        control = ControlPlane(settings, repository, runner or FakeRunner())
+        control.create_domain(Domain(name="example.com"), "tester")
+        control.create_record(
+            DnsRecord(
+                domain="example.com",
+                name="cdn",
+                value="198.51.100.10",
+                proxied=True,
+            ),
+            "tester",
+        )
+        return control, repository
+
+    return build
 
 
 @pytest.fixture

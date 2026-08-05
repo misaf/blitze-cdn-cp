@@ -10,8 +10,20 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from blitzecdn.domain.models import AuditEvent, CdnSite, Deployment, DeploymentStatus
+from blitzecdn.domain.models import (
+    AuditEvent,
+    CdnSite,
+    Deployment,
+    DeploymentStatus,
+    DnsRecord,
+    Domain,
+    RecordType,
+)
 from blitzecdn.exceptions import ConflictError, NotFoundError
+
+#: Shape of the JSON in ``deployments.snapshot``. Version 1 was a bare list of
+#: sites, written before zones existed; ``decode_snapshot`` still reads it.
+SNAPSHOT_VERSION = 2
 
 
 class Repository:
@@ -47,6 +59,24 @@ class Repository:
                     name TEXT PRIMARY KEY,
                     document TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS domains (
+                    name TEXT PRIMARY KEY,
+                    document TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                -- ON DELETE CASCADE is load-bearing rather than convenience:
+                -- a record outliving its domain would keep deriving a virtual
+                -- host for a zone we no longer serve. PRAGMA foreign_keys is
+                -- enabled per connection above.
+                CREATE TABLE IF NOT EXISTS dns_records (
+                    domain TEXT NOT NULL
+                        REFERENCES domains(name) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    document TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (domain, name, type)
                 );
                 CREATE TABLE IF NOT EXISTS deployments (
                     id TEXT PRIMARY KEY,
@@ -129,17 +159,212 @@ class Repository:
                 [(site.name, site.model_dump_json(), self._now()) for site in sites],
             )
 
+    # ------------------------------------------------------------------
+    # Domains
+    # ------------------------------------------------------------------
+
+    def list_domains(self) -> list[Domain]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT document FROM domains ORDER BY name"
+            ).fetchall()
+        return [Domain.model_validate_json(row["document"]) for row in rows]
+
+    def get_domain(self, name: str) -> Domain:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT document FROM domains WHERE name = ?", (name,)
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(f"domain {name!r} does not exist")
+        return Domain.model_validate_json(row["document"])
+
+    def create_domain(self, domain: Domain) -> Domain:
+        try:
+            with self._lock, self._connection() as connection:
+                connection.execute(
+                    "INSERT INTO domains (name, document, updated_at) VALUES (?, ?, ?)",
+                    (domain.name, domain.model_dump_json(), self._now()),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"domain {domain.name!r} already exists") from exc
+        return domain
+
+    def delete_domain(self, name: str) -> None:
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute("DELETE FROM domains WHERE name = ?", (name,))
+            if cursor.rowcount != 1:
+                raise NotFoundError(f"domain {name!r} does not exist")
+
+    # ------------------------------------------------------------------
+    # Records
+    # ------------------------------------------------------------------
+
+    def list_records(self, domain: str | None = None) -> list[DnsRecord]:
+        query = "SELECT document FROM dns_records"
+        parameters: tuple[str, ...] = ()
+        if domain is not None:
+            query += " WHERE domain = ?"
+            parameters = (domain,)
+        query += " ORDER BY domain, name, type"
+        with self._connection() as connection:
+            rows = connection.execute(query, parameters).fetchall()
+        return [DnsRecord.model_validate_json(row["document"]) for row in rows]
+
+    def get_record(self, domain: str, name: str, type_: RecordType) -> DnsRecord:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT document FROM dns_records "
+                "WHERE domain = ? AND name = ? AND type = ?",
+                (domain, name, type_.value),
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(
+                f"{type_.value} record {name!r} in {domain!r} does not exist"
+            )
+        return DnsRecord.model_validate_json(row["document"])
+
+    def create_record(self, record: DnsRecord) -> DnsRecord:
+        try:
+            with self._lock, self._connection() as connection:
+                connection.execute(
+                    "INSERT INTO dns_records "
+                    "(domain, name, type, document, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        record.domain,
+                        record.name,
+                        record.type.value,
+                        record.model_dump_json(),
+                        self._now(),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            # A failed foreign key and a duplicate primary key both land here,
+            # and the operator needs to know which.
+            if "FOREIGN KEY" in str(exc).upper():
+                raise NotFoundError(
+                    f"domain {record.domain!r} does not exist; add it first"
+                ) from exc
+            raise ConflictError(
+                f"{record.type.value} record {record.name!r} already exists "
+                f"in {record.domain!r}"
+            ) from exc
+        return record
+
+    def replace_record(self, record: DnsRecord) -> DnsRecord:
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                "UPDATE dns_records SET document = ?, updated_at = ? "
+                "WHERE domain = ? AND name = ? AND type = ?",
+                (
+                    record.model_dump_json(),
+                    self._now(),
+                    record.domain,
+                    record.name,
+                    record.type.value,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise NotFoundError(
+                    f"{record.type.value} record {record.name!r} in "
+                    f"{record.domain!r} does not exist"
+                )
+        return record
+
+    def delete_record(self, domain: str, name: str, type_: RecordType) -> None:
+        with self._lock, self._connection() as connection:
+            cursor = connection.execute(
+                "DELETE FROM dns_records WHERE domain = ? AND name = ? AND type = ?",
+                (domain, name, type_.value),
+            )
+            if cursor.rowcount != 1:
+                raise NotFoundError(
+                    f"{type_.value} record {name!r} in {domain!r} does not exist"
+                )
+
+    def replace_all_records(
+        self, domains: list[Domain], records: list[DnsRecord]
+    ) -> None:
+        """Restore zones wholesale. Used by rollback."""
+        with self._lock, self._connection() as connection:
+            connection.execute("DELETE FROM dns_records")
+            connection.execute("DELETE FROM domains")
+            connection.executemany(
+                "INSERT INTO domains (name, document, updated_at) VALUES (?, ?, ?)",
+                [
+                    (domain.name, domain.model_dump_json(), self._now())
+                    for domain in domains
+                ],
+            )
+            connection.executemany(
+                "INSERT INTO dns_records "
+                "(domain, name, type, document, updated_at) VALUES (?, ?, ?, ?, ?)",
+                [
+                    (
+                        record.domain,
+                        record.name,
+                        record.type.value,
+                        record.model_dump_json(),
+                        self._now(),
+                    )
+                    for record in records
+                ],
+            )
+
+    # ------------------------------------------------------------------
+    # Snapshots
+    # ------------------------------------------------------------------
+
     def snapshot(self) -> str:
+        """Serialise the desired state a deployment converges and can roll back to.
+
+        Records are the source of truth, so they are what a snapshot carries;
+        sites are derived and are included only so a rollback can converge
+        without re-deriving. See :meth:`decode_snapshot` for the older format.
+        """
         return json.dumps(
-            [site.model_dump(mode="json") for site in self.list_sites()], sort_keys=True
+            {
+                "version": SNAPSHOT_VERSION,
+                "domains": [
+                    domain.model_dump(mode="json") for domain in self.list_domains()
+                ],
+                "records": [
+                    record.model_dump(mode="json") for record in self.list_records()
+                ],
+                "sites": [site.model_dump(mode="json") for site in self.list_sites()],
+            },
+            sort_keys=True,
         )
 
     @staticmethod
     def decode_snapshot(snapshot: str) -> list[CdnSite]:
+        """Return the sites a snapshot converges, old format or new.
+
+        Deployment history predating domains stored a bare list of sites.
+        Those rows are still readable — and still deployable — so upgrading
+        does not throw away the ability to roll back to a release made before
+        records existed.
+        """
         data = json.loads(snapshot)
-        if not isinstance(data, list):
-            raise ValueError("deployment snapshot is not a list")
-        return [CdnSite.model_validate(item) for item in data]
+        if isinstance(data, list):
+            return [CdnSite.model_validate(item) for item in data]
+        if isinstance(data, dict):
+            return [CdnSite.model_validate(item) for item in data.get("sites", [])]
+        raise ValueError("deployment snapshot is neither a list nor an object")
+
+    @staticmethod
+    def decode_snapshot_zones(
+        snapshot: str,
+    ) -> tuple[list[Domain], list[DnsRecord]] | None:
+        """Return the zones in a snapshot, or ``None`` for a pre-records one."""
+        data = json.loads(snapshot)
+        if not isinstance(data, dict):
+            return None
+        return (
+            [Domain.model_validate(item) for item in data.get("domains", [])],
+            [DnsRecord.model_validate(item) for item in data.get("records", [])],
+        )
 
     def create_deployment(
         self,
