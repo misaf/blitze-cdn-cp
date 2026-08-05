@@ -144,7 +144,7 @@ def test_edge_pin_matches_the_published_constant():
         for entry in document["collections"]
         if entry["name"] == "blitzecdn.edge"
     )
-    assert pinned == EDGE_COLLECTION_VERSION, (
+    assert pinned.removeprefix("v") == EDGE_COLLECTION_VERSION, (
         f"ansible/requirements.yml pins blitzecdn.edge {pinned} but "
         f"EDGE_COLLECTION_VERSION is {EDGE_COLLECTION_VERSION}. Bump both."
     )
@@ -163,6 +163,64 @@ def test_installed_collection_is_the_pinned_one():
         f"{EDGE_COLLECTION_VERSION}. Reinstall with "
         "`ansible-galaxy collection install -r ansible/requirements.yml`."
     )
+
+
+def test_edge_collection_enforces_public_key_only_ssh():
+    """The control plane reaches every edge over SSH and nothing else.
+
+    `ansible/ansible.cfg` refuses to authenticate with anything but a key, and
+    the pinned collection is what makes the hosts agree. If a future edge
+    release relaxes this drop-in, deploys keep working — the controller still
+    has its key — while every edge quietly starts accepting passwords again.
+    Nothing else in either repository would notice.
+    """
+    role = _installed_role("blitzecdn_sshd")
+    template = (role / "templates/sshd.conf.j2").read_text(encoding="utf-8")
+    directives = {
+        line.split()[0].lower(): line.split(maxsplit=1)[1].strip()
+        for line in template.splitlines()
+        if line and not line.startswith(("#", "{"))
+    }
+    for keyword, expected in (
+        ("pubkeyauthentication", "yes"),
+        ("authenticationmethods", "publickey"),
+        ("passwordauthentication", "no"),
+        ("kbdinteractiveauthentication", "no"),
+        ("permitemptypasswords", "no"),
+        ("hostbasedauthentication", "no"),
+    ):
+        assert directives.get(keyword) == expected, (
+            f"blitzecdn.edge {EDGE_COLLECTION_VERSION} no longer sets "
+            f"{keyword} {expected} in blitzecdn_sshd. Edges would accept "
+            "something other than public keys."
+        )
+
+
+def test_edge_ssh_hardening_is_on_by_default():
+    """Opting out is possible; arriving opted out by accident is not."""
+    defaults = yaml.safe_load(
+        (_installed_role("blitzecdn_sshd") / "defaults/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert defaults["blitzecdn_sshd_enabled"] is True
+    assert defaults["blitzecdn_sshd_permit_root_login"] == "no"
+
+
+def test_controller_refuses_password_authentication():
+    """The other half of the contract: what this repository dials out with."""
+    config = (PROJECT_DIR / "ansible/ansible.cfg").read_text(encoding="utf-8")
+    for option in (
+        "PreferredAuthentications=publickey",
+        "PasswordAuthentication=no",
+        "KbdInteractiveAuthentication=no",
+        "BatchMode=yes",
+    ):
+        assert option in config, (
+            f"ansible/ansible.cfg no longer passes -o {option}, so a deploy "
+            "could authenticate to an edge with a password."
+        )
+    assert "host_key_checking = True" in config
 
 
 def test_desired_state_declares_a_version_the_role_supports(desired_state):

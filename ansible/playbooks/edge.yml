@@ -26,5 +26,11 @@
       tags: [firewall]
     - role: blitzecdn.edge.blitzecdn_nginx
       tags: [nginx]
+    # SSH policy comes after the firewall so a host that fails firewall
+    # validation is never left key-only but unreachable from the management
+    # network, and before Fail2Ban so bans apply to a daemon that has already
+    # stopped accepting passwords.
+    - role: blitzecdn.edge.blitzecdn_sshd
+      tags: [security, sshd]
     - role: blitzecdn.edge.blitzecdn_fail2ban
       tags: [security]
