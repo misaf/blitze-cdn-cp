@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
@@ -72,9 +73,13 @@ class Settings(BaseModel):
         *,
         project_dir: Path | None = None,
     ) -> Self:
-        env = os.environ if environment is None else environment
+        supplied = os.environ if environment is None else environment
+        initial_root = (
+            project_dir or Path(supplied.get("BLITZE_PROJECT_DIR", Path.cwd()))
+        ).resolve()
+        env = cls._with_local_environment(supplied, initial_root)
         root = (
-            project_dir or Path(env.get("BLITZE_PROJECT_DIR", Path.cwd()))
+            project_dir or Path(env.get("BLITZE_PROJECT_DIR", initial_root))
         ).resolve()
         project_config = cls._read_project_config(
             Path(env.get("BLITZE_CONFIG", root / "blitzecdn.toml"))
@@ -170,6 +175,44 @@ class Settings(BaseModel):
             )
         except (TypeError, ValueError) as exc:
             raise ConfigurationError(f"invalid BlitzeCDN configuration: {exc}") from exc
+
+    @staticmethod
+    def _with_local_environment(
+        environment: Mapping[str, str], project_dir: Path
+    ) -> dict[str, str]:
+        """Load project-local defaults without overriding the process environment."""
+        merged = dict(environment)
+        path = project_dir / ".env"
+        if not path.exists():
+            return merged
+        if path.is_symlink() or not path.is_file():
+            raise ConfigurationError(
+                f"refusing to load unsafe environment file: {path}"
+            )
+        for number, raw_line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].lstrip()
+            name, separator, raw_value = line.partition("=")
+            name = name.strip()
+            if not separator or not name or not name.replace("_", "a").isalnum():
+                raise ConfigurationError(f"invalid assignment in {path}:{number}")
+            try:
+                parts = shlex.split(raw_value, comments=True, posix=True)
+            except ValueError as exc:
+                raise ConfigurationError(
+                    f"invalid value in {path}:{number}: {exc}"
+                ) from exc
+            if len(parts) > 1:
+                raise ConfigurationError(
+                    f"quote values containing spaces in {path}:{number}"
+                )
+            merged.setdefault(name, parts[0] if parts else "")
+        return merged
 
     @staticmethod
     def _read_project_config(path: Path) -> dict[str, object]:
