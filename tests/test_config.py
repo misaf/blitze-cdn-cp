@@ -74,3 +74,22 @@ def test_project_toml_rejects_unknown_configuration(tmp_path):
     )
     with pytest.raises(ConfigurationError, match="unknown project configuration"):
         Settings.from_environment({}, project_dir=tmp_path)
+
+
+def test_local_environment_is_loaded_below_real_environment(tmp_path):
+    (tmp_path / ".env").write_text(
+        "# local defaults\nBLITZE_DEPLOYMENT_TIMEOUT_SECONDS=300\n"
+        f"export BLITZE_API_KEYS=local:{'x' * 32}\n",
+        encoding="utf-8",
+    )
+    settings = Settings.from_environment(
+        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120"}, project_dir=tmp_path
+    )
+    assert settings.deployment_timeout_seconds == 120
+    assert set(settings.api_keys) == {"local"}
+
+
+def test_local_environment_rejects_unsafe_or_invalid_files(tmp_path):
+    (tmp_path / ".env").write_text("NOT AN ASSIGNMENT\n", encoding="utf-8")
+    with pytest.raises(ConfigurationError, match="invalid assignment"):
+        Settings.from_environment({}, project_dir=tmp_path)
