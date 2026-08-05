@@ -6,7 +6,8 @@ planning, rollback, audit records, and process execution. Ansible exclusively
 owns remote Linux state.
 
 The project is intentionally opinionated: Debian 12+ and Ubuntu 24.04+ edges,
-OpenSSH host-key verification, non-root SSH users with explicit sudo, UFW,
+OpenSSH host-key verification, public-key-only SSH, non-root SSH users with
+explicit sudo, UFW,
 Fail2Ban, centrally coordinated ACME HTTP-01 issuance, managed certificate
 uploads, and existing TLS certificate paths. Certificates are issued once by
 the controller and distributed to every edge.
@@ -17,22 +18,36 @@ Python 3.12–3.14 is supported; development and CI currently use Python 3.14.
 Certbot must also be installed on the controller for ACME requests.
 
 ```bash
-python3.14 -m venv .venv
-.venv/bin/pip install -e '.[dev]'
-.venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
+./install.sh
 ```
 
-Create local configuration and inventory:
+The installer verifies Python, creates the private environment, installs the
+compatible Ansible collection, and runs initial setup. Contributors who need an
+editable install can use `python3.14 -m venv .venv` followed by
+`.venv/bin/pip install -e '.[dev]'`.
+
+Add an edge:
 
 ```bash
-.venv/bin/blitzecdn init --output .env
-cp ansible/inventory/hosts.example.yml ansible/inventory/hosts.yml
-set -a; source .env; set +a
+.venv/bin/blitzecdn edge add edge-01 \
+  --host 192.0.2.10 \
+  --user deploy \
+  --ssh-source 198.51.100.0/24
 ```
 
-Edit `ansible/inventory/hosts.yml`. Verify every SSH fingerprint through a
+Replace the example addresses with the edge address and the trusted management
+network that may connect over SSH. Verify every SSH fingerprint through a
 trusted channel and add it to the controller's `known_hosts`. Use an SSH agent
 or a key path outside this repository. Never disable host-key checking.
+
+SSH is public-key only in both directions. The controller connects with
+`PreferredAuthentications=publickey`, `PasswordAuthentication=no`, and
+`BatchMode=yes`, so a deploy fails immediately rather than falling back to a
+password or blocking on a prompt — use an SSH agent for key passphrases. The
+first deploy then installs the matching policy on the edge itself
+(`blitzecdn.edge.blitzecdn_sshd`), which refuses to disable passwords unless
+the account it would leave behind already has a working `authorized_keys`.
+Install the operator key on a new edge before adding it here.
 
 ## Configuration
 
@@ -49,10 +64,12 @@ playbook, so a `group_vars/` directory anywhere else — including the repositor
 root or `ansible/` — is silently ignored and every setting in it falls back to
 the role default.
 
-The CLI does not automatically source `.env`; use your shell, systemd
-`EnvironmentFile`, or a secret manager. API secrets must be at least 32
-characters. Named credentials use `BLITZE_API_KEYS=alice:secret,bob:secret`.
-Store Ansible secrets in Vault-encrypted vars or an external secret plugin.
+The CLI automatically loads `.env` from the project directory as local
+defaults; already-exported variables take precedence. Production services can
+instead use a systemd `EnvironmentFile` or secret manager. API secrets must be
+at least 32 characters. Named credentials use
+`BLITZE_API_KEYS=alice:secret,bob:secret`. Store Ansible secrets in
+Vault-encrypted vars or an external secret plugin.
 
 Non-secret defaults can be copied from
 [`blitzecdn.example.toml`](blitzecdn.example.toml) to `blitzecdn.toml`.
@@ -65,20 +82,22 @@ SQLite data live under `.state/` by default and are ignored by Git.
 
 ```bash
 blitzecdn doctor
-blitzecdn site add --file examples/site.yml
+blitzecdn site add example-cdn \
+  --domain cdn.example.com \
+  --origin origin.example.com
 blitzecdn site list
-blitzecdn validate
-blitzecdn plan
-blitzecdn deploy --yes
+blitzecdn deploy
 blitzecdn status
 blitzecdn audit
 blitzecdn rollback DEPLOYMENT_ID --yes
 ```
 
-`plan` runs Ansible check mode. `deploy` and applied rollback require
-confirmation unless `--yes` is supplied. Use `--json` on read and deployment
-commands in automation. Exit codes are 0 success, 2 invalid input, 3 invalid
-configuration, 4 conflict, and 5 failed deployment.
+Interactive `deploy` validates configuration, previews changes in Ansible check
+mode, and asks before applying them. The individual `validate` and `plan`
+commands remain available for automation and troubleshooting. Use `deploy
+--yes` only after separate review in non-interactive automation. Exit codes are
+0 success, 2 invalid input, 3 invalid configuration, 4 conflict, and 5 failed
+deployment.
 
 The CLI is synchronous: `deploy`, `plan`, and `rollback` return when Ansible
 does.
@@ -227,11 +246,11 @@ BlitzeCDN is three repositories:
 | --- | --- |
 | **blitze-cdn-cp** (this one) | Control plane: validation, desired state, history, rollback, audit, CLI and API. Also the operator-side Ansible config — inventory, `ansible.cfg`, and the playbooks. |
 | [blitze-cdn-edge](https://github.com/misaf/blitze-cdn-edge) | The `blitzecdn.edge` collection: the roles that converge remote Linux state. Pinned in `ansible/requirements.yml`. |
-| [blitze-cdn-web](https://github.com/misaf/blitze-cdn-web) | Documentation site. Its reference pages are generated from this repository and the edge collection. |
+| [blitze-cdn-web](https://github.com/misaf/blitze-cdn-web) | Documentation site. Its maintained reference pages are reviewed against this repository and the edge collection. |
 
-Documentation prose and generated reference pages live in **blitze-cdn-web**.
-Changing a route, flag, setting, or role variable makes its generated pages
-stale; regenerate them there.
+Documentation prose and maintained reference pages live in **blitze-cdn-web**.
+When a route, flag, setting, or role variable changes, review and update the
+affected pages there in the same release workflow.
 
 See the [security policy](SECURITY.md) and
 [contributing guide](CONTRIBUTING.md).
