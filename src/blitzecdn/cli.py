@@ -14,8 +14,14 @@ from pydantic import ValidationError
 from blitzecdn.api import create_app
 from blitzecdn.application import ControlPlane
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import CdnSite, DeploymentStatus
+from blitzecdn.domain.models import (
+    DeploymentStatus,
+    DnsRecord,
+    Domain,
+    RecordType,
+)
 from blitzecdn.exceptions import BlitzeError
+from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.logging import configure_logging
 
 
@@ -32,8 +38,19 @@ app = typer.Typer(
     pretty_exceptions_enable=False,
     help="Securely manage BlitzeCDN edge desired state.",
 )
-site_app = typer.Typer(no_args_is_help=True, help="Manage CDN sites.")
+site_app = typer.Typer(
+    no_args_is_help=True,
+    help="Inspect CDN virtual hosts (derived from proxied DNS records).",
+)
+edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
+domain_app = typer.Typer(no_args_is_help=True, help="Manage DNS zones.")
+record_app = typer.Typer(no_args_is_help=True, help="Manage DNS records.")
+dns_app = typer.Typer(no_args_is_help=True, help="Export DNS state.")
 app.add_typer(site_app, name="site")
+app.add_typer(edge_app, name="edge")
+app.add_typer(domain_app, name="domain")
+app.add_typer(record_app, name="record")
+app.add_typer(dns_app, name="dns")
 
 
 def _settings() -> Settings:
@@ -87,6 +104,28 @@ def init(
 
 
 @app.command()
+def setup() -> None:
+    """Prepare local configuration and an empty edge inventory."""
+    root = Path.cwd()
+    environment_path = root / ".env"
+    inventory_path = root / "ansible/inventory/hosts.yml"
+    created: list[str] = []
+    if not environment_path.exists():
+        environment_path.write_text(
+            f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n", encoding="utf-8"
+        )
+        environment_path.chmod(0o600)
+        created.append(str(environment_path.relative_to(root)))
+    if Inventory(inventory_path).initialize():
+        created.append(str(inventory_path.relative_to(root)))
+    if created:
+        typer.echo(f"BlitzeCDN is ready. Created: {', '.join(created)}")
+    else:
+        typer.echo("BlitzeCDN is already set up; existing files were preserved.")
+    typer.echo("Next: blitzecdn edge add NAME --host ADDRESS --ssh-source YOUR_CIDR")
+
+
+@app.command()
 def validate(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
     """Validate configuration, desired state, inventory, and playbook syntax."""
     errors = _control_plane().validate()
@@ -114,12 +153,23 @@ def deploy(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Apply current desired state to every configured edge."""
-    if not yes and not typer.confirm(
-        "Apply desired state to all blitzecdn_edges hosts?"
-    ):
-        raise typer.Abort()
-    result = _control_plane().deploy("cli")
+    """Validate, preview, and apply desired state to every configured edge."""
+    control = _control_plane()
+    if not yes:
+        errors = control.validate()
+        if errors:
+            _emit({"valid": False, "errors": errors}, json_output=json_output)
+            raise typer.Exit(ExitCode.CONFIGURATION)
+        typer.echo("Configuration is valid. Previewing changes...")
+        preview = control.deploy("cli", check=True)
+        if preview.status is not DeploymentStatus.SUCCEEDED:
+            _emit(preview, json_output=json_output)
+            raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
+        if preview.stdout.strip():
+            typer.echo(preview.stdout.rstrip())
+        if not typer.confirm("Apply these changes to all configured edges?"):
+            raise typer.Abort()
+    result = control.deploy("cli")
     _emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -211,28 +261,206 @@ def site_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> N
     _emit(_control_plane().repository.list_sites(), json_output=json_output)
 
 
-@site_app.command("add")
-def site_add(
-    file: Annotated[
-        Path, typer.Option("--file", exists=True, dir_okay=False, readable=True)
-    ],
+@domain_app.command("add")
+def domain_add(
+    name: Annotated[str, typer.Argument(help="Zone to serve, e.g. example.com.")],
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Add a site from a validated YAML or JSON document."""
-    payload = yaml.safe_load(file.read_text(encoding="utf-8"))
-    site = CdnSite.model_validate(payload)
-    _emit(_control_plane().create_site(site, "cli"), json_output=json_output)
+    """Register a DNS zone delegated to BlitzeCDN."""
+    _emit(
+        _control_plane().create_domain(Domain(name=name), "cli"),
+        json_output=json_output,
+    )
 
 
-@site_app.command("remove")
-def site_remove(
+@domain_app.command("list")
+def domain_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+    _emit(_control_plane().list_domains(), json_output=json_output)
+
+
+@domain_app.command("import")
+def domain_import(
+    names: Annotated[
+        list[str], typer.Argument(help="Every zone to import. List them all at once.")
+    ],
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Drop hostnames whose zone you did not list."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Convert sites created before v1.1.0 into proxied records.
+
+    Sites are derived from records now. One created by an older release keeps
+    working until the first record change rewrites the derived table, at which
+    point it disappears.
+
+    Pass every zone in a single command. Importing rewrites that derived table,
+    which destroys the sites a second run would have read, so importing one zone
+    at a time would lose the rest. The command refuses rather than let that
+    happen.
+    """
+    result = _control_plane().import_sites(names, "cli", force=force)
+    _emit(result, json_output=json_output)
+    if json_output:
+        return
+    if result["skipped"]:
+        typer.echo(
+            "\nSome sites need attention before they are served again:", err=True
+        )
+        for problem in result["skipped"]:
+            typer.echo(f"  - {problem}", err=True)
+    if result["dropped"]:
+        typer.echo(
+            "\nThese hostnames are no longer in the desired state and will stop "
+            "being served on the next deploy:",
+            err=True,
+        )
+        for hostname in result["dropped"]:
+            typer.echo(f"  - {hostname}", err=True)
+        typer.echo(
+            "\nImport every remaining zone before deploying. Run 'blitzecdn "
+            "site list' to confirm the edge will serve what you expect.",
+            err=True,
+        )
+
+
+@domain_app.command("remove")
+def domain_remove(
     name: str,
     yes: Annotated[bool, typer.Option("--yes")] = False,
 ) -> None:
-    if not yes and not typer.confirm(f"Delete desired state for {name!r}?"):
+    """Remove a zone and every record in it."""
+    if not yes and not typer.confirm(f"Delete {name!r} and all of its records?"):
         raise typer.Abort()
-    _control_plane().delete_site(name, "cli")
+    _control_plane().delete_domain(name, "cli")
     typer.echo(f"Deleted {name}")
+
+
+@record_app.command("add")
+def record_add(
+    domain: Annotated[str, typer.Argument(help="Zone the record belongs to.")],
+    name: Annotated[str, typer.Argument(help="Subdomain label, '@', or '*'.")],
+    value: Annotated[str, typer.Option("--value", help="IP address to point at.")],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    ttl: Annotated[int, typer.Option("--ttl")] = 300,
+    proxied: Annotated[
+        bool,
+        typer.Option(
+            "--proxied/--no-proxied",
+            help="Serve through the CDN edge, or resolve straight to --value.",
+        ),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Add a DNS record. Proxied records become an edge virtual host."""
+    record = DnsRecord(
+        domain=domain, name=name, type=type_, value=value, ttl=ttl, proxied=proxied
+    )
+    _emit(_control_plane().create_record(record, "cli"), json_output=json_output)
+
+
+@record_app.command("list")
+def record_list(
+    domain: Annotated[str | None, typer.Argument()] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    _emit(_control_plane().list_records(domain), json_output=json_output)
+
+
+@record_app.command("proxy")
+def record_proxy(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    on: Annotated[
+        bool, typer.Option("--on/--off", help="Route through the CDN, or bypass it.")
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Turn the CDN on or off for one record.
+
+    Takes effect on the edge at the next deploy. It only reaches clients once
+    DNS answers accordingly, which the DNS system owns.
+    """
+    record = _control_plane().set_proxied(domain, name, type_, on, "cli")
+    _emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"{record.fqdn} is now "
+            f"{'proxied through the CDN' if on else 'bypassing the CDN'}. "
+            "Run 'blitzecdn deploy' to apply, and make sure DNS points at "
+            f"{'an edge' if on else record.value}."
+        )
+
+
+@record_app.command("remove")
+def record_remove(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+) -> None:
+    label = f"{name}.{domain}" if name != "@" else domain
+    if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):
+        raise typer.Abort()
+    _control_plane().delete_record(domain, name, type_, "cli")
+    typer.echo(f"Deleted {label}")
+
+
+@dns_app.command("export")
+def dns_export(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+    """Emit every record for the system that publishes DNS.
+
+    Proxied records carry no address: they must resolve to an edge, and edge
+    addressing is owned by the DNS system rather than the control plane.
+    """
+    _emit(_control_plane().dns_export(), json_output=json_output)
+
+
+@edge_app.command("list")
+def edge_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+    """List configured edge servers."""
+    settings = _settings()
+    _emit(Inventory(settings.inventory_path).list_edges(), json_output=json_output)
+
+
+@edge_app.command("add")
+def edge_add(
+    name: Annotated[str, typer.Argument(help="Stable edge name.")],
+    host: Annotated[str, typer.Option("--host", help="SSH hostname or address.")],
+    ssh_source: Annotated[
+        list[str],
+        typer.Option(
+            "--ssh-source",
+            help="Trusted management CIDR; repeat the option to add more.",
+        ),
+    ],
+    user: Annotated[str, typer.Option("--user", help="Non-root SSH user.")] = "deploy",
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Add an edge while preserving fail-closed firewall policy."""
+    if not ssh_source:
+        raise typer.BadParameter(
+            "at least one --ssh-source management CIDR is required"
+        )
+    settings = _settings()
+    edge = Inventory(settings.inventory_path).add_edge(
+        name, host=host, user=user, ssh_sources=ssh_source
+    )
+    _emit(edge, json_output=json_output)
+
+
+@edge_app.command("remove")
+def edge_remove(
+    name: str,
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+) -> None:
+    """Remove an edge from desired state."""
+    if not yes and not typer.confirm(f"Stop managing edge {name!r}?"):
+        raise typer.Abort()
+    Inventory(_settings().inventory_path).remove_edge(name)
+    typer.echo(f"Removed {name}")
 
 
 def run() -> None:
@@ -240,7 +468,10 @@ def run() -> None:
         app()
     except (BlitzeError, ValidationError, OSError) as exc:
         typer.echo(f"error: {exc}", err=True)
-        raise typer.Exit(ExitCode.INVALID_INPUT) from exc
+        # SystemExit, not typer.Exit: we are outside Click's invocation by the
+        # time app() has raised, so a typer.Exit here is nothing but an
+        # unhandled exception and prints a traceback over the message above.
+        raise SystemExit(ExitCode.INVALID_INPUT) from exc
 
 
 if __name__ == "__main__":
