@@ -22,9 +22,29 @@ Certbot must also be installed on the controller for ACME requests.
 ```
 
 The installer verifies Python, creates the private environment, installs the
-compatible Ansible collection, and runs initial setup. Contributors who need an
-editable install can use `python3.14 -m venv .venv` followed by
-`.venv/bin/pip install -e '.[dev]'`.
+pinned Ansible collection into `.state/collections`, and runs initial setup.
+Setup never overwrites an existing `.env` or inventory, so re-running it is
+safe.
+
+Two environment variables change what it installs:
+
+| Variable | Effect |
+| --- | --- |
+| `BLITZECDN_DEV=1` | Install `-e '.[dev]'`: test and lint tooling, and `src/` edits take effect without reinstalling. |
+| `BLITZECDN_EDGE_PATH=../blitze-cdn-edge` | Build the edge collection from that checkout and install it instead of the release pinned in `ansible/requirements.yml`. |
+
+A lab controller that tracks both repositories wants both:
+
+```bash
+BLITZECDN_DEV=1 BLITZECDN_EDGE_PATH=../blitze-cdn-edge ./install.sh
+```
+
+`BLITZECDN_EDGE_PATH` is the only supported way to run un-released edge roles: a
+deploy otherwise always uses the pinned tag, and a local edit to
+`blitze-cdn-edge` has no effect until the collection is rebuilt. It reports the
+version it installed, because the pin no longer describes the installed roles.
+Re-run `./install.sh` after every edge change, and leave the variable unset to
+return to the pinned release.
 
 Add an edge:
 
@@ -138,10 +158,16 @@ add the new version to `blitzecdn_nginx_supported_state_versions`.
 real models and checks it against the role's `argument_specs.yml`, then renders
 `site.conf.j2`. Run it after any change to `CdnSite` or the Nginx role.
 
+`--no-cov` because the suite fails under 85% coverage by default, which no
+single file reaches on its own.
+
 ```bash
-pytest tests/test_contract.py
-BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py   # after an intended change
+pytest tests/test_contract.py --no-cov
+BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov  # after an intended change
 ```
+
+These tests skip silently when the collection is not installed. Run
+`./install.sh` first, and check the count: twelve tests, not twelve skips.
 
 ## Certificates
 
