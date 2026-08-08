@@ -18,6 +18,7 @@ class FakeRunner:
     def __init__(self, results: list[CommandResult] | None = None) -> None:
         self.results = results or [CommandResult(0, "ok", "")]
         self.check_modes: list[bool] = []
+        self.host_limits: list[str | None] = []
 
     def lock(self) -> nullcontext[None]:
         return nullcontext()
@@ -25,8 +26,9 @@ class FakeRunner:
     def validate(self) -> CommandResult:
         return self.results[0]
 
-    def run(self, *, check: bool) -> CommandResult:
+    def run(self, *, check: bool, host_limit: str | None = None) -> CommandResult:
         self.check_modes.append(check)
+        self.host_limits.append(host_limit)
         return self.results.pop(0)
 
 
@@ -127,11 +129,13 @@ def certificate_pair():
         domains: tuple[str, ...] = ("cdn.example.com",),
         *,
         valid: bool = True,
+        days: int = 30,
     ) -> tuple[bytes, bytes]:
+        """``days`` is the remaining lifetime, for exercising expiry logic."""
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
         now = datetime.now(UTC)
         start = now - timedelta(days=1) if valid else now - timedelta(days=10)
-        end = now + timedelta(days=30) if valid else now - timedelta(days=1)
+        end = now + timedelta(days=days) if valid else now - timedelta(days=1)
         certificate = (
             x509.CertificateBuilder()
             .subject_name(

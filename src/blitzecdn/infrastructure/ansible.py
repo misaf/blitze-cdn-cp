@@ -2,17 +2,63 @@ from __future__ import annotations
 
 import fcntl
 import os
+import re
 import shutil
 import subprocess
 import tempfile
 from contextlib import AbstractContextManager
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 from types import TracebackType
 
 from blitzecdn.config import Settings
+from blitzecdn.domain.models import HostDrift, validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
+from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.process import terminate_process_group
+
+#: A line of Ansible's PLAY RECAP: ``host : ok=5 changed=1 unreachable=0 ...``.
+#:
+#: The recap is a stable, human-facing summary Ansible has printed in this
+#: shape for its whole 2.x life. Parsing it avoids requiring a callback plugin
+#: or JSON output, either of which would change what an operator sees in
+#: `blitzecdn status`. Unparseable lines are ignored rather than guessed at.
+_RECAP_LINE = re.compile(r"^(?P<host>\S+)\s*:\s+(?P<stats>(?:\w+=\d+\s*)+)$")
+_RECAP_HEADER = "PLAY RECAP"
+
+
+def parse_play_recap(stdout: str) -> tuple[HostDrift, ...]:
+    """Read per-host task counts out of an Ansible run's output.
+
+    Only the section after the final ``PLAY RECAP`` header is read: a run that
+    executed more than one play prints one recap per play, and the last is the
+    cumulative one.
+    """
+    _, marker, tail = stdout.rpartition(_RECAP_HEADER)
+    if not marker:
+        return ()
+    hosts: list[HostDrift] = []
+    for line in tail.splitlines():
+        match = _RECAP_LINE.match(line.strip())
+        if match is None:
+            continue
+        counts = {
+            name: int(number)
+            for name, _, number in (
+                field.partition("=") for field in match["stats"].split()
+            )
+        }
+        hosts.append(
+            HostDrift(
+                host=match["host"],
+                changed=counts.get("changed", 0),
+                ok=counts.get("ok", 0),
+                failed=counts.get("failed", 0),
+                unreachable=counts.get("unreachable", 0),
+            )
+        )
+    return tuple(hosts)
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,10 +109,10 @@ class AnsibleRunner:
         self._validate_paths()
         return self._execute(self._command(check=True, syntax_check=True), timeout=120)
 
-    def run(self, *, check: bool) -> CommandResult:
+    def run(self, *, check: bool, host_limit: str | None = None) -> CommandResult:
         self._validate_paths()
         return self._execute(
-            self._command(check=check),
+            self._command(check=check, host_limit=host_limit),
             timeout=self._settings.deployment_timeout_seconds,
         )
 
@@ -118,7 +164,9 @@ class AnsibleRunner:
                 f"ansible-playbook is not available on PATH: {executable}"
             )
 
-    def _command(self, *, check: bool, syntax_check: bool = False) -> list[str]:
+    def _command(
+        self, *, check: bool, syntax_check: bool = False, host_limit: str | None = None
+    ) -> list[str]:
         command = [
             self._settings.ansible_playbook,
             str(self._settings.playbook_path),
@@ -127,13 +175,48 @@ class AnsibleRunner:
             "--extra-vars",
             f"@{self._settings.generated_vars_path}",
             "--limit",
-            "blitzecdn_edges",
+            self._limit(host_limit),
         ]
         if syntax_check:
             command.append("--syntax-check")
         elif check:
             command.extend(("--check", "--diff"))
         return command
+
+    def _limit(self, host_limit: str | None) -> str:
+        """Resolve a host limit to explicit edge names, or the whole group.
+
+        The limit is expanded here against the inventory rather than handed to
+        Ansible as a pattern. Ansible's own syntax cannot express "this group,
+        restricted to any of these names": ``:`` and ``,`` are both union
+        separators and ``&`` binds only to the term beside it, so
+        ``blitzecdn_edges:&a,b`` means "(edges also matching a) or b" and would
+        happily reach a host outside the group. Expanding to a literal list of
+        names taken *from* the group removes the question — a limit cannot name
+        a host the inventory does not already manage as an edge.
+
+        The second benefit is diagnostic: a typo fails here, naming the edges
+        that do exist, instead of becoming Ansible's "skipping: no hosts
+        matched" and a deploy that reports success having converged nothing.
+        """
+        validated = validate_edge_limit(host_limit)
+        if validated is None:
+            return "blitzecdn_edges"
+        known = [
+            edge["name"]
+            for edge in Inventory(self._settings.inventory_path).list_edges()
+        ]
+        matched = [
+            name
+            for name in known
+            if any(fnmatch(name, pattern) for pattern in validated.split(","))
+        ]
+        if not matched:
+            raise ConfigurationError(
+                f"host limit {validated!r} matches none of the configured edges: "
+                + (", ".join(known) or "the inventory has no edges")
+            )
+        return ",".join(matched)
 
     def _execute(self, command: list[str], *, timeout: int) -> CommandResult:
         environment = os.environ.copy()

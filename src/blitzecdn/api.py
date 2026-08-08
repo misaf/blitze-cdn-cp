@@ -24,13 +24,18 @@ from blitzecdn import __version__
 from blitzecdn.application import ControlPlane
 from blitzecdn.config import Settings
 from blitzecdn.domain.models import (
+    CERTIFICATE_RENEWAL_DAYS,
+    EDGE_LIMIT,
     AuditEvent,
     CdnSite,
     CertificateInfo,
     CertificateRequest,
+    CertificateStatus,
     Deployment,
     DnsRecord,
     Domain,
+    DriftReport,
+    OriginCheck,
     RecordPatch,
     RecordType,
 )
@@ -79,6 +84,23 @@ class AuthThrottle:
 
 class DeployRequest(BaseModel):
     check: bool = False
+    #: Narrow the run to some edges — a canary. Validated by the same pattern
+    #: the CLI uses, so a rejected limit is a 422 rather than a queued
+    #: deployment that fails once it reaches Ansible.
+    host_limit: str | None = Field(
+        default=None, max_length=512, pattern=EDGE_LIMIT.pattern
+    )
+
+
+class DriftRequest(BaseModel):
+    host_limit: str | None = Field(
+        default=None, max_length=512, pattern=EDGE_LIMIT.pattern
+    )
+
+
+class RenewRequest(BaseModel):
+    within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
+    force: bool = False
 
 
 class RollbackRequest(BaseModel):
@@ -223,6 +245,39 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def certificate(name: str, _operator: operator_dependency) -> CertificateInfo:
         return control_plane.certificate(name)
 
+    @application.get("/v1/origins/check", response_model=list[OriginCheck])
+    def check_origins(_operator: operator_dependency) -> list[OriginCheck]:
+        """Connect to every enabled site's origin the way the edge will.
+
+        Bounded by `origin_check_timeout_seconds` per origin and probed in
+        parallel, so this answers inline rather than needing a queued job.
+        """
+        return control_plane.check_origins()
+
+    @application.get("/v1/certificates", response_model=list[CertificateStatus])
+    def list_certificates(
+        _operator: operator_dependency,
+        expiring_in: int | None = Query(None, ge=0, le=3650),
+    ) -> list[CertificateStatus]:
+        """Managed certificates against the clock, soonest expiry first."""
+        if expiring_in is None:
+            return control_plane.certificate_statuses()
+        return control_plane.expiring_certificates(expiring_in)
+
+    @application.post("/v1/certificates/renew")
+    def renew_certificates(
+        request: RenewRequest, operator: operator_dependency
+    ) -> dict[str, list[str]]:
+        """Reissue ACME certificates close to expiry.
+
+        Runs inline rather than on a worker: renewal is bounded by certbot's
+        own timeout per site and touches no edge configuration, so there is no
+        long convergence for a caller to poll.
+        """
+        return control_plane.renew_certificates(
+            operator, within_days=request.within_days, force=request.force
+        )
+
     @application.post(
         "/v1/sites/{name}/certificate/upload", response_model=CertificateInfo
     )
@@ -256,7 +311,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     def deploy(request: DeployRequest, operator: operator_dependency) -> Deployment:
         """Queue a convergence; poll GET /v1/deployments/{id} for the outcome."""
-        return control_plane.submit_deployment(operator, check=request.check)
+        return control_plane.submit_deployment(
+            operator, check=request.check, host_limit=request.host_limit
+        )
 
     @application.get("/v1/deployments", response_model=list[Deployment])
     def deployments(
@@ -267,6 +324,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/v1/deployments/{deployment_id}", response_model=Deployment)
     def deployment(deployment_id: str, _operator: operator_dependency) -> Deployment:
         return control_plane.repository.get_deployment(deployment_id)
+
+    @application.post(
+        "/v1/drift", response_model=Deployment, status_code=status.HTTP_202_ACCEPTED
+    )
+    def check_drift(request: DriftRequest, operator: operator_dependency) -> Deployment:
+        """Queue a check-mode run; read the answer from the drift route below.
+
+        Queued rather than answered inline for the same reason a deploy is: a
+        full check can take as long as `deployment_timeout_seconds`, which no
+        HTTP client will wait for.
+        """
+        return control_plane.submit_deployment(
+            operator, check=True, host_limit=request.host_limit
+        )
+
+    @application.get(
+        "/v1/deployments/{deployment_id}/drift", response_model=DriftReport
+    )
+    def drift_report(deployment_id: str, _operator: operator_dependency) -> DriftReport:
+        """Read any completed check-mode deployment as a drift report."""
+        return control_plane.drift_report(deployment_id)
 
     @application.post(
         "/v1/rollbacks",

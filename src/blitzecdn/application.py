@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ipaddress
 import logging
 import threading
 from collections.abc import Callable
@@ -8,21 +7,31 @@ from datetime import UTC, datetime
 
 from blitzecdn.config import Settings
 from blitzecdn.domain.models import (
+    CERTIFICATE_RENEWAL_DAYS,
     DESIRED_STATE_VERSION,
     CdnSite,
     CertificateInfo,
     CertificateMode,
     CertificateSource,
+    CertificateStatus,
     Deployment,
     DeploymentStatus,
     DnsRecord,
     Domain,
+    DriftReport,
+    OriginCheck,
     RecordPatch,
     RecordType,
     managed_certificate_paths,
+    validate_edge_limit,
 )
-from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
-from blitzecdn.infrastructure.ansible import AnsibleRunner
+from blitzecdn.exceptions import (
+    BlitzeError,
+    ConflictError,
+    ExecutionError,
+    NotFoundError,
+)
+from blitzecdn.infrastructure.ansible import AnsibleRunner, parse_play_recap
 from blitzecdn.infrastructure.certificates import (
     CertbotIssuer,
     CertificateStore,
@@ -30,6 +39,7 @@ from blitzecdn.infrastructure.certificates import (
 )
 from blitzecdn.infrastructure.database import Repository
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml
+from blitzecdn.infrastructure.origins import OriginProbe
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,12 +54,14 @@ class ControlPlane:
         runner: AnsibleRunner | None = None,
         certificate_store: CertificateStore | None = None,
         issuer: Issuer | None = None,
+        origin_probe: OriginProbe | None = None,
     ) -> None:
         self.settings = settings
         self.repository = repository or Repository(settings.database_path)
         self.runner = runner or AnsibleRunner(settings)
         self.certificate_store = certificate_store or CertificateStore(settings)
         self.issuer = issuer or CertbotIssuer(settings)
+        self.origin_probe = origin_probe or OriginProbe(settings)
 
     def initialize(self) -> int:
         return self.repository.abandon_running()
@@ -165,144 +177,6 @@ class ControlPlane:
         self._sync_sites()
         self.repository.audit(operator, "record.deleted", "record", record.fqdn)
 
-    def import_sites(
-        self, domain_names: list[str], operator: str, *, force: bool = False
-    ) -> dict[str, list[str]]:
-        """Convert pre-1.1.0 sites into the proxied records that reproduce them.
-
-        Sites created before records existed sit in a table that is now derived
-        and rewritten whenever a record changes. Left alone they survive an
-        upgrade and then vanish the first time anything touches a record. This
-        is the upgrade path.
-
-        Every zone must be imported in one call. The first import rewrites the
-        derived table, which destroys the very sites a later call would have
-        read — so importing one zone at a time would silently lose the rest.
-        Rather than let that happen, a site not covered by ``domain_names`` is
-        refused up front and nothing is written, unless ``force`` says the
-        operator means to drop it.
-
-        A site whose ``origin_host`` is a hostname cannot become an A record and
-        is reported, not converted.
-        """
-        legacy = self.repository.list_sites()
-        # Validates each zone and normalises case and trailing dots, so a
-        # hostname comparison below cannot miss on formatting alone.
-        zones = [Domain(name=name).name for name in domain_names]
-
-        def zone_for(server_name: str) -> str | None:
-            for zone in zones:
-                if server_name == zone or server_name.endswith(f".{zone}"):
-                    return zone
-            return None
-
-        uncovered = sorted(
-            {
-                server_name
-                for site in legacy
-                for server_name in site.server_names
-                if zone_for(server_name) is None
-            }
-        )
-        if uncovered and not force:
-            raise ConflictError(
-                "These hostnames belong to zones you did not list, and importing "
-                "without them would stop them being served: "
-                f"{', '.join(uncovered)}. Pass every zone in one command, or "
-                "use --force to drop them deliberately."
-            )
-
-        for zone in zones:
-            try:
-                self.repository.get_domain(zone)
-            except NotFoundError:
-                self.create_domain(Domain(name=zone), operator)
-
-        imported: list[str] = []
-        skipped: list[str] = []
-
-        for site in legacy:
-            for server_name in site.server_names:
-                matched = zone_for(server_name)
-                if matched is None:
-                    continue
-                label = (
-                    "@" if server_name == matched else server_name[: -len(matched) - 1]
-                )
-                try:
-                    address = ipaddress.ip_address(site.origin_host)
-                except ValueError:
-                    skipped.append(
-                        f"{server_name}: origin {site.origin_host!r} is a hostname, "
-                        "and a record needs an IP address. Add the record by hand "
-                        "with the address it resolves to."
-                    )
-                    continue
-                record = DnsRecord(
-                    domain=matched,
-                    name=label,
-                    type=RecordType.A if address.version == 4 else RecordType.AAAA,
-                    value=site.origin_host,
-                    proxied=True,
-                    origin_port=site.origin_port,
-                    origin_scheme=site.origin_scheme,
-                    origin_request_host=site.origin_request_host,
-                    origin_sni=site.origin_sni,
-                    enabled=site.enabled,
-                    cache_enabled=site.cache_enabled,
-                    cache_valid_success=site.cache_valid_success,
-                    cache_valid_not_found=site.cache_valid_not_found,
-                )
-                # Certificates live in a directory keyed by site name. Carry the
-                # mode across only when the name the record derives matches the
-                # one the certificate was filed under, otherwise the deploy
-                # would point at a path holding nothing.
-                if (
-                    site.certificate_mode is not CertificateMode.DISABLED
-                    and record.site_name == site.name
-                ):
-                    record = DnsRecord.model_validate(
-                        {
-                            **record.model_dump(),
-                            "certificate_mode": site.certificate_mode,
-                            "certificate_path": site.certificate_path,
-                            "certificate_key_path": site.certificate_key_path,
-                        }
-                    )
-                elif site.certificate_mode is not CertificateMode.DISABLED:
-                    skipped.append(
-                        f"{server_name}: certificate was stored under "
-                        f"{site.name!r} but the record derives "
-                        f"{record.site_name!r}. TLS is off on the imported "
-                        "record; re-upload or re-request the certificate."
-                    )
-                try:
-                    self.create_record(record, operator)
-                except (ConflictError, NotFoundError) as exc:
-                    skipped.append(f"{server_name}: {exc}")
-                    continue
-                imported.append(record.fqdn)
-
-        self._sync_sites()
-        served_after = {
-            server_name
-            for site in self._derive_sites()
-            for server_name in site.server_names
-        }
-        dropped = sorted(
-            {server_name for site in legacy for server_name in site.server_names}
-            - served_after
-        )
-
-        self.repository.audit(
-            operator,
-            "sites.imported",
-            "domain",
-            ",".join(zones),
-            {"imported": imported, "skipped": skipped, "dropped": dropped},
-        )
-        return {"imported": imported, "skipped": skipped, "dropped": dropped}
-
     def _sync_sites(self) -> None:
         """Rewrite the derived sites table from the records that produce it."""
         self.repository.replace_all_sites(self._derive_sites())
@@ -402,6 +276,90 @@ class ControlPlane:
         self.repository.get_site(name)
         return self.certificate_store.get(name)
 
+    def certificate_statuses(self) -> list[CertificateStatus]:
+        """Every managed certificate against the clock, soonest expiry first."""
+        now = datetime.now(UTC)
+        return [
+            CertificateStatus.of(info, now=now)
+            for info in self.certificate_store.list_all()
+        ]
+
+    def expiring_certificates(
+        self, within_days: int = CERTIFICATE_RENEWAL_DAYS
+    ) -> list[CertificateStatus]:
+        """Certificates close enough to expiry to need action.
+
+        Includes uploaded ones, which BlitzeCDN cannot renew for itself. They
+        are precisely the ones worth surfacing early — someone has to be asked
+        for a replacement, and that takes longer than an ACME round trip.
+        """
+        return [
+            status
+            for status in self.certificate_statuses()
+            if status.days_remaining <= within_days
+        ]
+
+    def renew_certificates(
+        self,
+        operator: str,
+        *,
+        within_days: int = CERTIFICATE_RENEWAL_DAYS,
+        force: bool = False,
+    ) -> dict[str, list[str]]:
+        """Reissue ACME certificates that are close to expiry.
+
+        Every certificate is attempted even if an earlier one fails. Renewal
+        goes over the network to a CA and through an HTTP-01 challenge served
+        by the edges, so one site failing is an ordinary transient event and
+        must not stop the others from being renewed — the whole point of
+        running this on a schedule is that the next run picks up what this one
+        could not finish.
+
+        Nothing is deployed here. A renewed certificate is installed into the
+        control plane's own store and reaches the edges on the next deploy,
+        which stays an explicit act.
+        """
+        renewed: list[str] = []
+        skipped: list[str] = []
+        failed: list[str] = []
+        now = datetime.now(UTC)
+        for current in self.certificate_store.list_all():
+            status = CertificateStatus.of(current, now=now)
+            if not status.renewable:
+                if status.days_remaining <= within_days:
+                    skipped.append(
+                        f"{status.site}: expires in {status.days_remaining} day(s) "
+                        "but was uploaded, not issued by BlitzeCDN. Ask whoever "
+                        "supplied it for a replacement and upload that."
+                    )
+                continue
+            if not force and not status.due_for_renewal(within_days):
+                continue
+            try:
+                # Renew under the address the certificate was registered with,
+                # so a changed default cannot silently move an existing
+                # subscription to a different ACME account.
+                info = self.request_certificate(status.site, operator, current.email)
+            except BlitzeError as exc:
+                failed.append(f"{status.site}: {exc}")
+                _LOGGER.warning("renewal failed for %s: %s", status.site, exc)
+                continue
+            renewed.append(status.site)
+            _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
+        self.repository.audit(
+            operator,
+            "certificates.renewed",
+            "site",
+            None,
+            {
+                "renewed": renewed,
+                "skipped": skipped,
+                "failed": failed,
+                "within_days": within_days,
+            },
+        )
+        return {"renewed": renewed, "skipped": skipped, "failed": failed}
+
     def _record_for_site(self, site_name: str) -> DnsRecord:
         """Find the record a derived site came from.
 
@@ -434,6 +392,22 @@ class ControlPlane:
         )
         self._sync_sites()
         return self.repository.get_site(site.name)
+
+    def check_origins(self) -> list[OriginCheck]:
+        """Connect to every enabled site's origin the way the edge will.
+
+        Deliberately not folded into ``validate()``, which ``deploy`` runs.
+        Validation is about desired state being coherent and has to stay fast
+        and deterministic; an origin being briefly unreachable is neither a
+        reason to refuse a deploy of unrelated sites nor something a deploy
+        should wait on. Run this before a deploy, not inside one.
+
+        Disabled sites are skipped: the edge will not proxy to them, so their
+        origins being down is not a fact about anything.
+        """
+        return self.origin_probe.check_all(
+            [site for site in self.repository.list_sites() if site.enabled]
+        )
 
     def validate(self) -> list[str]:
         errors = self.settings.validate_runtime()
@@ -480,24 +454,90 @@ class ControlPlane:
                 )
         return errors
 
-    def deploy(self, operator: str, *, check: bool = False) -> Deployment:
-        """Converge every edge, returning once the run has finished."""
-        with self.runner.lock():
-            return self._converge(self._queue(operator, check=check), operator)
+    def deploy(
+        self, operator: str, *, check: bool = False, host_limit: str | None = None
+    ) -> Deployment:
+        """Converge the edges, returning once the run has finished.
 
-    def submit_deployment(self, operator: str, *, check: bool = False) -> Deployment:
+        ``host_limit`` narrows the run to some of them — a canary. It is
+        recorded on the deployment because it changes what success means: the
+        snapshot became reality on the named edges only, and the rest are
+        still serving whatever they had.
+        """
+        with self.runner.lock():
+            return self._converge(
+                self._queue(operator, check=check, host_limit=host_limit), operator
+            )
+
+    def submit_deployment(
+        self, operator: str, *, check: bool = False, host_limit: str | None = None
+    ) -> Deployment:
         """Queue a convergence on a worker thread and return the queued record.
 
         A full run can take as long as ``deployment_timeout_seconds``, far
         longer than any HTTP client will wait, so callers poll
         ``GET /v1/deployments/{id}`` for the outcome.
         """
-        return self._submit(lambda: self._queue(operator, check=check), operator)
+        return self._submit(
+            lambda: self._queue(operator, check=check, host_limit=host_limit), operator
+        )
+
+    def check_drift(
+        self, operator: str, *, host_limit: str | None = None
+    ) -> DriftReport:
+        """Ask the fleet whether it still matches the declared desired state.
+
+        A check-mode convergence, read as a question rather than a rehearsal.
+        Nothing on any edge changes; the run reports what it *would* change,
+        and anything it would change is by definition something that drifted
+        away from desired state since the last deploy.
+        """
+        deployment = self.deploy(operator, check=True, host_limit=host_limit)
+        report = self.drift_report(deployment.id)
+        self.repository.audit(
+            operator,
+            "drift.checked",
+            "deployment",
+            deployment.id,
+            {
+                "in_sync": report.in_sync,
+                "drifted": [host.host for host in report.drifted],
+                "unreachable": [host.host for host in report.unreachable],
+            },
+        )
+        return report
+
+    def drift_report(self, deployment_id: str) -> DriftReport:
+        """Read a recorded check-mode run as a drift report.
+
+        Derived from the stored deployment rather than only from a live run, so
+        the CLI and the API share one interpretation and an operator can revisit
+        the answer a scheduled check produced without re-running it.
+        """
+        deployment = self.repository.get_deployment(deployment_id)
+        if not deployment.check_mode:
+            raise ConflictError(
+                f"deployment {deployment_id} applied changes rather than "
+                "previewing them, so its output describes what it did, not "
+                "what had drifted. Run 'blitzecdn drift' instead."
+            )
+        return DriftReport(
+            deployment_id=deployment.id,
+            checked_at=deployment.finished_at or deployment.created_at,
+            host_limit=deployment.host_limit,
+            hosts=parse_play_recap(deployment.stdout),
+        )
 
     def rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:
-        """Converge a prior snapshot and adopt it as canonical desired state."""
+        """Converge a prior snapshot and adopt it as canonical desired state.
+
+        Deliberately takes no host limit. On success this rewrites the
+        canonical records, so a rollback that reached only some edges would
+        leave the control plane asserting a state the rest of the fleet has
+        never been given — the precise disagreement rollback exists to end.
+        """
         with self.runner.lock():
             return self._converge(
                 self._queue_rollback(operator, deployment_id, check=check), operator
@@ -518,17 +558,26 @@ class ControlPlane:
         check: bool,
         snapshot: str | None = None,
         rollback_of: str | None = None,
+        host_limit: str | None = None,
     ) -> Deployment:
         """Record a QUEUED deployment. Callers must hold the deployment lock."""
+        # Normalised before it is stored, so the record shows what actually ran
+        # rather than what was typed, and a malformed limit is refused before a
+        # deployment row exists to explain.
+        limit = validate_edge_limit(host_limit)
         deployment = self.repository.create_deployment(
-            operator, check_mode=check, rollback_of=rollback_of, snapshot=snapshot
+            operator,
+            check_mode=check,
+            rollback_of=rollback_of,
+            snapshot=snapshot,
+            host_limit=limit,
         )
         self.repository.audit(
             operator,
             "deployment.queued",
             "deployment",
             deployment.id,
-            {"check_mode": check, "rollback_of": rollback_of},
+            {"check_mode": check, "rollback_of": rollback_of, "host_limit": limit},
         )
         return deployment
 
@@ -590,7 +639,7 @@ class ControlPlane:
         try:
             snapshot = self.repository.deployment_snapshot(deployment.id)
             self._write_desired_state(snapshot)
-            result = self.runner.run(check=check)
+            result = self.runner.run(check=check, host_limit=deployment.host_limit)
             target = (
                 DeploymentStatus.TIMED_OUT
                 if result.timed_out
@@ -639,35 +688,19 @@ class ControlPlane:
             and deployment.status is DeploymentStatus.SUCCEEDED
             and not check
         ):
-            # Restore the zones a snapshot carried and re-derive from them, so
-            # records and sites cannot end up disagreeing about what is served.
-            # A snapshot written before zones existed has none, and can only
-            # restore the sites it recorded — say so rather than pretend the
-            # rollback was complete.
-            zones = self.repository.decode_snapshot_zones(snapshot)
-            legacy = zones is None
-            if zones is not None:
-                domains, records = zones
-                self.repository.replace_all_records(domains, records)
-                self._sync_sites()
-            else:
-                self.repository.replace_all_sites(
-                    self.repository.decode_snapshot(snapshot)
-                )
+            # Restore the zones the snapshot carried and re-derive from them,
+            # so records and sites cannot end up disagreeing about what is
+            # served.
+            domains, records = self.repository.decode_snapshot_zones(snapshot)
+            self.repository.replace_all_records(domains, records)
+            self._sync_sites()
             self.repository.audit(
                 operator,
                 "rollback.applied",
                 "deployment",
                 deployment.id,
-                {"target": deployment.rollback_of, "pre_records_snapshot": legacy},
+                {"target": deployment.rollback_of},
             )
-            if legacy:
-                _LOGGER.warning(
-                    "deployment %s rolled back to a snapshot written before DNS "
-                    "records existed; sites were restored but domains and "
-                    "records were left untouched",
-                    deployment.rollback_of,
-                )
         return deployment
 
     def _write_desired_state(self, snapshot: str) -> None:

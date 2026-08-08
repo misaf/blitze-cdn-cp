@@ -1,7 +1,17 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.domain.models import CdnSite, DnsRecord, RecordPatch
+from blitzecdn.domain.models import (
+    CdnSite,
+    CertificateInfo,
+    CertificateSource,
+    CertificateStatus,
+    DnsRecord,
+    RecordPatch,
+    SitePolicy,
+)
 
 
 def test_site_normalizes_safe_hostnames(site_payload):
@@ -108,3 +118,97 @@ def test_record_patch_revalidates_the_whole_record():
     assert updated.value == "192.0.2.20"
     assert updated.cache_enabled is False
     assert updated.to_site().origin_host == "192.0.2.20"
+
+
+def test_record_patch_covers_every_shared_policy_field():
+    """`RecordPatch` cannot inherit `SitePolicy`, so nothing else keeps it honest.
+
+    Every policy field has to be patchable. One missing is not an error anyone
+    sees: the API accepts the request, silently drops the unknown key under
+    `extra="forbid"`... or worse, rejects a field an operator can set on
+    creation but never change. Adding a field to `SitePolicy` should fail here
+    until it is added below it too.
+    """
+    assert set(SitePolicy.model_fields) <= set(RecordPatch.model_fields), (
+        "RecordPatch is missing "
+        f"{sorted(set(SitePolicy.model_fields) - set(RecordPatch.model_fields))}. "
+        "Add the field to RecordPatch as an optional defaulting to None."
+    )
+
+
+def test_every_patchable_policy_field_is_optional():
+    """An inherited required field would arrive here with a default and apply
+    itself on every unrelated patch."""
+    for name in SitePolicy.model_fields:
+        assert RecordPatch.model_fields[name].default is None, (
+            f"RecordPatch.{name} must default to None so an unset field means "
+            "'leave alone' rather than 'reset to this value'"
+        )
+
+
+def test_a_site_derived_from_a_record_carries_every_policy_field():
+    """`to_site()` copies the policy by name; prove nothing is lost in transit."""
+    record = DnsRecord.model_validate(
+        _managed_record(
+            origin_port=8443, cache_valid_success="30m", origin_sni="o.test"
+        )
+    )
+    site = record.to_site()
+    for name in SitePolicy.model_fields:
+        assert getattr(site, name) == getattr(record, name), (
+            f"{name} did not survive DnsRecord.to_site()"
+        )
+
+
+def _info(days: int, source: CertificateSource) -> CertificateInfo:
+    now = datetime.now(UTC)
+    return CertificateInfo(
+        site="cdn-example-com",
+        source=source,
+        domains=("cdn.example.com",),
+        not_before=now - timedelta(days=1),
+        not_after=now + timedelta(days=days),
+        fingerprint_sha256="ab" * 32,
+    )
+
+
+@pytest.mark.parametrize(
+    ("days", "expected_remaining", "expired"),
+    [(60, 60, False), (1, 1, False), (0, 0, False), (-1, -1, True)],
+)
+def test_certificate_status_counts_whole_days_and_notices_expiry(
+    days, expected_remaining, expired
+):
+    now = datetime.now(UTC)
+    status = CertificateStatus.of(_info(days, CertificateSource.ACME), now=now)
+    assert status.days_remaining == expected_remaining
+    assert status.expired is expired
+
+
+def test_a_certificate_with_hours_left_does_not_round_up_to_a_reassuring_day():
+    """Truncating toward zero here would report 1 day for something due tonight."""
+    now = datetime.now(UTC)
+    info = _info(1, CertificateSource.ACME).model_copy(
+        update={"not_after": now + timedelta(hours=6)}
+    )
+    assert CertificateStatus.of(info, now=now).days_remaining == 0
+
+
+def test_only_acme_certificates_are_renewable():
+    now = datetime.now(UTC)
+    acme = CertificateStatus.of(_info(10, CertificateSource.ACME), now=now)
+    uploaded = CertificateStatus.of(_info(10, CertificateSource.UPLOADED), now=now)
+
+    assert acme.renewable is True
+    assert acme.due_for_renewal() is True
+    assert uploaded.renewable is False
+    assert uploaded.due_for_renewal() is False, (
+        "BlitzeCDN cannot reissue a certificate someone else supplied"
+    )
+
+
+def test_a_certificate_outside_the_window_is_not_due():
+    now = datetime.now(UTC)
+    status = CertificateStatus.of(_info(60, CertificateSource.ACME), now=now)
+    assert status.due_for_renewal() is False
+    assert status.due_for_renewal(within_days=90) is True

@@ -9,6 +9,7 @@ from blitzecdn.application import ControlPlane
 from blitzecdn.domain.models import (
     CdnSite,
     CertificateMode,
+    CertificateSource,
     DeploymentStatus,
     DnsRecord,
     Domain,
@@ -259,7 +260,7 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_paylo
     release = threading.Event()
 
     class BlockingRunner(FakeRunner):
-        def run(self, *, check):
+        def run(self, *, check, host_limit=None):
             assert release.wait(timeout=5), "worker never reached the runner"
             return super().run(check=check)
 
@@ -296,7 +297,7 @@ def test_submit_releases_the_lock_after_the_worker_finishes(settings, site_paylo
 
 def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
     class ExplodingRunner(FakeRunner):
-        def run(self, *, check):
+        def run(self, *, check, host_limit=None):
             raise ExecutionError("unable to execute Ansible")
 
     repository = Repository(settings.database_path)
@@ -321,7 +322,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_pay
     calls: list[int] = []
 
     class ExplodingOnceRunner(FakeRunner):
-        def run(self, *, check):
+        def run(self, *, check, host_limit=None):
             calls.append(1)
             if len(calls) == 1:
                 raise ExecutionError("boom")
@@ -435,3 +436,246 @@ def test_certificate_upload_holds_deployment_lock(
     control.upload_certificate("cdn-example-com", certificate, key, "alice")
 
     assert events == ["locked", "installed", "unlocked"]
+
+
+def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings, site_payload):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([CommandResult(0, "applied", "")])
+    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    result = control.deploy("alice", host_limit=" edge-a ")
+
+    assert result.host_limit == "edge-a", "the limit is normalised before storage"
+    assert runner.host_limits == ["edge-a"]
+
+
+def test_a_canary_is_never_the_automatic_rollback_target(settings, site_payload):
+    """A limited run only proves one edge reached that snapshot.
+
+    Rolling the fleet back to it would converge every other edge onto a state
+    it had never been given, which is the disagreement rollback exists to end.
+    """
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([CommandResult(0, "ok", "") for _ in range(3)])
+    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+
+    repository.create_site(CdnSite.model_validate(site_payload))
+    full = control.deploy("alice")
+
+    repository.replace_all_sites([])
+    canary = control.deploy("alice", host_limit="edge-a")
+    assert canary.status is DeploymentStatus.SUCCEEDED
+
+    # A third, distinct state, so both earlier snapshots are eligible and the
+    # canary is the more recent of the two. Without the filter it would win.
+    repository.create_site(
+        CdnSite.model_validate({**site_payload, "name": "somewhere-else"})
+    )
+    assert repository.successful_rollback_target(repository.snapshot()).id == full.id
+
+
+def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(
+    settings, site_payload
+):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    with pytest.raises(ValueError, match="only narrow a deploy"):
+        control.deploy("alice", host_limit="edge-a:!edge-b")
+
+    assert repository.list_deployments(5) == []
+
+
+_IN_SYNC_RECAP = (
+    "PLAY RECAP ****\n"
+    "edge-a  : ok=9 changed=0 unreachable=0 failed=0\n"
+    "edge-b  : ok=9 changed=0 unreachable=0 failed=0\n"
+)
+_DRIFTED_RECAP = (
+    "PLAY RECAP ****\n"
+    "edge-a  : ok=9 changed=3 unreachable=0 failed=0\n"
+    "edge-b  : ok=9 changed=0 unreachable=0 failed=0\n"
+)
+
+
+def test_drift_check_runs_without_changing_anything(settings, site_payload):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([CommandResult(0, _IN_SYNC_RECAP, "")])
+    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    report = control.check_drift("alice")
+
+    assert runner.check_modes == [True], "a drift check must never apply changes"
+    assert report.in_sync is True
+    assert report.drifted == ()
+
+
+def test_drift_check_names_the_edges_that_moved(settings, site_payload):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([CommandResult(0, _DRIFTED_RECAP, "")])
+    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    report = control.check_drift("alice")
+
+    assert report.in_sync is False
+    assert [host.host for host in report.drifted] == ["edge-a"]
+    assert any(
+        event.action == "drift.checked" and event.details["drifted"] == ["edge-a"]
+        for event in repository.list_audit_events(10)
+    )
+
+
+def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
+    settings, site_payload
+):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([CommandResult(0, _DRIFTED_RECAP, "")])
+    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    first = control.check_drift("alice")
+    again = control.drift_report(first.deployment_id)
+
+    assert again.hosts == first.hosts
+
+
+def test_an_applied_deployment_is_not_a_drift_report(settings, site_payload):
+    """Its output says what it did, not what had drifted."""
+    repository = Repository(settings.database_path)
+    runner = FakeRunner([CommandResult(0, _DRIFTED_RECAP, "")])
+    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    applied = control.deploy("alice")
+    with pytest.raises(ConflictError, match="applied changes"):
+        control.drift_report(applied.id)
+
+
+class _RecordingIssuer:
+    """Stands in for certbot: hands back a fresh pair and remembers the call."""
+
+    def __init__(self, certificate_pair, *, fails: set[str] | None = None) -> None:
+        self._pair = certificate_pair
+        self._fails = fails or set()
+        self.issued: list[tuple[str, str]] = []
+
+    def issue(self, site, email):
+        if site.name in self._fails:
+            raise ExecutionError("challenge failed")
+        self.issued.append((site.name, email))
+        return self._pair((site.server_names[0],), days=90)
+
+
+def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
+    record = _seed_proxied_record(control)
+    certificate, key = certificate_pair((record.fqdn,), days=days)
+    return control.upload_certificate(record.site_name, certificate, key, "alice")
+
+
+def test_certificate_statuses_report_time_left(settings, certificate_pair):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    _proxied_site_with_certificate(control, repository, certificate_pair, days=10)
+
+    statuses = control.certificate_statuses()
+
+    assert len(statuses) == 1
+    assert statuses[0].days_remaining == 9  # a whole day has not yet elapsed
+    assert statuses[0].renewable is False, "an uploaded certificate is not renewable"
+    assert control.expiring_certificates() == statuses
+
+
+def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate_pair):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    _proxied_site_with_certificate(control, repository, certificate_pair, days=89)
+
+    assert control.certificate_statuses() != []
+    assert control.expiring_certificates() == []
+
+
+def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(settings, repository, FakeRunner(), issuer=issuer)  # type: ignore[arg-type]
+    control.settings = settings
+
+    control.create_domain(Domain(name="example.com"), "alice")
+    for label, days in (("due", 5), ("healthy", 80)):
+        record = control.create_record(
+            DnsRecord(
+                domain="example.com",
+                name=label,
+                value="198.51.100.10",
+                proxied=True,
+            ),
+            "alice",
+        )
+        certificate, key = certificate_pair((record.fqdn,), days=days)
+        control.upload_certificate(record.site_name, certificate, key, "alice")
+        # Uploaded certificates are never renewable, so re-request each one to
+        # put it under ACME management the way a real ACME site would be.
+        control.request_certificate(record.site_name, "alice", "ops@example.com")
+    issuer.issued.clear()
+
+    # Both now carry the issuer's 90-day certificate, so nothing is due.
+    assert control.renew_certificates("alice")["renewed"] == []
+    assert issuer.issued == []
+
+    assert sorted(control.renew_certificates("alice", force=True)["renewed"]) == [
+        "due-example-com",
+        "healthy-example-com",
+    ]
+
+
+def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
+    settings, certificate_pair
+):
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(settings, repository, FakeRunner(), issuer=issuer)  # type: ignore[arg-type]
+    _proxied_site_with_certificate(control, repository, certificate_pair, days=3)
+
+    result = control.renew_certificates("alice")
+
+    assert result["renewed"] == []
+    assert issuer.issued == [], "BlitzeCDN must not reissue someone else's certificate"
+    assert "uploaded, not issued by BlitzeCDN" in result["skipped"][0]
+
+
+def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair):
+    """A scheduled renewal must make progress even when a site is unreachable."""
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair, fails={"broken-example-com"})
+    control = ControlPlane(settings, repository, FakeRunner(), issuer=issuer)  # type: ignore[arg-type]
+
+    control.create_domain(Domain(name="example.com"), "alice")
+    for label in ("broken", "fine"):
+        record = control.create_record(
+            DnsRecord(
+                domain="example.com", name=label, value="198.51.100.10", proxied=True
+            ),
+            "alice",
+        )
+        certificate, key = certificate_pair((record.fqdn,), days=5)
+        control.upload_certificate(record.site_name, certificate, key, "alice")
+        # Restamp the stored metadata as an ACME issue registered to an
+        # address, which is what a real renewable certificate looks like.
+        info = control.certificate_store.get(record.site_name)
+        path = settings.certificate_dir / record.site_name / "metadata.json"
+        path.write_text(
+            info.model_copy(
+                update={"source": CertificateSource.ACME, "email": "ops@example.com"}
+            ).model_dump_json(indent=2),
+            encoding="utf-8",
+        )
+
+    result = control.renew_certificates("alice")
+
+    assert result["renewed"] == ["fine-example-com"]
+    assert len(result["failed"]) == 1
+    assert "broken-example-com" in result["failed"][0]

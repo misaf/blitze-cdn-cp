@@ -218,3 +218,73 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
         assert "private_key" not in body
         metadata = client.get("/v1/sites/cdn-example-com/certificate", headers=headers)
         assert metadata.json() == body
+
+
+_HEADERS = {"X-API-Key": "x" * 32}
+
+
+def test_a_deploy_can_be_narrowed_to_some_edges(settings):
+    with TestClient(create_app(settings)) as client:
+        accepted = client.post(
+            "/v1/deployments",
+            json={"check": True, "host_limit": "edge-a"},
+            headers=_HEADERS,
+        )
+        assert accepted.status_code == 202
+        assert accepted.json()["host_limit"] == "edge-a"
+
+
+def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
+    """Rejected at the schema, so no deployment row is created to explain."""
+    with TestClient(create_app(settings)) as client:
+        for pattern in ("edge-a:database-1", "edge-a:!edge-b", "@/etc/passwd"):
+            response = client.post(
+                "/v1/deployments",
+                json={"host_limit": pattern},
+                headers=_HEADERS,
+            )
+            assert response.status_code == 422, pattern
+        assert client.get("/v1/deployments", headers=_HEADERS).json() == []
+
+
+def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
+    with TestClient(create_app(settings)) as client:
+        queued = client.post("/v1/drift", json={}, headers=_HEADERS)
+        assert queued.status_code == 202
+        assert queued.json()["check_mode"] is True
+
+        deployment_id = queued.json()["id"]
+        for _ in range(50):
+            report = client.get(
+                f"/v1/deployments/{deployment_id}/drift", headers=_HEADERS
+            )
+            if report.status_code == 200:
+                break
+            time.sleep(0.05)
+        assert report.status_code == 200
+        assert report.json()["deployment_id"] == deployment_id
+
+
+def test_an_applied_deployment_is_not_readable_as_drift(settings):
+    with TestClient(create_app(settings)) as client:
+        queued = client.post("/v1/deployments", json={"check": False}, headers=_HEADERS)
+        deployment_id = queued.json()["id"]
+        response = client.get(
+            f"/v1/deployments/{deployment_id}/drift", headers=_HEADERS
+        )
+        assert response.status_code == 409
+
+
+def test_certificates_and_origins_are_readable(settings):
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/v1/certificates", headers=_HEADERS).json() == []
+        assert (
+            client.get("/v1/certificates?expiring_in=30", headers=_HEADERS).json() == []
+        )
+        assert client.get("/v1/origins/check", headers=_HEADERS).json() == []
+        assert (
+            client.post("/v1/certificates/renew", json={}, headers=_HEADERS).json()[
+                "renewed"
+            ]
+            == []
+        )

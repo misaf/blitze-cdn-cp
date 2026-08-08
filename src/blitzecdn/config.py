@@ -26,6 +26,7 @@ _PROJECT_KEYS = {
     "acme_challenge_playbook_path",
     "certbot",
     "acme_default_email",
+    "origin_check_timeout_seconds",
 }
 
 
@@ -46,6 +47,10 @@ class Settings(BaseModel):
     certbot: str = "certbot"
     acme_default_email: str | None = None
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
+    #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
+    #: origin that needs longer than this to answer a bare TCP connect is one
+    #: the edges will struggle with too.
+    origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
 
@@ -168,6 +173,15 @@ class Settings(BaseModel):
                             "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
                             "output_limit_bytes",
                             1_048_576,
+                        )
+                    )
+                ),
+                origin_check_timeout_seconds=int(
+                    str(
+                        value(
+                            "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
+                            "origin_check_timeout_seconds",
+                            5,
                         )
                     )
                 ),
