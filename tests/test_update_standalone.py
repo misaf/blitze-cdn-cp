@@ -31,7 +31,7 @@ def test_updater_help_does_not_require_root():
 
 def test_updater_uses_only_stable_release_tags_and_never_deploys():
     script = SCRIPT.read_text(encoding="utf-8")
-    assert "git ls-remote --tags --refs origin 'v*'" in script
+    assert "repo_git ls-remote --tags --refs origin 'v*'" in script
     assert "^v[0-9]+\\.[0-9]+\\.[0-9]+$" in script
     assert '"${install_dir}/install.sh"' in script
     assert "/usr/local/bin/blitzecdn doctor" in script
@@ -46,4 +46,10 @@ def test_updater_backs_up_state_and_has_failure_rollback():
     assert "backup_items=(opt/blitzecdn/.state)" in script
     assert "etc/blitzecdn" in script
     assert "rollback()" in script
-    assert 'git checkout --detach "${previous_commit}"' in script
+    assert 'repo_git checkout --detach "${previous_commit}"' in script
+
+
+def test_updater_scopes_git_safe_directory_without_changing_global_config():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert 'git -c safe.directory="${install_dir}" "$@"' in script
+    assert "git config --global" not in script
