@@ -130,7 +130,11 @@ fi
 # later run as the service account. This is a dedicated service home, so make
 # its ownership invariant explicit on every installation.
 install -d -m 0750 -o blitzecdn -g blitzecdn /var/lib/blitzecdn
-chown -R blitzecdn:blitzecdn /var/lib/blitzecdn
+for service_path in .ansible .cache .ssh; do
+  if [[ -e "/var/lib/blitzecdn/${service_path}" ]]; then
+    chown -R blitzecdn:blitzecdn "/var/lib/blitzecdn/${service_path}"
+  fi
+done
 
 install -d -m 0750 -o blitzecdn -g blitzecdn "${install_dir}"
 chown -R blitzecdn:blitzecdn "${install_dir}"

@@ -50,3 +50,9 @@ def test_standalone_installer_guards_existing_sites_from_empty_state():
     assert "managed_registry=/etc/nginx/blitzecdn-managed-sites" in script
     assert "this edge has managed sites but desired state is empty" in script
     assert "--deploy --allow-empty-sites" in script
+
+
+def test_standalone_installer_does_not_take_ownership_of_role_managed_home_data():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "chown -R blitzecdn:blitzecdn /var/lib/blitzecdn" not in script
+    assert "for service_path in .ansible .cache .ssh" in script
