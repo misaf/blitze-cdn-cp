@@ -70,13 +70,17 @@ trap 'rm -f -- "$0"' EXIT
 
 cd -- "${install_dir}"
 
-if [[ -n $(git status --porcelain --untracked-files=no) ]]; then
+repo_git() {
+  git -c safe.directory="${install_dir}" "$@"
+}
+
+if [[ -n $(repo_git status --porcelain --untracked-files=no) ]]; then
   echo "error: tracked files in ${install_dir} have local changes" >&2
   echo "Commit or restore them before updating; persistent .state files are ignored." >&2
   exit 1
 fi
 
-remote_url=$(git remote get-url origin)
+remote_url=$(repo_git remote get-url origin)
 case "${remote_url}" in
   https://github.com/misaf/blitze-cdn-cp|https://github.com/misaf/blitze-cdn-cp.git|\
   git@github.com:misaf/blitze-cdn-cp.git) ;;
@@ -87,7 +91,7 @@ case "${remote_url}" in
 esac
 
 mapfile -t remote_versions < <(
-  git ls-remote --tags --refs origin 'v*' |
+  repo_git ls-remote --tags --refs origin 'v*' |
     sed -n 's#.*refs/tags/\(v[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)$#\1#p' |
     sort -V
 )
@@ -133,7 +137,7 @@ if [[ ${assume_yes} -ne 1 ]]; then
   [[ ${answer} =~ ^[Yy]$ ]] || { echo "Update cancelled."; exit 0; }
 fi
 
-previous_commit=$(git rev-parse HEAD)
+previous_commit=$(repo_git rev-parse HEAD)
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup_path=${backup_dir}/${timestamp}-${current_version}.tar.gz
 services=(
@@ -146,7 +150,7 @@ rollback() {
   exit_code=$?
   trap - ERR
   echo "error: update failed; restoring the previous checkout" >&2
-  git checkout --detach "${previous_commit}" >&2 || true
+  repo_git checkout --detach "${previous_commit}" >&2 || true
   chown -R blitzecdn:blitzecdn "${install_dir}" >&2 || true
   runuser -u blitzecdn -- "${install_dir}/install.sh" >&2 || true
   install -m 0644 packaging/systemd/blitzecdn-api.service \
@@ -165,8 +169,9 @@ rollback() {
   exit "${exit_code}"
 }
 
-git fetch --no-tags origin "refs/tags/${target_version}:refs/tags/${target_version}"
-tagged_version=$(git show "${target_version}:pyproject.toml" | python3 -c '
+repo_git fetch --no-tags origin \
+  "refs/tags/${target_version}:refs/tags/${target_version}"
+tagged_version=$(repo_git show "${target_version}:pyproject.toml" | python3 -c '
 import sys
 import tomllib
 
@@ -188,7 +193,7 @@ tar -czf "${backup_path}" -C / -- "${backup_items[@]}"
 chmod 0600 "${backup_path}"
 echo "Backup:    ${backup_path}"
 
-git checkout --detach "${target_version}"
+repo_git checkout --detach "${target_version}"
 chown -R blitzecdn:blitzecdn "${install_dir}"
 runuser -u blitzecdn -- "${install_dir}/install.sh"
 
