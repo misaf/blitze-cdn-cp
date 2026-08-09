@@ -56,6 +56,10 @@ jobs:
           ruff check src tests
       - name: Strict type checking
         run: mypy src
+      # install.sh provisions users, writes sudoers, and stops services as
+      # root. Nothing else in this workflow reads it.
+      - name: Shell lint
+        run: shellcheck install.sh
       - name: Tests and coverage
         run: pytest --cov-report=xml
       - name: Fail if the contract tests silently skipped

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn"
-version = "1.2.9"
+version = "1.3.0"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
 readme = "README.md"
 requires-python = ">=3.12,<3.15"
@@ -38,6 +38,10 @@ dev = [
   "pytest>=9.0.3,<10",
   "pytest-cov>=6.2,<7",
   "ruff>=0.12,<1",
+  # install.sh runs as root and can stop services, so it is linted like the
+  # Python. The wheel bundles the real ShellCheck binary, which keeps it a venv
+  # tool alongside ruff and mypy instead of a machine-level install.
+  "shellcheck-py>=0.10,<0.12",
   "types-PyYAML>=6.0.12,<7",
   "yamllint>=1.37,<2",
 ]
