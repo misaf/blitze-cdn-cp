@@ -12,11 +12,13 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
         "BLITZE_API_KEYS": f"alice:{'b' * 32}",
         "BLITZE_STATE_DIR": str(tmp_path / "custom-state"),
         "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120",
+        "BLITZE_ALLOW_EMPTY_SITES": "true",
     }
     settings = Settings.from_environment(env, project_dir=tmp_path)
     assert set(settings.api_keys) == {"alice", "default"}
     assert settings.deployment_timeout_seconds == 120
     assert settings.state_dir == (tmp_path / "custom-state").resolve()
+    assert settings.allow_empty_sites is True
 
 
 @pytest.mark.parametrize(
@@ -25,6 +27,7 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
         {"BLITZE_API_KEY": "short"},
         {"BLITZE_API_KEYS": "missing-separator"},
         {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "not-a-number"},
+        {"BLITZE_ALLOW_EMPTY_SITES": "sometimes"},
     ],
 )
 def test_invalid_environment_fails_closed(tmp_path, environment):
