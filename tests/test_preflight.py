@@ -146,6 +146,24 @@ def test_a_hostname_on_an_edge_passes(build, site):
     assert report.ok
 
 
+def test_public_edge_addresses_are_distinct_from_the_ssh_host(build, site):
+    report = build(
+        addresses={
+            "cdn.example.com": {"203.0.113.5"},
+            "localhost": {"127.0.0.1"},
+            "203.0.113.5": {"203.0.113.5"},
+        },
+        edges=[
+            {
+                "host": "localhost",
+                "public_addresses": ["203.0.113.5"],
+            }
+        ],
+    ).check(site, deployed=True)
+    assert _check(report, "dns").passed
+    assert report.ok
+
+
 def test_a_hostname_pointed_somewhere_else_blocks_and_names_both_sides(build, site):
     report = build(
         addresses={

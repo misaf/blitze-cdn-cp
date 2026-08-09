@@ -80,6 +80,8 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
             "192.0.2.10",
             "--ssh-source",
             "198.51.100.8/24",
+            "--public-address",
+            "203.0.113.10",
             "--json",
         ],
     )
@@ -87,6 +89,18 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
     assert json.loads(added.stdout)["name"] == "edge-01"
     listed = runner.invoke(cli.app, ["edge", "list", "--json"])
     assert json.loads(listed.stdout)[0]["host"] == "192.0.2.10"
+    updated = runner.invoke(
+        cli.app,
+        [
+            "edge",
+            "update",
+            "edge-01",
+            "--public-address",
+            "203.0.113.11",
+            "--json",
+        ],
+    )
+    assert json.loads(updated.stdout)["public_addresses"] == ["203.0.113.11"]
     # --no-decommission because `setup` scaffolds no playbooks: this test is
     # about inventory bookkeeping, and the teardown path is covered below.
     removed = runner.invoke(

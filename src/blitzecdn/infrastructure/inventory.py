@@ -22,20 +22,36 @@ class Inventory:
         self._write(self._empty())
         return True
 
-    def list_edges(self) -> list[dict[str, str]]:
+    def list_edges(self) -> list[dict[str, Any]]:
         hosts = self._edge_group(self._read())["hosts"]
-        return [
-            {
+        edges: list[dict[str, Any]] = []
+        for name, values in sorted(hosts.items()):
+            edge: dict[str, Any] = {
                 "name": str(name),
                 "host": str(values.get("ansible_host", name)),
                 "user": str(values.get("ansible_user", "deploy")),
             }
-            for name, values in sorted(hosts.items())
-        ]
+            public_addresses = values.get("blitzecdn_public_addresses")
+            if public_addresses is not None:
+                if not isinstance(public_addresses, list) or not all(
+                    isinstance(value, str) for value in public_addresses
+                ):
+                    raise ConfigurationError(
+                        f"invalid public addresses for edge: {name}"
+                    )
+                edge["public_addresses"] = public_addresses
+            edges.append(edge)
+        return edges
 
     def add_edge(
-        self, name: str, *, host: str, user: str, ssh_sources: list[str]
-    ) -> dict[str, str]:
+        self,
+        name: str,
+        *,
+        host: str,
+        user: str,
+        ssh_sources: list[str],
+        public_addresses: list[str] | None = None,
+    ) -> dict[str, Any]:
         for label, value in (
             ("edge name", name),
             ("edge host", host),
@@ -52,17 +68,34 @@ class Inventory:
             ]
         except ValueError as exc:
             raise ConfigurationError(f"invalid management CIDR: {exc}") from exc
+        normalized_public_addresses = list(dict.fromkeys(public_addresses or []))
+        if any(
+            not value.strip() or any(char.isspace() for char in value)
+            for value in normalized_public_addresses
+        ):
+            raise ConfigurationError(
+                "public edge addresses cannot be empty or contain whitespace"
+            )
         document = self._read() if self.path.exists() else self._empty()
         group = self._edge_group(document)
         if name in group["hosts"]:
             raise ConflictError(f"edge already exists: {name}")
-        group["hosts"][name] = {"ansible_host": host, "ansible_user": user}
+        host_values: dict[str, Any] = {
+            "ansible_host": host,
+            "ansible_user": user,
+        }
+        if normalized_public_addresses:
+            host_values["blitzecdn_public_addresses"] = normalized_public_addresses
+        group["hosts"][name] = host_values
         existing = group["vars"].get("blitzecdn_firewall_ssh_sources", [])
         group["vars"]["blitzecdn_firewall_ssh_sources"] = list(
             dict.fromkeys([*existing, *normalized_sources])
         )
         self._write(document)
-        return {"name": name, "host": host, "user": user}
+        result: dict[str, Any] = {"name": name, "host": host, "user": user}
+        if normalized_public_addresses:
+            result["public_addresses"] = normalized_public_addresses
+        return result
 
     def remove_edge(self, name: str) -> None:
         document = self._read()
@@ -71,6 +104,25 @@ class Inventory:
             raise ConfigurationError(f"edge does not exist: {name}")
         del hosts[name]
         self._write(document)
+
+    def set_public_addresses(
+        self, name: str, public_addresses: list[str]
+    ) -> dict[str, Any]:
+        normalized = list(dict.fromkeys(public_addresses))
+        if not normalized or any(
+            not value.strip() or any(char.isspace() for char in value)
+            for value in normalized
+        ):
+            raise ConfigurationError(
+                "at least one public edge address without whitespace is required"
+            )
+        document = self._read()
+        hosts = self._edge_group(document)["hosts"]
+        if name not in hosts:
+            raise ConfigurationError(f"edge does not exist: {name}")
+        hosts[name]["blitzecdn_public_addresses"] = normalized
+        self._write(document)
+        return next(edge for edge in self.list_edges() if edge["name"] == name)
 
     @staticmethod
     def _empty() -> dict[str, Any]:

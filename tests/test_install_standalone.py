@@ -28,6 +28,7 @@ def test_standalone_installer_help_does_not_require_root():
     assert "--no-deploy" in result.stdout
     assert "--deploy" in result.stdout
     assert "--allow-empty-sites" in result.stdout
+    assert "--public-address ADDRESS" in result.stdout
 
 
 def test_standalone_installer_keeps_management_api_on_loopback():
@@ -56,3 +57,11 @@ def test_standalone_installer_does_not_take_ownership_of_role_managed_home_data(
     script = SCRIPT.read_text(encoding="utf-8")
     assert "chown -R blitzecdn:blitzecdn /var/lib/blitzecdn" not in script
     assert "for service_path in .ansible .cache .ssh" in script
+    assert "install -d -m 0751 -o blitzecdn -g blitzecdn /var/lib/blitzecdn" in script
+
+
+def test_standalone_cli_wrapper_loads_the_persisted_environment():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "source /etc/blitzecdn/blitzecdn.env" in script
+    assert "sudo -u blitzecdn bash -c" in script
+    assert "awk '!/^BLITZE_ACME_DEFAULT_EMAIL=/'" in script
