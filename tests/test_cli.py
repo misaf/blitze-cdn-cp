@@ -216,6 +216,7 @@ def test_deploy_refuses_certificate_issuance_for_a_canary(settings, monkeypatch)
     result = runner.invoke(
         cli.app,
         ["deploy", "--yes", "--limit", "edge-01", "--request-certificates"],
+        color=False,
     )
     assert result.exit_code == 2
     assert "cannot be combined with --limit" in result.output
@@ -742,7 +743,11 @@ def test_edge_add_refuses_to_open_ssh_to_the_world(settings, monkeypatch):
     """The firewall fails closed; an edge with no management CIDR cannot exist."""
     _control(settings, monkeypatch)
 
-    result = runner.invoke(cli.app, ["edge", "add", "edge-01", "--host", "192.0.2.10"])
+    result = runner.invoke(
+        cli.app,
+        ["edge", "add", "edge-01", "--host", "192.0.2.10"],
+        color=False,
+    )
 
     assert result.exit_code != 0
     assert "ssh-source" in result.output
