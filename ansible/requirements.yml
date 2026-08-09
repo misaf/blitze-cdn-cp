@@ -10,8 +10,8 @@ collections:
     type: git
     # This is a Git ref, not the Ansible collection metadata version. Release
     # tags use a v prefix; galaxy.yml and MANIFEST.json must not.
-    version: "v1.4.2"
+    version: "v1.4.3"
   - name: ansible.posix
-    version: "2.1.0"
+    version: "2.2.0"
   - name: community.general
     version: "11.4.0"
