@@ -238,3 +238,59 @@ def test_certbot_timeout_terminates_process_group(settings, site_payload, monkey
         )
 
     assert signals == [signal.SIGTERM]
+
+
+def _install(store, settings, certificate_pair, name, *, days, source):
+    site = CdnSite.model_validate(
+        {
+            "name": name,
+            "server_names": [f"{name}.example.com"],
+            "origin_host": "origin.example.com",
+        }
+    )
+    certificate, key = certificate_pair((f"{name}.example.com",), days=days)
+    return store.install(site, certificate, key, source=source, email="ops@example.com")
+
+
+def test_the_store_lists_everything_it_holds_soonest_expiry_first(
+    settings, certificate_pair
+):
+    store = CertificateStore(settings)
+    _install(
+        store,
+        settings,
+        certificate_pair,
+        "late",
+        days=80,
+        source=CertificateSource.ACME,
+    )
+    _install(
+        store,
+        settings,
+        certificate_pair,
+        "soon",
+        days=5,
+        source=CertificateSource.UPLOADED,
+    )
+
+    assert [info.site for info in store.list_all()] == ["soon", "late"]
+
+
+def test_a_damaged_certificate_directory_does_not_hide_the_healthy_ones(
+    settings, certificate_pair
+):
+    store = CertificateStore(settings)
+    _install(
+        store,
+        settings,
+        certificate_pair,
+        "good",
+        days=40,
+        source=CertificateSource.ACME,
+    )
+    broken = settings.certificate_dir / "broken"
+    broken.mkdir(parents=True)
+    (broken / "metadata.json").write_text("{not json", encoding="utf-8")
+    (settings.certificate_dir / "empty").mkdir()
+
+    assert [info.site for info in store.list_all()] == ["good"]

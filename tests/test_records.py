@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 from conftest import FakeRunner
 
@@ -115,135 +113,9 @@ def test_snapshot_round_trips_zones(settings):
         "alice",
     )
     snapshot = repository.snapshot()
-    zones = repository.decode_snapshot_zones(snapshot)
-    assert zones is not None
-    domains, records = zones
+    domains, records = repository.decode_snapshot_zones(snapshot)
     assert [domain.name for domain in domains] == ["example.com"]
     assert [record.fqdn for record in records] == ["cdn.example.com"]
     assert [site.name for site in repository.decode_snapshot(snapshot)] == [
         "cdn-example-com"
     ]
-
-
-def test_import_converts_pre_1_1_0_sites_into_proxied_records(settings):
-    repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    # A database as an older release left it: sites, no domains or records.
-    repository.create_site(
-        CdnSite(
-            name="example-com",
-            server_names=("example.com",),
-            origin_host="198.51.100.5",
-        )
-    )
-    repository.create_site(
-        CdnSite(
-            name="cdn-example-com",
-            server_names=("cdn.example.com",),
-            origin_host="198.51.100.10",
-            cache_valid_success="30m",
-        )
-    )
-
-    result = control.import_sites(["example.com"], "alice")
-
-    assert sorted(result["imported"]) == ["cdn.example.com", "example.com"]
-    assert result["skipped"] == []
-    assert result["dropped"] == []
-    records = {record.name: record for record in repository.list_records()}
-    assert records["@"].value == "198.51.100.5"
-    assert records["cdn"].proxied is True
-    assert records["cdn"].cache_valid_success == "30m"
-
-
-def test_import_reports_hostname_origins_it_cannot_represent(settings):
-    """An A record needs an address, so a hostname origin needs a human."""
-    repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    repository.create_site(
-        CdnSite(
-            name="www-example-com",
-            server_names=("www.example.com",),
-            origin_host="origin.example.com",
-        )
-    )
-    result = control.import_sites(["example.com"], "alice")
-    assert result["imported"] == []
-    assert "is a hostname" in result["skipped"][0]
-    # It stops being served, and that must be said out loud rather than implied.
-    assert result["dropped"] == ["www.example.com"]
-
-
-def test_import_reports_sites_in_zones_not_yet_imported(settings):
-    """Importing rewrites the derived table, so other zones drop out until done.
-
-    Without this warning an operator imports one zone, deploys, and takes every
-    other customer offline.
-    """
-    repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    repository.create_site(
-        CdnSite(
-            name="example-com",
-            server_names=("example.com",),
-            origin_host="198.51.100.5",
-        )
-    )
-    repository.create_site(
-        CdnSite(
-            name="other", server_names=("cdn.other.net",), origin_host="198.51.100.9"
-        )
-    )
-
-    # Importing one zone would destroy the other's legacy site, so it refuses.
-    with pytest.raises(ConflictError, match=r"cdn\.other\.net"):
-        control.import_sites(["example.com"], "alice")
-    assert repository.list_records() == []  # nothing was written
-
-    result = control.import_sites(["example.com", "other.net"], "alice")
-    assert sorted(result["imported"]) == ["cdn.other.net", "example.com"]
-    assert result["dropped"] == []
-    assert sorted(
-        name for site in repository.list_sites() for name in site.server_names
-    ) == ["cdn.other.net", "example.com"]
-
-
-def test_import_can_be_forced_to_drop_zones_you_leave_out(settings):
-    repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    repository.create_site(
-        CdnSite(
-            name="example-com",
-            server_names=("example.com",),
-            origin_host="198.51.100.5",
-        )
-    )
-    repository.create_site(
-        CdnSite(
-            name="other", server_names=("cdn.other.net",), origin_host="198.51.100.9"
-        )
-    )
-    result = control.import_sites(["example.com"], "alice", force=True)
-    assert result["imported"] == ["example.com"]
-    assert result["dropped"] == ["cdn.other.net"]
-
-
-def test_pre_records_snapshots_remain_readable(settings):
-    """Deployment history written before zones existed must stay deployable.
-
-    Upgrading must not strand an operator who needs to roll back to a release
-    made before records were introduced.
-    """
-    repository = Repository(settings.database_path)
-    legacy = json.dumps(
-        [
-            {
-                "name": "cdn-example-com",
-                "server_names": ["cdn.example.com"],
-                "origin_host": "198.51.100.10",
-            }
-        ]
-    )
-    assert repository.decode_snapshot_zones(legacy) is None
-    sites = repository.decode_snapshot(legacy)
-    assert [site.server_names[0] for site in sites] == ["cdn.example.com"]

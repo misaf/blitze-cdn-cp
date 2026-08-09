@@ -1,0 +1,17 @@
+---
+# Runs while the host is still in inventory, because afterwards there is no way
+# back to it. `blitzecdn edge remove` invokes this and only edits the inventory
+# once it succeeds.
+- name: Decommission BlitzeCDN edge servers
+  hosts: blitzecdn_edges
+  become: true
+  gather_facts: false
+  # A partial teardown is the failure that matters: it leaves private keys on a
+  # host the control plane is about to forget. Fail the run and keep the
+  # inventory entry so the operator can retry.
+  any_errors_fatal: true
+  max_fail_percentage: 0
+  serial: "100%"
+  roles:
+    - role: blitzecdn.edge.blitzecdn_teardown
+      tags: [teardown]

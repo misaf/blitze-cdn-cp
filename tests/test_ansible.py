@@ -136,3 +136,117 @@ def test_runner_builds_acme_challenge_command(settings, monkeypatch):
     assert result.return_code == 0
     assert str(settings.acme_challenge_playbook_path) in captured
     assert "safe_token" not in captured
+
+
+def _with_edges(settings, *names: str) -> None:
+    hosts = "".join(
+        f"        {name}:\n          ansible_host: 198.51.100.{index}\n"
+        for index, name in enumerate(names, start=1)
+    )
+    settings.inventory_path.write_text(
+        f"all:\n  children:\n    blitzecdn_edges:\n      hosts:\n{hosts}",
+        encoding="utf-8",
+    )
+
+
+def test_a_run_without_a_limit_targets_the_whole_edge_group(settings):
+    runner = ansible.AnsibleRunner(settings)
+    assert runner._limit(None) == "blitzecdn_edges"
+    assert runner._limit("  ") == "blitzecdn_edges"
+
+
+def test_a_limit_resolves_to_the_matching_edges(settings):
+    _with_edges(settings, "edge-a", "edge-b", "other")
+    runner = ansible.AnsibleRunner(settings)
+    assert runner._limit("edge-a") == "edge-a"
+    assert runner._limit("edge-a,other") == "edge-a,other"
+    assert runner._limit("edge-*") == "edge-a,edge-b"
+
+
+def test_a_limit_cannot_reach_a_host_outside_the_edge_group(settings):
+    """The whole point of resolving against the inventory rather than passing
+    a pattern through: an unknown name is refused, not silently targeted."""
+    _with_edges(settings, "edge-a")
+    runner = ansible.AnsibleRunner(settings)
+    with pytest.raises(ConfigurationError, match="matches none of the configured"):
+        runner._limit("database-1")
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "edge-a:database-1",  # union, would add a host outside the group
+        "edge-a:!edge-b",  # exclusion
+        "all",  # not a name we would resolve, but spelled out for intent
+        "@/etc/passwd",  # read hosts from a file
+        "edge a",  # whitespace
+        "edge-a&database-1",
+    ],
+)
+def test_limit_patterns_that_could_widen_a_deploy_are_refused(settings, pattern):
+    _with_edges(settings, "edge-a", "edge-b")
+    runner = ansible.AnsibleRunner(settings)
+    with pytest.raises((ConfigurationError, ValueError)):
+        runner._limit(pattern)
+
+
+def test_the_limit_reaches_the_ansible_command_line(settings, monkeypatch):
+    _with_edges(settings, "edge-a", "edge-b")
+    (settings.ansible_dir / "playbooks/edge.yml").write_text("---\n", encoding="utf-8")
+    settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.generated_vars_path.write_text("---\n", encoding="utf-8")
+    captured: list[list[str]] = []
+
+    def fake_popen(command, **kwargs):
+        captured.append(command)
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(
+        ansible.shutil, "which", lambda _name: "/usr/bin/ansible-playbook"
+    )
+    ansible.AnsibleRunner(settings).run(check=True, host_limit="edge-a")
+
+    command = captured[0]
+    assert command[command.index("--limit") + 1] == "edge-a"
+    assert command.count("--limit") == 1
+
+
+# Verbatim Ansible output, with the host-name padding trimmed to fit. The
+# trailing skipped/rescued/ignored fields are kept deliberately: the parser has
+# to tolerate counters it does not care about.
+_RECAP = """
+TASK [blitzecdn.edge.blitzecdn_nginx : Render managed sites] ****
+changed: [edge-a]
+ok: [edge-b]
+
+PLAY RECAP *********************************************************************
+edge-a : ok=14  changed=2  unreachable=0  failed=0  skipped=3  rescued=0  ignored=0
+edge-b : ok=14  changed=0  unreachable=0  failed=0  skipped=3  rescued=0  ignored=0
+edge-c : ok=0   changed=0  unreachable=1  failed=0  skipped=0  rescued=0  ignored=0
+"""
+
+
+def test_the_play_recap_becomes_per_host_drift():
+    hosts = {host.host: host for host in ansible.parse_play_recap(_RECAP)}
+    assert set(hosts) == {"edge-a", "edge-b", "edge-c"}
+    assert hosts["edge-a"].changed == 2
+    assert hosts["edge-a"].in_sync is False
+    assert hosts["edge-b"].in_sync is True
+    assert hosts["edge-c"].unreachable == 1
+    assert hosts["edge-c"].in_sync is False, "an unreachable host is not 'in sync'"
+
+
+def test_only_the_last_recap_is_read():
+    """A run with several plays prints one recap each; the last is cumulative."""
+    doubled = (
+        _RECAP + "\nPLAY RECAP ****\nedge-a : ok=1 changed=0 unreachable=0 failed=0\n"
+    )
+    hosts = ansible.parse_play_recap(doubled)
+    assert [host.host for host in hosts] == ["edge-a"]
+    assert hosts[0].changed == 0
+
+
+def test_output_without_a_recap_yields_no_hosts():
+    assert ansible.parse_play_recap("ERROR! the playbook could not be parsed") == ()
+    assert ansible.parse_play_recap("") == ()

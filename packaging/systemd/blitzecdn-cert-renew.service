@@ -1,0 +1,39 @@
+[Unit]
+Description=Renew BlitzeCDN ACME certificates that are close to expiry
+# Renewal reaches a CA over the network and drives an HTTP-01 challenge on the
+# edges, so it is pointless before the machine can route anywhere.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The control plane is an ordinary account, not root. It needs no privilege on
+# this machine: everything it changes remotely goes over SSH as the edge user.
+User=blitzecdn
+Group=blitzecdn
+WorkingDirectory=/opt/blitzecdn
+Environment="PATH=/opt/blitzecdn/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=-/etc/blitzecdn/blitzecdn.env
+# --json because nothing reads this as prose. The exit code is the signal.
+ExecStart=/opt/blitzecdn/.venv/bin/blitzecdn cert renew --deploy --json
+# Renewal is idempotent and the next firing retries whatever failed, so a
+# failure is not worth restarting into. It is worth alerting on.
+Restart=no
+TimeoutStartSec=1800
+
+# Private key material must not be group- or world-readable, and the process
+# has no reason to reach anything outside its own state directory.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/blitzecdn/.state
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

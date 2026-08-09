@@ -21,8 +21,8 @@ from blitzecdn.domain.models import (
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
 
-#: Shape of the JSON in ``deployments.snapshot``. Version 1 was a bare list of
-#: sites, written before zones existed; ``decode_snapshot`` still reads it.
+#: Shape of the JSON in ``deployments.snapshot``: an object carrying the zones,
+#: records, and derived sites a rollback converges.
 SNAPSHOT_VERSION = 2
 
 
@@ -90,7 +90,8 @@ class Repository:
                     return_code INTEGER,
                     stdout TEXT NOT NULL DEFAULT '',
                     stderr TEXT NOT NULL DEFAULT '',
-                    snapshot TEXT NOT NULL
+                    snapshot TEXT NOT NULL,
+                    host_limit TEXT
                 );
                 CREATE TABLE IF NOT EXISTS audit_events (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -103,6 +104,31 @@ class Repository:
                 );
                 """
             )
+            self._add_missing_columns(connection)
+
+    @staticmethod
+    def _add_missing_columns(connection: sqlite3.Connection) -> None:
+        """Bring a database created by an older release up to the schema above.
+
+        ``CREATE TABLE IF NOT EXISTS`` leaves an existing table alone, so a
+        column added to the script above never reaches a database that already
+        exists. Each entry here must therefore be nullable or carry a default:
+        rows written before the column existed have no value for it, and
+        ``None`` has to be a truthful answer for them. ``host_limit`` qualifies
+        — every historical deployment ran against the whole fleet, which is
+        exactly what ``None`` means.
+        """
+        additions = {"deployments": {"host_limit": "TEXT"}}
+        for table, columns in additions.items():
+            present = {
+                row["name"]
+                for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
+            }
+            for column, definition in columns.items():
+                if column not in present:
+                    connection.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
+                    )
 
     @staticmethod
     def _now() -> str:
@@ -321,7 +347,7 @@ class Repository:
 
         Records are the source of truth, so they are what a snapshot carries;
         sites are derived and are included only so a rollback can converge
-        without re-deriving. See :meth:`decode_snapshot` for the older format.
+        without re-deriving.
         """
         return json.dumps(
             {
@@ -339,28 +365,22 @@ class Repository:
 
     @staticmethod
     def decode_snapshot(snapshot: str) -> list[CdnSite]:
-        """Return the sites a snapshot converges, old format or new.
+        """Return the sites a snapshot converges.
 
-        Deployment history predating domains stored a bare list of sites.
-        Those rows are still readable — and still deployable — so upgrading
-        does not throw away the ability to roll back to a release made before
-        records existed.
+        Sites are derived from records; a snapshot carries them anyway so a
+        rollback can converge without re-deriving first.
         """
         data = json.loads(snapshot)
-        if isinstance(data, list):
-            return [CdnSite.model_validate(item) for item in data]
-        if isinstance(data, dict):
-            return [CdnSite.model_validate(item) for item in data.get("sites", [])]
-        raise ValueError("deployment snapshot is neither a list nor an object")
+        if not isinstance(data, dict):
+            raise ValueError("deployment snapshot is not an object")
+        return [CdnSite.model_validate(item) for item in data.get("sites", [])]
 
     @staticmethod
-    def decode_snapshot_zones(
-        snapshot: str,
-    ) -> tuple[list[Domain], list[DnsRecord]] | None:
-        """Return the zones in a snapshot, or ``None`` for a pre-records one."""
+    def decode_snapshot_zones(snapshot: str) -> tuple[list[Domain], list[DnsRecord]]:
+        """Return the zones a snapshot carries, which a rollback re-derives from."""
         data = json.loads(snapshot)
         if not isinstance(data, dict):
-            return None
+            raise ValueError("deployment snapshot is not an object")
         return (
             [Domain.model_validate(item) for item in data.get("domains", [])],
             [DnsRecord.model_validate(item) for item in data.get("records", [])],
@@ -373,13 +393,15 @@ class Repository:
         check_mode: bool,
         rollback_of: str | None = None,
         snapshot: str | None = None,
+        host_limit: str | None = None,
     ) -> Deployment:
         deployment_id = uuid4().hex
         with self._lock, self._connection() as connection:
             connection.execute(
                 """INSERT INTO deployments
-                   (id,status,operator,check_mode,rollback_of,created_at,snapshot)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                   (id,status,operator,check_mode,rollback_of,created_at,snapshot,
+                    host_limit)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     deployment_id,
                     DeploymentStatus.QUEUED,
@@ -388,6 +410,7 @@ class Repository:
                     rollback_of,
                     self._now(),
                     snapshot or self.snapshot(),
+                    host_limit,
                 ),
             )
         return self.get_deployment(deployment_id)
@@ -471,10 +494,15 @@ class Repository:
         return cursor.rowcount
 
     def successful_rollback_target(self, current_snapshot: str) -> Deployment:
+        # `host_limit IS NULL` keeps canaries out of the automatic choice. A
+        # limited run only proves one edge reached that snapshot, so rolling
+        # the fleet back to it would converge most edges onto a state they
+        # were never running. An operator can still name one explicitly.
         with self._connection() as connection:
             row = connection.execute(
                 """SELECT * FROM deployments
                    WHERE status = ? AND check_mode = 0 AND snapshot != ?
+                     AND host_limit IS NULL
                    ORDER BY created_at DESC LIMIT 1""",
                 (DeploymentStatus.SUCCEEDED, current_snapshot),
             ).fetchone()
