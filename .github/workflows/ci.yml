@@ -45,6 +45,11 @@ jobs:
           python -m pip install -e '.[dev]'
           ansible-galaxy collection install -r ansible/requirements.yml \
             -p .state/collections
+          # Exercise the existing-installation path too. Git refs have a v
+          # prefix but collection manifests do not; ansible-core 2.21 cannot
+          # compare those representations unless reinstall is forced.
+          ansible-galaxy collection install -r ansible/requirements.yml \
+            -p .state/collections --force
       - name: Python format and lint
         run: |
           ruff format --check src tests

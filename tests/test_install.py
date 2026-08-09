@@ -15,6 +15,11 @@ def test_installer_has_valid_shell_syntax():
     assert result.returncode == 0, result.stderr
 
 
+def test_installer_forces_git_collection_reinstall_for_prefixed_tags():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert '-r ansible/requirements.yml -p "${collections_path}" --force' in script
+
+
 def test_installer_preserves_and_rebuilds_an_incomplete_virtualenv():
     script = SCRIPT.read_text(encoding="utf-8")
     assert "! -x .venv/bin/python || ! -x .venv/bin/pip" in script
