@@ -98,6 +98,29 @@ class CertificateStore:
             raise NotFoundError(f"managed certificate for {site_name!r} does not exist")
         return CertificateInfo.model_validate_json(path.read_bytes())
 
+    def list_all(self) -> list[CertificateInfo]:
+        """Every certificate this store holds, oldest expiry first.
+
+        Reads the store rather than the sites table on purpose: a certificate
+        whose site was deleted still occupies disk and still expires, and an
+        operator asking what they hold should be told about it. A directory
+        without readable metadata is skipped — it is not a certificate we can
+        say anything true about, and raising would make one damaged file hide
+        every healthy one.
+        """
+        root = self._settings.certificate_dir
+        if not root.is_dir():
+            return []
+        found: list[CertificateInfo] = []
+        for directory in sorted(root.iterdir()):
+            if not directory.is_dir():
+                continue
+            try:
+                found.append(self.get(directory.name))
+            except (NotFoundError, OSError, ValueError):
+                continue
+        return sorted(found, key=lambda info: info.not_after)
+
     def sources(self, site_name: str) -> tuple[Path, Path]:
         directory = self._directory(site_name)
         certificate = directory / "fullchain.pem"

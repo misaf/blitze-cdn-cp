@@ -1,0 +1,37 @@
+[Unit]
+Description=Check whether BlitzeCDN edges still match desired state
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=blitzecdn
+Group=blitzecdn
+WorkingDirectory=/opt/blitzecdn
+Environment="PATH=/opt/blitzecdn/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+EnvironmentFile=-/etc/blitzecdn/blitzecdn.env
+# Exit 6 (DRIFT_DETECTED) is the whole reason to run this on a timer, and it is
+# a deliberate answer rather than a malfunction. Without this line systemd
+# records every drifting fleet as a failed unit, and a check that genuinely
+# broke becomes indistinguishable from one that worked and found drift —
+# collapsing exactly the distinction the exit code exists to draw.
+SuccessExitStatus=6
+ExecStart=/opt/blitzecdn/.venv/bin/blitzecdn drift --json
+Restart=no
+TimeoutStartSec=1800
+
+# A check-mode run changes nothing on the edges; it only records the run.
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/blitzecdn/.state
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target

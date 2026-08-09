@@ -24,8 +24,15 @@ _PROJECT_KEYS = {
     "output_limit_bytes",
     "certificate_dir",
     "acme_challenge_playbook_path",
+    "cache_purge_playbook_path",
+    "stats_playbook_path",
+    "decommission_playbook_path",
     "certbot",
     "acme_default_email",
+    "acme_ca_domain",
+    "origin_check_timeout_seconds",
+    "preflight_dns_timeout_seconds",
+    "certificate_reconcile_interval_seconds",
 }
 
 
@@ -42,11 +49,28 @@ class Settings(BaseModel):
     deployment_lock_path: Path
     certificate_dir: Path
     acme_challenge_playbook_path: Path
+    cache_purge_playbook_path: Path
+    stats_playbook_path: Path
+    decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
     certbot: str = "certbot"
     acme_default_email: str | None = None
+    #: The CA identity a CAA record has to name for our issuance to be allowed.
+    #: Configurable because `certbot` can be pointed at another ACME server, and
+    #: a CAA check against the wrong CA is worse than none — it would pass while
+    #: the real CA is refused.
+    acme_ca_domain: str = "letsencrypt.org"
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
+    #: Budget for one CAA lookup during certificate preflight. A resolver that
+    #: needs longer is treated as unavailable and the check downgrades to an
+    #: advisory rather than blocking issuance.
+    preflight_dns_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
+    #: origin that needs longer than this to answer a bare TCP connect is one
+    #: the edges will struggle with too.
+    origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
+    certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
 
     @field_validator(
@@ -60,11 +84,34 @@ class Settings(BaseModel):
         "deployment_lock_path",
         "certificate_dir",
         "acme_challenge_playbook_path",
+        "cache_purge_playbook_path",
+        "stats_playbook_path",
+        "decommission_playbook_path",
         mode="before",
     )
     @classmethod
     def expand_path(cls, value: object) -> Path:
         return Path(str(value)).expanduser().resolve()
+
+    @field_validator("acme_ca_domain")
+    @classmethod
+    def validate_acme_ca_domain(cls, value: str) -> str:
+        """Reject an empty CA identity rather than blocking every issuance.
+
+        The CAA check asks whether this name appears in the record's allowed
+        issuers. Empty never appears, so an unset value would turn a passing
+        preflight into a permanent, unexplained refusal.
+        """
+        candidate = value.strip().lower().rstrip(".")
+        if (
+            not candidate
+            or "." not in candidate
+            or any(character.isspace() for character in candidate)
+        ):
+            raise ValueError(
+                "acme_ca_domain must be a CA identity such as 'letsencrypt.org'"
+            )
+        return candidate
 
     @classmethod
     def from_environment(
@@ -136,6 +183,21 @@ class Settings(BaseModel):
                     "acme_challenge_playbook_path",
                     root / "ansible/playbooks/acme-challenge.yml",
                 ),
+                cache_purge_playbook_path=path_value(
+                    "BLITZE_CACHE_PURGE_PLAYBOOK",
+                    "cache_purge_playbook_path",
+                    root / "ansible/playbooks/cache-purge.yml",
+                ),
+                stats_playbook_path=path_value(
+                    "BLITZE_STATS_PLAYBOOK",
+                    "stats_playbook_path",
+                    root / "ansible/playbooks/stats.yml",
+                ),
+                decommission_playbook_path=path_value(
+                    "BLITZE_DECOMMISSION_PLAYBOOK",
+                    "decommission_playbook_path",
+                    root / "ansible/playbooks/decommission.yml",
+                ),
                 ansible_playbook=str(
                     value(
                         "BLITZE_ANSIBLE_PLAYBOOK",
@@ -168,6 +230,39 @@ class Settings(BaseModel):
                             "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
                             "output_limit_bytes",
                             1_048_576,
+                        )
+                    )
+                ),
+                acme_ca_domain=str(
+                    value("BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org")
+                )
+                .strip()
+                .lower()
+                .rstrip("."),
+                preflight_dns_timeout_seconds=int(
+                    str(
+                        value(
+                            "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
+                            "preflight_dns_timeout_seconds",
+                            5,
+                        )
+                    )
+                ),
+                origin_check_timeout_seconds=int(
+                    str(
+                        value(
+                            "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
+                            "origin_check_timeout_seconds",
+                            5,
+                        )
+                    )
+                ),
+                certificate_reconcile_interval_seconds=int(
+                    str(
+                        value(
+                            "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
+                            "certificate_reconcile_interval_seconds",
+                            600,
                         )
                     )
                 ),

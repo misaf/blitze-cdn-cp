@@ -13,6 +13,37 @@ _DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 _SITE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _DURATION = re.compile(r"^(?:0|[1-9]\d*)(?:ms|[smhdw])$")
 
+#: Host patterns a deploy may narrow itself to, as a comma-separated list.
+#:
+#: Deliberately narrower than Ansible's own pattern syntax. ``:`` (union),
+#: ``&`` (intersection), ``!`` (exclusion) and ``@`` (read hosts from a file)
+#: are all absent, because a limit must only ever be able to *narrow* a
+#: deploy. ``AnsibleRunner._limit`` then expands whatever passes this against
+#: the edges the inventory actually declares, so the two together mean a limit
+#: can never reach a host a full deploy would not have reached.
+EDGE_LIMIT = re.compile(r"^[A-Za-z0-9_.*-]+(?:,[A-Za-z0-9_.*-]+)*$")
+_MAX_LIMIT_LENGTH = 512
+
+
+def validate_edge_limit(value: str | None) -> str | None:
+    """Normalise a deploy host limit, or raise ``ValueError``."""
+    if value is None:
+        return None
+    candidate = value.strip()
+    if not candidate:
+        return None
+    if len(candidate) > _MAX_LIMIT_LENGTH:
+        raise ValueError(f"host limit must be at most {_MAX_LIMIT_LENGTH} characters")
+    if not EDGE_LIMIT.fullmatch(candidate):
+        raise ValueError(
+            "host limit must be a comma-separated list of edge names or globs "
+            "using only letters, digits, '.', '_', '-' and '*'. Ansible's ':', "
+            "'&', '!' and '@' patterns are refused: a limit may only narrow a "
+            "deploy, never widen it."
+        )
+    return candidate
+
+
 #: Version of the desired-state document handed to Ansible.
 #:
 #: This is the contract between the control plane and the edge roles, which
@@ -86,14 +117,24 @@ def _hostname(value: str, *, wildcard: bool = False) -> str:
         raise ValueError(f"invalid DNS hostname: {value!r}") from ip_error
 
 
-class CdnSite(BaseModel):
-    """Validated, provider-independent desired state for one CDN virtual host."""
+class SitePolicy(BaseModel):
+    """How a hostname is served once it is proxied.
+
+    Declared once and inherited, because the same block appears three times:
+    on ``CdnSite``, on the ``DnsRecord`` that derives it, and — as all-optional
+    fields — on ``RecordPatch``. Adding a knob in one place and forgetting the
+    others produces a setting an operator can set and never see applied, which
+    is exactly the failure the contract test cannot catch. ``RecordPatch``
+    cannot inherit (every field has to become optional), so ``test_domain.py``
+    asserts its field names still match this class.
+
+    Inheriting puts these fields ahead of the identity fields in ``model_dump``
+    order. Nothing consumes them positionally — the desired-state document is a
+    mapping — so only the shape of the generated YAML changes.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    name: str
-    server_names: tuple[str, ...] = Field(min_length=1, max_length=100)
-    origin_host: str
     origin_port: int | None = Field(default=None, ge=1, le=65535)
     origin_scheme: OriginScheme = OriginScheme.HTTPS
     origin_request_host: str | None = None
@@ -105,6 +146,31 @@ class CdnSite(BaseModel):
     cache_enabled: bool = True
     cache_valid_success: str = "10m"
     cache_valid_not_found: str = "1m"
+
+    @field_validator("origin_request_host", "origin_sni")
+    @classmethod
+    def validate_optional_host(cls, value: str | None) -> str | None:
+        return _hostname(value) if value is not None else None
+
+    @field_validator("cache_valid_success", "cache_valid_not_found")
+    @classmethod
+    def validate_duration(cls, value: str) -> str:
+        if not _DURATION.fullmatch(value):
+            raise ValueError(
+                "duration must be a non-negative integer followed by "
+                "ms, s, m, h, d, or w"
+            )
+        return value
+
+
+class CdnSite(SitePolicy):
+    """Validated, provider-independent desired state for one CDN virtual host."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    server_names: tuple[str, ...] = Field(min_length=1, max_length=100)
+    origin_host: str
 
     @field_validator("name")
     @classmethod
@@ -130,21 +196,6 @@ class CdnSite(BaseModel):
     @classmethod
     def validate_origin(cls, value: str) -> str:
         return _hostname(value)
-
-    @field_validator("origin_request_host", "origin_sni")
-    @classmethod
-    def validate_optional_host(cls, value: str | None) -> str | None:
-        return _hostname(value) if value is not None else None
-
-    @field_validator("cache_valid_success", "cache_valid_not_found")
-    @classmethod
-    def validate_duration(cls, value: str) -> str:
-        if not _DURATION.fullmatch(value):
-            raise ValueError(
-                "duration must be a non-negative integer followed by "
-                "ms, s, m, h, d, or w"
-            )
-        return value
 
     @field_validator("certificate_path", "certificate_key_path")
     @classmethod
@@ -249,7 +300,7 @@ def derive_site_name(fqdn: str) -> str:
     return slug
 
 
-class DnsRecord(BaseModel):
+class DnsRecord(SitePolicy):
     """One record in a zone, and the CDN policy for it when proxied.
 
     ``proxied`` is the CDN on/off switch. Proxied, the edge serves this
@@ -271,18 +322,6 @@ class DnsRecord(BaseModel):
     ttl: int = Field(default=300, ge=1, le=604800)
     proxied: bool = False
 
-    origin_port: int | None = Field(default=None, ge=1, le=65535)
-    origin_scheme: OriginScheme = OriginScheme.HTTPS
-    origin_request_host: str | None = None
-    origin_sni: str | None = None
-    enabled: bool = True
-    certificate_mode: CertificateMode = CertificateMode.DISABLED
-    certificate_path: str | None = None
-    certificate_key_path: str | None = None
-    cache_enabled: bool = True
-    cache_valid_success: str = "10m"
-    cache_valid_not_found: str = "1m"
-
     @field_validator("domain")
     @classmethod
     def validate_domain(cls, value: str) -> str:
@@ -300,21 +339,6 @@ class DnsRecord(BaseModel):
         if not all(_DNS_LABEL.fullmatch(label) for label in normalized.split(".")):
             raise ValueError(f"invalid record name: {value!r}")
         return normalized
-
-    @field_validator("origin_request_host", "origin_sni")
-    @classmethod
-    def validate_optional_host(cls, value: str | None) -> str | None:
-        return _hostname(value) if value is not None else None
-
-    @field_validator("cache_valid_success", "cache_valid_not_found")
-    @classmethod
-    def validate_duration(cls, value: str) -> str:
-        if not _DURATION.fullmatch(value):
-            raise ValueError(
-                "duration must be a non-negative integer followed by "
-                "ms, s, m, h, d, or w"
-            )
-        return value
 
     @model_validator(mode="after")
     def validate_value_matches_type(self) -> Self:
@@ -365,25 +389,24 @@ class DnsRecord(BaseModel):
         """
         if not self.proxied:
             return None
+        # Copied by name off the shared policy rather than listed out, so a new
+        # setting reaches the edge the moment it is added to ``SitePolicy``.
         return CdnSite(
             name=self.site_name,
             server_names=(self.fqdn,),
             origin_host=self.value,
-            origin_port=self.origin_port,
-            origin_scheme=self.origin_scheme,
-            origin_request_host=self.origin_request_host,
-            origin_sni=self.origin_sni,
-            enabled=self.enabled,
-            certificate_mode=self.certificate_mode,
-            certificate_path=self.certificate_path,
-            certificate_key_path=self.certificate_key_path,
-            cache_enabled=self.cache_enabled,
-            cache_valid_success=self.cache_valid_success,
-            cache_valid_not_found=self.cache_valid_not_found,
+            **{field: getattr(self, field) for field in SitePolicy.model_fields},
         )
 
 
 class RecordPatch(BaseModel):
+    """A partial update to a record: every field optional, unset means untouched.
+
+    This cannot inherit ``SitePolicy`` — each field has to become optional, and
+    an inherited required field would silently gain a default here. It is
+    written out instead, and ``test_models.py`` fails if the two drift apart.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     value: str | None = None
@@ -409,6 +432,14 @@ class Deployment(BaseModel):
     status: DeploymentStatus
     operator: str
     check_mode: bool
+    #: Host pattern this run was narrowed to, or ``None`` for every edge.
+    #:
+    #: Recorded rather than derived because it changes what a green result
+    #: means. A canary that succeeded against one edge is not evidence the
+    #: fleet converged, and a rollback targeting it would restore a snapshot
+    #: most edges never received — which is why ``successful_rollback_target``
+    #: skips limited runs.
+    host_limit: str | None = None
     rollback_of: str | None = None
     created_at: datetime
     started_at: datetime | None = None
@@ -416,6 +447,310 @@ class Deployment(BaseModel):
     return_code: int | None = None
     stdout: str = ""
     stderr: str = ""
+
+
+class OriginCheck(BaseModel):
+    """The result of connecting to one site's origin the way the edge will.
+
+    Three separate answers, because the fixes differ. ``resolved`` false means
+    DNS; ``reachable`` false means routing, a firewall, or the wrong port;
+    ``tls_verified`` false means the origin's certificate does not match the
+    SNI the edge will send. ``tls_verified`` is ``None`` for an HTTP origin,
+    where the question does not arise.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    site: str
+    origin: str
+    scheme: OriginScheme
+    sni: str | None = None
+    resolved: bool = False
+    reachable: bool = False
+    tls_verified: bool | None = None
+    detail: str | None = None
+
+    @property
+    def ok(self) -> bool:
+        return self.reachable and self.tls_verified is not False
+
+
+class HostDrift(BaseModel):
+    """What one edge would change if the current desired state were applied."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str
+    changed: int = 0
+    ok: int = 0
+    failed: int = 0
+    unreachable: int = 0
+
+    @property
+    def in_sync(self) -> bool:
+        return self.changed == 0 and self.failed == 0 and self.unreachable == 0
+
+
+class DriftReport(BaseModel):
+    """Whether the fleet still matches the state the control plane declares.
+
+    Deploy answers "make it so"; this answers "is it still so". It is derived
+    from a check-mode run, so ``changed`` counts tasks that *would* act, not
+    tasks that did.
+
+    Two honest limits on reading it. A host that is unreachable is reported as
+    such rather than as drift — we did not learn anything about its
+    configuration. And a task the role skips under check mode cannot be
+    counted, so this floors rather than exactly measures the difference: it
+    reliably tells you drift exists, and undercounts rather than invents it.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    deployment_id: str
+    checked_at: datetime
+    host_limit: str | None = None
+    hosts: tuple[HostDrift, ...] = ()
+
+    @property
+    def in_sync(self) -> bool:
+        """True only if every host was reached and none of them would change."""
+        return bool(self.hosts) and all(host.in_sync for host in self.hosts)
+
+    @property
+    def drifted(self) -> tuple[HostDrift, ...]:
+        return tuple(host for host in self.hosts if host.changed and not host.failed)
+
+    @property
+    def unreachable(self) -> tuple[HostDrift, ...]:
+        return tuple(host for host in self.hosts if host.unreachable)
+
+
+class PurgeEntry(BaseModel):
+    """One cached response to remove, named the way a client would request it.
+
+    Deliberately a hostname and a path rather than a site name: the cache is
+    keyed by the ``Host`` header nginx saw, and a site can answer to several
+    hostnames. Purging "the site" would have to purge every one of them and
+    still could not express "only the apex".
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str
+    uri: str
+    scheme: OriginScheme = OriginScheme.HTTPS
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        return _hostname(value)
+
+    @field_validator("uri")
+    @classmethod
+    def validate_uri(cls, value: str) -> str:
+        """Accept the request target nginx would have logged, and nothing else.
+
+        No normalization beyond stripping: the cache key is the raw
+        ``$request_uri``, so ``/a/./b`` and ``/a/b`` are genuinely different
+        entries and "helpfully" collapsing them here would purge a key that was
+        never stored while leaving the real one in place.
+        """
+        candidate = value.strip()
+        if not candidate.startswith("/"):
+            raise ValueError("uri must be an absolute path beginning with '/'")
+        if len(candidate) > 2048:
+            raise ValueError("uri must be at most 2048 characters")
+        if any(character.isspace() for character in candidate):
+            raise ValueError("uri cannot contain whitespace")
+        return candidate
+
+    def to_ansible(self) -> dict[str, str]:
+        return {"host": self.host, "uri": self.uri, "scheme": self.scheme.value}
+
+
+class PurgeResult(BaseModel):
+    """Which edges carried out a purge, and which did not.
+
+    ``purged`` counts hosts that ran the removal, not entries deleted: nginx
+    open source cannot report whether a key was present, so "deleted 3 files"
+    and "there was nothing to delete" are the same observation. Treat a
+    successful purge as "this object is not being served from cache any more",
+    which is the question actually being asked, rather than as proof it was
+    there.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    purged_at: datetime
+    entries: tuple[PurgeEntry, ...] = ()
+    purge_all: bool = False
+    host_limit: str | None = None
+    hosts: tuple[HostDrift, ...] = ()
+
+    @property
+    def succeeded(self) -> tuple[HostDrift, ...]:
+        return tuple(
+            host for host in self.hosts if not host.failed and not host.unreachable
+        )
+
+    @property
+    def failed(self) -> tuple[HostDrift, ...]:
+        return tuple(host for host in self.hosts if host.failed or host.unreachable)
+
+    @property
+    def complete(self) -> bool:
+        """True only if every edge in scope purged.
+
+        A partial purge is the dangerous outcome: the object is gone from some
+        edges and still served by others, so which response a client gets
+        depends on which edge answers.
+        """
+        return bool(self.hosts) and not self.failed
+
+
+#: Cache outcomes nginx records in ``$upstream_cache_status`` that mean the
+#: response came from cache. EXPIRED and BYPASS went to the origin; REVALIDATED
+#: did too, but only to confirm the stored copy, so it is counted as a hit —
+#: the origin sent no body and the edge served what it already had.
+CACHE_HIT_OUTCOMES = frozenset({"HIT", "STALE", "UPDATING", "REVALIDATED"})
+
+#: Outcomes that consulted the cache at all. A request logging an empty value
+#: never reached the cache — a redirect, an nginx-generated error, or a site
+#: with caching disabled — and is excluded from the ratio rather than counted
+#: as a miss.
+CACHE_CONSULTED_OUTCOMES = CACHE_HIT_OUTCOMES | {"MISS", "EXPIRED", "BYPASS"}
+
+
+class SiteCacheStats(BaseModel):
+    """Cache outcomes for one virtual host on one edge."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    site: str
+    outcomes: dict[str, int] = Field(default_factory=dict)
+
+    @property
+    def requests(self) -> int:
+        """Every logged request, including those that never used the cache."""
+        return sum(self.outcomes.values())
+
+    @property
+    def cacheable_requests(self) -> int:
+        return sum(
+            count
+            for outcome, count in self.outcomes.items()
+            if outcome in CACHE_CONSULTED_OUTCOMES
+        )
+
+    @property
+    def hits(self) -> int:
+        return sum(
+            count
+            for outcome, count in self.outcomes.items()
+            if outcome in CACHE_HIT_OUTCOMES
+        )
+
+    @property
+    def hit_ratio(self) -> float | None:
+        """Hits over requests that consulted the cache, or None if none did.
+
+        None rather than 0.0 on purpose: a site with no cacheable traffic has
+        no hit ratio, and reporting zero would make an idle site look like a
+        broken one on a dashboard.
+        """
+        total = self.cacheable_requests
+        return round(self.hits / total, 4) if total else None
+
+
+class EdgeStats(BaseModel):
+    """One edge's report: what it served, and what nginx itself counted."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    host: str
+    collected_at: datetime | None = None
+    nginx_reachable: bool = False
+    #: stub_status counters, cumulative since nginx started. Deltas need two
+    #: readings, which this does not attempt to store.
+    connections: dict[str, int] = Field(default_factory=dict)
+    sites: tuple[SiteCacheStats, ...] = ()
+    #: Set when the edge produced no usable report at all.
+    error: str | None = None
+
+    @property
+    def hits(self) -> int:
+        return sum(site.hits for site in self.sites)
+
+    @property
+    def cacheable_requests(self) -> int:
+        return sum(site.cacheable_requests for site in self.sites)
+
+    @property
+    def requests(self) -> int:
+        return sum(site.requests for site in self.sites)
+
+    @property
+    def hit_ratio(self) -> float | None:
+        total = self.cacheable_requests
+        return round(self.hits / total, 4) if total else None
+
+
+class CacheStatsReport(BaseModel):
+    """Cache effectiveness across the fleet, as of one collection run."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    collected_at: datetime
+    host_limit: str | None = None
+    edges: tuple[EdgeStats, ...] = ()
+
+    @property
+    def reporting(self) -> tuple[EdgeStats, ...]:
+        return tuple(edge for edge in self.edges if edge.error is None)
+
+    @property
+    def silent(self) -> tuple[EdgeStats, ...]:
+        return tuple(edge for edge in self.edges if edge.error is not None)
+
+    @property
+    def hits(self) -> int:
+        return sum(edge.hits for edge in self.reporting)
+
+    @property
+    def cacheable_requests(self) -> int:
+        return sum(edge.cacheable_requests for edge in self.reporting)
+
+    @property
+    def requests(self) -> int:
+        return sum(edge.requests for edge in self.reporting)
+
+    @property
+    def hit_ratio(self) -> float | None:
+        """Fleet hit ratio, weighted by request volume rather than by edge.
+
+        Averaging the per-edge ratios would let an edge serving a hundred
+        requests move the number as much as one serving a million.
+        """
+        total = self.cacheable_requests
+        return round(self.hits / total, 4) if total else None
+
+    def by_site(self) -> tuple[SiteCacheStats, ...]:
+        """The same numbers summed across edges, which is how a site is judged.
+
+        A single edge's ratio for a site says as much about which clients
+        landed there as about the cache.
+        """
+        merged: dict[str, dict[str, int]] = {}
+        for edge in self.reporting:
+            for site in edge.sites:
+                outcomes = merged.setdefault(site.site, {})
+                for outcome, count in site.outcomes.items():
+                    outcomes[outcome] = outcomes.get(outcome, 0) + count
+        return tuple(
+            SiteCacheStats(site=name, outcomes=outcomes)
+            for name, outcomes in sorted(merged.items())
+        )
 
 
 class AuditEvent(BaseModel):
@@ -442,10 +777,138 @@ class CertificateInfo(BaseModel):
     email: str | None = None
 
 
+#: Renew an ACME certificate once it has this many days left.
+#:
+#: Let's Encrypt issues for 90 days and recommends renewing at 30, which
+#: leaves two further windows to retry in before anything expires. Renewal
+#: goes through HTTP-01, so a failure is usually a transient DNS or reachability
+#: problem that a later attempt clears.
+CERTIFICATE_RENEWAL_DAYS = 30
+
+
+class CertificateStatus(BaseModel):
+    """A stored certificate seen against the clock.
+
+    Separate from ``CertificateInfo`` because that is the record written to
+    ``metadata.json`` and read back under ``extra="forbid"`` — folding a
+    computed field into it would make every stored file fail to reload. This
+    is the derived view, built when someone asks.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    site: str
+    source: CertificateSource
+    domains: tuple[str, ...]
+    not_after: datetime
+    #: Whole days until expiry, negative once it has passed.
+    days_remaining: int
+    expired: bool
+    #: Whether BlitzeCDN can renew this one itself. Only ACME certificates
+    #: qualify; an uploaded one has to be replaced by whoever supplied it.
+    renewable: bool
+    fingerprint_sha256: str
+
+    @classmethod
+    def of(cls, info: CertificateInfo, *, now: datetime) -> Self:
+        remaining = info.not_after - now
+        return cls(
+            site=info.site,
+            source=info.source,
+            domains=info.domains,
+            not_after=info.not_after,
+            # Truncated toward minus infinity, so a certificate with six hours
+            # left reports 0 rather than rounding up to a reassuring 1.
+            days_remaining=remaining.days,
+            expired=remaining.total_seconds() <= 0,
+            renewable=info.source is CertificateSource.ACME,
+            fingerprint_sha256=info.fingerprint_sha256,
+        )
+
+    def due_for_renewal(self, within_days: int = CERTIFICATE_RENEWAL_DAYS) -> bool:
+        return self.renewable and self.days_remaining <= within_days
+
+
+#: A proxied record with a TTL above this is flagged before issuance.
+#:
+#: Not an error — a long TTL is legitimate for a hostname that has been live
+#: for months. It matters only around a cutover: resolvers that cached the old
+#: address keep answering with it for up to the TTL, and HTTP-01 validation
+#: follows public DNS, so a slow rollover shows up as an issuance failure with
+#: no obvious cause.
+TTL_CUTOVER_ADVISORY_SECONDS = 3600
+
+
+class PreflightSeverity(StrEnum):
+    """Whether a failed check stops issuance or is merely reported.
+
+    ``BLOCKING`` is reserved for conditions under which HTTP-01 validation
+    cannot succeed, so failing early costs nothing and spares the CA's rate
+    limit. Everything a certificate can legitimately be issued in spite of —
+    an origin that is down, a TTL that is high — is ``ADVISORY``.
+    """
+
+    BLOCKING = "blocking"
+    ADVISORY = "advisory"
+
+
+class PreflightCheck(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: Stable identifier (``dns``, ``caa``, ``deployed``, ``origin``, ``ttl``),
+    #: safe for a caller to branch on. ``detail`` is prose and is not.
+    name: str
+    passed: bool
+    severity: PreflightSeverity
+    detail: str
+
+
+class PreflightReport(BaseModel):
+    """What the outside world looks like just before we ask a CA for a cert."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    site: str
+    checks: tuple[PreflightCheck, ...]
+
+    @property
+    def blocking_failures(self) -> tuple[PreflightCheck, ...]:
+        return tuple(
+            check
+            for check in self.checks
+            if not check.passed and check.severity is PreflightSeverity.BLOCKING
+        )
+
+    @property
+    def advisories(self) -> tuple[PreflightCheck, ...]:
+        return tuple(
+            check
+            for check in self.checks
+            if not check.passed and check.severity is PreflightSeverity.ADVISORY
+        )
+
+    @property
+    def ok(self) -> bool:
+        """True when nothing blocks issuance. Advisories do not count."""
+        return not self.blocking_failures
+
+    def summary(self) -> str:
+        return "; ".join(
+            f"{check.name}: {check.detail}" for check in self.blocking_failures
+        )
+
+
 class CertificateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     email: str | None = Field(default=None, max_length=254)
+    #: Issue even though preflight found a blocking problem. Deliberately not
+    #: the default: every blocking check describes a condition under which the
+    #: CA cannot validate, so the usual effect of overriding is to spend a rate
+    #: limit on a request that fails anyway. It exists for the case the
+    #: controller cannot see — split-horizon DNS, or an edge fronted by an
+    #: address the inventory does not name.
+    skip_preflight: bool = False
 
     @field_validator("email")
     @classmethod

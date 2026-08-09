@@ -1,12 +1,7 @@
 ---
 blitzecdn_desired_state_version: 1
 blitzecdn_nginx_sites:
-  - name: example-cdn
-    server_names:
-      - cdn.example.com
-      - '*.assets.example.com'
-    origin_host: origin.example.com
-    origin_port: 8443
+  - origin_port: 8443
     origin_scheme: https
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
@@ -15,11 +10,12 @@ blitzecdn_nginx_sites:
     cache_enabled: true
     cache_valid_success: 10m
     cache_valid_not_found: 1m
-  - name: plain-cdn
+    name: example-cdn
     server_names:
-      - static.example.com
-    origin_host: 192.0.2.10
-    origin_scheme: http
+      - cdn.example.com
+      - '*.assets.example.com'
+    origin_host: origin.example.com
+  - origin_scheme: http
     enabled: false
     certificate_mode: existing
     certificate_path: /etc/ssl/plain/fullchain.pem
@@ -27,3 +23,7 @@ blitzecdn_nginx_sites:
     cache_enabled: false
     cache_valid_success: 10m
     cache_valid_not_found: 1m
+    name: plain-cdn
+    server_names:
+      - static.example.com
+    origin_host: 192.0.2.10

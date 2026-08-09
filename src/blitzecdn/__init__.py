@@ -11,4 +11,4 @@ __version__ = version("blitzecdn")
 #: documentation site maintains its role reference against the edge collection
 #: and must document the one this release actually deploys — read it from here.
 #: ``tests/test_contract.py`` keeps the two in step.
-EDGE_COLLECTION_VERSION = "1.1.2"
+EDGE_COLLECTION_VERSION = "1.4.0"

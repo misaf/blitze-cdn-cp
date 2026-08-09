@@ -1,0 +1,18 @@
+[Unit]
+Description=Renew BlitzeCDN ACME certificates twice daily
+
+[Timer]
+# Twice a day against a 30-day renewal window. The point is not urgency — it is
+# that a certificate gets roughly sixty attempts before it expires, so a run
+# that fails on a transient DNS or reachability problem is unremarkable.
+OnCalendar=*-*-* 03,15:00:00
+# Without this every controller installed from the same instructions would ask
+# Let's Encrypt at exactly 03:00.
+RandomizedDelaySec=3600
+# A machine that was off at 03:00 still renews when it comes back, rather than
+# silently skipping until the next window.
+Persistent=true
+AccuracySec=1m
+
+[Install]
+WantedBy=timers.target

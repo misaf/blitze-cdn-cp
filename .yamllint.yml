@@ -6,6 +6,11 @@ ignore: |
   ansible/.venv/
   ansible/.ansible/
   ansible/.cache/
+  # Operator state written by `blitzecdn setup` and `blitzecdn edge add`, not
+  # source. It is gitignored, so CI never sees it, but every installed
+  # controller has one and `yamllint .` would fail there on formatting no
+  # human chose. Lint ansible/inventory/hosts.example.yml instead.
+  ansible/inventory/hosts.yml
 rules:
   braces:
     max-spaces-inside: 1

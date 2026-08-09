@@ -1,0 +1,12 @@
+---
+- name: Collect cache and connection counters from BlitzeCDN edges
+  hosts: blitzecdn_edges
+  become: true
+  gather_facts: false
+  # Read-only, and one silent edge must not hide the rest of the fleet's
+  # numbers — a partial answer is the useful one here.
+  max_fail_percentage: 100
+  serial: "100%"
+  roles:
+    - role: blitzecdn.edge.blitzecdn_stats
+      tags: [stats]

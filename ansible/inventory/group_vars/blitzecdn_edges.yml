@@ -5,10 +5,13 @@
 blitzecdn_acme_root: /var/lib/blitzecdn/acme
 blitzecdn_nginx_acme_root: "{{ blitzecdn_acme_root }}"
 
-blitzecdn_base_timezone: UTC
-blitzecdn_firewall_enabled: true
-blitzecdn_firewall_ssh_port: 22
-blitzecdn_firewall_ssh_sources: []
+blitzecdn_base_timezone: Asia/Tehran
+blitzecdn_firewall_enabled: false
+# Must match ansible_port for every edge in this group. The firewall opens this
+# port and nothing else; a mismatch strands the host on the next converge.
+blitzecdn_firewall_ssh_port: 7845
+blitzecdn_firewall_ssh_sources:
+  - 94.183.119.90/32
 blitzecdn_nginx_sites: []
 
 # Edges accept public keys only. The role refuses to disable passwords unless

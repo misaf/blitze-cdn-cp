@@ -19,9 +19,81 @@ if [[ ! -d .venv ]]; then
   "${python_command}" -m venv .venv
 fi
 
-.venv/bin/pip install .
-.venv/bin/pip install 'ansible-core>=2.21,<2.22'
-.venv/bin/ansible-galaxy collection install -r ansible/requirements.yml
+# BLITZECDN_DEV=1 installs the test and lint tooling and makes src/ edits take
+# effect without reinstalling. Without it the venv holds a plain wheel, which is
+# what an operator wants and what a contributor gets caught by.
+if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
+  .venv/bin/pip install -e '.[dev]'
+else
+  .venv/bin/pip install .
+  .venv/bin/pip install 'ansible-core>=2.21,<2.22'
+fi
+
+# Collections go inside the repository rather than ~/.ansible/collections:
+# ansible/ansible.cfg looks here first, tests/test_contract.py reads whatever
+# lands here, and a lab machine can hold several checkouts without them
+# fighting over one global collection path.
+collections_path=.state/collections
+
+# ansible/ansible.cfg already resolves collections_path to that directory
+# (relative entries there resolve against the config file, not the caller's
+# working directory). Exporting it keeps ansible-galaxy from warning that it is
+# installing somewhere Ansible will not look, which is not true at deploy time.
+export ANSIBLE_CONFIG=ansible/ansible.cfg
+
+# BLITZECDN_EDGE_PATH points at a blitze-cdn-edge checkout and installs the
+# collection built from it instead of the release pinned in
+# ansible/requirements.yml. That is the only supported way to run un-released
+# edge changes — a deploy otherwise always uses the pinned tag — so it is
+# opt-in, and it prints what it did because the pin no longer describes the
+# installed roles.
+if [[ -n "${BLITZECDN_EDGE_PATH:-}" ]]; then
+  edge_path="${BLITZECDN_EDGE_PATH}"
+  if [[ ! -f "${edge_path}/galaxy.yml" ]]; then
+    echo "error: ${edge_path} is not a blitze-cdn-edge checkout (no galaxy.yml)" >&2
+    exit 1
+  fi
+
+  edge_version="$(
+    sed -n 's/^version:[[:space:]]*//p' "${edge_path}/galaxy.yml" |
+      tr -d "\"'" | head -n 1
+  )"
+  if [[ -z "${edge_version}" ]]; then
+    echo "error: no version field in ${edge_path}/galaxy.yml" >&2
+    exit 1
+  fi
+
+  .venv/bin/ansible-galaxy collection build "${edge_path}" \
+    --output-path "${edge_path}/dist" --force
+  # --no-deps keeps ansible.posix and community.general on the versions pinned
+  # below rather than whatever Galaxy currently resolves the ranges in
+  # galaxy.yml to. Only the edge roles are meant to be un-released here.
+  .venv/bin/ansible-galaxy collection install \
+    "${edge_path}/dist/blitzecdn-edge-${edge_version}.tar.gz" \
+    -p "${collections_path}" --no-deps --force
+  support_collections="$(
+    .venv/bin/python - ansible/requirements.yml <<'PY'
+import sys
+
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    document = yaml.safe_load(handle)
+
+for entry in document["collections"]:
+    if entry["name"] != "blitzecdn.edge":
+        print(f"{entry['name']}:{entry['version']}")
+PY
+  )"
+  # shellcheck disable=SC2086 # each word is one name:version argument
+  .venv/bin/ansible-galaxy collection install ${support_collections} \
+    -p "${collections_path}"
+  echo "installed blitzecdn.edge ${edge_version} from ${edge_path} (not the pinned release)"
+else
+  .venv/bin/ansible-galaxy collection install \
+    -r ansible/requirements.yml -p "${collections_path}"
+fi
+
 .venv/bin/blitzecdn setup
 
 echo

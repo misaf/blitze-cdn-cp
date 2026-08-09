@@ -22,9 +22,29 @@ Certbot must also be installed on the controller for ACME requests.
 ```
 
 The installer verifies Python, creates the private environment, installs the
-compatible Ansible collection, and runs initial setup. Contributors who need an
-editable install can use `python3.14 -m venv .venv` followed by
-`.venv/bin/pip install -e '.[dev]'`.
+pinned Ansible collection into `.state/collections`, and runs initial setup.
+Setup never overwrites an existing `.env` or inventory, so re-running it is
+safe.
+
+Two environment variables change what it installs:
+
+| Variable | Effect |
+| --- | --- |
+| `BLITZECDN_DEV=1` | Install `-e '.[dev]'`: test and lint tooling, and `src/` edits take effect without reinstalling. |
+| `BLITZECDN_EDGE_PATH=../blitze-cdn-edge` | Build the edge collection from that checkout and install it instead of the release pinned in `ansible/requirements.yml`. |
+
+A lab controller that tracks both repositories wants both:
+
+```bash
+BLITZECDN_DEV=1 BLITZECDN_EDGE_PATH=../blitze-cdn-edge ./install.sh
+```
+
+`BLITZECDN_EDGE_PATH` is the only supported way to run un-released edge roles: a
+deploy otherwise always uses the pinned tag, and a local edit to
+`blitze-cdn-edge` has no effect until the collection is rebuilt. It reports the
+version it installed, because the pin no longer describes the installed roles.
+Re-run `./install.sh` after every edge change, and leave the variable unset to
+return to the pinned release.
 
 Add an edge:
 
@@ -82,9 +102,9 @@ SQLite data live under `.state/` by default and are ignored by Git.
 
 ```bash
 blitzecdn doctor
-blitzecdn site add example-cdn \
-  --domain cdn.example.com \
-  --origin origin.example.com
+blitzecdn domain add example.com
+blitzecdn record add example.com cdn \
+  --value origin.example.com --proxied
 blitzecdn site list
 blitzecdn deploy
 blitzecdn status
@@ -105,6 +125,11 @@ does.
 ```bash
 blitzecdn serve --host 127.0.0.1 --port 8000
 ```
+
+For production, install `packaging/systemd/blitzecdn-api.service`. It supplies
+the virtualenv `PATH`, keeps the API and certificate reconciler running, and
+loads secrets from `/etc/blitzecdn/blitzecdn.env` when present. Put an
+authenticated TLS reverse proxy in front of the loopback listener.
 
 The API is not. A convergence can run for `deployment_timeout_seconds`
 (default 900), far longer than any HTTP client or reverse proxy will wait, so
@@ -138,10 +163,16 @@ add the new version to `blitzecdn_nginx_supported_state_versions`.
 real models and checks it against the role's `argument_specs.yml`, then renders
 `site.conf.j2`. Run it after any change to `CdnSite` or the Nginx role.
 
+`--no-cov` because the suite fails under 85% coverage by default, which no
+single file reaches on its own.
+
 ```bash
-pytest tests/test_contract.py
-BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py   # after an intended change
+pytest tests/test_contract.py --no-cov
+BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov  # after an intended change
 ```
+
+These tests skip silently when the collection is not installed. Run
+`./install.sh` first, and check the count: twelve tests, not twelve skips.
 
 ## Certificates
 
@@ -158,7 +189,15 @@ There are three TLS modes:
 
 For a new hostname, first create the site with `certificate_mode: disabled`,
 point its A/AAAA or CNAME records at the edges, and deploy once so every edge can
-serve the challenge path. Then request a certificate and deploy again:
+serve the challenge path. Confirm those steps landed before involving a CA:
+
+```bash
+blitzecdn cert preflight example-cdn
+```
+
+It resolves each hostname against the inventory's edge addresses, reads CAA, and
+checks that the site is in the last successful deployment, exiting `3` and naming
+what to fix otherwise. Then request a certificate and deploy again:
 
 ```bash
 curl --fail-with-body -X POST \
@@ -173,6 +212,12 @@ blitzecdn deploy --yes
 If `email` is omitted, `BLITZE_ACME_DEFAULT_EMAIL` must be configured. HTTP-01
 requires every requested hostname to resolve publicly to the edges and port 80
 to be reachable. It does not support wildcard names.
+
+The request runs the same preflight checks and returns `409` without contacting
+the CA if one blocks, so a rate-limited request is not spent on an attempt that
+would fail. `{"skip_preflight": true}` issues anyway and is recorded in the audit
+trail; it is for the case the controller cannot see, such as split-horizon DNS.
+Renewal runs the checks too, with no override.
 
 Upload an existing PEM chain and unencrypted PEM private key with:
 
