@@ -24,7 +24,7 @@ To run an independent control plane and edge on the same Debian 12+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch v1.2.3 --depth 1 \
+sudo git clone --branch v1.2.4 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install-standalone.sh \
   --admin-cidr 203.0.113.8/32 \
@@ -42,6 +42,19 @@ The API remains bound to loopback; connect without opening another public port:
 ```bash
 ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 ```
+
+Update an existing standalone installation to the newest stable release:
+
+```bash
+sudo /opt/blitzecdn/update-standalone.sh --check
+sudo /opt/blitzecdn/update-standalone.sh
+```
+
+The updater accepts `--version vX.Y.Z` to select an exact release and `--yes`
+for unattended confirmation. It backs up `.state`, local environment settings,
+and `/etc/blitzecdn`, preserves credentials and desired state, validates the
+updated service with `blitzecdn doctor`, and never deploys edge configuration.
+Review `blitzecdn plan` and run `blitzecdn deploy` separately after an update.
 
 Every standalone server has its own desired state and credentials. It does not
 replicate changes to another standalone server.
