@@ -2,6 +2,7 @@ import json
 import sys
 
 import pytest
+from click.utils import strip_ansi
 from conftest import FakePreflight, FakeRunner
 from typer.testing import CliRunner
 
@@ -219,7 +220,7 @@ def test_deploy_refuses_certificate_issuance_for_a_canary(settings, monkeypatch)
         color=False,
     )
     assert result.exit_code == 2
-    assert "cannot be combined with --limit" in result.output
+    assert "cannot be combined with --limit" in strip_ansi(result.output)
 
 
 def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
@@ -750,7 +751,7 @@ def test_edge_add_refuses_to_open_ssh_to_the_world(settings, monkeypatch):
     )
 
     assert result.exit_code != 0
-    assert "ssh-source" in result.output
+    assert "ssh-source" in strip_ansi(result.output)
 
 
 def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
