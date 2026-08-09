@@ -24,7 +24,7 @@ To run an independent control plane and edge on the same Debian 12+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch v1.2.5 --depth 1 \
+sudo git clone --branch v1.2.6 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install-standalone.sh \
   --admin-cidr 203.0.113.8/32 \

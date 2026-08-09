@@ -101,8 +101,13 @@ PY
     -p "${collections_path}"
   echo "installed blitzecdn.edge ${edge_version} from ${edge_path} (not the pinned release)"
 else
+  # Git-backed collection requirements use v-prefixed release tags, while the
+  # installed MANIFEST version is necessarily numeric. ansible-core 2.21 tries
+  # to compare those unlike representations on an existing installation and
+  # raises from LooseVersion before it can update. --force deliberately skips
+  # that broken comparison and makes upgrades as reliable as clean installs.
   .venv/bin/ansible-galaxy collection install \
-    -r ansible/requirements.yml -p "${collections_path}"
+    -r ansible/requirements.yml -p "${collections_path}" --force
 fi
 
 .venv/bin/blitzecdn setup
