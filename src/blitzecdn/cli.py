@@ -899,6 +899,16 @@ def edge_add(
             help="Trusted management CIDR; repeat the option to add more.",
         ),
     ],
+    public_address: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--public-address",
+            help=(
+                "Public IP or hostname serving CDN traffic; repeat for NAT or "
+                "multi-address edges. Defaults to --host."
+            ),
+        ),
+    ] = None,
     user: Annotated[str, typer.Option("--user", help="Non-root SSH user.")] = "deploy",
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
@@ -909,8 +919,32 @@ def edge_add(
         )
     settings = _settings()
     edge = Inventory(settings.inventory_path).add_edge(
-        name, host=host, user=user, ssh_sources=ssh_source
+        name,
+        host=host,
+        user=user,
+        ssh_sources=ssh_source,
+        public_addresses=public_address or [],
     )
+    _emit(edge, json_output=json_output)
+
+
+@edge_app.command("update")
+def edge_update(
+    name: Annotated[str, typer.Argument(help="Stable edge name.")],
+    public_address: Annotated[
+        list[str],
+        typer.Option(
+            "--public-address",
+            help="Replacement public CDN IP or hostname; repeat when needed.",
+        ),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Replace the public addresses used for DNS and certificate checks."""
+    if not public_address:
+        raise typer.BadParameter("at least one --public-address is required")
+    settings = _settings()
+    edge = Inventory(settings.inventory_path).set_public_addresses(name, public_address)
     _emit(edge, json_output=json_output)
 
 

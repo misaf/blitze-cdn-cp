@@ -28,10 +28,14 @@ sudo git clone --branch v1.2.7 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install-standalone.sh \
   --admin-cidr 203.0.113.8/32 \
+  --public-address 203.0.113.10 \
   --email admin@example.com
 ```
 
-Replace the CIDR with the network from which SSH administration is allowed.
+Replace the CIDR with the network from which SSH administration is allowed and
+the public address with the A/AAAA answer that reaches this edge. Supplying the
+public address is important when the standalone server is behind NAT or uses
+split DNS.
 The installer creates the service accounts, local SSH trust, API credential,
 inventory, systemd services, certificate timers, and a global `blitzecdn`
 command. It deliberately does not deploy on the first run: add or recreate the
@@ -102,14 +106,25 @@ Add an edge:
 ```bash
 .venv/bin/blitzecdn edge add edge-01 \
   --host 192.0.2.10 \
+  --public-address 203.0.113.10 \
   --user deploy \
   --ssh-source 198.51.100.0/24
 ```
 
-Replace the example addresses with the edge address and the trusted management
-network that may connect over SSH. Verify every SSH fingerprint through a
+`--host` is the SSH route. `--public-address` is the address public CDN DNS
+answers with; omit it only when that is the same as `--host`, and repeat it for
+multi-address edges. Keeping these separate supports NAT and split DNS without
+local resolver overrides. Replace the example addresses and trusted management
+network as appropriate. Verify every SSH fingerprint through a
 trusted channel and add it to the controller's `known_hosts`. Use an SSH agent
 or a key path outside this repository. Never disable host-key checking.
+
+For an existing edge, replace its public address set without changing its SSH
+route:
+
+```bash
+blitzecdn edge update edge-01 --public-address 203.0.113.11
+```
 
 SSH is public-key only in both directions. The controller connects with
 `PreferredAuthentications=publickey`, `PasswordAuthentication=no`, and
@@ -246,7 +261,8 @@ serve the challenge path. Confirm those steps landed before involving a CA:
 blitzecdn cert preflight example-cdn
 ```
 
-It resolves each hostname against the inventory's edge addresses, reads CAA, and
+It resolves each hostname against the inventory's explicit public edge
+addresses (falling back to the SSH host for older inventories), reads CAA, and
 checks that the site is in the last successful deployment, exiting `3` and naming
 what to fix otherwise. Then request a certificate and deploy again:
 

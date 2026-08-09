@@ -131,7 +131,9 @@ class CertificatePreflight:
             # that turns it into a stack trace.
             return addresses
         for edge in edges:
-            addresses |= _resolve(edge["host"])
+            public_addresses = edge.get("public_addresses") or [edge["host"]]
+            for address in public_addresses:
+                addresses |= _resolve(address)
         return addresses
 
     # ------------------------------------------------------------------

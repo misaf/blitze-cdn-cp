@@ -6,6 +6,7 @@ admin_cidr=
 acme_email=
 run_deploy=0
 allow_empty_sites=0
+public_addresses=()
 
 usage() {
   cat <<'EOF'
@@ -20,6 +21,8 @@ Required:
 Options:
   --deploy            Run the initial edge deployment (default: prepare only)
   --allow-empty-sites Permit --deploy to remove every previously managed site
+  --public-address ADDRESS
+                      Public edge IP or hostname; repeat when needed (NAT safe)
   --no-deploy         Deprecated compatibility alias for the safe default
   -h, --help         Show this help
 
@@ -47,6 +50,11 @@ while [[ $# -gt 0 ]]; do
     --allow-empty-sites)
       allow_empty_sites=1
       shift
+      ;;
+    --public-address)
+      [[ $# -ge 2 ]] || { echo "error: --public-address needs a value" >&2; exit 2; }
+      public_addresses+=("$2")
+      shift 2
       ;;
     --no-deploy)
       run_deploy=0
@@ -129,7 +137,9 @@ fi
 # can therefore leave root-owned cache and Ansible directories that break every
 # later run as the service account. This is a dedicated service home, so make
 # its ownership invariant explicit on every installation.
-install -d -m 0750 -o blitzecdn -g blitzecdn /var/lib/blitzecdn
+# Nginx needs traverse access to serve HTTP-01 tokens below this service home.
+# Other users still cannot list it, and child directories keep stricter modes.
+install -d -m 0751 -o blitzecdn -g blitzecdn /var/lib/blitzecdn
 for service_path in .ansible .cache .ssh; do
   if [[ -e "/var/lib/blitzecdn/${service_path}" ]]; then
     chown -R blitzecdn:blitzecdn "/var/lib/blitzecdn/${service_path}"
@@ -162,10 +172,32 @@ command=(
   "$@"
 )
 
-if [[ $(id -un) == blitzecdn ]]; then
+run() {
+  set -a
+  if [[ -r /etc/blitzecdn/blitzecdn.env ]]; then
+    # shellcheck disable=SC1091
+    source /etc/blitzecdn/blitzecdn.env
+  fi
+  set +a
   exec "${command[@]}"
+}
+
+if [[ $(id -un) == blitzecdn ]]; then
+  run
 fi
-exec sudo -u blitzecdn "${command[@]}"
+exec sudo -u blitzecdn bash -c '
+  set -euo pipefail
+  set -a
+  if [[ -r /etc/blitzecdn/blitzecdn.env ]]; then
+    source /etc/blitzecdn/blitzecdn.env
+  fi
+  set +a
+  exec env \
+    PATH=/opt/blitzecdn/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    BLITZE_PROJECT_DIR=/opt/blitzecdn \
+    "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES:-false}" \
+    /opt/blitzecdn/.venv/bin/blitzecdn "$@"
+' blitzecdn "$@"
 WRAPPER
 install -m 0755 -o root -g root "${cli_wrapper_tmp}" "${cli_wrapper}"
 rm -f -- "${cli_wrapper_tmp}"
@@ -221,8 +253,20 @@ runuser -u blitzecdn -- ssh -o BatchMode=yes deploy@localhost sudo -n true
 inventory="${install_dir}/ansible/inventory/hosts.yml"
 if ! run_blitzecdn edge list --json \
   | grep -Eq '"name"[[:space:]]*:[[:space:]]*"edge-local"'; then
-  run_blitzecdn edge add edge-local \
+  edge_add_args=(
+    edge add edge-local
     --host localhost --user deploy --ssh-source "${admin_cidr}"
+  )
+  for public_address in "${public_addresses[@]}"; do
+    edge_add_args+=(--public-address "${public_address}")
+  done
+  run_blitzecdn "${edge_add_args[@]}"
+elif [[ ${#public_addresses[@]} -gt 0 ]]; then
+  edge_update_args=(edge update edge-local)
+  for public_address in "${public_addresses[@]}"; do
+    edge_update_args+=(--public-address "${public_address}")
+  done
+  run_blitzecdn "${edge_update_args[@]}"
 fi
 
 config_dir=/etc/blitzecdn
@@ -241,6 +285,11 @@ if [[ ! -f ${environment_file} ]]; then
   chown root:blitzecdn "${environment_file}"
   chmod 0640 "${environment_file}"
 else
+  environment_tmp=$(mktemp)
+  awk '!/^BLITZE_ACME_DEFAULT_EMAIL=/' "${environment_file}" > "${environment_tmp}"
+  printf '%s\n' "BLITZE_ACME_DEFAULT_EMAIL=${acme_email}" >> "${environment_tmp}"
+  install -m 0640 -o root -g blitzecdn "${environment_tmp}" "${environment_file}"
+  rm -f -- "${environment_tmp}"
   echo "Keeping existing ${environment_file}; API credentials were not changed."
 fi
 
