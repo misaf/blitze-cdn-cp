@@ -145,9 +145,9 @@ def test_edge_pin_matches_the_published_constant():
         for entry in document["collections"]
         if entry["name"] == "blitzecdn.edge"
     )
-    assert pinned.removeprefix("v") == EDGE_COLLECTION_VERSION, (
+    assert pinned == f"v{EDGE_COLLECTION_VERSION}", (
         f"ansible/requirements.yml pins blitzecdn.edge {pinned} but "
-        f"EDGE_COLLECTION_VERSION is {EDGE_COLLECTION_VERSION}. Bump both."
+        f"the release tag must be v{EDGE_COLLECTION_VERSION}. Bump both."
     )
 
 

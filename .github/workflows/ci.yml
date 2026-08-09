@@ -5,6 +5,7 @@ name: CI
   pull_request:
   push:
     branches: [master, 1.x]
+    tags: ['v*.*.*']
 
 permissions:
   contents: read
@@ -21,6 +22,20 @@ jobs:
         with:
           python-version: "3.14"
           cache: pip
+      - name: Validate release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          python - <<'PY'
+          import os
+          import pathlib
+          import tomllib
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          project = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
+          version = project["project"]["version"]
+          if tag != f"v{version}":
+              raise SystemExit(f"release tag {tag!r} must equal v{version}")
+          PY
       # The edge roles come from the blitzecdn.edge collection pinned in
       # ansible/requirements.yml. tests/test_contract.py reads the installed
       # collection, so this step decides which edge version we test against.
@@ -41,7 +56,7 @@ jobs:
       - name: Fail if the contract tests silently skipped
         run: |
           test -d .state/collections/ansible_collections/blitzecdn/edge \
-            || { echo "edge collection missing; contract tests skipped"; exit 1; }
+            || { echo "edge collection missing; tests skipped"; exit 1; }
       - name: YAML and Ansible lint
         env:
           ANSIBLE_CONFIG: ansible/ansible.cfg
@@ -57,7 +72,9 @@ jobs:
             -i ansible/inventory/hosts.example.yml \
             ansible/playbooks/acme-challenge.yml \
             --syntax-check
-          ansible-lint ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml
+          ansible-lint \
+            ansible/playbooks/edge.yml \
+            ansible/playbooks/acme-challenge.yml
       - name: Security checks
         run: |
           bandit -c pyproject.toml -r src
