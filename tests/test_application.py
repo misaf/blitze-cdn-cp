@@ -63,6 +63,41 @@ def test_crud_validate_and_successful_deploy(settings):
     assert settings.generated_vars_path.exists()
 
 
+def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+
+    assert control.deploy("alice").status is DeploymentStatus.SUCCEEDED
+    desired = settings.generated_vars_path.read_text(encoding="utf-8")
+    assert "blitzecdn_nginx_allow_empty_sites: false" in desired
+
+    approved = ControlPlane(
+        settings.model_copy(update={"allow_empty_sites": True}),
+        repository,
+        FakeRunner(),
+    )  # type: ignore[arg-type]
+    assert approved.deploy("alice").status is DeploymentStatus.SUCCEEDED
+    desired = settings.generated_vars_path.read_text(encoding="utf-8")
+    assert "blitzecdn_nginx_allow_empty_sites: true" in desired
+
+
+def test_interrupted_deployment_is_recorded_as_abandoned(settings):
+    class InterruptedRunner(FakeRunner):
+        def run(self, *, check: bool, host_limit: str | None = None):
+            raise KeyboardInterrupt
+
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, InterruptedRunner())  # type: ignore[arg-type]
+
+    with pytest.raises(KeyboardInterrupt):
+        control.deploy("alice")
+
+    deployment = repository.list_deployments(1)[0]
+    assert deployment.status is DeploymentStatus.ABANDONED
+    assert deployment.finished_at is not None
+    assert "KeyboardInterrupt" in deployment.stderr
+
+
 def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
     """The CDN on/off switch is what decides whether the edge serves a name."""
     repository = Repository(settings.database_path)
