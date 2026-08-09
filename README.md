@@ -17,6 +17,35 @@ the controller and distributed to every edge.
 Python 3.12–3.14 is supported; development and CI currently use Python 3.14.
 Certbot must also be installed on the controller for ACME requests.
 
+### Standalone server
+
+To run an independent control plane and edge on the same Debian 12+ or Ubuntu
+24.04+ server, clone the release into the production path and run the standalone
+installer:
+
+```bash
+sudo git clone --branch 1.2.1 --depth 1 \
+  https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
+sudo /opt/blitzecdn/install-standalone.sh \
+  --admin-cidr 203.0.113.8/32 \
+  --email admin@example.com
+```
+
+Replace the CIDR with the network from which SSH administration is allowed.
+The installer creates the service accounts, local SSH trust, API credential,
+inventory, systemd services, certificate timers, and initial edge deployment.
+It is safe to rerun and does not replace existing API credentials or state.
+The API remains bound to loopback; connect without opening another public port:
+
+```bash
+ssh -L 8000:127.0.0.1:8000 deploy@EDGE_ADDRESS
+```
+
+Every standalone server has its own desired state and credentials. It does not
+replicate changes to another standalone server.
+
+### Controller-only installation
+
 ```bash
 ./install.sh
 ```
