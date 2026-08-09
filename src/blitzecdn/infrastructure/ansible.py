@@ -310,7 +310,14 @@ class AnsibleRunner:
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
-        with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
+        control_root = self._settings.state_dir / "ansible-control"
+        control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with (
+            tempfile.TemporaryDirectory(dir=control_root) as control_path,
+            tempfile.TemporaryFile() as stdout,
+            tempfile.TemporaryFile() as stderr,
+        ):
+            environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
             try:
                 process = subprocess.Popen(  # noqa: S603 -- fixed executable and argument array
                     command,
@@ -332,6 +339,12 @@ class AnsibleRunner:
                 terminate_process_group(process, process.wait)
                 timed_out = True
                 return_code = 124
+            except BaseException:
+                # A CLI disconnect, Ctrl-C, or service stop must not orphan the
+                # playbook and let it keep changing edges after its deployment
+                # record has stopped receiving updates.
+                terminate_process_group(process, process.wait)
+                raise
             return CommandResult(
                 return_code=return_code,
                 stdout=self._read_bounded(stdout),

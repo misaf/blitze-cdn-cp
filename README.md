@@ -24,7 +24,7 @@ To run an independent control plane and edge on the same Debian 12+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch 1.2.1 --depth 1 \
+sudo git clone --branch 1.2.2 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install-standalone.sh \
   --admin-cidr 203.0.113.8/32 \
@@ -33,12 +33,14 @@ sudo /opt/blitzecdn/install-standalone.sh \
 
 Replace the CIDR with the network from which SSH administration is allowed.
 The installer creates the service accounts, local SSH trust, API credential,
-inventory, systemd services, certificate timers, and initial edge deployment.
+inventory, systemd services, certificate timers, and a global `blitzecdn`
+command. It deliberately does not deploy on the first run: add or recreate the
+desired sites, review `blitzecdn plan`, then run `blitzecdn deploy`.
 It is safe to rerun and does not replace existing API credentials or state.
 The API remains bound to loopback; connect without opening another public port:
 
 ```bash
-ssh -L 8000:127.0.0.1:8000 deploy@EDGE_ADDRESS
+ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 ```
 
 Every standalone server has its own desired state and credentials. It does not
@@ -61,6 +63,7 @@ Two environment variables change what it installs:
 | --- | --- |
 | `BLITZECDN_DEV=1` | Install `-e '.[dev]'`: test and lint tooling, and `src/` edits take effect without reinstalling. |
 | `BLITZECDN_EDGE_PATH=../blitze-cdn-edge` | Build the edge collection from that checkout and install it instead of the release pinned in `ansible/requirements.yml`. |
+| `BLITZE_ALLOW_EMPTY_SITES=true` | Explicitly permit a deployment to remove the final previously managed sites. Leave unset during normal operation. |
 
 A lab controller that tracks both repositories wants both:
 
@@ -74,6 +77,12 @@ deploy otherwise always uses the pinned tag, and a local edit to
 version it installed, because the pin no longer describes the installed roles.
 Re-run `./install.sh` after every edge change, and leave the variable unset to
 return to the pinned release.
+
+An empty desired state is safe on a fresh edge. On an edge whose managed-site
+registry is non-empty, it is refused by default because it would delete every
+managed Nginx configuration and managed certificate. Recreate the existing
+sites in desired state first. Use `BLITZE_ALLOW_EMPTY_SITES=true blitzecdn
+deploy` only when removing the final sites is intentional.
 
 Add an edge:
 

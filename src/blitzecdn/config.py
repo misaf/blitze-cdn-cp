@@ -22,6 +22,7 @@ _PROJECT_KEYS = {
     "ansible_playbook",
     "deployment_timeout_seconds",
     "output_limit_bytes",
+    "allow_empty_sites",
     "certificate_dir",
     "acme_challenge_playbook_path",
     "cache_purge_playbook_path",
@@ -71,6 +72,7 @@ class Settings(BaseModel):
     origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
     certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
+    allow_empty_sites: bool = False
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
 
     @field_validator(
@@ -138,6 +140,17 @@ class Settings(BaseModel):
         def path_value(environment_name: str, config_name: str, default: Path) -> Path:
             candidate = Path(str(value(environment_name, config_name, default)))
             return candidate if candidate.is_absolute() else root / candidate
+
+        def bool_value(environment_name: str, config_name: str, default: bool) -> bool:
+            raw = value(environment_name, config_name, default)
+            if isinstance(raw, bool):
+                return raw
+            normalized = str(raw).strip().lower()
+            if normalized in {"1", "true", "yes", "on"}:
+                return True
+            if normalized in {"0", "false", "no", "off"}:
+                return False
+            raise ValueError(f"{environment_name} must be true or false")
 
         state = path_value("BLITZE_STATE_DIR", "state_dir", root / ".state")
         keys = cls._read_api_keys(env)
@@ -247,6 +260,9 @@ class Settings(BaseModel):
                             5,
                         )
                     )
+                ),
+                allow_empty_sites=bool_value(
+                    "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites", False
                 ),
                 origin_check_timeout_seconds=int(
                     str(

@@ -1,5 +1,6 @@
 import signal
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -59,6 +60,23 @@ def test_runner_builds_bounded_check_command(settings, monkeypatch):
     assert result.stderr == "warning"
 
 
+def test_each_run_uses_an_isolated_ssh_control_path(settings, monkeypatch):
+    control_paths: list[str] = []
+
+    def fake_popen(command, **kwargs):
+        control_paths.append(kwargs["env"]["ANSIBLE_SSH_CONTROL_PATH_DIR"])
+        assert Path(control_paths[-1]).is_dir()
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    runner = ansible.AnsibleRunner(settings)
+    runner.run(check=True)
+    runner.run(check=True)
+
+    assert len(set(control_paths)) == 2
+    assert all(not Path(path).exists() for path in control_paths)
+
+
 def _capture_killpg(monkeypatch, process, *, dies_on_sigterm):
     killed: list[tuple[int, int]] = []
 
@@ -97,6 +115,25 @@ def test_runner_escalates_to_sigkill_when_ansible_ignores_sigterm(
         (process.pid, signal.SIGTERM),
         (process.pid, signal.SIGKILL),
     ]
+
+
+def test_runner_kills_the_process_group_when_the_operator_interrupts(
+    settings, monkeypatch
+):
+    process = FakePopen(["ansible-playbook"])
+
+    def interrupted_wait(timeout=None):
+        if timeout == settings.deployment_timeout_seconds:
+            raise KeyboardInterrupt
+        return 0
+
+    process.wait = interrupted_wait
+    killed = _capture_killpg(monkeypatch, process, dies_on_sigterm=True)
+
+    with pytest.raises(KeyboardInterrupt):
+        ansible.AnsibleRunner(settings).run(check=False)
+
+    assert killed == [(process.pid, signal.SIGTERM)]
 
 
 def test_runner_translates_os_errors(settings, monkeypatch):

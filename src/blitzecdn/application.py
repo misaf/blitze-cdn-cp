@@ -1050,23 +1050,34 @@ class ControlPlane:
                 stdout=result.stdout,
                 stderr=result.stderr,
             )
-        except Exception as exc:
+        except BaseException as exc:
+            interrupted = not isinstance(exc, Exception)
             deployment = self.repository.transition(
                 deployment.id,
                 DeploymentStatus.RUNNING,
-                DeploymentStatus.FAILED,
+                (
+                    DeploymentStatus.ABANDONED
+                    if interrupted
+                    else DeploymentStatus.FAILED
+                ),
                 finished_at=datetime.now(UTC).isoformat(),
-                return_code=1,
+                return_code=None if interrupted else 1,
                 stdout="",
-                stderr=f"deployment runner error: {type(exc).__name__}: {exc}",
+                stderr=(
+                    f"deployment interrupted: {type(exc).__name__}"
+                    if interrupted
+                    else f"deployment runner error: {type(exc).__name__}: {exc}"
+                ),
             )
             self.repository.audit(
                 operator,
-                "deployment.failed",
+                "deployment.abandoned" if interrupted else "deployment.failed",
                 "deployment",
                 deployment.id,
                 {"error_type": type(exc).__name__},
             )
+            if interrupted:
+                raise
             if isinstance(exc, ExecutionError):
                 raise
             return deployment
@@ -1114,6 +1125,7 @@ class ControlPlane:
             self.settings.generated_vars_path,
             {
                 "blitzecdn_desired_state_version": DESIRED_STATE_VERSION,
+                "blitzecdn_nginx_allow_empty_sites": self.settings.allow_empty_sites,
                 "blitzecdn_nginx_sites": documents,
             },
         )

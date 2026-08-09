@@ -4,7 +4,8 @@ set -euo pipefail
 install_dir=/opt/blitzecdn
 admin_cidr=
 acme_email=
-run_deploy=1
+run_deploy=0
+allow_empty_sites=0
 
 usage() {
   cat <<'EOF'
@@ -17,7 +18,9 @@ Required:
   --email ADDRESS    Default ACME account email
 
 Options:
-  --no-deploy        Prepare the node but do not run the initial edge deployment
+  --deploy            Run the initial edge deployment (default: prepare only)
+  --allow-empty-sites Permit --deploy to remove every previously managed site
+  --no-deploy         Deprecated compatibility alias for the safe default
   -h, --help         Show this help
 
 The checkout must be /opt/blitzecdn because the hardened systemd units use that
@@ -36,6 +39,14 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 ]] || { echo "error: --email needs a value" >&2; exit 2; }
       acme_email=$2
       shift 2
+      ;;
+    --deploy)
+      run_deploy=1
+      shift
+      ;;
+    --allow-empty-sites)
+      allow_empty_sites=1
+      shift
       ;;
     --no-deploy)
       run_deploy=0
@@ -74,6 +85,20 @@ case "${ID:-}" in
   debian|ubuntu) ;;
   *) echo "error: unsupported operating system: ${ID:-unknown}" >&2; exit 1 ;;
 esac
+python3 - "${ID}" "${VERSION_ID:-0}" <<'PY'
+import sys
+
+minimum = {"debian": 12, "ubuntu": 24}
+try:
+    major = int(sys.argv[2].split(".", 1)[0])
+except ValueError as error:
+    raise SystemExit(f"error: invalid operating-system version: {sys.argv[2]}") from error
+if major < minimum[sys.argv[1]]:
+    raise SystemExit(
+        f"error: {sys.argv[1]} {sys.argv[2]} is unsupported; "
+        f"version {minimum[sys.argv[1]]}+ is required"
+    )
+PY
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -100,6 +125,13 @@ if ! getent passwd deploy >/dev/null; then
   useradd --create-home --shell /bin/bash deploy
 fi
 
+# useradd deliberately leaves a pre-existing home alone. A partial prior run
+# can therefore leave root-owned cache and Ansible directories that break every
+# later run as the service account. This is a dedicated service home, so make
+# its ownership invariant explicit on every installation.
+install -d -m 0750 -o blitzecdn -g blitzecdn /var/lib/blitzecdn
+chown -R blitzecdn:blitzecdn /var/lib/blitzecdn
+
 install -d -m 0750 -o blitzecdn -g blitzecdn "${install_dir}"
 chown -R blitzecdn:blitzecdn "${install_dir}"
 
@@ -109,6 +141,39 @@ chmod 0440 "${sudoers_file}"
 visudo -cf "${sudoers_file}" >/dev/null
 
 runuser -u blitzecdn -- "${install_dir}/install.sh"
+
+cli_wrapper=/usr/local/bin/blitzecdn
+cli_wrapper_tmp=$(mktemp)
+trap 'rm -f -- "${cli_wrapper_tmp}"' EXIT
+cat > "${cli_wrapper_tmp}" <<'WRAPPER'
+#!/usr/bin/env bash
+set -euo pipefail
+
+command=(
+  env
+  PATH=/opt/blitzecdn/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  BLITZE_PROJECT_DIR=/opt/blitzecdn
+  "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES:-false}"
+  /opt/blitzecdn/.venv/bin/blitzecdn
+  "$@"
+)
+
+if [[ $(id -un) == blitzecdn ]]; then
+  exec "${command[@]}"
+fi
+exec sudo -u blitzecdn "${command[@]}"
+WRAPPER
+install -m 0755 -o root -g root "${cli_wrapper_tmp}" "${cli_wrapper}"
+rm -f -- "${cli_wrapper_tmp}"
+trap - EXIT
+
+run_blitzecdn() {
+  runuser -u blitzecdn -- env \
+    PATH="${install_dir}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+    BLITZE_PROJECT_DIR="${install_dir}" \
+    BLITZE_ALLOW_EMPTY_SITES="${BLITZE_ALLOW_EMPTY_SITES:-false}" \
+    "${install_dir}/.venv/bin/blitzecdn" "$@"
+}
 
 state_dir="${install_dir}/.state"
 key_file="${state_dir}/id_ed25519"
@@ -150,9 +215,9 @@ chmod 0600 "${ssh_config}"
 runuser -u blitzecdn -- ssh -o BatchMode=yes deploy@localhost sudo -n true
 
 inventory="${install_dir}/ansible/inventory/hosts.yml"
-if ! runuser -u blitzecdn -- "${install_dir}/.venv/bin/blitzecdn" edge list --json \
+if ! run_blitzecdn edge list --json \
   | grep -Eq '"name"[[:space:]]*:[[:space:]]*"edge-local"'; then
-  runuser -u blitzecdn -- "${install_dir}/.venv/bin/blitzecdn" edge add edge-local \
+  run_blitzecdn edge add edge-local \
     --host localhost --user deploy --ssh-source "${admin_cidr}"
 fi
 
@@ -184,16 +249,28 @@ systemctl daemon-reload
 systemctl enable --now blitzecdn-api.service blitzecdn-cert-renew.timer blitzecdn-drift.timer
 
 if [[ ${run_deploy} -eq 1 ]]; then
-  runuser -u blitzecdn -- "${install_dir}/.venv/bin/blitzecdn" deploy --yes
+  managed_registry=/etc/nginx/blitzecdn-managed-sites
+  if [[ -s ${managed_registry} ]] && [[ $(run_blitzecdn site list) == "[]" ]] \
+    && [[ ${allow_empty_sites} -ne 1 ]]; then
+    echo "error: this edge has managed sites but desired state is empty" >&2
+    echo "Recreate the desired sites first, or rerun with --deploy --allow-empty-sites to remove them." >&2
+    exit 1
+  fi
+  if [[ ${allow_empty_sites} -eq 1 ]]; then
+    BLITZE_ALLOW_EMPTY_SITES=true run_blitzecdn deploy --yes
+  else
+    run_blitzecdn deploy --yes
+  fi
 else
-  echo "Initial deployment skipped. Run: sudo -u blitzecdn ${install_dir}/.venv/bin/blitzecdn deploy"
+  echo "Initial deployment skipped (safe default). Run: blitzecdn deploy"
 fi
 
 echo
 echo "Standalone BlitzeCDN installation complete."
 if [[ -n ${generated_api_key} ]]; then
-  echo "API token (save it now): ${generated_api_key}"
+  echo "API credential saved to ${environment_file}; read it with sudo."
 fi
-echo "Connect: ssh -L 8000:127.0.0.1:8000 deploy@THIS_SERVER"
+echo "Connect from your workstation with your existing operator account and key:"
+echo "  ssh -L 8000:127.0.0.1:8000 OPERATOR@THIS_SERVER"
 echo "API:     http://127.0.0.1:8000"
 echo "Status:  systemctl status blitzecdn-api.service"

@@ -15,18 +15,29 @@ if not ((3, 12) <= sys.version_info[:2] < (3, 15)):
     raise SystemExit("error: BlitzeCDN requires Python 3.12, 3.13, or 3.14")
 '
 
+if [[ -e .venv && (! -x .venv/bin/python || ! -x .venv/bin/pip) ]]; then
+  invalid_venv=".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)"
+  echo "warning: .venv is incomplete; preserving it as ${invalid_venv}" >&2
+  mv -- .venv "${invalid_venv}"
+fi
+
 if [[ ! -d .venv ]]; then
   "${python_command}" -m venv .venv
+fi
+
+if [[ ! -x .venv/bin/python || ! -x .venv/bin/pip ]]; then
+  echo "error: Python created an incomplete .venv; install the Python venv package and retry" >&2
+  exit 1
 fi
 
 # BLITZECDN_DEV=1 installs the test and lint tooling and makes src/ edits take
 # effect without reinstalling. Without it the venv holds a plain wheel, which is
 # what an operator wants and what a contributor gets caught by.
 if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
-  .venv/bin/pip install -e '.[dev]'
+  .venv/bin/python -m pip install -e '.[dev]'
 else
-  .venv/bin/pip install .
-  .venv/bin/pip install 'ansible-core>=2.21,<2.22'
+  .venv/bin/python -m pip install .
+  .venv/bin/python -m pip install 'ansible-core>=2.21,<2.22'
 fi
 
 # Collections go inside the repository rather than ~/.ansible/collections:

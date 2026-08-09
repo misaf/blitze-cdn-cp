@@ -233,6 +233,11 @@ def test_desired_state_declares_a_version_the_role_supports(desired_state):
     )
 
 
+def test_empty_site_removal_requires_explicit_approval(desired_state):
+    assert desired_state["blitzecdn_nginx_allow_empty_sites"] is False
+    assert "blitzecdn_nginx_allow_empty_sites" in _role_spec()
+
+
 def test_every_emitted_key_is_declared_by_the_role(desired_state):
     declared = set(_role_spec()["blitzecdn_nginx_sites"]["options"])
     # The control plane adds these when distributing managed certificates.

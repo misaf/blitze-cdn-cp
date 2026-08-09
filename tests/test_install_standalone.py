@@ -26,6 +26,8 @@ def test_standalone_installer_help_does_not_require_root():
     assert "--admin-cidr CIDR" in result.stdout
     assert "--email ADDRESS" in result.stdout
     assert "--no-deploy" in result.stdout
+    assert "--deploy" in result.stdout
+    assert "--allow-empty-sites" in result.stdout
 
 
 def test_standalone_installer_keeps_management_api_on_loopback():
@@ -33,3 +35,18 @@ def test_standalone_installer_keeps_management_api_on_loopback():
     assert "blitzecdn-api.service" in script
     assert "ssh -L 8000:127.0.0.1:8000" in script
     assert "--host 0.0.0.0" not in script
+
+
+def test_standalone_installer_defaults_to_no_deployment_and_installs_cli_wrapper():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "run_deploy=0" in script
+    assert "cli_wrapper=/usr/local/bin/blitzecdn" in script
+    assert "Initial deployment skipped (safe default)" in script
+    assert "API token (save it now)" not in script
+
+
+def test_standalone_installer_guards_existing_sites_from_empty_state():
+    script = SCRIPT.read_text(encoding="utf-8")
+    assert "managed_registry=/etc/nginx/blitzecdn-managed-sites" in script
+    assert "this edge has managed sites but desired state is empty" in script
+    assert "--deploy --allow-empty-sites" in script

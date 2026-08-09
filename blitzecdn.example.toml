@@ -12,3 +12,5 @@ certbot = "certbot"
 acme_default_email = "admin@example.com"
 deployment_timeout_seconds = 900
 output_limit_bytes = 1048576
+# Refuse to remove the final managed sites unless explicitly changed to true.
+allow_empty_sites = false
