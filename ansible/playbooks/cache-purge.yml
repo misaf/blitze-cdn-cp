@@ -1,0 +1,14 @@
+---
+- name: Purge cached responses from BlitzeCDN edges
+  hosts: blitzecdn_edges
+  become: true
+  gather_facts: false
+  # Deliberately not any_errors_fatal. A purge is a correction, usually made
+  # under time pressure, and an edge that is unreachable must not stop the
+  # reachable ones from dropping a bad object. The control plane reports which
+  # edges answered and the recap says which did not.
+  max_fail_percentage: 100
+  serial: "100%"
+  roles:
+    - role: blitzecdn.edge.blitzecdn_cache
+      tags: [cache]

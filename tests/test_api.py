@@ -1,9 +1,11 @@
+import threading
 import time
 
 from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
 from blitzecdn.api import create_app
+from blitzecdn.application import ControlPlane
 
 
 def test_health_is_public_and_controls_require_auth(settings):
@@ -13,6 +15,25 @@ def test_health_is_public_and_controls_require_auth(settings):
         assert (
             client.get("/v1/sites", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
+
+
+def test_api_service_runs_certificate_reconciliation_on_its_interval(
+    settings, monkeypatch
+):
+    called = threading.Event()
+    configured = settings.model_copy(
+        update={"certificate_reconcile_interval_seconds": 1}
+    )
+
+    def reconcile(_self, operator):
+        assert operator == "scheduler"
+        called.set()
+        return {"issued": [], "skipped": {}, "failed": {}, "deployment": None}
+
+    monkeypatch.setattr(ControlPlane, "reconcile_certificates", reconcile)
+
+    with TestClient(create_app(configured)):
+        assert called.wait(2)
 
 
 def test_openapi_documents_control_and_certificate_workflows(settings):
@@ -287,4 +308,201 @@ def test_certificates_and_origins_are_readable(settings):
                 "renewed"
             ]
             == []
+        )
+
+
+def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payload):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        client.post(
+            "/v1/domains/example.com/records",
+            json={**record_payload, "proxied": True},
+            headers=_HEADERS,
+        )
+        name = client.get("/v1/sites", headers=_HEADERS).json()[0]["name"]
+
+        response = client.get(f"/v1/sites/{name}", headers=_HEADERS)
+
+        assert response.status_code == 200
+        assert response.json()["name"] == name
+        # The derived defaults, which the record never carried.
+        assert response.json()["origin_scheme"] == "https"
+
+
+def test_an_unknown_site_is_a_404(settings):
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/v1/sites/absent", headers=_HEADERS).status_code == 404
+
+
+def test_renewal_can_be_narrowed_to_named_sites(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/certificates/renew",
+            json={"sites": ["absent-example-com"]},
+            headers=_HEADERS,
+        )
+        # No certificate by that name, so the selector is a 404 rather than an
+        # empty success an automated caller would read as "nothing was due".
+        assert response.status_code == 404
+
+
+def test_an_empty_renewal_selector_is_a_422(settings):
+    """`[]` would otherwise mean 'renew nothing' while reading as a filter."""
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/certificates/renew", json={"sites": []}, headers=_HEADERS
+        )
+        assert response.status_code == 422
+
+
+def _proxied_site(client, domain_payload, record_payload):
+    client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+    client.post(
+        "/v1/domains/example.com/records",
+        json={**record_payload, "proxied": True},
+        headers=_HEADERS,
+    )
+    return client.get("/v1/sites", headers=_HEADERS).json()[0]["server_names"][0]
+
+
+def test_purging_a_hostname_no_site_serves_is_a_404(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/cache/purge",
+            json={"entries": [{"host": "nothing.example.com", "uri": "/x"}]},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 404
+
+
+def test_an_empty_purge_request_is_a_409(settings):
+    """Neither entries nor purge_all: refused rather than reported as done."""
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/v1/cache/purge", json={}, headers=_HEADERS)
+        assert response.status_code == 409
+
+
+def test_purging_everything_and_entries_at_once_is_a_409(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/cache/purge",
+            json={
+                "purge_all": True,
+                "entries": [{"host": "cdn.example.com", "uri": "/x"}],
+            },
+            headers=_HEADERS,
+        )
+        assert response.status_code == 409
+
+
+def test_a_purge_uri_that_is_not_a_path_is_a_422(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/cache/purge",
+            json={"entries": [{"host": "cdn.example.com", "uri": "app.js"}]},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
+
+
+def test_a_purge_host_limit_that_could_widen_is_a_422(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/cache/purge",
+            json={"purge_all": True, "host_limit": "edge-a:!edge-b"},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
+
+
+def _seed_proxied_record(client) -> None:
+    client.post("/v1/domains", json={"name": "example.com"}, headers=_HEADERS)
+    client.post(
+        "/v1/domains/example.com/records",
+        json={
+            "domain": "example.com",
+            "name": "cdn",
+            "value": "198.51.100.10",
+            "proxied": True,
+        },
+        headers=_HEADERS,
+    )
+
+
+def _stub_preflight(monkeypatch, *failures: str) -> None:
+    """Replace the real checks, which would resolve names and probe an origin."""
+    from blitzecdn.domain.models import (
+        PreflightCheck,
+        PreflightReport,
+        PreflightSeverity,
+    )
+    from blitzecdn.infrastructure.preflight import CertificatePreflight
+
+    def check(self, site, *, deployed, record_ttl=None):
+        return PreflightReport(
+            site=site.name,
+            checks=tuple(
+                PreflightCheck(
+                    name=name,
+                    passed=False,
+                    severity=PreflightSeverity.BLOCKING,
+                    detail=f"{name} failed",
+                )
+                for name in failures
+            ),
+        )
+
+    monkeypatch.setattr(CertificatePreflight, "check", check)
+
+
+def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
+    _stub_preflight(monkeypatch)
+    with TestClient(create_app(settings)) as client:
+        _seed_proxied_record(client)
+
+        response = client.get(
+            "/v1/sites/cdn-example-com/certificate/preflight", headers=_HEADERS
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {"site": "cdn-example-com", "checks": []}
+
+
+def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
+    _stub_preflight(monkeypatch)
+    with TestClient(create_app(settings)) as client:
+        assert (
+            client.get("/v1/sites/cdn-example-com/certificate/preflight").status_code
+            == 401
+        )
+
+
+def test_a_blocked_preflight_makes_a_request_a_409(settings, monkeypatch):
+    _stub_preflight(monkeypatch, "dns")
+    with TestClient(create_app(settings)) as client:
+        _seed_proxied_record(client)
+
+        response = client.post(
+            "/v1/sites/cdn-example-com/certificate/request",
+            json={"email": "ops@example.com"},
+            headers=_HEADERS,
+        )
+
+        assert response.status_code == 409
+        assert "preflight failed" in response.json()["detail"]
+
+
+def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):
+    """`extra="forbid"` plus a typed field: a typo cannot silently disable this."""
+    _stub_preflight(monkeypatch, "dns")
+    with TestClient(create_app(settings)) as client:
+        _seed_proxied_record(client)
+
+        assert (
+            client.post(
+                "/v1/sites/cdn-example-com/certificate/request",
+                json={"email": "ops@example.com", "skip_preflght": True},
+                headers=_HEADERS,
+            ).status_code
+            == 422
         )

@@ -1,4 +1,5 @@
 import hmac
+import logging
 import threading
 import time
 from collections import deque
@@ -18,7 +19,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn import __version__
 from blitzecdn.application import ControlPlane
@@ -27,6 +28,7 @@ from blitzecdn.domain.models import (
     CERTIFICATE_RENEWAL_DAYS,
     EDGE_LIMIT,
     AuditEvent,
+    CacheStatsReport,
     CdnSite,
     CertificateInfo,
     CertificateRequest,
@@ -36,10 +38,15 @@ from blitzecdn.domain.models import (
     Domain,
     DriftReport,
     OriginCheck,
+    PreflightReport,
+    PurgeEntry,
+    PurgeResult,
     RecordPatch,
     RecordType,
 )
 from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AuthThrottle:
@@ -98,9 +105,33 @@ class DriftRequest(BaseModel):
     )
 
 
+class PurgeRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    entries: list[PurgeEntry] = Field(default_factory=list, max_length=500)
+    #: Empty the cache instead of removing named entries. Kept as its own flag
+    #: rather than "no entries means everything" so a caller whose filter
+    #: matched nothing cannot empty the fleet's cache by accident.
+    purge_all: bool = False
+    host_limit: str | None = Field(
+        default=None, max_length=512, pattern=EDGE_LIMIT.pattern
+    )
+
+
+class StatsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    host_limit: str | None = Field(
+        default=None, max_length=512, pattern=EDGE_LIMIT.pattern
+    )
+
+
 class RenewRequest(BaseModel):
     within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
     force: bool = False
+    #: Narrow the run to these sites. None means every managed certificate;
+    #: an unknown name is a 404 rather than a quiet no-op.
+    sites: list[str] | None = Field(default=None, min_length=1)
 
 
 class RollbackRequest(BaseModel):
@@ -116,7 +147,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         control_plane.initialize()
-        yield
+        stop = threading.Event()
+        reconciler: threading.Thread | None = None
+        interval = resolved.certificate_reconcile_interval_seconds
+        if interval:
+
+            def reconcile_forever() -> None:
+                while not stop.wait(interval):
+                    try:
+                        result = control_plane.reconcile_certificates("scheduler")
+                        if result["issued"] or result["failed"]:
+                            _LOGGER.info("certificate reconciliation: %s", result)
+                    except Exception:
+                        _LOGGER.exception("scheduled certificate reconciliation failed")
+
+            reconciler = threading.Thread(
+                target=reconcile_forever,
+                name="blitzecdn-certificate-reconciler",
+                daemon=True,
+            )
+            reconciler.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            if reconciler is not None:
+                reconciler.join(timeout=1)
 
     application = FastAPI(
         title="BlitzeCDN control plane",
@@ -180,6 +236,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/v1/sites", response_model=list[CdnSite])
     def list_sites(_operator: operator_dependency) -> list[CdnSite]:
         return control_plane.repository.list_sites()
+
+    @application.get("/v1/sites/{name}", response_model=CdnSite)
+    def get_site(name: str, _operator: operator_dependency) -> CdnSite:
+        """The fully resolved policy for one site, as handed to the edges."""
+        return control_plane.repository.get_site(name)
 
     @application.get("/v1/domains", response_model=list[Domain])
     def list_domains(_operator: operator_dependency) -> list[Domain]:
@@ -254,6 +315,45 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         return control_plane.check_origins()
 
+    @application.post("/v1/cache/purge", response_model=PurgeResult)
+    def purge_cache(
+        request: PurgeRequest, operator: operator_dependency
+    ) -> PurgeResult:
+        """Remove cached responses from the edges.
+
+        Answers inline rather than queueing: a purge is usually made under time
+        pressure and the caller needs to know whether every edge actually
+        dropped the object. Responds 409 when some edge did not — a partial
+        purge means clients get different answers depending on which edge they
+        reach, and that must not read as success.
+        """
+        result = control_plane.purge_cache(
+            operator,
+            entries=request.entries,
+            purge_all=request.purge_all,
+            host_limit=request.host_limit,
+        )
+        if not result.complete:
+            raise ConflictError(
+                "purged on "
+                f"{len(result.succeeded)} of {len(result.hosts)} edges; "
+                + ", ".join(host.host for host in result.failed)
+                + " may still be serving the cached copy"
+            )
+        return result
+
+    @application.post("/v1/cache/stats", response_model=CacheStatsReport)
+    def cache_stats(
+        request: StatsRequest, operator: operator_dependency
+    ) -> CacheStatsReport:
+        """Collect cache effectiveness from the edges.
+
+        A POST despite reading nothing but counters: it runs a playbook across
+        the fleet, which is neither cacheable nor safe to retry blindly the way
+        GET promises.
+        """
+        return control_plane.cache_stats(operator, host_limit=request.host_limit)
+
     @application.get("/v1/certificates", response_model=list[CertificateStatus])
     def list_certificates(
         _operator: operator_dependency,
@@ -275,7 +375,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         long convergence for a caller to poll.
         """
         return control_plane.renew_certificates(
-            operator, within_days=request.within_days, force=request.force
+            operator,
+            within_days=request.within_days,
+            force=request.force,
+            sites=request.sites,
         )
 
     @application.post(
@@ -302,7 +405,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: CertificateRequest,
         operator: operator_dependency,
     ) -> CertificateInfo:
-        return control_plane.request_certificate(name, operator, request.email)
+        return control_plane.request_certificate(
+            name,
+            operator,
+            request.email,
+            skip_preflight=request.skip_preflight,
+        )
+
+    @application.get(
+        "/v1/sites/{name}/certificate/preflight", response_model=PreflightReport
+    )
+    def certificate_preflight(
+        name: str, _operator: operator_dependency
+    ) -> PreflightReport:
+        """Whether HTTP-01 could validate this site right now.
+
+        Read-only and free of CA interaction, so it is safe to poll while a
+        customer is still moving their DNS.
+        """
+        return control_plane.certificate_preflight(name)
 
     @application.post(
         "/v1/deployments",

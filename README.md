@@ -102,9 +102,9 @@ SQLite data live under `.state/` by default and are ignored by Git.
 
 ```bash
 blitzecdn doctor
-blitzecdn site add example-cdn \
-  --domain cdn.example.com \
-  --origin origin.example.com
+blitzecdn domain add example.com
+blitzecdn record add example.com cdn \
+  --value origin.example.com --proxied
 blitzecdn site list
 blitzecdn deploy
 blitzecdn status
@@ -125,6 +125,11 @@ does.
 ```bash
 blitzecdn serve --host 127.0.0.1 --port 8000
 ```
+
+For production, install `packaging/systemd/blitzecdn-api.service`. It supplies
+the virtualenv `PATH`, keeps the API and certificate reconciler running, and
+loads secrets from `/etc/blitzecdn/blitzecdn.env` when present. Put an
+authenticated TLS reverse proxy in front of the loopback listener.
 
 The API is not. A convergence can run for `deployment_timeout_seconds`
 (default 900), far longer than any HTTP client or reverse proxy will wait, so
@@ -184,7 +189,15 @@ There are three TLS modes:
 
 For a new hostname, first create the site with `certificate_mode: disabled`,
 point its A/AAAA or CNAME records at the edges, and deploy once so every edge can
-serve the challenge path. Then request a certificate and deploy again:
+serve the challenge path. Confirm those steps landed before involving a CA:
+
+```bash
+blitzecdn cert preflight example-cdn
+```
+
+It resolves each hostname against the inventory's edge addresses, reads CAA, and
+checks that the site is in the last successful deployment, exiting `3` and naming
+what to fix otherwise. Then request a certificate and deploy again:
 
 ```bash
 curl --fail-with-body -X POST \
@@ -199,6 +212,12 @@ blitzecdn deploy --yes
 If `email` is omitted, `BLITZE_ACME_DEFAULT_EMAIL` must be configured. HTTP-01
 requires every requested hostname to resolve publicly to the edges and port 80
 to be reachable. It does not support wildcard names.
+
+The request runs the same preflight checks and returns `409` without contacting
+the CA if one blocks, so a rate-limited request is not spent on an attempt that
+would fail. `{"skip_preflight": true}` issues anyway and is recorded in the audit
+trail; it is for the case the controller cannot see, such as split-horizon DNS.
+Renewal runs the checks too, with no override.
 
 Upload an existing PEM chain and unencrypted PEM private key with:
 

@@ -5,6 +5,7 @@ import secrets
 from enum import IntEnum
 from pathlib import Path
 from typing import Annotated, Any
+from urllib.parse import urlsplit
 
 import typer
 import uvicorn
@@ -16,9 +17,14 @@ from blitzecdn.application import ControlPlane
 from blitzecdn.config import Settings
 from blitzecdn.domain.models import (
     CERTIFICATE_RENEWAL_DAYS,
+    CacheStatsReport,
+    CertificateMode,
+    Deployment,
     DeploymentStatus,
     DnsRecord,
     Domain,
+    OriginScheme,
+    PurgeEntry,
     RecordType,
 )
 from blitzecdn.exceptions import BlitzeError
@@ -57,6 +63,9 @@ origin_app = typer.Typer(
 cert_app = typer.Typer(
     no_args_is_help=True, help="Inspect and renew managed TLS certificates."
 )
+cache_app = typer.Typer(
+    no_args_is_help=True, help="Purge cached responses from the edges."
+)
 app.add_typer(site_app, name="site")
 app.add_typer(edge_app, name="edge")
 app.add_typer(domain_app, name="domain")
@@ -64,6 +73,7 @@ app.add_typer(record_app, name="record")
 app.add_typer(dns_app, name="dns")
 app.add_typer(cert_app, name="cert")
 app.add_typer(origin_app, name="origin")
+app.add_typer(cache_app, name="cache")
 
 
 def _settings() -> Settings:
@@ -84,10 +94,11 @@ def _emit(value: Any, *, json_output: bool) -> None:
         ]
     if json_output:
         typer.echo(json.dumps(value, indent=2, sort_keys=True))
-    elif isinstance(value, (dict, list)):
-        typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
     else:
-        typer.echo(str(value))
+        # Every caller hands this a model, a list, or a dict, and safe_dump
+        # renders all three. There is deliberately no scalar branch: a command
+        # that wants to print a bare string calls typer.echo itself.
+        typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
 
 
 @app.callback()
@@ -177,6 +188,16 @@ def deploy(
         ),
     ] = False,
     limit: Annotated[str | None, _LIMIT_OPTION] = None,
+    request_certificates: Annotated[
+        bool,
+        typer.Option(
+            "--request-certificates",
+            help=(
+                "After the HTTP deployment, issue certificates for ready "
+                "proxied sites and deploy again to install them."
+            ),
+        ),
+    ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Validate, preview, and apply desired state to the configured edges.
@@ -184,6 +205,11 @@ def deploy(
     With --limit this is a canary: the named edges converge and the rest keep
     serving what they have. Re-run without it to finish the rollout.
     """
+    if request_certificates and limit:
+        raise typer.BadParameter(
+            "--request-certificates cannot be combined with --limit; HTTP-01 "
+            "must be deployed to the full edge fleet"
+        )
     control = _control_plane()
     if not yes:
         errors = control.validate()
@@ -201,15 +227,51 @@ def deploy(
         if not typer.confirm(f"Apply these changes to {target}?"):
             raise typer.Abort()
     result = control.deploy("cli", host_limit=limit)
-    _emit(result, json_output=json_output)
+    if result.status is not DeploymentStatus.SUCCEEDED:
+        _emit(result, json_output=json_output)
+        raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
+
+    issued: list[str] = []
+    skipped: dict[str, str] = {}
+    certificate_deployment = None
+    if request_certificates:
+        for site in control.repository.list_sites():
+            if site.certificate_mode is not CertificateMode.DISABLED:
+                continue
+            report = control.certificate_preflight(site.name)
+            if not report.ok:
+                skipped[site.name] = report.summary()
+                continue
+            control.request_certificate(site.name, "cli")
+            issued.append(site.name)
+        if issued:
+            certificate_deployment = control.deploy("cli")
+            if certificate_deployment.status is not DeploymentStatus.SUCCEEDED:
+                _emit(certificate_deployment, json_output=json_output)
+                raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
+
+    if request_certificates:
+        _emit(
+            {
+                "deployment": result.model_dump(mode="json"),
+                "certificates_issued": issued,
+                "certificates_skipped": skipped,
+                "certificate_deployment": (
+                    certificate_deployment.model_dump(mode="json")
+                    if certificate_deployment is not None
+                    else None
+                ),
+            },
+            json_output=json_output,
+        )
+    else:
+        _emit(result, json_output=json_output)
     if not json_output and limit:
         typer.echo(
             f"\nThis was a canary against {limit!r}. Every other edge is still "
             "serving its previous configuration; re-run 'blitzecdn deploy' "
             "without --limit to finish the rollout."
         )
-    if result.status is not DeploymentStatus.SUCCEEDED:
-        raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
 
 @app.command()
@@ -346,6 +408,150 @@ def doctor(json_output: Annotated[bool, typer.Option("--json")] = False) -> None
         raise typer.Exit(ExitCode.CONFIGURATION)
 
 
+@cache_app.command("purge")
+def cache_purge(
+    url: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--url",
+            help=(
+                "Absolute URL to purge, e.g. https://cdn.example.com/app.js. "
+                "Repeat the option to purge more than one."
+            ),
+        ),
+    ] = None,
+    everything: Annotated[
+        bool,
+        typer.Option(
+            "--all",
+            help="Empty the cache entirely instead of removing named URLs.",
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option("--yes", help="Required confirmation for --all."),
+    ] = False,
+    limit: Annotated[str | None, _LIMIT_OPTION] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Remove cached responses from the edges.
+
+    Every variant of a URL goes: nginx keys entries by method and by content
+    encoding, so one URL is several entries and leaving any behind would keep
+    serving the object to some clients.
+
+    Purging changes no configuration and writes no desired state, so it needs
+    no deploy afterwards and does not wait for one in progress.
+    """
+    if (
+        everything
+        and not yes
+        and not typer.confirm(
+            "Empty the cache on "
+            + (f"edges matching {limit!r}" if limit else "every edge")
+            + "? Every object will be re-fetched from its origin."
+        )
+    ):
+        raise typer.Abort()
+    entries = [_purge_entry(value) for value in url or []]
+    result = _control_plane().purge_cache(
+        "cli", entries=entries, purge_all=everything, host_limit=limit
+    )
+    _emit(result, json_output=json_output)
+    if not json_output:
+        if result.complete:
+            typer.echo(f"\nPurged on all {len(result.hosts)} edges.")
+        for host in result.failed:
+            typer.echo(
+                f"\n{host.host} did not purge, so it may still be serving the "
+                "cached copy. Re-run once it is reachable.",
+                err=True,
+            )
+    if not result.complete:
+        raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
+
+
+def _purge_entry(value: str) -> PurgeEntry:
+    """Read an operator-supplied URL into the host and path the cache keys on."""
+    parsed = urlsplit(value if "//" in value else f"https://{value}")
+    if not parsed.hostname:
+        raise typer.BadParameter(f"{value!r} has no hostname")
+    if parsed.scheme not in {"http", "https"}:
+        raise typer.BadParameter(f"{value!r} must be http or https")
+    # The query string is part of $request_uri and therefore part of the cache
+    # key, so it is kept: purging '/a' must not silently purge '/a?v=2'.
+    uri = parsed.path or "/"
+    if parsed.query:
+        uri = f"{uri}?{parsed.query}"
+    return PurgeEntry(host=parsed.hostname, uri=uri, scheme=OriginScheme(parsed.scheme))
+
+
+@app.command()
+def stats(
+    limit: Annotated[str | None, _LIMIT_OPTION] = None,
+    by_site: Annotated[
+        bool,
+        typer.Option("--by-site", help="Break the numbers down by virtual host."),
+    ] = False,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Report cache effectiveness across the edges.
+
+    Reads the access log and nginx's own counters on each edge. Changes
+    nothing, so it is safe to run at any time, including during a deploy.
+
+    The hit ratio counts only requests that consulted the cache. Redirects,
+    errors nginx served itself, and sites with caching disabled are excluded
+    rather than scored as misses.
+    """
+    report = _control_plane().cache_stats("cli", host_limit=limit)
+    if json_output:
+        _emit(_stats_document(report, by_site=by_site), json_output=True)
+        return
+    _emit(_stats_document(report, by_site=by_site), json_output=False)
+    for edge in report.silent:
+        typer.echo(f"\n{edge.host} reported nothing: {edge.error}", err=True)
+    if report.hit_ratio is None:
+        typer.echo(
+            "\nNo cacheable requests in the window read, so there is no hit "
+            "ratio yet. A fresh edge or a quiet one both look like this."
+        )
+
+
+def _stats_document(report: CacheStatsReport, *, by_site: bool) -> dict[str, Any]:
+    """One shape for both outputs, so --json is never a different answer."""
+    document: dict[str, Any] = {
+        "collected_at": report.collected_at.isoformat(),
+        "hit_ratio": report.hit_ratio,
+        "hits": report.hits,
+        "cacheable_requests": report.cacheable_requests,
+        "requests": report.requests,
+        "edges": [
+            {
+                "host": edge.host,
+                "hit_ratio": edge.hit_ratio,
+                "requests": edge.requests,
+                "nginx_reachable": edge.nginx_reachable,
+                "connections": edge.connections,
+                "error": edge.error,
+            }
+            for edge in report.edges
+        ],
+    }
+    if by_site:
+        document["sites"] = [
+            {
+                "site": site.site,
+                "hit_ratio": site.hit_ratio,
+                "hits": site.hits,
+                "cacheable_requests": site.cacheable_requests,
+                "requests": site.requests,
+            }
+            for site in report.by_site()
+        ]
+    return document
+
+
 @app.command()
 def serve(
     host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
@@ -361,6 +567,20 @@ def serve(
 @site_app.command("list")
 def site_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
     _emit(_control_plane().repository.list_sites(), json_output=json_output)
+
+
+@site_app.command("show")
+def site_show(
+    name: Annotated[str, typer.Argument(help="Site name, e.g. cdn-example-com.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show the fully resolved policy for one site.
+
+    Sites are derived from proxied DNS records rather than created, so this is
+    where the defaults a record never mentions become visible — it is the same
+    document the edges are handed.
+    """
+    _emit(_control_plane().repository.get_site(name), json_output=json_output)
 
 
 @domain_app.command("add")
@@ -531,6 +751,35 @@ def cert_list(
         raise typer.Exit(ExitCode.CONFLICT)
 
 
+@cert_app.command("preflight")
+def cert_preflight(
+    name: Annotated[str, typer.Argument(help="Site name.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Check whether a certificate could be issued for a site right now.
+
+    Looks at what issuance actually depends on and the control plane cannot
+    control: that the hostname resolves to one of our edges, that CAA permits
+    our CA, that the vhost is already deployed, plus advisories on the origin
+    and the record's TTL. Contacts no CA and changes nothing, so it is safe to
+    run repeatedly while a customer is still moving their DNS.
+
+    Exits 3 if anything blocks issuance. Advisories alone do not.
+    """
+    report = _control_plane().certificate_preflight(name)
+    _emit(report, json_output=json_output)
+    if not json_output:
+        for check in report.checks:
+            mark = "ok  " if check.passed else f"{check.severity.value.upper()}"
+            typer.echo(f"  {mark:9} {check.name}: {check.detail}")
+        if report.ok:
+            typer.echo(f"\n{name} is ready for issuance.")
+        else:
+            typer.echo(f"\n{name} cannot be issued yet: {report.summary()}", err=True)
+    if not report.ok:
+        raise typer.Exit(ExitCode.CONFIGURATION)
+
+
 @cert_app.command("renew")
 def cert_renew(
     expiring_in: Annotated[
@@ -543,6 +792,23 @@ def cert_renew(
         bool,
         typer.Option("--force", help="Renew every ACME certificate regardless of age."),
     ] = False,
+    site: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--site",
+            help=(
+                "Renew only this site; repeat the option to add more. "
+                "Without it every managed certificate is considered."
+            ),
+        ),
+    ] = None,
+    deploy_after: Annotated[
+        bool,
+        typer.Option(
+            "--deploy",
+            help="Deploy once after successful renewals so edges receive them.",
+        ),
+    ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Reissue ACME certificates that are close to expiry.
@@ -550,23 +816,68 @@ def cert_renew(
     Safe to run on a schedule: a certificate that is not yet due is left
     alone, and one site failing does not stop the others. Renewed
     certificates reach the edges on the next deploy.
+
+    Use --site to retry a single failure without sending every other
+    subscription back to the CA, which is rate limited.
     """
     result = _control_plane().renew_certificates(
-        "cli", within_days=expiring_in, force=force
+        "cli", within_days=expiring_in, force=force, sites=site or None
     )
-    _emit(result, json_output=json_output)
-    if json_output:
-        return
-    if result["renewed"]:
-        typer.echo(
-            f"\nRenewed {len(result['renewed'])} certificate(s). Run "
-            "'blitzecdn deploy' to install them on the edges."
-        )
-    for problem in result["skipped"]:
-        typer.echo(f"  - {problem}", err=True)
-    for problem in result["failed"]:
-        typer.echo(f"  - renewal failed: {problem}", err=True)
-    if result["failed"]:
+    deployment = None
+    if deploy_after and result["renewed"] and not result["failed"]:
+        deployment = _control_plane().deploy("cli")
+    output: dict[str, Any] = result
+    if deploy_after:
+        output = {
+            **result,
+            "deployment": (
+                deployment.model_dump(mode="json") if deployment is not None else None
+            ),
+        }
+    _emit(output, json_output=json_output)
+    # Only the prose summary is suppressed under --json. The exit code below
+    # still has to fire: --json is the scheduled-run path, and that is exactly
+    # the caller that has nothing but the exit code to alert on.
+    if not json_output:
+        if result["renewed"] and not deploy_after:
+            typer.echo(
+                f"\nRenewed {len(result['renewed'])} certificate(s). Run "
+                "'blitzecdn deploy' to install them on the edges."
+            )
+        for problem in result["skipped"]:
+            typer.echo(f"  - {problem}", err=True)
+        for problem in result["failed"]:
+            typer.echo(f"  - renewal failed: {problem}", err=True)
+    if result["failed"] or (
+        deployment is not None and deployment.status is not DeploymentStatus.SUCCEEDED
+    ):
+        raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
+
+
+@cert_app.command("reconcile")
+def cert_reconcile(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Issue ready first certificates and deploy them to the edge fleet.
+
+    Safe to schedule frequently: sites with certificates are ignored, blocked
+    preflights never contact the CA, and the deployment runs only after at
+    least one new certificate was issued.
+    """
+    result = _control_plane().reconcile_certificates("cli")
+    deployment = result["deployment"]
+    if deployment is not None and not isinstance(deployment, Deployment):
+        raise RuntimeError("certificate reconciliation returned an invalid deployment")
+    document = {
+        **result,
+        "deployment": (
+            deployment.model_dump(mode="json") if deployment is not None else None
+        ),
+    }
+    _emit(document, json_output=json_output)
+    if result["failed"] or (
+        deployment is not None and deployment.status is not DeploymentStatus.SUCCEEDED
+    ):
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
 
@@ -607,11 +918,41 @@ def edge_add(
 def edge_remove(
     name: str,
     yes: Annotated[bool, typer.Option("--yes")] = False,
+    decommission: Annotated[
+        bool,
+        typer.Option(
+            "--decommission/--no-decommission",
+            help="Strip BlitzeCDN configuration and TLS keys from the host first.",
+        ),
+    ] = True,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Remove the entry even if the teardown failed. For a host that "
+            "no longer exists.",
+        ),
+    ] = False,
 ) -> None:
-    """Remove an edge from desired state."""
-    if not yes and not typer.confirm(f"Stop managing edge {name!r}?"):
+    """Decommission an edge and remove it from desired state.
+
+    Once the inventory entry is gone the host is unaddressable, so the teardown
+    has to happen first. ``--no-decommission`` skips it for a host that was
+    already wiped by other means; the files it would have removed, including
+    private keys, then stay where they are.
+    """
+    prompt = (
+        f"Remove BlitzeCDN configuration and TLS keys from {name!r}, then stop "
+        "managing it?"
+        if decommission
+        else f"Stop managing edge {name!r} without cleaning it up?"
+    )
+    if not yes and not typer.confirm(prompt):
         raise typer.Abort()
-    Inventory(_settings().inventory_path).remove_edge(name)
+    if decommission:
+        _control_plane().decommission_edge(name, "cli", force=force)
+    else:
+        Inventory(_settings().inventory_path).remove_edge(name)
     typer.echo(f"Removed {name}")
 
 

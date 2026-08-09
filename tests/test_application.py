@@ -1,9 +1,10 @@
+import re
 import threading
 import time
 from contextlib import contextmanager
 
 import pytest
-from conftest import FakeRunner
+from conftest import FakePreflight, FakeRunner
 
 from blitzecdn.application import ControlPlane
 from blitzecdn.domain.models import (
@@ -13,6 +14,7 @@ from blitzecdn.domain.models import (
     DeploymentStatus,
     DnsRecord,
     Domain,
+    PurgeEntry,
     RecordPatch,
     RecordType,
 )
@@ -366,6 +368,7 @@ def test_upload_and_request_certificate_activate_managed_tls(
         repository,
         FakeRunner(),
         issuer=FakeIssuer(),
+        preflight=FakePreflight(),
     )  # type: ignore[arg-type]
     _seed_proxied_record(control)
     certificate, key = certificate_pair()
@@ -386,6 +389,56 @@ def test_upload_and_request_certificate_activate_managed_tls(
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "certificate_source_path" in desired
     assert "PRIVATE KEY" not in desired
+
+
+def test_reconcile_issues_ready_first_certificate_and_deploys(
+    settings, certificate_pair
+):
+    class FakeIssuer:
+        def issue(self, site, email):
+            assert email == "ops@example.com"
+            return certificate_pair((site.server_names[0],))
+
+    configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
+    repository = Repository(configured.database_path)
+    control = ControlPlane(
+        configured,
+        repository,
+        FakeRunner([CommandResult(0, "deployed", "")]),
+        issuer=FakeIssuer(),
+        preflight=FakePreflight(),
+    )  # type: ignore[arg-type]
+    site_name = _seed_proxied_record(control).site_name
+
+    result = control.reconcile_certificates("timer")
+
+    assert result["issued"] == [site_name]
+    assert result["skipped"] == {}
+    assert result["failed"] == {}
+    assert result["deployment"].status is DeploymentStatus.SUCCEEDED
+    assert repository.get_site(site_name).certificate_mode == "requested"
+
+
+def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):
+    class UnexpectedIssuer:
+        def issue(self, _site, _email):
+            raise AssertionError("blocked preflight must not contact the CA")
+
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),
+        issuer=UnexpectedIssuer(),
+        preflight=FakePreflight(("dns",)),
+    )  # type: ignore[arg-type]
+    site_name = _seed_proxied_record(control).site_name
+
+    result = control.reconcile_certificates("timer")
+
+    assert result["issued"] == []
+    assert "dns" in result["skipped"][site_name]
+    assert result["deployment"] is None
 
 
 def test_request_certificate_requires_email(settings, site_payload):
@@ -601,7 +654,13 @@ def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate
 def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
-    control = ControlPlane(settings, repository, FakeRunner(), issuer=issuer)  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
     control.settings = settings
 
     control.create_domain(Domain(name="example.com"), "alice")
@@ -637,7 +696,13 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
 ):
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
-    control = ControlPlane(settings, repository, FakeRunner(), issuer=issuer)  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
     _proxied_site_with_certificate(control, repository, certificate_pair, days=3)
 
     result = control.renew_certificates("alice")
@@ -651,7 +716,13 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
     """A scheduled renewal must make progress even when a site is unreachable."""
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair, fails={"broken-example-com"})
-    control = ControlPlane(settings, repository, FakeRunner(), issuer=issuer)  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
 
     control.create_domain(Domain(name="example.com"), "alice")
     for label in ("broken", "fine"):
@@ -679,3 +750,534 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
     assert result["renewed"] == ["fine-example-com"]
     assert len(result["failed"]) == 1
     assert "broken-example-com" in result["failed"][0]
+
+
+def _two_acme_sites(control, certificate_pair):
+    """Two sites under ACME management, both freshly issued and not yet due."""
+    control.create_domain(Domain(name="example.com"), "alice")
+    for label in ("first", "second"):
+        record = control.create_record(
+            DnsRecord(
+                domain="example.com", name=label, value="198.51.100.10", proxied=True
+            ),
+            "alice",
+        )
+        certificate, key = certificate_pair((record.fqdn,), days=80)
+        control.upload_certificate(record.site_name, certificate, key, "alice")
+        control.request_certificate(record.site_name, "alice", "ops@example.com")
+
+
+def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
+    """Retrying one failure must not push the others through a rate-limited CA."""
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
+    _two_acme_sites(control, certificate_pair)
+    issuer.issued.clear()
+
+    result = control.renew_certificates(
+        "alice", force=True, sites=["first-example-com"]
+    )
+
+    assert result["renewed"] == ["first-example-com"]
+    # The unselected site never reached the CA at all.
+    assert [site for site, _ in issuer.issued] == ["first-example-com"]
+
+
+def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_pair):
+    """A typo must not read as 'nothing was due', which is how expiries are missed."""
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
+    _two_acme_sites(control, certificate_pair)
+    issuer.issued.clear()
+
+    with pytest.raises(NotFoundError, match="frist-example-com"):
+        control.renew_certificates("alice", force=True, sites=["frist-example-com"])
+
+    # Nothing was renewed before the unknown name was noticed.
+    assert issuer.issued == []
+
+
+def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_pair):
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
+    _two_acme_sites(control, certificate_pair)
+
+    control.renew_certificates("alice", force=True, sites=["second-example-com"])
+    narrowed = repository.list_audit_events()[0]
+    control.renew_certificates("alice")
+    full = repository.list_audit_events()[0]
+
+    assert narrowed.action == "certificates.renewed"
+    assert narrowed.details["sites"] == ["second-example-com"]
+    # A full sweep is distinguishable from a narrowed one that renewed nothing.
+    assert full.details["sites"] is None
+
+
+# ----------------------------------------------------------------------
+# Cache purge
+# ----------------------------------------------------------------------
+
+_PURGE_RECAP = "PLAY RECAP ****\nedge-a : ok=4 changed=1 unreachable=0 failed=0\n"
+
+
+def _site(control, repository, name="cdn-example-com", server="cdn.example.com"):
+    repository.create_site(
+        CdnSite.model_validate(
+            {"name": name, "server_names": [server], "origin_host": "o.example.com"}
+        )
+    )
+
+
+def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    _site(control, repository)
+
+    result = control.purge_cache(
+        "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/app.js")]
+    )
+
+    assert result.complete is True
+    entries, purge_all, _ = fake.purges[0]
+    assert entries == [{"host": "cdn.example.com", "uri": "/app.js", "scheme": "https"}]
+    assert purge_all is False
+
+
+def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
+    """Otherwise it reports success having removed nothing."""
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    _site(control, repository)
+
+    with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
+        control.purge_cache(
+            "alice", entries=[PurgeEntry(host="other.example.com", uri="/x")]
+        )
+    assert fake.purges == []
+
+
+def test_a_purge_under_a_wildcard_site_is_allowed(settings):
+    """nginx matches *.example.com to a.example.com, so purge must too."""
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    _site(control, repository, server="*.assets.example.com")
+
+    result = control.purge_cache(
+        "alice", entries=[PurgeEntry(host="img.assets.example.com", uri="/a.png")]
+    )
+    assert result.complete is True
+
+
+def test_a_purge_for_a_disabled_site_is_refused(settings):
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    repository.create_site(
+        CdnSite.model_validate(
+            {
+                "name": "off-example-com",
+                "server_names": ["off.example.com"],
+                "origin_host": "o.example.com",
+                "enabled": False,
+            }
+        )
+    )
+
+    with pytest.raises(NotFoundError):
+        control.purge_cache(
+            "alice", entries=[PurgeEntry(host="off.example.com", uri="/x")]
+        )
+
+
+def test_purging_everything_and_named_entries_at_once_is_refused(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    _site(control, repository)
+
+    with pytest.raises(ConflictError):
+        control.purge_cache(
+            "alice",
+            entries=[PurgeEntry(host="cdn.example.com", uri="/x")],
+            purge_all=True,
+        )
+
+
+def test_a_purge_with_nothing_to_do_is_refused(settings):
+    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    with pytest.raises(ConflictError):
+        control.purge_cache("alice")
+
+
+def test_purging_everything_needs_no_site_to_exist(settings):
+    """--all is about the cache on disk, not about what is currently declared."""
+    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    control = ControlPlane(settings, Repository(settings.database_path), fake)  # type: ignore[arg-type]
+
+    result = control.purge_cache("alice", purge_all=True)
+
+    assert result.complete is True
+    assert fake.purges[0][1] is True
+
+
+def test_a_partial_purge_is_reported_as_incomplete(settings):
+    """Some edges dropped the object and some did not: clients see both."""
+    repository = Repository(settings.database_path)
+    recap = (
+        "PLAY RECAP ****\n"
+        "edge-a : ok=4 changed=1 unreachable=0 failed=0\n"
+        "edge-b : ok=0 changed=0 unreachable=1 failed=0\n"
+    )
+    control = ControlPlane(
+        settings, repository, FakeRunner([CommandResult(0, recap, "")])
+    )  # type: ignore[arg-type]
+    _site(control, repository)
+
+    result = control.purge_cache(
+        "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/app.js")]
+    )
+
+    assert result.complete is False
+    assert [host.host for host in result.failed] == ["edge-b"]
+
+
+def test_a_purge_no_edge_answered_is_an_error(settings):
+    """Silence is not success: the object may still be served everywhere."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings, repository, FakeRunner([CommandResult(0, "", "no hosts matched")])
+    )  # type: ignore[arg-type]
+    _site(control, repository)
+
+    with pytest.raises(ExecutionError, match="no edge reported"):
+        control.purge_cache(
+            "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/x")]
+        )
+
+
+def test_a_purge_is_recorded_in_the_audit_trail(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings, repository, FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    )  # type: ignore[arg-type]
+    _site(control, repository)
+
+    control.purge_cache(
+        "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/app.js")]
+    )
+
+    event = repository.list_audit_events()[0]
+    assert event.action == "cache.purged"
+    assert event.details["complete"] is True
+    assert event.details["entries"][0]["uri"] == "/app.js"
+
+
+# ----------------------------------------------------------------------
+# Cache statistics
+# ----------------------------------------------------------------------
+
+_STATS_RECAP = (
+    "PLAY RECAP ****\n"
+    "edge-a : ok=5 changed=0 unreachable=0 failed=0\n"
+    "edge-b : ok=5 changed=0 unreachable=0 failed=0\n"
+)
+
+
+def _stats_control(settings, reports, recap=_STATS_RECAP):
+    fake = FakeRunner([CommandResult(0, recap, "")])
+    fake.edge_reports = reports
+    return ControlPlane(settings, Repository(settings.database_path), fake), fake  # type: ignore[arg-type]
+
+
+def _report(cache, *, reachable=True):
+    return {
+        "host": "ignored",
+        "collected_at": "2026-08-09T01:00:00Z",
+        "nginx_reachable": reachable,
+        "connections": {"active": 5, "requests": 100},
+        "cache": cache,
+    }
+
+
+def test_statistics_are_aggregated_across_the_fleet(settings):
+    control, _ = _stats_control(
+        settings,
+        {
+            "edge-a": _report(
+                [
+                    {"site": "cdn.example.com", "outcome": "HIT", "requests": 7},
+                    {"site": "cdn.example.com", "outcome": "MISS", "requests": 3},
+                ]
+            ),
+            "edge-b": _report(
+                [{"site": "cdn.example.com", "outcome": "HIT", "requests": 10}]
+            ),
+        },
+    )
+
+    report = control.cache_stats("alice")
+
+    assert report.hit_ratio == 0.85
+    assert {edge.host for edge in report.reporting} == {"edge-a", "edge-b"}
+    assert report.by_site()[0].site == "cdn.example.com"
+
+
+def test_an_edge_that_wrote_no_report_is_silent_rather_than_missing(settings):
+    """The recap is the roster; a vanished edge would understate the fleet."""
+    control, _ = _stats_control(
+        settings,
+        {"edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])},
+    )
+
+    report = control.cache_stats("alice")
+
+    assert [edge.host for edge in report.silent] == ["edge-b"]
+    assert [edge.host for edge in report.reporting] == ["edge-a"]
+
+
+def test_an_unreachable_edge_is_reported_as_unreachable(settings):
+    recap = (
+        "PLAY RECAP ****\n"
+        "edge-a : ok=5 changed=0 unreachable=0 failed=0\n"
+        "edge-b : ok=0 changed=0 unreachable=1 failed=0\n"
+    )
+    control, _ = _stats_control(
+        settings,
+        {"edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])},
+        recap=recap,
+    )
+
+    report = control.cache_stats("alice")
+
+    assert [(e.host, e.error) for e in report.silent] == [("edge-b", "unreachable")]
+
+
+def test_a_truncated_edge_report_degrades_instead_of_raising(settings):
+    """One bad file must not take the whole fleet's numbers with it."""
+    control, fake = _stats_control(
+        settings,
+        {"edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])},
+    )
+    original = fake.run_stats
+
+    def _truncate(*, output_dir, host_limit=None):
+        result = original(output_dir=output_dir, host_limit=host_limit)
+        (output_dir / "edge-b.json").write_text('{"cache": [', encoding="utf-8")
+        return result
+
+    fake.run_stats = _truncate  # type: ignore[method-assign]
+
+    report = control.cache_stats("alice")
+
+    assert [edge.host for edge in report.reporting] == ["edge-a"]
+    assert report.silent[0].host == "edge-b"
+
+
+def test_a_previous_runs_report_is_not_read_as_current(settings):
+    """A stale number presented as fresh is worse than an admitted gap."""
+    control, fake = _stats_control(
+        settings,
+        {
+            "edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}]),
+            "edge-b": _report([{"site": "a", "outcome": "HIT", "requests": 99}]),
+        },
+    )
+    assert len(control.cache_stats("alice").reporting) == 2
+
+    # Second run: edge-b says nothing, and must not be answered with its own
+    # earlier document.
+    fake.results = [CommandResult(0, _STATS_RECAP, "")]
+    fake.edge_reports = {
+        "edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])
+    }
+
+    report = control.cache_stats("alice")
+
+    assert [edge.host for edge in report.silent] == ["edge-b"]
+    assert report.requests == 1
+
+
+def test_statistics_are_recorded_in_the_audit_trail(settings):
+    control, _ = _stats_control(
+        settings,
+        {
+            "edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}]),
+            "edge-b": _report([{"site": "a", "outcome": "MISS", "requests": 1}]),
+        },
+    )
+
+    control.cache_stats("alice")
+    event = Repository(settings.database_path).list_audit_events()[0]
+
+    assert event.action == "cache.stats_collected"
+    assert event.details["hit_ratio"] == 0.5
+
+
+# ----------------------------------------------------------------------
+# Certificate preflight enforcement
+#
+# The checks themselves are tested in test_preflight.py. These are about what
+# the application does with a report: refuse, override, or pass through.
+# ----------------------------------------------------------------------
+
+
+def _preflight_control(settings, certificate_pair, failures=()):
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    preflight = FakePreflight(failures)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=preflight,  # type: ignore[arg-type]
+    )
+    return control, repository, issuer, preflight
+
+
+def test_a_blocked_preflight_refuses_before_reaching_the_ca(settings, certificate_pair):
+    """The rate limit is the thing being protected: no CA request at all."""
+    control, _, issuer, _ = _preflight_control(settings, certificate_pair, ("dns",))
+    _seed_proxied_record(control)
+
+    with pytest.raises(ConflictError, match="preflight failed"):
+        control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+
+    assert issuer.issued == []
+
+
+def test_the_refusal_names_the_failed_check_and_the_way_past_it(
+    settings, certificate_pair
+):
+    control, _, _, _ = _preflight_control(settings, certificate_pair, ("caa",))
+    _seed_proxied_record(control)
+
+    with pytest.raises(ConflictError) as raised:
+        control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+
+    assert "caa" in str(raised.value)
+    assert "skip_preflight" in str(raised.value)
+
+
+def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificate_pair):
+    control, repository, issuer, _ = _preflight_control(
+        settings, certificate_pair, ("dns", "deployed")
+    )
+    _seed_proxied_record(control)
+
+    info = control.request_certificate(
+        "cdn-example-com", "alice", "ops@example.com", skip_preflight=True
+    )
+
+    assert info.source == "acme"
+    assert issuer.issued == [("cdn-example-com", "ops@example.com")]
+    overrides = [
+        event
+        for event in repository.list_audit_events()
+        if event.action == "certificate.requested.preflight_overridden"
+    ]
+    assert len(overrides) == 1
+    assert {failure["check"] for failure in overrides[0].details["failures"]} == {
+        "dns",
+        "deployed",
+    }
+
+
+def test_preflight_is_told_the_records_ttl(settings, certificate_pair):
+    """The TTL advisory is only possible if the record's own value reaches it."""
+    control, _, _, preflight = _preflight_control(settings, certificate_pair)
+    control.create_domain(Domain(name="example.com"), "alice")
+    control.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            value="198.51.100.10",
+            proxied=True,
+            ttl=7200,
+        ),
+        "alice",
+    )
+
+    control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+
+    assert preflight.calls[-1] == ("cdn-example-com", False, 7200)
+
+
+def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
+    settings, certificate_pair
+):
+    """A renewal that cannot validate has to reach the timer's exit code."""
+    control, _, issuer, preflight = _preflight_control(settings, certificate_pair)
+    _proxied_site_with_certificate(control, None, certificate_pair, days=3)
+    control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+    issuer.issued.clear()
+    preflight.failures = ("dns",)
+
+    result = control.renew_certificates("alice", force=True)
+
+    assert result["renewed"] == []
+    assert len(result["failed"]) == 1
+    assert "preflight failed" in result["failed"][0]
+    assert issuer.issued == []
+
+
+def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair):
+    """Check mode proved the play parses; no edge is serving the vhost."""
+    control, _, _, _ = _preflight_control(settings, certificate_pair)
+    _seed_proxied_record(control)
+
+    # Two runs, so the fake runner needs a result for each.
+    control.runner.results.append(CommandResult(0, "ok", ""))
+
+    control.deploy("alice", check=True)
+    assert control._site_is_deployed("cdn-example-com") is False
+
+    control.deploy("alice")
+    assert control._site_is_deployed("cdn-example-com") is True
+
+
+def test_a_site_absent_from_the_last_deployment_is_not_deployed(
+    settings, certificate_pair
+):
+    control, _, _, _ = _preflight_control(settings, certificate_pair)
+    _seed_proxied_record(control)
+    control.deploy("alice")
+
+    assert control._site_is_deployed("cdn-example-com") is True
+    assert control._site_is_deployed("other-example-com") is False
+
+
+def test_certificate_preflight_reports_without_contacting_a_ca(
+    settings, certificate_pair
+):
+    control, _, issuer, _ = _preflight_control(settings, certificate_pair, ("dns",))
+    _seed_proxied_record(control)
+
+    report = control.certificate_preflight("cdn-example-com")
+
+    assert report.site == "cdn-example-com"
+    assert not report.ok
+    assert issuer.issued == []

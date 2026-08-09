@@ -149,6 +149,89 @@ class AnsibleRunner:
         ]
         return self._execute(command, timeout=120)
 
+    def run_cache_purge(
+        self,
+        *,
+        entries: list[dict[str, str]],
+        purge_all: bool,
+        host_limit: str | None = None,
+    ) -> CommandResult:
+        """Remove cached responses across the edges in scope.
+
+        Not taken under the deployment lock. A purge writes no desired state
+        and changes no configuration, and the case that matters most — a bad
+        object being served while a deploy is midway through the fleet — is
+        exactly when the lock would make it wait.
+        """
+        variables = self._write_run_vars(
+            "cache-purge.yml",
+            {
+                "blitzecdn_cache_purge_entries": entries,
+                "blitzecdn_cache_purge_all": purge_all,
+            },
+        )
+        return self._execute(
+            self._playbook_command(
+                self._settings.cache_purge_playbook_path, variables, host_limit
+            ),
+            timeout=self._settings.deployment_timeout_seconds,
+        )
+
+    def run_stats(
+        self, *, output_dir: Path, host_limit: str | None = None
+    ) -> CommandResult:
+        """Collect one JSON report per edge into ``output_dir``."""
+        variables = self._write_run_vars(
+            "stats.yml", {"blitzecdn_stats_output_dir": str(output_dir)}
+        )
+        return self._execute(
+            self._playbook_command(
+                self._settings.stats_playbook_path, variables, host_limit
+            ),
+            timeout=self._settings.deployment_timeout_seconds,
+        )
+
+    def run_decommission(self, *, host_limit: str) -> CommandResult:
+        """Strip BlitzeCDN configuration and TLS material from one edge.
+
+        ``host_limit`` is required and never defaulted to the whole group: the
+        other run methods treat an absent limit as "every edge", which for a
+        teardown would empty the fleet. The caller names the host it is
+        removing, and the playbook is fail-closed so a partial teardown keeps
+        the inventory entry rather than stranding keys on a forgotten host.
+        """
+        variables = self._write_run_vars("decommission.yml", {})
+        return self._execute(
+            self._playbook_command(
+                self._settings.decommission_playbook_path, variables, host_limit
+            ),
+            timeout=self._settings.deployment_timeout_seconds,
+        )
+
+    def _write_run_vars(self, name: str, values: dict[str, object]) -> Path:
+        from blitzecdn.infrastructure.filesystem import atomic_write_yaml
+
+        path = self._settings.state_dir / name
+        atomic_write_yaml(path, values)
+        return path
+
+    def _playbook_command(
+        self, playbook: Path, variables: Path, host_limit: str | None
+    ) -> list[str]:
+        self._validate_paths()
+        if not playbook.is_file():
+            raise ConfigurationError(f"playbook does not exist: {playbook}")
+        return [
+            self._settings.ansible_playbook,
+            str(playbook),
+            "--inventory",
+            str(self._settings.inventory_path),
+            "--extra-vars",
+            f"@{variables}",
+            "--limit",
+            self._limit(host_limit),
+        ]
+
     def _validate_paths(self) -> None:
         errors = self._settings.validate_runtime()
         if errors:
