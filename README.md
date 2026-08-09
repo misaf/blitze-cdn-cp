@@ -24,9 +24,9 @@ To run an independent control plane and edge on the same Debian 12+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch v1.2.8 --depth 1 \
+sudo git clone --branch v1.3.0 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
-sudo /opt/blitzecdn/install-standalone.sh \
+sudo /opt/blitzecdn/install.sh standalone \
   --admin-cidr 203.0.113.8/32 \
   --public-address 203.0.113.10 \
   --email admin@example.com
@@ -50,9 +50,13 @@ ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 Update an existing standalone installation to the newest stable release:
 
 ```bash
-sudo /opt/blitzecdn/update-standalone.sh --check
-sudo /opt/blitzecdn/update-standalone.sh
+sudo /opt/blitzecdn/install.sh update --check
+sudo /opt/blitzecdn/install.sh update
 ```
+
+Installations made before this release carry a separate
+`update-standalone.sh`. Run that one a final time — it upgrades the checkout to
+a release where `install.sh update` has replaced it.
 
 The updater accepts `--version vX.Y.Z` to select an exact release and `--yes`
 for unattended confirmation. It backs up `.state`, local environment settings,
@@ -238,7 +242,7 @@ BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov  # after an in
 ```
 
 These tests skip silently when the collection is not installed. Run
-`./install.sh` first, and check the count: twelve tests, not twelve skips.
+`./install.sh` first, and check the count: eighteen tests, not eighteen skips.
 
 ## Certificates
 
@@ -364,5 +368,6 @@ Documentation prose and maintained reference pages live in **blitze-cdn-web**.
 When a route, flag, setting, or role variable changes, review and update the
 affected pages there in the same release workflow.
 
-See the [security policy](SECURITY.md) and
-[contributing guide](CONTRIBUTING.md).
+Report vulnerabilities privately to the repository maintainers. Do not open a
+public issue containing exploit details or credentials; rotate any exposed key
+immediately and review the audit and deployment history.
