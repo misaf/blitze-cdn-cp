@@ -1,5 +1,5 @@
 ---
-blitzecdn_desired_state_version: 1
+blitzecdn_desired_state_version: 2
 blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_sites:
   - origin_port: 8443
@@ -24,6 +24,20 @@ blitzecdn_nginx_sites:
     cache_enabled: false
     cache_valid_success: 10m
     cache_valid_not_found: 1m
+    firewall:
+      allow_sources:
+        - 203.0.113.9/32
+      deny_sources:
+        - 203.0.113.0/24
+        - 2001:db8::/32
+      allowed_countries: []
+      denied_countries: []
+      denied_methods:
+        - DELETE
+        - TRACE
+      denied_paths:
+        - /admin
+        - /.git
     name: plain-cdn
     server_names:
       - static.example.com
