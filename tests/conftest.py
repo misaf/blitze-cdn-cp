@@ -172,7 +172,7 @@ def seeded(settings):
     """
 
     def build(runner=None):
-        from blitzecdn.application import ControlPlane
+        from blitzecdn.control_plane import ControlPlane
         from blitzecdn.domain.models import DnsRecord, Domain
         from blitzecdn.infrastructure.database import Repository
 

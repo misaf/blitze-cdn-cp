@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
 from blitzecdn.api import create_app
-from blitzecdn.application import ControlPlane
+from blitzecdn.control_plane import ControlPlane
 
 
 def test_health_is_public_and_controls_require_auth(settings):

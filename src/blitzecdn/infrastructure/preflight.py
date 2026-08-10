@@ -38,7 +38,8 @@ from blitzecdn.domain.models import (
     PreflightSeverity,
 )
 from blitzecdn.infrastructure.inventory import Inventory
-from blitzecdn.infrastructure.origins import OriginProbe
+from blitzecdn.infrastructure.origins import OriginProbe as ConcreteOriginProbe
+from blitzecdn.ports import OriginProbe
 
 #: CAA property tags we understand. ``issue`` governs ordinary issuance,
 #: ``issuewild`` wildcard issuance; RFC 8659 says a wildcard order consults
@@ -59,7 +60,7 @@ class CertificatePreflight:
     ) -> None:
         self._settings = settings
         self._inventory = inventory or Inventory(settings.inventory_path)
-        self._origin_probe = origin_probe or OriginProbe(settings)
+        self._origin_probe = origin_probe or ConcreteOriginProbe(settings)
 
     def _resolver(self) -> dns.resolver.Resolver:
         """A resolver honouring the configured timeout and, if set, servers."""

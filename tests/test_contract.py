@@ -36,7 +36,7 @@ import pytest
 import yaml
 
 from blitzecdn import EDGE_COLLECTION_VERSION
-from blitzecdn.application import ControlPlane
+from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.models import (
     DESIRED_STATE_VERSION,
     CdnSite,
@@ -139,7 +139,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
             }
         )
     )
-    control._write_desired_state(repository.snapshot())
+    control.deployments.write_desired_state(repository.snapshot())
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 
 

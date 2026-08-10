@@ -6,7 +6,7 @@ from contextlib import contextmanager
 import pytest
 from conftest import FakePreflight, FakeRunner
 
-from blitzecdn.application import ControlPlane
+from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.models import (
     CdnSite,
     CertificateMode,
@@ -1288,10 +1288,10 @@ def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair)
     control.runner.results.append(CommandResult(0, "ok", ""))
 
     control.deploy("alice", check=True)
-    assert control._site_is_deployed("cdn-example-com") is False
+    assert control.deployments.site_is_deployed("cdn-example-com") is False
 
     control.deploy("alice")
-    assert control._site_is_deployed("cdn-example-com") is True
+    assert control.deployments.site_is_deployed("cdn-example-com") is True
 
 
 def test_a_site_absent_from_the_last_deployment_is_not_deployed(
@@ -1301,8 +1301,8 @@ def test_a_site_absent_from_the_last_deployment_is_not_deployed(
     _seed_proxied_record(control)
     control.deploy("alice")
 
-    assert control._site_is_deployed("cdn-example-com") is True
-    assert control._site_is_deployed("other-example-com") is False
+    assert control.deployments.site_is_deployed("cdn-example-com") is True
+    assert control.deployments.site_is_deployed("other-example-com") is False
 
 
 def test_certificate_preflight_reports_without_contacting_a_ca(
