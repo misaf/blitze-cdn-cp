@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from blitzecdn.domain.models import (
+    STORED,
     AuditEvent,
     CdnSite,
     Deployment,
@@ -139,7 +140,9 @@ class Repository:
             rows = connection.execute(
                 "SELECT document FROM sites ORDER BY name"
             ).fetchall()
-        return [CdnSite.model_validate_json(row["document"]) for row in rows]
+        return [
+            CdnSite.model_validate_json(row["document"], context=STORED) for row in rows
+        ]
 
     def get_site(self, name: str) -> CdnSite:
         with self._connection() as connection:
@@ -148,7 +151,7 @@ class Repository:
             ).fetchone()
         if row is None:
             raise NotFoundError(f"CDN site {name!r} does not exist")
-        return CdnSite.model_validate_json(row["document"])
+        return CdnSite.model_validate_json(row["document"], context=STORED)
 
     def create_site(self, site: CdnSite) -> CdnSite:
         try:
@@ -235,7 +238,10 @@ class Repository:
         query += " ORDER BY domain, name, type"
         with self._connection() as connection:
             rows = connection.execute(query, parameters).fetchall()
-        return [DnsRecord.model_validate_json(row["document"]) for row in rows]
+        return [
+            DnsRecord.model_validate_json(row["document"], context=STORED)
+            for row in rows
+        ]
 
     def get_record(self, domain: str, name: str, type_: RecordType) -> DnsRecord:
         with self._connection() as connection:
@@ -248,7 +254,7 @@ class Repository:
             raise NotFoundError(
                 f"{type_.value} record {name!r} in {domain!r} does not exist"
             )
-        return DnsRecord.model_validate_json(row["document"])
+        return DnsRecord.model_validate_json(row["document"], context=STORED)
 
     def create_record(self, record: DnsRecord) -> DnsRecord:
         try:
@@ -373,7 +379,10 @@ class Repository:
         data = json.loads(snapshot)
         if not isinstance(data, dict):
             raise ValueError("deployment snapshot is not an object")
-        return [CdnSite.model_validate(item) for item in data.get("sites", [])]
+        return [
+            CdnSite.model_validate(item, context=STORED)
+            for item in data.get("sites", [])
+        ]
 
     @staticmethod
     def decode_snapshot_zones(snapshot: str) -> tuple[list[Domain], list[DnsRecord]]:
@@ -383,7 +392,10 @@ class Repository:
             raise ValueError("deployment snapshot is not an object")
         return (
             [Domain.model_validate(item) for item in data.get("domains", [])],
-            [DnsRecord.model_validate(item) for item in data.get("records", [])],
+            [
+                DnsRecord.model_validate(item, context=STORED)
+                for item in data.get("records", [])
+            ],
         )
 
     def create_deployment(
