@@ -1216,3 +1216,51 @@ def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert "resolver" not in result.output
+
+
+def test_version_reports_all_three_contract_versions():
+    """`--version` answers the question a schema-skew failure raises.
+
+    A role refusing `blitzecdn_desired_state_version` means the control plane
+    and the edge collection disagree. Reporting only the package version would
+    leave the operator to dig the other two out of `ansible/requirements.yml`
+    and the domain model.
+    """
+    from blitzecdn import EDGE_COLLECTION_VERSION, __version__
+    from blitzecdn.domain.models import DESIRED_STATE_VERSION
+
+    result = runner.invoke(cli.app, ["--version"])
+
+    assert result.exit_code == 0
+    assert f"blitzecdn {__version__}" in result.output
+    assert f"blitzecdn.edge {EDGE_COLLECTION_VERSION}" in result.output
+    assert f"desired-state schema {DESIRED_STATE_VERSION}" in result.output
+
+
+def _walk_commands(app, prefix="blitzecdn"):
+    for command in app.registered_commands:
+        name = command.name or command.callback.__name__.replace("_", "-")
+        yield f"{prefix} {name}", (command.callback.__doc__ or command.help)
+    for group in app.registered_groups:
+        yield from _walk_commands(group.typer_instance, f"{prefix} {group.name}")
+
+
+def test_every_command_has_help_text():
+    """A blank row in `--help` is invisible until someone needs that command.
+
+    Typer falls back to an empty description rather than failing, so four
+    commands shipped undocumented without anything noticing. This is the only
+    guard.
+    """
+    undocumented = [name for name, doc in _walk_commands(cli.app) if not doc]
+
+    assert not undocumented, (
+        f"these commands render a blank description in --help: {undocumented}"
+    )
+
+
+def test_group_help_mentions_the_derived_site_model():
+    """The one thing a new operator gets wrong is looking for `site create`."""
+    result = runner.invoke(cli.app, ["--help"])
+
+    assert "You do not create virtual hosts" in strip_ansi(result.output)

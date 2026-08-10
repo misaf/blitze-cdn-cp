@@ -12,11 +12,13 @@ import uvicorn
 import yaml
 from pydantic import ValidationError
 
+from blitzecdn import EDGE_COLLECTION_VERSION, __version__
 from blitzecdn.api import create_app
 from blitzecdn.application import ControlPlane
 from blitzecdn.config import Settings
 from blitzecdn.domain.models import (
     CERTIFICATE_RENEWAL_DAYS,
+    DESIRED_STATE_VERSION,
     CacheStatsReport,
     CertificateMode,
     Deployment,
@@ -50,7 +52,18 @@ class ExitCode(IntEnum):
 app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
-    help="Securely manage BlitzeCDN edge desired state.",
+    help="""Securely manage BlitzeCDN edge desired state.
+
+    You do not create virtual hosts. Register a zone with 'domain add', add a
+    record with 'record add --proxied', and the edge site is derived from it —
+    unproxy the record and the site is gone. Per-hostname settings (origin,
+    caching, TLS, firewall) live on the record.
+
+    Nothing reaches an edge until 'deploy'. Commands change local desired state
+    only, so you can stage a batch of edits and apply them in one converge.
+    Preview with 'plan', apply with 'deploy', undo with 'rollback', and check
+    the fleet still matches with 'drift'.
+    """,
 )
 site_app = typer.Typer(
     no_args_is_help=True,
@@ -58,7 +71,10 @@ site_app = typer.Typer(
 )
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
 domain_app = typer.Typer(no_args_is_help=True, help="Manage DNS zones.")
-record_app = typer.Typer(no_args_is_help=True, help="Manage DNS records.")
+record_app = typer.Typer(
+    no_args_is_help=True,
+    help="Manage DNS records, and the CDN policy each proxied record carries.",
+)
 dns_app = typer.Typer(no_args_is_help=True, help="Export DNS state.")
 origin_app = typer.Typer(
     no_args_is_help=True, help="Check the origins the edges proxy to."
@@ -104,12 +120,37 @@ def _emit(value: Any, *, json_output: bool) -> None:
         typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
 
 
+def _version_callback(value: bool) -> None:
+    """Print all three versions that have to agree, not just this package.
+
+    A control plane, the edge collection it pins, and the desired-state schema
+    it emits are separate moving parts, and the failure they produce together
+    — a role refusing a schema version — names numbers an operator otherwise
+    has to dig out of ``requirements.yml`` and the domain model.
+    """
+    if not value:
+        return
+    typer.echo(f"blitzecdn {__version__}")
+    typer.echo(f"blitzecdn.edge {EDGE_COLLECTION_VERSION} (pinned)")
+    typer.echo(f"desired-state schema {DESIRED_STATE_VERSION}")
+    raise typer.Exit()
+
+
 @app.callback()
 def main(
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Enable diagnostic logging.")
     ] = False,
     log_json: Annotated[bool, typer.Option(help="Write logs as JSON.")] = False,
+    _version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the control plane, edge collection, and schema versions.",
+        ),
+    ] = False,
 ) -> None:
     configure_logging(verbose=verbose, json_output=log_json)
 
@@ -592,6 +633,12 @@ def serve(
 
 @site_app.command("list")
 def site_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+    """List the virtual hosts the edges will serve.
+
+    Derived, not created: only proxied records appear. A record you proxied but
+    have not deployed is already listed here — this is desired state, not what
+    the fleet is running. Use 'drift' for that.
+    """
     _emit(_control_plane().repository.list_sites(), json_output=json_output)
 
 
@@ -623,6 +670,7 @@ def domain_add(
 
 @domain_app.command("list")
 def domain_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+    """List the DNS zones delegated to BlitzeCDN."""
     _emit(_control_plane().list_domains(), json_output=json_output)
 
 
@@ -666,6 +714,13 @@ def record_list(
     domain: Annotated[str | None, typer.Argument()] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
+    """List records, with the CDN policy each one carries.
+
+    Shows every zone unless you name one. Proxied records carry the origin,
+    cache, TLS and firewall settings that become their edge site; unproxied
+    records carry them too, kept but unused, so toggling the proxy back on
+    does not lose them.
+    """
     _emit(_control_plane().list_records(domain), json_output=json_output)
 
 
@@ -804,6 +859,12 @@ def record_remove(
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
     yes: Annotated[bool, typer.Option("--yes")] = False,
 ) -> None:
+    """Delete one record, and the edge site derived from it.
+
+    Deleting a proxied record withdraws its virtual host at the next deploy,
+    along with any certificate BlitzeCDN manages for it. To take a hostname
+    off the edge but keep its settings, use 'record proxy --off' instead.
+    """
     label = f"{name}.{domain}" if name != "@" else domain
     if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):
         raise typer.Abort()
