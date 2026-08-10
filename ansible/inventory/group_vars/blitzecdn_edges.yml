@@ -30,14 +30,15 @@ blitzecdn_sshd_allow_users: []
 # block.
 #
 # GeoLite2 is free but authenticated. Create a MaxMind account, generate a
-# license key, and export it on the controller before deploying:
+# license key, and put both in the control plane's `.env`:
 #
-#   export MAXMIND_ACCOUNT_ID=123456
-#   export MAXMIND_LICENSE_KEY=...
+#   BLITZE_MAXMIND_ACCOUNT_ID=123456
+#   BLITZE_MAXMIND_LICENSE_KEY=your-key
 #
-# Read from the environment rather than written here, because this file is
-# committed. The role writes the key to a 0600 root-owned /etc/GeoIP.conf and
+# The control plane forwards them into the Ansible environment, so they are
+# read here rather than written here — this file is committed, `.env` is 0600
+# and is not. The role writes the key to a 0600 root-owned /etc/GeoIP.conf and
 # sets no_log on every task that touches it.
 blitzecdn_nginx_geoip_enabled: false
-blitzecdn_nginx_geoip_account_id: "{{ lookup('env', 'MAXMIND_ACCOUNT_ID') }}"
-blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'MAXMIND_LICENSE_KEY') }}"
+blitzecdn_nginx_geoip_account_id: "{{ lookup('env', 'BLITZE_MAXMIND_ACCOUNT_ID') }}"
+blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'BLITZE_MAXMIND_LICENSE_KEY') }}"
