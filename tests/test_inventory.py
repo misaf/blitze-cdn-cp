@@ -61,3 +61,32 @@ def test_inventory_requires_an_existing_edge_for_public_address_updates(tmp_path
     inventory.initialize()
     with pytest.raises(ConfigurationError, match="edge does not exist"):
         inventory.set_public_addresses("missing", ["203.0.113.10"])
+
+
+def test_group_vars_overrides_file_is_created_and_never_overwritten(tmp_path):
+    """Site configuration needs a home the installer will not fight over.
+
+    `defaults.yml` is tracked and replaced on upgrade, so editing it makes
+    `./install.sh update` refuse with "tracked files have local changes". This
+    file is gitignored and loaded after it, and must survive re-running setup —
+    overwriting it would discard the operator's configuration on every upgrade.
+    """
+    directory = tmp_path / "inventory/group_vars/blitzecdn_edges"
+    directory.mkdir(parents=True)
+    inventory = Inventory(tmp_path / "inventory/hosts.yml")
+
+    created = inventory.initialize_group_vars()
+
+    assert created == directory / "local.yml"
+    created.write_text("---\nblitzecdn_firewall_ssh_port: 7845\n", encoding="utf-8")
+
+    assert inventory.initialize_group_vars() is None
+    assert "7845" in created.read_text(encoding="utf-8")
+
+
+def test_group_vars_overrides_are_skipped_without_the_directory(tmp_path):
+    """An install predating the directory layout must not gain a stray file."""
+    inventory = Inventory(tmp_path / "inventory/hosts.yml")
+    (tmp_path / "inventory").mkdir()
+
+    assert inventory.initialize_group_vars() is None

@@ -200,8 +200,15 @@ def setup() -> None:
         environment_path.write_text(_environment_file_body(), encoding="utf-8")
         environment_path.chmod(0o600)
         created.append(str(environment_path.relative_to(root)))
-    if Inventory(inventory_path).initialize():
+    inventory = Inventory(inventory_path)
+    if inventory.initialize():
         created.append(str(inventory_path.relative_to(root)))
+    # Runs on every setup, not only a fresh one: an existing install upgrading
+    # into the group_vars directory layout needs this file too, and it is the
+    # one place site configuration can go without blocking the next update.
+    group_vars = inventory.initialize_group_vars()
+    if group_vars is not None:
+        created.append(str(group_vars.relative_to(root)))
     if created:
         typer.echo(f"BlitzeCDN is ready. Created: {', '.join(created)}")
     else:
