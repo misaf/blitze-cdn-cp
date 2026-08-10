@@ -48,6 +48,28 @@ _ISO_3166_1_ALPHA_2 = frozenset((
 
 #: Codes people reach for that ISO does not assign, and what to use instead.
 _COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
+
+#: Passed as validation context when a model is read back out of storage.
+#:
+#: Tightening a validator must never strand a row that an earlier release
+#: accepted. It did once: adding the assigned-country-code check made a stored
+#: ``UK`` unreadable, and because every repository read revalidates, the record
+#: could no longer be listed, patched, *or deleted* — the operator was left with
+#: no way to correct it short of editing SQLite by hand.
+#:
+#: So input is strict and storage is lenient. A validator that rejects a value
+#: purely because an operator would not have meant it must relax under this
+#: context; one that guards a downstream injection or a privilege boundary must
+#: not, because those apply to the value regardless of how it arrived.
+#: Re-saving still goes through strict validation, so a loaded-but-invalid
+#: record can be fixed or removed and never silently rewritten.
+STORED = {"stored": True}
+
+
+def _is_stored(info: Any) -> bool:
+    return bool(getattr(info, "context", None) and info.context.get("stored"))
+
+
 _HTTP_METHOD = re.compile(r"^[A-Z][A-Z-]{1,19}$")
 
 #: Host patterns a deploy may narrow itself to, as a comma-separated list.
@@ -227,19 +249,29 @@ class SiteFirewall(BaseModel):
 
     @field_validator("allowed_countries", "denied_countries")
     @classmethod
-    def validate_countries(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+    def validate_countries(cls, values: tuple[str, ...], info: Any) -> tuple[str, ...]:
+        """Reject codes ISO does not assign — unless they are already stored.
+
+        The membership check catches an operator typo, which is the only thing
+        it can catch: an unassigned code renders happily and then matches
+        nobody. It is relaxed under ``STORED`` so that a record written before
+        this check existed stays readable and can be corrected or deleted. The
+        shape check is not relaxed; the value reaches an nginx directive.
+        """
+        stored = _is_stored(info)
         normalized = []
         for item in values:
             candidate = item.strip().upper()
-            if candidate in _COUNTRY_ALIASES:
+            if not _COUNTRY.fullmatch(candidate):
+                raise ValueError(
+                    f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
+                )
+            if not stored and candidate in _COUNTRY_ALIASES:
                 raise ValueError(
                     f"{item!r} is not an ISO 3166-1 alpha-2 country code; "
                     f"use {_COUNTRY_ALIASES[candidate]!r}"
                 )
-            if (
-                not _COUNTRY.fullmatch(candidate)
-                or candidate not in _ISO_3166_1_ALPHA_2
-            ):
+            if not stored and candidate not in _ISO_3166_1_ALPHA_2:
                 raise ValueError(
                     f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
                 )

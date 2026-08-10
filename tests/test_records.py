@@ -7,10 +7,13 @@ from conftest import FakeRunner
 
 from blitzecdn.application import ControlPlane
 from blitzecdn.domain.models import (
+    STORED,
     CdnSite,
     DnsRecord,
     Domain,
+    RecordPatch,
     RecordType,
+    SiteFirewall,
     derive_site_name,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
@@ -119,3 +122,45 @@ def test_snapshot_round_trips_zones(settings):
     assert [site.name for site in repository.decode_snapshot(snapshot)] == [
         "cdn-example-com"
     ]
+
+
+def test_a_record_stored_with_a_now_invalid_country_stays_operable(settings):
+    """The whole point of STORED: a tightened validator must not brick a row.
+
+    Every repository read revalidates, so before this the record could not be
+    listed, patched, or deleted. This asserts the recovery path an operator
+    actually needs, through the repository rather than the model alone.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository)
+    control.create_domain(Domain(name="example.com"), "test")
+    control.create_record(
+        DnsRecord(domain="example.com", name="sub", value="203.0.113.5", proxied=True),
+        "test",
+    )
+    current = control.get_record("example.com", "sub", RecordType.A)
+    repository.replace_record(
+        DnsRecord.model_validate(
+            current.model_dump() | {"firewall": {"denied_countries": ["UK"]}},
+            context=STORED,
+        )
+    )
+
+    # Readable: list, get, and the derived site all survive the bad value.
+    assert control.list_records("example.com")[0].firewall.denied_countries == ("UK",)
+    assert control.get_record("example.com", "sub", RecordType.A)
+    assert repository.list_sites()
+
+    # Correctable, and the fix reaches the derived site.
+    fixed = control.update_record(
+        "example.com",
+        "sub",
+        RecordType.A,
+        RecordPatch(firewall=SiteFirewall(denied_countries=["GB"])),
+        "test",
+    )
+    assert fixed.firewall.denied_countries == ("GB",)
+
+    # And deletable, which it was not before.
+    control.delete_record("example.com", "sub", RecordType.A, "test")
+    assert control.list_records("example.com") == []
