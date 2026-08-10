@@ -14,6 +14,10 @@ data/*.db-shm
 data/*.db-wal
 **/*.lock
 ansible/inventory/hosts.yml
+# Operator overrides for the edge group. Tracked defaults live beside it in
+# defaults.yml; keeping this one untracked is what lets `./install.sh update`
+# replace those defaults without colliding with local configuration.
+ansible/inventory/group_vars/blitzecdn_edges/local.yml
 log/*.log
 *.retry
 
