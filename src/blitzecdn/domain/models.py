@@ -644,7 +644,14 @@ class RecordPatch(BaseModel):
 
     This cannot inherit ``SitePolicy`` — each field has to become optional, and
     an inherited required field would silently gain a default here. It is
-    written out instead, and ``test_models.py`` fails if the two drift apart.
+    written out instead, and ``_assert_patch_covers_policy`` below refuses to
+    import a version of this module where the two have drifted apart.
+
+    Generating these fields with ``create_model`` would remove the duplication
+    outright, but the generated class is opaque to mypy — every ``RecordPatch``
+    field access in the API and the CLI would stop being type-checked. Keeping
+    the fields visible and checking the parity at import buys the same
+    guarantee without giving up static checking.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -666,6 +673,36 @@ class RecordPatch(BaseModel):
     # Replaces the block wholesale; see the note on SitePolicy.firewall. Send
     # {"firewall": {}} to clear every rule.
     firewall: SiteFirewall | None = None
+
+
+def _assert_patch_covers_policy() -> None:
+    """Refuse to import if a policy knob has no way to be patched.
+
+    Runs at import rather than only under pytest. The failure this guards
+    against — a setting an operator can set on a record and never change again
+    — is silent everywhere else, so the process should not start with it.
+    """
+    missing = sorted(set(SitePolicy.model_fields) - set(RecordPatch.model_fields))
+    if missing:
+        raise RuntimeError(
+            "RecordPatch is missing SitePolicy fields: "
+            + ", ".join(missing)
+            + ". Add them as optional, defaulting to None, or an operator can "
+            "set them once and never change them."
+        )
+    required = sorted(
+        name
+        for name in SitePolicy.model_fields
+        if RecordPatch.model_fields[name].default is not None
+    )
+    if required:
+        raise RuntimeError(
+            "RecordPatch fields must default to None so an unset field means "
+            "'untouched'; these do not: " + ", ".join(required)
+        )
+
+
+_assert_patch_covers_policy()
 
 
 class Deployment(BaseModel):
