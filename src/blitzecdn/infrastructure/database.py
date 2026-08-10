@@ -1,17 +1,16 @@
+"""One SQLite database, exposed as four focused stores.
+
+``Repository`` composes them and satisfies every persistence port in
+:mod:`blitzecdn.ports` structurally, so a caller that needs several stores can
+still pass one object while each service declares only the slice it uses.
+"""
+
 from __future__ import annotations
 
-import json
-import sqlite3
-import threading
-from collections.abc import Iterator
-from contextlib import contextmanager
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
-from uuid import uuid4
 
 from blitzecdn.domain.models import (
-    STORED,
     AuditEvent,
     CdnSite,
     Deployment,
@@ -20,383 +19,115 @@ from blitzecdn.domain.models import (
     Domain,
     RecordType,
 )
-from blitzecdn.exceptions import ConflictError, NotFoundError
+from blitzecdn.domain.snapshots import (
+    SNAPSHOT_VERSION,
+    decode_snapshot,
+    decode_snapshot_zones,
+    encode_snapshot,
+)
+from blitzecdn.infrastructure.stores import (
+    AuditLog,
+    Database,
+    DeploymentStore,
+    SiteStore,
+    ZoneStore,
+)
 
-#: Shape of the JSON in ``deployments.snapshot``: an object carrying the zones,
-#: records, and derived sites a rollback converges.
-SNAPSHOT_VERSION = 2
+__all__ = [
+    "SNAPSHOT_VERSION",
+    "AuditLog",
+    "Database",
+    "DeploymentStore",
+    "Repository",
+    "SiteStore",
+    "ZoneStore",
+]
 
 
 class Repository:
-    """SQLite persistence with explicit transactions and immutable snapshots."""
+    """SQLite persistence with explicit transactions and immutable snapshots.
+
+    A thin composition of the stores in :mod:`blitzecdn.infrastructure.stores`.
+    The delegating methods exist so callers that legitimately want the whole of
+    persistence — the composition root, the API's read endpoints, tests — keep
+    one object to pass around; the services themselves take the narrow ports.
+    """
 
     def __init__(self, path: Path) -> None:
-        self._path = path
-        self._lock = threading.RLock()
-        self._initialize()
+        self.database = Database(path)
+        self.sites = SiteStore(self.database)
+        self.zones = ZoneStore(self.database)
+        self.deployments = DeploymentStore(self.database, self.snapshot)
+        self.audit_log = AuditLog(self.database)
 
-    @contextmanager
-    def _connection(self) -> Iterator[sqlite3.Connection]:
-        self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        connection = sqlite3.connect(self._path, timeout=30)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA busy_timeout = 30000")
-        try:
-            yield connection
-            connection.commit()
-        except Exception:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
-
-    def _initialize(self) -> None:
-        with self._lock, self._connection() as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS sites (
-                    name TEXT PRIMARY KEY,
-                    document TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS domains (
-                    name TEXT PRIMARY KEY,
-                    document TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
-                );
-                -- ON DELETE CASCADE is load-bearing rather than convenience:
-                -- a record outliving its domain would keep deriving a virtual
-                -- host for a zone we no longer serve. PRAGMA foreign_keys is
-                -- enabled per connection above.
-                CREATE TABLE IF NOT EXISTS dns_records (
-                    domain TEXT NOT NULL
-                        REFERENCES domains(name) ON DELETE CASCADE,
-                    name TEXT NOT NULL,
-                    type TEXT NOT NULL,
-                    document TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (domain, name, type)
-                );
-                CREATE TABLE IF NOT EXISTS deployments (
-                    id TEXT PRIMARY KEY,
-                    status TEXT NOT NULL,
-                    operator TEXT NOT NULL,
-                    check_mode INTEGER NOT NULL,
-                    rollback_of TEXT REFERENCES deployments(id),
-                    created_at TEXT NOT NULL,
-                    started_at TEXT,
-                    finished_at TEXT,
-                    return_code INTEGER,
-                    stdout TEXT NOT NULL DEFAULT '',
-                    stderr TEXT NOT NULL DEFAULT '',
-                    snapshot TEXT NOT NULL,
-                    host_limit TEXT
-                );
-                CREATE TABLE IF NOT EXISTS audit_events (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    created_at TEXT NOT NULL,
-                    operator TEXT NOT NULL,
-                    action TEXT NOT NULL,
-                    resource_type TEXT NOT NULL,
-                    resource_id TEXT,
-                    details TEXT NOT NULL
-                );
-                """
-            )
-            self._add_missing_columns(connection)
-
-    @staticmethod
-    def _add_missing_columns(connection: sqlite3.Connection) -> None:
-        """Bring a database created by an older release up to the schema above.
-
-        ``CREATE TABLE IF NOT EXISTS`` leaves an existing table alone, so a
-        column added to the script above never reaches a database that already
-        exists. Each entry here must therefore be nullable or carry a default:
-        rows written before the column existed have no value for it, and
-        ``None`` has to be a truthful answer for them. ``host_limit`` qualifies
-        — every historical deployment ran against the whole fleet, which is
-        exactly what ``None`` means.
-        """
-        additions = {"deployments": {"host_limit": "TEXT"}}
-        for table, columns in additions.items():
-            present = {
-                row["name"]
-                for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
-            }
-            for column, definition in columns.items():
-                if column not in present:
-                    connection.execute(
-                        f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
-                    )
-
-    @staticmethod
-    def _now() -> str:
-        return datetime.now(UTC).isoformat()
+    # -- Sites ---------------------------------------------------------
 
     def list_sites(self) -> list[CdnSite]:
-        with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT document FROM sites ORDER BY name"
-            ).fetchall()
-        return [
-            CdnSite.model_validate_json(row["document"], context=STORED) for row in rows
-        ]
+        return self.sites.list_sites()
 
     def get_site(self, name: str) -> CdnSite:
-        with self._connection() as connection:
-            row = connection.execute(
-                "SELECT document FROM sites WHERE name = ?", (name,)
-            ).fetchone()
-        if row is None:
-            raise NotFoundError(f"CDN site {name!r} does not exist")
-        return CdnSite.model_validate_json(row["document"], context=STORED)
+        return self.sites.get_site(name)
 
     def create_site(self, site: CdnSite) -> CdnSite:
-        try:
-            with self._lock, self._connection() as connection:
-                connection.execute(
-                    "INSERT INTO sites (name, document, updated_at) VALUES (?, ?, ?)",
-                    (site.name, site.model_dump_json(), self._now()),
-                )
-        except sqlite3.IntegrityError as exc:
-            raise ConflictError(f"CDN site {site.name!r} already exists") from exc
-        return site
+        return self.sites.create_site(site)
 
     def replace_site(self, site: CdnSite) -> CdnSite:
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute(
-                "UPDATE sites SET document = ?, updated_at = ? WHERE name = ?",
-                (site.model_dump_json(), self._now(), site.name),
-            )
-            if cursor.rowcount != 1:
-                raise NotFoundError(f"CDN site {site.name!r} does not exist")
-        return site
+        return self.sites.replace_site(site)
 
     def delete_site(self, name: str) -> None:
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute("DELETE FROM sites WHERE name = ?", (name,))
-            if cursor.rowcount != 1:
-                raise NotFoundError(f"CDN site {name!r} does not exist")
+        self.sites.delete_site(name)
 
     def replace_all_sites(self, sites: list[CdnSite]) -> None:
-        with self._lock, self._connection() as connection:
-            connection.execute("DELETE FROM sites")
-            connection.executemany(
-                "INSERT INTO sites (name, document, updated_at) VALUES (?, ?, ?)",
-                [(site.name, site.model_dump_json(), self._now()) for site in sites],
-            )
+        self.sites.replace_all_sites(sites)
 
-    # ------------------------------------------------------------------
-    # Domains
-    # ------------------------------------------------------------------
+    # -- Zones and records ---------------------------------------------
 
     def list_domains(self) -> list[Domain]:
-        with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT document FROM domains ORDER BY name"
-            ).fetchall()
-        return [Domain.model_validate_json(row["document"]) for row in rows]
+        return self.zones.list_domains()
 
     def get_domain(self, name: str) -> Domain:
-        with self._connection() as connection:
-            row = connection.execute(
-                "SELECT document FROM domains WHERE name = ?", (name,)
-            ).fetchone()
-        if row is None:
-            raise NotFoundError(f"domain {name!r} does not exist")
-        return Domain.model_validate_json(row["document"])
+        return self.zones.get_domain(name)
 
     def create_domain(self, domain: Domain) -> Domain:
-        try:
-            with self._lock, self._connection() as connection:
-                connection.execute(
-                    "INSERT INTO domains (name, document, updated_at) VALUES (?, ?, ?)",
-                    (domain.name, domain.model_dump_json(), self._now()),
-                )
-        except sqlite3.IntegrityError as exc:
-            raise ConflictError(f"domain {domain.name!r} already exists") from exc
-        return domain
+        return self.zones.create_domain(domain)
 
     def delete_domain(self, name: str) -> None:
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute("DELETE FROM domains WHERE name = ?", (name,))
-            if cursor.rowcount != 1:
-                raise NotFoundError(f"domain {name!r} does not exist")
-
-    # ------------------------------------------------------------------
-    # Records
-    # ------------------------------------------------------------------
+        self.zones.delete_domain(name)
 
     def list_records(self, domain: str | None = None) -> list[DnsRecord]:
-        query = "SELECT document FROM dns_records"
-        parameters: tuple[str, ...] = ()
-        if domain is not None:
-            query += " WHERE domain = ?"
-            parameters = (domain,)
-        query += " ORDER BY domain, name, type"
-        with self._connection() as connection:
-            rows = connection.execute(query, parameters).fetchall()
-        return [
-            DnsRecord.model_validate_json(row["document"], context=STORED)
-            for row in rows
-        ]
+        return self.zones.list_records(domain)
 
     def get_record(self, domain: str, name: str, type_: RecordType) -> DnsRecord:
-        with self._connection() as connection:
-            row = connection.execute(
-                "SELECT document FROM dns_records "
-                "WHERE domain = ? AND name = ? AND type = ?",
-                (domain, name, type_.value),
-            ).fetchone()
-        if row is None:
-            raise NotFoundError(
-                f"{type_.value} record {name!r} in {domain!r} does not exist"
-            )
-        return DnsRecord.model_validate_json(row["document"], context=STORED)
+        return self.zones.get_record(domain, name, type_)
 
     def create_record(self, record: DnsRecord) -> DnsRecord:
-        try:
-            with self._lock, self._connection() as connection:
-                connection.execute(
-                    "INSERT INTO dns_records "
-                    "(domain, name, type, document, updated_at) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (
-                        record.domain,
-                        record.name,
-                        record.type.value,
-                        record.model_dump_json(),
-                        self._now(),
-                    ),
-                )
-        except sqlite3.IntegrityError as exc:
-            # A failed foreign key and a duplicate primary key both land here,
-            # and the operator needs to know which.
-            if "FOREIGN KEY" in str(exc).upper():
-                raise NotFoundError(
-                    f"domain {record.domain!r} does not exist; add it first"
-                ) from exc
-            raise ConflictError(
-                f"{record.type.value} record {record.name!r} already exists "
-                f"in {record.domain!r}"
-            ) from exc
-        return record
+        return self.zones.create_record(record)
 
     def replace_record(self, record: DnsRecord) -> DnsRecord:
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute(
-                "UPDATE dns_records SET document = ?, updated_at = ? "
-                "WHERE domain = ? AND name = ? AND type = ?",
-                (
-                    record.model_dump_json(),
-                    self._now(),
-                    record.domain,
-                    record.name,
-                    record.type.value,
-                ),
-            )
-            if cursor.rowcount != 1:
-                raise NotFoundError(
-                    f"{record.type.value} record {record.name!r} in "
-                    f"{record.domain!r} does not exist"
-                )
-        return record
+        return self.zones.replace_record(record)
 
     def delete_record(self, domain: str, name: str, type_: RecordType) -> None:
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute(
-                "DELETE FROM dns_records WHERE domain = ? AND name = ? AND type = ?",
-                (domain, name, type_.value),
-            )
-            if cursor.rowcount != 1:
-                raise NotFoundError(
-                    f"{type_.value} record {name!r} in {domain!r} does not exist"
-                )
+        self.zones.delete_record(domain, name, type_)
 
     def replace_all_records(
         self, domains: list[Domain], records: list[DnsRecord]
     ) -> None:
-        """Restore zones wholesale. Used by rollback."""
-        with self._lock, self._connection() as connection:
-            connection.execute("DELETE FROM dns_records")
-            connection.execute("DELETE FROM domains")
-            connection.executemany(
-                "INSERT INTO domains (name, document, updated_at) VALUES (?, ?, ?)",
-                [
-                    (domain.name, domain.model_dump_json(), self._now())
-                    for domain in domains
-                ],
-            )
-            connection.executemany(
-                "INSERT INTO dns_records "
-                "(domain, name, type, document, updated_at) VALUES (?, ?, ?, ?, ?)",
-                [
-                    (
-                        record.domain,
-                        record.name,
-                        record.type.value,
-                        record.model_dump_json(),
-                        self._now(),
-                    )
-                    for record in records
-                ],
-            )
+        self.zones.replace_all_records(domains, records)
 
-    # ------------------------------------------------------------------
-    # Snapshots
-    # ------------------------------------------------------------------
+    # -- Snapshots -----------------------------------------------------
 
     def snapshot(self) -> str:
-        """Serialise the desired state a deployment converges and can roll back to.
-
-        Records are the source of truth, so they are what a snapshot carries;
-        sites are derived and are included only so a rollback can converge
-        without re-deriving.
-        """
-        return json.dumps(
-            {
-                "version": SNAPSHOT_VERSION,
-                "domains": [
-                    domain.model_dump(mode="json") for domain in self.list_domains()
-                ],
-                "records": [
-                    record.model_dump(mode="json") for record in self.list_records()
-                ],
-                "sites": [site.model_dump(mode="json") for site in self.list_sites()],
-            },
-            sort_keys=True,
+        """Serialise the desired state a deployment converges and can roll back to."""
+        return encode_snapshot(
+            self.zones.list_domains(),
+            self.zones.list_records(),
+            self.sites.list_sites(),
         )
 
-    @staticmethod
-    def decode_snapshot(snapshot: str) -> list[CdnSite]:
-        """Return the sites a snapshot converges.
+    decode_snapshot = staticmethod(decode_snapshot)
+    decode_snapshot_zones = staticmethod(decode_snapshot_zones)
 
-        Sites are derived from records; a snapshot carries them anyway so a
-        rollback can converge without re-deriving first.
-        """
-        data = json.loads(snapshot)
-        if not isinstance(data, dict):
-            raise ValueError("deployment snapshot is not an object")
-        return [
-            CdnSite.model_validate(item, context=STORED)
-            for item in data.get("sites", [])
-        ]
-
-    @staticmethod
-    def decode_snapshot_zones(snapshot: str) -> tuple[list[Domain], list[DnsRecord]]:
-        """Return the zones a snapshot carries, which a rollback re-derives from."""
-        data = json.loads(snapshot)
-        if not isinstance(data, dict):
-            raise ValueError("deployment snapshot is not an object")
-        return (
-            [Domain.model_validate(item) for item in data.get("domains", [])],
-            [
-                DnsRecord.model_validate(item, context=STORED)
-                for item in data.get("records", [])
-            ],
-        )
+    # -- Deployments ---------------------------------------------------
 
     def create_deployment(
         self,
@@ -407,25 +138,13 @@ class Repository:
         snapshot: str | None = None,
         host_limit: str | None = None,
     ) -> Deployment:
-        deployment_id = uuid4().hex
-        with self._lock, self._connection() as connection:
-            connection.execute(
-                """INSERT INTO deployments
-                   (id,status,operator,check_mode,rollback_of,created_at,snapshot,
-                    host_limit)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    deployment_id,
-                    DeploymentStatus.QUEUED,
-                    operator,
-                    check_mode,
-                    rollback_of,
-                    self._now(),
-                    snapshot or self.snapshot(),
-                    host_limit,
-                ),
-            )
-        return self.get_deployment(deployment_id)
+        return self.deployments.create_deployment(
+            operator,
+            check_mode=check_mode,
+            rollback_of=rollback_of,
+            snapshot=snapshot,
+            host_limit=host_limit,
+        )
 
     def transition(
         self,
@@ -434,93 +153,24 @@ class Repository:
         target: DeploymentStatus,
         **values: Any,
     ) -> Deployment:
-        allowed = {"started_at", "finished_at", "return_code", "stdout", "stderr"}
-        if set(values) - allowed:
-            raise ValueError("unsupported deployment transition fields")
-        parameters = [
-            target,
-            values.get("started_at"),
-            values.get("finished_at"),
-            values.get("return_code"),
-            values.get("stdout"),
-            values.get("stderr"),
-            deployment_id,
-            expected,
-        ]
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute(
-                """UPDATE deployments SET
-                   status = ?,
-                   started_at = COALESCE(?, started_at),
-                   finished_at = COALESCE(?, finished_at),
-                   return_code = COALESCE(?, return_code),
-                   stdout = COALESCE(?, stdout),
-                   stderr = COALESCE(?, stderr)
-                   WHERE id = ? AND status = ?""",
-                parameters,
-            )
-            if cursor.rowcount != 1:
-                raise ConflictError(f"deployment {deployment_id} is not {expected}")
-        return self.get_deployment(deployment_id)
+        return self.deployments.transition(deployment_id, expected, target, **values)
 
     def get_deployment(self, deployment_id: str) -> Deployment:
-        with self._connection() as connection:
-            row = connection.execute(
-                "SELECT * FROM deployments WHERE id = ?", (deployment_id,)
-            ).fetchone()
-        if row is None:
-            raise NotFoundError(f"deployment {deployment_id!r} does not exist")
-        return self._deployment(row)
+        return self.deployments.get_deployment(deployment_id)
 
     def deployment_snapshot(self, deployment_id: str) -> str:
-        with self._connection() as connection:
-            row = connection.execute(
-                "SELECT snapshot FROM deployments WHERE id = ?", (deployment_id,)
-            ).fetchone()
-        if row is None:
-            raise NotFoundError(f"deployment {deployment_id!r} does not exist")
-        return str(row["snapshot"])
+        return self.deployments.deployment_snapshot(deployment_id)
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
-        with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM deployments ORDER BY created_at DESC LIMIT ?", (limit,)
-            ).fetchall()
-        return [self._deployment(row) for row in rows]
+        return self.deployments.list_deployments(limit)
 
     def abandon_running(self) -> int:
-        now = self._now()
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute(
-                """UPDATE deployments
-                   SET status = ?, finished_at = ?, stderr = ?
-                   WHERE status IN (?, ?)""",
-                (
-                    DeploymentStatus.ABANDONED,
-                    now,
-                    "Controller restarted before completion",
-                    DeploymentStatus.QUEUED,
-                    DeploymentStatus.RUNNING,
-                ),
-            )
-        return cursor.rowcount
+        return self.deployments.abandon_running()
 
     def successful_rollback_target(self, current_snapshot: str) -> Deployment:
-        # `host_limit IS NULL` keeps canaries out of the automatic choice. A
-        # limited run only proves one edge reached that snapshot, so rolling
-        # the fleet back to it would converge most edges onto a state they
-        # were never running. An operator can still name one explicitly.
-        with self._connection() as connection:
-            row = connection.execute(
-                """SELECT * FROM deployments
-                   WHERE status = ? AND check_mode = 0 AND snapshot != ?
-                     AND host_limit IS NULL
-                   ORDER BY created_at DESC LIMIT 1""",
-                (DeploymentStatus.SUCCEEDED, current_snapshot),
-            ).fetchone()
-        if row is None:
-            raise NotFoundError("no different successful deployment is available")
-        return self._deployment(row)
+        return self.deployments.successful_rollback_target(current_snapshot)
+
+    # -- Audit ---------------------------------------------------------
 
     def audit(
         self,
@@ -530,47 +180,12 @@ class Repository:
         resource_id: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> AuditEvent:
-        with self._lock, self._connection() as connection:
-            cursor = connection.execute(
-                """INSERT INTO audit_events
-                   (created_at,operator,action,resource_type,resource_id,details)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (
-                    self._now(),
-                    operator,
-                    action,
-                    resource_type,
-                    resource_id,
-                    json.dumps(details or {}, sort_keys=True),
-                ),
-            )
-            event_id = int(cursor.lastrowid or 0)
-        return self.get_audit_event(event_id)
+        return self.audit_log.audit(
+            operator, action, resource_type, resource_id, details
+        )
 
     def get_audit_event(self, event_id: int) -> AuditEvent:
-        with self._connection() as connection:
-            row = connection.execute(
-                "SELECT * FROM audit_events WHERE id = ?", (event_id,)
-            ).fetchone()
-        if row is None:
-            raise NotFoundError(f"audit event {event_id} does not exist")
-        return self._audit_event(row)
+        return self.audit_log.get_audit_event(event_id)
 
     def list_audit_events(self, limit: int = 100) -> list[AuditEvent]:
-        with self._connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM audit_events ORDER BY id DESC LIMIT ?", (limit,)
-            ).fetchall()
-        return [self._audit_event(row) for row in rows]
-
-    @staticmethod
-    def _deployment(row: sqlite3.Row) -> Deployment:
-        data = dict(row)
-        data.pop("snapshot")
-        return Deployment.model_validate(data)
-
-    @staticmethod
-    def _audit_event(row: sqlite3.Row) -> AuditEvent:
-        data = dict(row)
-        data["details"] = json.loads(data["details"])
-        return AuditEvent.model_validate(data)
+        return self.audit_log.list_audit_events(limit)

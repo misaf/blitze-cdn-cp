@@ -7,7 +7,7 @@ from conftest import FakePreflight, FakeRunner
 from typer.testing import CliRunner
 
 from blitzecdn import cli
-from blitzecdn.application import ControlPlane
+from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.models import (
     CdnSite,
     DnsRecord,
@@ -33,8 +33,8 @@ def test_init_creates_private_environment_file(tmp_path):
 
 def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_path):
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
-    monkeypatch.setattr(cli, "_settings", lambda: settings)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
     assert runner.invoke(cli.app, ["domain", "add", "example.com"]).exit_code == 0
     assert (
         runner.invoke(
@@ -75,7 +75,7 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
     inventory = tmp_path / "ansible/inventory/hosts.yml"
     assert inventory.exists()
     settings = cli.Settings.from_environment({}, project_dir=tmp_path)
-    monkeypatch.setattr(cli, "_settings", lambda: settings)
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
     added = runner.invoke(
         cli.app,
         [
@@ -118,8 +118,8 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
 def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, capsys):
     """`run()` is outside Click, so it must exit rather than raise."""
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
-    monkeypatch.setattr(cli, "_settings", lambda: settings)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
     monkeypatch.setattr(sys, "argv", ["blitzecdn", "record", "list", "absent.example"])
 
     with pytest.raises(SystemExit) as exit_info:
@@ -132,7 +132,7 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
 def test_cli_proxy_toggle_drives_the_derived_site(settings, monkeypatch):
     """`record proxy --on/--off` is the CDN switch for one subdomain."""
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     added = runner.invoke(
         cli.app,
@@ -163,7 +163,7 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     rules a second invocation did not repeat.
     """
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app,
@@ -217,7 +217,7 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
 def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch):
     """203.0.113.5/24 means one address to the operator and 256 to nginx."""
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app,
@@ -239,7 +239,7 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
 
 def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app, ["record", "add", "example.com", "api", "--value", "198.51.100.20"]
@@ -263,7 +263,7 @@ def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
 
 def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatch):
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app,
@@ -293,7 +293,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch
         ]
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
     deployed = runner.invoke(cli.app, ["deploy", "--yes", "--json"])
@@ -325,7 +325,7 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
         "request_certificate",
         lambda name, _operator: requested.append(name),
     )
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(
         cli.app, ["deploy", "--yes", "--request-certificates", "--json"]
@@ -367,7 +367,7 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
         raise AssertionError("the CA must not be contacted after a blocked preflight")
 
     monkeypatch.setattr(control, "request_certificate", _unexpected_request)
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(
         cli.app, ["deploy", "--yes", "--request-certificates", "--json"]
@@ -393,7 +393,7 @@ def test_interactive_deploy_validates_previews_and_applies(
         ]
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
     assert "Configuration is valid" in result.stdout
@@ -408,8 +408,8 @@ def _control(settings, monkeypatch, runner_double=None, preflight=None):
         runner_double or FakeRunner(),
         preflight=preflight or FakePreflight(),
     )  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
-    monkeypatch.setattr(cli, "_settings", lambda: settings)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
     return control
 
 
@@ -679,8 +679,8 @@ def test_control_plane_factory_builds_from_the_environment(settings, monkeypatch
     monkeypatch.setattr(
         cli.Settings, "from_environment", classmethod(lambda cls: settings)
     )
-    assert cli._settings() is settings
-    assert cli._control_plane().settings is settings
+    assert cli.common.settings() is settings
+    assert cli.common.control_plane().settings is settings
 
 
 def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
@@ -699,7 +699,7 @@ def test_plan_exits_five_when_check_mode_fails(settings, site_payload, monkeypat
     control = ControlPlane(
         settings, repository, FakeRunner([CommandResult(2, "", "unreachable")])
     )  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     assert runner.invoke(cli.app, ["plan"]).exit_code == cli.ExitCode.DEPLOYMENT_FAILED
 
@@ -727,7 +727,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
         [CommandResult(0, "syntax ok", ""), CommandResult(0, "preview", "")]
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
-    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")
 
@@ -882,9 +882,11 @@ def test_edge_add_refuses_to_open_ssh_to_the_world(settings, monkeypatch):
 
 def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
     unauthenticated = settings.model_copy(update={"api_keys": {}})
-    monkeypatch.setattr(cli, "_settings", lambda: unauthenticated)
+    monkeypatch.setattr(cli.common, "settings", lambda: unauthenticated)
     started = []
-    monkeypatch.setattr(cli.uvicorn, "run", lambda *a, **k: started.append(a))
+    monkeypatch.setattr(
+        cli.diagnostics.uvicorn, "run", lambda *a, **k: started.append(a)
+    )
 
     result = runner.invoke(cli.app, ["serve"])
 
@@ -1188,7 +1190,7 @@ def test_cert_preflight_emits_json_for_a_machine_caller(
 def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
     _control(settings, monkeypatch)
     monkeypatch.setattr(
-        cli,
+        cli.diagnostics,
         "check_resolver",
         lambda _settings: PreflightCheck(
             name="resolver",
@@ -1210,7 +1212,7 @@ def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
     def explode(_settings):
         raise AssertionError("the probe must not run with --no-resolver")
 
-    monkeypatch.setattr(cli, "check_resolver", explode)
+    monkeypatch.setattr(cli.diagnostics, "check_resolver", explode)
 
     result = runner.invoke(cli.app, ["doctor", "--no-resolver"])
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from conftest import FakeRunner
 
-from blitzecdn.application import ControlPlane
+from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.models import (
     STORED,
     CdnSite,

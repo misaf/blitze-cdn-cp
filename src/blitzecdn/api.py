@@ -22,8 +22,8 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn import __version__
-from blitzecdn.application import ControlPlane
 from blitzecdn.config import Settings
+from blitzecdn.control_plane import build_control_plane
 from blitzecdn.domain.models import (
     CERTIFICATE_RENEWAL_DAYS,
     EDGE_LIMIT,
@@ -141,7 +141,7 @@ class RollbackRequest(BaseModel):
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings.from_environment()
-    control_plane = ControlPlane(resolved)
+    control_plane = build_control_plane(resolved)
     throttle = AuthThrottle()
 
     @asynccontextmanager
