@@ -13,6 +13,41 @@ _DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 _SITE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 _DURATION = re.compile(r"^(?:0|[1-9]\d*)(?:ms|[smhdw])$")
 _COUNTRY = re.compile(r"^[A-Z]{2}$")
+
+#: ISO 3166-1 alpha-2, which is what the MaxMind database emits as `iso_code`.
+#:
+#: Checked against the real list rather than the two-letter shape alone,
+#: because a plausible-looking code that is not assigned produces the worst
+#: outcome this feature has: `--allow-country UK` validates, deploys, renders,
+#: and then matches nothing, because the United Kingdom is GB. The rule looks
+#: enforced and blocks nobody. A shape check cannot tell those apart.
+# fmt: off
+_ISO_3166_1_ALPHA_2 = frozenset((
+    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU",
+    "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL",
+    "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC",
+    "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV",
+    "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG",
+    "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD",
+    "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT",
+    "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM",
+    "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH",
+    "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK",
+    "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH",
+    "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW",
+    "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR",
+    "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR",
+    "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC",
+    "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS",
+    "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL",
+    "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY",
+    "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "YE", "YT", "ZA",
+    "ZM", "ZW"
+))
+# fmt: on
+
+#: Codes people reach for that ISO does not assign, and what to use instead.
+_COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 _HTTP_METHOD = re.compile(r"^[A-Z][A-Z-]{1,19}$")
 
 #: Host patterns a deploy may narrow itself to, as a comma-separated list.
@@ -196,7 +231,15 @@ class SiteFirewall(BaseModel):
         normalized = []
         for item in values:
             candidate = item.strip().upper()
-            if not _COUNTRY.fullmatch(candidate):
+            if candidate in _COUNTRY_ALIASES:
+                raise ValueError(
+                    f"{item!r} is not an ISO 3166-1 alpha-2 country code; "
+                    f"use {_COUNTRY_ALIASES[candidate]!r}"
+                )
+            if (
+                not _COUNTRY.fullmatch(candidate)
+                or candidate not in _ISO_3166_1_ALPHA_2
+            ):
                 raise ValueError(
                     f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
                 )
