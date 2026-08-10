@@ -155,6 +155,112 @@ def test_cli_proxy_toggle_drives_the_derived_site(settings, monkeypatch):
     assert json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout) == []
 
 
+def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
+    """Merge semantics, and the derived site carries the result.
+
+    The CLI keeps the lists the operator did not mention, unlike the API PATCH
+    that replaces the whole block. Getting this wrong would silently drop the
+    rules a second invocation did not repeat.
+    """
+    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    runner.invoke(cli.app, ["domain", "add", "example.com"])
+    runner.invoke(
+        cli.app,
+        [
+            "record",
+            "add",
+            "example.com",
+            "api",
+            "--value",
+            "198.51.100.20",
+            "--proxied",
+        ],
+    )
+
+    first = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "firewall",
+            "example.com",
+            "api",
+            "--deny-source",
+            "203.0.113.0/24",
+            "--deny-path",
+            "/admin",
+            "--json",
+        ],
+    )
+    assert first.exit_code == 0
+
+    # Names only the country list; the source and path rules must survive.
+    second = runner.invoke(
+        cli.app,
+        ["record", "firewall", "example.com", "api", "--deny-country", "ru", "--json"],
+    )
+    assert second.exit_code == 0
+    firewall = json.loads(second.stdout)["firewall"]
+    assert firewall["deny_sources"] == ["203.0.113.0/24"]
+    assert firewall["denied_paths"] == ["/admin"]
+    assert firewall["denied_countries"] == ["RU"]
+
+    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    assert sites[0]["firewall"]["denied_countries"] == ["RU"]
+
+    cleared = runner.invoke(
+        cli.app, ["record", "firewall", "example.com", "api", "--clear", "--json"]
+    )
+    assert json.loads(cleared.stdout)["firewall"]["deny_sources"] == []
+
+
+def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch):
+    """203.0.113.5/24 means one address to the operator and 256 to nginx."""
+    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    runner.invoke(cli.app, ["domain", "add", "example.com"])
+    runner.invoke(
+        cli.app,
+        ["record", "add", "example.com", "api", "--value", "198.51.100.20"],
+    )
+    result = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "firewall",
+            "example.com",
+            "api",
+            "--deny-source",
+            "203.0.113.5/24",
+        ],
+    )
+    assert result.exit_code != 0
+
+
+def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
+    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    monkeypatch.setattr(cli, "_control_plane", lambda: control)
+    runner.invoke(cli.app, ["domain", "add", "example.com"])
+    runner.invoke(
+        cli.app, ["record", "add", "example.com", "api", "--value", "198.51.100.20"]
+    )
+    bare = runner.invoke(cli.app, ["record", "firewall", "example.com", "api"])
+    assert bare.exit_code != 0
+    conflicting = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "firewall",
+            "example.com",
+            "api",
+            "--clear",
+            "--deny-path",
+            "/admin",
+        ],
+    )
+    assert conflicting.exit_code != 0
+
+
 def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatch):
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
     monkeypatch.setattr(cli, "_control_plane", lambda: control)

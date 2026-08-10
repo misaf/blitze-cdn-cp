@@ -25,7 +25,9 @@ from blitzecdn.domain.models import (
     Domain,
     OriginScheme,
     PurgeEntry,
+    RecordPatch,
     RecordType,
+    SiteFirewall,
 )
 from blitzecdn.exceptions import BlitzeError
 from blitzecdn.infrastructure.inventory import Inventory
@@ -690,6 +692,108 @@ def record_proxy(
             f"{'proxied through the CDN' if on else 'bypassing the CDN'}. "
             "Run 'blitzecdn deploy' to apply, and make sure DNS points at "
             f"{'an edge' if on else record.value}."
+        )
+
+
+@record_app.command("firewall")
+def record_firewall(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    allow_source: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-source",
+            help="CIDR exempted from --deny-source. Repeatable. Replaces the list.",
+        ),
+    ] = None,
+    deny_source: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--deny-source", help="CIDR answered with 403. Repeatable. Replaces."
+        ),
+    ] = None,
+    allow_country: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--allow-country",
+            help="ISO 3166-1 alpha-2; every other country gets a 403. Needs GeoIP.",
+        ),
+    ] = None,
+    deny_country: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--deny-country",
+            help="ISO 3166-1 alpha-2 answered with 403. Needs GeoIP on the edge.",
+        ),
+    ] = None,
+    deny_method: Annotated[
+        list[str] | None,
+        typer.Option("--deny-method", help="HTTP method answered with 405."),
+    ] = None,
+    deny_path: Annotated[
+        list[str] | None,
+        typer.Option("--deny-path", help="URI prefix answered with 403."),
+    ] = None,
+    clear: Annotated[
+        bool, typer.Option("--clear", help="Remove every rule and serve everyone.")
+    ] = False,
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Filter requests to one hostname at the edge.
+
+    The posture stays open: rules subtract from a site that otherwise serves
+    everyone, and --allow-source is an exemption from --deny-source rather than
+    a whitelist. To close a hostname, deny everything and list the exceptions:
+
+        blitzecdn record firewall example.com www \\
+            --deny-source 0.0.0.0/0 --deny-source ::/0 \\
+            --allow-source 203.0.113.0/24
+
+    Each option replaces its own list; the lists you do not name are kept. That
+    differs from the equivalent PATCH on the HTTP API, which replaces the whole
+    block. Country rules need blitzecdn_nginx_geoip_enabled and a MaxMind
+    database on the edge, and a deploy will refuse rather than silently serve
+    the traffic they were meant to block.
+
+    Nothing changes on the edge until the next 'blitzecdn deploy'.
+    """
+    control = _control_plane()
+    supplied = {
+        "allow_sources": allow_source,
+        "deny_sources": deny_source,
+        "allowed_countries": allow_country,
+        "denied_countries": deny_country,
+        "denied_methods": deny_method,
+        "denied_paths": deny_path,
+    }
+    named = {field: value for field, value in supplied.items() if value is not None}
+    if clear and named:
+        raise typer.BadParameter("--clear cannot be combined with a rule option")
+    if not clear and not named:
+        raise typer.BadParameter(
+            "give at least one rule option, or --clear to remove every rule"
+        )
+    if clear:
+        firewall = SiteFirewall()
+    else:
+        # Merged as a plain mapping and revalidated, rather than model_copy'd:
+        # model_copy would install the raw lists without running a validator,
+        # and these end up interpolated into an nginx directive.
+        current = control.get_record(domain, name, type_).firewall
+        firewall = SiteFirewall.model_validate(current.model_dump() | named)
+    record = control.update_record(
+        domain, name, type_, RecordPatch(firewall=firewall), "cli"
+    )
+    _emit(record, json_output=json_output)
+    if not json_output:
+        rules = sum(len(getattr(record.firewall, f)) for f in SiteFirewall.model_fields)
+        typer.echo(
+            f"{record.fqdn} now carries {rules} firewall rule(s). "
+            "Run 'blitzecdn deploy' to apply."
+            if rules
+            else f"{record.fqdn} no longer filters any requests. "
+            "Run 'blitzecdn deploy' to apply."
         )
 
 

@@ -151,6 +151,10 @@ class ControlPlane:
         )
         return created
 
+    def get_record(self, domain: str, name: str, type_: RecordType) -> DnsRecord:
+        """One record, for a caller that needs to read before it writes."""
+        return self.repository.get_record(domain, name, type_)
+
     def update_record(
         self,
         domain: str,
