@@ -8,7 +8,13 @@ from typer.testing import CliRunner
 
 from blitzecdn import cli
 from blitzecdn.application import ControlPlane
-from blitzecdn.domain.models import CdnSite, DnsRecord, Domain
+from blitzecdn.domain.models import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    PreflightCheck,
+    PreflightSeverity,
+)
 from blitzecdn.infrastructure.ansible import CommandResult
 from blitzecdn.infrastructure.database import Repository
 
@@ -1071,3 +1077,36 @@ def test_cert_preflight_emits_json_for_a_machine_caller(
     assert document["site"] == "cdn-example-com"
     assert document["checks"][0]["name"] == "dns"
     assert document["checks"][0]["severity"] == "blocking"
+
+
+def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
+    _control(settings, monkeypatch)
+    monkeypatch.setattr(
+        cli,
+        "check_resolver",
+        lambda _settings: PreflightCheck(
+            name="resolver",
+            passed=False,
+            severity=PreflightSeverity.BLOCKING,
+            detail="resolver (host resolver) invents addresses",
+        ),
+    )
+
+    result = runner.invoke(cli.app, ["doctor"])
+
+    assert "invents addresses" in result.output
+
+
+def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
+    """--no-resolver keeps doctor usable on a host with no DNS at all."""
+    _control(settings, monkeypatch)
+
+    def explode(_settings):
+        raise AssertionError("the probe must not run with --no-resolver")
+
+    monkeypatch.setattr(cli, "check_resolver", explode)
+
+    result = runner.invoke(cli.app, ["doctor", "--no-resolver"])
+
+    assert result.exit_code == 0
+    assert "resolver" not in result.output

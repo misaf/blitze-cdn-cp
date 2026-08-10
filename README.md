@@ -24,7 +24,7 @@ To run an independent control plane and edge on the same Debian 12+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch v1.3.0 --depth 1 \
+sudo git clone --branch v1.4.0 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install.sh standalone \
   --admin-cidr 203.0.113.8/32 \
@@ -268,7 +268,18 @@ blitzecdn cert preflight example-cdn
 It resolves each hostname against the inventory's explicit public edge
 addresses (falling back to the SSH host for older inventories), reads CAA, and
 checks that the site is in the last successful deployment, exiting `3` and naming
-what to fix otherwise. Then request a certificate and deploy again:
+what to fix otherwise.
+
+Those lookups go through the controller's own resolver by default. Set
+`BLITZE_PREFLIGHT_DNS_SERVERS=1.1.1.1,1.0.0.1` to ask public resolvers instead,
+which is the right answer wherever this host resolves differently from the
+public internet — a split-horizon zone, an internal forwarder, or a transparent
+proxy that claims every hostname. The last of those is worth knowing about: it
+looks healthy for browsing and package installs, and turns every preflight into
+a blocking failure that blames the zone. `blitzecdn doctor` probes for exactly
+that and says which resolver it asked.
+
+Then request a certificate and deploy again:
 
 ```bash
 curl --fail-with-body -X POST \

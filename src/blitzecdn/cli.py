@@ -29,6 +29,7 @@ from blitzecdn.domain.models import (
 )
 from blitzecdn.exceptions import BlitzeError
 from blitzecdn.infrastructure.inventory import Inventory
+from blitzecdn.infrastructure.preflight import check_resolver
 from blitzecdn.logging import configure_logging
 
 
@@ -376,8 +377,23 @@ def audit(
 
 
 @app.command()
-def doctor(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
-    """Report local readiness without contacting remote servers."""
+def doctor(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+    resolver_check: Annotated[
+        bool,
+        typer.Option(
+            "--resolver/--no-resolver",
+            help="Probe the resolver for invented answers (one DNS query).",
+        ),
+    ] = True,
+) -> None:
+    """Report local readiness without contacting the edge servers.
+
+    The resolver probe is the one thing here that leaves the machine: a single
+    lookup of a reserved name that must not exist. It earns its place because a
+    resolver that answers it is invisible to every other check while making all
+    of them wrong. Pass --no-resolver on a host with no DNS at all.
+    """
     settings = _settings()
     # Certificate expiry is read from the local store, so it belongs in a
     # check that promises not to touch the network. It is also the thing most
@@ -397,7 +413,15 @@ def doctor(json_output: Annotated[bool, typer.Option("--json")] = False) -> None
             for status in expiring
         ],
     }
+    resolver_report = check_resolver(settings) if resolver_check else None
+    if resolver_report is not None:
+        report["resolver"] = {
+            "passed": resolver_report.passed,
+            "detail": resolver_report.detail,
+        }
     _emit(report, json_output=json_output)
+    if resolver_report is not None and not resolver_report.passed:
+        typer.echo(f"\n{resolver_report.detail}.", err=True)
     if not json_output and expiring:
         typer.echo(
             f"\n{len(expiring)} certificate(s) expire within "

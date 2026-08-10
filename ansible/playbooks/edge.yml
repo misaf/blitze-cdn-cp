@@ -20,6 +20,10 @@
   roles:
     - role: blitzecdn.edge.blitzecdn_base
       tags: [base]
+    # Before nginx, which resolves origin hostnames through the host resolver,
+    # and before anything that fetches by name. Off unless enabled.
+    - role: blitzecdn.edge.blitzecdn_resolver
+      tags: [base, resolver]
     - role: blitzecdn.edge.blitzecdn_kernel
       tags: [kernel]
     - role: blitzecdn.edge.blitzecdn_firewall

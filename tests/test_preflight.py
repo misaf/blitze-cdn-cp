@@ -7,6 +7,8 @@ decision made about what was found, not the finding.
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import dns.exception
 import dns.resolver
 import pytest
@@ -63,7 +65,9 @@ def build(settings, monkeypatch):
     ) -> CertificatePreflight:
         resolved = addresses or {}
         monkeypatch.setattr(
-            preflight_module, "_resolve", lambda host: resolved.get(host, set())
+            preflight_module,
+            "_resolve",
+            lambda host, resolver=None: resolved.get(host, set()),
         )
 
         def closest_caa(self, name):
@@ -202,7 +206,9 @@ def test_an_unreadable_inventory_does_not_raise(settings, monkeypatch, site):
         def list_edges(self):
             raise OSError("inventory is unreadable")
 
-    monkeypatch.setattr(preflight_module, "_resolve", lambda host: {"203.0.113.5"})
+    monkeypatch.setattr(
+        preflight_module, "_resolve", lambda host, resolver=None: {"203.0.113.5"}
+    )
     monkeypatch.setattr(
         CertificatePreflight,
         "_closest_caa",
@@ -423,3 +429,135 @@ def test_closest_caa_returns_none_when_no_ancestor_has_a_record(settings, monkey
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
     assert CertificatePreflight(settings)._closest_caa("cdn.example.com") is None
+
+
+# --- explicit preflight resolvers -------------------------------------------
+
+
+class _Address:
+    def __init__(self, address: str) -> None:
+        self.address = address
+
+
+class RecordingResolver:
+    """Captures what it was asked and answers from a fixed table."""
+
+    instances: ClassVar[list[RecordingResolver]] = []
+
+    def __init__(self) -> None:
+        self.nameservers: list[str] = []
+        self.lifetime = 0.0
+        self.timeout = 0.0
+        self.asked: list[tuple[str, object]] = []
+        RecordingResolver.instances.append(self)
+
+    def resolve(self, name, rdatatype):
+        self.asked.append((name, rdatatype))
+        if rdatatype is dns.rdatatype.A and name == "www.example.com":
+            return [_Address("203.0.113.9")]
+        raise dns.resolver.NoAnswer
+
+
+@pytest.fixture
+def recording_resolver(monkeypatch):
+    RecordingResolver.instances = []
+    monkeypatch.setattr(dns.resolver, "Resolver", RecordingResolver)
+    return RecordingResolver
+
+
+def test_configured_servers_are_used_instead_of_the_host_resolver(
+    settings, monkeypatch, recording_resolver
+):
+    """The controller's own view of DNS must not decide what the CA will see."""
+
+    def explode(*args, **kwargs):
+        raise AssertionError("getaddrinfo must not be used when servers are set")
+
+    monkeypatch.setattr(preflight_module.socket, "getaddrinfo", explode)
+    configured = settings.model_copy(
+        update={"preflight_dns_servers": ("1.1.1.1", "1.0.0.1")}
+    )
+    addresses = preflight_module._resolve(
+        "www.example.com",
+        CertificatePreflight(configured, inventory=object())._address_resolver(),
+    )
+    assert addresses == {"203.0.113.9"}
+    assert recording_resolver.instances[-1].nameservers == ["1.1.1.1", "1.0.0.1"]
+
+
+def test_without_configured_servers_the_host_resolver_is_still_used(settings):
+    """Default behaviour is unchanged, so /etc/hosts keeps applying."""
+    assert (
+        CertificatePreflight(settings, inventory=object())._address_resolver() is None
+    )
+
+
+def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build):
+    configured = settings.model_copy(update={"preflight_dns_servers": ("9.9.9.9",)})
+    monkeypatch.setattr(
+        preflight_module,
+        "_resolve",
+        lambda host, resolver=None: {"198.51.100.1"},
+    )
+    monkeypatch.setattr(CertificatePreflight, "_closest_caa", lambda self, name: None)
+
+    class FakeInventory:
+        def list_edges(self):
+            return [{"host": "edge1.example.net"}]
+
+    report = CertificatePreflight(
+        configured, inventory=FakeInventory(), origin_probe=FakeOriginProbe()
+    ).check(
+        CdnSite(
+            name="site",
+            server_names=("www.example.com",),
+            origin_host="origin.example.com",
+        ),
+        deployed=True,
+    )
+    detail = next(check.detail for check in report.checks if check.name == "dns")
+    assert "via 9.9.9.9" in detail
+
+
+# --- resolver honesty probe --------------------------------------------------
+
+
+def test_a_resolver_that_rejects_reserved_names_passes(settings, recording_resolver):
+    check = preflight_module.check_resolver(settings)
+    assert check.passed
+    probed = recording_resolver.instances[-1].asked[0][0]
+    assert probed.endswith(".invalid"), "probe must use a name that cannot be delegated"
+
+
+def test_a_resolver_that_answers_a_reserved_name_blocks(settings, monkeypatch):
+    """The exact pathology of a transparent proxy claiming every hostname."""
+
+    class LyingResolver:
+        def __init__(self) -> None:
+            self.nameservers: list[str] = []
+            self.lifetime = 0.0
+            self.timeout = 0.0
+
+        def resolve(self, name, rdatatype):
+            return [_Address("172.16.200.20")]
+
+    monkeypatch.setattr(dns.resolver, "Resolver", LyingResolver)
+    check = preflight_module.check_resolver(settings)
+    assert not check.passed
+    assert check.severity is PreflightSeverity.BLOCKING
+    assert "172.16.200.20" in check.detail
+    assert "invents addresses" in check.detail
+
+
+def test_an_unreachable_resolver_is_not_reported_as_dishonest(settings, monkeypatch):
+    class DeadResolver:
+        def __init__(self) -> None:
+            self.nameservers: list[str] = []
+            self.lifetime = 0.0
+            self.timeout = 0.0
+
+        def resolve(self, name, rdatatype):
+            raise dns.exception.Timeout
+
+    monkeypatch.setattr(dns.resolver, "Resolver", DeadResolver)
+    assert preflight_module.check_resolver(settings).passed
