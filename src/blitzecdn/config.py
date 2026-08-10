@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import os
 import shlex
 import tomllib
@@ -33,6 +34,7 @@ _PROJECT_KEYS = {
     "acme_ca_domain",
     "origin_check_timeout_seconds",
     "preflight_dns_timeout_seconds",
+    "preflight_dns_servers",
     "certificate_reconcile_interval_seconds",
 }
 
@@ -66,6 +68,16 @@ class Settings(BaseModel):
     #: needs longer is treated as unavailable and the check downgrades to an
     #: advisory rather than blocking issuance.
     preflight_dns_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    #: Resolvers preflight asks, instead of whatever this host resolves with.
+    #:
+    #: Preflight predicts what the CA will see, and the CA resolves from the
+    #: public internet. The controller's own resolver answers a different
+    #: question: a split-horizon view, an internal forwarder, or a transparent
+    #: proxy that claims every name will all disagree with the public answer
+    #: while being perfectly healthy for every other purpose. Empty means fall
+    #: back to the host resolver, which is the old behaviour and still right
+    #: for an air-gapped controller with its own view of public DNS.
+    preflight_dns_servers: tuple[str, ...] = ()
     #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
@@ -261,6 +273,9 @@ class Settings(BaseModel):
                         )
                     )
                 ),
+                preflight_dns_servers=cls._read_dns_servers(
+                    value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
+                ),
                 allow_empty_sites=bool_value(
                     "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites", False
                 ),
@@ -343,6 +358,30 @@ class Settings(BaseModel):
                 f"unknown project configuration: {', '.join(sorted(unknown))}"
             )
         return raw
+
+    @staticmethod
+    def _read_dns_servers(raw: object) -> tuple[str, ...]:
+        """Parse resolver addresses from a comma-separated string or a list.
+
+        Addresses only: a hostname here would have to be resolved by the very
+        resolver we are trying not to trust.
+        """
+        if isinstance(raw, str):
+            parts: list[str] = [part.strip() for part in raw.split(",")]
+        elif isinstance(raw, (list, tuple)):
+            parts = [str(part).strip() for part in raw]
+        else:
+            raise ValueError("preflight_dns_servers must be a list or comma-separated")
+        servers: list[str] = []
+        for part in filter(None, parts):
+            try:
+                ipaddress.ip_address(part)
+            except ValueError as exc:
+                raise ValueError(
+                    f"preflight DNS server {part!r} is not an IP address"
+                ) from exc
+            servers.append(part)
+        return tuple(servers)
 
     @staticmethod
     def _read_api_keys(env: Mapping[str, str]) -> dict[str, SecretStr]:

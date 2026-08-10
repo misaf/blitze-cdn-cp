@@ -21,6 +21,7 @@ inventory.
 from __future__ import annotations
 
 import ipaddress
+import secrets
 import socket
 from collections.abc import Iterable, Iterator
 
@@ -59,6 +60,31 @@ class CertificatePreflight:
         self._settings = settings
         self._inventory = inventory or Inventory(settings.inventory_path)
         self._origin_probe = origin_probe or OriginProbe(settings)
+
+    def _resolver(self) -> dns.resolver.Resolver:
+        """A resolver honouring the configured timeout and, if set, servers."""
+        resolver = dns.resolver.Resolver()
+        timeout = float(self._settings.preflight_dns_timeout_seconds)
+        resolver.lifetime = timeout
+        resolver.timeout = timeout
+        if self._settings.preflight_dns_servers:
+            resolver.nameservers = list(self._settings.preflight_dns_servers)
+        return resolver
+
+    def _address_resolver(self) -> dns.resolver.Resolver | None:
+        """``None`` keeps A/AAAA on ``getaddrinfo``, the long-standing default.
+
+        Switching every deployment to dnspython would change which answers
+        count — ``/etc/hosts`` entries and search domains would stop applying —
+        so the explicit-server path is opt-in.
+        """
+        if not self._settings.preflight_dns_servers:
+            return None
+        return self._resolver()
+
+    def _resolver_note(self) -> str:
+        servers = self._settings.preflight_dns_servers
+        return f" via {_join_names(servers)}" if servers else ""
 
     def check(
         self, site: CdnSite, *, deployed: bool, record_ttl: int | None = None
@@ -100,19 +126,21 @@ class CertificatePreflight:
                 "no edge address could be resolved from the inventory, so there "
                 "is nothing to compare the hostname against; add an edge first",
             )
+        resolver = self._address_resolver()
+        note = self._resolver_note()
         problems: list[str] = []
         for name in resolvable:
-            addresses = _resolve(name)
+            addresses = _resolve(name, resolver)
             if not addresses:
-                problems.append(f"{name} does not resolve")
+                problems.append(f"{name} does not resolve{note}")
             elif not addresses & edges:
                 problems.append(
-                    f"{name} resolves to {_join(addresses)}, which is not an "
-                    f"edge address ({_join(edges)})"
+                    f"{name} resolves{note} to {_join(addresses)}, which is not "
+                    f"an edge address ({_join(edges)})"
                 )
         if problems:
             return _failed("dns", PreflightSeverity.BLOCKING, "; ".join(problems))
-        return _passed("dns", f"{_join_names(resolvable)} resolve to an edge")
+        return _passed("dns", f"{_join_names(resolvable)} resolve{note} to an edge")
 
     def _edge_addresses(self) -> set[str]:
         """Every address the inventory's edges answer on.
@@ -130,10 +158,11 @@ class CertificatePreflight:
             # by `validate` and by every deploy; preflight must not be the thing
             # that turns it into a stack trace.
             return addresses
+        resolver = self._address_resolver()
         for edge in edges:
             public_addresses = edge.get("public_addresses") or [edge["host"]]
             for address in public_addresses:
-                addresses |= _resolve(address)
+                addresses |= _resolve(address, resolver)
         return addresses
 
     # ------------------------------------------------------------------
@@ -180,9 +209,7 @@ class CertificatePreflight:
         an absent one delegates the question to the parent, so the walk stops at
         the first name that answers rather than merging what it finds.
         """
-        resolver = dns.resolver.Resolver()
-        resolver.lifetime = float(self._settings.preflight_dns_timeout_seconds)
-        resolver.timeout = float(self._settings.preflight_dns_timeout_seconds)
+        resolver = self._resolver()
         for candidate in _ancestors(name):
             try:
                 answer = resolver.resolve(candidate, dns.rdatatype.CAA)
@@ -242,6 +269,47 @@ class CertificatePreflight:
         )
 
 
+def check_resolver(settings: Settings) -> PreflightCheck:
+    """Detect a resolver that invents answers for names that cannot exist.
+
+    A forwarding proxy that claims every hostname looks perfectly healthy —
+    browsing works, packages install, the CA is reachable — right up until
+    something compares a resolved address against an expected one. Then every
+    DNS check fails for a reason that points at the zone rather than at the
+    resolver, which is a long way to travel for the wrong conclusion.
+
+    ``.invalid`` is reserved by RFC 2606 and can never be delegated, so a
+    correct resolver answers NXDOMAIN. Anything that returns an address for a
+    random name under it is answering questions it cannot know.
+    """
+    servers = settings.preflight_dns_servers
+    where = f" ({_join_names(servers)})" if servers else " (host resolver)"
+    resolver = dns.resolver.Resolver()
+    timeout = float(settings.preflight_dns_timeout_seconds)
+    resolver.lifetime = timeout
+    resolver.timeout = timeout
+    if servers:
+        resolver.nameservers = list(servers)
+    probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
+    try:
+        answer = resolver.resolve(probe, dns.rdatatype.A)
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        return _passed("resolver", f"resolver{where} rejects names that cannot exist")
+    except dns.exception.DNSException:
+        # No answer at all is not evidence of dishonesty, and preflight already
+        # degrades gracefully when a resolver is slow or unreachable.
+        return _passed("resolver", f"resolver{where} did not answer the probe")
+    addresses = _join({str(record.address) for record in answer})
+    return _failed(
+        "resolver",
+        PreflightSeverity.BLOCKING,
+        f"resolver{where} answered {addresses} for a reserved .invalid name, so "
+        "it invents addresses instead of resolving. Every DNS check will "
+        "compare against fiction. Point this host at a resolver that returns "
+        "real answers, or set BLITZE_PREFLIGHT_DNS_SERVERS",
+    )
+
+
 def _passed(name: str, detail: str) -> PreflightCheck:
     return PreflightCheck(
         name=name, passed=True, severity=PreflightSeverity.ADVISORY, detail=detail
@@ -291,12 +359,18 @@ def _ancestors(name: str) -> Iterator[str]:
         yield ".".join(labels[index:])
 
 
-def _resolve(host: str) -> set[str]:
+def _resolve(host: str, resolver: dns.resolver.Resolver | None = None) -> set[str]:
     """Every A/AAAA address ``host`` answers with, normalized for comparison.
 
     An ``ansible_host`` that is already a literal address is returned as-is
     rather than sent to the resolver. Addresses are normalized through
     ``ip_address`` so two spellings of one IPv6 address compare equal.
+
+    Without an explicit resolver this goes through ``getaddrinfo``, which is
+    what the host itself would do — ``/etc/hosts``, ``nsswitch.conf`` and all.
+    With one, the query is sent to those servers instead, because the question
+    preflight is really asking is what the CA will see from the public
+    internet, not what this machine happens to believe.
     """
     candidate = host.strip().rstrip(".")
     if not candidate:
@@ -305,6 +379,8 @@ def _resolve(host: str) -> set[str]:
         return {str(ipaddress.ip_address(candidate))}
     except ValueError:
         pass
+    if resolver is not None:
+        return _resolve_with(candidate, resolver)
     try:
         infos = socket.getaddrinfo(candidate, None, proto=socket.IPPROTO_TCP)
     except OSError:
@@ -315,6 +391,27 @@ def _resolve(host: str) -> set[str]:
             addresses.add(str(ipaddress.ip_address(info[4][0])))
         except ValueError:
             continue
+    return addresses
+
+
+def _resolve_with(candidate: str, resolver: dns.resolver.Resolver) -> set[str]:
+    """A and AAAA from an explicit resolver, ignoring the host's own view."""
+    addresses: set[str] = set()
+    for rdatatype in (dns.rdatatype.A, dns.rdatatype.AAAA):
+        try:
+            answer = resolver.resolve(candidate, rdatatype)
+        except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN):
+            continue
+        except dns.exception.DNSException:
+            # A resolver that cannot answer at all is indistinguishable here
+            # from a name that does not exist. The caller reports "does not
+            # resolve", which is the right conclusion either way.
+            continue
+        for record in answer:
+            try:
+                addresses.add(str(ipaddress.ip_address(record.address)))
+            except ValueError:
+                continue
     return addresses
 
 

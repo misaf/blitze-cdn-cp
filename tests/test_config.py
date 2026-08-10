@@ -96,3 +96,31 @@ def test_local_environment_rejects_unsafe_or_invalid_files(tmp_path):
     (tmp_path / ".env").write_text("NOT AN ASSIGNMENT\n", encoding="utf-8")
     with pytest.raises(ConfigurationError, match="invalid assignment"):
         Settings.from_environment({}, project_dir=tmp_path)
+
+
+def test_preflight_dns_servers_parse_from_environment_and_toml(tmp_path):
+    (tmp_path / "blitzecdn.toml").write_text(
+        "[blitzecdn]\npreflight_dns_servers = ['9.9.9.9']\n", encoding="utf-8"
+    )
+    from_toml = Settings.from_environment({}, project_dir=tmp_path)
+    assert from_toml.preflight_dns_servers == ("9.9.9.9",)
+
+    from_env = Settings.from_environment(
+        {"BLITZE_PREFLIGHT_DNS_SERVERS": " 1.1.1.1 , 1.0.0.1 "}, project_dir=tmp_path
+    )
+    assert from_env.preflight_dns_servers == ("1.1.1.1", "1.0.0.1")
+
+
+def test_preflight_dns_servers_default_to_the_host_resolver(tmp_path):
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).preflight_dns_servers == ()
+    )
+
+
+@pytest.mark.parametrize("raw", ["dns.google", "not-an-ip", "1.1.1.1,nope"])
+def test_preflight_dns_servers_must_be_addresses(tmp_path, raw):
+    """A hostname would have to be resolved by the resolver we do not trust."""
+    with pytest.raises(ConfigurationError, match="not an IP address"):
+        Settings.from_environment(
+            {"BLITZE_PREFLIGHT_DNS_SERVERS": raw}, project_dir=tmp_path
+        )
