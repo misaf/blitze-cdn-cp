@@ -27,6 +27,8 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -530,3 +532,102 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
         "$blitzecdn_accept_encoding map can produce; the unlisted variant "
         "would survive a purge and keep being served"
     )
+
+
+# ----------------------------------------------------------------------
+# Executing the role's validation tasks
+#
+# Everything above reads the role as data or renders its templates. Neither
+# evaluates a `when:` or an `assert`, and `--syntax-check` and ansible-lint do
+# not either — a conditional that raises at run time passes all of them. That
+# gap shipped a broken deploy once: `when: item.firewall is defined and
+# item.firewall` parses, lints, and then fails on ansible-core 2.19+ because
+# its result is a dict rather than a boolean.
+#
+# roles/blitzecdn_nginx/tasks/validate.yml holds every task that inspects
+# desired state and refuses to proceed, and changes nothing on the host, so it
+# can be run here against real model output.
+# ----------------------------------------------------------------------
+
+VALIDATE_TASKS = ROLE_DIR / "tasks/validate.yml"
+
+
+def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: Any):
+    """Execute the role's validation tasks against localhost."""
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+    variables = (
+        _role_defaults()
+        | {
+            "blitzecdn_desired_state_version": DESIRED_STATE_VERSION,
+            "blitzecdn_nginx_sites": sites,
+        }
+        | overrides
+    )
+    playbook = tmp_path / "validate.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "vars": variables,
+                    "tasks": [{"import_tasks": str(VALIDATE_TASKS)}],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return subprocess.run(  # noqa: S603 - fixed argv built in this test
+        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        # pytest-cov's subprocess hook would otherwise make the Ansible
+        # child write statement-only coverage beside this run's branch data,
+        # which coverage refuses to combine.
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("COV_CORE", "COVERAGE"))
+        }
+        | {"ANSIBLE_LOCALHOST_WARNING": "False"},
+        check=False,
+    )
+
+
+def test_role_validation_tasks_actually_run(desired_state, tmp_path):
+    """The regression guard for a conditional that only fails at run time."""
+    result = _run_validation(desired_state["blitzecdn_nginx_sites"], tmp_path)
+    assert result.returncode == 0, (
+        "the role's validation tasks failed against real desired state:\n"
+        f"{result.stdout}\n{result.stderr}"
+    )
+
+
+def test_role_refuses_country_rules_without_geoip(desired_state, tmp_path):
+    """The deploy must stop, and say which variable turns the feature on."""
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"firewall": {"denied_countries": ["RU"]}}
+
+    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
+
+    assert result.returncode != 0
+    assert "blitzecdn_nginx_geoip_enabled" in result.stdout
+
+    allowed = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=True)
+    assert allowed.returncode == 0, allowed.stdout
+
+
+def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp_path):
+    """Defence in depth: the role holds even if the control plane regresses."""
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"firewall": {"denied_paths": ["/a; return 200"]}}
+
+    result = _run_validation(sites, tmp_path)
+
+    assert result.returncode != 0
+    assert "firewall rules this role will not render" in result.stdout
