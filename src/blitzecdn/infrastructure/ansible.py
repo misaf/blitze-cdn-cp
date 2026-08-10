@@ -310,6 +310,13 @@ class AnsibleRunner:
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
+        # Always set, even when empty, so `lookup('env', ...)` in group_vars
+        # resolves deterministically instead of inheriting a stray value from
+        # the operator's shell.
+        environment["BLITZE_MAXMIND_ACCOUNT_ID"] = self._settings.maxmind_account_id
+        environment["BLITZE_MAXMIND_LICENSE_KEY"] = (
+            self._settings.maxmind_license_key.get_secret_value()
+        )
         control_root = self._settings.state_dir / "ansible-control"
         control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with (

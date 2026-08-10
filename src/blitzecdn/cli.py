@@ -155,6 +155,26 @@ def main(
     configure_logging(verbose=verbose, json_output=log_json)
 
 
+def _environment_file_body() -> str:
+    """The scaffolded `.env`, with the optional settings named but unset.
+
+    Commented rather than omitted: an operator who never reads the reference
+    should still be able to discover that these exist, and a key that has to be
+    exported into the shell before each deploy gets exported once and then
+    forgotten. `.env` is written 0600 and is the intended home for both.
+    """
+    return (
+        f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n"
+        "\n"
+        "# MaxMind GeoLite2, for per-hostname country filtering. Free, but the\n"
+        "# download is authenticated: create an account, generate a license key,\n"
+        "# and set blitzecdn_nginx_geoip_enabled in group_vars. The license key\n"
+        "# is an account credential — this file is 0600 and must stay uncommitted.\n"
+        "# BLITZE_MAXMIND_ACCOUNT_ID=\n"
+        "# BLITZE_MAXMIND_LICENSE_KEY=\n"
+    )
+
+
 @app.command()
 def init(
     output: Annotated[Path, typer.Option(help="Environment file to create.")] = Path(
@@ -164,9 +184,7 @@ def init(
     """Create a restrictive local environment file without overwriting one."""
     if output.exists():
         raise typer.BadParameter(f"refusing to overwrite {output}")
-    output.write_text(
-        f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n", encoding="utf-8"
-    )
+    output.write_text(_environment_file_body(), encoding="utf-8")
     output.chmod(0o600)
     typer.echo(f"Created {output} with mode 0600")
 
@@ -179,9 +197,7 @@ def setup() -> None:
     inventory_path = root / "ansible/inventory/hosts.yml"
     created: list[str] = []
     if not environment_path.exists():
-        environment_path.write_text(
-            f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n", encoding="utf-8"
-        )
+        environment_path.write_text(_environment_file_body(), encoding="utf-8")
         environment_path.chmod(0o600)
         created.append(str(environment_path.relative_to(root)))
     if Inventory(inventory_path).initialize():

@@ -3,6 +3,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from pydantic import SecretStr
 
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure import ansible
@@ -287,3 +288,81 @@ def test_only_the_last_recap_is_read():
 def test_output_without_a_recap_yields_no_hosts():
     assert ansible.parse_play_recap("ERROR! the playbook could not be parsed") == ()
     assert ansible.parse_play_recap("") == ()
+
+
+def test_maxmind_credentials_reach_ansible_through_the_environment(
+    settings, monkeypatch
+):
+    """`.env` has to survive the hop into the Ansible subprocess.
+
+    Settings parses `.env` into its own mapping, not into os.environ, and the
+    runner builds the child environment from os.environ — so a credential set
+    in `.env` reaches Ansible only because the runner forwards it explicitly.
+    group_vars reads it with `lookup('env', ...)`, which yields an empty string
+    if this regresses, leaving country filtering silently unconfigured instead
+    of failing.
+    """
+    configured = settings.model_copy(
+        update={
+            "maxmind_account_id": "123456",
+            "maxmind_license_key": SecretStr("SENTINELKEY"),
+        }
+    )
+    captured: dict[str, str] = {}
+
+    def fake_popen(command, **kwargs):
+        captured.update(kwargs["env"])
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    ansible.AnsibleRunner(configured).run(check=True)
+
+    assert captured["BLITZE_MAXMIND_ACCOUNT_ID"] == "123456"
+    assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "SENTINELKEY"
+
+
+def test_maxmind_credentials_never_become_command_arguments(settings, monkeypatch):
+    """A secret in argv is readable by every account on the controller.
+
+    Keeping it out of the process table is the whole reason it travels in the
+    environment rather than as `--extra-vars`.
+    """
+    configured = settings.model_copy(
+        update={"maxmind_license_key": SecretStr("SENTINELKEY")}
+    )
+    captured: list[str] = []
+
+    def fake_popen(command, **kwargs):
+        captured.extend(command)
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    ansible.AnsibleRunner(configured).run(check=True)
+
+    assert captured
+    assert not any("SENTINELKEY" in argument for argument in captured)
+
+
+def test_the_credential_environment_is_set_even_when_unconfigured(
+    settings, monkeypatch
+):
+    """The runner forwards resolved settings, not whatever is in the ambient env.
+
+    `Settings` resolves the credential once, letting a real environment
+    variable win over `.env`. After that the runner must overwrite the child's
+    value unconditionally: inheriting os.environ and only setting the key when
+    non-empty would let a stale export from the deploying shell reach Ansible,
+    so the same desired state would converge differently depending on who ran
+    it.
+    """
+    monkeypatch.setenv("BLITZE_MAXMIND_LICENSE_KEY", "FROM-THE-SHELL")
+    captured: dict[str, str] = {}
+
+    def fake_popen(command, **kwargs):
+        captured.update(kwargs["env"])
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    ansible.AnsibleRunner(settings).run(check=True)
+
+    assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == ""

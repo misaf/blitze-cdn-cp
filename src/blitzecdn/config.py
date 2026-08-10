@@ -36,6 +36,10 @@ _PROJECT_KEYS = {
     "preflight_dns_timeout_seconds",
     "preflight_dns_servers",
     "certificate_reconcile_interval_seconds",
+    # The MaxMind account ID is an identifier and belongs here. Its license key
+    # deliberately does not: an unlisted key is rejected outright, so putting a
+    # credential in the committed TOML fails loudly rather than being ignored.
+    "maxmind_account_id",
 }
 
 
@@ -78,6 +82,22 @@ class Settings(BaseModel):
     #: back to the host resolver, which is the old behaviour and still right
     #: for an air-gapped controller with its own view of public DNS.
     preflight_dns_servers: tuple[str, ...] = ()
+    #: MaxMind credentials for the edge GeoLite2 download, forwarded to Ansible
+    #: as environment variables rather than extra-vars.
+    #:
+    #: They live here so they can be set in `.env` alongside everything else an
+    #: operator configures, instead of having to be exported into the shell
+    #: before every deploy. `AnsibleRunner` puts them in the subprocess
+    #: environment and `group_vars` reads them with `lookup('env', ...)`, which
+    #: keeps the key off the command line — `--extra-vars` would put it in the
+    #: process table for every user on the controller — and out of any file the
+    #: control plane writes.
+    maxmind_account_id: str = ""
+    #: `SecretStr` so a traceback or a debugger that reprs `Settings` prints
+    #: `**********`. It is a MaxMind account credential, not a database token,
+    #: and like the API keys it is readable from the environment only — never
+    #: from the committed `blitzecdn.toml`.
+    maxmind_license_key: SecretStr = SecretStr("")
     #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
@@ -296,6 +316,16 @@ class Settings(BaseModel):
                             600,
                         )
                     )
+                ),
+                maxmind_account_id=str(
+                    value("BLITZE_MAXMIND_ACCOUNT_ID", "maxmind_account_id", "")
+                ),
+                # Environment-only, like the API keys: a secret must not be a
+                # valid key in the committed blitzecdn.toml. The account ID
+                # above is an identifier, not a credential, so it may live
+                # there.
+                maxmind_license_key=SecretStr(
+                    env.get("BLITZE_MAXMIND_LICENSE_KEY", "")
                 ),
                 api_keys=keys,
             )

@@ -124,3 +124,32 @@ def test_preflight_dns_servers_must_be_addresses(tmp_path, raw):
         Settings.from_environment(
             {"BLITZE_PREFLIGHT_DNS_SERVERS": raw}, project_dir=tmp_path
         )
+
+
+def test_the_maxmind_key_is_environment_only(tmp_path):
+    """A credential must not be settable from the committed TOML.
+
+    The account ID is an identifier and may live there. The license key
+    authenticates to the account, so it follows BLITZE_API_KEYS: environment
+    only. It is absent from the project-key allowlist, which means a config
+    file carrying one is rejected rather than quietly ignored — a silently
+    dropped credential would look like a working deploy that never enabled
+    country filtering.
+    """
+    config = tmp_path / "blitzecdn.toml"
+    config.write_text('[blitzecdn]\nmaxmind_account_id = "123456"\n', encoding="utf-8")
+
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+    assert settings.maxmind_account_id == "123456"
+    assert settings.maxmind_license_key.get_secret_value() == ""
+
+    from_environment = Settings.from_environment(
+        {"BLITZE_MAXMIND_LICENSE_KEY": "FROM-ENV"}, project_dir=tmp_path
+    )
+    assert from_environment.maxmind_license_key.get_secret_value() == "FROM-ENV"
+
+    config.write_text(
+        '[blitzecdn]\nmaxmind_license_key = "FROM-TOML"\n', encoding="utf-8"
+    )
+    with pytest.raises(ConfigurationError, match="maxmind_license_key"):
+        Settings.from_environment({}, project_dir=tmp_path)
