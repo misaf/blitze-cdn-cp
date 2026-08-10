@@ -631,3 +631,52 @@ def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp
 
     assert result.returncode != 0
     assert "firewall rules this role will not render" in result.stdout
+
+
+def test_maxmind_credentials_never_reach_an_nginx_config():
+    """The license key belongs in one 0600 file and nowhere else.
+
+    /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only
+    the database path. A key that leaked into a template here would be
+    disclosed to every account on the edge.
+    """
+    environment = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    environment.filters["dirname"] = os.path.dirname
+    context = _role_defaults() | {
+        "blitzecdn_nginx_geoip_enabled": True,
+        "blitzecdn_nginx_geoip_account_id": "123456",
+        "blitzecdn_nginx_geoip_license_key": "SENTINELKEY",
+    }
+    nginx_side = environment.get_template("geoip.conf.j2").render(**context)
+    assert "SENTINELKEY" not in nginx_side
+    assert "123456" not in nginx_side
+    assert context["blitzecdn_nginx_geoip_database"] in nginx_side
+
+    # …and it does reach the file that is supposed to carry it.
+    credentials = environment.get_template("maxmind.conf.j2").render(**context)
+    assert "LicenseKey SENTINELKEY" in credentials
+
+
+def test_the_credentials_file_is_written_private_and_unlogged():
+    """Mode and no_log are the whole protection; assert them, not the intent."""
+    tasks = yaml.safe_load((ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8"))
+
+    def walk(items):
+        for task in items:
+            yield task
+            for key in ("block", "rescue", "always"):
+                if key in task:
+                    yield from walk(task[key])
+
+    writer = next(
+        task
+        for task in walk(tasks)
+        if task.get("ansible.builtin.template", {}).get("src") == "maxmind.conf.j2"
+    )
+    assert writer["ansible.builtin.template"]["mode"] == "0600"
+    assert writer["ansible.builtin.template"]["owner"] == "root"
+    assert writer["no_log"] is True

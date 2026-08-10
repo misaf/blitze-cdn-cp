@@ -23,3 +23,21 @@ blitzecdn_sshd_permit_root_login: 'no'
 # Empty means "the account this control plane connects as". Set an explicit
 # list to close SSH to a named set of operators.
 blitzecdn_sshd_allow_users: []
+
+# Per-hostname country filtering (the `firewall` block's allowed_countries and
+# denied_countries). Off by default; a site that asks for country rules while
+# this is false fails the deploy rather than serving the traffic it was told to
+# block.
+#
+# GeoLite2 is free but authenticated. Create a MaxMind account, generate a
+# license key, and export it on the controller before deploying:
+#
+#   export MAXMIND_ACCOUNT_ID=123456
+#   export MAXMIND_LICENSE_KEY=...
+#
+# Read from the environment rather than written here, because this file is
+# committed. The role writes the key to a 0600 root-owned /etc/GeoIP.conf and
+# sets no_log on every task that touches it.
+blitzecdn_nginx_geoip_enabled: false
+blitzecdn_nginx_geoip_account_id: "{{ lookup('env', 'MAXMIND_ACCOUNT_ID') }}"
+blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'MAXMIND_LICENSE_KEY') }}"
