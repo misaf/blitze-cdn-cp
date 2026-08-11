@@ -19,7 +19,11 @@ from typing import Any
 from uuid import uuid4
 
 from blitzecdn.domain.audit import AuditEvent
-from blitzecdn.domain.deployments import Deployment, DeploymentStatus
+from blitzecdn.domain.deployments import (
+    Deployment,
+    DeploymentStatus,
+    require_transition,
+)
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import CdnSite
@@ -380,6 +384,11 @@ class DeploymentStore:
         target: DeploymentStatus,
         **values: Any,
     ) -> Deployment:
+        # The lifecycle table belongs to the domain and is enforced before the
+        # SQL, so an illegal step is refused even when no row would match. The
+        # `WHERE status = expected` guard then owns the race: a lawful step
+        # against a stale expected state is a ConflictError, not a ValueError.
+        require_transition(expected, target)
         allowed = {"started_at", "finished_at", "result"}
         if set(values) - allowed:
             raise ValueError("unsupported deployment transition fields")
