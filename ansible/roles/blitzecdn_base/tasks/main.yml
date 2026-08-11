@@ -1,0 +1,10 @@
+---
+- name: Install baseline packages
+  ansible.builtin.apt:
+    name: "{{ blitzecdn_base_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+- name: Configure system timezone
+  community.general.timezone:
+    name: "{{ blitzecdn_base_timezone }}"

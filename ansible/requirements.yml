@@ -1,16 +1,10 @@
 ---
 collections:
-  # The edge roles ship separately from this control plane. Pin an exact
-  # version: the desired-state document is a versioned contract, and an
-  # unpinned edge collection would let the two drift with no diff to review.
-  # Upgrading edges is a deliberate bump here, checked by
-  # tests/test_contract.py.
-  - name: blitzecdn.edge
-    source: https://github.com/misaf/blitze-cdn-edge.git
-    type: git
-    # This is a Git ref, not the Ansible collection metadata version. Release
-    # tags use a v prefix; galaxy.yml and MANIFEST.json must not.
-    version: "v1.9.1"
+  # The edge roles are no longer a collection: they live in ansible/roles/ and
+  # ship with this control plane, so the desired-state contract and the roles
+  # that honour it always move in the same commit. Only their third-party
+  # dependencies are installed here, pinned exactly — an unpinned range would
+  # let a Galaxy release change how an edge is converged with no diff to review.
   - name: ansible.posix
     version: "2.2.0"
   - name: community.general

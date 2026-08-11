@@ -1,0 +1,131 @@
+---
+# Defensive validation only. Which hostnames may be purged, and whether the
+# caller is allowed to empty a whole edge, are control-plane decisions; this
+# role refuses input it cannot act on safely and nothing more.
+- name: Refuse an ambiguous purge request
+  ansible.builtin.assert:
+    that:
+      - not (blitzecdn_cache_purge_all and blitzecdn_cache_purge_entries | length > 0)
+    fail_msg: >-
+      blitzecdn_cache_purge_all and blitzecdn_cache_purge_entries were both
+      given. Emptying the cache and removing named entries are different
+      operations and combining them hides which one actually ran.
+
+- name: Require something to purge
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_cache_purge_all or blitzecdn_cache_purge_entries | length > 0
+    fail_msg: >-
+      Nothing to purge. An empty request is refused rather than reported as a
+      successful purge of nothing, which is indistinguishable from a filter
+      that matched no sites.
+
+- name: Validate the entries to purge
+  ansible.builtin.assert:
+    that:
+      - item.host is match('^[A-Za-z0-9._-]{1,253}$')
+      - item.uri is match('^/[^\s]{0,2048}$')
+    fail_msg: >-
+      A purge entry must have a hostname and an absolute URI beginning with
+      '/'. Got host={{ item.host | default('') }} uri={{ item.uri | default('') }}
+  loop: "{{ blitzecdn_cache_purge_entries }}"
+  loop_control:
+    label: "{{ item.host | default('?') }}{{ item.uri | default('') }}"
+
+# The encoding is only part of the key when blitzecdn_nginx normalizes it. With
+# normalization off there is one entry per URL and method, so purging the three
+# encoding variants would delete two paths that never existed.
+- name: Resolve the cache-key encodings in play
+  ansible.builtin.set_fact:
+    blitzecdn_cache_key_encodings: >-
+      {{ blitzecdn_cache_purge_encodings
+         if blitzecdn_cache_normalize_accept_encoding | bool
+         else [''] }}
+
+# nginx hashes the cache key with MD5 and, under levels=1:2, files it at
+# <cache>/<md5[-1]>/<md5[-3:-1]>/<md5>. Recomputing that here is what makes
+# purge possible without the commercial proxy_cache_purge directive. MD5 is
+# nginx's choice of layout, not a security decision.
+#
+# One template render rather than one task per variant. A purge of 500 URLs is
+# 500 x 2 methods x 3 encodings = 3000 keys, and accumulating them with a
+# looped set_fact rebuilt the whole list on every iteration — quadratic, in
+# Ansible task dispatch, per edge. The loop below runs inside Jinja instead, so
+# the cost is one render regardless of how many entries were asked for.
+- name: Compute the cache files backing the requested entries
+  ansible.builtin.set_fact:
+    blitzecdn_cache_purge_files: >-
+      {% set files = [] %}
+      {%- for entry, method, encoding in blitzecdn_cache_purge_entries
+            | product(blitzecdn_cache_purge_methods)
+            | product(blitzecdn_cache_key_encodings)
+            | map('flatten') -%}
+        {%- set digest = (
+              (entry.scheme | default('https')) ~ method ~ entry.host ~ entry.uri ~ encoding
+            ) | trim | hash('md5') -%}
+        {%- set _ = files.append(
+              blitzecdn_cache_path ~ '/' ~ digest[-1] ~ '/' ~ digest[-3:-1] ~ '/' ~ digest
+            ) -%}
+      {%- endfor -%}
+      {{ files | unique | list }}
+  when: not blitzecdn_cache_purge_all
+
+# The list goes to the edge as a file and is consumed in one pass, rather than
+# becoming one `file:` task per entry. Same reason as above: 3000 module
+# invocations per edge is minutes of round trips for an operation whose whole
+# justification is that it happens under time pressure.
+#
+# Every path here is <cache_path>/<hex>/<hex>/<hex> — computed just above, not
+# taken from the request — so there is nothing for xargs to split on and no
+# quoting question. `rm -f` because an entry that was never cached is the
+# ordinary case, not an error.
+- name: Stage the list of cache files to remove
+  ansible.builtin.tempfile:
+    state: file
+    prefix: blitzecdn-purge-
+  register: blitzecdn_cache_purge_manifest
+  changed_when: false
+  when: not blitzecdn_cache_purge_all
+
+- name: Write the list of cache files to remove
+  ansible.builtin.copy:
+    content: "{{ blitzecdn_cache_purge_files | join('\n') }}\n"
+    dest: "{{ blitzecdn_cache_purge_manifest.path }}"
+    owner: root
+    group: root
+    mode: "0600"
+  changed_when: false
+  when: not blitzecdn_cache_purge_all
+
+- name: Remove the cached responses
+  ansible.builtin.command:
+    cmd: xargs -r -a {{ blitzecdn_cache_purge_manifest.path | quote }} rm -f --
+  register: blitzecdn_cache_purged
+  # `rm -f` cannot report which entries were present, and nginx open source
+  # cannot be asked. Reporting the pass as changed matches what the control
+  # plane already documents a successful purge to mean: the object is not being
+  # served from cache any more, not that it was there.
+  changed_when: blitzecdn_cache_purged.rc == 0
+  when: not blitzecdn_cache_purge_all
+
+- name: Remove the staged list
+  ansible.builtin.file:
+    path: "{{ blitzecdn_cache_purge_manifest.path }}"
+    state: absent
+  changed_when: false
+  when:
+    - not blitzecdn_cache_purge_all
+    - blitzecdn_cache_purge_manifest.path is defined
+
+# Deleting files rather than the tree: the level directories are created by
+# nginx at startup and removing them makes every subsequent store fail until a
+# reload. `find -delete` rather than the find module and a loop because a busy
+# edge holds hundreds of thousands of entries, and returning all of them to the
+# controller to iterate over is minutes of work to do what one syscall pass
+# does. -xdev keeps a bind-mounted directory under the cache from being walked.
+- name: Empty the cache
+  ansible.builtin.command:
+    cmd: find {{ blitzecdn_cache_path | quote }} -xdev -type f -delete
+  register: blitzecdn_cache_emptied
+  changed_when: blitzecdn_cache_emptied.rc == 0
+  when: blitzecdn_cache_purge_all

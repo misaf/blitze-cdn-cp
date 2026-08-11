@@ -1,0 +1,3 @@
+---
+blitzecdn_base_packages: [ca-certificates, curl]
+blitzecdn_base_timezone: UTC

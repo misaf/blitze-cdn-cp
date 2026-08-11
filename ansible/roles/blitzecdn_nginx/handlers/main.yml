@@ -1,0 +1,15 @@
+---
+- name: Validate Nginx configuration
+  ansible.builtin.command:
+    argv: [nginx, -t]
+  changed_when: false
+  listen: Validate and reload Nginx
+# Under --check the validate handler above is skipped (the command module does
+# not run in check mode), so reloading here would act on a configuration nothing
+# verified — and on a host without Nginx yet the unit does not even exist.
+- name: Reload Nginx after validation
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  listen: Validate and reload Nginx
+  when: not ansible_check_mode

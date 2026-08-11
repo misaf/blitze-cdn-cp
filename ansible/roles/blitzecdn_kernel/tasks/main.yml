@@ -1,0 +1,21 @@
+---
+# Settings land in a dedicated drop-in rather than /etc/sysctl.conf, so the role
+# owns a file it can be judged by: an operator can diff it, and backing the role
+# out means removing one file instead of unpicking edits from the distribution's
+# own config.
+#
+# sysctl_set applies each value to the running kernel and fails the task if the
+# kernel rejects it, which is the check worth having. `reload` is therefore off:
+# it re-read the whole file once per key, so a five-key dict reloaded five times
+# to reach a state sysctl_set had already established.
+- name: Apply conservative kernel settings
+  ansible.posix.sysctl:
+    name: "{{ item.key }}"
+    value: "{{ item.value }}"
+    state: present
+    sysctl_file: "{{ blitzecdn_kernel_sysctl_file }}"
+    sysctl_set: true
+    reload: false
+  loop: "{{ blitzecdn_kernel_sysctl | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

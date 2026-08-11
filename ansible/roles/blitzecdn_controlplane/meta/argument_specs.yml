@@ -1,0 +1,35 @@
+---
+argument_specs:
+  main:
+    short_description: Converge this host as a BlitzeCDN control plane.
+    description:
+      - >-
+        Owns every piece of Linux state a standalone installation needs. The
+        service and deploy accounts, directory ownership, the sudo rule, the
+        loopback SSH trust between them, the CLI wrapper, the environment file,
+        and the systemd units.
+      - >-
+        Runs against localhost from the installer, and again from
+        C(install.sh update) so a new release converges its own units.
+    options:
+      blitzecdn_controlplane_install_dir: {type: path, required: true}
+      blitzecdn_controlplane_config_dir: {type: path, required: true}
+      blitzecdn_controlplane_service_user: {type: str, required: true}
+      blitzecdn_controlplane_service_home: {type: path, required: true}
+      blitzecdn_controlplane_deploy_user: {type: str, required: true}
+      blitzecdn_controlplane_cli_wrapper: {type: path, required: true}
+      blitzecdn_controlplane_sudoers_file: {type: path, required: true}
+      blitzecdn_controlplane_packages: {type: list, elements: str, required: true}
+      blitzecdn_controlplane_acme_email:
+        type: str
+        required: false
+        default: ""
+        description:
+          - >-
+            Required when no environment file exists yet, because the ACME
+            account address cannot be invented. On a host that already has one
+            the address is left alone unless a value is supplied here, in which
+            case the account is repointed.
+      blitzecdn_controlplane_certificate_reconcile_seconds: {type: int, required: true}
+      blitzecdn_controlplane_units: {type: list, elements: str, required: true}
+      blitzecdn_controlplane_services: {type: list, elements: str, required: true}

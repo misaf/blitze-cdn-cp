@@ -1267,14 +1267,14 @@ def test_version_reports_all_three_contract_versions():
     leave the operator to dig the other two out of `ansible/requirements.yml`
     and the domain model.
     """
-    from blitzecdn import EDGE_COLLECTION_VERSION, __version__
+    from blitzecdn import __version__
     from blitzecdn.domain.sites import DESIRED_STATE_VERSION
 
     result = runner.invoke(cli.app, ["--version"])
 
     assert result.exit_code == 0
     assert f"blitzecdn {__version__}" in result.output
-    assert f"blitzecdn.edge {EDGE_COLLECTION_VERSION}" in result.output
+    assert "blitzecdn.edge" not in result.output
     assert f"desired-state schema {DESIRED_STATE_VERSION}" in result.output
 
 

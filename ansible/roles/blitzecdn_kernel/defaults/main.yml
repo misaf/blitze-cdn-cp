@@ -1,0 +1,14 @@
+---
+# Numbered above the distribution's own drop-ins so BlitzeCDN wins: sysctl.d
+# files are read in lexical order and the *last* value for a key is the one that
+# sticks — the opposite of how sshd resolves its config.
+blitzecdn_kernel_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
+
+# Replaced wholesale, not merged, when overridden in inventory. Setting one key
+# in group_vars drops the other four; restate the full dict.
+blitzecdn_kernel_sysctl:
+  net.core.somaxconn: 16384
+  net.ipv4.tcp_syncookies: 1
+  net.ipv4.tcp_keepalive_time: 90
+  net.ipv4.tcp_keepalive_intvl: 30
+  net.ipv4.tcp_keepalive_probes: 5

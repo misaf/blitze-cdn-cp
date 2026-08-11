@@ -93,27 +93,39 @@ pinned Ansible collection into `.state/collections`, and runs initial setup.
 Setup never overwrites an existing `.env` or inventory, so re-running it is
 safe.
 
-Three environment variables change what it installs, or how a later deploy
+To provision a whole server in one command instead — control plane and edge on
+the same host — use the bootstrap script, which clones the newest release to
+`/opt/blitzecdn` and runs `install.sh standalone`:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/misaf/blitze-cdn-cp/HEAD/bootstrap.sh)" bootstrap \
+  --admin-cidr 203.0.113.8/32 --email ops@example.com
+```
+
+It runs as root and provisions the host, so read it first. It installs a release
+tag rather than a branch, verifies the tag against the package version, and
+refuses to run when `/opt/blitzecdn` already exists — upgrade with
+`sudo /opt/blitzecdn/install.sh update`.
+
+Environment variables that change what it installs, or how a later deploy
 behaves:
 
 | Variable | Effect |
 | --- | --- |
 | `BLITZECDN_DEV=1` | Install `-e '.[dev]'`: test and lint tooling, and `src/` edits take effect without reinstalling. |
-| `BLITZECDN_EDGE_PATH=../blitze-cdn-edge` | Build the edge collection from that checkout and install it instead of the release pinned in `ansible/requirements.yml`. |
+| `BLITZECDN_WRAPPER_DIR` | Where to put the `blitzecdn` command (default `~/.local/bin`). |
+| `BLITZECDN_USER_WRAPPER=0` | Do not put `blitzecdn` on `PATH`; use `.venv/bin/blitzecdn`. |
 | `BLITZE_ALLOW_EMPTY_SITES=true` | Explicitly permit a deployment to remove the final previously managed sites. Leave unset during normal operation. |
 
-A lab controller that tracks both repositories wants both:
+A lab controller wants the first:
 
 ```bash
-BLITZECDN_DEV=1 BLITZECDN_EDGE_PATH=../blitze-cdn-edge ./install.sh
+BLITZECDN_DEV=1 ./install.sh
 ```
 
-`BLITZECDN_EDGE_PATH` is the only supported way to run un-released edge roles: a
-deploy otherwise always uses the pinned tag, and a local edit to
-`blitze-cdn-edge` has no effect until the collection is rebuilt. It reports the
-version it installed, because the pin no longer describes the installed roles.
-Re-run `./install.sh` after every edge change, and leave the variable unset to
-return to the pinned release.
+The Ansible roles live in `ansible/roles/` and are read at deploy time, so a
+role edit takes effect immediately — there is nothing to rebuild, pin, or
+reinstall after changing one.
 
 An empty desired state is safe on a fresh edge. On an edge whose managed-site
 registry is non-empty, it is refused by default because it would delete every
@@ -151,7 +163,7 @@ SSH is public-key only in both directions. The controller connects with
 `BatchMode=yes`, so a deploy fails immediately rather than falling back to a
 password or blocking on a prompt — use an SSH agent for key passphrases. The
 first deploy then installs the matching policy on the edge itself
-(`blitzecdn.edge.blitzecdn_sshd`), which refuses to disable passwords unless
+(the `blitzecdn_sshd` role), which refuses to disable passwords unless
 the account it would leave behind already has a working `authorized_keys`.
 Install the operator key on a new edge before adding it here.
 
@@ -284,9 +296,9 @@ and the Nginx role refuses any version it does not support, so a mismatched
 pair fails before touching a host rather than partway through a rollout. Bump
 `DESIRED_STATE_VERSION` in `src/blitzecdn/domain/sites.py` when the
 `blitzecdn_nginx_sites` shape changes in a way an older role cannot honour, and
-add the new version to `blitzecdn_nginx_supported_state_versions` in the edge
-role — adding to that list rather than replacing it, so a mid-upgrade pair
-keeps working. The current schema is version 2, and the pinned edge collection
+add the new version to `blitzecdn_nginx_supported_state_versions` in the Nginx
+role — adding to that list rather than replacing it, so an edge converged by an
+earlier release keeps working. The current schema is version 2, and the role
 supports 1 and 2.
 
 `tests/test_contract.py` enforces the boundary: it renders desired state from
@@ -458,13 +470,12 @@ Releases are tagged `vX.Y.Z`, and CI refuses a tag that does not equal the
 
 ## Related repositories
 
-BlitzeCDN is three repositories:
+BlitzeCDN is two repositories:
 
 | Repository | Owns |
 | --- | --- |
-| **blitze-cdn-cp** (this one) | Control plane: validation, desired state, history, rollback, audit, CLI and API. Also the operator-side Ansible config — inventory, `ansible.cfg`, and the playbooks. |
-| [blitze-cdn-edge](https://github.com/misaf/blitze-cdn-edge) | The `blitzecdn.edge` collection: the roles that converge remote Linux state. Pinned in `ansible/requirements.yml`. |
-| [blitze-cdn-web](https://github.com/misaf/blitze-cdn-web) | Documentation site. Its maintained reference pages are reviewed against this repository and the edge collection. |
+| **blitze-cdn-cp** (this one) | Control plane: validation, desired state, history, rollback, audit, CLI and API. Also all Ansible — inventory, `ansible.cfg`, the playbooks, and every role in `ansible/roles/`: the ten that converge remote edges plus `blitzecdn_controlplane` for the controller's own host. |
+| [blitze-cdn-web](https://github.com/misaf/blitze-cdn-web) | Documentation site. Its maintained reference pages are reviewed against this repository. |
 
 Documentation prose and maintained reference pages live in **blitze-cdn-web**.
 When a route, flag, setting, or role variable changes, review and update the

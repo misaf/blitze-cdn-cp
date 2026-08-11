@@ -44,7 +44,7 @@ DOCUMENTATION = """
 
 #: A role returns data to the control plane by setting this fact. It is the
 #: only supported channel for a payload rather than an outcome — see
-#: ``blitzecdn.edge.blitzecdn_stats``, which reports its counters this way.
+#: ``blitzecdn_stats``, which reports its counters this way.
 REPORT_FACT = "blitzecdn_report"
 
 #: Failure text is for a human reading a report, not for a machine to match on.

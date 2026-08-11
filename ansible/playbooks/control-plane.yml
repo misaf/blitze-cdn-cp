@@ -1,0 +1,18 @@
+---
+# Converges the host the control plane itself runs on. `install.sh standalone`
+# runs this once the virtualenv and the collections exist, and `install.sh
+# update` runs it again after checking out a release, so new or changed systemd
+# units land without a second mechanism for installing them.
+#
+# The role lives in this repository rather than the edge collection: it
+# configures the operator's own host, it is versioned with the control plane it
+# serves, and changing it must not require an edge release and a re-pin.
+- name: Converge the BlitzeCDN control-plane host
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  any_errors_fatal: true
+  roles:
+    - role: blitzecdn_controlplane
+      tags: [control_plane]

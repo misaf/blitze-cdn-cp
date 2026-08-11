@@ -1,0 +1,203 @@
+# Managed by BlitzeCDN. Local edits are overwritten.
+{% set tls = item.certificate_mode | default('disabled') != 'disabled' %}
+{% set origin_host = item.origin_host %}
+{% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
+{% set upstream = item.origin_scheme | default('https') ~ '://' ~ origin_host ~ (':' ~ item.origin_port if item.origin_port is defined else '') %}
+{#
+  Per-site request filtering. Absent on a schema-version-1 document and on any
+  site that never configured it, so every lookup defaults.
+#}
+{% set fw = item.firewall | default({}, true) or {} %}
+{% set fw_allow = fw.allow_sources | default([], true) %}
+{% set fw_deny = fw.deny_sources | default([], true) %}
+{% set fw_allow_countries = fw.allowed_countries | default([], true) %}
+{% set fw_deny_countries = fw.denied_countries | default([], true) %}
+{% set fw_deny_methods = fw.denied_methods | default([], true) %}
+{% set fw_deny_paths = fw.denied_paths | default([], true) %}
+{#
+  Emitted inside `location /` rather than at server level, so that the ACME
+  challenge location above is never subject to it. A site that filtered its own
+  CA out of validation would keep serving until the certificate expired and
+  then fail with nothing pointing back at the rule.
+
+  These do not run in the order they are written. `if` is a rewrite-phase
+  directive and `allow`/`deny` belong to the later access phase, so the country
+  and method returns below always win over a source exemption.
+#}
+{% macro access() %}
+{% if fw_deny_countries %}
+        # Unknown addresses render as "" and do not match, so a country block
+        # never catches an address the database has no entry for.
+        if ($blitzecdn_country ~ "^({{ fw_deny_countries | join('|') }})$") {
+            return 403;
+        }
+{% endif %}
+{% if fw_allow_countries %}
+        # The mirror of the above: "" fails the match, so an address the
+        # database cannot place is refused by an allow list.
+        if ($blitzecdn_country !~ "^({{ fw_allow_countries | join('|') }})$") {
+            return 403;
+        }
+{% endif %}
+{% if fw_deny_methods %}
+        if ($request_method ~ "^({{ fw_deny_methods | join('|') }})$") {
+            return 405;
+        }
+{% endif %}
+{% if fw_allow or fw_deny %}
+        # First match wins, so the allows are exemptions from the denies under
+        # them. There is no trailing `deny all` — the posture stays open unless
+        # the control plane was given a rule covering everything.
+{% for source in fw_allow %}
+        allow {{ source }};
+{% endfor %}
+{% for source in fw_deny %}
+        deny {{ source }};
+{% endfor %}
+{% endif %}
+{% endmacro %}
+{#
+  Prefix locations, so they are matched before `location /`. The ACME location
+  is a longer prefix than anything plausible here and keeps winning for
+  challenge URIs even if a rule names /.well-known.
+#}
+{% macro denied_paths() %}
+{% for path in fw_deny_paths %}
+    location ^~ {{ path }} {
+        return 403;
+    }
+{% endfor %}
+{% endmacro %}
+{#
+  `secure` controls whether this location emits HSTS. It has to be emitted here
+  rather than once at server level: an add_header anywhere in a location
+  replaces the whole inherited set, so the X-Cache-Status line below would
+  silently drop a server-level Strict-Transport-Security on every cached site.
+#}
+{% macro proxy(secure=false) %}
+{% if blitzecdn_nginx_resolvers %}
+        # A variable upstream defers resolution to request time so origin DNS
+        # changes take effect. nginx does not append the URI in this form.
+        set $blitzecdn_upstream {{ upstream }};
+        proxy_pass $blitzecdn_upstream$request_uri;
+{% else %}
+        proxy_pass {{ upstream }};
+{% endif %}
+        proxy_http_version 1.1;
+        proxy_set_header Host {{ item.origin_request_host | default('$host') }};
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+        proxy_ssl_server_name on;
+        {#
+          SNI falls back to the origin hostname, never to a server_name: those
+          may be wildcards such as *.example.com, which matches no certificate
+          in a TLS handshake. The control plane's CdnSite.effective_origin_sni
+          computes this identically, and its preflight probe verifies against
+          the result — the two must not drift.
+        #}
+        proxy_ssl_name {{ item.origin_sni | default(item.origin_request_host | default(item.origin_host)) }};
+        proxy_connect_timeout {{ blitzecdn_nginx_proxy_connect_timeout }};
+        proxy_read_timeout {{ blitzecdn_nginx_proxy_read_timeout }};
+{% if blitzecdn_nginx_normalize_accept_encoding %}
+        # Bounds the variants the origin can return to the ones the cache key
+        # below can tell apart. See the map in blitzecdn-cache.conf.
+        proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;
+{% endif %}
+{% if item.cache_enabled | default(true) %}
+        proxy_cache {{ blitzecdn_nginx_cache_zone }};
+{% if blitzecdn_nginx_normalize_accept_encoding %}
+        # The encoding belongs in the key. Without it a gzipped response and an
+        # identity response share one entry, and whichever arrives first is
+        # served to every subsequent client regardless of what it can decode.
+        proxy_cache_key "$scheme$request_method$host$request_uri$blitzecdn_accept_encoding";
+{% else %}
+        proxy_cache_key "$scheme$request_method$host$request_uri";
+{% endif %}
+        proxy_cache_valid 200 301 302 {{ item.cache_valid_success | default('10m') }};
+        proxy_cache_valid 404 {{ item.cache_valid_not_found | default('1m') }};
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_background_update on;
+        proxy_cache_lock on;
+        # Revalidates an expired entry with If-Modified-Since / If-None-Match, so
+        # an unchanged object costs a 304 instead of a full re-fetch.
+        proxy_cache_revalidate on;
+        add_header X-Cache-Status $upstream_cache_status always;
+{% else %}
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+{% endif %}
+{% if secure and blitzecdn_nginx_hsts_enabled %}
+        add_header Strict-Transport-Security "max-age={{ blitzecdn_nginx_hsts_max_age }}" always;
+{% endif %}
+{% endmacro %}
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ item.server_names | join(' ') }};
+{% if blitzecdn_nginx_access_log_enabled %}
+    access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
+{% endif %}
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ blitzecdn_nginx_acme_root }};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+{{ denied_paths() }}
+    location / {
+{{ access() }}
+{% if tls %}
+        return 308 https://$host$request_uri;
+{% else %}
+{{ proxy() }}
+{% endif %}
+    }
+}
+{% if tls %}
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name {{ item.server_names | join(' ') }};
+{% if blitzecdn_nginx_access_log_enabled %}
+    access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
+{% endif %}
+    ssl_certificate {{ item.certificate_path }};
+    ssl_certificate_key {{ item.certificate_key_path }};
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers {{ blitzecdn_nginx_ssl_ciphers }};
+    # TLS 1.3 fixes its own cipher order and 1.2 clients here are already
+    # restricted to AEAD suites, so the client's preference is the better signal
+    # — it knows which of them its hardware accelerates.
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+    # Tickets are encrypted with a key nginx generates at start and never
+    # rotates, so anyone who later obtains it can decrypt every session resumed
+    # against this worker. Off, forward secrecy holds.
+    ssl_session_tickets off;
+{% if blitzecdn_nginx_ssl_stapling and blitzecdn_nginx_resolvers %}
+    # Saves the client an OCSP round trip to the CA on first connect. Needs the
+    # resolver configured in blitzecdn-cache.conf to reach the responder, which
+    # is why this is conditional on it. The chain we install is a fullchain, so
+    # it already carries the issuer needed to verify the response.
+    #
+    # Off by default: a leaf with no OCSP responder URL — which is what the CA
+    # this collection provisions from now issues — makes nginx warn on every
+    # config test and staple nothing. See the default's comment.
+    ssl_stapling on;
+    ssl_stapling_verify on;
+    ssl_trusted_certificate {{ item.certificate_path }};
+{% endif %}
+    # HSTS, when enabled, is emitted inside the location by the proxy macro —
+    # see the note there. It is off by default in this collection: HSTS is a
+    # promise made on the customer's domain, not ours, and a max-age already
+    # served cannot be withdrawn faster than it expires in browsers that saw it.
+{{ denied_paths() }}
+    location / {
+{{ access() }}
+{{ proxy(secure=true) }}
+    }
+}
+{% endif %}

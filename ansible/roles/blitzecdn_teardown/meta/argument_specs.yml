@@ -1,0 +1,50 @@
+---
+argument_specs:
+  main:
+    short_description: Remove BlitzeCDN configuration and TLS material from an edge.
+    description:
+      - >-
+        Takes a host out of service by deleting everything blitzecdn_nginx
+        wrote to it: managed virtual hosts, the catch-all default site, the
+        cache and status configuration, the managed-sites registry, the cache
+        contents, the ACME webroot, and /etc/blitzecdn including private keys.
+      - >-
+        Leaves nginx installed and running, and does not touch the sshd or
+        firewall policy. Both of those are the controls that keep the host
+        reachable and closed; reverting them as part of a teardown can strand
+        an operator or expose a host that is merely unmanaged, not retired.
+      - >-
+        Must run while the host is still in inventory. Once the control plane
+        drops the inventory entry no playbook can reach the host again, and
+        anything left here stays until someone logs in and removes it by hand.
+    options:
+      blitzecdn_teardown_cache_path:
+        type: path
+        required: true
+        description: Must equal blitzecdn_nginx_cache_path on the same host.
+      blitzecdn_teardown_managed_sites_file:
+        type: path
+        required: true
+        description: Must equal blitzecdn_nginx_managed_sites_file on the same host.
+      blitzecdn_teardown_acme_root:
+        type: path
+        required: true
+        description: Must equal blitzecdn_nginx_acme_root on the same host.
+      blitzecdn_teardown_state_path:
+        type: path
+        required: true
+        description: >-
+          Root of the controller-written state tree, holding managed TLS
+          certificates and keys under tls/. Removed recursively.
+      blitzecdn_teardown_marker:
+        type: str
+        required: true
+        description: First line of every file this collection writes into /etc/nginx.
+      blitzecdn_teardown_remove_logs:
+        type: bool
+        default: false
+        description: Also delete the BlitzeCDN access log.
+      blitzecdn_teardown_access_log_path:
+        type: path
+        required: true
+        description: Must equal blitzecdn_nginx_access_log_path on the same host.

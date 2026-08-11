@@ -1,0 +1,133 @@
+---
+# One guarded block rather than a `when` repeated on every task: the allow rules
+# and the deny-by-default policy that makes them survivable must be applied
+# together, and a task added here without its own guard would otherwise change
+# the firewall on hosts that opted out.
+- name: Converge the edge firewall
+  when: blitzecdn_firewall_enabled
+  block:
+    - name: Require explicit SSH management networks
+      ansible.builtin.assert:
+        that:
+          - blitzecdn_firewall_ssh_sources | length > 0
+          - blitzecdn_firewall_ssh_port >= 1
+          - blitzecdn_firewall_ssh_port <= 65535
+        fail_msg: Configure at least one trusted blitzecdn_firewall_ssh_sources CIDR before enabling the firewall.
+
+    - name: Install UFW
+      ansible.builtin.apt:
+        name: ufw
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    # `proto|port|source`, the three fields it takes to delete a rule again.
+    # Kept as flat strings rather than dicts so the registry on the host is a
+    # plain text file an operator can read during an incident.
+    - name: Compose the rule set this role manages
+      ansible.builtin.set_fact:
+        blitzecdn_firewall_desired_rules: >-
+          {{
+            (
+              blitzecdn_firewall_ssh_sources
+              | map('regex_replace', '^(.+)$',
+                    'tcp|' ~ (blitzecdn_firewall_ssh_port | string) ~ '|\1')
+              | list
+            ) + (
+              blitzecdn_firewall_http_ports
+              | map('string')
+              | map('regex_replace', '^(.+)$', 'tcp|\1|any')
+              | list
+            )
+          }}
+
+    - name: Inspect the managed rule registry
+      ansible.builtin.stat:
+        path: "{{ blitzecdn_firewall_registry_file }}"
+      register: blitzecdn_firewall_registry
+
+    - name: Read the managed rule registry
+      ansible.builtin.slurp:
+        path: "{{ blitzecdn_firewall_registry_file }}"
+      register: blitzecdn_firewall_registry_content
+      when: blitzecdn_firewall_registry.stat.exists
+
+    # Only well-formed lines select a rule for deletion. The registry is ours,
+    # but it is a plain file on a host an operator can edit, and a malformed
+    # line would otherwise be handed to ufw as a rule specification.
+    - name: Calculate rules this role no longer manages
+      ansible.builtin.set_fact:
+        blitzecdn_firewall_stale_rules: >-
+          {{
+            (blitzecdn_firewall_registry_content.content | default('') | b64decode).splitlines()
+            | select('match', '^(tcp|udp)\|[0-9]{1,5}\|[^|]+$')
+            | difference(blitzecdn_firewall_desired_rules)
+            | list
+          }}
+
+    # Ordered before the policy change on purpose: switching to deny-by-default
+    # with no SSH rule in place would cut the controller off mid-run.
+    - name: Allow SSH from trusted management networks
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: tcp
+        port: "{{ blitzecdn_firewall_ssh_port }}"
+        src: "{{ item }}"
+        comment: BlitzeCDN management SSH
+      loop: "{{ blitzecdn_firewall_ssh_sources }}"
+
+    - name: Allow public CDN traffic
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: tcp
+        port: "{{ item }}"
+        comment: BlitzeCDN public traffic
+      loop: "{{ blitzecdn_firewall_http_ports }}"
+
+    # Strictly after every rule above has been installed. Withdrawing first
+    # would open a window with no SSH rule at all, and on a run that widens one
+    # management network while narrowing another it would be the new rule that
+    # had not landed yet. Revoking the network the controller is connected
+    # through is still possible — that is the operator asking for it — and the
+    # established connection survives to the end of the play either way.
+    - name: Withdraw rules this role no longer manages
+      community.general.ufw:
+        rule: allow
+        direction: in
+        delete: true
+        proto: "{{ item.split('|')[0] }}"
+        port: "{{ item.split('|')[1] }}"
+        src: "{{ item.split('|')[2] }}"
+      loop: "{{ blitzecdn_firewall_stale_rules }}"
+
+    - name: Enable UFW with deny-by-default policy
+      community.general.ufw:
+        state: enabled
+        policy: deny
+        direction: incoming
+
+    # Under the state path blitzecdn_teardown removes, so decommissioning an
+    # edge takes the registry with it rather than leaving a file that would
+    # make a rebuilt host withdraw rules it never had.
+    - name: Create the BlitzeCDN state directory
+      ansible.builtin.file:
+        path: "{{ blitzecdn_firewall_registry_file | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Written last and only once the rules above have all applied, so a run that
+    # failed midway leaves the previous registry in place. Recording rules that
+    # were never installed would make the next run treat them as stale and
+    # "withdraw" rules the host never had, while the ones actually present went
+    # unmanaged.
+    - name: Record the managed rule set
+      ansible.builtin.copy:
+        content: "{{ blitzecdn_firewall_desired_rules | sort | join('\n') }}\n"
+        dest: "{{ blitzecdn_firewall_registry_file }}"
+        owner: root
+        group: root
+        mode: "0644"

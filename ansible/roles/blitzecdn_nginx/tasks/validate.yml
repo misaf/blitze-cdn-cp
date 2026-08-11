@@ -1,0 +1,155 @@
+---
+# Everything that inspects the desired state and refuses to proceed, with no
+# task that changes the host. Split out of main.yml so it can be executed on
+# its own: the control plane's contract tests run this file against real
+# desired state, which is the only place these conditionals and assertions are
+# ever evaluated rather than merely parsed. `--syntax-check` and ansible-lint
+# both pass a `when:` that fails at run time.
+# The control plane and these roles ship and version independently, so the
+# desired-state document carries a schema version. Refuse a version this role
+# was not written against: failing here costs nothing, while converging a
+# half-understood document leaves edges in a state neither side intended.
+- name: Require a supported desired-state schema version
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_desired_state_version is defined
+      - blitzecdn_desired_state_version in blitzecdn_nginx_supported_state_versions
+    fail_msg: >-
+      This edge role supports desired-state schema
+      {{ blitzecdn_nginx_supported_state_versions | join(', ') }} but the control
+      plane sent {{ blitzecdn_desired_state_version | default('none') }}.
+      Upgrade the control plane and the edge collection together.
+  run_once: true
+
+- name: Validate site values before changing the host
+  ansible.builtin.assert:
+    that:
+      - item.name is match('^[a-z][a-z0-9-]{0,62}$')
+      - item.server_names | length > 0
+      - >-
+        item.server_names
+        | select('match', '^(?:\\*\\.)?[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$')
+        | list | length == item.server_names | length
+      # A wildcard on an IP address passes the shape check above — every label
+      # of an IPv4 literal is a valid DNS label — and nginx takes
+      # `server_name *.192.0.2.1` without complaint, then matches no request
+      # ever sent. The control plane refuses these; this is the other half of
+      # the redundant control, because the value reaches a directive we write.
+      - >-
+        item.server_names
+        | select('match', '^\\*\\.[0-9.]+$')
+        | list | length == 0
+      - item.origin_host is match('^[A-Za-z0-9.:-]+$')
+      - >-
+        item.origin_request_host is not defined or
+        item.origin_request_host is match('^[A-Za-z0-9.:-]+$')
+      - >-
+        item.origin_sni is not defined or
+        item.origin_sni is match('^[A-Za-z0-9.:-]+$')
+      - >-
+        item.cache_valid_success | default('10m')
+        is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
+      - >-
+        item.cache_valid_not_found | default('1m')
+        is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
+      - >-
+        item.certificate_mode | default('disabled') == 'disabled' or
+        item.certificate_path is defined
+      - >-
+        item.certificate_mode | default('disabled') == 'disabled' or
+        item.certificate_key_path is defined
+      - >-
+        item.certificate_mode | default('disabled') not in ['uploaded', 'requested'] or
+        item.certificate_source_path is defined
+      - >-
+        item.certificate_mode | default('disabled') not in ['uploaded', 'requested'] or
+        item.certificate_key_source_path is defined
+      - >-
+        item.certificate_path is not defined or
+        item.certificate_path is match(blitzecdn_nginx_certificate_path_pattern)
+      - >-
+        item.certificate_key_path is not defined or
+        item.certificate_key_path is match(blitzecdn_nginx_certificate_path_pattern)
+      # Certificates we install ourselves land in our own directory only.
+      - >-
+        item.certificate_mode | default('disabled') not in ['uploaded', 'requested'] or
+        item.certificate_path == '/etc/blitzecdn/tls/' ~ item.name ~ '/fullchain.pem'
+      - >-
+        item.certificate_mode | default('disabled') not in ['uploaded', 'requested'] or
+        item.certificate_key_path == '/etc/blitzecdn/tls/' ~ item.name ~ '/privkey.pem'
+    fail_msg: "Invalid CDN site: {{ item.name | default('unnamed') }}"
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name | default('unnamed') }}"
+
+# Defensive only — the control plane validates all of this before a site is
+# ever stored. It is repeated because these values are interpolated into a
+# configuration file this role writes as root, and the role has to hold on its
+# own against a hand-written desired state or a controller with a regression.
+- name: Validate per-site firewall rules
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.firewall.allow_sources | default([])
+        | union(item.firewall.deny_sources | default([]))
+        | reject('match', '^[0-9A-Fa-f:.]+(?:/[0-9]{1,3})?$')
+        | list | length == 0
+      - >-
+        item.firewall.allowed_countries | default([])
+        | union(item.firewall.denied_countries | default([]))
+        | reject('match', '^[A-Z]{2}$')
+        | list | length == 0
+      - >-
+        item.firewall.denied_methods | default([])
+        | reject('match', '^[A-Z][A-Z-]{1,19}$')
+        | list | length == 0
+      # A location argument, so anything that could close the directive or add
+      # a second argument to it is refused.
+      - >-
+        item.firewall.denied_paths | default([])
+        | reject('match', '^/[^\\s;{}\"''\\\\]*$')
+        | list | length == 0
+    fail_msg: >-
+      Site {{ item.name }} carries firewall rules this role will not render.
+      Sources must be IP addresses or CIDR networks, countries ISO 3166-1
+      alpha-2, methods uppercase, and denied paths absolute with no whitespace,
+      quotes, backslashes, ';', '{' or '}'.
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  # `length > 0` rather than the dict's own truthiness: ansible-core 2.19+
+  # refuses a conditional whose result is not a boolean, and `item.firewall`
+  # alone evaluates to the dict.
+  when: item.firewall | default({}, true) | length > 0
+
+# Country rules are the one part of the firewall this role cannot honour
+# unaided. Rendering them anyway against an undefined $blitzecdn_country would
+# fail `nginx -t` and roll the whole edge back; skipping them silently would
+# report a converged site that admits every country it was told to block.
+# Neither is acceptable for a control the operator believes is enforced, so
+# stop here and name the variable that turns it on.
+- name: Refuse country rules on an edge without GeoIP
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_nginx_geoip_enabled
+        or blitzecdn_nginx_sites
+        | selectattr('firewall', 'defined')
+        | map(attribute='firewall')
+        | selectattr('allowed_countries', 'defined')
+        | selectattr('allowed_countries')
+        | list | length == 0
+      - >-
+        blitzecdn_nginx_geoip_enabled
+        or blitzecdn_nginx_sites
+        | selectattr('firewall', 'defined')
+        | map(attribute='firewall')
+        | selectattr('denied_countries', 'defined')
+        | selectattr('denied_countries')
+        | list | length == 0
+    fail_msg: >-
+      A site asks for country-based filtering but
+      blitzecdn_nginx_geoip_enabled is false on {{ inventory_hostname }}.
+      Install a MaxMind country database at
+      {{ blitzecdn_nginx_geoip_database }}, set the variable, and deploy again
+      — or remove the country rules. Nothing was changed on this host.

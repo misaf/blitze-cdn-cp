@@ -1,0 +1,14 @@
+---
+blitzecdn_firewall_enabled: true
+blitzecdn_firewall_ssh_port: 22
+blitzecdn_firewall_ssh_sources: []
+blitzecdn_firewall_http_ports: [80, 443]
+
+# The rules this role installed on its last successful run, one per line as
+# `proto|port|source`. Without it the role can only add: ufw keeps every rule
+# it has ever been given, so dropping a CIDR from
+# blitzecdn_firewall_ssh_sources would change desired state and leave the host
+# still admitting that network. Reading back what we wrote is what makes a
+# removal a removal. Same idea as blitzecdn_nginx_managed_sites_file, and the
+# same reason: a converged resource has to be able to shrink.
+blitzecdn_firewall_registry_file: /etc/blitzecdn/firewall-rules

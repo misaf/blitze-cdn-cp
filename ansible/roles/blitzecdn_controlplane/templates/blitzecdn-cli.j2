@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Managed by BlitzeCDN (blitzecdn_controlplane). Manual edits are lost.
+#
+# Runs the BlitzeCDN CLI as the service account with its service environment.
+#
+# Anyone else re-enters this same file through sudo rather than a second copy
+# of the environment written inline: one place builds PATH, the project
+# directory, and the environment file, for both the direct and the sudo path.
+set -euo pipefail
+
+if [[ $(id -un) != {{ blitzecdn_controlplane_service_user }} ]]; then
+  exec sudo -u {{ blitzecdn_controlplane_service_user }} -- "$0" "$@"
+fi
+
+set -a
+if [[ -r {{ blitzecdn_controlplane_config_dir }}/blitzecdn.env ]]; then
+  # shellcheck disable=SC1091
+  source {{ blitzecdn_controlplane_config_dir }}/blitzecdn.env
+fi
+set +a
+
+exec env \
+  PATH={{ blitzecdn_controlplane_install_dir }}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+  BLITZE_PROJECT_DIR={{ blitzecdn_controlplane_install_dir }} \
+  "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES:-false}" \
+  {{ blitzecdn_controlplane_install_dir }}/.venv/bin/blitzecdn "$@"

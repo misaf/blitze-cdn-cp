@@ -1,0 +1,23 @@
+---
+- name: Install Fail2Ban
+  ansible.builtin.apt:
+    name: fail2ban
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+- name: Configure the SSH jail
+  ansible.builtin.template:
+    src: sshd.local.j2
+    dest: /etc/fail2ban/jail.d/blitzecdn-sshd.local
+    owner: root
+    group: root
+    mode: "0644"
+  notify: Restart Fail2Ban
+# Skipped under --check: the package install above was only simulated, so on a
+# host without Fail2Ban yet the unit does not exist and a preview would fail.
+- name: Enable and start Fail2Ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: started
+  when: not ansible_check_mode

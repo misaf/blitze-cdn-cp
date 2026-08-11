@@ -1,10 +1,8 @@
 """Verify what the control plane emits against what the edge roles declare.
 
-The edge roles live in the `blitzecdn.edge` collection, pinned in
-`ansible/requirements.yml`. These tests read the *installed* collection rather
-than a copy in this repository, so they check this control plane against the
-exact edge version an operator would deploy. Nothing else stops a new `CdnSite`
-field from reaching a role that has never heard of it.
+The edge roles live in `ansible/roles/`, in this repository, so these tests read
+the roles this control plane actually deploys. Nothing else stops a new
+`CdnSite` field from reaching a role that has never heard of it.
 
 Every assertion here is about the boundary between them, not either side alone:
 
@@ -14,17 +12,13 @@ Every assertion here is about the boundary between them, not either side alone:
 * declared `choices` cover the values the domain enums can produce;
 * `site.conf.j2` renders from real model output without raising.
 
-When one of these fails, the fix is to change both repositories together and
-bump `DESIRED_STATE_VERSION` if older roles cannot honour the new shape.
-
-Install the collection first, or these tests skip:
-
-    ansible-galaxy collection install -r ansible/requirements.yml
+When one of these fails, change the model and the role together in one commit,
+and bump `DESIRED_STATE_VERSION` if an edge converged by an older release
+cannot honour the new shape.
 """
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import shutil
@@ -35,7 +29,6 @@ from typing import Any
 import pytest
 import yaml
 
-from blitzecdn import EDGE_COLLECTION_VERSION
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.sites import (
     DESIRED_STATE_VERSION,
@@ -51,28 +44,20 @@ jinja2 = pytest.importorskip("jinja2")
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures/desired-state.yml"
 
-#: Where ansible-galaxy puts collections, mirroring collections_path in
-#: ansible/ansible.cfg. The first hit wins, as it does for Ansible itself.
-_COLLECTION_PATHS = (
-    PROJECT_DIR / ".state/collections",
-    Path.home() / ".ansible/collections",
-    Path("/usr/share/ansible/collections"),
-)
+#: The roles ship with this control plane, so there is no install step to get
+#: wrong and no reason for these tests to skip. That matters: they used to read
+#: an installed collection and skipped silently when it was absent, which turned
+#: a broken contract into a green run.
+ROLES_DIR = PROJECT_DIR / "ansible/roles"
 
 
-def _installed_role(name: str) -> Path:
-    for root in _COLLECTION_PATHS:
-        candidate = root / "ansible_collections/blitzecdn/edge/roles" / name
-        if candidate.is_dir():
-            return candidate
-    pytest.skip(
-        "the blitzecdn.edge collection is not installed; run "
-        "`ansible-galaxy collection install -r ansible/requirements.yml`",
-        allow_module_level=True,
-    )
+def _role(name: str) -> Path:
+    candidate = ROLES_DIR / name
+    assert candidate.is_dir(), f"{name} is missing from ansible/roles/"
+    return candidate
 
 
-ROLE_DIR = _installed_role("blitzecdn_nginx")
+ROLE_DIR = _role("blitzecdn_nginx")
 
 
 class _IndentedDumper(yaml.SafeDumper):
@@ -145,39 +130,43 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 
 
-def test_edge_pin_matches_the_published_constant():
-    """`EDGE_COLLECTION_VERSION` is what downstream consumers see.
+def test_every_role_a_playbook_names_exists():
+    """The failure the collection pin used to catch, in its remaining form.
 
-    The wheel does not ship `ansible/requirements.yml`, so the documentation
-    site reads the constant instead. If the two disagree, the site documents
-    roles this control plane does not deploy.
+    With the roles pinned by version, a playbook could name a role the pinned
+    release did not have. They ship together now, so the only way to get that
+    wrong is to rename or delete a role and miss a reference — which Ansible
+    would report at deploy time, on a real edge, halfway through a run.
     """
-    document = yaml.safe_load(
-        (PROJECT_DIR / "ansible/requirements.yml").read_text(encoding="utf-8")
-    )
-    pinned = next(
-        entry["version"]
-        for entry in document["collections"]
-        if entry["name"] == "blitzecdn.edge"
-    )
-    assert pinned == f"v{EDGE_COLLECTION_VERSION}", (
-        f"ansible/requirements.yml pins blitzecdn.edge {pinned} but "
-        f"the release tag must be v{EDGE_COLLECTION_VERSION}. Bump both."
-    )
+    referenced: set[str] = set()
+    for playbook in sorted((PROJECT_DIR / "ansible/playbooks").glob("*.yml")):
+        document = yaml.safe_load(playbook.read_text(encoding="utf-8"))
+        for play in document:
+            for entry in play.get("roles", []):
+                name = entry["role"] if isinstance(entry, dict) else entry
+                referenced.add(name)
+                assert (ROLES_DIR / name).is_dir(), (
+                    f"{playbook.name} names role {name}, which is not in ansible/roles/"
+                )
+
+    assert "blitzecdn_nginx" in referenced, "the sweep found no playbooks to check"
 
 
-def test_installed_collection_is_the_pinned_one():
-    """Guard against testing green against an unpinned local collection."""
-    manifest = ROLE_DIR.parent.parent / "MANIFEST.json"
-    if not manifest.is_file():
-        pytest.skip("collection installed from a source checkout; no MANIFEST.json")
-    installed = json.loads(manifest.read_text(encoding="utf-8"))["collection_info"][
-        "version"
+def test_no_reference_to_the_retired_edge_collection_remains():
+    """A stale `blitzecdn.edge.` prefix resolves to nothing and fails at deploy."""
+    tracked = [
+        *sorted((PROJECT_DIR / "ansible").rglob("*.yml")),
+        *sorted((PROJECT_DIR / "ansible").rglob("*.cfg")),
+        PROJECT_DIR / "install.sh",
     ]
-    assert installed == EDGE_COLLECTION_VERSION, (
-        f"blitzecdn.edge {installed} is installed but this control plane pins "
-        f"{EDGE_COLLECTION_VERSION}. Reinstall with "
-        "`ansible-galaxy collection install -r ansible/requirements.yml`."
+    offenders = [
+        path.relative_to(PROJECT_DIR)
+        for path in tracked
+        if ".state" not in path.parts
+        and "blitzecdn.edge" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, (
+        f"retired collection namespace still referenced in {offenders}"
     )
 
 
@@ -190,7 +179,7 @@ def test_edge_collection_enforces_public_key_only_ssh():
     has its key — while every edge quietly starts accepting passwords again.
     Nothing else in either repository would notice.
     """
-    role = _installed_role("blitzecdn_sshd")
+    role = _role("blitzecdn_sshd")
     template = (role / "templates/sshd.conf.j2").read_text(encoding="utf-8")
     directives = {
         line.split()[0].lower(): line.split(maxsplit=1)[1].strip()
@@ -206,18 +195,15 @@ def test_edge_collection_enforces_public_key_only_ssh():
         ("hostbasedauthentication", "no"),
     ):
         assert directives.get(keyword) == expected, (
-            f"blitzecdn.edge {EDGE_COLLECTION_VERSION} no longer sets "
-            f"{keyword} {expected} in blitzecdn_sshd. Edges would accept "
-            "something other than public keys."
+            f"blitzecdn_sshd no longer sets {keyword} {expected}. Edges "
+            "would accept something other than public keys."
         )
 
 
 def test_edge_ssh_hardening_is_on_by_default():
     """Opting out is possible; arriving opted out by accident is not."""
     defaults = yaml.safe_load(
-        (_installed_role("blitzecdn_sshd") / "defaults/main.yml").read_text(
-            encoding="utf-8"
-        )
+        (_role("blitzecdn_sshd") / "defaults/main.yml").read_text(encoding="utf-8")
     )
     assert defaults["blitzecdn_sshd_enabled"] is True
     assert defaults["blitzecdn_sshd_permit_root_login"] == "no"
@@ -478,8 +464,8 @@ def test_committed_fixture_matches_generated_desired_state(desired_state):
 # reader. These are the only guards.
 # ----------------------------------------------------------------------
 
-CACHE_ROLE_DIR = _installed_role("blitzecdn_cache")
-STATS_ROLE_DIR = _installed_role("blitzecdn_stats")
+CACHE_ROLE_DIR = _role("blitzecdn_cache")
+STATS_ROLE_DIR = _role("blitzecdn_stats")
 
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:

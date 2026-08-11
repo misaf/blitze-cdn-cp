@@ -1,0 +1,7 @@
+---
+argument_specs:
+  main:
+    short_description: Configure baseline edge packages and timezone.
+    options:
+      blitzecdn_base_packages: {type: list, elements: str, required: true}
+      blitzecdn_base_timezone: {type: str, required: true}
