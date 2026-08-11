@@ -9,22 +9,23 @@ record change silently reverts it.
 from __future__ import annotations
 
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
     managed_certificate_paths,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.ports import AuditLog, SiteStore, ZoneStore
+from blitzecdn.ports import EventBus, SiteStore, ZoneStore
 
 
 class DnsService:
     """The zone editor. Every other service reads sites this one derives."""
 
-    def __init__(self, zones: ZoneStore, sites: SiteStore, audit_log: AuditLog) -> None:
+    def __init__(self, zones: ZoneStore, sites: SiteStore, bus: EventBus) -> None:
         self.zones = zones
         self.sites = sites
-        self.audit_log = audit_log
+        self.bus = bus
 
     # -- Domains -------------------------------------------------------
 
@@ -33,7 +34,9 @@ class DnsService:
 
     def create_domain(self, domain: Domain, operator: str) -> Domain:
         created = self.zones.create_domain(domain)
-        self.audit_log.audit(operator, "domain.created", "domain", domain.name)
+        self.bus.publish(
+            domain_event(operator, "domain.created", "domain", domain.name)
+        )
         return created
 
     def delete_domain(self, name: str, operator: str) -> None:
@@ -44,7 +47,7 @@ class DnsService:
         """
         self.zones.delete_domain(name)
         self.sync_sites()
-        self.audit_log.audit(operator, "domain.deleted", "domain", name)
+        self.bus.publish(domain_event(operator, "domain.deleted", "domain", name))
 
     # -- Records -------------------------------------------------------
 
@@ -61,12 +64,14 @@ class DnsService:
         self._reject_derived_name_collision(record)
         created = self.zones.create_record(record)
         self.sync_sites()
-        self.audit_log.audit(
-            operator,
-            "record.created",
-            "record",
-            created.fqdn,
-            {"type": created.type.value, "proxied": created.proxied},
+        self.bus.publish(
+            domain_event(
+                operator,
+                "record.created",
+                "record",
+                created.fqdn,
+                {"type": created.type.value, "proxied": created.proxied},
+            )
         )
         return created
 
@@ -85,12 +90,14 @@ class DnsService:
         self._reject_derived_name_collision(updated)
         saved = self.zones.replace_record(updated)
         self.sync_sites()
-        self.audit_log.audit(
-            operator,
-            "record.updated",
-            "record",
-            saved.fqdn,
-            {"fields": sorted(patch.model_fields_set)},
+        self.bus.publish(
+            domain_event(
+                operator,
+                "record.updated",
+                "record",
+                saved.fqdn,
+                {"fields": sorted(patch.model_fields_set)},
+            )
         )
         return saved
 
@@ -115,7 +122,9 @@ class DnsService:
         record = self.zones.get_record(domain, name, type_)
         self.zones.delete_record(domain, name, type_)
         self.sync_sites()
-        self.audit_log.audit(operator, "record.deleted", "record", record.fqdn)
+        self.bus.publish(
+            domain_event(operator, "record.deleted", "record", record.fqdn)
+        )
 
     def _reject_derived_name_collision(self, record: DnsRecord) -> None:
         """Refuse a record whose site name another record already derives.

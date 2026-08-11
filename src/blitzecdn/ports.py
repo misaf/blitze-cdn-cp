@@ -17,7 +17,6 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Protocol
 
-from blitzecdn.domain.audit import AuditEvent
 from blitzecdn.domain.certificates import (
     CertificateInfo,
     CertificateSource,
@@ -25,6 +24,7 @@ from blitzecdn.domain.certificates import (
 )
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
+from blitzecdn.domain.events import DomainEvent
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import AnsibleRun
 from blitzecdn.domain.sites import CdnSite
@@ -104,17 +104,16 @@ class DeploymentStore(Protocol):
     def successful_rollback_target(self, current_snapshot: str) -> Deployment: ...
 
 
-class AuditLog(Protocol):
-    """Append-only record of who did what."""
+class EventBus(Protocol):
+    """Where the application publishes that something happened.
 
-    def audit(
-        self,
-        operator: str,
-        action: str,
-        resource_type: str,
-        resource_id: str | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> AuditEvent: ...
+    A service that changes state publishes a :class:`DomainEvent` here and
+    moves on; it never learns who is listening. Subscribers are wired by the
+    composition root, so adding one never touches the service that announced
+    the change.
+    """
+
+    def publish(self, event: DomainEvent) -> None: ...
 
 
 # ----------------------------------------------------------------------
@@ -210,11 +209,11 @@ class OriginProbe(Protocol):
 
 
 __all__ = [
-    "AuditLog",
     "CertificateStore",
     "DeploymentRunner",
     "DeploymentStore",
     "EdgeInventory",
+    "EventBus",
     "Issuer",
     "LogReader",
     "OriginProbe",

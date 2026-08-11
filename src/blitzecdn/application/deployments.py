@@ -19,16 +19,17 @@ from uuid import uuid4
 from blitzecdn.application.dns import DnsService
 from blitzecdn.config import Settings
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
+from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import DESIRED_STATE_VERSION, CertificateMode
 from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConflictError, ExecutionError
 from blitzecdn.ports import (
-    AuditLog,
     CertificateStore,
     DeploymentRunner,
     DeploymentStore,
+    EventBus,
     LogReader,
     ZoneStore,
 )
@@ -49,7 +50,7 @@ class DeploymentService:
         settings: Settings,
         deployments: DeploymentStore,
         zones: ZoneStore,
-        audit_log: AuditLog,
+        bus: EventBus,
         runner: DeploymentRunner,
         certificate_store: CertificateStore,
         dns: DnsService,
@@ -59,7 +60,7 @@ class DeploymentService:
         self.settings = settings
         self.deployments = deployments
         self.zones = zones
-        self.audit_log = audit_log
+        self.bus = bus
         self.runner = runner
         self.certificate_store = certificate_store
         self.dns = dns
@@ -184,16 +185,18 @@ class DeploymentService:
         """
         deployment = self.deploy(operator, check=True, host_limit=host_limit)
         report = self.drift_report(deployment.id)
-        self.audit_log.audit(
-            operator,
-            "drift.checked",
-            "deployment",
-            deployment.id,
-            {
-                "in_sync": report.in_sync,
-                "drifted": [host.host for host in report.drifted],
-                "unreachable": [host.host for host in report.unreachable],
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                "drift.checked",
+                "deployment",
+                deployment.id,
+                {
+                    "in_sync": report.in_sync,
+                    "drifted": [host.host for host in report.drifted],
+                    "unreachable": [host.host for host in report.unreachable],
+                },
+            )
         )
         return report
 
@@ -259,12 +262,14 @@ class DeploymentService:
             snapshot=snapshot,
             host_limit=limit,
         )
-        self.audit_log.audit(
-            operator,
-            "deployment.queued",
-            "deployment",
-            deployment.id,
-            {"check_mode": check, "rollback_of": rollback_of, "host_limit": limit},
+        self.bus.publish(
+            domain_event(
+                operator,
+                "deployment.queued",
+                "deployment",
+                deployment.id,
+                {"check_mode": check, "rollback_of": rollback_of, "host_limit": limit},
+            )
         )
         return deployment
 
@@ -330,12 +335,14 @@ class DeploymentService:
                     finished_at=datetime.now(UTC).isoformat(),
                     result=self._aborted_run(exc, interrupted=False),
                 )
-                self.audit_log.audit(
-                    operator,
-                    "deployment.failed",
-                    "deployment",
-                    deployment.id,
-                    {"error_type": type(exc).__name__},
+                self.bus.publish(
+                    domain_event(
+                        operator,
+                        "deployment.failed",
+                        "deployment",
+                        deployment.id,
+                        {"error_type": type(exc).__name__},
+                    )
                 )
             finally:
                 lock.__exit__(None, None, None)
@@ -378,28 +385,32 @@ class DeploymentService:
                 # say why, and every reader now expects to find that in `result`.
                 result=self._aborted_run(exc, interrupted=interrupted),
             )
-            self.audit_log.audit(
-                operator,
-                "deployment.abandoned" if interrupted else "deployment.failed",
-                "deployment",
-                deployment.id,
-                {"error_type": type(exc).__name__},
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "deployment.abandoned" if interrupted else "deployment.failed",
+                    "deployment",
+                    deployment.id,
+                    {"error_type": type(exc).__name__},
+                )
             )
             if interrupted:
                 raise
             if isinstance(exc, ExecutionError):
                 raise
             return deployment
-        self.audit_log.audit(
-            operator,
-            f"deployment.{deployment.status}",
-            "deployment",
-            deployment.id,
-            {
-                "return_code": run.return_code,
-                "changed": [host.host for host in run.changed_hosts],
-                "failed": [host.host for host in run.failed_hosts],
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                f"deployment.{deployment.status}",
+                "deployment",
+                deployment.id,
+                {
+                    "return_code": run.return_code,
+                    "changed": [host.host for host in run.changed_hosts],
+                    "failed": [host.host for host in run.failed_hosts],
+                },
+            )
         )
         if (
             deployment.rollback_of
@@ -412,12 +423,14 @@ class DeploymentService:
             domains, records = decode_snapshot_zones(snapshot)
             self.zones.replace_all_records(domains, records)
             self.dns.sync_sites()
-            self.audit_log.audit(
-                operator,
-                "rollback.applied",
-                "deployment",
-                deployment.id,
-                {"target": deployment.rollback_of},
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "rollback.applied",
+                    "deployment",
+                    deployment.id,
+                    {"target": deployment.rollback_of},
+                )
             )
         return deployment
 

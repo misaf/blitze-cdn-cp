@@ -22,12 +22,13 @@ from blitzecdn.domain.certificates import (
     CertificateStatus,
     PreflightReport,
 )
+from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import CdnSite, CertificateMode
 from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
 from blitzecdn.ports import (
-    AuditLog,
     CertificateStore,
     DeploymentRunner,
+    EventBus,
     Issuer,
     Preflight,
     SiteStore,
@@ -43,7 +44,7 @@ class CertificateService:
         self,
         settings: Settings,
         sites: SiteStore,
-        audit_log: AuditLog,
+        bus: EventBus,
         runner: DeploymentRunner,
         certificate_store: CertificateStore,
         issuer: Issuer,
@@ -53,7 +54,7 @@ class CertificateService:
     ) -> None:
         self.settings = settings
         self.sites = sites
-        self.audit_log = audit_log
+        self.bus = bus
         self.runner = runner
         self.certificate_store = certificate_store
         self.issuer = issuer
@@ -79,12 +80,17 @@ class CertificateService:
                 source=CertificateSource.UPLOADED,
             )
             self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
-        self.audit_log.audit(
-            operator,
-            "certificate.uploaded",
-            "site",
-            name,
-            {"domains": list(info.domains), "not_after": info.not_after.isoformat()},
+        self.bus.publish(
+            domain_event(
+                operator,
+                "certificate.uploaded",
+                "site",
+                name,
+                {
+                    "domains": list(info.domains),
+                    "not_after": info.not_after.isoformat(),
+                },
+            )
         )
         return info
 
@@ -134,17 +140,19 @@ class CertificateService:
                 f"certificate preflight failed for {site.name}: {report.summary()}. "
                 "Fix the above, or pass skip_preflight to issue anyway."
             )
-        self.audit_log.audit(
-            operator,
-            f"{action}.preflight_overridden",
-            "site",
-            site.name,
-            {
-                "failures": [
-                    {"check": check.name, "detail": check.detail}
-                    for check in report.blocking_failures
-                ]
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                f"{action}.preflight_overridden",
+                "site",
+                site.name,
+                {
+                    "failures": [
+                        {"check": check.name, "detail": check.detail}
+                        for check in report.blocking_failures
+                    ]
+                },
+            )
         )
         _LOGGER.warning(
             "certificate preflight overridden for %s: %s",
@@ -199,12 +207,17 @@ class CertificateService:
             email=registration_email,
         )
         self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
-        self.audit_log.audit(
-            operator,
-            "certificate.requested",
-            "site",
-            site.name,
-            {"domains": list(info.domains), "not_after": info.not_after.isoformat()},
+        self.bus.publish(
+            domain_event(
+                operator,
+                "certificate.requested",
+                "site",
+                site.name,
+                {
+                    "domains": list(info.domains),
+                    "not_after": info.not_after.isoformat(),
+                },
+            )
         )
         return info
 
@@ -369,20 +382,23 @@ class CertificateService:
                 continue
             renewed.append(status.site)
             _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
-        self.audit_log.audit(
-            operator,
-            "certificates.renewed",
-            "site",
-            None,
-            {
-                "renewed": renewed,
-                "skipped": skipped,
-                "failed": failed,
-                "within_days": within_days,
-                # Without this the audit trail cannot tell a full sweep that
-                # renewed one certificate from a narrowed run that only looked
-                # at one, which is the question asked after a missed expiry.
-                "sites": None if sites is None else sorted(sites),
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                "certificates.renewed",
+                "site",
+                None,
+                {
+                    "renewed": renewed,
+                    "skipped": skipped,
+                    "failed": failed,
+                    "within_days": within_days,
+                    # Without this the audit trail cannot tell a full sweep that
+                    # renewed one certificate from a narrowed run that only
+                    # looked at one, which is the question asked after a missed
+                    # expiry.
+                    "sites": None if sites is None else sorted(sites),
+                },
+            )
         )
         return {"renewed": renewed, "skipped": skipped, "failed": failed}

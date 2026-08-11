@@ -18,6 +18,7 @@ from blitzecdn.domain.cache import (
     PurgeResult,
     SiteCacheStats,
 )
+from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import AnsibleRun, HostRun
 from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
@@ -28,9 +29,9 @@ from blitzecdn.exceptions import (
     NotFoundError,
 )
 from blitzecdn.ports import (
-    AuditLog,
     DeploymentRunner,
     EdgeInventory,
+    EventBus,
     OriginProbe,
     SiteStore,
 )
@@ -43,14 +44,14 @@ class EdgeOperationsService:
         self,
         settings: Settings,
         sites: SiteStore,
-        audit_log: AuditLog,
+        bus: EventBus,
         runner: DeploymentRunner,
         origin_probe: OriginProbe,
         inventory: EdgeInventory,
     ) -> None:
         self.settings = settings
         self.sites = sites
-        self.audit_log = audit_log
+        self.bus = bus
         self.runner = runner
         self.origin_probe = origin_probe
         self.inventory = inventory
@@ -118,18 +119,20 @@ class EdgeOperationsService:
             host_limit=host_limit,
             hosts=run.hosts,
         )
-        self.audit_log.audit(
-            operator,
-            "cache.purged",
-            "site",
-            None,
-            {
-                "purge_all": purge_all,
-                "entries": [entry.to_ansible() for entry in entries],
-                "host_limit": host_limit,
-                "complete": report.complete,
-                "failed": [host.host for host in report.failed],
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                "cache.purged",
+                "site",
+                None,
+                {
+                    "purge_all": purge_all,
+                    "entries": [entry.to_ansible() for entry in entries],
+                    "host_limit": host_limit,
+                    "complete": report.complete,
+                    "failed": [host.host for host in report.failed],
+                },
+            )
         )
         if not report.hosts:
             raise ExecutionError(_unreported("purge", run))
@@ -220,17 +223,19 @@ class EdgeOperationsService:
             host_limit=host_limit,
             edges=tuple(_edge_stats(host) for host in run.hosts),
         )
-        self.audit_log.audit(
-            operator,
-            "cache.stats_collected",
-            "deployment",
-            None,
-            {
-                "host_limit": host_limit,
-                "reporting": [edge.host for edge in report.reporting],
-                "silent": [edge.host for edge in report.silent],
-                "hit_ratio": report.hit_ratio,
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                "cache.stats_collected",
+                "deployment",
+                None,
+                {
+                    "host_limit": host_limit,
+                    "reporting": [edge.host for edge in report.reporting],
+                    "silent": [edge.host for edge in report.silent],
+                    "hit_ratio": report.hit_ratio,
+                },
+            )
         )
         if not report.edges:
             raise ExecutionError(_unreported("statistics", run))
@@ -277,16 +282,20 @@ class EdgeOperationsService:
                 # and "teardown failed removing /etc/blitzecdn on edge-b".
                 failure = run.summary()
 
-        self.audit_log.audit(
-            operator,
-            "edge.decommissioned" if failure is None else "edge.decommission_failed",
-            "edge",
-            name,
-            {
-                "forced": force,
-                "hosts": [host.host for host in hosts],
-                **({} if failure is None else {"error": failure}),
-            },
+        self.bus.publish(
+            domain_event(
+                operator,
+                "edge.decommissioned"
+                if failure is None
+                else "edge.decommission_failed",
+                "edge",
+                name,
+                {
+                    "forced": force,
+                    "hosts": [host.host for host in hosts],
+                    **({} if failure is None else {"error": failure}),
+                },
+            )
         )
         if failure is not None and not force:
             raise ExecutionError(
