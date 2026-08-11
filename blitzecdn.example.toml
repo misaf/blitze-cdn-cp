@@ -11,6 +11,13 @@ ansible_playbook = "ansible-playbook"
 certbot = "certbot"
 acme_default_email = "admin@example.com"
 deployment_timeout_seconds = 900
+# How much of a run log to quote back when a run fails. The log itself is
+# never truncated.
 output_limit_bytes = 1048576
+# How many per-run Ansible logs to keep under .state/logs. One is written per
+# invocation — every deploy, every scheduled drift check, every purge — so
+# something has to bound them. The structured result a deployment reasons from
+# lives in the database and is not affected.
+run_log_retention = 500
 # Refuse to remove the final managed sites unless explicitly changed to true.
 allow_empty_sites = false

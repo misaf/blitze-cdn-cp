@@ -9,7 +9,8 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.domain.models import OriginScheme, PurgeEntry
+from blitzecdn.domain.cache import PurgeEntry
+from blitzecdn.domain.sites import HttpScheme
 
 cache_app = typer.Typer(
     no_args_is_help=True, help="Purge cached responses from the edges."
@@ -84,11 +85,11 @@ def _purge_entry(value: str) -> PurgeEntry:
     parsed = urlsplit(value if "//" in value else f"https://{value}")
     if not parsed.hostname:
         raise typer.BadParameter(f"{value!r} has no hostname")
-    if parsed.scheme not in {"http", "https"}:
+    if parsed.scheme not in set(HttpScheme):
         raise typer.BadParameter(f"{value!r} must be http or https")
     # The query string is part of $request_uri and therefore part of the cache
     # key, so it is kept: purging '/a' must not silently purge '/a?v=2'.
     uri = parsed.path or "/"
     if parsed.query:
         uri = f"{uri}?{parsed.query}"
-    return PurgeEntry(host=parsed.hostname, uri=uri, scheme=OriginScheme(parsed.scheme))
+    return PurgeEntry(host=parsed.hostname, uri=uri, scheme=HttpScheme(parsed.scheme))

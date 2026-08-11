@@ -3,7 +3,9 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from blitzecdn.domain.models import STORED, CdnSite, DnsRecord, Domain
+from blitzecdn.domain.dns import DnsRecord, Domain
+from blitzecdn.domain.sites import CdnSite
+from blitzecdn.domain.validation import STORED
 
 #: Shape of the JSON in ``deployments.snapshot``: an object carrying the zones,
 #: records, and derived sites a rollback converges.

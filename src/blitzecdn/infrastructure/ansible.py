@@ -1,32 +1,43 @@
+"""Running Ansible, and turning what it reports into domain models.
+
+Every invocation produces two artefacts. The ``blitzecdn_result`` callback
+writes a JSON document to a path belonging to that run, which this module reads
+into an :class:`~blitzecdn.domain.runs.AnsibleRun` — that is the only thing the
+application layer sees. The raw terminal output goes to a log file under
+``state_dir/logs`` that nothing here parses; it is kept so an operator has the
+full account of a run, and so a process that died before Ansible could report
+anything still leaves evidence behind.
+"""
+
 from __future__ import annotations
 
 import fcntl
+import json
 import os
 import shutil
 import subprocess
 import tempfile
-from contextlib import AbstractContextManager
+from collections.abc import Iterator
+from contextlib import AbstractContextManager, contextmanager, suppress
+from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from types import TracebackType
+from typing import IO
+from uuid import uuid4
 
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import validate_edge_limit
-from blitzecdn.domain.recap import parse_play_recap
+from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
+from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.process import terminate_process_group
-from blitzecdn.ports import CommandResult
 
-#: Re-exported so callers that think in terms of "the Ansible adapter" still
-#: find both here. ``CommandResult`` is the DTO the runner port returns, and
-#: ``parse_play_recap`` is a pure reading of that DTO's stdout.
-__all__ = [
-    "AnsibleRunner",
-    "CommandResult",
-    "DeploymentLock",
-    "parse_play_recap",
-]
+__all__ = ["AnsibleRunner", "DeploymentLock"]
+
+#: Exit code recorded for a run killed at its timeout, matching the shell
+#: convention for a process ended by a signal after a deadline.
+_TIMEOUT_RETURN_CODE = 124
 
 
 class DeploymentLock(AbstractContextManager["DeploymentLock"]):
@@ -65,49 +76,62 @@ class AnsibleRunner:
     def lock(self) -> DeploymentLock:
         return DeploymentLock(self._settings.deployment_lock_path)
 
-    def validate(self) -> CommandResult:
-        self._validate_paths()
-        return self._execute(self._command(check=True, syntax_check=True), timeout=120)
+    def validate(self, variables: Path) -> AnsibleRun:
+        """Parse the playbook against ``variables``, changing nothing.
 
-    def run(self, *, check: bool, host_limit: str | None = None) -> CommandResult:
+        The only run whose answer is the return code alone: ``--syntax-check``
+        executes no play, so there is no host for the callback to report on.
+        ``AnsibleRun.reported`` is false here by design, and the log file holds
+        whatever Ansible said about the parse failure.
+
+        The caller supplies the path rather than this reaching for
+        ``generated_vars_path``: that file belongs to whichever deploy currently
+        holds the lock, and validation must not write over it.
+        """
+        self._validate_paths()
+        return self._execute(
+            self._command(check=True, syntax_check=True, variables=variables),
+            timeout=120,
+            playbook=self._settings.playbook_path,
+        )
+
+    def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun:
         self._validate_paths()
         return self._execute(
             self._command(check=check, host_limit=host_limit),
             timeout=self._settings.deployment_timeout_seconds,
+            playbook=self._settings.playbook_path,
         )
 
     def run_acme_challenge(
         self, *, action: str, domain: str, token: str, validation: str = ""
-    ) -> CommandResult:
+    ) -> AnsibleRun:
         self._validate_paths()
-        if not self._settings.acme_challenge_playbook_path.is_file():
+        playbook = self._settings.acme_challenge_playbook_path
+        if not playbook.is_file():
             raise ConfigurationError(
-                "ACME challenge playbook does not exist: "
-                f"{self._settings.acme_challenge_playbook_path}"
+                f"ACME challenge playbook does not exist: {playbook}"
             )
-        variables = self._settings.state_dir / "acme-challenge.yml"
-        from blitzecdn.infrastructure.filesystem import atomic_write_yaml
-
-        atomic_write_yaml(
-            variables,
+        with self._run_vars(
+            "acme-challenge",
             {
                 "blitzecdn_acme_action": action,
                 "blitzecdn_acme_domain": domain,
                 "blitzecdn_acme_token": token,
                 "blitzecdn_acme_validation": validation,
             },
-        )
-        command = [
-            self._settings.ansible_playbook,
-            str(self._settings.acme_challenge_playbook_path),
-            "--inventory",
-            str(self._settings.inventory_path),
-            "--extra-vars",
-            f"@{variables}",
-            "--limit",
-            "blitzecdn_edges",
-        ]
-        return self._execute(command, timeout=120)
+        ) as variables:
+            command = [
+                self._settings.ansible_playbook,
+                str(playbook),
+                "--inventory",
+                str(self._settings.inventory_path),
+                "--extra-vars",
+                f"@{variables}",
+                "--limit",
+                "blitzecdn_edges",
+            ]
+            return self._execute(command, timeout=120, playbook=playbook)
 
     def run_cache_purge(
         self,
@@ -115,7 +139,7 @@ class AnsibleRunner:
         entries: list[dict[str, str]],
         purge_all: bool,
         host_limit: str | None = None,
-    ) -> CommandResult:
+    ) -> AnsibleRun:
         """Remove cached responses across the edges in scope.
 
         Not taken under the deployment lock. A purge writes no desired state
@@ -123,35 +147,31 @@ class AnsibleRunner:
         object being served while a deploy is midway through the fleet — is
         exactly when the lock would make it wait.
         """
-        variables = self._write_run_vars(
-            "cache-purge.yml",
+        with self._run_vars(
+            "cache-purge",
             {
                 "blitzecdn_cache_purge_entries": entries,
                 "blitzecdn_cache_purge_all": purge_all,
             },
-        )
-        return self._execute(
-            self._playbook_command(
+        ) as variables:
+            return self._playbook_run(
                 self._settings.cache_purge_playbook_path, variables, host_limit
-            ),
-            timeout=self._settings.deployment_timeout_seconds,
-        )
+            )
 
-    def run_stats(
-        self, *, output_dir: Path, host_limit: str | None = None
-    ) -> CommandResult:
-        """Collect one JSON report per edge into ``output_dir``."""
-        variables = self._write_run_vars(
-            "stats.yml", {"blitzecdn_stats_output_dir": str(output_dir)}
-        )
-        return self._execute(
-            self._playbook_command(
+    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
+        """Collect cache and connection counters from the edges in scope.
+
+        The counters come back through the callback: ``blitzecdn_stats``
+        publishes them as the ``blitzecdn_report`` fact and they arrive on
+        ``HostRun.report``. Nothing is written to or read from the controller's
+        filesystem, which is what the role used to do.
+        """
+        with self._run_vars("stats", {}) as variables:
+            return self._playbook_run(
                 self._settings.stats_playbook_path, variables, host_limit
-            ),
-            timeout=self._settings.deployment_timeout_seconds,
-        )
+            )
 
-    def run_decommission(self, *, host_limit: str) -> CommandResult:
+    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
         """Strip BlitzeCDN configuration and TLS material from one edge.
 
         ``host_limit`` is required and never defaulted to the whole group: the
@@ -160,20 +180,48 @@ class AnsibleRunner:
         removing, and the playbook is fail-closed so a partial teardown keeps
         the inventory entry rather than stranding keys on a forgotten host.
         """
-        variables = self._write_run_vars("decommission.yml", {})
-        return self._execute(
-            self._playbook_command(
+        with self._run_vars("decommission", {}) as variables:
+            return self._playbook_run(
                 self._settings.decommission_playbook_path, variables, host_limit
-            ),
+            )
+
+    # -- Command construction ------------------------------------------
+
+    def _playbook_run(
+        self, playbook: Path, variables: Path, host_limit: str | None
+    ) -> AnsibleRun:
+        return self._execute(
+            self._playbook_command(playbook, variables, host_limit),
             timeout=self._settings.deployment_timeout_seconds,
+            playbook=playbook,
         )
 
-    def _write_run_vars(self, name: str, values: dict[str, object]) -> Path:
+    @contextmanager
+    def _run_vars(self, prefix: str, values: dict[str, object]) -> Iterator[Path]:
+        """Write this run's variables to a path no other run can reach.
+
+        A fixed filename per playbook made the file shared mutable state between
+        overlapping runs, and overlap is ordinary here rather than exceptional:
+        purge, stats and decommission all deliberately skip the deployment lock,
+        the API serves them from a thread pool, and the systemd timers are
+        separate processes over one state directory. Whoever wrote last won — so
+        a purge of two URLs could find ``purge_all: true`` in the file by the
+        time its own playbook read it, empty the cache on every edge, and still
+        return, and audit, a two-URL purge.
+
+        Removed when the run ends: these carry one caller's request, not state
+        anything reads afterwards.
+        """
         from blitzecdn.infrastructure.filesystem import atomic_write_yaml
 
-        path = self._settings.state_dir / name
-        atomic_write_yaml(path, values)
-        return path
+        directory = self._settings.run_dir
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = directory / f"{prefix}-{uuid4().hex}.yml"
+        try:
+            atomic_write_yaml(path, values)
+            yield path
+        finally:
+            path.unlink(missing_ok=True)
 
     def _playbook_command(
         self, playbook: Path, variables: Path, host_limit: str | None
@@ -208,7 +256,12 @@ class AnsibleRunner:
             )
 
     def _command(
-        self, *, check: bool, syntax_check: bool = False, host_limit: str | None = None
+        self,
+        *,
+        check: bool,
+        syntax_check: bool = False,
+        host_limit: str | None = None,
+        variables: Path | None = None,
     ) -> list[str]:
         command = [
             self._settings.ansible_playbook,
@@ -216,7 +269,7 @@ class AnsibleRunner:
             "--inventory",
             str(self._settings.inventory_path),
             "--extra-vars",
-            f"@{self._settings.generated_vars_path}",
+            f"@{variables or self._settings.generated_vars_path}",
             "--limit",
             self._limit(host_limit),
         ]
@@ -261,7 +314,59 @@ class AnsibleRunner:
             )
         return ",".join(matched)
 
-    def _execute(self, command: list[str], *, timeout: int) -> CommandResult:
+    # -- Execution -----------------------------------------------------
+
+    def _execute(
+        self, command: list[str], *, timeout: int, playbook: Path
+    ) -> AnsibleRun:
+        run_id = uuid4().hex
+        started_at = datetime.now(UTC)
+        log_path = self._settings.log_dir / f"{run_id}.log"
+        result_path = self._settings.run_dir / f"result-{run_id}.json"
+        log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        result_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        environment = self._environment(result_path)
+        control_root = self._settings.state_dir / "ansible-control"
+        control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with (
+            tempfile.TemporaryDirectory(dir=control_root) as control_path,
+            # One combined stream. Ansible interleaves the two, and a log read
+            # during an incident is easier to follow in the order things
+            # actually happened than split across two files.
+            log_path.open("wb") as log,
+        ):
+            environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
+            # A process that could not be started at all still raises: the
+            # runner either produces a real result or says it could not run,
+            # and `RunStatus.UNSTARTED` is reserved for the record the
+            # application writes in that case.
+            return_code, timed_out = self._spawn(
+                command, environment, log, timeout=timeout
+            )
+
+        status = (
+            RunStatus.TIMED_OUT
+            if timed_out
+            else RunStatus.SUCCEEDED
+            if return_code == 0
+            else RunStatus.FAILED
+        )
+        hosts = self._read_result(result_path)
+        self._prune_logs()
+        return AnsibleRun(
+            id=run_id,
+            playbook=playbook.name,
+            status=status,
+            return_code=return_code,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+            hosts=hosts,
+            log_path=str(log_path),
+            error=self._unreported_detail(status, hosts, log_path),
+        )
+
+    def _environment(self, result_path: Path) -> dict[str, str]:
         environment = os.environ.copy()
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
         environment["ANSIBLE_LOCAL_TEMP"] = str(
@@ -270,6 +375,9 @@ class AnsibleRunner:
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
+        # Where blitzecdn_result writes this run's document. Per-run, so two
+        # unlocked runs cannot overwrite each other's results.
+        environment["BLITZE_RESULT_PATH"] = str(result_path)
         # Always set, even when empty, so `lookup('env', ...)` in group_vars
         # resolves deterministically instead of inheriting a stray value from
         # the operator's shell.
@@ -277,55 +385,98 @@ class AnsibleRunner:
         environment["BLITZE_MAXMIND_LICENSE_KEY"] = (
             self._settings.maxmind_license_key.get_secret_value()
         )
-        control_root = self._settings.state_dir / "ansible-control"
-        control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with (
-            tempfile.TemporaryDirectory(dir=control_root) as control_path,
-            tempfile.TemporaryFile() as stdout,
-            tempfile.TemporaryFile() as stderr,
-        ):
-            environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
-            try:
-                process = subprocess.Popen(  # noqa: S603 -- fixed executable and argument array
-                    command,
-                    cwd=self._settings.ansible_dir,
-                    env=environment,
-                    stdin=subprocess.DEVNULL,
-                    stdout=stdout,
-                    stderr=stderr,
-                    start_new_session=True,
-                )
-            except OSError as exc:
-                raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
-            try:
-                return_code = process.wait(timeout=timeout)
-                timed_out = False
-            except subprocess.TimeoutExpired:
-                # Ansible forks a worker per host; killing only the playbook
-                # leaves them converging edges behind our back.
-                terminate_process_group(process, process.wait)
-                timed_out = True
-                return_code = 124
-            except BaseException:
-                # A CLI disconnect, Ctrl-C, or service stop must not orphan the
-                # playbook and let it keep changing edges after its deployment
-                # record has stopped receiving updates.
-                terminate_process_group(process, process.wait)
-                raise
-            return CommandResult(
-                return_code=return_code,
-                stdout=self._read_bounded(stdout),
-                stderr=self._read_bounded(stderr)
-                + ("\nDeployment timed out" if timed_out else ""),
-                timed_out=timed_out,
-            )
+        return environment
 
-    def _read_bounded(self, stream: object) -> str:
-        stream.seek(0)  # type: ignore[attr-defined]
-        data: bytes = stream.read(self._settings.output_limit_bytes + 1)  # type: ignore[attr-defined]
-        if len(data) <= self._settings.output_limit_bytes:
-            return data.decode("utf-8", errors="replace")
-        return (
-            data[: self._settings.output_limit_bytes].decode("utf-8", errors="ignore")
-            + "\n[output truncated]"
-        )
+    def _spawn(
+        self,
+        command: list[str],
+        environment: dict[str, str],
+        log: IO[bytes],
+        *,
+        timeout: int,
+    ) -> tuple[int, bool]:
+        try:
+            process = subprocess.Popen(  # noqa: S603 -- fixed executable and argument array
+                command,
+                cwd=self._settings.ansible_dir,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
+        try:
+            return process.wait(timeout=timeout), False
+        except subprocess.TimeoutExpired:
+            # Ansible forks a worker per host; killing only the playbook
+            # leaves them converging edges behind our back.
+            terminate_process_group(process, process.wait)
+            return _TIMEOUT_RETURN_CODE, True
+        except BaseException:
+            # A CLI disconnect, Ctrl-C, or service stop must not orphan the
+            # playbook and let it keep changing edges after its deployment
+            # record has stopped receiving updates.
+            terminate_process_group(process, process.wait)
+            raise
+
+    @staticmethod
+    def _read_result(path: Path) -> tuple[HostRun, ...]:
+        """Read the callback's document, then remove it.
+
+        The models it feeds are what gets persisted, so the file itself is
+        working state. A document that will not parse is treated as no document
+        at all: the run then reports as unreported, and the log is the account.
+        """
+        try:
+            document = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return ()
+        finally:
+            path.unlink(missing_ok=True)
+        if not isinstance(document, dict):
+            return ()
+        try:
+            return tuple(
+                HostRun.model_validate(host) for host in document.get("hosts") or []
+            )
+        except ValueError:
+            return ()
+
+    def _prune_logs(self) -> None:
+        """Keep the newest ``run_log_retention`` logs and drop the rest.
+
+        One file per invocation, and the drift timer alone produces one on
+        every firing, so this directory only ever grows. Pruning here rather
+        than on a timer of its own means retention cannot silently stop being
+        applied because a unit was never installed.
+        """
+        try:
+            logs = sorted(
+                self._settings.log_dir.glob("*.log"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return
+        for stale in logs[self._settings.run_log_retention :]:
+            # A log another process is reading, or has already removed, is not
+            # worth failing a completed run over.
+            with suppress(OSError):
+                stale.unlink()
+
+    @staticmethod
+    def _unreported_detail(
+        status: RunStatus, hosts: tuple[HostRun, ...], log_path: Path
+    ) -> str | None:
+        """Explain a run that finished badly without saying which host failed.
+
+        Ansible refusing an inventory, a playbook that will not parse, a
+        connection plugin that died — all end the process before any host is
+        reported. Point at the log rather than leaving the caller with a bare
+        exit code.
+        """
+        if hosts or status is RunStatus.SUCCEEDED:
+            return None
+        return f"Ansible reported no per-host result. The full output is at {log_path}."

@@ -23,6 +23,7 @@ _PROJECT_KEYS = {
     "ansible_playbook",
     "deployment_timeout_seconds",
     "output_limit_bytes",
+    "run_log_retention",
     "allow_empty_sites",
     "certificate_dir",
     "acme_challenge_playbook_path",
@@ -36,6 +37,8 @@ _PROJECT_KEYS = {
     "preflight_dns_timeout_seconds",
     "preflight_dns_servers",
     "certificate_reconcile_interval_seconds",
+    "certificate_renewal_budget_seconds",
+    "certificate_renewal_workers",
     # The MaxMind account ID is an identifier and belongs here. Its license key
     # deliberately does not: an unlisted key is rejected outright, so putting a
     # credential in the committed TOML fails loudly rather than being ignored.
@@ -102,8 +105,37 @@ class Settings(BaseModel):
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
     origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
+    #: How much of a run log to read back when showing an operator why a run
+    #: failed. The log itself is never truncated — it is the full account — but
+    #: an error message quoting all of it helps nobody.
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
+    #: How many run logs to keep. They accumulate one per invocation — deploys,
+    #: drift checks on a timer, every purge — so something has to bound them,
+    #: and the alternative to a cap here is a disk that fills on a schedule.
+    #: The newest are kept; a deployment whose log has aged out still has its
+    #: structured result, which is what the control plane reasons from.
+    run_log_retention: int = Field(default=500, ge=10, le=100_000)
     certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
+    #: Wall-clock budget for one renewal sweep served over HTTP.
+    #:
+    #: A sweep runs certbot per site, each bounded only by
+    #: `deployment_timeout_seconds`, so an unbounded sweep can hold its worker
+    #: for hours. That is survivable on the CLI and on a timer, but over HTTP it
+    #: is a request nothing will wait for and a worker nothing can reclaim. When
+    #: the budget runs out the sweep stops between sites — never mid-issuance —
+    #: and reports the ones it did not reach as skipped, because the next run
+    #: picks them up and a truncated answer that says so is better than a
+    #: connection that dies holding the lock.
+    certificate_renewal_budget_seconds: int = Field(default=300, ge=30, le=7200)
+    #: How many renewal sweeps may be in flight at once.
+    #:
+    #: Their own pool, not the server's. Renewal is the one HTTP operation that
+    #: blocks for minutes, and left in the shared thread pool a handful of
+    #: concurrent sweeps starve every other endpoint — including `/health`, so
+    #: the controller would look dead to a load balancer while working
+    #: perfectly. Small on purpose: issuance serialises on the deployment lock
+    #: anyway, so more workers would only queue deeper.
+    certificate_renewal_workers: int = Field(default=2, ge=1, le=16)
     allow_empty_sites: bool = False
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
 
@@ -126,6 +158,27 @@ class Settings(BaseModel):
     @classmethod
     def expand_path(cls, value: object) -> Path:
         return Path(str(value)).expanduser().resolve()
+
+    @property
+    def run_dir(self) -> Path:
+        """Working files for an invocation in flight: its vars, its result.
+
+        Derived rather than configurable. Everything in here is created and
+        removed inside one run, so there is no reason for an operator to place
+        it anywhere but beside the rest of the state.
+        """
+        return self.state_dir / "runs"
+
+    @property
+    def log_dir(self) -> Path:
+        """Raw Ansible output, one file per run.
+
+        Kept for maintenance, debugging and operator inspection. No application
+        code reads these — what the control plane acts on comes from the
+        ``blitzecdn_result`` callback — so a missing or rotated-away log costs
+        an explanation, never a decision.
+        """
+        return self.state_dir / "logs"
 
     @field_validator("acme_ca_domain")
     @classmethod
@@ -278,6 +331,9 @@ class Settings(BaseModel):
                         )
                     )
                 ),
+                run_log_retention=int(
+                    str(value("BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500))
+                ),
                 acme_ca_domain=str(
                     value("BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org")
                 )
@@ -314,6 +370,24 @@ class Settings(BaseModel):
                             "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
                             "certificate_reconcile_interval_seconds",
                             600,
+                        )
+                    )
+                ),
+                certificate_renewal_budget_seconds=int(
+                    str(
+                        value(
+                            "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS",
+                            "certificate_renewal_budget_seconds",
+                            300,
+                        )
+                    )
+                ),
+                certificate_renewal_workers=int(
+                    str(
+                        value(
+                            "BLITZE_CERTIFICATE_RENEWAL_WORKERS",
+                            "certificate_renewal_workers",
+                            2,
                         )
                     )
                 ),

@@ -13,12 +13,9 @@ import dns.exception
 import dns.resolver
 import pytest
 
-from blitzecdn.domain.models import (
-    CdnSite,
-    OriginCheck,
-    OriginScheme,
-    PreflightSeverity,
-)
+from blitzecdn.domain.certificates import PreflightSeverity
+from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.sites import CdnSite, HttpScheme
 from blitzecdn.infrastructure import preflight as preflight_module
 from blitzecdn.infrastructure.preflight import (
     CertificatePreflight,
@@ -35,7 +32,7 @@ class FakeOriginProbe:
         return OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:443",
-            scheme=OriginScheme.HTTPS,
+            scheme=HttpScheme.HTTPS,
             resolved=True,
             reachable=self.ok,
             detail=None if self.ok else "no answer within 5s",

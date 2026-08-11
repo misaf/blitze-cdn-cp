@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -12,26 +11,97 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from blitzecdn.config import Settings
-from blitzecdn.infrastructure.ansible import CommandResult
+from blitzecdn.domain.runs import (
+    AnsibleRun,
+    HostRun,
+    RunStatus,
+    TaskOutcome,
+    TaskResult,
+)
+
+
+def host_run(
+    name: str,
+    *,
+    ok: int = 4,
+    changed: int = 0,
+    failed: int = 0,
+    unreachable: int = 0,
+    report: dict[str, object] | None = None,
+    changes: tuple[str, ...] = (),
+    failure: str | None = None,
+) -> HostRun:
+    """One host's part in a fake run.
+
+    `changes` and `failure` build the task lists the callback would have
+    produced, so a test can assert on what a report *says happened* rather than
+    only on a count.
+    """
+    return HostRun(
+        host=name,
+        ok=ok,
+        changed=changed or len(changes),
+        failed=failed or (1 if failure else 0),
+        unreachable=unreachable,
+        changes=tuple(
+            TaskResult(task=task, outcome=TaskOutcome.CHANGED) for task in changes
+        ),
+        failures=(
+            (TaskResult(task="a task", outcome=TaskOutcome.FAILED, message=failure),)
+            if failure
+            else ()
+        ),
+        report=report,
+    )
+
+
+def ansible_run(
+    *hosts: HostRun,
+    status: RunStatus = RunStatus.SUCCEEDED,
+    return_code: int | None = 0,
+    log_path: str | None = "/var/log/blitzecdn/run.log",
+    error: str | None = None,
+) -> AnsibleRun:
+    """What the runner hands back: the callback's per-host results plus a status.
+
+    Tests build these directly rather than faking Ansible output, because the
+    structured result *is* the contract now — there is no text for a double to
+    imitate.
+    """
+    now = datetime.now(UTC)
+    return AnsibleRun(
+        id="run",
+        playbook="edge.yml",
+        status=status,
+        return_code=return_code,
+        started_at=now,
+        finished_at=now,
+        hosts=hosts,
+        log_path=log_path,
+        error=error,
+    )
 
 
 class FakeRunner:
-    def __init__(self, results: list[CommandResult] | None = None) -> None:
-        self.results = results or [CommandResult(0, "ok", "")]
+    def __init__(self, results: list[AnsibleRun] | None = None) -> None:
+        self.results = results or [ansible_run(host_run("edge-a"))]
         self.check_modes: list[bool] = []
         self.host_limits: list[str | None] = []
+        #: The scratch path each `validate` was handed, so a test can assert it
+        #: was not the shared desired-state file.
+        self.validated: list[Path] = []
         self.purges: list[tuple[list[dict[str, str]], bool, str | None]] = []
-        self.stats_runs: list[tuple[Path, str | None]] = []
+        self.stats_runs: list[str | None] = []
         self.decommissions: list[str] = []
-        self.edge_reports: dict[str, object] = {}
 
     def lock(self) -> nullcontext[None]:
         return nullcontext()
 
-    def validate(self) -> CommandResult:
+    def validate(self, variables: Path) -> AnsibleRun:
+        self.validated.append(variables)
         return self.results[0]
 
-    def run(self, *, check: bool, host_limit: str | None = None) -> CommandResult:
+    def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun:
         self.check_modes.append(check)
         self.host_limits.append(host_limit)
         return self.results.pop(0)
@@ -42,25 +112,16 @@ class FakeRunner:
         entries: list[dict[str, str]],
         purge_all: bool,
         host_limit: str | None = None,
-    ) -> CommandResult:
+    ) -> AnsibleRun:
         self.purges.append((entries, purge_all, host_limit))
         return self.results.pop(0)
 
-    def run_decommission(self, *, host_limit: str) -> CommandResult:
+    def run_decommission(self, *, host_limit: str) -> AnsibleRun:
         self.decommissions.append(host_limit)
         return self.results.pop(0)
 
-    def run_stats(
-        self, *, output_dir: Path, host_limit: str | None = None
-    ) -> CommandResult:
-        self.stats_runs.append((output_dir, host_limit))
-        # Stand in for the edges writing their reports: the real roles deliver
-        # these files, so a double that only returns a recap would exercise a
-        # code path that never happens.
-        for host, document in self.edge_reports.items():
-            (output_dir / f"{host}.json").write_text(
-                json.dumps(document), encoding="utf-8"
-            )
+    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
+        self.stats_runs.append(host_limit)
         return self.results.pop(0)
 
 
@@ -78,7 +139,7 @@ class FakePreflight:
         self.calls: list[tuple[str, bool, int | None]] = []
 
     def check(self, site, *, deployed: bool, record_ttl: int | None = None):
-        from blitzecdn.domain.models import (
+        from blitzecdn.domain.certificates import (
             PreflightCheck,
             PreflightReport,
             PreflightSeverity,
@@ -173,7 +234,7 @@ def seeded(settings):
 
     def build(runner=None):
         from blitzecdn.control_plane import ControlPlane
-        from blitzecdn.domain.models import DnsRecord, Domain
+        from blitzecdn.domain.dns import DnsRecord, Domain
         from blitzecdn.infrastructure.database import Repository
 
         repository = Repository(settings.database_path)

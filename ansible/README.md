@@ -16,12 +16,16 @@ ansible-galaxy collection install -r requirements.yml -p ../.state/collections
 | `inventory/group_vars/` | Environment policy for `blitzecdn_edges` |
 | `playbooks/edge.yml` | Converges edges by calling the collection's roles by FQCN |
 | `playbooks/acme-challenge.yml` | Publishes an HTTP-01 token to every edge |
+| `playbooks/cache-purge.yml` | Removes cached responses by key, or empties the cache |
+| `playbooks/stats.yml` | Collects cache and connection counters from every edge |
+| `playbooks/decommission.yml` | Takes a host out of service and removes managed state |
 | `ansible.cfg` | Connection, fork, and collection-path settings |
 
 `playbooks/edge.yml` converges only the `blitzecdn_edges` inventory group. Tags
-are `base`, `kernel`, `firewall`, `nginx`, and `security`; high-impact
-deployments should normally run the complete play because firewall, port, and
-Fail2Ban policy are related.
+are `base`, `resolver`, `kernel`, `firewall`, `nginx`, `sshd`, and `security`
+(`sshd` and Fail2Ban both carry `security`). High-impact deployments should
+normally run the complete play because firewall, port, and Fail2Ban policy are
+related.
 
 The control plane writes validated `blitzecdn_nginx_sites` to a restrictive
 file beneath `.state/` and passes it explicitly with `--extra-vars`. Generated

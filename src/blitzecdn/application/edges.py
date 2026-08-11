@@ -7,22 +7,20 @@ is written and, deliberately, the deployment lock is not taken.
 
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from pathlib import Path
 
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import (
+from blitzecdn.domain.cache import (
     CacheStatsReport,
     EdgeStats,
-    HostDrift,
-    OriginCheck,
     PurgeEntry,
     PurgeResult,
     SiteCacheStats,
 )
-from blitzecdn.domain.recap import parse_play_recap
+from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.runs import AnsibleRun, HostRun
+from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
 from blitzecdn.exceptions import (
     ConfigurationError,
     ConflictError,
@@ -107,8 +105,8 @@ class EdgeOperationsService:
                 "nothing to purge: give at least one entry or purge all"
             )
         if entries:
-            self._reject_unserved_hosts(entries)
-        result = self.runner.run_cache_purge(
+            self._reject_unpurgeable(entries)
+        run = self.runner.run_cache_purge(
             entries=[entry.to_ansible() for entry in entries],
             purge_all=purge_all,
             host_limit=host_limit,
@@ -118,7 +116,7 @@ class EdgeOperationsService:
             entries=tuple(entries),
             purge_all=purge_all,
             host_limit=host_limit,
-            hosts=parse_play_recap(result.stdout),
+            hosts=run.hosts,
         )
         self.audit_log.audit(
             operator,
@@ -134,43 +132,74 @@ class EdgeOperationsService:
             },
         )
         if not report.hosts:
-            raise ExecutionError(
-                "no edge reported a purge result. "
-                + (result.stderr.strip() or "Check the inventory and the run above.")
-            )
+            raise ExecutionError(_unreported("purge", run))
         return report
 
-    def _reject_unserved_hosts(self, entries: Sequence[PurgeEntry]) -> None:
-        """Refuse a hostname no enabled site answers to.
+    def _reject_unpurgeable(self, entries: Sequence[PurgeEntry]) -> None:
+        """Refuse an entry no enabled site could have cached.
 
-        Wildcard server names match their subdomains, the same way nginx
-        matches them, so purging ``a.cdn.example.com`` under a ``*.example.com``
-        site is allowed.
+        Two ways that happens, and either would otherwise report a successful
+        purge of nothing.
+
+        The hostname may be one no site answers to. Wildcard server names match
+        their subdomains, the same way nginx matches them, so purging
+        ``a.cdn.example.com`` under a ``*.example.com`` site is allowed.
+
+        Or the scheme may be one the site never serves. The cache key begins
+        with ``$scheme``, so the two are different entries: a site with TLS
+        answers port 80 with a 308 and caches nothing under ``http``, and a site
+        without TLS never sees an ``https`` request at all. Purging the wrong one
+        computes a different MD5, deletes a file that was never written, and
+        reports every edge as purged.
         """
-        served: set[str] = set()
-        wildcards: set[str] = set()
+        exact: dict[str, CdnSite] = {}
+        wildcards: list[tuple[str, CdnSite]] = []
         for site in self.sites.list_sites():
             if not site.enabled:
                 continue
             for name in site.server_names:
                 if name.startswith("*."):
-                    wildcards.add(name[2:])
+                    wildcards.append((name[2:], site))
                 else:
-                    served.add(name)
-        unknown = sorted(
-            {
-                entry.host
-                for entry in entries
-                if entry.host not in served
-                and not any(entry.host.endswith(f".{suffix}") for suffix in wildcards)
-            }
-        )
+                    exact.setdefault(name, site)
+
+        unknown: set[str] = set()
+        mismatched: set[str] = set()
+        for entry in entries:
+            owner = exact.get(entry.host) or next(
+                (
+                    candidate
+                    for suffix, candidate in wildcards
+                    if entry.host.endswith(f".{suffix}")
+                ),
+                None,
+            )
+            if owner is None:
+                unknown.add(entry.host)
+                continue
+            served = (
+                HttpScheme.HTTP
+                if owner.certificate_mode is CertificateMode.DISABLED
+                else HttpScheme.HTTPS
+            )
+            if entry.scheme is not served:
+                mismatched.add(
+                    f"{entry.scheme.value}://{entry.host}{entry.uri} "
+                    f"({owner.name} serves {served.value})"
+                )
         if unknown:
             raise NotFoundError(
                 "no enabled site serves: "
-                + ", ".join(unknown)
+                + ", ".join(sorted(unknown))
                 + ". A purge for a hostname nothing serves would report success "
                 "having removed nothing."
+            )
+        if mismatched:
+            raise ConflictError(
+                "nothing is cached under the scheme requested for: "
+                + "; ".join(sorted(mismatched))
+                + ". The cache key starts with the scheme, so purging the other "
+                "one would report success having removed nothing."
             )
 
     def cache_stats(
@@ -178,16 +207,18 @@ class EdgeOperationsService:
     ) -> CacheStatsReport:
         """Collect cache effectiveness from the edges.
 
-        Read-only and unlocked. The edges write one JSON document each into a
-        directory under the state dir, which is emptied first so a silent edge
-        cannot be answered with its own stale report from a previous run.
+        Read-only and unlocked. Every edge's counters arrive on its own
+        ``HostRun.report``, published by the role as the ``blitzecdn_report``
+        fact, so the roster and the numbers are the same object — an edge that
+        ran but produced nothing is reported as silent rather than vanishing
+        from the fleet, and there is no controller-side directory to reset,
+        collide over, or read a previous run's document out of.
         """
-        output_dir = self.settings.state_dir / "stats"
-        _reset_directory(output_dir)
-        result = self.runner.run_stats(output_dir=output_dir, host_limit=host_limit)
-        edges = _read_edge_reports(output_dir, parse_play_recap(result.stdout))
+        run = self.runner.run_stats(host_limit=host_limit)
         report = CacheStatsReport(
-            collected_at=datetime.now(UTC), host_limit=host_limit, edges=edges
+            collected_at=datetime.now(UTC),
+            host_limit=host_limit,
+            edges=tuple(_edge_stats(host) for host in run.hosts),
         )
         self.audit_log.audit(
             operator,
@@ -202,17 +233,14 @@ class EdgeOperationsService:
             },
         )
         if not report.edges:
-            raise ExecutionError(
-                "no edge reported statistics. "
-                + (result.stderr.strip() or "Check the inventory and the run above.")
-            )
+            raise ExecutionError(_unreported("statistics", run))
         return report
 
     # -- Decommissioning -----------------------------------------------
 
     def decommission_edge(
         self, name: str, operator: str, *, force: bool = False
-    ) -> tuple[HostDrift, ...]:
+    ) -> tuple[HostRun, ...]:
         """Strip an edge of BlitzeCDN state, then take it out of inventory.
 
         The order is the whole point. Removing the inventory entry first would
@@ -230,26 +258,24 @@ class EdgeOperationsService:
         if name not in {edge["name"] for edge in self.inventory.list_edges()}:
             raise ConfigurationError(f"edge does not exist: {name}")
 
-        hosts: tuple[HostDrift, ...] = ()
+        hosts: tuple[HostRun, ...] = ()
         failure: str | None = None
         try:
-            result = self.runner.run_decommission(host_limit=name)
+            run = self.runner.run_decommission(host_limit=name)
         except ExecutionError as error:
             failure = str(error)
         else:
-            hosts = parse_play_recap(result.stdout)
-            # Deliberately not HostDrift.in_sync: a teardown that removed
+            hosts = run.hosts
+            # Deliberately not HostRun.in_sync: a teardown that removed
             # anything reports changed>0, which is what success looks like
             # here. Only failed and unreachable mean files were left behind.
-            if result.return_code != 0 or any(
-                host.failed or host.unreachable for host in hosts
-            ):
-                failure = (
-                    result.stderr.strip()
-                    or "the teardown play did not report a clean host"
-                )
-            elif not hosts:
-                failure = "no edge reported a teardown result"
+            if not hosts:
+                failure = _unreported("teardown", run)
+            elif not run.succeeded or any(not host.succeeded for host in hosts):
+                # run.summary() names the task that failed, on the host it
+                # failed on. That is the difference between "teardown failed"
+                # and "teardown failed removing /etc/blitzecdn on edge-b".
+                failure = run.summary()
 
         self.audit_log.audit(
             operator,
@@ -273,56 +299,36 @@ class EdgeOperationsService:
         return hosts
 
 
-def _reset_directory(path: Path) -> None:
-    """Empty a directory, creating it if absent.
+def _unreported(what: str, run: AnsibleRun) -> str:
+    """Explain a run that produced no per-host result.
 
-    Emptied rather than merged into: an edge that fails to report this run must
-    appear as silent, not be answered with the document it left behind last
-    time. A stale number read as current is the failure mode that matters here.
+    Every fleet operation needs this message and each used to build its own out
+    of whatever was on stderr. There is no stderr to reach for now, and the
+    honest answer is the same in all three cases: nothing came back, here is
+    what the process said about itself, and here is where the output is.
     """
-    if path.exists():
-        for child in path.iterdir():
-            if child.is_file():
-                child.unlink()
-    else:
-        path.mkdir(parents=True, exist_ok=True, mode=0o700)
+    detail = run.error or run.summary()
+    location = f" The full output is at {run.log_path}." if run.log_path else ""
+    return f"no edge reported a {what} result. {detail}{location}"
 
 
-def _read_edge_reports(
-    output_dir: Path, recap: Sequence[HostDrift]
-) -> tuple[EdgeStats, ...]:
-    """Turn the per-edge JSON documents into domain objects.
+def _edge_stats(host: HostRun) -> EdgeStats:
+    """Read one edge's published report defensively.
 
-    Driven by the play recap rather than by whatever files happen to be on
-    disk, so an edge that ran but produced nothing is reported as silent
-    instead of vanishing from the fleet — the recap is the roster.
+    The shape is ours — `blitzecdn_stats` builds it — but it crossed a machine
+    boundary, so a partial or malformed document must degrade to "this edge
+    said nothing usable" rather than raise out of a fleet-wide report.
     """
-    edges: list[EdgeStats] = []
-    for host in recap:
-        path = output_dir / f"{host.host}.json"
-        if host.unreachable:
-            edges.append(EdgeStats(host=host.host, error="unreachable"))
-            continue
-        try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as exc:
-            edges.append(EdgeStats(host=host.host, error=f"no usable report: {exc}"))
-            continue
-        edges.append(_edge_stats(host.host, document))
-    return tuple(edges)
-
-
-def _edge_stats(host: str, document: object) -> EdgeStats:
-    """Read one edge's document defensively.
-
-    The shape is ours, but it crossed a machine boundary and a partially
-    written or truncated file must degrade to "this edge said nothing usable"
-    rather than raise out of a fleet-wide report.
-    """
-    if not isinstance(document, dict):
-        return EdgeStats(host=host, error="report was not an object")
+    if not host.reached:
+        return EdgeStats(host=host.host, error="unreachable")
+    if not host.succeeded:
+        return EdgeStats(host=host.host, error="the stats role failed on this edge")
+    document = host.report
+    if document is None:
+        return EdgeStats(host=host.host, error="the edge published no report")
     outcomes: dict[str, dict[str, int]] = {}
-    for row in document.get("cache") or []:
+    rows = document.get("cache")
+    for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
         site = str(row.get("site", "")).strip()
@@ -336,9 +342,12 @@ def _edge_stats(host: str, document: object) -> EdgeStats:
         outcomes.setdefault(site, {})[outcome] = (
             outcomes.setdefault(site, {}).get(outcome, 0) + requests
         )
+    raw_connections = document.get("connections")
     connections = {
         str(key): int(value)
-        for key, value in (document.get("connections") or {}).items()
+        for key, value in (
+            raw_connections.items() if isinstance(raw_connections, dict) else ()
+        )
         if isinstance(value, (int, str)) and str(value).isdigit()
     }
     collected = document.get("collected_at")
@@ -347,7 +356,7 @@ def _edge_stats(host: str, document: object) -> EdgeStats:
     except ValueError:
         collected_at = None
     return EdgeStats(
-        host=host,
+        host=host.host,
         collected_at=collected_at,
         nginx_reachable=bool(document.get("nginx_reachable")),
         connections=connections,

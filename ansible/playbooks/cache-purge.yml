@@ -6,7 +6,7 @@
   # Deliberately not any_errors_fatal. A purge is a correction, usually made
   # under time pressure, and an edge that is unreachable must not stop the
   # reachable ones from dropping a bad object. The control plane reports which
-  # edges answered and the recap says which did not.
+  # edges answered and which did not, from the run's structured result.
   max_fail_percentage: 100
   serial: "100%"
   roles:

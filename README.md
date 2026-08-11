@@ -78,7 +78,8 @@ pinned Ansible collection into `.state/collections`, and runs initial setup.
 Setup never overwrites an existing `.env` or inventory, so re-running it is
 safe.
 
-Two environment variables change what it installs:
+Three environment variables change what it installs, or how a later deploy
+behaves:
 
 | Variable | Effect |
 | --- | --- |
@@ -139,6 +140,29 @@ first deploy then installs the matching policy on the edge itself
 the account it would leave behind already has a working `authorized_keys`.
 Install the operator key on a new edge before adding it here.
 
+## Architecture
+
+The package is layered, and the layering is checked rather than trusted:
+
+| Layer | Module | Rule |
+| --- | --- | --- |
+| Domain | `domain/` | Knows only itself. No I/O, no adapter imports. |
+| Ports | `ports.py` | `Protocol` interfaces over the outside world. May see the domain. |
+| Application | `application/` | Orchestrates the domain through those ports. Never names a concrete adapter. |
+| Infrastructure | `infrastructure/` | SQLite, Ansible, Certbot, filesystem, inventory, DNS. Matched to ports structurally — it never imports them. |
+| Composition root | `control_plane.py` | The one module that knows both halves. Builds the adapters and injects them into the services. |
+| Entry points | `cli/`, `api.py` | Call the `ControlPlane` facade. |
+
+`tests/test_layering.py` walks the real source tree and fails when `domain/` or
+`application/` imports an adapter package — fastapi, typer, sqlite3,
+subprocess, yaml, cryptography, dns, and the rest. This used to be a convention
+kept by review, and review misses a single import; the failure is invisible
+until someone tries to test a service without a database.
+
+`ControlPlane` owns no logic. Every method delegates to the service that does,
+so each service declares only the narrow ports it actually uses while the CLI
+and the API keep a single object to call.
+
 ## Configuration
 
 Precedence is explicit:
@@ -182,6 +206,21 @@ blitzecdn audit
 blitzecdn rollback DEPLOYMENT_ID --yes
 ```
 
+The full command surface:
+
+| Group | Commands |
+| --- | --- |
+| Deployment | `validate`, `plan`, `deploy`, `status`, `drift`, `rollback` |
+| Diagnostics | `doctor`, `audit`, `stats` |
+| Setup | `init`, `setup`, `serve` |
+| Edges | `edge list/add/update/remove`, `origin check` |
+| Zones | `domain add/list/remove`, `record add/list/proxy/firewall/remove`, `dns export`, `site list/show` |
+| Certificates | `cert list`, `cert preflight`, `cert renew`, `cert reconcile` |
+| Cache | `cache purge` |
+
+Sites are derived, not authored: `site` is read-only, and virtual hosts follow
+from the proxied records under a domain.
+
 Interactive `deploy` validates configuration, previews changes in Ansible check
 mode, and asks before applying them. The individual `validate` and `plan`
 commands remain available for automation and troubleshooting. Use `deploy
@@ -192,6 +231,8 @@ deployment.
 The CLI is synchronous: `deploy`, `plan`, and `rollback` return when Ansible
 does.
 
+## API
+
 ```bash
 blitzecdn serve --host 127.0.0.1 --port 8000
 ```
@@ -201,7 +242,8 @@ the virtualenv `PATH`, keeps the API and certificate reconciler running, and
 loads secrets from `/etc/blitzecdn/blitzecdn.env` when present. Put an
 authenticated TLS reverse proxy in front of the loopback listener.
 
-The API is not. A convergence can run for `deployment_timeout_seconds`
+Unlike the CLI, the API does not block on a convergence. A run can take
+`deployment_timeout_seconds`
 (default 900), far longer than any HTTP client or reverse proxy will wait, so
 `POST /v1/deployments` and `POST /v1/rollbacks` return `202 Accepted` with a
 `queued` record and converge on a worker thread. Poll
@@ -225,9 +267,12 @@ the API but do not bypass authentication on control operations.
 The control plane emits `blitzecdn_desired_state_version` with every deployment
 and the Nginx role refuses any version it does not support, so a mismatched
 pair fails before touching a host rather than partway through a rollout. Bump
-`DESIRED_STATE_VERSION` in `src/blitzecdn/domain/models.py` when the
+`DESIRED_STATE_VERSION` in `src/blitzecdn/domain/sites.py` when the
 `blitzecdn_nginx_sites` shape changes in a way an older role cannot honour, and
-add the new version to `blitzecdn_nginx_supported_state_versions`.
+add the new version to `blitzecdn_nginx_supported_state_versions` in the edge
+role — adding to that list rather than replacing it, so a mid-upgrade pair
+keeps working. The current schema is version 2, and the pinned edge collection
+supports 1 and 2.
 
 `tests/test_contract.py` enforces the boundary: it renders desired state from
 real models and checks it against the role's `argument_specs.yml`, then renders
@@ -242,7 +287,8 @@ BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov  # after an in
 ```
 
 These tests skip silently when the collection is not installed. Run
-`./install.sh` first, and check the count: eighteen tests, not eighteen skips.
+`./install.sh` first, and check the count: thirty-one tests, not thirty-one
+skips.
 
 ## Certificates
 
@@ -348,22 +394,52 @@ with transactional shared infrastructure.
 
 ## Development
 
+Install with `BLITZECDN_DEV=1` first. `pre-commit install` runs the formatting,
+shell, and hygiene hooks on every commit; the rest is what CI checks.
+
+Python:
+
 ```bash
 ruff format --check src tests
 ruff check src tests
-mypy src
-pytest
-ANSIBLE_LOCAL_TEMP=.state/ansible-local ansible-playbook \
-  -i ansible/inventory/hosts.example.yml ansible/playbooks/edge.yml \
-  --syntax-check --extra-vars @tests/fixtures/desired-state.yml
-ANSIBLE_LOCAL_TEMP=.state/ansible-local ansible-playbook \
-  -i ansible/inventory/hosts.example.yml \
+mypy src                       # strict
+pytest                         # fails under 85% coverage
+pytest tests/test_domain.py -k some_case --no-cov   # one test, no coverage gate
+```
+
+`install.sh` runs as root, provisions users, writes sudoers, and stops
+services, so it is linted like the Python:
+
+```bash
+shellcheck install.sh
+```
+
+Ansible. Both variables matter: without `ANSIBLE_CONFIG` the collection path
+and connection settings are not picked up, and `ANSIBLE_LOCAL_TEMP` keeps
+scratch files inside the ignored `.state/`.
+
+```bash
+export ANSIBLE_CONFIG=ansible/ansible.cfg
+export ANSIBLE_LOCAL_TEMP=.state/ansible-local
+yamllint .
+ansible-playbook -i ansible/inventory/hosts.example.yml \
+  ansible/playbooks/edge.yml --syntax-check \
+  --extra-vars @tests/fixtures/desired-state.yml
+ansible-playbook -i ansible/inventory/hosts.example.yml \
   ansible/playbooks/acme-challenge.yml --syntax-check
 ansible-lint ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml
-yamllint .
+```
+
+Security and packaging:
+
+```bash
 bandit -c pyproject.toml -r src
+pip-audit
 python -m build
 ```
+
+Releases are tagged `vX.Y.Z`, and CI refuses a tag that does not equal the
+`version` in `pyproject.toml`.
 
 ## Related repositories
 

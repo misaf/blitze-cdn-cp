@@ -1,11 +1,17 @@
 import threading
 import time
 
+from conftest import FakeRunner, ansible_run, host_run
 from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
 from blitzecdn.api import create_app
 from blitzecdn.control_plane import ControlPlane
+from blitzecdn.exceptions import (
+    ConfigurationError,
+    DeploymentBusyError,
+    ExecutionError,
+)
 
 
 def test_health_is_public_and_controls_require_auth(settings):
@@ -180,9 +186,14 @@ def test_deploy_returns_202_immediately_and_finishes_in_background(
             if body["status"] not in {"queued", "running"}:
                 break
             time.sleep(0.02)
-        # conftest points ansible_playbook at /usr/bin/true.
+        # conftest points ansible_playbook at /usr/bin/true, so a real process
+        # runs and exits 0 without ever loading the callback — which is exactly
+        # the shape of a run that produced no per-host result. The deployment
+        # still carries a result, and it still names the log.
         assert body["status"] == "succeeded"
-        assert body["return_code"] == 0
+        assert body["result"]["return_code"] == 0
+        assert body["result"]["hosts"] == []
+        assert body["result"]["log_path"].endswith(".log")
 
 
 def test_repeated_bad_keys_are_throttled(settings):
@@ -415,6 +426,148 @@ def test_a_purge_host_limit_that_could_widen_is_a_422(settings):
         assert response.status_code == 422
 
 
+def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
+    settings, seeded, monkeypatch
+):
+    """The dangerous outcome has to stay machine-readable.
+
+    A partial purge is exactly when a caller needs the detail — which edges
+    dropped the object and which are still serving it — so the 409 carries the
+    same PurgeResult a success would, rather than replacing it with prose to be
+    parsed under time pressure.
+    """
+    control, _ = seeded(
+        FakeRunner(
+            [ansible_run(host_run("edge-a"), host_run("edge-b", failure="rm failed"))]
+        )
+    )
+    monkeypatch.setattr("blitzecdn.api.build_control_plane", lambda _settings: control)
+
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/cache/purge",
+            # The derived site has no certificate, so it serves http and only
+            # an http entry could have been cached.
+            json={
+                "entries": [
+                    {"host": "cdn.example.com", "uri": "/app.js", "scheme": "http"}
+                ]
+            },
+            headers=_HEADERS,
+        )
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["complete"] is False
+    assert body["failed_hosts"] == ["edge-b"]
+    assert {host["host"] for host in body["hosts"]} == {"edge-a", "edge-b"}
+
+
+def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
+    control, _ = seeded(FakeRunner([ansible_run(host_run("edge-a"))]))
+    monkeypatch.setattr("blitzecdn.api.build_control_plane", lambda _settings: control)
+
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/cache/purge",
+            json={
+                "entries": [
+                    {"host": "cdn.example.com", "uri": "/app.js", "scheme": "http"}
+                ]
+            },
+            headers=_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["complete"] is True
+    assert response.json()["failed_hosts"] == []
+
+
+# ----------------------------------------------------------------------
+# Error mapping. A permanent condition must not be reported as a transient
+# one: a client that retries a ConfigurationError retries forever, and an
+# alerting rule watching for 503 pages someone about a controller that is
+# working correctly and declining bad input.
+# ----------------------------------------------------------------------
+
+
+def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch):
+    monkeypatch.setattr(
+        ControlPlane,
+        "check_origins",
+        lambda _self: (_ for _ in ()).throw(ConfigurationError("no edges configured")),
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/v1/origins/check", headers=_HEADERS)
+    assert response.status_code == 400
+    assert response.json()["detail"] == "no edges configured"
+
+
+def test_an_execution_error_is_a_502(settings, monkeypatch):
+    monkeypatch.setattr(
+        ControlPlane,
+        "check_origins",
+        lambda _self: (_ for _ in ()).throw(ExecutionError("ansible would not start")),
+    )
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/v1/origins/check", headers=_HEADERS)
+    assert response.status_code == 502
+
+
+def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkeypatch):
+    """The one conflict that clears on its own, so the one that gets Retry-After."""
+
+    def busy(_self, _operator, **_kwargs):
+        raise DeploymentBusyError("another deployment is already running")
+
+    monkeypatch.setattr(ControlPlane, "submit_deployment", busy)
+    with TestClient(create_app(settings)) as client:
+        response = client.post("/v1/deployments", json={}, headers=_HEADERS)
+    assert response.status_code == 409
+    assert response.headers["Retry-After"] == "30"
+
+
+def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
+    """A sweep served over HTTP must not run until the CA gets bored."""
+    seen: dict[str, object] = {}
+
+    def renew(_self, operator, **kwargs):
+        seen.update(kwargs)
+        seen["operator"] = operator
+        return {"renewed": [], "skipped": [], "failed": []}
+
+    configured = settings.model_copy(update={"certificate_renewal_budget_seconds": 42})
+    monkeypatch.setattr(ControlPlane, "renew_certificates", renew)
+    with TestClient(create_app(configured)) as client:
+        response = client.post("/v1/certificates/renew", json={}, headers=_HEADERS)
+
+    assert response.status_code == 200
+    assert seen["budget_seconds"] == 42
+
+
+def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkeypatch):
+    """It runs on the renewal pool, so /health keeps answering during a sweep.
+
+    The whole failure this guards against is a controller that looks dead to a
+    load balancer while it is working perfectly, so the assertion is the thread
+    name rather than a timing measurement.
+    """
+    names: list[str] = []
+
+    def renew(_self, _operator, **_kwargs):
+        names.append(threading.current_thread().name)
+        return {"renewed": [], "skipped": [], "failed": []}
+
+    monkeypatch.setattr(ControlPlane, "renew_certificates", renew)
+    with TestClient(create_app(settings)) as client:
+        assert (
+            client.post("/v1/certificates/renew", json={}, headers=_HEADERS).status_code
+            == 200
+        )
+
+    assert names and names[0].startswith("blitzecdn-renewal")
+
+
 def _seed_proxied_record(client) -> None:
     client.post("/v1/domains", json={"name": "example.com"}, headers=_HEADERS)
     client.post(
@@ -431,7 +584,7 @@ def _seed_proxied_record(client) -> None:
 
 def _stub_preflight(monkeypatch, *failures: str) -> None:
     """Replace the real checks, which would resolve names and probe an origin."""
-    from blitzecdn.domain.models import (
+    from blitzecdn.domain.certificates import (
         PreflightCheck,
         PreflightReport,
         PreflightSeverity,

@@ -23,14 +23,17 @@ def main() -> int:
         return _fail("invalid ACME challenge environment")
     if action == "present" and not _VALIDATION.fullmatch(validation):
         return _fail("invalid ACME validation value")
-    result = AnsibleRunner(Settings.from_environment()).run_acme_challenge(
+    run = AnsibleRunner(Settings.from_environment()).run_acme_challenge(
         action=action,
         domain=domain,
         token=token,
         validation=validation,
     )
-    if result.return_code != 0:
-        return _fail(result.stderr or result.stdout or "challenge deployment failed")
+    if not run.succeeded:
+        # certbot shows this to the operator when issuance fails, so it has to
+        # be the useful line: run.summary() names the task and the edge, and
+        # the full output stays in the run log it points at.
+        return _fail(f"{run.summary()} (full output: {run.log_path})")
     return 0
 
 

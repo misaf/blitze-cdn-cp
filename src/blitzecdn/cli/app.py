@@ -11,7 +11,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn import EDGE_COLLECTION_VERSION, __version__
-from blitzecdn.domain.models import DESIRED_STATE_VERSION
+from blitzecdn.domain.sites import DESIRED_STATE_VERSION
 from blitzecdn.logging import configure_logging
 
 app = typer.Typer(

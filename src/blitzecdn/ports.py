@@ -14,34 +14,20 @@ service documents its real reach into persistence.
 from __future__ import annotations
 
 from contextlib import AbstractContextManager
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
-from blitzecdn.domain.models import (
-    AuditEvent,
-    CdnSite,
+from blitzecdn.domain.audit import AuditEvent
+from blitzecdn.domain.certificates import (
     CertificateInfo,
     CertificateSource,
-    Deployment,
-    DeploymentStatus,
-    DnsRecord,
-    Domain,
-    OriginCheck,
     PreflightReport,
-    RecordType,
 )
-
-
-@dataclass(frozen=True, slots=True)
-class CommandResult:
-    """The outcome of one subprocess run, as the application sees it."""
-
-    return_code: int
-    stdout: str
-    stderr: str
-    timed_out: bool = False
-
+from blitzecdn.domain.deployments import Deployment, DeploymentStatus
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
+from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.runs import AnsibleRun
+from blitzecdn.domain.sites import CdnSite
 
 # ----------------------------------------------------------------------
 # Persistence
@@ -137,13 +123,20 @@ class AuditLog(Protocol):
 
 
 class DeploymentRunner(Protocol):
-    """Runs Ansible and owns the cross-process deployment lock."""
+    """Runs Ansible and owns the cross-process deployment lock.
+
+    Every method answers with an :class:`~blitzecdn.domain.runs.AnsibleRun`,
+    which is the whole of what the application layer learns about a run. There
+    is deliberately no way through this port to reach the raw output.
+    """
 
     def lock(self) -> AbstractContextManager[Any]: ...
 
-    def validate(self) -> CommandResult: ...
+    #: ``variables`` is supplied rather than assumed so validation never writes
+    #: over the desired-state file a concurrent deploy is converging.
+    def validate(self, variables: Path) -> AnsibleRun: ...
 
-    def run(self, *, check: bool, host_limit: str | None = None) -> CommandResult: ...
+    def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun: ...
 
     def run_cache_purge(
         self,
@@ -151,13 +144,22 @@ class DeploymentRunner(Protocol):
         entries: list[dict[str, str]],
         purge_all: bool,
         host_limit: str | None = None,
-    ) -> CommandResult: ...
+    ) -> AnsibleRun: ...
 
-    def run_stats(
-        self, *, output_dir: Path, host_limit: str | None = None
-    ) -> CommandResult: ...
+    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun: ...
 
-    def run_decommission(self, *, host_limit: str) -> CommandResult: ...
+    def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
+
+
+class LogReader(Protocol):
+    """Reads back a run log, for showing an operator what Ansible said.
+
+    Narrow on purpose. Application code may quote a log into a message; it may
+    not branch on one, and a port with a single tail-reading method is what
+    keeps that distinction enforceable rather than merely intended.
+    """
+
+    def __call__(self, path: Path | str | None, *, limit: int) -> str: ...
 
 
 class EdgeInventory(Protocol):
@@ -210,11 +212,11 @@ class OriginProbe(Protocol):
 __all__ = [
     "AuditLog",
     "CertificateStore",
-    "CommandResult",
     "DeploymentRunner",
     "DeploymentStore",
     "EdgeInventory",
     "Issuer",
+    "LogReader",
     "OriginProbe",
     "Preflight",
     "SiteStore",

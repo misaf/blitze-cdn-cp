@@ -8,6 +8,7 @@ patch and every command group sees the change.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from enum import IntEnum
 from typing import Any
 
@@ -16,6 +17,7 @@ import yaml
 
 from blitzecdn.config import Settings
 from blitzecdn.control_plane import ControlPlane, build_control_plane
+from blitzecdn.domain.runs import HostRun
 
 
 class ExitCode(IntEnum):
@@ -53,6 +55,34 @@ def emit(value: Any, *, json_output: bool) -> None:
         # renders all three. There is deliberately no scalar branch: a command
         # that wants to print a bare string calls typer.echo itself.
         typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
+
+
+def describe_hosts(hosts: Sequence[HostRun], *, verb: str = "would change") -> str:
+    """Render per-host results the way an operator wants to read them.
+
+    Replaces echoing Ansible's own output. That output was thousands of lines
+    of which a handful mattered, and it could not be filtered because nothing
+    had parsed it — whereas the structured result already knows which tasks
+    changed and which failed, so this prints those and nothing else.
+    """
+    lines: list[str] = []
+    for host in hosts:
+        if not host.reached:
+            lines.append(f"  {host.host}: unreachable")
+            continue
+        if host.failures:
+            lines.append(f"  {host.host}: {len(host.failures)} failed")
+            lines.extend(
+                f"      {failure.task}: {failure.message or failure.outcome.value}"
+                for failure in host.failures
+            )
+            continue
+        if not host.changed:
+            lines.append(f"  {host.host}: in sync")
+            continue
+        lines.append(f"  {host.host}: {verb} {host.changed} task(s)")
+        lines.extend(f"      {change.task}" for change in host.changes)
+    return "\n".join(lines)
 
 
 LIMIT_OPTION = typer.Option(
