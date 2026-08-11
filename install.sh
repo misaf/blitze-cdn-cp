@@ -30,6 +30,27 @@ readonly SYSTEMD_UNITS=(
   blitzecdn-drift.service
   blitzecdn-drift.timer
 )
+readonly CONFIG_DIR=/etc/blitzecdn
+readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
+readonly SUDOERS_FILE=/etc/sudoers.d/blitzecdn-deploy
+# Units and files a standalone install converges on this host through the edge
+# roles. Each is BlitzeCDN-owned by construction (a BlitzeCDN-specific name or
+# a BlitzeCDN marker line), so removing them never touches unrelated files.
+readonly EDGE_MANAGED_UNITS=(
+  blitzecdn-geoipupdate.service
+  blitzecdn-geoipupdate.timer
+)
+readonly EDGE_MANAGED_FILES=(
+  /etc/nginx/blitzecdn-managed-sites
+  /var/cache/nginx/blitzecdn
+  /etc/systemd/resolved.conf.d/blitzecdn.conf
+  /var/log/nginx/blitzecdn-access.log
+  /etc/fail2ban/jail.d/blitzecdn-sshd.local
+  /etc/ssh/sshd_config.d/50-blitzecdn.conf
+  /etc/sysctl.d/60-blitzecdn.conf
+  /etc/GeoIP.conf
+)
+readonly NGINX_MARKER='^# Managed by BlitzeCDN'
 
 # Captured before dispatch strips the subcommand, so `update` can hand the
 # original invocation to the private copy it re-execs.
@@ -46,6 +67,8 @@ Subcommands:
   (none)      Build .venv and install the pinned Ansible collections
   standalone  Provision this server as an independent control plane and edge
   update      Update a standalone installation to a newer release
+  --uninstall Remove every BlitzeCDN artifact and stop there
+  --fresh     Uninstall, then reinstall like a brand-new server
   help        Show this message
 
 Run './install.sh SUBCOMMAND --help' for the options of a subcommand.
@@ -728,6 +751,262 @@ print("v" + document["project"]["version"])
 }
 
 # ---------------------------------------------------------------------------
+# uninstall / fresh — remove every artifact, or wipe and rebuild clean
+# ---------------------------------------------------------------------------
+
+usage_uninstall() {
+  cat <<'EOF'
+Usage: sudo ./install.sh --uninstall [OPTIONS]
+
+Remove every BlitzeCDN artifact from this host and stop there, leaving the
+system packages it had and nothing BlitzeCDN wrote.
+
+Options:
+  --yes        Do not ask for confirmation
+  -h, --help   Show this help
+
+Removed:
+  - the installation directory /opt/blitzecdn and everything in it: source,
+    .venv, .env, and .state (database, certificates, collections, locks, logs)
+  - the services, timers, and systemd unit files
+  - /etc/blitzecdn and the API credentials it holds
+  - the /usr/local/bin/blitzecdn command
+  - the sudo rule /etc/sudoers.d/blitzecdn-deploy
+  - the blitzecdn and deploy accounts and their homes
+  - the update backups in /var/backups/blitzecdn
+  - the edge-managed nginx sites, certificates, cache, and drop-ins this host
+    converged as an edge
+
+Nothing outside those paths is changed and no packages are removed. The
+uninstaller first copies itself outside the installation directory, so it keeps
+working even when that directory is deleted, and it is safe to run twice.
+EOF
+}
+
+usage_fresh() {
+  cat <<'EOF'
+Usage: sudo ./install.sh --fresh [OPTIONS] [STANDALONE OPTIONS]
+
+Uninstall BlitzeCDN completely, then install it again exactly as a brand-new
+server is installed: clone the running release from origin and run the
+standalone installer. The standalone options pass through unchanged:
+
+  --admin-cidr CIDR  Network allowed to administer SSH
+  --email ADDRESS    Default ACME account email
+  --public-address ADDRESS
+                     Public edge IP or hostname; repeat when needed
+  --deploy           Run the initial edge deployment (default: prepare only)
+  --allow-empty-sites
+                     Permit --deploy to remove every previously managed site
+
+Options:
+  --yes        Do not ask for confirmation before uninstalling
+  -h, --help   Show this help
+
+The current checkout must be a Git clone whose origin is the upstream
+repository, so the rebuild reinstalls the exact release that is running. Run
+`./install.sh update` first to move to a newer release, then rebuild it.
+EOF
+}
+
+confirm_destructive() {
+  local assume_yes="$1" mode="$2"
+  [[ ${assume_yes} == 1 ]] && return 0
+  cat >&2 <<'EOF'
+This removes every BlitzeCDN artifact on this host and cannot be undone:
+
+  - /opt/blitzecdn and all state in it (database, certificates, collections)
+  - the BlitzeCDN services and systemd unit files
+  - /etc/blitzecdn and the API credentials it holds
+  - the /usr/local/bin/blitzecdn command
+  - the sudo rule /etc/sudoers.d/blitzecdn-deploy
+  - the blitzecdn and deploy accounts and their homes
+  - the update backups in /var/backups/blitzecdn
+  - the edge-managed nginx sites and certificates on this host
+EOF
+  if [[ ${mode} == fresh ]]; then
+    echo >&2 "Afterwards it re-clones the current release and reinstalls it."
+  fi
+  local answer
+  read -r -p "Continue? [y/N]: " answer
+  [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
+}
+
+remove_service_account() {
+  local account="$1" expected_home="$2"
+  local passwd_entry home
+  if passwd_entry=$(getent passwd "${account}"); then
+    home=$(printf '%s\n' "${passwd_entry}" | cut -d: -f6)
+    if [[ ${home} != "${expected_home}" ]]; then
+      echo "warning: leaving ${account} alone (its home is ${home}, not ${expected_home})" >&2
+      return 0
+    fi
+    if command -v userdel >/dev/null 2>&1; then
+      userdel -r "${account}" >/dev/null 2>&1 || userdel "${account}" >/dev/null 2>&1 || true
+    fi
+  fi
+  rm -rf -- "${expected_home}"
+}
+
+remove_blitzecdn_artifacts() {
+  local unit conf link removed_nginx=0
+
+  systemctl stop "${SERVICES[@]}" "${EDGE_MANAGED_UNITS[@]}" 2>/dev/null || true
+  systemctl disable "${SERVICES[@]}" "${EDGE_MANAGED_UNITS[@]}" 2>/dev/null || true
+  for unit in "${SYSTEMD_UNITS[@]}" "${EDGE_MANAGED_UNITS[@]}"; do
+    rm -f -- "/etc/systemd/system/${unit}"
+  done
+  systemctl daemon-reload 2>/dev/null || true
+
+  rm -rf -- "${CONFIG_DIR}" "${CLI_WRAPPER}" "${SUDOERS_FILE}" "${BACKUP_DIR}"
+  rm -rf -- "${INSTALL_DIR}"
+
+  remove_service_account blitzecdn /var/lib/blitzecdn
+  remove_service_account deploy /home/deploy
+
+  # Nginx configurations carry the BlitzeCDN marker as their first line, so a
+  # content match finds every site this host converged — including ones the
+  # managed-site registry never learned about — and no configuration an
+  # operator wrote themselves.
+  for conf in /etc/nginx/conf.d/*.conf /etc/nginx/sites-available/*.conf; do
+    [[ -f ${conf} ]] || continue
+    if grep -q "${NGINX_MARKER}" "${conf}"; then
+      link="/etc/nginx/sites-enabled/$(basename -- "${conf}")"
+      rm -f -- "${link}"
+      rm -f -- "${conf}"
+      removed_nginx=1
+    fi
+  done
+  rm -rf -- "${EDGE_MANAGED_FILES[@]}"
+  if [[ ${removed_nginx} -eq 1 ]] && command -v nginx >/dev/null 2>&1; then
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx 2>/dev/null || true
+  fi
+}
+
+cmd_uninstall() {
+  local assume_yes=0
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes)
+        assume_yes=1
+        shift
+        ;;
+      -h|--help)
+        usage_uninstall
+        exit 0
+        ;;
+      *)
+        echo "error: unknown option: $1" >&2
+        usage_uninstall >&2
+        exit 2
+        ;;
+    esac
+  done
+
+  [[ ${EUID} -eq 0 ]] || { echo "error: run this uninstaller with sudo" >&2; exit 1; }
+
+  # Continue from a private copy. The cleanup deletes the installation
+  # directory, and a shell must never run a script while the file it lives in
+  # is being removed.
+  if [[ ${BLITZECDN_UNINSTALL_REEXEC:-0} != 1 ]]; then
+    local uninstall_copy
+    uninstall_copy=$(mktemp /tmp/blitzecdn-uninstall.XXXXXX)
+    install -m 0700 -- "$0" "${uninstall_copy}"
+    exec env BLITZECDN_UNINSTALL_REEXEC=1 "${uninstall_copy}" "${original_args[@]}"
+  fi
+  trap 'rm -f -- "$0"' EXIT
+
+  confirm_destructive "${assume_yes}" uninstall
+  remove_blitzecdn_artifacts
+
+  echo
+  echo "BlitzeCDN has been removed. No packages were removed and nothing outside"
+  echo "the paths listed in the confirmation was changed."
+}
+
+cmd_fresh() {
+  local assume_yes=0
+  local fresh_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --yes)
+        assume_yes=1
+        shift
+        ;;
+      -h|--help)
+        usage_fresh
+        exit 0
+        ;;
+      *)
+        fresh_args=("$@")
+        break
+        ;;
+    esac
+  done
+
+  [[ ${EUID} -eq 0 ]] || { echo "error: run this installer with sudo" >&2; exit 1; }
+
+  if [[ ${BLITZECDN_UNINSTALL_REEXEC:-0} != 1 ]]; then
+    local fresh_copy
+    fresh_copy=$(mktemp /tmp/blitzecdn-fresh.XXXXXX)
+    install -m 0700 -- "$0" "${fresh_copy}"
+    exec env BLITZECDN_UNINSTALL_REEXEC=1 "${fresh_copy}" "${original_args[@]}"
+  fi
+  trap 'rm -f -- "$0"' EXIT
+
+  # The re-clone needs the origin and the running release, so read them from
+  # the checkout before the cleanup removes it.
+  [[ -d ${INSTALL_DIR}/.git ]] || {
+    echo "error: ${INSTALL_DIR} is not a Git checkout; nothing to reinstall from" >&2
+    echo "Run --uninstall instead, or clone the release to ${INSTALL_DIR} first." >&2
+    exit 1
+  }
+
+  repo_git() {
+    git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" "$@"
+  }
+
+  local remote_url
+  remote_url=$(repo_git remote get-url origin) || {
+    echo "error: ${INSTALL_DIR} has no origin remote" >&2
+    exit 1
+  }
+  case "${remote_url}" in
+    https://github.com/misaf/blitze-cdn-cp|https://github.com/misaf/blitze-cdn-cp.git|\
+    git@github.com:misaf/blitze-cdn-cp.git) ;;
+    *) echo "error: refusing unexpected origin URL: ${remote_url}" >&2; exit 1 ;;
+  esac
+
+  # Prefer the exact release tag when the checkout sits on one, so the rebuild
+  # reinstalls the same vX.Y.Z release a brand-new server would. Fall back to
+  # the commit when HEAD is not a tag (a development checkout). Both are read
+  # before the cleanup, because the cleanup deletes the checkout itself.
+  local revision
+  revision=$(repo_git describe --tags --exact-match HEAD 2>/dev/null || true)
+  local at_release_tag=1
+  if [[ -z ${revision} ]]; then
+    revision=$(repo_git rev-parse HEAD)
+    at_release_tag=0
+  fi
+
+  confirm_destructive "${assume_yes}" fresh
+  remove_blitzecdn_artifacts
+
+  if [[ ${at_release_tag} -eq 1 ]]; then
+    git clone --depth 1 --branch "${revision}" "${remote_url}" "${INSTALL_DIR}"
+  else
+    git clone "${remote_url}" "${INSTALL_DIR}"
+    git -C "${INSTALL_DIR}" checkout --detach "${revision}"
+  fi
+
+  echo
+  echo "Reinstalling the running release from a clean state..."
+  # `${fresh_args[@]+...}` keeps this legal on bash 3.2 (macOS), where an empty
+  # array expands to an unbound-variable error under `set -u`.
+  "${INSTALL_DIR}/install.sh" standalone ${fresh_args[@]+"${fresh_args[@]}"}
+}
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -740,6 +1019,14 @@ if [[ $# -gt 0 ]]; then
       ;;
     install)
       subcommand=install
+      shift
+      ;;
+    --uninstall)
+      subcommand=uninstall
+      shift
+      ;;
+    --fresh)
+      subcommand=fresh
       shift
       ;;
     help|-h|--help)
