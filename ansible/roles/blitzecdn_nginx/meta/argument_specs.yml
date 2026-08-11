@@ -1,0 +1,163 @@
+---
+argument_specs:
+  main:
+    short_description: Converge Nginx CDN virtual hosts.
+    options:
+      blitzecdn_desired_state_version:
+        type: int
+        required: true
+        description: Schema version of the desired-state document from the control plane.
+      blitzecdn_nginx_supported_state_versions:
+        type: list
+        elements: int
+        required: true
+      blitzecdn_nginx_sites:
+        type: list
+        elements: dict
+        required: true
+        options:
+          name: {type: str, required: true}
+          server_names: {type: list, elements: str, required: true}
+          origin_host: {type: str, required: true}
+          origin_port: {type: int}
+          origin_scheme: {type: str, choices: [http, https], default: https}
+          origin_request_host: {type: str}
+          origin_sni: {type: str}
+          enabled: {type: bool, default: true}
+          certificate_mode: {type: str, choices: [disabled, existing, uploaded, requested], default: disabled}
+          certificate_path: {type: path}
+          certificate_key_path: {type: path}
+          certificate_source_path: {type: path}
+          certificate_key_source_path: {type: path}
+          cache_enabled: {type: bool, default: true}
+          cache_valid_success: {type: str, default: 10m}
+          cache_valid_not_found: {type: str, default: 1m}
+          firewall:
+            type: dict
+            description: >-
+              Per-hostname request filtering. Absent or empty means the site
+              serves everyone, which is what every site did before schema
+              version 2. Never applied to /.well-known/acme-challenge/, so a
+              rule here cannot block certificate renewal.
+            options:
+              allow_sources:
+                type: list
+                elements: str
+                default: []
+                description: >-
+                  CIDR networks exempted from deny_sources. Emitted before the
+                  deny rules, and nginx takes the first match. Not a whitelist
+                  on its own — without a deny entry covering everything else,
+                  the site stays open.
+              deny_sources:
+                type: list
+                elements: str
+                default: []
+                description: CIDR networks answered with 403.
+              allowed_countries:
+                type: list
+                elements: str
+                default: []
+                description: >-
+                  ISO 3166-1 alpha-2 codes; every other country gets a 403.
+                  Requires blitzecdn_nginx_geoip_enabled.
+              denied_countries:
+                type: list
+                elements: str
+                default: []
+                description: >-
+                  ISO 3166-1 alpha-2 codes answered with 403. Requires
+                  blitzecdn_nginx_geoip_enabled.
+              denied_methods:
+                type: list
+                elements: str
+                default: []
+                description: HTTP methods answered with 405.
+              denied_paths:
+                type: list
+                elements: str
+                default: []
+                description: URI prefixes answered with 403.
+      blitzecdn_nginx_allow_empty_sites:
+        type: bool
+        required: true
+      blitzecdn_nginx_cache_path: {type: path, required: true}
+      blitzecdn_nginx_cache_zone: {type: str, required: true}
+      blitzecdn_nginx_cache_size: {type: str, required: true}
+      blitzecdn_nginx_cache_max_size: {type: str, required: true}
+      blitzecdn_nginx_cache_inactive: {type: str, required: true}
+      blitzecdn_nginx_proxy_connect_timeout: {type: str, required: true}
+      blitzecdn_nginx_proxy_read_timeout: {type: str, required: true}
+      blitzecdn_nginx_managed_sites_file: {type: path, required: true}
+      blitzecdn_nginx_acme_root: {type: path, required: true}
+      blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
+      blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
+      blitzecdn_nginx_resolver_valid: {type: str, required: true}
+      blitzecdn_nginx_resolver_timeout: {type: str, required: true}
+      blitzecdn_nginx_default_server: {type: bool, required: true}
+      blitzecdn_nginx_default_site_file: {type: path, required: true}
+      blitzecdn_nginx_normalize_accept_encoding: {type: bool, required: true}
+      blitzecdn_nginx_ssl_ciphers: {type: str, required: true}
+      blitzecdn_nginx_ssl_stapling: {type: bool, required: true}
+      blitzecdn_nginx_hsts_enabled: {type: bool, required: true}
+      blitzecdn_nginx_hsts_max_age: {type: int, required: true}
+      blitzecdn_nginx_geoip_enabled:
+        type: bool
+        required: true
+        description: >-
+          Install ngx_http_geoip2 and define $blitzecdn_country, without which
+          per-site country rules cannot be honoured.
+      blitzecdn_nginx_geoip_package: {type: str, required: true}
+      blitzecdn_nginx_geoip_database: {type: path, required: true}
+      blitzecdn_nginx_geoip_reload: {type: str, required: true}
+      blitzecdn_nginx_geoip_file: {type: path, required: true}
+      blitzecdn_nginx_geoip_account_id:
+        type: str
+        required: true
+        description: >-
+          MaxMind account ID. Empty means the operator installs the database
+          themselves and the role only checks it is present.
+      blitzecdn_nginx_geoip_license_key:
+        type: str
+        required: true
+        no_log: true
+        description: >-
+          MaxMind license key. A credential for the account, not a per-database
+          token: supply it from the environment, never a committed file.
+      blitzecdn_nginx_geoip_edition: {type: str, required: true}
+      blitzecdn_nginx_geoip_updater_package: {type: str, required: true}
+      blitzecdn_nginx_geoip_updater_binary: {type: path, required: true}
+      blitzecdn_nginx_geoip_config_file: {type: path, required: true}
+      blitzecdn_nginx_geoip_update_enabled:
+        type: bool
+        required: true
+        description: >-
+          Install a systemd timer that refreshes the database. GeoLite2 is
+          republished twice a week; without this the copy fetched at first
+          converge ages indefinitely.
+      blitzecdn_nginx_geoip_update_calendar: {type: str, required: true}
+      blitzecdn_nginx_geoip_update_splay: {type: str, required: true}
+      blitzecdn_nginx_access_log_enabled:
+        type: bool
+        required: true
+        description: Write a per-request access log carrying the cache outcome.
+      blitzecdn_nginx_access_log_path: {type: path, required: true}
+      blitzecdn_nginx_log_format_name:
+        type: str
+        required: true
+        description: Name of the http-context log_format the managed sites use.
+      blitzecdn_nginx_status_enabled:
+        type: bool
+        required: true
+        description: Serve nginx stub_status on a loopback-bound port.
+      blitzecdn_nginx_status_address: {type: str, required: true}
+      blitzecdn_nginx_status_port: {type: int, required: true}
+      blitzecdn_nginx_status_path: {type: str, required: true}
+      blitzecdn_nginx_status_allow:
+        type: list
+        elements: str
+        required: true
+        description: >-
+          Sources permitted to read the status endpoint. The second, redundant
+          control alongside the loopback listen address.
+      blitzecdn_nginx_status_file: {type: path, required: true}

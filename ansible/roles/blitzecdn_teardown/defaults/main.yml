@@ -1,0 +1,20 @@
+---
+# Paths this role removes. Each must equal the value blitzecdn_nginx converged
+# with on the same host, or teardown leaves the real files behind and reports
+# success. The control plane passes both roles the same variables.
+blitzecdn_teardown_cache_path: /var/cache/nginx/blitzecdn
+blitzecdn_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
+blitzecdn_teardown_acme_root: /var/lib/blitzecdn/acme
+blitzecdn_teardown_state_path: /etc/blitzecdn
+blitzecdn_teardown_resolver_file: /etc/systemd/resolved.conf.d/blitzecdn.conf
+
+# Every file this collection writes into the nginx tree carries this as its
+# first line. Selecting by marker rather than by the managed-sites registry is
+# deliberate: a configuration written by a run that failed validation never
+# reached the registry, and matching on content is what still finds it.
+blitzecdn_teardown_marker: "# Managed by BlitzeCDN. Local edits are overwritten."
+
+# Logs are evidence and survive by default. A decommissioned host is often
+# decommissioned because something went wrong on it.
+blitzecdn_teardown_remove_logs: false
+blitzecdn_teardown_access_log_path: /var/log/nginx/blitzecdn-access.log

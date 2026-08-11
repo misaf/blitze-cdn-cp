@@ -18,23 +18,23 @@
         fail_msg: BlitzeCDN supports Debian 12+ and Ubuntu 24.04+.
       tags: [always]
   roles:
-    - role: blitzecdn.edge.blitzecdn_base
+    - role: blitzecdn_base
       tags: [base]
     # Before nginx, which resolves origin hostnames through the host resolver,
     # and before anything that fetches by name. Off unless enabled.
-    - role: blitzecdn.edge.blitzecdn_resolver
+    - role: blitzecdn_resolver
       tags: [base, resolver]
-    - role: blitzecdn.edge.blitzecdn_kernel
+    - role: blitzecdn_kernel
       tags: [kernel]
-    - role: blitzecdn.edge.blitzecdn_firewall
+    - role: blitzecdn_firewall
       tags: [firewall]
-    - role: blitzecdn.edge.blitzecdn_nginx
+    - role: blitzecdn_nginx
       tags: [nginx]
     # SSH policy comes after the firewall so a host that fails firewall
     # validation is never left key-only but unreachable from the management
     # network, and before Fail2Ban so bans apply to a daemon that has already
     # stopped accepting passwords.
-    - role: blitzecdn.edge.blitzecdn_sshd
+    - role: blitzecdn_sshd
       tags: [security, sshd]
-    - role: blitzecdn.edge.blitzecdn_fail2ban
+    - role: blitzecdn_fail2ban
       tags: [security]

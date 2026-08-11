@@ -1,0 +1,134 @@
+---
+# Defensive validation only. Whether this host should be retired is a control
+# plane decision; this role removes what the collection wrote and nothing more.
+
+- name: Locate managed Nginx configurations
+  ansible.builtin.find:
+    paths:
+      - /etc/nginx/sites-available
+      - /etc/nginx/conf.d
+    patterns: "*.conf"
+    contains: "^{{ blitzecdn_teardown_marker | regex_escape }}$"
+  register: blitzecdn_teardown_found
+
+# Matching on the marker rather than on the managed-sites registry finds
+# configurations the registry never learned about — anything written by a run
+# that failed `nginx -t` and was rolled back, or that predates the registry.
+# Those are exactly the files a registry-driven cleanup leaves behind forever.
+- name: Select managed configurations and their enabled links
+  ansible.builtin.set_fact:
+    blitzecdn_teardown_configs: "{{ blitzecdn_teardown_found.files | map(attribute='path') | list }}"
+    blitzecdn_teardown_links: >-
+      {{ blitzecdn_teardown_found.files
+         | map(attribute='path') | map('basename')
+         | map('regex_replace', '^', '/etc/nginx/sites-enabled/') | list }}
+
+# Links first: a dangling symlink in sites-enabled is a configuration error
+# that fails `nginx -t` below, and the validation is the point of this order.
+- name: Disable managed sites
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ blitzecdn_teardown_links }}"
+
+- name: Remove managed Nginx configurations
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ blitzecdn_teardown_configs }}"
+
+- name: Remove the managed-site registry
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_managed_sites_file }}"
+    state: absent
+
+- name: Check whether Nginx is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/nginx
+  register: blitzecdn_teardown_nginx_binary
+
+# Reloaded here rather than through a handler, and before the certificates are
+# deleted below. A running Nginx still holds the old configuration until it is
+# told otherwise, and that configuration references key files this role is
+# about to remove — reloading afterwards would be a reload onto missing files.
+- name: Validate the remaining configuration
+  ansible.builtin.command:
+    argv: [nginx, -t]
+  changed_when: false
+  when:
+    - blitzecdn_teardown_nginx_binary.stat.exists
+    - not ansible_check_mode
+
+- name: Reload Nginx without the managed sites
+  ansible.builtin.systemd_service:
+    name: nginx
+    state: reloaded
+  when:
+    - blitzecdn_teardown_nginx_binary.stat.exists
+    - not ansible_check_mode
+
+# Only once no loaded configuration refers to them. This is the tree holding
+# private keys, so it is the one removal that must not be skipped quietly.
+- name: Remove controller-written state and TLS material
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_state_path }}"
+    state: absent
+
+- name: Remove the ACME webroot
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_acme_root }}"
+    state: absent
+
+- name: Remove cached responses
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_cache_path }}"
+    state: absent
+
+- name: Remove the access log
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_access_log_path }}"
+    state: absent
+  when: blitzecdn_teardown_remove_logs
+
+# The report the control plane records against the decommission. Anything still
+# listed here needs a human on the host, because after the inventory entry goes
+# there is no way back to it.
+# Restores whatever the link supplies, which is the state the host was in
+# before blitzecdn_resolver ran. If that resolver was the reason this fleet
+# needed the role, the host goes back to resolving badly -- correct for a
+# decommission, and worth knowing before running one on a live host.
+- name: Remove the managed resolver drop-in
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_resolver_file }}"
+    state: absent
+  register: blitzecdn_teardown_resolver_removed
+
+- name: Restart systemd-resolved without the managed drop-in
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted
+  when:
+    - blitzecdn_teardown_resolver_removed.changed
+    - not ansible_check_mode
+
+- name: Confirm the host is clean
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: blitzecdn_teardown_residue
+  loop:
+    - "{{ blitzecdn_teardown_state_path }}"
+    - "{{ blitzecdn_teardown_cache_path }}"
+    - "{{ blitzecdn_teardown_acme_root }}"
+    - "{{ blitzecdn_teardown_managed_sites_file }}"
+    - "{{ blitzecdn_teardown_resolver_file }}"
+
+- name: Fail if anything survived
+  ansible.builtin.assert:
+    that: blitzecdn_teardown_residue.results | selectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Teardown left files on {{ inventory_hostname }}:
+      {{ blitzecdn_teardown_residue.results | selectattr('stat.exists')
+         | map(attribute='item') | join(', ') }}.
+      Remove them before the host leaves inventory.
+    success_msg: No BlitzeCDN files remain on {{ inventory_hostname }}.
+  when: not ansible_check_mode

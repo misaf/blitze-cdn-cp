@@ -1,0 +1,18 @@
+# Managed by BlitzeCDN. Local edits are overwritten.
+#
+# Resolves the client address to a country once, in the http context, so every
+# managed site tests the same variable. The module itself is loaded by
+# /etc/nginx/modules-enabled/, which the distribution package installs.
+#
+# $blitzecdn_country is the ISO 3166-1 alpha-2 code, or "" for an address the
+# database has no entry for — private ranges, and anything newly allocated.
+# Site rules are written so that the empty value is *not* a match, which means
+# an unknown address is allowed through a denied_countries list and refused by
+# an allowed_countries list. Both follow from the list the operator wrote:
+# "block these" cannot know an unknown address is one of them, and "only these"
+# cannot know it is not.
+geoip2 {{ blitzecdn_nginx_geoip_database }} {
+    # Picks up a database replaced in place by geoipupdate(8) without a reload.
+    auto_reload {{ blitzecdn_nginx_geoip_reload }};
+    $blitzecdn_country source=$remote_addr country iso_code;
+}

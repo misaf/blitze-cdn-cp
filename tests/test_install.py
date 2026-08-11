@@ -26,7 +26,9 @@ import subprocess
 import sys
 from pathlib import Path
 
+import jinja2
 import pytest
+import yaml
 
 SCRIPT = Path(__file__).parents[1] / "install.sh"
 BASH = "/bin/bash"
@@ -144,10 +146,29 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
     bindir = sandbox / "bin"
     bindir.mkdir(exist_ok=True)
     (bindir / "systemctl").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
-    (bindir / "userdel").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     (bindir / "nginx").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    # userdel and getent share a marker directory so the pair behaves like a
+    # real account database: getent stops resolving an account once userdel has
+    # removed it. A stub that always resolved both could not tell a successful
+    # removal from a refused one, which is the distinction the uninstaller now
+    # fails on. USERDEL_REFUSES makes userdel refuse, as it does for an account
+    # that still has a process running.
+    deleted = sandbox / "deleted"
+    deleted.mkdir(exist_ok=True)
+    (bindir / "userdel").write_text(
+        "#!/usr/bin/env bash\n"
+        'account="${@: -1}"\n'
+        'if [[ -n "${USERDEL_REFUSES:-}" ]]; then\n'
+        '  echo "userdel: user ${account} is currently used by process 1" >&2\n'
+        "  exit 8\n"
+        "fi\n"
+        f'touch "{deleted}/${{account}}"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
     (bindir / "getent").write_text(
         "#!/usr/bin/env bash\n"
+        f'[[ -e "{deleted}/$2" ]] && exit 2\n'
         'case "$2" in\n'
         "  blitzecdn)\n"
         f'    echo "blitzecdn:x:999:999:BlitzeCDN:{root / "var/lib/blitzecdn"}'
@@ -156,7 +177,7 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         "  deploy)\n"
         f'    echo "deploy:x:1000:1000:deploy:{root / "home/deploy"}:/bin/bash"\n'
         "    ;;\n"
-        "  *) exit 1 ;;\n"
+        "  *) exit 2 ;;\n"
         "esac\n",
         encoding="utf-8",
     )
@@ -333,7 +354,7 @@ def test_root_help_lists_every_subcommand():
     assert "update" in result.stdout
     assert "--fresh" in result.stdout
     assert "--uninstall" in result.stdout
-    assert "BLITZECDN_EDGE_PATH" in result.stdout
+    assert "BLITZECDN_WRAPPER_DIR" in result.stdout
 
 
 @pytest.mark.parametrize("form", ["help", "-h", "--help"])
@@ -396,23 +417,18 @@ def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[s
 @pytest.mark.parametrize(
     ("distribution", "version", "accepted"),
     [
-        ("debian", "12", True),
-        ("debian", "13", True),
-        ("debian", "11", False),
-        ("ubuntu", "24.04", True),
-        ("ubuntu", "26.04", True),
-        ("ubuntu", "22.04", False),
+        ("Debian", "12", True),
+        ("Debian", "13", True),
+        ("Debian", "11", False),
+        ("Ubuntu", "24", True),
+        ("Ubuntu", "26", True),
+        ("Ubuntu", "22", False),
+        ("Fedora", "42", False),
     ],
 )
 def test_operating_system_gate(distribution: str, version: str, accepted: bool):
-    result = _run_embedded(_embedded_python("minimum = "), distribution, version)
-    assert (result.returncode == 0) is accepted
-
-
-def test_operating_system_gate_rejects_an_unparsable_version():
-    result = _run_embedded(_embedded_python("minimum = "), "debian", "not-a-number")
-    assert result.returncode != 0
-    assert "invalid operating-system version" in result.stderr
+    """The gate is the role's assert now, so evaluate the expression it asserts."""
+    assert _evaluate_os_gate(distribution, version) is accepted
 
 
 @pytest.mark.parametrize(
@@ -485,8 +501,8 @@ def test_tag_membership_test_does_not_accept_a_prefix_match():
     """`v1.2.9` must not be considered present in a list holding `v1.2.90`."""
     script = (
         "remote_versions=(v1.2.90 v1.3.0); target_version=v1.2.9\n"
-        'if [[ " ${remote_versions[*]} " != *" ${target_version} "* ]]; then\n'
-        "  echo absent\nelse\n  echo present\nfi\n"
+        'if [[ " ${remote_versions[*]} " == *" ${target_version} "* ]]; then\n'
+        "  echo present\nelse\n  echo absent\nfi\n"
     )
     result = subprocess.run(  # noqa: S603 - fixed executable, literal script
         [BASH, "-c", script],
@@ -496,7 +512,7 @@ def test_tag_membership_test_does_not_accept_a_prefix_match():
     )
     assert result.stdout.strip() == "absent"
     # The same comparison, in the same form, must be what the script uses.
-    assert '[[ " ${remote_versions[*]} " != *" ${target_version} "* ]]' in _script()
+    assert '[[ " ${remote_versions[*]} " == *" ${target_version} "* ]]' in _script()
 
 
 # --- structural guarantees no unprivileged run can reach ---------------------
@@ -509,29 +525,30 @@ def test_update_never_deploys():
         re.search(r"(?m)^\s*(?:run_blitzecdn|/usr/local/bin/blitzecdn) deploy", update)
         is None
     )
-    assert "/usr/local/bin/blitzecdn doctor" in update
+    assert '"${CLI_WRAPPER}" doctor' in update
 
 
 def test_update_reinstalls_through_the_argument_free_default_form():
     """Both the success path and the rollback path must call it bare."""
     update = _section("update")
-    assert update.count('runuser -u blitzecdn -- "${INSTALL_DIR}/install.sh"') == 2
+    assert update.count("run_install_as_service_account") == 2
     # A redirection may follow, but never an argument.
-    assert (
-        re.search(
-            r'runuser -u blitzecdn -- "\$\{INSTALL_DIR\}/install\.sh" +[\w-]',
-            update,
-        )
-        is None
+    assert re.search(r"run_install_as_service_account +[\w-]", update) is None
+    # And the helper they share must itself pass the script no arguments.
+    helper = _function("run_install_as_service_account")
+    assert re.search(
+        r"runuser -u blitzecdn -- env BLITZECDN_USER_WRAPPER=0 "
+        r'"\$\{INSTALL_DIR\}/install\.sh"\s*$',
+        helper,
     )
 
 
 def test_update_runs_from_a_private_copy_before_rewriting_the_checkout():
     """Checking out a release overwrites this file while bash is reading it."""
     update = _section("update")
-    assert "BLITZECDN_UPDATE_REEXEC" in update
-    assert 'install -m 0700 -- "$0" "${updater_copy}"' in update
-    assert '"${original_args[@]}"' in update
+    assert "reexec_from_private_copy BLITZECDN_UPDATE_REEXEC update" in update
+    # The copy must happen before anything touches the checkout.
+    assert update.index("reexec_from_private_copy") < update.index("repo_git fetch")
 
 
 def test_update_backs_up_state_and_rolls_back_on_failure():
@@ -544,7 +561,7 @@ def test_update_backs_up_state_and_rolls_back_on_failure():
 
 def test_update_scopes_git_safe_directory_without_changing_global_config():
     script = _script()
-    assert 'git -c safe.directory="${INSTALL_DIR}" "$@"' in script
+    assert 'git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" "$@"' in script
     assert "git config --global" not in script
 
 
@@ -562,21 +579,35 @@ def test_standalone_defaults_to_no_deployment():
 
 def test_standalone_guards_existing_sites_from_empty_desired_state():
     standalone = _section("standalone")
-    assert "managed_registry=/etc/nginx/blitzecdn-managed-sites" in standalone
+    assert (
+        "readonly MANAGED_SITE_REGISTRY=/etc/nginx/blitzecdn-managed-sites" in _script()
+    )
+    assert "[[ -s ${MANAGED_SITE_REGISTRY} ]]" in standalone
     assert "this edge has managed sites but desired state is empty" in standalone
 
 
-def test_standalone_does_not_take_ownership_of_role_managed_home_data():
+def test_role_does_not_take_ownership_of_role_managed_home_data():
     """A blanket chown of the service home breaks role-managed ACME paths."""
+    home = _role_task("Set the service home mode")
+    assert home["ansible.builtin.file"]["mode"] == "0751"
+    assert home["ansible.builtin.file"].get("recurse") is not True
+
+    repair = _role_task("Repair service-home ownership left by an interrupted run")
+    assert repair["loop"] == [".ansible", ".cache", ".ssh"]
+    assert repair["ansible.builtin.file"]["recurse"] is True
+
+
+def test_installer_installs_only_third_party_collections():
+    """The BlitzeCDN roles ship in ansible/roles/; nothing pins or builds them.
+
+    The --force that used to be here worked around ansible-core comparing a
+    v-prefixed Git ref to a numeric manifest. With no Git-backed collection
+    left, needing it again would mean the roles had been re-externalised.
+    """
     script = _script()
-    assert "chown -R blitzecdn:blitzecdn /var/lib/blitzecdn" not in script
-    assert "for service_path in .ansible .cache .ssh" in script
-    assert "install -d -m 0751 -o blitzecdn -g blitzecdn /var/lib/blitzecdn" in script
-
-
-def test_installer_forces_git_collection_reinstall_for_prefixed_tags():
-    """ansible-core cannot compare a v-prefixed ref to a numeric manifest."""
-    assert '-r ansible/requirements.yml -p "${collections_path}" --force' in _script()
+    assert '-r ansible/requirements.yml -p "${collections_path}"' in script
+    assert "--force" not in script
+    assert "collection build" not in script
 
 
 def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():
@@ -627,12 +658,11 @@ def test_destructive_commands_survive_deleting_their_own_directory():
     """Both remove $INSTALL_DIR, so both must continue from a copied script."""
     for name in ("uninstall", "fresh"):
         section = _section(name)
-        assert "BLITZECDN_UNINSTALL_REEXEC" in section
-        assert 'install -m 0700 -- "$0" "${uninstall_copy}"' in section or (
-            'install -m 0700 -- "$0" "${fresh_copy}"' in section
+        assert "reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC" in section
+        # The copy must be taken before the cleanup deletes this file.
+        assert section.index("reexec_from_private_copy") < section.index(
+            "remove_blitzecdn_artifacts"
         )
-        assert '"${original_args[@]}"' in section
-        assert "trap 'rm -f -- \"$0\"' EXIT" in section
 
 
 def test_cleanup_removes_every_owned_artifact():
@@ -700,7 +730,8 @@ def test_fresh_reuses_the_same_cleanup_as_uninstall():
 
 def test_fresh_reinstalls_the_running_release_like_a_new_server():
     fresh = _section("fresh")
-    assert "remote get-url origin" in fresh
+    assert "require_upstream_origin" in fresh
+    assert "remote get-url origin" in _function("require_upstream_origin")
     assert "describe --tags --exact-match HEAD" in fresh
     assert 'git clone --depth 1 --branch "${revision}"' in fresh
     assert 'git -C "${INSTALL_DIR}" checkout --detach "${revision}"' in fresh
@@ -806,3 +837,279 @@ def test_fresh_refuses_to_rebuild_without_a_git_checkout(tmp_path: Path):
 
     assert result.returncode == 1
     assert "is not a Git checkout" in result.stderr
+
+
+# --- the `blitzecdn` command the no-argument install puts on PATH -------------
+#
+# The wrapper is what makes the CLI runnable outside the checkout, so these run
+# the real generator against a fake HOME rather than asserting on its text.
+
+
+def _install_user_wrapper(
+    tmp_path: Path, checkout: Path, **env_extra: str
+) -> subprocess.CompletedProcess[str]:
+    """Run install_user_wrapper alone, with HOME redirected under tmp_path."""
+    driver = tmp_path / "drive.sh"
+    driver.write_text(
+        "set -Eeuo pipefail\n"
+        f"readonly USER_WRAPPER_MARKER={_marker()!r}\n"
+        f'script_dir="{checkout}"\n'
+        f"{_function_source('install_user_wrapper')}\n"
+        "install_user_wrapper\n",
+        encoding="utf-8",
+    )
+    environment = {**os.environ, "HOME": str(tmp_path / "home"), **env_extra}
+    return subprocess.run(  # noqa: S603 - fixed executable and generated driver
+        [BASH, str(driver)],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+    )
+
+
+def _marker() -> str:
+    match = re.search(r"readonly USER_WRAPPER_MARKER='([^']*)'", _script())
+    assert match is not None, "USER_WRAPPER_MARKER not found in install.sh"
+    return match.group(1)
+
+
+def _function_source(name: str) -> str:
+    return f"{name}() {{{_function(name)}\n}}"
+
+
+def test_user_wrapper_pins_the_checkout_as_the_project_directory(tmp_path: Path):
+    """Without BLITZE_PROJECT_DIR the CLI would use the caller's directory."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+
+    result = _install_user_wrapper(tmp_path, checkout)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    wrapper = tmp_path / "home/.local/bin/blitzecdn"
+    assert wrapper.exists()
+    assert os.access(wrapper, os.X_OK)
+    body = wrapper.read_text()
+    assert f"BLITZE_PROJECT_DIR={checkout}" in body
+    assert f"{checkout}/.venv/bin/blitzecdn" in body
+    assert '"$@"' in body
+
+
+def test_user_wrapper_is_rewritten_on_every_install(tmp_path: Path):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    _install_user_wrapper(tmp_path, checkout)
+    other = tmp_path / "other-checkout"
+    other.mkdir()
+
+    result = _install_user_wrapper(tmp_path, other)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    body = (tmp_path / "home/.local/bin/blitzecdn").read_text()
+    assert f"BLITZE_PROJECT_DIR={other}" in body
+
+
+def test_user_wrapper_never_overwrites_a_foreign_command(tmp_path: Path):
+    """A `blitzecdn` this installer did not write may be anyone's program."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    wrapper = tmp_path / "home/.local/bin/blitzecdn"
+    wrapper.parent.mkdir(parents=True)
+    wrapper.write_text("#!/bin/sh\necho not ours\n", encoding="utf-8")
+
+    result = _install_user_wrapper(tmp_path, checkout)
+
+    assert result.returncode == 0
+    assert wrapper.read_text() == "#!/bin/sh\necho not ours\n"
+    assert "was not written by this installer" in result.stderr
+
+
+def test_user_wrapper_can_be_declined(tmp_path: Path):
+    """The server installs suppress it; ${CLI_WRAPPER} is the command there."""
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+
+    result = _install_user_wrapper(tmp_path, checkout, BLITZECDN_USER_WRAPPER="0")
+
+    assert result.returncode == 0
+    assert not (tmp_path / "home/.local/bin/blitzecdn").exists()
+
+
+def test_user_wrapper_honours_an_explicit_directory(tmp_path: Path):
+    checkout = tmp_path / "checkout"
+    checkout.mkdir()
+    target = tmp_path / "elsewhere/bin"
+
+    result = _install_user_wrapper(
+        tmp_path, checkout, BLITZECDN_WRAPPER_DIR=str(target)
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (target / "blitzecdn").exists()
+
+
+def test_user_wrapper_survives_a_checkout_path_with_spaces(tmp_path: Path):
+    checkout = tmp_path / "my checkout"
+    checkout.mkdir()
+
+    result = _install_user_wrapper(tmp_path, checkout)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    wrapper = tmp_path / "home/.local/bin/blitzecdn"
+    printed = subprocess.run(  # noqa: S603 - fixed executable, generated wrapper
+        [BASH, "-c", f'set -- --version; . "{wrapper}"'],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    # The venv does not exist here; reaching an exec failure on the right path
+    # proves the quoting survived the space.
+    assert "my checkout/.venv/bin/blitzecdn" in printed.stderr
+
+
+def test_the_default_install_ends_by_installing_the_wrapper():
+    """Otherwise the CLI is only reachable from inside the checkout."""
+    install = _section("install")
+    assert "install_user_wrapper" in install
+
+
+def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
+    """The mechanics the three destructive paths used to repeat verbatim."""
+    helper = _function("reexec_from_private_copy")
+    assert 'install -m 0700 -- "$0" "${copy}"' in helper
+    assert 'exec env "${guard}=1" "${copy}" "${original_args[@]}"' in helper
+    assert "trap 'rm -f -- \"$0\"' EXIT" in helper
+
+
+# --- the control-plane role --------------------------------------------------
+#
+# Host state moved out of this script and into ansible/roles/blitzecdn_controlplane,
+# so the properties that used to be asserted against bash are asserted against
+# the role's tasks. What the role *does* is covered by running it on a real
+# Debian/Ubuntu host; these pin the invariants that a reader cannot see from one
+# successful run.
+
+ROLE = Path(__file__).parents[1] / "ansible/roles/blitzecdn_controlplane"
+
+
+def _role_tasks() -> list[dict]:
+    return yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+
+
+def _role_task(name: str) -> dict:
+    matches = [task for task in _role_tasks() if task.get("name") == name]
+    assert len(matches) == 1, f"expected exactly one task named {name!r}"
+    return matches[0]
+
+
+def _evaluate_os_gate(distribution: str, major_version: str) -> bool:
+    """Evaluate the role's supported-OS expression as Ansible would."""
+    task = _role_task("Validate supported operating system")
+    expression = task["ansible.builtin.assert"]["that"][0]
+    environment = jinja2.Environment(  # noqa: S701 - evaluates a boolean, renders no markup
+        undefined=jinja2.StrictUndefined
+    )
+    rendered = environment.from_string("{{ " + expression + " }}")
+    facts = {
+        "distribution": distribution,
+        "distribution_major_version": major_version,
+    }
+    return rendered.render(ansible_facts=facts) == "True"
+
+
+def test_role_never_rewrites_an_existing_environment_file():
+    """Re-running the installer must not rotate an operator's API credential."""
+    task = _role_task("Write the service environment")
+    assert task["ansible.builtin.template"]["force"] is False
+    # force alone is not enough: a template task still renders its source to
+    # decide, and the credential only exists as a fact on a first run.
+    assert task["when"] == "not blitzecdn_controlplane_environment.stat.exists"
+    assert task["no_log"] is True
+
+
+def test_host_key_scan_is_stable_across_runs():
+    """`ssh-keyscan -H` salts each run, so every converge would report a change."""
+    task = _role_task("Scan the loopback host keys")
+    assert "-H" not in task["ansible.builtin.command"]["argv"]
+    written = _role_task("Record the loopback host keys")
+    assert "sort" in written["ansible.builtin.copy"]["content"]
+
+
+def test_role_and_installer_agree_on_the_units_to_manage():
+    """The installer removes what the role installs, without importing it."""
+    defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
+    script = _script()
+    for unit in defaults["blitzecdn_controlplane_units"]:
+        assert unit in script, f"{unit} is installed by the role but never removed"
+    for service in defaults["blitzecdn_controlplane_services"]:
+        assert service in defaults["blitzecdn_controlplane_units"]
+
+
+def test_standalone_bootstraps_only_what_ansible_needs():
+    """Everything else is the role's job; this list is the bootstrap contract."""
+    standalone = _section("standalone")
+    assert "apt-get install -y git python3 python3-venv" in standalone
+    assert "converge_control_plane" in standalone
+    # Accounts, sudo, SSH trust and units must not be done twice.
+    for moved in ("useradd", "visudo", "ssh-keygen", "ssh-keyscan", "openssl rand"):
+        assert moved not in standalone, f"{moved} still runs in the installer"
+
+
+def test_uninstall_fails_loudly_when_an_account_cannot_be_removed(tmp_path: Path):
+    """Reporting success with an account still on the host is the bug.
+
+    userdel refuses while a process is running as the account, and the loopback
+    SSH check a standalone installation performs can leave one behind. The
+    failure used to be swallowed, so the uninstaller printed "BlitzeCDN has been
+    removed" over a host that still had the deploy account.
+    """
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    owned = _fake_installation(root)
+
+    result = _run_sandboxed(
+        script, "--uninstall", "--yes", env_extra={"USERDEL_REFUSES": "1"}
+    )
+
+    assert result.returncode != 0, result.stdout
+    assert "was not fully removed" in result.stderr
+    assert "blitzecdn: the account still exists" in result.stderr
+    assert "deploy: the account still exists" in result.stderr
+    assert "BlitzeCDN has been removed" not in result.stdout
+    # The cleanup still ran to completion, so a retry has less to do.
+    assert not [path for path in owned if path.exists()], "cleanup stopped early"
+
+
+def test_uninstall_succeeds_when_the_accounts_are_actually_removed(tmp_path: Path):
+    """The same path without the refusal, so the guard cannot pass vacuously."""
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    _fake_installation(root)
+
+    result = _run_sandboxed(script, "--uninstall", "--yes")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "BlitzeCDN has been removed" in result.stdout
+    assert "was not fully removed" not in result.stderr
+
+
+def test_fresh_refuses_to_rebuild_on_a_half_removed_host(tmp_path: Path):
+    """A rebuild over a surviving account inherits the state it was to discard."""
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    _fake_installation(root)
+    marker = sandbox / "fresh-marker"
+
+    result = _run_sandboxed(
+        script,
+        "--fresh",
+        "--yes",
+        env_extra={"USERDEL_REFUSES": "1", "FRESH_REINSTALL_MARKER": str(marker)},
+    )
+
+    assert result.returncode != 0
+    assert "was not fully removed" in result.stderr
+    assert not marker.exists(), "the rebuild ran over a half-removed host"

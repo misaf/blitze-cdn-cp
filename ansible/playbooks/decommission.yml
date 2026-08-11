@@ -13,5 +13,5 @@
   max_fail_percentage: 0
   serial: "100%"
   roles:
-    - role: blitzecdn.edge.blitzecdn_teardown
+    - role: blitzecdn_teardown
       tags: [teardown]

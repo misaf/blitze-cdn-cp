@@ -10,5 +10,5 @@
   max_fail_percentage: 100
   serial: "100%"
   roles:
-    - role: blitzecdn.edge.blitzecdn_cache
+    - role: blitzecdn_cache
       tags: [cache]

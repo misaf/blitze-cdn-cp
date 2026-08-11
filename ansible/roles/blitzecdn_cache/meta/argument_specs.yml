@@ -1,0 +1,48 @@
+---
+argument_specs:
+  main:
+    short_description: Remove cached responses from a BlitzeCDN edge.
+    description:
+      - Deletes cache entries by key, or empties the cache entirely.
+      - >-
+        nginx open source has no proxy_cache_purge directive, so an entry is
+        removed by deleting the file proxy_cache_path stores it in. The path is
+        derived from the MD5 of the same cache key nginx computes, which is why
+        this role has to be told the cache settings blitzecdn_nginx used.
+      - >-
+        Deleting the file is enough. nginx keeps the key in its shared-memory
+        zone, finds the file gone on the next request for it, and treats the
+        request as a MISS. No reload is required and none is performed.
+    options:
+      blitzecdn_cache_path:
+        type: path
+        required: true
+        description: Must equal blitzecdn_nginx_cache_path on the same host.
+      blitzecdn_cache_normalize_accept_encoding:
+        type: bool
+        required: true
+        description: >-
+          Must equal blitzecdn_nginx_normalize_accept_encoding. When true the
+          encoding is part of the cache key and every variant is purged.
+      blitzecdn_cache_levels:
+        type: str
+        required: true
+        choices: ["1:2"]
+        description: The proxy_cache_path levels blitzecdn_nginx emits.
+      blitzecdn_cache_purge_entries:
+        type: list
+        elements: dict
+        required: true
+        options:
+          host: {type: str, required: true}
+          uri: {type: str, required: true}
+          scheme: {type: str, choices: [http, https], default: https}
+      blitzecdn_cache_purge_all: {type: bool, required: true}
+      blitzecdn_cache_purge_methods:
+        type: list
+        elements: str
+        required: true
+      blitzecdn_cache_purge_encodings:
+        type: list
+        elements: str
+        required: true

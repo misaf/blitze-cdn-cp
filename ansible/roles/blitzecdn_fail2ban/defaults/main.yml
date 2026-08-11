@@ -1,0 +1,5 @@
+---
+blitzecdn_fail2ban_ban_time: 1h
+blitzecdn_fail2ban_find_time: 10m
+blitzecdn_fail2ban_max_retry: 5
+blitzecdn_fail2ban_ssh_port: 22

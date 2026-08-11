@@ -1,0 +1,76 @@
+---
+- name: Count recent requests by site and cache outcome
+  ansible.builtin.script:
+    cmd: >-
+      collect-cache-stats.sh
+      {{ blitzecdn_stats_access_log_path | quote }}
+      {{ blitzecdn_stats_max_lines | int }}
+  register: blitzecdn_stats_counts
+  changed_when: false
+  check_mode: false
+
+# stub_status is bound to loopback on the edge, so this reads it from the edge
+# rather than the controller. Failure is captured instead of fatal: nginx may
+# be down, which is exactly when the rest of this report is most worth having.
+- name: Read the nginx connection counters
+  ansible.builtin.uri:
+    url: >-
+      http://{{ blitzecdn_stats_status_address }}:{{ blitzecdn_stats_status_port }}{{ blitzecdn_stats_status_path }}
+    return_content: true
+    status_code: [200]
+  register: blitzecdn_stats_status
+  failed_when: false
+  changed_when: false
+  check_mode: false
+
+# stub_status is fixed-shape plain text, not a parseable format:
+#
+#   Active connections: 291
+#   server accepts handled requests
+#    16630948 16630948 31070465
+#   Reading: 6 Writing: 179 Waiting: 106
+#
+# The three totals on the third line are counters since start, so a rate needs
+# two readings; the control plane stores what it is given and does not pretend
+# otherwise.
+#
+# `blitzecdn_report` is the channel a role returns a payload to the control
+# plane on: its callback plugin collects this fact and delivers it as part of
+# the run's structured result. This role used to render the same document to
+# JSON and copy it into a directory on the controller, which meant the control
+# plane had to supply a controller-side path, had to empty that directory
+# between runs, and still could not tell "this edge reported nothing" from "the
+# file has not been written yet". A fact has none of those problems, and
+# set_fact never reports a change, so a read-only collection stays read-only in
+# the recap too.
+#
+# The name is unprefixed on purpose, which is why the role-prefix rule is muted
+# here: it is a protocol between every role and the control plane's callback,
+# not a variable belonging to this role. Prefixing it would mean the callback
+# had to guess at role names to find a report.
+- name: Publish this edge's report to the control plane  # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    blitzecdn_report:
+      host: "{{ inventory_hostname }}"
+      # now() rather than a gathered fact, so this role needs no fact gathering
+      # and the timestamp is the controller's clock — the one thing every
+      # edge's report can be compared against.
+      # Explicit Z: isoformat() on this value renders no offset, and a
+      # timestamp that reads as local time on one machine and UTC on another is
+      # worse than none when comparing edges.
+      collected_at: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
+      access_log_lines_read: "{{ blitzecdn_stats_max_lines | int }}"
+      nginx_reachable: "{{ blitzecdn_stats_status.status | default(0) == 200 }}"
+      connections: "{{ _totals if _totals else {} }}"
+      cache: "{{ blitzecdn_stats_counts.stdout | default('[]') | from_json }}"
+  vars:
+    _content: "{{ blitzecdn_stats_status.content | default('') }}"
+    _numbers: "{{ _content | regex_findall('(\\d+)') }}"
+    # Active, then accepts/handled/requests, then Reading/Writing/Waiting.
+    _totals: >-
+      {{ {
+           'active': _numbers[0] | int,
+           'accepted': _numbers[1] | int,
+           'handled': _numbers[2] | int,
+           'requests': _numbers[3] | int,
+         } if _numbers | length >= 7 else {} }}

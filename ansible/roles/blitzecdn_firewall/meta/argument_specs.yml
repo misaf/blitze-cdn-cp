@@ -1,0 +1,23 @@
+---
+argument_specs:
+  main:
+    short_description: Configure a fail-closed UFW edge firewall.
+    description:
+      - >-
+        Converges the rule set rather than adding to it. ufw retains every rule
+        it has ever been given, so the role records what it installed and
+        withdraws anything missing from the next run's desired state — removing
+        a CIDR from blitzecdn_firewall_ssh_sources revokes that network's access
+        instead of leaving it admitted.
+    options:
+      blitzecdn_firewall_enabled: {type: bool, required: true}
+      blitzecdn_firewall_ssh_port: {type: int, required: true}
+      blitzecdn_firewall_ssh_sources: {type: list, elements: str, required: true}
+      blitzecdn_firewall_http_ports: {type: list, elements: int, required: true}
+      blitzecdn_firewall_registry_file:
+        type: path
+        required: true
+        description: >-
+          Where the role records the rules it manages, so a later run can tell
+          a rule it installed from one an operator added by hand and withdraw
+          only its own.

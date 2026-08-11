@@ -1,0 +1,130 @@
+---
+# Desired-state schema versions this role can honour. List more than one only
+# while supporting a control plane mid-upgrade.
+#
+# 2 added the per-site `firewall` block. 1 is still accepted: a v1 document
+# simply carries no firewall key, and the template defaults it to empty, so a
+# controller that has not been upgraded yet converges unchanged.
+blitzecdn_nginx_supported_state_versions: [1, 2]
+blitzecdn_nginx_sites: []
+# Removing the final managed site is unusually destructive and often means a
+# new controller was pointed at an existing edge before its state was imported.
+# Require an explicit controller setting for that transition. A fresh edge has
+# no registry and can still be hardened before its first site is added.
+blitzecdn_nginx_allow_empty_sites: false
+blitzecdn_nginx_cache_path: /var/cache/nginx/blitzecdn
+blitzecdn_nginx_cache_zone: blitzecdn_cache
+blitzecdn_nginx_cache_size: 100m
+blitzecdn_nginx_cache_max_size: 10g
+blitzecdn_nginx_cache_inactive: 60m
+blitzecdn_nginx_proxy_connect_timeout: 5s
+blitzecdn_nginx_proxy_read_timeout: 30s
+blitzecdn_nginx_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
+# Certificate paths become copy destinations written as root, so confine them to
+# directories that may legitimately hold certificates. Without this an operator
+# could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
+# the backslashes are literal rather than Jinja string escapes.
+blitzecdn_nginx_certificate_path_pattern: '^/(?!.*(?:^|/)\.\.(?:/|$))etc/(?:blitzecdn/tls|ssl|letsencrypt)/[^;{}]+$'
+blitzecdn_nginx_acme_root: /var/lib/blitzecdn/acme
+# Defaults to the systemd-resolved stub listener, present on Debian 12 and
+# Ubuntu 24.04. Set to [] to pin origin IPs at config-load time instead.
+blitzecdn_nginx_resolvers: [127.0.0.53]
+blitzecdn_nginx_resolver_valid: 30s
+blitzecdn_nginx_resolver_timeout: 5s
+
+# Claims the default_server position for a block that serves ACME challenges and
+# answers everything else with 444. Without it, a request for a hostname no
+# managed site declares is served by whichever site nginx loaded first, which on
+# a shared edge is another customer's configuration. Turn off only on an edge
+# that is genuinely single-tenant and fronted by something else.
+blitzecdn_nginx_default_server: true
+blitzecdn_nginx_default_site_file: /etc/nginx/sites-available/blitzecdn-default.conf
+
+# Collapses client Accept-Encoding into "", "gzip" or "br" and makes it part of
+# the cache key. Off, encodings share one cache entry per URI and a client can
+# be served a body it cannot decode.
+blitzecdn_nginx_normalize_accept_encoding: true
+
+# Mozilla "intermediate" suites, TLS 1.2 only — TLS 1.3 picks its own and
+# ignores this. All AEAD, all forward-secret.
+blitzecdn_nginx_ssl_ciphers: >-
+  ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:DHE-RSA-AES128-GCM-SHA256:DHE-RSA-AES256-GCM-SHA384:DHE-RSA-CHACHA20-POLY1305
+# Off, because the CA this collection provisions from no longer publishes an
+# OCSP responder URL in its certificates. Stapling against such a chain staples
+# nothing and costs a warning on every `nginx -t` and reload, which trains
+# operators to read a clean config test as noisy. Turn it back on only for a CA
+# whose leaf carries an OCSP URL — the template also needs a resolver.
+blitzecdn_nginx_ssl_stapling: false
+
+# HSTS binds the customer's domain, not ours, and cannot be retracted faster
+# than it expires in browsers that already saw it. Opt in per deployment.
+blitzecdn_nginx_hsts_enabled: false
+blitzecdn_nginx_hsts_max_age: 31536000
+
+# Per-site request filtering (the `firewall` block on a site).
+#
+# Source, method and path rules need nothing beyond stock nginx and are always
+# available. Country rules do not: they need ngx_http_geoip2 and a MaxMind
+# country database on the host, neither of which this role can conjure, so they
+# are opt-in per deployment. A site that asks for country rules on an edge
+# where this is false fails the assertion in tasks/main.yml rather than
+# rendering a configuration that quietly admits every country.
+blitzecdn_nginx_geoip_enabled: false
+blitzecdn_nginx_geoip_package: libnginx-mod-http-geoip2
+blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
+blitzecdn_nginx_geoip_reload: 5m
+blitzecdn_nginx_geoip_file: /etc/nginx/conf.d/blitzecdn-geoip.conf
+
+# MaxMind GeoLite2 — free, but not anonymous. Downloads need an account and a
+# license key, so the role can only fetch the database once you supply them.
+# Leave them empty to manage the file yourself; the role then just checks it is
+# there.
+#
+# The key is a secret. Do not commit it: set it from the controller's
+# environment in group_vars, e.g.
+#
+#   blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'MAXMIND_LICENSE_KEY') }}"
+#
+# It is written to a 0600 root-owned file and every task that handles it sets
+# no_log.
+blitzecdn_nginx_geoip_account_id: ""
+blitzecdn_nginx_geoip_license_key: ""
+# Country is all the firewall rules need. GeoLite2-City is far larger and buys
+# nothing here.
+blitzecdn_nginx_geoip_edition: GeoLite2-Country
+blitzecdn_nginx_geoip_updater_package: geoipupdate
+# Where the Debian and Ubuntu packages install it. Declared rather than looked
+# up so the systemd unit can be rendered before the package exists.
+blitzecdn_nginx_geoip_updater_binary: /usr/bin/geoipupdate
+blitzecdn_nginx_geoip_config_file: /etc/GeoIP.conf
+# MaxMind publishes GeoLite2 twice a week and rate-limits downloads, so the
+# converge fetches only when the database is missing and leaves refreshes to
+# this timer. nginx picks up a replaced file via `auto_reload`, with no reload.
+blitzecdn_nginx_geoip_update_enabled: true
+blitzecdn_nginx_geoip_update_calendar: Wed,Sat 03:00
+# Spreads a fleet's downloads across the morning instead of having every edge
+# hit MaxMind on the same second.
+blitzecdn_nginx_geoip_update_splay: 3h
+
+# Observability.
+#
+# A CDN is judged on cache hit ratio, and without these it is invisible: the
+# per-response X-Cache-Status header tells a client what happened to its own
+# request and nobody else. The access log below puts the same value somewhere
+# it can be counted, and the status endpoint exposes connection and request
+# totals for the same purpose.
+blitzecdn_nginx_access_log_enabled: true
+blitzecdn_nginx_access_log_path: /var/log/nginx/blitzecdn-access.log
+blitzecdn_nginx_log_format_name: blitzecdn
+
+# ngx_http_stub_status_module, which Debian's and Ubuntu's nginx packages
+# build in. Bound to loopback because it is unauthenticated and describes the
+# edge's load; scrape it from an agent on the host, or over an SSH tunnel.
+# `blitzecdn_nginx_status_allow` is the second, redundant control — do not
+# widen the bind address without narrowing that, or the reverse.
+blitzecdn_nginx_status_enabled: true
+blitzecdn_nginx_status_address: 127.0.0.1
+blitzecdn_nginx_status_port: 8090
+blitzecdn_nginx_status_path: /stub_status
+blitzecdn_nginx_status_allow: [127.0.0.1, "::1"]
+blitzecdn_nginx_status_file: /etc/nginx/conf.d/blitzecdn-status.conf

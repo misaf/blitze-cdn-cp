@@ -1,0 +1,35 @@
+---
+# Where blitzecdn_nginx told nginx to keep the cache, and how it keys entries.
+# These three MUST match the blitzecdn_nginx values of the same name: this role
+# computes the on-disk location of a cached response from them, and a mismatch
+# means a purge that reports success having deleted nothing. The control
+# plane's tests/test_contract.py asserts the two roles agree, because nothing
+# at run time can tell "no such entry cached" apart from "wrong directory".
+blitzecdn_cache_path: /var/cache/nginx/blitzecdn
+blitzecdn_cache_normalize_accept_encoding: true
+
+# proxy_cache_path ... levels=1:2. An entry whose key hashes to <md5> lives at
+# <path>/<last char>/<two chars before that>/<md5>. Only 1:2 is emitted by
+# blitzecdn_nginx, so that is all this role computes; it refuses anything else
+# rather than deleting the wrong path.
+blitzecdn_cache_levels: "1:2"
+
+# Entries to remove, each a mapping of host + uri (+ optional scheme). The
+# control plane builds these; it owns which hostnames are purgeable.
+blitzecdn_cache_purge_entries: []
+
+# Remove every cached response on the edge instead of named entries. Kept as a
+# separate flag rather than "no entries means everything" so an empty list from
+# a caller that filtered too hard cannot silently empty the whole cache.
+blitzecdn_cache_purge_all: false
+
+# Cached methods, which are part of the key. nginx's proxy_cache_methods
+# defaults to GET HEAD, and blitzecdn_nginx does not override it, so a single
+# URL has an entry per method and purging only GET leaves the HEAD entry
+# serving.
+blitzecdn_cache_purge_methods: [GET, HEAD]
+
+# The values $blitzecdn_accept_encoding can take, from the map in
+# blitzecdn-cache.conf. With normalization on, one URL has one entry per
+# encoding and all of them have to go.
+blitzecdn_cache_purge_encodings: ["", gzip, br]

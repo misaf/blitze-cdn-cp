@@ -1,0 +1,7 @@
+---
+argument_specs:
+  main:
+    short_description: Apply conservative edge kernel settings.
+    options:
+      blitzecdn_kernel_sysctl_file: {type: path, required: true}
+      blitzecdn_kernel_sysctl: {type: dict, required: true}
