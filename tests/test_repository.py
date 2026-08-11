@@ -36,7 +36,14 @@ def test_deployment_transitions_snapshots_and_recovery(settings, site_payload):
         deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
     )
     assert running.status is DeploymentStatus.RUNNING
+    # A lawful step against a stale expected state is a race, so the loser gets
+    # a ConflictError rather than a ValueError.
     with pytest.raises(ConflictError):
+        repository.transition(
+            deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        )
+    # A step the lifecycle does not contain is refused before any row is read.
+    with pytest.raises(ValueError, match="illegal deployment transition"):
         repository.transition(
             deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.SUCCEEDED
         )

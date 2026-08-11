@@ -31,6 +31,60 @@ class DeploymentStatus(StrEnum):
         return cls.SUCCEEDED if run.status is RunStatus.SUCCEEDED else cls.FAILED
 
 
+#: The states a deployment can finish in. A terminal deployment is a record of
+#: what happened; nothing about it changes again.
+TERMINAL_STATUSES = frozenset(
+    {
+        DeploymentStatus.SUCCEEDED,
+        DeploymentStatus.FAILED,
+        DeploymentStatus.TIMED_OUT,
+        DeploymentStatus.ABANDONED,
+    }
+)
+
+#: The one table that decides which transitions are real, owned here rather
+#: than by whichever store happens to enforce it first. Anything not on the
+#: left never changes; anything missing from a row on the right is a
+#: programming error, not a state the model can reach.
+DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
+    DeploymentStatus.QUEUED: frozenset(
+        {
+            DeploymentStatus.RUNNING,
+            DeploymentStatus.FAILED,
+            DeploymentStatus.ABANDONED,
+        }
+    ),
+    DeploymentStatus.RUNNING: frozenset(
+        {
+            DeploymentStatus.SUCCEEDED,
+            DeploymentStatus.FAILED,
+            DeploymentStatus.TIMED_OUT,
+            DeploymentStatus.ABANDONED,
+        }
+    ),
+}
+
+
+def is_terminal(status: DeploymentStatus) -> bool:
+    """Whether ``status`` is a finished state no transition leaves."""
+    return status in TERMINAL_STATUSES
+
+
+def require_transition(current: DeploymentStatus, target: DeploymentStatus) -> None:
+    """Refuse a transition the lifecycle does not contain.
+
+    Raises ``ValueError`` for a step that can never happen — a terminal
+    deployment changing, or a jump past a required one. This is a programming
+    error, distinct from ``ConflictError``, which is a race: two processes
+    racing to move the same deployment, where the loser's *expected* state is
+    stale even though the step itself is lawful.
+    """
+    if target not in DEPLOYMENT_TRANSITIONS.get(current, frozenset()):
+        raise ValueError(
+            f"illegal deployment transition {current.value} -> {target.value}"
+        )
+
+
 class Deployment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
