@@ -26,6 +26,23 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn import __version__
+from blitzecdn.application.commands import (
+    CacheStatsCommand,
+    CertificatePreflightCommand,
+    CheckOriginsCommand,
+    CreateDomainCommand,
+    CreateRecordCommand,
+    DeleteDomainCommand,
+    DeleteRecordCommand,
+    PurgeCacheCommand,
+    ReconcileCertificatesCommand,
+    RenewCertificatesCommand,
+    RequestCertificateCommand,
+    SubmitDeploymentCommand,
+    SubmitRollbackCommand,
+    UpdateRecordCommand,
+    UploadCertificateCommand,
+)
 from blitzecdn.config import Settings
 from blitzecdn.control_plane import build_control_plane
 from blitzecdn.domain.audit import AuditEvent
@@ -174,7 +191,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             def reconcile_forever() -> None:
                 while not stop.wait(interval):
                     try:
-                        result = control_plane.reconcile_certificates("scheduler")
+                        result = ReconcileCertificatesCommand().execute(
+                            control_plane, "scheduler"
+                        )
                         if result["issued"] or result["failed"]:
                             _LOGGER.info("certificate reconciliation: %s", result)
                     except Exception:
@@ -307,11 +326,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         "/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED
     )
     def create_domain(domain: Domain, operator: operator_dependency) -> Domain:
-        return control_plane.create_domain(domain, operator)
+        return CreateDomainCommand(name=domain.name).execute(control_plane, operator)
 
     @application.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
     def delete_domain(domain: str, operator: operator_dependency) -> None:
-        control_plane.delete_domain(domain, operator)
+        DeleteDomainCommand(name=domain).execute(control_plane, operator)
 
     @application.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
     def list_records(domain: str, _operator: operator_dependency) -> list[DnsRecord]:
@@ -330,7 +349,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 f"record domain {record.domain!r} does not match the path "
                 f"segment {domain!r}"
             )
-        return control_plane.create_record(record, operator)
+        return CreateRecordCommand(record=record).execute(control_plane, operator)
 
     # The proxy switch is a PATCH of {"proxied": true|false} on this route.
     @application.patch("/v1/domains/{domain}/records/{name}", response_model=DnsRecord)
@@ -341,7 +360,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         operator: operator_dependency,
         type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
     ) -> DnsRecord:
-        return control_plane.update_record(domain, name, type_, patch, operator)
+        return UpdateRecordCommand(
+            domain=domain, name=name, type_=type_, patch=patch
+        ).execute(control_plane, operator)
 
     @application.delete(
         "/v1/domains/{domain}/records/{name}",
@@ -353,7 +374,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         operator: operator_dependency,
         type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
     ) -> None:
-        control_plane.delete_record(domain, name, type_, operator)
+        DeleteRecordCommand(domain=domain, name=name, type_=type_).execute(
+            control_plane, operator
+        )
 
     @application.get("/v1/dns/export")
     def dns_export(_operator: operator_dependency) -> list[dict[str, object]]:
@@ -370,7 +393,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Bounded by `origin_check_timeout_seconds` per origin and probed in
         parallel, so this answers inline rather than needing a queued job.
         """
-        return control_plane.check_origins()
+        return CheckOriginsCommand().execute(control_plane, _operator)
 
     @application.post(
         "/v1/cache/purge",
@@ -403,12 +426,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         have replaced all of it with prose to be parsed under time pressure.
         The status code says "not done"; the body says what to retry.
         """
-        result = control_plane.purge_cache(
-            operator,
+        result = PurgeCacheCommand(
             entries=request.entries,
             purge_all=request.purge_all,
             host_limit=request.host_limit,
-        )
+        ).execute(control_plane, operator)
         if not result.complete:
             response.status_code = status.HTTP_409_CONFLICT
         return result
@@ -423,7 +445,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         the fleet, which is neither cacheable nor safe to retry blindly the way
         GET promises.
         """
-        return control_plane.cache_stats(operator, host_limit=request.host_limit)
+        return CacheStatsCommand(host_limit=request.host_limit).execute(
+            control_plane, operator
+        )
 
     @application.get("/v1/certificates", response_model=list[CertificateStatus])
     def list_certificates(
@@ -452,16 +476,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         picked up by the next run, so a truncated sweep is a slower renewal
         rather than a missed one.
         """
+        command = RenewCertificatesCommand(
+            within_days=request.within_days,
+            force=request.force,
+            sites=request.sites,
+            budget_seconds=resolved.certificate_renewal_budget_seconds,
+        )
         return await asyncio.get_running_loop().run_in_executor(
             renewal_pool,
-            functools.partial(
-                control_plane.renew_certificates,
-                operator,
-                within_days=request.within_days,
-                force=request.force,
-                sites=request.sites,
-                budget_seconds=resolved.certificate_renewal_budget_seconds,
-            ),
+            functools.partial(command.execute, control_plane, operator),
         )
 
     @application.post(
@@ -473,12 +496,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         certificate: Annotated[UploadFile, File()],
         private_key: Annotated[UploadFile, File()],
     ) -> CertificateInfo:
-        return control_plane.upload_certificate(
-            name,
-            await certificate.read(1_048_577),
-            await private_key.read(262_145),
-            operator,
-        )
+        return UploadCertificateCommand(
+            name=name,
+            certificate_pem=await certificate.read(1_048_577),
+            private_key_pem=await private_key.read(262_145),
+        ).execute(control_plane, operator)
 
     @application.post(
         "/v1/sites/{name}/certificate/request", response_model=CertificateInfo
@@ -488,12 +510,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         request: CertificateRequest,
         operator: operator_dependency,
     ) -> CertificateInfo:
-        return control_plane.request_certificate(
-            name,
-            operator,
-            request.email,
+        return RequestCertificateCommand(
+            name=name,
+            email=request.email,
             skip_preflight=request.skip_preflight,
-        )
+        ).execute(control_plane, operator)
 
     @application.get(
         "/v1/sites/{name}/certificate/preflight", response_model=PreflightReport
@@ -506,7 +527,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         Read-only and free of CA interaction, so it is safe to poll while a
         customer is still moving their DNS.
         """
-        return control_plane.certificate_preflight(name)
+        return CertificatePreflightCommand(name=name).execute(control_plane, _operator)
 
     @application.post(
         "/v1/deployments",
@@ -515,9 +536,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     def deploy(request: DeployRequest, operator: operator_dependency) -> Deployment:
         """Queue a convergence; poll GET /v1/deployments/{id} for the outcome."""
-        return control_plane.submit_deployment(
-            operator, check=request.check, host_limit=request.host_limit
-        )
+        return SubmitDeploymentCommand(
+            check=request.check, host_limit=request.host_limit
+        ).execute(control_plane, operator)
 
     @application.get("/v1/deployments", response_model=list[Deployment])
     def deployments(
@@ -539,9 +560,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         full check can take as long as `deployment_timeout_seconds`, which no
         HTTP client will wait for.
         """
-        return control_plane.submit_deployment(
-            operator, check=True, host_limit=request.host_limit
-        )
+        return SubmitDeploymentCommand(
+            check=True, host_limit=request.host_limit
+        ).execute(control_plane, operator)
 
     @application.get(
         "/v1/deployments/{deployment_id}/drift", response_model=DriftReport
@@ -557,9 +578,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     def rollback(request: RollbackRequest, operator: operator_dependency) -> Deployment:
         """Queue a rollback; poll GET /v1/deployments/{id} for the outcome."""
-        return control_plane.submit_rollback(
-            operator, request.deployment_id, check=request.check
-        )
+        return SubmitRollbackCommand(
+            deployment_id=request.deployment_id, check=request.check
+        ).execute(control_plane, operator)
 
     @application.get("/v1/audit-events", response_model=list[AuditEvent])
     def audit_events(
