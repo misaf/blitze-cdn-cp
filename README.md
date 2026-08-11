@@ -24,7 +24,7 @@ To run an independent control plane and edge on the same Debian 13+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch v1.7.4 --depth 1 \
+sudo git clone --branch v1.7.5 --depth 1 \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install.sh standalone \
   --admin-cidr 203.0.113.8/32 \
@@ -98,9 +98,13 @@ the same host — use the bootstrap script, which clones the newest release to
 `/opt/blitzecdn` and runs `install.sh standalone`:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/misaf/blitze-cdn-cp/HEAD/bootstrap.sh)" \
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/misaf/blitze-cdn-cp/HEAD/bootstrap.sh)" bootstrap \
   --admin-cidr 203.0.113.8/32 --email ops@example.com
 ```
+
+Keep the word `bootstrap`: `bash -c SCRIPT NAME ARG...` assigns `NAME` to
+`$0`, so it names the script rather than selecting a subcommand, and leaving
+it out makes the shell swallow `--admin-cidr` as `$0`.
 
 It runs as root and provisions the host, so read it first. It installs a release
 tag rather than a branch, verifies the tag against the package version, and
