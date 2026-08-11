@@ -19,7 +19,7 @@ Certbot must also be installed on the controller for ACME requests.
 
 ### Standalone server
 
-To run an independent control plane and edge on the same Debian 12+ or Ubuntu
+To run an independent control plane and edge on the same Debian 13+ or Ubuntu
 24.04+ server, clone the release into the production path and run the standalone
 installer:
 

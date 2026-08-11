@@ -54,7 +54,7 @@ jobs:
       # root, and bootstrap.sh is served over HTTPS to be piped into a shell.
       # Nothing else in this workflow reads either.
       - name: Shell lint
-        run: shellcheck install.sh bootstrap.sh
+        run: shellcheck install.sh bootstrap.sh tests/container-install.sh
       - name: Tests and coverage
         run: pytest --cov-report=xml
       - name: YAML and Ansible lint
@@ -85,3 +85,24 @@ jobs:
           pip-audit
       - name: Build package
         run: python -m build
+
+  # The only job that runs `install.sh standalone` against a real init on a real
+  # distribution. Everything in the job above asserts on the scripts' shape or
+  # runs them with the privileged commands stubbed, and neither can catch a
+  # platform that cannot host the control plane at all.
+  #
+  # The matrix is the supported-platform claim, executable: the oldest supported
+  # release of each distribution and the newest. Debian 12 is deliberately absent
+  # — it is a supported edge but ships Python 3.11, so it cannot be a controller.
+  install:
+    name: Install on ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [debian:13, ubuntu:24.04, ubuntu:26.04]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install, re-install, and uninstall
+        run: bash tests/container-install.sh ${{ matrix.image }}

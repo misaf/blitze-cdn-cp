@@ -7,7 +7,7 @@ name = "blitzecdn"
 version = "1.7.3"
 description = "Secure control plane and Ansible automation for BlitzeCDN edge servers"
 readme = "README.md"
-requires-python = ">=3.12,<3.15"
+requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
   "cryptography>=45,<51",

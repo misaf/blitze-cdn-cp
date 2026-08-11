@@ -279,12 +279,12 @@ cmd_install() {
 
   local python_command="${BLITZECDN_PYTHON:-python3}"
   command -v "${python_command}" >/dev/null 2>&1 ||
-    die 1 "error: ${python_command} was not found; install Python 3.12-3.14"
+    die 1 "error: ${python_command} was not found; install Python 3.12 or newer"
 
   "${python_command}" -c '
 import sys
-if not ((3, 12) <= sys.version_info[:2] < (3, 15)):
-    raise SystemExit("error: BlitzeCDN requires Python 3.12, 3.13, or 3.14")
+if sys.version_info[:2] < (3, 12):
+    raise SystemExit("error: BlitzeCDN requires Python 3.12 or newer")
 '
 
   if [[ -e .venv && (! -x .venv/bin/python || ! -x .venv/bin/pip) ]]; then
@@ -760,6 +760,20 @@ remove_service_account() {
       echo "warning: leaving ${account} alone (its home is ${home}, not ${expected_home})" >&2
       return 0
     fi
+    # The installer's own loopback SSH check logs the deployment account in, and
+    # logind keeps a user@UID.service manager alive after the session closes.
+    # userdel refuses while it runs, so without this an uninstall would fail on
+    # essentially every standalone host — the account is busy because installing
+    # made it busy. Gated on loginctl so it is a no-op off systemd.
+    if command -v loginctl >/dev/null 2>&1; then
+      loginctl terminate-user "${account}" >/dev/null 2>&1 || true
+      local waited=0
+      while [[ ${waited} -lt 10 ]] && pgrep -u "${account}" >/dev/null 2>&1; do
+        sleep 1
+        waited=$((waited + 1))
+      done
+    fi
+
     if command -v userdel >/dev/null 2>&1; then
       # `-r` also removes the home and mail spool, and exits non-zero when it
       # cannot even though the account itself is gone. Retry without it, then
