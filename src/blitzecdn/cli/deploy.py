@@ -9,7 +9,8 @@ import typer
 from blitzecdn.cli import common
 from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.domain.models import CertificateMode, DeploymentStatus
+from blitzecdn.domain.deployments import DeploymentStatus
+from blitzecdn.domain.sites import CertificateMode
 
 
 @app.command()
@@ -75,8 +76,8 @@ def deploy(
         if preview.status is not DeploymentStatus.SUCCEEDED:
             common.emit(preview, json_output=json_output)
             raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
-        if preview.stdout.strip():
-            typer.echo(preview.stdout.rstrip())
+        rendered = common.describe_hosts(preview.hosts)
+        typer.echo(rendered or "  No edge reported a result.")
         target = f"edges matching {limit!r}" if limit else "all configured edges"
         if not typer.confirm(f"Apply these changes to {target}?"):
             raise typer.Abort()

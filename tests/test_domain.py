@@ -1,25 +1,25 @@
+import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.domain.models import (
-    STORED,
+from blitzecdn.domain.cache import (
     CacheStatsReport,
-    CdnSite,
+    EdgeStats,
+    PurgeEntry,
+    PurgeResult,
+    SiteCacheStats,
+)
+from blitzecdn.domain.certificates import (
     CertificateInfo,
     CertificateSource,
     CertificateStatus,
-    DnsRecord,
-    EdgeStats,
-    HostDrift,
-    PurgeEntry,
-    PurgeResult,
-    RecordPatch,
-    SiteCacheStats,
-    SiteFirewall,
-    SitePolicy,
 )
+from blitzecdn.domain.dns import DnsRecord, RecordPatch
+from blitzecdn.domain.runs import HostRun
+from blitzecdn.domain.sites import CdnSite, SiteFirewall, SitePolicy
+from blitzecdn.domain.validation import STORED
 
 
 def test_site_normalizes_safe_hostnames(site_payload):
@@ -28,6 +28,35 @@ def test_site_normalizes_safe_hostnames(site_payload):
     site = CdnSite.model_validate(site_payload)
     assert site.server_names == ("cdn.example.com", "*.assets.example.com")
     assert site.origin_host == "origin.example.com"
+
+
+@pytest.mark.parametrize(
+    "value", ["*.192.0.2.1", "*.203.0.113.0", "*.::1", "*.2001:db8::1"]
+)
+def test_site_rejects_a_wildcard_on_an_ip_address(site_payload, value):
+    """nginx accepts `server_name *.192.0.2.1` and then matches nothing.
+
+    Every label of an IPv4 literal is a valid DNS label, so the fallback that
+    accepts ordinary hostnames used to accept this one too — the refusal was
+    raised inside a `try` whose own `except ValueError` swallowed it. The result
+    rendered, converged, and silently matched no request ever sent.
+
+    All four now fail on the wildcard guard itself. The v6 pair used to be
+    turned away one step later, as malformed hostnames, because ':' fails the
+    label check — right answer, wrong reason, and it said nothing about the
+    wildcard being the actual problem.
+    """
+    site_payload["server_names"] = [value]
+    with pytest.raises(
+        ValidationError, match=re.escape("wildcards cannot be used with IP addresses")
+    ):
+        CdnSite.model_validate(site_payload)
+
+
+def test_a_bare_ip_is_still_a_usable_server_name(site_payload):
+    """Only the wildcard form is nonsense; the address itself is addressable."""
+    site_payload["server_names"] = ["192.0.2.1"]
+    assert CdnSite.model_validate(site_payload).server_names == ("192.0.2.1",)
 
 
 @pytest.mark.parametrize(
@@ -253,8 +282,8 @@ def test_a_purge_is_incomplete_when_any_edge_failed():
     result = PurgeResult(
         purged_at=datetime.now(UTC),
         hosts=(
-            HostDrift(host="edge-a", changed=1),
-            HostDrift(host="edge-b", unreachable=1),
+            HostRun(host="edge-a", changed=1),
+            HostRun(host="edge-b", unreachable=1),
         ),
     )
     assert result.complete is False

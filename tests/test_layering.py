@@ -156,3 +156,77 @@ def test_the_api_reaches_infrastructure_only_through_the_control_plane():
     composition root, so the whole adapter choice lives in one place.
     """
     assert _violations("api", ("blitzecdn.infrastructure",)) == []
+
+
+def test_no_application_logic_reads_ansible_output():
+    """The rule that replaced recap parsing, enforced rather than remembered.
+
+    Raw Ansible output is kept per run for operators to read; the control plane
+    decides from the structured callback result and nothing else. The failure
+    this guards against is quiet — someone reaches for a log to answer a
+    question the result already answers, and the answer starts depending on
+    Ansible's wording again.
+
+    `infrastructure/filesystem.py` owns the one reader, and `application` may
+    call it through the `LogReader` port to quote a log into a message. Reaching
+    past that is what this refuses.
+    """
+    offenders = []
+    for layer in ("domain", "application"):
+        for path in _modules(layer):
+            offenders.extend(f"{path.name}: {use}" for use in _output_uses(path))
+    assert offenders == [], (
+        "the control plane reasons from domain.runs.AnsibleRun, not from what "
+        "Ansible printed: " + "; ".join(offenders)
+    )
+
+
+def _output_uses(path: Path) -> list[str]:
+    """Reads of Ansible's raw output, in code rather than in prose.
+
+    Docstrings are skipped deliberately — `domain/runs.py` explains at length
+    why `PLAY RECAP` is not parsed, and a check that cannot tell the
+    explanation from the practice would push that reasoning out of the code.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    # A bare string expression is a docstring or a no-op; either way it is
+    # prose. `body` is a list on modules, classes and functions, and a single
+    # node on expressions like a conditional, hence the isinstance guard.
+    prose = {
+        id(node.value)
+        for parent in ast.walk(tree)
+        for node in (
+            parent.body if isinstance(getattr(parent, "body", None), list) else []
+        )
+        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+    }
+    found = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute) and node.attr in {"stdout", "stderr"}:
+            found.append(f"reads .{node.attr}")
+        elif (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "PLAY RECAP" in node.value
+            and id(node) not in prose
+        ):
+            found.append("matches on PLAY RECAP")
+    return found
+
+
+def test_the_callback_plugin_stays_out_of_the_package():
+    """It runs inside Ansible's process, not ours.
+
+    Shipping it under `src/blitzecdn` would put an `ansible` import inside the
+    package and give the layering rules something they cannot classify. It
+    lives beside the playbooks it serves, and `ansible.cfg` points at it.
+    """
+    plugin = _SOURCE.parent.parent / "ansible/plugins/callback/blitzecdn_result.py"
+    assert plugin.is_file()
+    assert not list(_SOURCE.rglob("*callback*.py"))
+
+    config = (_SOURCE.parent.parent / "ansible/ansible.cfg").read_text(encoding="utf-8")
+    assert "callbacks_enabled = blitzecdn_result" in config, (
+        "the plugin only runs when ansible.cfg enables it; without this every "
+        "run would silently report no hosts"
+    )

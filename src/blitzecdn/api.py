@@ -1,9 +1,12 @@
+import asyncio
+import functools
 import hmac
 import logging
 import threading
 import time
 from collections import deque
 from collections.abc import AsyncIterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from typing import Annotated
 
@@ -15,6 +18,7 @@ from fastapi import (
     HTTPException,
     Query,
     Request,
+    Response,
     UploadFile,
     status,
 )
@@ -24,27 +28,32 @@ from pydantic import BaseModel, ConfigDict, Field
 from blitzecdn import __version__
 from blitzecdn.config import Settings
 from blitzecdn.control_plane import build_control_plane
-from blitzecdn.domain.models import (
-    CERTIFICATE_RENEWAL_DAYS,
-    EDGE_LIMIT,
-    AuditEvent,
+from blitzecdn.domain.audit import AuditEvent
+from blitzecdn.domain.cache import (
     CacheStatsReport,
-    CdnSite,
+    PurgeEntry,
+    PurgeResult,
+)
+from blitzecdn.domain.certificates import (
+    CERTIFICATE_RENEWAL_DAYS,
     CertificateInfo,
     CertificateRequest,
     CertificateStatus,
-    Deployment,
-    DnsRecord,
-    Domain,
-    DriftReport,
-    OriginCheck,
     PreflightReport,
-    PurgeEntry,
-    PurgeResult,
-    RecordPatch,
-    RecordType,
 )
-from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
+from blitzecdn.domain.deployments import Deployment, DriftReport
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.sites import CdnSite
+from blitzecdn.domain.validation import EDGE_LIMIT
+from blitzecdn.exceptions import (
+    BlitzeError,
+    ConfigurationError,
+    ConflictError,
+    DeploymentBusyError,
+    ExecutionError,
+    NotFoundError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -143,6 +152,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     resolved = settings or Settings.from_environment()
     control_plane = build_control_plane(resolved)
     throttle = AuthThrottle()
+    # Renewal gets its own pool rather than the server's shared one. It is the
+    # only HTTP operation here that blocks for minutes at a time — certbot per
+    # site, each bounded by `deployment_timeout_seconds` — and left in the
+    # shared pool a few concurrent sweeps exhaust it and stall every other
+    # endpoint, `/health` included. A controller that is working perfectly then
+    # reads as dead to whatever is probing it.
+    renewal_pool = ThreadPoolExecutor(
+        max_workers=resolved.certificate_renewal_workers,
+        thread_name_prefix="blitzecdn-renewal",
+    )
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -173,6 +192,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             stop.set()
             if reconciler is not None:
                 reconciler.join(timeout=1)
+            # Not cancelling queued sweeps: one already inside certbot must be
+            # allowed to finish, or the CA has issued a certificate this store
+            # never recorded.
+            renewal_pool.shutdown(wait=False)
 
     application = FastAPI(
         title="BlitzeCDN control plane",
@@ -215,13 +238,47 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     operator_dependency = Annotated[str, Depends(require_operator)]
 
+    # Starlette resolves a handler by walking the exception's MRO, so the most
+    # specific registration below wins and `BlitzeError` stays the catch-all.
+    #
+    # The distinction is not cosmetic. Mapping the whole hierarchy to 503 told
+    # every client that a permanent condition — a host limit matching no edge,
+    # a certificate that does not cover the site, certbot not being installed —
+    # was a transient one worth retrying, and told alerting the controller was
+    # unavailable when it was working correctly and declining bad input.
     @application.exception_handler(NotFoundError)
     async def not_found_handler(_request: object, exc: NotFoundError) -> object:
         return _error_response(status.HTTP_404_NOT_FOUND, str(exc))
 
+    @application.exception_handler(DeploymentBusyError)
+    async def deployment_busy_handler(
+        _request: object, exc: DeploymentBusyError
+    ) -> object:
+        # A conflict, but the one kind that does clear on its own, so it is the
+        # one conflict that earns a Retry-After.
+        return _error_response(
+            status.HTTP_409_CONFLICT, str(exc), headers={"Retry-After": "30"}
+        )
+
     @application.exception_handler(ConflictError)
     async def conflict_handler(_request: object, exc: ConflictError) -> object:
         return _error_response(status.HTTP_409_CONFLICT, str(exc))
+
+    @application.exception_handler(ConfigurationError)
+    async def configuration_error_handler(
+        _request: object, exc: ConfigurationError
+    ) -> object:
+        # Something in the request or in the controller's own configuration is
+        # wrong and will stay wrong until a person changes it. Retrying is
+        # never the answer, so this must not look like 503.
+        return _error_response(status.HTTP_400_BAD_REQUEST, str(exc))
+
+    @application.exception_handler(ExecutionError)
+    async def execution_error_handler(_request: object, exc: ExecutionError) -> object:
+        # The controller worked; something it depends on — Ansible, certbot, an
+        # edge — did not answer usefully. That is a bad gateway, not a
+        # controller that is down.
+        return _error_response(status.HTTP_502_BAD_GATEWAY, str(exc))
 
     @application.exception_handler(BlitzeError)
     async def application_error_handler(_request: object, exc: BlitzeError) -> object:
@@ -315,9 +372,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         return control_plane.check_origins()
 
-    @application.post("/v1/cache/purge", response_model=PurgeResult)
+    @application.post(
+        "/v1/cache/purge",
+        response_model=PurgeResult,
+        responses={
+            status.HTTP_409_CONFLICT: {
+                "model": PurgeResult,
+                "description": (
+                    "Some edge did not purge. The body is the same PurgeResult "
+                    "as a success, with complete=false and failed_hosts naming "
+                    "the edges that may still be serving the cached copy."
+                ),
+            }
+        },
+    )
     def purge_cache(
-        request: PurgeRequest, operator: operator_dependency
+        request: PurgeRequest, operator: operator_dependency, response: Response
     ) -> PurgeResult:
         """Remove cached responses from the edges.
 
@@ -326,6 +396,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         dropped the object. Responds 409 when some edge did not — a partial
         purge means clients get different answers depending on which edge they
         reach, and that must not read as success.
+
+        The 409 carries the whole result rather than an error string. A partial
+        purge is the case where the caller most needs the detail — which edges
+        purged, which did not, what each one reported — and raising here would
+        have replaced all of it with prose to be parsed under time pressure.
+        The status code says "not done"; the body says what to retry.
         """
         result = control_plane.purge_cache(
             operator,
@@ -334,12 +410,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             host_limit=request.host_limit,
         )
         if not result.complete:
-            raise ConflictError(
-                "purged on "
-                f"{len(result.succeeded)} of {len(result.hosts)} edges; "
-                + ", ".join(host.host for host in result.failed)
-                + " may still be serving the cached copy"
-            )
+            response.status_code = status.HTTP_409_CONFLICT
         return result
 
     @application.post("/v1/cache/stats", response_model=CacheStatsReport)
@@ -365,20 +436,32 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return control_plane.expiring_certificates(expiring_in)
 
     @application.post("/v1/certificates/renew")
-    def renew_certificates(
+    async def renew_certificates(
         request: RenewRequest, operator: operator_dependency
     ) -> dict[str, list[str]]:
         """Reissue ACME certificates close to expiry.
 
-        Runs inline rather than on a worker: renewal is bounded by certbot's
-        own timeout per site and touches no edge configuration, so there is no
-        long convergence for a caller to poll.
+        Answers inline, but off the server's own thread pool and under a
+        wall-clock budget. A sweep runs certbot per site and touches no edge
+        configuration, so there is nothing to converge and nothing to poll —
+        but there is also nothing bounding how long it takes, and a request
+        that holds a shared worker for an hour is how one slow CA takes the
+        whole API down with it.
+
+        Sites the budget does not reach come back under ``skipped`` and are
+        picked up by the next run, so a truncated sweep is a slower renewal
+        rather than a missed one.
         """
-        return control_plane.renew_certificates(
-            operator,
-            within_days=request.within_days,
-            force=request.force,
-            sites=request.sites,
+        return await asyncio.get_running_loop().run_in_executor(
+            renewal_pool,
+            functools.partial(
+                control_plane.renew_certificates,
+                operator,
+                within_days=request.within_days,
+                force=request.force,
+                sites=request.sites,
+                budget_seconds=resolved.certificate_renewal_budget_seconds,
+            ),
         )
 
     @application.post(
@@ -487,5 +570,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     return application
 
 
-def _error_response(status_code: int, detail: str) -> object:
-    return JSONResponse(status_code=status_code, content={"detail": detail})
+def _error_response(
+    status_code: int, detail: str, headers: dict[str, str] | None = None
+) -> object:
+    return JSONResponse(
+        status_code=status_code, content={"detail": detail}, headers=headers
+    )

@@ -11,7 +11,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
-from blitzecdn.domain.models import CdnSite, CertificateSource
+from blitzecdn.domain.certificates import CertificateSource
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.infrastructure import certificates as certificates_module
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore

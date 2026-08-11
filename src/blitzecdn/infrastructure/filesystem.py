@@ -37,6 +37,32 @@ def atomic_write_yaml(
         temporary.unlink(missing_ok=True)
 
 
+def read_log_tail(path: Path | str | None, *, limit: int) -> str:
+    """Return the last ``limit`` bytes of a run log, for a person to read.
+
+    This is the one place raw Ansible output is loaded back, and it exists so
+    an operator can be shown why something failed. Nothing branches on what it
+    returns — the control plane's decisions come from the structured result —
+    which is why a missing or unreadable log degrades to a note rather than an
+    error.
+    """
+    if path is None:
+        return ""
+    candidate = Path(path)
+    try:
+        size = candidate.stat().st_size
+        with candidate.open("rb") as stream:
+            if size > limit:
+                stream.seek(size - limit)
+            data = stream.read()
+    except OSError:
+        return ""
+    text = data.decode("utf-8", errors="replace").strip()
+    if size > limit and text:
+        return f"[earlier output omitted; full log at {candidate}]\n{text}"
+    return text
+
+
 def atomic_write_bytes(path: Path, payload: bytes, *, mode: int = 0o600) -> None:
     """Atomically write sensitive bytes without following a destination symlink."""
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)

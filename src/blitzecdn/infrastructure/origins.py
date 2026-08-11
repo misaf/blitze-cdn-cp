@@ -27,9 +27,10 @@ from contextlib import suppress
 from typing import Any
 
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import CdnSite, OriginCheck, OriginScheme
+from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.sites import CdnSite, HttpScheme
 
-_DEFAULT_PORTS = {OriginScheme.HTTP: 80, OriginScheme.HTTPS: 443}
+_DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
 
 #: Origins are probed in parallel because a fleet with many sites would
 #: otherwise take (sites x timeout) seconds to report in the worst case, which
@@ -53,16 +54,15 @@ class OriginProbe:
 
     def check(self, site: CdnSite) -> OriginCheck:
         port = site.origin_port or _DEFAULT_PORTS[site.origin_scheme]
-        # The name the edge puts in the TLS handshake. `site.conf.j2` picks it
-        # in this order, and probing with a different one would verify a
-        # certificate the edge never asks for.
-        sni = site.origin_sni or site.origin_request_host or site.server_names[0]
+        # The name the edge will put in the TLS handshake; probing with a
+        # different one would verify a certificate the edge never asks for.
+        sni = site.effective_origin_sni
         timeout = self._settings.origin_check_timeout_seconds
         result = OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:{port}",
             scheme=site.origin_scheme,
-            sni=sni if site.origin_scheme is OriginScheme.HTTPS else None,
+            sni=sni if site.origin_scheme is HttpScheme.HTTPS else None,
         )
 
         try:
@@ -103,7 +103,7 @@ class OriginProbe:
             )
 
         try:
-            if site.origin_scheme is OriginScheme.HTTP:
+            if site.origin_scheme is HttpScheme.HTTP:
                 return result.model_copy(update={"reachable": True})
             return self._handshake(result, connection, sni, timeout)
         finally:

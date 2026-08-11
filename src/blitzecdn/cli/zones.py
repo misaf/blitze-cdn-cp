@@ -11,13 +11,8 @@ from typing import Annotated
 import typer
 
 from blitzecdn.cli import common
-from blitzecdn.domain.models import (
-    DnsRecord,
-    Domain,
-    RecordPatch,
-    RecordType,
-    SiteFirewall,
-)
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.sites import SiteFirewall
 
 site_app = typer.Typer(
     no_args_is_help=True,

@@ -8,13 +8,10 @@ record change silently reverts it.
 
 from __future__ import annotations
 
-from blitzecdn.domain.models import (
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
-    DnsRecord,
-    Domain,
-    RecordPatch,
-    RecordType,
     managed_certificate_paths,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError

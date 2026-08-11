@@ -17,11 +17,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
 
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import (
-    CdnSite,
-    CertificateInfo,
-    CertificateSource,
-)
+from blitzecdn.domain.certificates import CertificateInfo, CertificateSource
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.infrastructure.filesystem import atomic_write_bytes
 from blitzecdn.infrastructure.process import terminate_process_group

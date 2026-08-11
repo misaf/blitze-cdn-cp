@@ -1,3 +1,4 @@
+import json
 import signal
 import subprocess
 from pathlib import Path
@@ -5,8 +6,21 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+from blitzecdn.domain.runs import RunStatus
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure import ansible
+
+
+def _callback_result(environment, hosts):
+    """Write what the `blitzecdn_result` callback would have written.
+
+    The runner reads its result from the path it puts in BLITZE_RESULT_PATH, so
+    a double for the child process has to produce a document there — that file
+    is the contract, and nothing about the terminal output matters any more.
+    """
+    Path(environment["BLITZE_RESULT_PATH"]).write_text(
+        json.dumps({"playbook": "edge.yml", "hosts": hosts}), encoding="utf-8"
+    )
 
 
 class FakePopen:
@@ -44,21 +58,110 @@ def test_deployment_lock_serializes_processes(settings):
         pass
 
 
-def test_runner_builds_bounded_check_command(settings, monkeypatch):
+def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypatch):
+    """Output goes to a log file; the result comes from the callback document."""
     runner = ansible.AnsibleRunner(settings)
     captured = []
 
+    streams = {}
+
     def fake_popen(command, **kwargs):
         captured.extend(command)
-        kwargs["stdout"].write(b"x" * (settings.output_limit_bytes + 10))
-        kwargs["stderr"].write(b"warning")
+        streams["stderr"] = kwargs["stderr"]
+        kwargs["stdout"].write(b"TASK [something] ***\nchanged: [edge-a]\n")
+        _callback_result(kwargs["env"], [{"host": "edge-a", "ok": 4, "changed": 1}])
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    result = runner.run(check=True)
+    run = runner.run(check=True)
+
     assert "--check" in captured and "--diff" in captured
-    assert result.stdout.endswith("[output truncated]")
-    assert result.stderr == "warning"
+    assert [host.host for host in run.hosts] == ["edge-a"]
+    assert run.hosts[0].changed == 1
+    # One file, not two: stderr is folded into the same stream so the log reads
+    # in the order things happened rather than needing to be interleaved later.
+    assert streams["stderr"] is subprocess.STDOUT
+    assert Path(run.log_path).read_text(encoding="utf-8").startswith("TASK [")
+
+
+def test_the_result_document_is_removed_once_it_has_been_read(settings, monkeypatch):
+    """It is working state: what survives is the parsed result and the log."""
+    seen: list[Path] = []
+
+    def fake_popen(command, **kwargs):
+        seen.append(Path(kwargs["env"]["BLITZE_RESULT_PATH"]))
+        _callback_result(kwargs["env"], [{"host": "edge-a"}])
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    ansible.AnsibleRunner(settings).run(check=True)
+
+    assert seen and not seen[0].exists()
+
+
+def test_each_run_gets_a_result_path_of_its_own(settings, monkeypatch):
+    """Purge, stats and decommission all skip the lock, so runs overlap."""
+    paths: list[str] = []
+
+    def fake_popen(command, **kwargs):
+        paths.append(kwargs["env"]["BLITZE_RESULT_PATH"])
+        _callback_result(kwargs["env"], [{"host": "edge-a"}])
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    runner = ansible.AnsibleRunner(settings)
+    runner.run(check=True)
+    runner.run(check=True)
+
+    assert len(set(paths)) == 2
+
+
+def test_a_run_that_reports_nothing_says_where_to_look(settings, monkeypatch):
+    """Ansible died before reporting: there is no host data, only the log."""
+
+    def fake_popen(command, **kwargs):
+        kwargs["stdout"].write(b"ERROR! the inventory could not be read\n")
+        return FakePopen(command, return_code=4, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    run = ansible.AnsibleRunner(settings).run(check=False)
+
+    assert run.status is RunStatus.FAILED
+    assert run.reported is False
+    assert run.hosts == ()
+    assert run.log_path is not None and run.log_path in (run.error or "")
+
+
+def test_an_unparseable_result_is_treated_as_no_result(settings, monkeypatch):
+    """A half-written document must not become half-believed host data."""
+
+    def fake_popen(command, **kwargs):
+        Path(kwargs["env"]["BLITZE_RESULT_PATH"]).write_text(
+            '{"hosts": [', encoding="utf-8"
+        )
+        return FakePopen(command, return_code=2, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    run = ansible.AnsibleRunner(settings).run(check=False)
+
+    assert run.reported is False
+    assert run.status is RunStatus.FAILED
+
+
+def test_run_logs_are_pruned_to_the_retention_limit(settings, monkeypatch):
+    """One log per invocation, and the drift timer alone fires on a schedule."""
+    bounded = settings.model_copy(update={"run_log_retention": 10})
+
+    def fake_popen(command, **kwargs):
+        _callback_result(kwargs["env"], [{"host": "edge-a"}])
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    runner = ansible.AnsibleRunner(bounded)
+    for _ in range(14):
+        runner.run(check=True)
+
+    assert len(list(bounded.log_dir.glob("*.log"))) == 10
 
 
 def test_each_run_uses_an_isolated_ssh_control_path(settings, monkeypatch):
@@ -96,10 +199,10 @@ def test_runner_kills_the_whole_process_group_on_timeout(settings, monkeypatch):
     process = FakePopen(["ansible-playbook"], hangs=True)
     killed = _capture_killpg(monkeypatch, process, dies_on_sigterm=True)
 
-    result = ansible.AnsibleRunner(settings).run(check=False)
+    run = ansible.AnsibleRunner(settings).run(check=False)
 
-    assert result.timed_out is True
-    assert result.return_code == 124
+    assert run.status is RunStatus.TIMED_OUT
+    assert run.return_code == 124
     # The group, not just the direct child: start_new_session makes the playbook
     # its own group leader, so its per-host workers share this pid as their pgid.
     assert killed == [(process.pid, signal.SIGTERM)]
@@ -111,7 +214,8 @@ def test_runner_escalates_to_sigkill_when_ansible_ignores_sigterm(
     process = FakePopen(["ansible-playbook"], hangs=True)
     killed = _capture_killpg(monkeypatch, process, dies_on_sigterm=False)
 
-    assert ansible.AnsibleRunner(settings).run(check=False).timed_out is True
+    timed_out = ansible.AnsibleRunner(settings).run(check=False)
+    assert timed_out.status is RunStatus.TIMED_OUT
     assert killed == [
         (process.pid, signal.SIGTERM),
         (process.pid, signal.SIGKILL),
@@ -151,7 +255,7 @@ def test_runner_validates_required_paths(settings):
         update={"inventory_path": settings.project_dir / "missing"}
     )
     with pytest.raises(ConfigurationError, match="inventory"):
-        ansible.AnsibleRunner(broken).validate()
+        ansible.AnsibleRunner(broken).validate(broken.generated_vars_path)
 
 
 def test_runner_builds_acme_challenge_command(settings, monkeypatch):
@@ -171,7 +275,7 @@ def test_runner_builds_acme_challenge_command(settings, monkeypatch):
         token="safe_token",  # noqa: S106 -- public ACME challenge token
         validation="safe.validation",
     )
-    assert result.return_code == 0
+    assert result.status is RunStatus.SUCCEEDED
     assert str(settings.acme_challenge_playbook_path) in captured
     assert "safe_token" not in captured
 
@@ -250,44 +354,101 @@ def test_the_limit_reaches_the_ansible_command_line(settings, monkeypatch):
     assert command.count("--limit") == 1
 
 
-# Verbatim Ansible output, with the host-name padding trimmed to fit. The
-# trailing skipped/rescued/ignored fields are kept deliberately: the parser has
-# to tolerate counters it does not care about.
-_RECAP = """
-TASK [blitzecdn.edge.blitzecdn_nginx : Render managed sites] ****
-changed: [edge-a]
-ok: [edge-b]
+# A document in the shape `blitzecdn_result` writes. This is the seam the
+# control plane depends on now, so it is pinned here rather than assumed.
+_RESULT = {
+    "playbook": "edge.yml",
+    "hosts": [
+        {
+            "host": "edge-a",
+            "ok": 14,
+            "changed": 2,
+            "skipped": 3,
+            "changes": [
+                {"task": "Render managed sites", "outcome": "changed"},
+                {"task": "Enable desired sites", "outcome": "changed"},
+            ],
+        },
+        {"host": "edge-b", "ok": 14, "changed": 0, "skipped": 3},
+        {
+            "host": "edge-c",
+            "unreachable": 1,
+            "failures": [
+                {
+                    "task": "Gathering Facts",
+                    "outcome": "unreachable",
+                    "message": "ssh: connect to host edge-c port 22: No route to host",
+                }
+            ],
+        },
+    ],
+}
 
-PLAY RECAP *********************************************************************
-edge-a : ok=14  changed=2  unreachable=0  failed=0  skipped=3  rescued=0  ignored=0
-edge-b : ok=14  changed=0  unreachable=0  failed=0  skipped=3  rescued=0  ignored=0
-edge-c : ok=0   changed=0  unreachable=1  failed=0  skipped=0  rescued=0  ignored=0
-"""
 
+def test_the_callback_document_becomes_per_host_results(settings, monkeypatch):
+    def fake_popen(command, **kwargs):
+        Path(kwargs["env"]["BLITZE_RESULT_PATH"]).write_text(
+            json.dumps(_RESULT), encoding="utf-8"
+        )
+        return FakePopen(command, **kwargs)
 
-def test_the_play_recap_becomes_per_host_drift():
-    hosts = {host.host: host for host in ansible.parse_play_recap(_RECAP)}
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    run = ansible.AnsibleRunner(settings).run(check=True)
+
+    hosts = {host.host: host for host in run.hosts}
     assert set(hosts) == {"edge-a", "edge-b", "edge-c"}
     assert hosts["edge-a"].changed == 2
     assert hosts["edge-a"].in_sync is False
     assert hosts["edge-b"].in_sync is True
-    assert hosts["edge-c"].unreachable == 1
+    assert hosts["edge-c"].reached is False
     assert hosts["edge-c"].in_sync is False, "an unreachable host is not 'in sync'"
 
 
-def test_only_the_last_recap_is_read():
-    """A run with several plays prints one recap each; the last is cumulative."""
-    doubled = (
-        _RECAP + "\nPLAY RECAP ****\nedge-a : ok=1 changed=0 unreachable=0 failed=0\n"
-    )
-    hosts = ansible.parse_play_recap(doubled)
-    assert [host.host for host in hosts] == ["edge-a"]
-    assert hosts[0].changed == 0
+def test_a_change_is_named_not_merely_counted(settings, monkeypatch):
+    """The reason for a callback rather than a recap.
+
+    A recap could say "edge-a would change 2 tasks" and no more. Naming them is
+    what makes a drift report answer the question an operator actually has.
+    """
+
+    def fake_popen(command, **kwargs):
+        Path(kwargs["env"]["BLITZE_RESULT_PATH"]).write_text(
+            json.dumps(_RESULT), encoding="utf-8"
+        )
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    run = ansible.AnsibleRunner(settings).run(check=True)
+
+    assert [change.task for change in run.host("edge-a").changes] == [
+        "Render managed sites",
+        "Enable desired sites",
+    ]
+    assert "No route to host" in run.summary()
 
 
-def test_output_without_a_recap_yields_no_hosts():
-    assert ansible.parse_play_recap("ERROR! the playbook could not be parsed") == ()
-    assert ansible.parse_play_recap("") == ()
+def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypatch):
+    """`blitzecdn_report` is how a role returns data rather than an outcome."""
+
+    def fake_popen(command, **kwargs):
+        Path(kwargs["env"]["BLITZE_RESULT_PATH"]).write_text(
+            json.dumps(
+                {
+                    "hosts": [
+                        {"host": "edge-a", "report": {"nginx_reachable": True}},
+                        {"host": "edge-b"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return FakePopen(command, **kwargs)
+
+    monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
+    run = ansible.AnsibleRunner(settings).run(check=True)
+
+    assert run.host("edge-a").report == {"nginx_reachable": True}
+    assert run.host("edge-b").report is None
 
 
 def test_maxmind_credentials_reach_ansible_through_the_environment(

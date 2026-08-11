@@ -6,16 +6,15 @@ import pytest
 from conftest import FakeRunner
 
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.models import (
-    STORED,
-    CdnSite,
+from blitzecdn.domain.dns import (
     DnsRecord,
     Domain,
     RecordPatch,
     RecordType,
-    SiteFirewall,
     derive_site_name,
 )
+from blitzecdn.domain.sites import CdnSite, SiteFirewall
+from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
 

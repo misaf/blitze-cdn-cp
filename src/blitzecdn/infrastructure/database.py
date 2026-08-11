@@ -10,15 +10,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from blitzecdn.domain.models import (
-    AuditEvent,
-    CdnSite,
-    Deployment,
-    DeploymentStatus,
-    DnsRecord,
-    Domain,
-    RecordType,
-)
+from blitzecdn.domain.audit import AuditEvent
+from blitzecdn.domain.deployments import Deployment, DeploymentStatus
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.snapshots import (
     SNAPSHOT_VERSION,
     decode_snapshot,

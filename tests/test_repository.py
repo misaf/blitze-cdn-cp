@@ -1,6 +1,7 @@
 import pytest
 
-from blitzecdn.domain.models import CdnSite, DeploymentStatus
+from blitzecdn.domain.deployments import DeploymentStatus
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
 

@@ -18,16 +18,12 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from blitzecdn.domain.models import (
-    STORED,
-    AuditEvent,
-    CdnSite,
-    Deployment,
-    DeploymentStatus,
-    DnsRecord,
-    Domain,
-    RecordType,
-)
+from blitzecdn.domain.audit import AuditEvent
+from blitzecdn.domain.deployments import Deployment, DeploymentStatus
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
+from blitzecdn.domain.runs import AnsibleRun, RunStatus
+from blitzecdn.domain.sites import CdnSite
+from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 
 _SCHEMA = """
@@ -53,6 +49,11 @@ CREATE TABLE IF NOT EXISTS dns_records (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (domain, name, type)
 );
+-- `result` is the JSON of one domain.runs.AnsibleRun: per-host counters, the
+-- tasks that changed, the tasks that failed. It replaced the raw stdout and
+-- stderr columns, which were both the largest thing in this table and the
+-- thing every reader had to re-parse to learn anything. Raw output now lives
+-- in a log file the result names, outside the database entirely.
 CREATE TABLE IF NOT EXISTS deployments (
     id TEXT PRIMARY KEY,
     status TEXT NOT NULL,
@@ -62,9 +63,7 @@ CREATE TABLE IF NOT EXISTS deployments (
     created_at TEXT NOT NULL,
     started_at TEXT,
     finished_at TEXT,
-    return_code INTEGER,
-    stdout TEXT NOT NULL DEFAULT '',
-    stderr TEXT NOT NULL DEFAULT '',
+    result TEXT,
     snapshot TEXT NOT NULL,
     host_limit TEXT
 );
@@ -108,31 +107,6 @@ class Database:
         with self.lock, self.connect() as connection:
             connection.execute("PRAGMA journal_mode = WAL")
             connection.executescript(_SCHEMA)
-            self._add_missing_columns(connection)
-
-    @staticmethod
-    def _add_missing_columns(connection: sqlite3.Connection) -> None:
-        """Bring a database created by an older release up to the schema above.
-
-        ``CREATE TABLE IF NOT EXISTS`` leaves an existing table alone, so a
-        column added to the script above never reaches a database that already
-        exists. Each entry here must therefore be nullable or carry a default:
-        rows written before the column existed have no value for it, and
-        ``None`` has to be a truthful answer for them. ``host_limit`` qualifies
-        — every historical deployment ran against the whole fleet, which is
-        exactly what ``None`` means.
-        """
-        additions = {"deployments": {"host_limit": "TEXT"}}
-        for table, columns in additions.items():
-            present = {
-                row["name"]
-                for row in connection.execute(f"PRAGMA table_info({table})").fetchall()
-            }
-            for column, definition in columns.items():
-                if column not in present:
-                    connection.execute(
-                        f"ALTER TABLE {table} ADD COLUMN {column} {definition}"
-                    )
 
     @staticmethod
     def now() -> str:
@@ -406,16 +380,17 @@ class DeploymentStore:
         target: DeploymentStatus,
         **values: Any,
     ) -> Deployment:
-        allowed = {"started_at", "finished_at", "return_code", "stdout", "stderr"}
+        allowed = {"started_at", "finished_at", "result"}
         if set(values) - allowed:
             raise ValueError("unsupported deployment transition fields")
+        result = values.get("result")
+        if result is not None and not isinstance(result, AnsibleRun):
+            raise ValueError("deployment result must be an AnsibleRun")
         parameters = [
             target,
             values.get("started_at"),
             values.get("finished_at"),
-            values.get("return_code"),
-            values.get("stdout"),
-            values.get("stderr"),
+            result.model_dump_json() if result is not None else None,
             deployment_id,
             expected,
         ]
@@ -425,9 +400,7 @@ class DeploymentStore:
                    status = ?,
                    started_at = COALESCE(?, started_at),
                    finished_at = COALESCE(?, finished_at),
-                   return_code = COALESCE(?, return_code),
-                   stdout = COALESCE(?, stdout),
-                   stderr = COALESCE(?, stderr)
+                   result = COALESCE(?, result)
                    WHERE id = ? AND status = ?""",
                 parameters,
             )
@@ -461,16 +434,30 @@ class DeploymentStore:
         return [self._deployment(row) for row in rows]
 
     def abandon_running(self) -> int:
+        """Close out deployments the last controller process left in flight.
+
+        They are given a result of their own rather than only a status: every
+        reader now expects to find why a deployment ended in `result`, and
+        "the controller restarted" is as much an answer as a failed task is.
+        """
         now = self._db.now()
+        abandoned = AnsibleRun(
+            id=uuid4().hex,
+            playbook="",
+            status=RunStatus.UNSTARTED,
+            started_at=datetime.now(UTC),
+            finished_at=datetime.now(UTC),
+            error="the controller restarted before this deployment completed",
+        ).model_dump_json()
         with self._db.lock, self._db.connect() as connection:
             cursor = connection.execute(
                 """UPDATE deployments
-                   SET status = ?, finished_at = ?, stderr = ?
+                   SET status = ?, finished_at = ?, result = ?
                    WHERE status IN (?, ?)""",
                 (
                     DeploymentStatus.ABANDONED,
                     now,
-                    "Controller restarted before completion",
+                    abandoned,
                     DeploymentStatus.QUEUED,
                     DeploymentStatus.RUNNING,
                 ),
@@ -498,6 +485,8 @@ class DeploymentStore:
     def _deployment(row: sqlite3.Row) -> Deployment:
         data = dict(row)
         data.pop("snapshot")
+        stored = data.pop("result", None)
+        data["result"] = json.loads(stored) if stored else None
         return Deployment.model_validate(data)
 
 

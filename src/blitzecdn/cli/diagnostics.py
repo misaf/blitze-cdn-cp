@@ -11,7 +11,8 @@ from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.domain.models import CERTIFICATE_RENEWAL_DAYS, CacheStatsReport
+from blitzecdn.domain.cache import CacheStatsReport
+from blitzecdn.domain.certificates import CERTIFICATE_RENEWAL_DAYS
 from blitzecdn.infrastructure.preflight import check_resolver
 
 

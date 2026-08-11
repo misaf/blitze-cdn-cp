@@ -1,7 +1,8 @@
 from types import SimpleNamespace
 
+from conftest import ansible_run, host_run
+
 from blitzecdn import acme_hook
-from blitzecdn.infrastructure.ansible import CommandResult
 
 
 def test_acme_hook_validates_and_runs(monkeypatch, settings):
@@ -13,7 +14,7 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
 
         def run_acme_challenge(self, **values):
             calls.append(values)
-            return CommandResult(0, "ok", "")
+            return ansible_run(host_run("edge-a"))
 
     monkeypatch.setattr(acme_hook.Settings, "from_environment", lambda: settings)
     monkeypatch.setattr(acme_hook, "AnsibleRunner", Runner)

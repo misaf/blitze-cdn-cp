@@ -37,11 +37,11 @@ import yaml
 
 from blitzecdn import EDGE_COLLECTION_VERSION
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.models import (
+from blitzecdn.domain.sites import (
     DESIRED_STATE_VERSION,
     CdnSite,
     CertificateMode,
-    OriginScheme,
+    HttpScheme,
     SiteFirewall,
 )
 from blitzecdn.infrastructure.database import Repository
@@ -105,7 +105,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
                 "server_names": ["cdn.example.com", "*.assets.example.com"],
                 "origin_host": "origin.example.com",
                 "origin_port": 8443,
-                "origin_scheme": OriginScheme.HTTPS,
+                "origin_scheme": HttpScheme.HTTPS,
                 "origin_request_host": "origin.example.com",
                 "origin_sni": "origin.example.com",
                 "cache_enabled": True,
@@ -120,7 +120,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
                 "name": "plain-cdn",
                 "server_names": ["static.example.com"],
                 "origin_host": "192.0.2.10",
-                "origin_scheme": OriginScheme.HTTP,
+                "origin_scheme": HttpScheme.HTTP,
                 "enabled": False,
                 "cache_enabled": False,
                 "certificate_mode": CertificateMode.EXISTING,
@@ -139,7 +139,9 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
             }
         )
     )
-    control.deployments.write_desired_state(repository.snapshot())
+    control.deployments.write_desired_state(
+        repository.snapshot(), settings.generated_vars_path
+    )
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 
 
@@ -279,7 +281,7 @@ def test_required_keys_are_always_emitted(desired_state):
 
 @pytest.mark.parametrize(
     ("field", "enum"),
-    [("origin_scheme", OriginScheme), ("certificate_mode", CertificateMode)],
+    [("origin_scheme", HttpScheme), ("certificate_mode", CertificateMode)],
 )
 def test_role_choices_cover_every_domain_value(field, enum):
     """A new enum member must not reach a role that rejects it."""
@@ -424,6 +426,27 @@ def test_site_template_renders_from_real_model_output(desired_state):
             assert "ssl_certificate" not in rendered
         else:
             assert f"ssl_certificate {site['certificate_path']};" in rendered
+
+
+def test_the_template_sends_the_sni_the_control_plane_probed_with():
+    """Both halves must resolve SNI identically, and never to a wildcard.
+
+    `OriginProbe` verifies the origin certificate against
+    `CdnSite.effective_origin_sni`; the edge is what actually sends it. If they
+    drift, a preflight pass means nothing. A wildcard `server_name` is the case
+    that used to break this: legal in nginx, unmatchable in a handshake.
+    """
+    site = CdnSite.model_validate(
+        {
+            "name": "wildcard",
+            "server_names": ["*.example.com", "example.com"],
+            "origin_host": "origin.example.com",
+            "origin_scheme": HttpScheme.HTTPS,
+        }
+    )
+    assert site.effective_origin_sni == "origin.example.com"
+    rendered = _render(site.to_ansible())
+    assert "proxy_ssl_name origin.example.com;" in rendered
 
 
 def test_committed_fixture_matches_generated_desired_state(desired_state):
@@ -633,6 +656,24 @@ def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp
     assert "firewall rules this role will not render" in result.stdout
 
 
+def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):
+    """Both halves of this control have to refuse it, not just the controller.
+
+    `*.192.0.2.1` satisfies the hostname shape check — every label of an IPv4
+    literal is a valid DNS label — and nginx renders `server_name *.192.0.2.1`
+    without complaint, then matches no request ever sent. The control plane
+    refuses it now, and this is the redundancy: the value reaches a directive
+    the role writes as root.
+    """
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"server_names": ["*.192.0.2.1"]}
+
+    result = _run_validation(sites, tmp_path)
+
+    assert result.returncode != 0
+    assert "Invalid CDN site" in result.stdout
+
+
 def test_maxmind_credentials_never_reach_an_nginx_config():
     """The license key belongs in one 0600 file and nowhere else.
 
@@ -680,3 +721,40 @@ def test_the_credentials_file_is_written_private_and_unlogged():
     assert writer["ansible.builtin.template"]["mode"] == "0600"
     assert writer["ansible.builtin.template"]["owner"] == "root"
     assert writer["no_log"] is True
+
+
+def test_the_stats_role_publishes_through_the_agreed_report_fact():
+    """The channel a role returns a payload on is a contract like any other.
+
+    `blitzecdn_stats` is the only role that returns data rather than an
+    outcome, and the control plane finds it by looking for one fact name. If
+    the role renamed it, every collection would come back empty with every edge
+    reporting success — the silent-no-op failure this suite exists to catch.
+    """
+    tasks = (STATS_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    plugin = (PROJECT_DIR / "ansible/plugins/callback/blitzecdn_result.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert 'REPORT_FACT = "blitzecdn_report"' in plugin, (
+        "the callback plugin no longer collects blitzecdn_report; the stats "
+        "role publishes it and nothing else would carry the counters back"
+    )
+    assert "blitzecdn_report:" in tasks, (
+        "blitzecdn_stats must publish its document as the blitzecdn_report "
+        "fact — see REPORT_FACT in ansible/plugins/callback/blitzecdn_result.py"
+    )
+
+
+def test_the_stats_role_no_longer_wants_a_controller_directory():
+    """Its report travels with the run, so there is no path to hand it.
+
+    A resurrected `blitzecdn_stats_output_dir` would be a required option the
+    control plane never sets, and role argument validation would fail every
+    collection.
+    """
+    spec = yaml.safe_load(
+        (STATS_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
+    )["argument_specs"]["main"]["options"]
+
+    assert "blitzecdn_stats_output_dir" not in spec

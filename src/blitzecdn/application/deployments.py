@@ -10,28 +10,26 @@ from __future__ import annotations
 
 import logging
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
+from uuid import uuid4
 
 from blitzecdn.application.dns import DnsService
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import (
-    DESIRED_STATE_VERSION,
-    CertificateMode,
-    Deployment,
-    DeploymentStatus,
-    DriftReport,
-    validate_edge_limit,
-)
-from blitzecdn.domain.recap import parse_play_recap
+from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
+from blitzecdn.domain.runs import AnsibleRun, RunStatus
+from blitzecdn.domain.sites import DESIRED_STATE_VERSION, CertificateMode
 from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
+from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConflictError, ExecutionError
 from blitzecdn.ports import (
     AuditLog,
     CertificateStore,
     DeploymentRunner,
     DeploymentStore,
+    LogReader,
     ZoneStore,
 )
 
@@ -56,6 +54,7 @@ class DeploymentService:
         certificate_store: CertificateStore,
         dns: DnsService,
         write_yaml: Callable[[Path, dict[str, object]], None],
+        read_log: LogReader,
     ) -> None:
         self.settings = settings
         self.deployments = deployments
@@ -68,6 +67,10 @@ class DeploymentService:
         #: filesystem adapter directly. The composition root supplies the
         #: atomic writer; a test can supply anything with the same shape.
         self.write_yaml = write_yaml
+        #: Quotes a run log into a message for an operator. Never branched on:
+        #: `validate` is the one caller, and only because `--syntax-check` runs
+        #: no play and so leaves the callback nothing to report.
+        self.read_log = read_log
 
     def initialize(self) -> int:
         return self.deployments.abandon_running()
@@ -75,18 +78,44 @@ class DeploymentService:
     # -- Validation ----------------------------------------------------
 
     def validate(self) -> list[str]:
+        """Answer whether desired state is coherent and the play parses.
+
+        Renders to a scratch file rather than to ``generated_vars_path``.
+        Validation is a question, not a publication, and it takes no lock — so
+        writing to the real file would let it land between the moment a deploy
+        in another process wrote its snapshot there and the moment Ansible read
+        it. A rollback is where that hurts most: the fleet would converge to
+        current state while the rollback still rewrote canonical records to the
+        old snapshot's zones, leaving the control plane and the edges disagreeing
+        in exactly the way rollback exists to end.
+        """
         errors = self.settings.validate_runtime()
         errors.extend(self.dns.validation_errors())
         if not errors:
-            self.write_desired_state(self.deployments.snapshot())
-            result = self.runner.validate()
-            if result.return_code != 0:
+            with self._scratch_desired_state(self.deployments.snapshot()) as variables:
+                run = self.runner.validate(variables)
+            if not run.succeeded:
+                # The one place a log is read back. `--syntax-check` executes no
+                # play, so there is no structured result to explain a refusal —
+                # the return code decides, and Ansible's own message is quoted
+                # so the operator does not have to go and find it.
                 errors.append(
-                    result.stderr.strip()
-                    or result.stdout.strip()
-                    or "Ansible syntax validation failed"
+                    self.read_log(run.log_path, limit=self.settings.output_limit_bytes)
+                    or run.summary()
                 )
         return errors
+
+    @contextmanager
+    def _scratch_desired_state(self, snapshot: str) -> Iterator[Path]:
+        """Render a snapshot somewhere only this call can see, then drop it."""
+        directory = self.settings.run_dir
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+        path = directory / f"validate-{uuid4().hex}.yml"
+        try:
+            self.write_desired_state(snapshot, path)
+            yield path
+        finally:
+            path.unlink(missing_ok=True)
 
     # -- Deploying -----------------------------------------------------
 
@@ -173,21 +202,18 @@ class DeploymentService:
 
         Derived from the stored deployment rather than only from a live run, so
         the CLI and the API share one interpretation and an operator can revisit
-        the answer a scheduled check produced without re-running it.
+        the answer a scheduled check produced without re-running it. The stored
+        result is the structured one, so this reads the same object a live run
+        produced rather than re-deriving anything.
         """
         deployment = self.deployments.get_deployment(deployment_id)
         if not deployment.check_mode:
             raise ConflictError(
                 f"deployment {deployment_id} applied changes rather than "
-                "previewing them, so its output describes what it did, not "
+                "previewing them, so its result describes what it did, not "
                 "what had drifted. Run 'blitzecdn drift' instead."
             )
-        return DriftReport(
-            deployment_id=deployment.id,
-            checked_at=deployment.finished_at or deployment.created_at,
-            host_limit=deployment.host_limit,
-            hosts=parse_play_recap(deployment.stdout),
-        )
+        return DriftReport.of(deployment)
 
     # -- History -------------------------------------------------------
 
@@ -285,9 +311,35 @@ class DeploymentService:
             finally:
                 lock.__exit__(None, None, None)
 
-        threading.Thread(
-            target=worker, name=f"blitzecdn-deploy-{deployment.id}", daemon=True
-        ).start()
+        # The lock is released by whoever ends up owning the deployment, and
+        # until the thread is actually running that is still this call. A
+        # thread that cannot be started would otherwise leave the lock held by
+        # a worker that does not exist, and every later deploy, rollback,
+        # upload and issuance would fail with DeploymentBusyError until the
+        # process was restarted — a permanent outage from a transient failure.
+        try:
+            threading.Thread(
+                target=worker, name=f"blitzecdn-deploy-{deployment.id}", daemon=True
+            ).start()
+        except BaseException as exc:
+            try:
+                self.deployments.transition(
+                    deployment.id,
+                    DeploymentStatus.QUEUED,
+                    DeploymentStatus.FAILED,
+                    finished_at=datetime.now(UTC).isoformat(),
+                    result=self._aborted_run(exc, interrupted=False),
+                )
+                self.audit_log.audit(
+                    operator,
+                    "deployment.failed",
+                    "deployment",
+                    deployment.id,
+                    {"error_type": type(exc).__name__},
+                )
+            finally:
+                lock.__exit__(None, None, None)
+            raise
         return deployment
 
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
@@ -301,23 +353,14 @@ class DeploymentService:
         )
         try:
             snapshot = self.deployments.deployment_snapshot(deployment.id)
-            self.write_desired_state(snapshot)
-            result = self.runner.run(check=check, host_limit=deployment.host_limit)
-            target = (
-                DeploymentStatus.TIMED_OUT
-                if result.timed_out
-                else DeploymentStatus.SUCCEEDED
-                if result.return_code == 0
-                else DeploymentStatus.FAILED
-            )
+            self.write_desired_state(snapshot, self.settings.generated_vars_path)
+            run = self.runner.run(check=check, host_limit=deployment.host_limit)
             deployment = self.deployments.transition(
                 deployment.id,
                 DeploymentStatus.RUNNING,
-                target,
+                DeploymentStatus.of(run),
                 finished_at=datetime.now(UTC).isoformat(),
-                return_code=result.return_code,
-                stdout=result.stdout,
-                stderr=result.stderr,
+                result=run,
             )
         except BaseException as exc:
             interrupted = not isinstance(exc, Exception)
@@ -330,13 +373,10 @@ class DeploymentService:
                     else DeploymentStatus.FAILED
                 ),
                 finished_at=datetime.now(UTC).isoformat(),
-                return_code=None if interrupted else 1,
-                stdout="",
-                stderr=(
-                    f"deployment interrupted: {type(exc).__name__}"
-                    if interrupted
-                    else f"deployment runner error: {type(exc).__name__}: {exc}"
-                ),
+                # The runner never produced a result, so one is synthesised for
+                # the record: a deployment that ended without a run still has to
+                # say why, and every reader now expects to find that in `result`.
+                result=self._aborted_run(exc, interrupted=interrupted),
             )
             self.audit_log.audit(
                 operator,
@@ -355,7 +395,11 @@ class DeploymentService:
             f"deployment.{deployment.status}",
             "deployment",
             deployment.id,
-            {"return_code": deployment.return_code},
+            {
+                "return_code": run.return_code,
+                "changed": [host.host for host in run.changed_hosts],
+                "failed": [host.host for host in run.failed_hosts],
+            },
         )
         if (
             deployment.rollback_of
@@ -377,7 +421,38 @@ class DeploymentService:
             )
         return deployment
 
-    def write_desired_state(self, snapshot: str) -> None:
+    @staticmethod
+    def _aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
+        """A result for a deployment that never got a run of its own.
+
+        The runner raised before Ansible reported anything — a misconfiguration
+        it refused to start with, or the process being interrupted. There are no
+        hosts to describe, so this records why in the same shape every other
+        outcome uses rather than leaving ``result`` empty and making every
+        reader handle a second way of saying "it failed".
+        """
+        now = datetime.now(UTC)
+        return AnsibleRun(
+            id=uuid4().hex,
+            playbook="",
+            status=RunStatus.UNSTARTED,
+            return_code=None,
+            started_at=now,
+            finished_at=now,
+            error=(
+                f"deployment interrupted: {type(exc).__name__}"
+                if interrupted
+                else f"deployment runner error: {type(exc).__name__}: {exc}"
+            ),
+        )
+
+    def write_desired_state(self, snapshot: str, path: Path) -> None:
+        """Render a snapshot as the document Ansible reads with ``--extra-vars``.
+
+        The destination is a parameter because two callers want different ones:
+        a deploy publishes to ``generated_vars_path`` under the lock, while
+        ``validate`` renders to a scratch path it then throws away.
+        """
         sites = decode_snapshot(snapshot)
         documents: list[dict[str, object]] = []
         for site in sites:
@@ -391,7 +466,7 @@ class DeploymentService:
                 document["certificate_key_source_path"] = str(private_key)
             documents.append(document)
         self.write_yaml(
-            self.settings.generated_vars_path,
+            path,
             {
                 "blitzecdn_desired_state_version": DESIRED_STATE_VERSION,
                 "blitzecdn_nginx_allow_empty_sites": self.settings.allow_empty_sites,

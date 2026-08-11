@@ -30,13 +30,13 @@ import dns.rdatatype
 import dns.resolver
 
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import (
+from blitzecdn.domain.certificates import (
     TTL_CUTOVER_ADVISORY_SECONDS,
-    CdnSite,
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
 )
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.origins import OriginProbe as ConcreteOriginProbe
 from blitzecdn.ports import OriginProbe

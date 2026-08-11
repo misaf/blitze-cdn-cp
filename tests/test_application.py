@@ -2,24 +2,20 @@ import re
 import threading
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
-from conftest import FakePreflight, FakeRunner
+import yaml
+from conftest import FakePreflight, FakeRunner, ansible_run, host_run
 
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.models import (
-    CdnSite,
-    CertificateMode,
-    CertificateSource,
-    DeploymentStatus,
-    DnsRecord,
-    Domain,
-    PurgeEntry,
-    RecordPatch,
-    RecordType,
-)
+from blitzecdn.domain.cache import PurgeEntry
+from blitzecdn.domain.certificates import CertificateSource
+from blitzecdn.domain.deployments import DeploymentStatus
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.runs import RunStatus
+from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
 from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
-from blitzecdn.infrastructure.ansible import CommandResult
 from blitzecdn.infrastructure.database import Repository
 
 
@@ -41,9 +37,7 @@ def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
 
 def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
-    runner = FakeRunner(
-        [CommandResult(0, "syntax ok", ""), CommandResult(0, "applied", "")]
-    )
+    runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
     control.create_domain(Domain(name="example.com"), "alice")
     record = control.create_record(
@@ -59,7 +53,8 @@ def test_crud_validate_and_successful_deploy(settings):
     assert control.validate() == []
     result = control.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
-    assert result.stdout == "syntax ok"
+    assert result.result is not None
+    assert [host.host for host in result.hosts] == ["edge-a"]
     assert settings.generated_vars_path.exists()
 
 
@@ -95,7 +90,8 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
     deployment = repository.list_deployments(1)[0]
     assert deployment.status is DeploymentStatus.ABANDONED
     assert deployment.finished_at is not None
-    assert "KeyboardInterrupt" in deployment.stderr
+    assert deployment.result is not None
+    assert "KeyboardInterrupt" in (deployment.result.error or "")
 
 
 def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
@@ -212,8 +208,12 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner(
         [
-            CommandResult(2, "", "failed"),
-            CommandResult(124, "", "timeout", timed_out=True),
+            ansible_run(
+                host_run("edge-a", failure="nginx -t rejected the configuration"),
+                status=RunStatus.FAILED,
+                return_code=2,
+            ),
+            ansible_run(status=RunStatus.TIMED_OUT, return_code=124),
         ]
     )
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
@@ -227,7 +227,7 @@ def test_rollback_updates_canonical_state_only_after_success(settings, site_payl
     control = ControlPlane(
         settings,
         repository,
-        FakeRunner([CommandResult(0, "first", ""), CommandResult(0, "rollback", "")]),
+        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     control.create_domain(Domain(name="example.com"), "alice")
     original = control.create_record(
@@ -274,7 +274,7 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
     control = ControlPlane(
         settings,
         repository,
-        LockingRunner([CommandResult(0, "first", ""), CommandResult(0, "back", "")]),
+        LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     original = CdnSite.model_validate(site_payload)
     repository.create_site(original)
@@ -321,13 +321,48 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
 
 def test_submit_releases_the_lock_after_the_worker_finishes(settings, site_payload):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner([CommandResult(0, "", "")]))  # type: ignore[arg-type]
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.submit_deployment("alice")
     assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
     # A second submission proves the worker handed the lock back.
-    control.runner.results = [CommandResult(0, "", "")]
+    control.runner.results = [ansible_run(host_run("edge-a"))]
+    again = control.submit_deployment("alice")
+    assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
+
+
+def test_a_worker_that_cannot_start_does_not_strand_the_lock(
+    settings, site_payload, monkeypatch
+):
+    """A transient failure must not become a permanent outage.
+
+    The lock is released by whoever owns the deployment, and until the thread
+    is running that is still `submit`. A thread that never starts used to leave
+    it held by a worker that did not exist, and every later deploy, rollback,
+    upload and issuance failed with DeploymentBusyError until someone restarted
+    the process.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    repository.create_site(CdnSite.model_validate(site_payload))
+
+    def refuse_to_start(self):
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", refuse_to_start)
+    with pytest.raises(RuntimeError):
+        control.submit_deployment("alice")
+    monkeypatch.undo()
+
+    # The deployment is recorded as failed rather than left QUEUED forever.
+    recorded = repository.list_deployments(1)[0]
+    assert recorded.status is DeploymentStatus.FAILED
+    assert recorded.result is not None
+    assert recorded.result.status is RunStatus.UNSTARTED
+
+    # And the lock came back, so the control plane still works.
+    control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.submit_deployment("alice")
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
@@ -346,7 +381,12 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
 
     recorded = repository.list_deployments(1)[0]
     assert recorded.status is DeploymentStatus.FAILED
-    assert "unable to execute Ansible" in recorded.stderr
+    # The runner raised before Ansible reported anything, so the deployment
+    # carries a synthesised result rather than none: every reader looks in the
+    # same place for why a deployment ended.
+    assert recorded.result is not None
+    assert recorded.result.status is RunStatus.UNSTARTED
+    assert "unable to execute Ansible" in (recorded.result.error or "")
     assert any(
         event.action == "deployment.failed"
         for event in repository.list_audit_events(10)
@@ -363,7 +403,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_pay
             calls.append(1)
             if len(calls) == 1:
                 raise ExecutionError("boom")
-            return CommandResult(0, "ok", "")
+            return ansible_run(host_run("edge-a"))
 
     control = ControlPlane(settings, repository, ExplodingOnceRunner())  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
@@ -439,7 +479,7 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     control = ControlPlane(
         configured,
         repository,
-        FakeRunner([CommandResult(0, "deployed", "")]),
+        FakeRunner([ansible_run(host_run("edge-a"))]),
         issuer=FakeIssuer(),
         preflight=FakePreflight(),
     )  # type: ignore[arg-type]
@@ -528,7 +568,7 @@ def test_certificate_upload_holds_deployment_lock(
 
 def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings, site_payload):
     repository = Repository(settings.database_path)
-    runner = FakeRunner([CommandResult(0, "applied", "")])
+    runner = FakeRunner([ansible_run(host_run("edge-a"))])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
 
@@ -545,7 +585,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings, site_payload)
     it had never been given, which is the disagreement rollback exists to end.
     """
     repository = Repository(settings.database_path)
-    runner = FakeRunner([CommandResult(0, "ok", "") for _ in range(3)])
+    runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
 
     repository.create_site(CdnSite.model_validate(site_payload))
@@ -576,21 +616,28 @@ def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(
     assert repository.list_deployments(5) == []
 
 
-_IN_SYNC_RECAP = (
-    "PLAY RECAP ****\n"
-    "edge-a  : ok=9 changed=0 unreachable=0 failed=0\n"
-    "edge-b  : ok=9 changed=0 unreachable=0 failed=0\n"
-)
-_DRIFTED_RECAP = (
-    "PLAY RECAP ****\n"
-    "edge-a  : ok=9 changed=3 unreachable=0 failed=0\n"
-    "edge-b  : ok=9 changed=0 unreachable=0 failed=0\n"
-)
+def _in_sync_run():
+    return ansible_run(host_run("edge-a"), host_run("edge-b"))
+
+
+def _drifted_run():
+    """edge-a would rewrite two vhosts and reload; edge-b is converged.
+
+    The task names matter now: a drift report says which configuration moved,
+    not only how many tasks would run.
+    """
+    return ansible_run(
+        host_run(
+            "edge-a",
+            changes=("Render managed sites", "Enable desired sites", "Reload Nginx"),
+        ),
+        host_run("edge-b"),
+    )
 
 
 def test_drift_check_runs_without_changing_anything(settings, site_payload):
     repository = Repository(settings.database_path)
-    runner = FakeRunner([CommandResult(0, _IN_SYNC_RECAP, "")])
+    runner = FakeRunner([_in_sync_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
 
@@ -603,7 +650,7 @@ def test_drift_check_runs_without_changing_anything(settings, site_payload):
 
 def test_drift_check_names_the_edges_that_moved(settings, site_payload):
     repository = Repository(settings.database_path)
-    runner = FakeRunner([CommandResult(0, _DRIFTED_RECAP, "")])
+    runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
 
@@ -621,7 +668,7 @@ def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
     settings, site_payload
 ):
     repository = Repository(settings.database_path)
-    runner = FakeRunner([CommandResult(0, _DRIFTED_RECAP, "")])
+    runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
 
@@ -634,7 +681,7 @@ def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
 def test_an_applied_deployment_is_not_a_drift_report(settings, site_payload):
     """Its output says what it did, not what had drifted."""
     repository = Repository(settings.database_path)
-    runner = FakeRunner([CommandResult(0, _DRIFTED_RECAP, "")])
+    runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
     repository.create_site(CdnSite.model_validate(site_payload))
 
@@ -724,6 +771,82 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
         "due-example-com",
         "healthy-example-com",
     ]
+
+
+def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
+    settings, certificate_pair, monkeypatch
+):
+    """A truncated sweep is a slower renewal, not a missed one.
+
+    The budget is checked between sites and never during one, so a request that
+    runs out of time cannot leave the CA believing it issued a certificate this
+    store never recorded. Whatever it did not reach comes back under `skipped`
+    and is picked up by the next run.
+    """
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
+    control.create_domain(Domain(name="example.com"), "alice")
+    for label in ("one", "two"):
+        record = control.create_record(
+            DnsRecord(
+                domain="example.com", name=label, value="198.51.100.10", proxied=True
+            ),
+            "alice",
+        )
+        certificate, key = certificate_pair((record.fqdn,), days=5)
+        control.upload_certificate(record.site_name, certificate, key, "alice")
+        control.request_certificate(record.site_name, "alice", "ops@example.com")
+    issuer.issued.clear()
+
+    # Time runs out the moment the first site has been renewed.
+    clock = iter([0.0, 0.0, 1000.0, 1000.0, 1000.0])
+    monkeypatch.setattr(
+        "blitzecdn.application.certificates.monotonic", lambda: next(clock)
+    )
+
+    result = control.renew_certificates("alice", force=True, budget_seconds=1)
+
+    assert len(result["renewed"]) == 1
+    assert len(issuer.issued) == 1, "the budget must not interrupt an issuance"
+    assert len(result["skipped"]) == 1
+    assert "renewal budget" in result["skipped"][0]
+    assert "retried by the next run" in result["skipped"][0]
+
+
+def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
+    """The CLI and the timer pass no budget, and must keep sweeping everything."""
+    repository = Repository(settings.database_path)
+    issuer = _RecordingIssuer(certificate_pair)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        issuer=issuer,
+        preflight=FakePreflight(),  # type: ignore[arg-type]
+    )
+    control.create_domain(Domain(name="example.com"), "alice")
+    for label in ("one", "two"):
+        record = control.create_record(
+            DnsRecord(
+                domain="example.com", name=label, value="198.51.100.10", proxied=True
+            ),
+            "alice",
+        )
+        certificate, key = certificate_pair((record.fqdn,), days=5)
+        control.upload_certificate(record.site_name, certificate, key, "alice")
+        control.request_certificate(record.site_name, "alice", "ops@example.com")
+
+    result = control.renew_certificates("alice", force=True)
+
+    assert len(result["renewed"]) == 2
+    assert result["skipped"] == []
 
 
 def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
@@ -873,7 +996,9 @@ def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_p
 # Cache purge
 # ----------------------------------------------------------------------
 
-_PURGE_RECAP = "PLAY RECAP ****\nedge-a : ok=4 changed=1 unreachable=0 failed=0\n"
+
+def _purge_run():
+    return ansible_run(host_run("edge-a", changed=1))
 
 
 def _site(control, repository, name="cdn-example-com", server="cdn.example.com"):
@@ -886,24 +1011,27 @@ def _site(control, repository, name="cdn-example-com", server="cdn.example.com")
 
 def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     repository = Repository(settings.database_path)
-    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository)
 
     result = control.purge_cache(
-        "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/app.js")]
+        "alice",
+        entries=[
+            PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
+        ],
     )
 
     assert result.complete is True
     entries, purge_all, _ = fake.purges[0]
-    assert entries == [{"host": "cdn.example.com", "uri": "/app.js", "scheme": "https"}]
+    assert entries == [{"host": "cdn.example.com", "uri": "/app.js", "scheme": "http"}]
     assert purge_all is False
 
 
 def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     """Otherwise it reports success having removed nothing."""
     repository = Repository(settings.database_path)
-    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository)
 
@@ -917,19 +1045,78 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
 def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     """nginx matches *.example.com to a.example.com, so purge must too."""
     repository = Repository(settings.database_path)
-    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository, server="*.assets.example.com")
 
     result = control.purge_cache(
-        "alice", entries=[PurgeEntry(host="img.assets.example.com", uri="/a.png")]
+        "alice",
+        entries=[
+            PurgeEntry(
+                host="img.assets.example.com", uri="/a.png", scheme=HttpScheme.HTTP
+            )
+        ],
     )
     assert result.complete is True
 
 
+def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
+    """The cache key starts with $scheme, so the two are different entries.
+
+    A site without TLS is served entirely over port 80, so nothing of it is
+    stored under `https`. Purging that scheme computes a different MD5 and
+    deletes a file that was never written, while every edge reports success.
+    """
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    _site(control, repository)
+
+    with pytest.raises(ConflictError, match="scheme"):
+        control.purge_cache(
+            "alice",
+            entries=[
+                PurgeEntry(
+                    host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTPS
+                )
+            ],
+        )
+    assert fake.purges == []
+
+
+def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
+    """Port 80 only answers 308 for a TLS site, so it caches nothing."""
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    repository.create_site(
+        CdnSite.model_validate(
+            {
+                "name": "tls-example-com",
+                "server_names": ["tls.example.com"],
+                "origin_host": "o.example.com",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/tls.pem",
+                "certificate_key_path": "/etc/ssl/private/tls.key",
+            }
+        )
+    )
+
+    with pytest.raises(ConflictError, match="scheme"):
+        control.purge_cache(
+            "alice",
+            entries=[
+                PurgeEntry(
+                    host="tls.example.com", uri="/app.js", scheme=HttpScheme.HTTP
+                )
+            ],
+        )
+    assert fake.purges == []
+
+
 def test_a_purge_for_a_disabled_site_is_refused(settings):
     repository = Repository(settings.database_path)
-    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     repository.create_site(
         CdnSite.model_validate(
@@ -956,7 +1143,9 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     with pytest.raises(ConflictError):
         control.purge_cache(
             "alice",
-            entries=[PurgeEntry(host="cdn.example.com", uri="/x")],
+            entries=[
+                PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
+            ],
             purge_all=True,
         )
 
@@ -969,7 +1158,7 @@ def test_a_purge_with_nothing_to_do_is_refused(settings):
 
 def test_purging_everything_needs_no_site_to_exist(settings):
     """--all is about the cache on disk, not about what is currently declared."""
-    fake = FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
+    fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, Repository(settings.database_path), fake)  # type: ignore[arg-type]
 
     result = control.purge_cache("alice", purge_all=True)
@@ -981,18 +1170,17 @@ def test_purging_everything_needs_no_site_to_exist(settings):
 def test_a_partial_purge_is_reported_as_incomplete(settings):
     """Some edges dropped the object and some did not: clients see both."""
     repository = Repository(settings.database_path)
-    recap = (
-        "PLAY RECAP ****\n"
-        "edge-a : ok=4 changed=1 unreachable=0 failed=0\n"
-        "edge-b : ok=0 changed=0 unreachable=1 failed=0\n"
+    partial = ansible_run(
+        host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
     )
-    control = ControlPlane(
-        settings, repository, FakeRunner([CommandResult(0, recap, "")])
-    )  # type: ignore[arg-type]
+    control = ControlPlane(settings, repository, FakeRunner([partial]))  # type: ignore[arg-type]
     _site(control, repository)
 
     result = control.purge_cache(
-        "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/app.js")]
+        "alice",
+        entries=[
+            PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
+        ],
     )
 
     assert result.complete is False
@@ -1003,25 +1191,31 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
     """Silence is not success: the object may still be served everywhere."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings, repository, FakeRunner([CommandResult(0, "", "no hosts matched")])
+        settings,
+        repository,
+        FakeRunner([ansible_run(status=RunStatus.FAILED, return_code=1)]),
     )  # type: ignore[arg-type]
     _site(control, repository)
 
     with pytest.raises(ExecutionError, match="no edge reported"):
         control.purge_cache(
-            "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/x")]
+            "alice",
+            entries=[
+                PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
+            ],
         )
 
 
 def test_a_purge_is_recorded_in_the_audit_trail(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings, repository, FakeRunner([CommandResult(0, _PURGE_RECAP, "")])
-    )  # type: ignore[arg-type]
+    control = ControlPlane(settings, repository, FakeRunner([_purge_run()]))  # type: ignore[arg-type]
     _site(control, repository)
 
     control.purge_cache(
-        "alice", entries=[PurgeEntry(host="cdn.example.com", uri="/app.js")]
+        "alice",
+        entries=[
+            PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
+        ],
     )
 
     event = repository.list_audit_events()[0]
@@ -1034,16 +1228,15 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
 # Cache statistics
 # ----------------------------------------------------------------------
 
-_STATS_RECAP = (
-    "PLAY RECAP ****\n"
-    "edge-a : ok=5 changed=0 unreachable=0 failed=0\n"
-    "edge-b : ok=5 changed=0 unreachable=0 failed=0\n"
-)
 
+def _stats_control(settings, *hosts):
+    """A control plane whose next stats run returns these per-host results.
 
-def _stats_control(settings, reports, recap=_STATS_RECAP):
-    fake = FakeRunner([CommandResult(0, recap, "")])
-    fake.edge_reports = reports
+    Counters now arrive on the run itself, published by the role as the
+    `blitzecdn_report` fact. There is no controller-side directory in the
+    picture, so the roster and the numbers cannot disagree.
+    """
+    fake = FakeRunner([ansible_run(*hosts)])
     return ControlPlane(settings, Repository(settings.database_path), fake), fake  # type: ignore[arg-type]
 
 
@@ -1057,20 +1250,23 @@ def _report(cache, *, reachable=True):
     }
 
 
+def _reporting(name, cache):
+    return host_run(name, ok=5, report=_report(cache))
+
+
 def test_statistics_are_aggregated_across_the_fleet(settings):
     control, _ = _stats_control(
         settings,
-        {
-            "edge-a": _report(
-                [
-                    {"site": "cdn.example.com", "outcome": "HIT", "requests": 7},
-                    {"site": "cdn.example.com", "outcome": "MISS", "requests": 3},
-                ]
-            ),
-            "edge-b": _report(
-                [{"site": "cdn.example.com", "outcome": "HIT", "requests": 10}]
-            ),
-        },
+        _reporting(
+            "edge-a",
+            [
+                {"site": "cdn.example.com", "outcome": "HIT", "requests": 7},
+                {"site": "cdn.example.com", "outcome": "MISS", "requests": 3},
+            ],
+        ),
+        _reporting(
+            "edge-b", [{"site": "cdn.example.com", "outcome": "HIT", "requests": 10}]
+        ),
     )
 
     report = control.cache_stats("alice")
@@ -1080,11 +1276,17 @@ def test_statistics_are_aggregated_across_the_fleet(settings):
     assert report.by_site()[0].site == "cdn.example.com"
 
 
-def test_an_edge_that_wrote_no_report_is_silent_rather_than_missing(settings):
-    """The recap is the roster; a vanished edge would understate the fleet."""
+def test_an_edge_that_published_nothing_is_silent_rather_than_missing(settings):
+    """The run is the roster; a vanished edge would understate the fleet.
+
+    An edge whose tasks ran but which published no report is a real state — the
+    role failed part way, or a future role simply has nothing to say — and it
+    has to read as silence rather than as absence.
+    """
     control, _ = _stats_control(
         settings,
-        {"edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])},
+        _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}]),
+        host_run("edge-b", ok=5),
     )
 
     report = control.cache_stats("alice")
@@ -1094,15 +1296,10 @@ def test_an_edge_that_wrote_no_report_is_silent_rather_than_missing(settings):
 
 
 def test_an_unreachable_edge_is_reported_as_unreachable(settings):
-    recap = (
-        "PLAY RECAP ****\n"
-        "edge-a : ok=5 changed=0 unreachable=0 failed=0\n"
-        "edge-b : ok=0 changed=0 unreachable=1 failed=0\n"
-    )
     control, _ = _stats_control(
         settings,
-        {"edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])},
-        recap=recap,
+        _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}]),
+        host_run("edge-b", ok=0, unreachable=1),
     )
 
     report = control.cache_stats("alice")
@@ -1110,44 +1307,13 @@ def test_an_unreachable_edge_is_reported_as_unreachable(settings):
     assert [(e.host, e.error) for e in report.silent] == [("edge-b", "unreachable")]
 
 
-def test_a_truncated_edge_report_degrades_instead_of_raising(settings):
-    """One bad file must not take the whole fleet's numbers with it."""
-    control, fake = _stats_control(
+def test_an_edge_whose_stats_role_failed_is_not_counted(settings):
+    """Its counters would be partial, and a partial number reads as a real one."""
+    control, _ = _stats_control(
         settings,
-        {"edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])},
+        _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}]),
+        host_run("edge-b", failure="collect-cache-stats.sh returned 1"),
     )
-    original = fake.run_stats
-
-    def _truncate(*, output_dir, host_limit=None):
-        result = original(output_dir=output_dir, host_limit=host_limit)
-        (output_dir / "edge-b.json").write_text('{"cache": [', encoding="utf-8")
-        return result
-
-    fake.run_stats = _truncate  # type: ignore[method-assign]
-
-    report = control.cache_stats("alice")
-
-    assert [edge.host for edge in report.reporting] == ["edge-a"]
-    assert report.silent[0].host == "edge-b"
-
-
-def test_a_previous_runs_report_is_not_read_as_current(settings):
-    """A stale number presented as fresh is worse than an admitted gap."""
-    control, fake = _stats_control(
-        settings,
-        {
-            "edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}]),
-            "edge-b": _report([{"site": "a", "outcome": "HIT", "requests": 99}]),
-        },
-    )
-    assert len(control.cache_stats("alice").reporting) == 2
-
-    # Second run: edge-b says nothing, and must not be answered with its own
-    # earlier document.
-    fake.results = [CommandResult(0, _STATS_RECAP, "")]
-    fake.edge_reports = {
-        "edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}])
-    }
 
     report = control.cache_stats("alice")
 
@@ -1155,13 +1321,42 @@ def test_a_previous_runs_report_is_not_read_as_current(settings):
     assert report.requests == 1
 
 
+def test_a_malformed_edge_report_degrades_instead_of_raising(settings):
+    """One bad payload must not take the whole fleet's numbers with it.
+
+    The shape is ours, but it crossed a machine boundary, so every field is
+    read defensively: rows that are not objects, counts that are not numbers
+    and a timestamp that will not parse are dropped rather than raised on.
+    """
+    control, _ = _stats_control(
+        settings,
+        _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}]),
+        host_run(
+            "edge-b",
+            ok=5,
+            report={
+                "collected_at": "not a timestamp",
+                "connections": "not a mapping",
+                "cache": ["not an object", {"site": "b", "requests": "many"}],
+            },
+        ),
+    )
+
+    report = control.cache_stats("alice")
+
+    assert report.requests == 1
+    edge_b = next(edge for edge in report.edges if edge.host == "edge-b")
+    assert edge_b.error is None
+    assert edge_b.sites == ()
+    assert edge_b.collected_at is None
+    assert edge_b.connections == {}
+
+
 def test_statistics_are_recorded_in_the_audit_trail(settings):
     control, _ = _stats_control(
         settings,
-        {
-            "edge-a": _report([{"site": "a", "outcome": "HIT", "requests": 1}]),
-            "edge-b": _report([{"site": "a", "outcome": "MISS", "requests": 1}]),
-        },
+        _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}]),
+        _reporting("edge-b", [{"site": "a", "outcome": "MISS", "requests": 1}]),
     )
 
     control.cache_stats("alice")
@@ -1285,7 +1480,7 @@ def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair)
     _seed_proxied_record(control)
 
     # Two runs, so the fake runner needs a result for each.
-    control.runner.results.append(CommandResult(0, "ok", ""))
+    control.runner.results.append(ansible_run(host_run("edge-a")))
 
     control.deploy("alice", check=True)
     assert control.deployments.site_is_deployed("cdn-example-com") is False
@@ -1316,3 +1511,100 @@ def test_certificate_preflight_reports_without_contacting_a_ca(
     assert report.site == "cdn-example-com"
     assert not report.ok
     assert issuer.issued == []
+
+
+def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
+    """Validation takes no lock, so it must not touch shared desired state.
+
+    A deploy in another process owns `generated_vars_path` between writing its
+    snapshot there and Ansible reading it. A validate landing in that window
+    would converge the fleet to a document the deployment never recorded —
+    worst of all under rollback, which would then rewrite canonical records to
+    the old zones while the edges received current state.
+    """
+    repository = Repository(settings.database_path)
+    fake = FakeRunner()
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    _seed_proxied_record(control)
+
+    settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.generated_vars_path.write_text("in-flight deploy\n", encoding="utf-8")
+
+    assert control.validate() == []
+
+    assert settings.generated_vars_path.read_text(encoding="utf-8") == (
+        "in-flight deploy\n"
+    )
+    scratch = fake.validated[0]
+    assert scratch != settings.generated_vars_path
+    # Rendered for the run and removed with it, rather than accumulating.
+    assert not scratch.exists()
+
+
+def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
+    """Purge, stats and decommission all skip the deployment lock.
+
+    They therefore overlap routinely. A fixed filename per playbook made the
+    document shared mutable state: the second writer won, so a two-URL purge
+    could find `purge_all: true` in the file by the time its own playbook read
+    it and empty the cache on every edge.
+    """
+    from blitzecdn.infrastructure import ansible
+
+    settings.cache_purge_playbook_path.write_text(
+        "- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8"
+    )
+    runner = ansible.AnsibleRunner(settings)
+    seen: list[dict[str, object]] = []
+
+    def capture(command, *, timeout, playbook):
+        path = Path(next(arg for arg in command if arg.startswith("@"))[1:])
+        seen.append(yaml.safe_load(path.read_text(encoding="utf-8")))
+        return _purge_run()
+
+    monkeypatch.setattr(runner, "_execute", capture)
+
+    runner.run_cache_purge(
+        entries=[{"host": "cdn.example.com", "uri": "/a.js", "scheme": "http"}],
+        purge_all=False,
+    )
+    runner.run_cache_purge(entries=[], purge_all=True)
+
+    assert seen[0]["blitzecdn_cache_purge_all"] is False
+    assert seen[1]["blitzecdn_cache_purge_all"] is True
+    # Nothing is left behind for a later run to pick up.
+    assert list((settings.state_dir / "runs").iterdir()) == []
+
+
+def test_a_collection_reads_only_its_own_run(settings):
+    """Two overlapping collections cannot answer each other's questions.
+
+    They used to share one controller-side directory that each emptied before
+    collecting, so a run could wipe the other's reports and read the whole fleet
+    as silent. Counters now arrive attached to the run that asked for them, so
+    the failure has no way to occur — this pins that property rather than the
+    directory bookkeeping that used to approximate it.
+    """
+    repository = Repository(settings.database_path)
+    fake = FakeRunner(
+        [
+            ansible_run(
+                _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}])
+            ),
+            ansible_run(
+                _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 99}]),
+                _reporting("edge-b", [{"site": "a", "outcome": "MISS", "requests": 5}]),
+            ),
+        ]
+    )
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+
+    first = control.cache_stats("alice")
+    second = control.cache_stats("alice")
+
+    assert first.requests == 1
+    assert [edge.host for edge in first.reporting] == ["edge-a"]
+    assert second.requests == 104
+    assert [edge.host for edge in second.reporting] == ["edge-a", "edge-b"]
+    # Nothing on the controller's filesystem is involved any more.
+    assert not (settings.state_dir / "stats").exists()

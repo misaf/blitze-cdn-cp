@@ -10,19 +10,19 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from time import monotonic
 
 from blitzecdn.application.deployments import DeploymentService
 from blitzecdn.application.dns import DnsService
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import (
+from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
-    CdnSite,
     CertificateInfo,
-    CertificateMode,
     CertificateSource,
     CertificateStatus,
     PreflightReport,
 )
+from blitzecdn.domain.sites import CdnSite, CertificateMode
 from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
 from blitzecdn.ports import (
     AuditLog,
@@ -289,6 +289,7 @@ class CertificateService:
         within_days: int = CERTIFICATE_RENEWAL_DAYS,
         force: bool = False,
         sites: Sequence[str] | None = None,
+        budget_seconds: float | None = None,
     ) -> dict[str, list[str]]:
         """Reissue ACME certificates that are close to expiry.
 
@@ -314,11 +315,22 @@ class CertificateService:
         with the reason named, instead of consuming a CA request and reporting
         certbot's output. There is deliberately no override on this path: an
         unattended timer must not be able to force past a failed check.
+
+        ``budget_seconds`` bounds the whole sweep for a caller that cannot wait
+        indefinitely — the API passes one, the CLI and the timer do not. It is
+        checked only between sites, never during one: abandoning a request
+        mid-issuance would leave the CA's view and ours disagreeing about a
+        certificate that may well have been issued. A site the budget did not
+        reach is reported as skipped and renewed by the next run, which is
+        exactly what a site that failed transiently already does.
         """
         renewed: list[str] = []
         skipped: list[str] = []
         failed: list[str] = []
         now = datetime.now(UTC)
+        deadline = (
+            None if budget_seconds is None else monotonic() + max(budget_seconds, 0.0)
+        )
         stored = self.certificate_store.list_all()
         selected = None if sites is None else set(sites)
         if selected is not None:
@@ -338,6 +350,13 @@ class CertificateService:
                     )
                 continue
             if not force and not status.due_for_renewal(within_days):
+                continue
+            if deadline is not None and monotonic() >= deadline:
+                skipped.append(
+                    f"{status.site}: not attempted, the renewal budget of "
+                    f"{budget_seconds:.0f}s was spent on earlier sites. It will "
+                    "be retried by the next run."
+                )
                 continue
             try:
                 # Renew under the address the certificate was registered with,

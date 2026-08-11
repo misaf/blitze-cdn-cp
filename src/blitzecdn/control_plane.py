@@ -22,27 +22,21 @@ from blitzecdn.application import (
     EdgeOperationsService,
 )
 from blitzecdn.config import Settings
-from blitzecdn.domain.models import (
+from blitzecdn.domain.cache import CacheStatsReport, PurgeEntry, PurgeResult
+from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
-    CacheStatsReport,
     CertificateInfo,
     CertificateStatus,
-    Deployment,
-    DnsRecord,
-    Domain,
-    DriftReport,
-    HostDrift,
-    OriginCheck,
     PreflightReport,
-    PurgeEntry,
-    PurgeResult,
-    RecordPatch,
-    RecordType,
 )
+from blitzecdn.domain.deployments import Deployment, DriftReport
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.runs import HostRun
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
-from blitzecdn.infrastructure.filesystem import atomic_write_yaml
+from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
@@ -98,6 +92,7 @@ class ControlPlane:
             self.certificate_store,
             self.dns,
             atomic_write_yaml,
+            read_log_tail,
         )
         self.certificates = CertificateService(
             settings,
@@ -214,9 +209,14 @@ class ControlPlane:
         within_days: int = CERTIFICATE_RENEWAL_DAYS,
         force: bool = False,
         sites: Sequence[str] | None = None,
+        budget_seconds: float | None = None,
     ) -> dict[str, list[str]]:
         return self.certificates.renew_certificates(
-            operator, within_days=within_days, force=force, sites=sites
+            operator,
+            within_days=within_days,
+            force=force,
+            sites=sites,
+            budget_seconds=budget_seconds,
         )
 
     # -- Deployment ----------------------------------------------------
@@ -278,7 +278,7 @@ class ControlPlane:
 
     def decommission_edge(
         self, name: str, operator: str, *, force: bool = False
-    ) -> tuple[HostDrift, ...]:
+    ) -> tuple[HostRun, ...]:
         return self.edges.decommission_edge(name, operator, force=force)
 
 

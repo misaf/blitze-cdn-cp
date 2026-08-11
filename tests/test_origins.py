@@ -14,7 +14,7 @@ from contextlib import contextmanager
 
 import pytest
 
-from blitzecdn.domain.models import CdnSite, OriginScheme
+from blitzecdn.domain.sites import CdnSite, HttpScheme
 from blitzecdn.infrastructure.origins import OriginProbe
 
 
@@ -24,7 +24,7 @@ def _site(**overrides) -> CdnSite:
             "name": "cdn-example-com",
             "server_names": ["cdn.example.com"],
             "origin_host": "127.0.0.1",
-            "origin_scheme": OriginScheme.HTTP,
+            "origin_scheme": HttpScheme.HTTP,
             **overrides,
         }
     )
@@ -109,7 +109,7 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
     with _listener(tls_context=context) as port:
         result = OriginProbe(settings).check(
             _site(
-                origin_scheme=OriginScheme.HTTPS,
+                origin_scheme=HttpScheme.HTTPS,
                 origin_port=port,
                 origin_sni="origin.example.com",
             )
@@ -122,10 +122,10 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
 
 
 def test_the_probe_uses_the_same_sni_the_edge_template_would(settings):
-    """site.conf.j2 falls back origin_sni -> origin_request_host -> server_name."""
+    """site.conf.j2 falls back origin_sni -> origin_request_host -> origin_host."""
     probe = OriginProbe(settings)
     with _listener() as port:
-        base = {"origin_scheme": OriginScheme.HTTPS, "origin_port": port}
+        base = {"origin_scheme": HttpScheme.HTTPS, "origin_port": port}
         assert probe.check(_site(**base, origin_sni="a.example.com")).sni == (
             "a.example.com"
         )
@@ -133,7 +133,23 @@ def test_the_probe_uses_the_same_sni_the_edge_template_would(settings):
             probe.check(_site(**base, origin_request_host="b.example.com")).sni
             == "b.example.com"
         )
-        assert probe.check(_site(**base)).sni == "cdn.example.com"
+        assert probe.check(_site(**base)).sni == "127.0.0.1"
+
+
+def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
+    """A wildcard is legal in server_name and meaningless in a handshake.
+
+    `*.example.com` matches no certificate, so falling back to it would make
+    every wildcard site fail verification against an origin that is otherwise
+    correctly configured.
+    """
+    site = _site(
+        server_names=["*.example.com", "example.com"],
+        origin_host="origin.example.com",
+        origin_scheme=HttpScheme.HTTPS,
+    )
+    assert site.effective_origin_sni == "origin.example.com"
+    assert OriginProbe(settings).check(site).sni == "origin.example.com"
 
 
 def test_checking_no_sites_does_no_work(settings):
@@ -142,7 +158,7 @@ def test_checking_no_sites_does_no_work(settings):
 
 @pytest.mark.parametrize(
     ("scheme", "expected_port"),
-    [(OriginScheme.HTTP, "80"), (OriginScheme.HTTPS, "443")],
+    [(HttpScheme.HTTP, "80"), (HttpScheme.HTTPS, "443")],
 )
 def test_an_origin_without_a_port_uses_the_scheme_default(
     settings, scheme, expected_port

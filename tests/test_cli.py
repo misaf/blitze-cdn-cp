@@ -3,19 +3,15 @@ import sys
 
 import pytest
 from click.utils import strip_ansi
-from conftest import FakePreflight, FakeRunner
+from conftest import FakePreflight, FakeRunner, ansible_run, host_run
 from typer.testing import CliRunner
 
 from blitzecdn import cli
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.models import (
-    CdnSite,
-    DnsRecord,
-    Domain,
-    PreflightCheck,
-    PreflightSeverity,
-)
-from blitzecdn.infrastructure.ansible import CommandResult
+from blitzecdn.domain.certificates import PreflightCheck, PreflightSeverity
+from blitzecdn.domain.dns import DnsRecord, Domain
+from blitzecdn.domain.runs import RunStatus
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.infrastructure.database import Repository
 
 runner = CliRunner()
@@ -287,9 +283,9 @@ def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch
     repository.create_site(CdnSite.model_validate(site_payload))
     fake = FakeRunner(
         [
-            CommandResult(0, "plan", ""),
-            CommandResult(0, "apply", ""),
-            CommandResult(0, "rollback", ""),
+            ansible_run(host_run("edge-a")),
+            ansible_run(host_run("edge-a")),
+            ansible_run(host_run("edge-a")),
         ]
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
@@ -313,9 +309,7 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
     repository = Repository(settings.database_path)
     site = CdnSite.model_validate(site_payload)
     repository.create_site(site)
-    fake = FakeRunner(
-        [CommandResult(0, "http deployed", ""), CommandResult(0, "tls deployed", "")]
-    )
+    fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     report = FakePreflight().check(site, deployed=True, record_ttl=300)
     requested: list[str] = []
@@ -358,7 +352,7 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
     control = ControlPlane(
         settings,
         repository,
-        FakeRunner([CommandResult(0, "http deployed", "")]),
+        FakeRunner([ansible_run(host_run("edge-a"))]),
     )  # type: ignore[arg-type]
     report = FakePreflight(("dns",)).check(site, deployed=True, record_ttl=300)
     monkeypatch.setattr(control, "certificate_preflight", lambda _name: report)
@@ -385,11 +379,12 @@ def test_interactive_deploy_validates_previews_and_applies(
 ):
     repository = Repository(settings.database_path)
     repository.create_site(CdnSite.model_validate(site_payload))
+    # `validate` reads the first result without consuming it, so one entry
+    # serves both it and the preview; the second is the apply.
     fake = FakeRunner(
         [
-            CommandResult(0, "syntax ok", ""),
-            CommandResult(0, "preview", ""),
-            CommandResult(0, "applied", ""),
+            ansible_run(host_run("edge-a", changes=("Render managed sites",))),
+            ansible_run(host_run("edge-a", changes=("Render managed sites",))),
         ]
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
@@ -397,7 +392,10 @@ def test_interactive_deploy_validates_previews_and_applies(
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
     assert "Configuration is valid" in result.stdout
-    assert "preview" in result.stdout
+    # The preview names the task that would change. It used to echo Ansible's
+    # own output verbatim, which meant several hundred lines to find this in.
+    assert "edge-a: would change 1 task(s)" in result.stdout
+    assert "Render managed sites" in result.stdout
     assert "succeeded" in result.stdout
 
 
@@ -427,12 +425,18 @@ def _seed_certificate(control, certificate_pair, *, days):
     return record.site_name
 
 
-_IN_SYNC = "PLAY RECAP ****\nedge-a : ok=9 changed=0 unreachable=0 failed=0\n"
-_DRIFTED = "PLAY RECAP ****\nedge-a : ok=9 changed=2 unreachable=0 failed=0\n"
+def _in_sync():
+    return ansible_run(host_run("edge-a", ok=9))
+
+
+def _drifted():
+    return ansible_run(
+        host_run("edge-a", ok=9, changes=("Render managed sites", "Reload Nginx"))
+    )
 
 
 def test_drift_exits_zero_when_the_fleet_matches(settings, monkeypatch):
-    _control(settings, monkeypatch, FakeRunner([CommandResult(0, _IN_SYNC, "")]))
+    _control(settings, monkeypatch, FakeRunner([_in_sync()]))
     result = runner.invoke(cli.app, ["drift"])
     assert result.exit_code == 0
     assert "All 1 edges match desired state." in result.output
@@ -440,14 +444,14 @@ def test_drift_exits_zero_when_the_fleet_matches(settings, monkeypatch):
 
 def test_drift_exits_six_when_an_edge_has_moved(settings, monkeypatch):
     """A dedicated code so a scheduled check can tell drift from a broken check."""
-    _control(settings, monkeypatch, FakeRunner([CommandResult(0, _DRIFTED, "")]))
+    _control(settings, monkeypatch, FakeRunner([_drifted()]))
     result = runner.invoke(cli.app, ["drift"])
     assert result.exit_code == cli.ExitCode.DRIFT_DETECTED
     assert "edge-a would change 2 task(s)" in result.output
 
 
 def test_drift_json_output_is_machine_readable(settings, monkeypatch):
-    _control(settings, monkeypatch, FakeRunner([CommandResult(0, _DRIFTED, "")]))
+    _control(settings, monkeypatch, FakeRunner([_drifted()]))
     result = runner.invoke(cli.app, ["drift", "--json"])
     payload = json.loads(result.output)
     assert payload["in_sync"] is False
@@ -459,7 +463,7 @@ def test_deploy_with_a_limit_says_the_rollout_is_unfinished(settings, monkeypatc
     control = _control(
         settings,
         monkeypatch,
-        FakeRunner([CommandResult(0, "ok", "") for _ in range(3)]),
+        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
     )
     settings.inventory_path.write_text(
         "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
@@ -644,7 +648,7 @@ def test_cert_renew_json_output_carries_all_three_outcomes(settings, monkeypatch
 
 def test_cert_renew_can_deploy_successful_renewals(settings, monkeypatch):
     control = _control(
-        settings, monkeypatch, FakeRunner([CommandResult(0, "installed", "")])
+        settings, monkeypatch, FakeRunner([ansible_run(host_run("edge-a"))])
     )
     monkeypatch.setattr(
         control,
@@ -697,7 +701,17 @@ def test_plan_exits_five_when_check_mode_fails(settings, site_payload, monkeypat
     repository = Repository(settings.database_path)
     repository.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(
-        settings, repository, FakeRunner([CommandResult(2, "", "unreachable")])
+        settings,
+        repository,
+        FakeRunner(
+            [
+                ansible_run(
+                    host_run("edge-a", ok=0, unreachable=1),
+                    status=RunStatus.FAILED,
+                    return_code=2,
+                )
+            ]
+        ),
     )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
@@ -723,9 +737,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
 ):
     repository = Repository(settings.database_path)
     repository.create_site(CdnSite.model_validate(site_payload))
-    fake = FakeRunner(
-        [CommandResult(0, "syntax ok", ""), CommandResult(0, "preview", "")]
-    )
+    fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
@@ -749,9 +761,7 @@ def test_rollback_changes_nothing_when_the_operator_declines(settings, monkeypat
 
 def test_drift_says_so_when_no_edge_answered(settings, monkeypatch):
     """An empty recap is silence, not agreement, so it must not read as in-sync."""
-    _control(
-        settings, monkeypatch, FakeRunner([CommandResult(0, "PLAY RECAP ****\n", "")])
-    )
+    _control(settings, monkeypatch, FakeRunner([ansible_run()]))
 
     result = runner.invoke(cli.app, ["drift"])
 
@@ -786,8 +796,16 @@ def test_record_remove_keeps_the_record_when_the_operator_declines(
     assert len(control.repository.list_records("example.com")) == 1
 
 
-_TORN_DOWN = "PLAY RECAP ****\nedge-01 : ok=12 changed=7 unreachable=0 failed=0\n"
-_UNREACHABLE = "PLAY RECAP ****\nedge-01 : ok=0 changed=0 unreachable=1 failed=0\n"
+def _torn_down():
+    return ansible_run(host_run("edge-01", ok=12, changed=7))
+
+
+def _unreachable():
+    return ansible_run(
+        host_run("edge-01", ok=0, unreachable=1),
+        status=RunStatus.FAILED,
+        return_code=4,
+    )
 
 
 def _add_edge():
@@ -807,7 +825,7 @@ def _add_edge():
 
 def test_edge_remove_tears_the_host_down_before_forgetting_it(settings, monkeypatch):
     """The teardown has to reach the host while it is still in inventory."""
-    double = FakeRunner([CommandResult(0, _TORN_DOWN, "")])
+    double = FakeRunner([_torn_down()])
     _control(settings, monkeypatch, double)
     _add_edge()
 
@@ -820,7 +838,7 @@ def test_edge_remove_tears_the_host_down_before_forgetting_it(settings, monkeypa
 
 def test_edge_remove_keeps_the_entry_when_the_teardown_fails(settings, monkeypatch):
     """An unreachable host keeps its entry: its private keys are still on it."""
-    double = FakeRunner([CommandResult(4, _UNREACHABLE, "")])
+    double = FakeRunner([_unreachable()])
     _control(settings, monkeypatch, double)
     _add_edge()
 
@@ -833,7 +851,7 @@ def test_edge_remove_keeps_the_entry_when_the_teardown_fails(settings, monkeypat
 
 def test_edge_remove_force_drops_a_host_that_no_longer_exists(settings, monkeypatch):
     """--force is for a destroyed instance, which can never report clean."""
-    double = FakeRunner([CommandResult(4, _UNREACHABLE, "")])
+    double = FakeRunner([_unreachable()])
     control = _control(settings, monkeypatch, double)
     _add_edge()
 
@@ -963,23 +981,34 @@ def test_cert_renew_without_the_site_option_considers_everything(settings, monke
 # cache purge / stats
 # ----------------------------------------------------------------------
 
-_PURGE_OK = "PLAY RECAP ****\nedge-a : ok=4 changed=1 unreachable=0 failed=0\n"
+
+def _purge_ok():
+    return ansible_run(host_run("edge-a", changed=1))
 
 
 def _purgeable_site(control):
+    """A site serving TLS, because these tests purge `https://` URLs.
+
+    The scheme leads the cache key, so the control plane refuses a purge for a
+    scheme the site never serves. A site without TLS caches nothing under
+    https.
+    """
     control.repository.create_site(
         CdnSite.model_validate(
             {
                 "name": "cdn-example-com",
                 "server_names": ["cdn.example.com"],
                 "origin_host": "o.example.com",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/cdn.pem",
+                "certificate_key_path": "/etc/ssl/private/cdn.key",
             }
         )
     )
 
 
 def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch):
-    fake = FakeRunner([CommandResult(0, _PURGE_OK, "")])
+    fake = FakeRunner([_purge_ok()])
     control = _control(settings, monkeypatch, fake)
     _purgeable_site(control)
 
@@ -995,7 +1024,7 @@ def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch
 
 def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
     """It is part of $request_uri, so '/a' and '/a?v=2' are different entries."""
-    fake = FakeRunner([CommandResult(0, _PURGE_OK, "")])
+    fake = FakeRunner([_purge_ok()])
     control = _control(settings, monkeypatch, fake)
     _purgeable_site(control)
 
@@ -1005,7 +1034,7 @@ def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
 
 
 def test_cache_purge_defaults_a_bare_url_to_https_and_root(settings, monkeypatch):
-    fake = FakeRunner([CommandResult(0, _PURGE_OK, "")])
+    fake = FakeRunner([_purge_ok()])
     control = _control(settings, monkeypatch, fake)
     _purgeable_site(control)
 
@@ -1023,7 +1052,7 @@ def test_cache_purge_rejects_a_url_with_no_hostname(settings, monkeypatch):
 
 
 def test_cache_purge_all_asks_before_emptying_the_cache(settings, monkeypatch):
-    fake = FakeRunner([CommandResult(0, _PURGE_OK, "")])
+    fake = FakeRunner([_purge_ok()])
     _control(settings, monkeypatch, fake)
 
     declined = runner.invoke(cli.app, ["cache", "purge", "--all"], input="n\n")
@@ -1033,7 +1062,7 @@ def test_cache_purge_all_asks_before_emptying_the_cache(settings, monkeypatch):
 
 
 def test_cache_purge_all_proceeds_with_yes(settings, monkeypatch):
-    fake = FakeRunner([CommandResult(0, _PURGE_OK, "")])
+    fake = FakeRunner([_purge_ok()])
     _control(settings, monkeypatch, fake)
 
     result = runner.invoke(cli.app, ["cache", "purge", "--all", "--yes"])
@@ -1044,12 +1073,10 @@ def test_cache_purge_all_proceeds_with_yes(settings, monkeypatch):
 
 def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch):
     """A partial purge must not read as success to a script."""
-    recap = (
-        "PLAY RECAP ****\n"
-        "edge-a : ok=4 changed=1 unreachable=0 failed=0\n"
-        "edge-b : ok=0 changed=0 unreachable=1 failed=0\n"
+    partial = ansible_run(
+        host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
     )
-    control = _control(settings, monkeypatch, FakeRunner([CommandResult(0, recap, "")]))
+    control = _control(settings, monkeypatch, FakeRunner([partial]))
     _purgeable_site(control)
 
     result = runner.invoke(
@@ -1063,9 +1090,7 @@ def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch
 def test_cache_purge_reports_an_unserved_host_without_a_traceback(
     settings, monkeypatch
 ):
-    control = _control(
-        settings, monkeypatch, FakeRunner([CommandResult(0, _PURGE_OK, "")])
-    )
+    control = _control(settings, monkeypatch, FakeRunner([_purge_ok()]))
     _purgeable_site(control)
     monkeypatch.setattr(
         sys,
@@ -1079,12 +1104,9 @@ def test_cache_purge_reports_an_unserved_host_without_a_traceback(
     assert exit_info.value.code == cli.ExitCode.INVALID_INPUT
 
 
-def _stats_runner(
-    reports, recap="PLAY RECAP ****\nedge-a : ok=5 changed=0 unreachable=0 failed=0\n"
-):
-    fake = FakeRunner([CommandResult(0, recap, "")])
-    fake.edge_reports = reports
-    return fake
+def _stats_runner(*hosts):
+    """Counters arrive on the run itself, published by the role as a fact."""
+    return FakeRunner([ansible_run(*hosts)])
 
 
 _EDGE_REPORT = {
@@ -1100,7 +1122,11 @@ _EDGE_REPORT = {
 
 
 def test_stats_reports_the_fleet_hit_ratio(settings, monkeypatch):
-    _control(settings, monkeypatch, _stats_runner({"edge-a": _EDGE_REPORT}))
+    _control(
+        settings,
+        monkeypatch,
+        _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
+    )
 
     result = runner.invoke(cli.app, ["stats", "--json"])
 
@@ -1112,7 +1138,11 @@ def test_stats_reports_the_fleet_hit_ratio(settings, monkeypatch):
 
 
 def test_stats_by_site_breaks_the_numbers_down(settings, monkeypatch):
-    _control(settings, monkeypatch, _stats_runner({"edge-a": _EDGE_REPORT}))
+    _control(
+        settings,
+        monkeypatch,
+        _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
+    )
 
     payload = json.loads(
         runner.invoke(cli.app, ["stats", "--by-site", "--json"]).stdout
@@ -1125,7 +1155,9 @@ def test_stats_by_site_breaks_the_numbers_down(settings, monkeypatch):
 def test_stats_says_so_when_there_is_no_cacheable_traffic_yet(settings, monkeypatch):
     """A fresh edge must not be reported as a cache that is failing."""
     quiet = {**_EDGE_REPORT, "cache": [{"site": "a", "outcome": "NONE", "requests": 4}]}
-    _control(settings, monkeypatch, _stats_runner({"edge-a": quiet}))
+    _control(
+        settings, monkeypatch, _stats_runner(host_run("edge-a", ok=5, report=quiet))
+    )
 
     result = runner.invoke(cli.app, ["stats"])
 
@@ -1134,12 +1166,14 @@ def test_stats_says_so_when_there_is_no_cacheable_traffic_yet(settings, monkeypa
 
 
 def test_stats_names_an_edge_that_reported_nothing(settings, monkeypatch):
-    recap = (
-        "PLAY RECAP ****\n"
-        "edge-a : ok=5 changed=0 unreachable=0 failed=0\n"
-        "edge-b : ok=0 changed=0 unreachable=1 failed=0\n"
+    _control(
+        settings,
+        monkeypatch,
+        _stats_runner(
+            host_run("edge-a", ok=5, report=_EDGE_REPORT),
+            host_run("edge-b", ok=0, unreachable=1),
+        ),
     )
-    _control(settings, monkeypatch, _stats_runner({"edge-a": _EDGE_REPORT}, recap))
 
     result = runner.invoke(cli.app, ["stats"])
 
@@ -1229,7 +1263,7 @@ def test_version_reports_all_three_contract_versions():
     and the domain model.
     """
     from blitzecdn import EDGE_COLLECTION_VERSION, __version__
-    from blitzecdn.domain.models import DESIRED_STATE_VERSION
+    from blitzecdn.domain.sites import DESIRED_STATE_VERSION
 
     result = runner.invoke(cli.app, ["--version"])
 
