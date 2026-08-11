@@ -36,6 +36,7 @@ from blitzecdn.domain.runs import HostRun
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
+from blitzecdn.infrastructure.events import AuditObserver, InProcessEventBus
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.origins import OriginProbe
@@ -79,15 +80,20 @@ class ControlPlane:
         )
         self.inventory = inventory or Inventory(settings.inventory_path)
 
+        # The one subscriber the audit trail needs is registered here, so the
+        # services can publish "something happened" without knowing who listens.
+        self.bus = InProcessEventBus()
+        self.bus.subscribe(AuditObserver(self.repository.audit_log))
+
         # The repository satisfies every persistence port structurally, so one
         # object can serve four narrow dependencies without any service being
         # handed more of it than it asks for.
-        self.dns = DnsService(self.repository, self.repository, self.repository)
+        self.dns = DnsService(self.repository, self.repository, self.bus)
         self.deployments = DeploymentService(
             settings,
             self.repository,
             self.repository,
-            self.repository,
+            self.bus,
             self.runner,
             self.certificate_store,
             self.dns,
@@ -97,7 +103,7 @@ class ControlPlane:
         self.certificates = CertificateService(
             settings,
             self.repository,
-            self.repository,
+            self.bus,
             self.runner,
             self.certificate_store,
             self.issuer,
@@ -108,7 +114,7 @@ class ControlPlane:
         self.edges = EdgeOperationsService(
             settings,
             self.repository,
-            self.repository,
+            self.bus,
             self.runner,
             self.origin_probe,
             self.inventory,
