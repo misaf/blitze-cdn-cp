@@ -30,7 +30,8 @@ import jinja2
 import pytest
 import yaml
 
-SCRIPT = Path(__file__).parents[1] / "install.sh"
+PROJECT_DIR = Path(__file__).parents[1]
+SCRIPT = PROJECT_DIR / "install.sh"
 BASH = "/bin/bash"
 
 
@@ -417,8 +418,11 @@ def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[s
 @pytest.mark.parametrize(
     ("distribution", "version", "accepted"),
     [
-        ("Debian", "12", True),
+        # Debian 12 is a supported edge platform but not a supported
+        # controller: it ships Python 3.11 and the control plane needs 3.12+.
+        ("Debian", "12", False),
         ("Debian", "13", True),
+        ("Debian", "14", True),
         ("Debian", "11", False),
         ("Ubuntu", "24", True),
         ("Ubuntu", "26", True),
@@ -989,7 +993,7 @@ def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
 # Debian/Ubuntu host; these pin the invariants that a reader cannot see from one
 # successful run.
 
-ROLE = Path(__file__).parents[1] / "ansible/roles/blitzecdn_controlplane"
+ROLE = PROJECT_DIR / "ansible/roles/blitzecdn_controlplane"
 
 
 def _role_tasks() -> list[dict]:
@@ -1113,3 +1117,36 @@ def test_fresh_refuses_to_rebuild_on_a_half_removed_host(tmp_path: Path):
     assert result.returncode != 0
     assert "was not fully removed" in result.stderr
     assert not marker.exists(), "the rebuild ran over a half-removed host"
+
+
+def test_the_controller_floor_is_higher_than_the_edge_floor():
+    """One host is both under `standalone`, and they do not have the same needs.
+
+    The edge playbook accepts Debian 12; the control-plane role must not, because
+    Debian 12 ships Python 3.11. Sharing one gate would either lock working edges
+    out or let an unusable controller through.
+    """
+    edge = yaml.safe_load(
+        (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+    )
+    edge_gate = edge[0]["pre_tasks"][0]["ansible.builtin.assert"]["that"][0]
+    assert ">= 12" in edge_gate, "edges must keep accepting Debian 12"
+
+    controller_gate = _role_task("Validate supported operating system")
+    expression = controller_gate["ansible.builtin.assert"]["that"][0]
+    assert ">= 13" in expression, "the controller needs a Python 3.12+ platform"
+
+
+def test_no_upper_bound_on_the_python_version():
+    """A ceiling is discovered on somebody's fresh server, never in CI.
+
+    An interpreter that genuinely breaks the control plane should fail the test
+    suite, not be refused at install time on a host nobody has tried yet.
+    """
+    for path in ("install.sh", "bootstrap.sh"):
+        script = (PROJECT_DIR / path).read_text(encoding="utf-8")
+        assert "sys.version_info[:2] < (3, 12)" in script, path
+        assert "(3, 15)" not in script, f"{path} still refuses a future Python"
+
+    pyproject = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
+    assert 'requires-python = ">=3.12"' in pyproject

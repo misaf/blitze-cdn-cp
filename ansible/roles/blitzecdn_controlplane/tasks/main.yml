@@ -1,13 +1,20 @@
 ---
+# A higher floor than the edges have, and for one reason: the control plane
+# needs Python 3.12 or newer, and Debian 12 ships 3.11. Debian 12 remains a
+# supported *edge* platform — it is only unusable for the host that runs the
+# control plane, which a standalone installation makes the same host.
 - name: Validate supported operating system
   ansible.builtin.assert:
     that:
       - >-
         (ansible_facts.distribution == 'Debian' and
-         ansible_facts.distribution_major_version | int >= 12) or
+         ansible_facts.distribution_major_version | int >= 13) or
         (ansible_facts.distribution == 'Ubuntu' and
          ansible_facts.distribution_major_version | int >= 24)
-    fail_msg: BlitzeCDN supports Debian 12+ and Ubuntu 24.04+.
+    fail_msg: >-
+      The BlitzeCDN control plane supports Debian 13+ and Ubuntu 24.04+, because
+      it needs Python 3.12 or newer. Debian 12 ships Python 3.11 and can serve as
+      an edge but not as a controller.
 
 - name: Install control-plane packages
   ansible.builtin.apt:

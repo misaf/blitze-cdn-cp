@@ -75,22 +75,28 @@ require_supported_host() {
     *) die 1 "error: unsupported operating system: ${ID:-unknown} (need Debian or Ubuntu)" ;;
   esac
 
-  # The control plane needs Python 3.12-3.14. Debian 12 ships 3.11, so a host
-  # that looks supported by distribution version is not necessarily supported at
-  # all — and finding that out after the clone wastes the operator's time. When
-  # python3 is already present, which is the common case, this costs nothing and
-  # writes nothing.
+  # The control plane needs Python 3.12 or newer. Debian 12 ships 3.11, so a
+  # host that looks supported by distribution version is not necessarily
+  # supported at all — and finding that out after the clone wastes the
+  # operator's time. When python3 is already present, which is the common case,
+  # this costs nothing and writes nothing.
+  #
+  # There is no upper bound. A ceiling has to be raised for every new Python, and
+  # the release that needs it is always discovered on somebody's fresh server
+  # rather than in CI. A genuinely incompatible interpreter should fail in the
+  # test suite instead.
   if command -v python3 >/dev/null 2>&1; then
     python3 - "${PRETTY_NAME:-${ID}}" <<'PY' || exit 1
 import sys
 
-if not ((3, 12) <= sys.version_info[:2] < (3, 15)):
+if sys.version_info[:2] < (3, 12):
     running = ".".join(str(part) for part in sys.version_info[:3])
     raise SystemExit(
         f"error: {sys.argv[1]} provides Python {running}, and the BlitzeCDN "
-        "control plane needs 3.12, 3.13, or 3.14.\n"
-        "Nothing was installed. Use a release that ships a supported Python, "
-        "or install one and re-run with BLITZECDN_PYTHON pointing at it."
+        "control plane needs 3.12 or newer.\n"
+        "Nothing was installed. Use a release that ships a supported Python "
+        "(Debian 13+ or Ubuntu 24.04+), or install one and re-run with "
+        "BLITZECDN_PYTHON pointing at it."
     )
 PY
   fi
