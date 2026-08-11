@@ -67,6 +67,21 @@ Review `blitzecdn plan` and run `blitzecdn deploy` separately after an update.
 Every standalone server has its own desired state and credentials. It does not
 replicate changes to another standalone server.
 
+Rebuild the running release as if on a brand-new server, or remove every
+artifact the installer owns, without touching packages or unrelated files:
+
+```bash
+sudo /opt/blitzecdn/install.sh --fresh [--yes] [STANDALONE OPTIONS]
+sudo /opt/blitzecdn/install.sh --uninstall [--yes]
+```
+
+`--fresh` reads the release tag from the current checkout, removes every
+BlitzeCDN artifact, clones that same release from the upstream origin, and runs
+the standalone installer with the options you pass. The checkout must be a Git
+clone of the upstream repository. `--uninstall` only removes; it is safe to
+rerun and keeps working even when `/opt/blitzecdn` was already deleted. Both
+ask for confirmation unless `--yes` is given.
+
 ### Controller-only installation
 
 ```bash
