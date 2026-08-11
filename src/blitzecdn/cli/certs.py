@@ -6,6 +6,12 @@ from typing import Annotated, Any
 
 import typer
 
+from blitzecdn.application.commands import (
+    CertificatePreflightCommand,
+    DeployCommand,
+    ReconcileCertificatesCommand,
+    RenewCertificatesCommand,
+)
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.domain.certificates import CERTIFICATE_RENEWAL_DAYS
@@ -60,7 +66,9 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = common.control_plane().certificate_preflight(name)
+    report = CertificatePreflightCommand(name=name).execute(
+        common.control_plane(), "cli"
+    )
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -114,12 +122,12 @@ def cert_renew(
     Use --site to retry a single failure without sending every other
     subscription back to the CA, which is rate limited.
     """
-    result = common.control_plane().renew_certificates(
-        "cli", within_days=expiring_in, force=force, sites=site or None
-    )
+    result = RenewCertificatesCommand(
+        within_days=expiring_in, force=force, sites=site or None
+    ).execute(common.control_plane(), "cli")
     deployment = None
     if deploy_after and result["renewed"] and not result["failed"]:
-        deployment = common.control_plane().deploy("cli")
+        deployment = DeployCommand().execute(common.control_plane(), "cli")
     output: dict[str, Any] = result
     if deploy_after:
         output = {
@@ -158,7 +166,7 @@ def cert_reconcile(
     preflights never contact the CA, and the deployment runs only after at
     least one new certificate was issued.
     """
-    result = common.control_plane().reconcile_certificates("cli")
+    result = ReconcileCertificatesCommand().execute(common.control_plane(), "cli")
     deployment = result["deployment"]
     if deployment is not None and not isinstance(deployment, Deployment):
         raise RuntimeError("certificate reconciliation returned an invalid deployment")

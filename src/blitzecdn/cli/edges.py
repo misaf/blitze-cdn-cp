@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.application.commands import CheckOriginsCommand, DecommissionEdgeCommand
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.infrastructure.inventory import Inventory
@@ -29,7 +30,7 @@ def origin_check(
     This runs from the controller, not from an edge, so a pass is good evidence
     rather than proof. A failure is almost always real.
     """
-    results = common.control_plane().check_origins()
+    results = CheckOriginsCommand().execute(common.control_plane(), "cli")
     common.emit(results, json_output=json_output)
     failures = [result for result in results if not result.ok]
     if not json_output:
@@ -150,7 +151,9 @@ def edge_remove(
     if not yes and not typer.confirm(prompt):
         raise typer.Abort()
     if decommission:
-        common.control_plane().decommission_edge(name, "cli", force=force)
+        DecommissionEdgeCommand(name=name, force=force).execute(
+            common.control_plane(), "cli"
+        )
     else:
         Inventory(common.settings().inventory_path).remove_edge(name)
     typer.echo(f"Removed {name}")

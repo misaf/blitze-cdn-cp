@@ -317,7 +317,7 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
     monkeypatch.setattr(
         control,
         "request_certificate",
-        lambda name, _operator: requested.append(name),
+        lambda name, _operator, *_args, **_kwargs: requested.append(name),
     )
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
@@ -574,9 +574,13 @@ def test_cert_renew_passes_the_expiry_window_and_force_through(settings, monkeyp
     control = _control(settings, monkeypatch)
     seen = {}
 
-    def _capture(operator, *, within_days, force, sites):
+    def _capture(operator, *, within_days, force, sites, budget_seconds):
         seen.update(
-            operator=operator, within_days=within_days, force=force, sites=sites
+            operator=operator,
+            within_days=within_days,
+            force=force,
+            sites=sites,
+            budget_seconds=budget_seconds,
         )
         return _renewal()
 
@@ -590,6 +594,7 @@ def test_cert_renew_passes_the_expiry_window_and_force_through(settings, monkeyp
         "within_days": 45,
         "force": True,
         "sites": None,
+        "budget_seconds": None,
     }
 
 
@@ -949,7 +954,7 @@ def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     seen = {}
 
-    def _capture(operator, *, within_days, force, sites):
+    def _capture(operator, *, within_days, force, sites, budget_seconds):
         seen.update(sites=sites)
         return _renewal(renewed=list(sites or []))
 
@@ -967,7 +972,7 @@ def test_cert_renew_without_the_site_option_considers_everything(settings, monke
     control = _control(settings, monkeypatch)
     seen = {}
 
-    def _capture(operator, *, within_days, force, sites):
+    def _capture(operator, *, within_days, force, sites, budget_seconds):
         seen.update(sites=sites)
         return _renewal()
 

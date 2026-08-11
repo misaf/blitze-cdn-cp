@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 
 import typer
 
+from blitzecdn.application.commands import PurgeCacheCommand
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.domain.cache import PurgeEntry
@@ -63,9 +64,9 @@ def cache_purge(
     ):
         raise typer.Abort()
     entries = [_purge_entry(value) for value in url or []]
-    result = common.control_plane().purge_cache(
-        "cli", entries=entries, purge_all=everything, host_limit=limit
-    )
+    result = PurgeCacheCommand(
+        entries=entries, purge_all=everything, host_limit=limit
+    ).execute(common.control_plane(), "cli")
     common.emit(result, json_output=json_output)
     if not json_output:
         if result.complete:
