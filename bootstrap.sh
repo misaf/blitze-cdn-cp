@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # BlitzeCDN one-command installer.
 #
-#   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/misaf/blitze-cdn-cp/HEAD/bootstrap.sh)" bootstrap \
+#   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/misaf/blitze-cdn-cp/HEAD/bootstrap.sh)" \
 #     --admin-cidr 203.0.113.8/32 --email ops@example.com
+#
+# There is no subcommand. Every argument other than --version is passed
+# through to `install.sh standalone`, which rejects anything it does not
+# recognise — so a stray word here fails the run after the clone.
 #
 # This script does the little that has to happen before the repository exists on
 # the host: check the host can run BlitzeCDN at all, install Git, clone a release
