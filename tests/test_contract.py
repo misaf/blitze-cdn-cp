@@ -776,3 +776,25 @@ def test_the_controller_environment_points_at_the_inventory_that_exists():
     ).read_text(encoding="utf-8")
     assert "inventory/blitzecdn.yml" in template
     assert "hosts.yml" not in template
+
+
+def test_standalone_environment_uses_public_dns_for_certificate_preflight():
+    """NAT-local DNS must not make public certificate checks compare fiction."""
+    template = (
+        Path(__file__).parents[1]
+        / "ansible/roles/blitzecdn_controlplane/templates/blitzecdn.env.j2"
+    ).read_text(encoding="utf-8")
+    assert (
+        "BLITZE_PREFLIGHT_DNS_SERVERS="
+        "{{ blitzecdn_controlplane_preflight_dns_servers }}" in template
+    )
+
+    defaults = yaml.safe_load(
+        (
+            Path(__file__).parents[1]
+            / "ansible/roles/blitzecdn_controlplane/defaults/main.yml"
+        ).read_text(encoding="utf-8")
+    )
+    assert defaults["blitzecdn_controlplane_preflight_dns_servers"] == (
+        "1.1.1.1,1.0.0.1"
+    )
