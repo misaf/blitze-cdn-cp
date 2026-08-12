@@ -40,9 +40,9 @@ def cert_list(
     """
     control = common.control_plane()
     statuses = (
-        control.expiring_certificates(expiring_in)
+        control.certificates.expiring_certificates(expiring_in)
         if expiring_in is not None
-        else control.certificate_statuses()
+        else control.certificates.certificate_statuses()
     )
     common.emit(statuses, json_output=json_output)
     if not json_output and not statuses:

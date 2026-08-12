@@ -27,11 +27,12 @@ from typing import IO
 from uuid import uuid4
 
 from blitzecdn.config import Settings
+from blitzecdn.domain.edges import EDGE_GROUP
 from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
-from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.process import terminate_process_group
+from blitzecdn.ports import EdgeStore
 
 __all__ = ["AnsibleRunner", "DeploymentLock"]
 
@@ -70,8 +71,19 @@ class DeploymentLock(AbstractContextManager["DeploymentLock"]):
 
 
 class AnsibleRunner:
-    def __init__(self, settings: Settings) -> None:
+    """Runs Ansible against the fleet the control plane records.
+
+    ``edges`` is the same store the ``blitzecdn`` inventory plugin reads. It is
+    injected rather than opened here because this needs it for one thing only —
+    expanding a ``--limit`` into explicit host names — and because that
+    expansion must be answered from the identical rows Ansible is about to be
+    given. Reading a separate copy is precisely the drift that removing the
+    static inventory file was meant to end.
+    """
+
+    def __init__(self, settings: Settings, edges: EdgeStore) -> None:
         self._settings = settings
+        self._edges = edges
 
     def lock(self) -> DeploymentLock:
         return DeploymentLock(self._settings.deployment_lock_path)
@@ -129,7 +141,7 @@ class AnsibleRunner:
                 "--extra-vars",
                 f"@{variables}",
                 "--limit",
-                "blitzecdn_edges",
+                EDGE_GROUP,
             ]
             return self._execute(command, timeout=120, playbook=playbook)
 
@@ -282,14 +294,14 @@ class AnsibleRunner:
     def _limit(self, host_limit: str | None) -> str:
         """Resolve a host limit to explicit edge names, or the whole group.
 
-        The limit is expanded here against the inventory rather than handed to
-        Ansible as a pattern. Ansible's own syntax cannot express "this group,
+        The limit is expanded here against the recorded fleet rather than
+        handed to Ansible as a pattern. Ansible's own syntax cannot express "this group,
         restricted to any of these names": ``:`` and ``,`` are both union
         separators and ``&`` binds only to the term beside it, so
         ``blitzecdn_edges:&a,b`` means "(edges also matching a) or b" and would
         happily reach a host outside the group. Expanding to a literal list of
         names taken *from* the group removes the question — a limit cannot name
-        a host the inventory does not already manage as an edge.
+        a host the control plane does not already manage as an edge.
 
         The second benefit is diagnostic: a typo fails here, naming the edges
         that do exist, instead of becoming Ansible's "skipping: no hosts
@@ -297,11 +309,8 @@ class AnsibleRunner:
         """
         validated = validate_edge_limit(host_limit)
         if validated is None:
-            return "blitzecdn_edges"
-        known = [
-            edge["name"]
-            for edge in Inventory(self._settings.inventory_path).list_edges()
-        ]
+            return EDGE_GROUP
+        known = [edge.name for edge in self._edges.list_edges()]
         matched = [
             name
             for name in known
@@ -310,7 +319,10 @@ class AnsibleRunner:
         if not matched:
             raise ConfigurationError(
                 f"host limit {validated!r} matches none of the configured edges: "
-                + (", ".join(known) or "the inventory has no edges")
+                + (
+                    ", ".join(known)
+                    or "no edges are registered; add one with 'blitzecdn edge add'"
+                )
             )
         return ",".join(matched)
 
@@ -378,6 +390,14 @@ class AnsibleRunner:
         # Where blitzecdn_result writes this run's document. Per-run, so two
         # unlocked runs cannot overwrite each other's results.
         environment["BLITZE_RESULT_PATH"] = str(result_path)
+        # Where the `blitzecdn` inventory plugin reads the fleet from. Absolute,
+        # because Ansible runs with cwd set to `ansible_dir` and the configured
+        # path may well be relative to the project root instead. This is the
+        # whole of the coupling between the control plane and its inventory:
+        # one environment variable naming one database.
+        environment["BLITZE_DATABASE_PATH"] = str(
+            self._settings.database_path.resolve()
+        )
         # Always set, even when empty, so `lookup('env', ...)` in group_vars
         # resolves deterministically instead of inheriting a stray value from
         # the operator's shell.

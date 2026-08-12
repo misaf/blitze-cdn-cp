@@ -6,7 +6,11 @@ from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
 from blitzecdn.api import create_app
-from blitzecdn.control_plane import ControlPlane
+from blitzecdn.application import (
+    CertificateService,
+    DeploymentService,
+    EdgeOperationsService,
+)
 from blitzecdn.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
@@ -36,7 +40,7 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
         called.set()
         return {"issued": [], "skipped": {}, "failed": {}, "deployment": None}
 
-    monkeypatch.setattr(ControlPlane, "reconcile_certificates", reconcile)
+    monkeypatch.setattr(CertificateService, "reconcile_certificates", reconcile)
 
     with TestClient(create_app(configured)):
         assert called.wait(2)
@@ -493,7 +497,7 @@ def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
 
 def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch):
     monkeypatch.setattr(
-        ControlPlane,
+        EdgeOperationsService,
         "check_origins",
         lambda _self: (_ for _ in ()).throw(ConfigurationError("no edges configured")),
     )
@@ -505,7 +509,7 @@ def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch)
 
 def test_an_execution_error_is_a_502(settings, monkeypatch):
     monkeypatch.setattr(
-        ControlPlane,
+        EdgeOperationsService,
         "check_origins",
         lambda _self: (_ for _ in ()).throw(ExecutionError("ansible would not start")),
     )
@@ -520,7 +524,7 @@ def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkey
     def busy(_self, _operator, **_kwargs):
         raise DeploymentBusyError("another deployment is already running")
 
-    monkeypatch.setattr(ControlPlane, "submit_deployment", busy)
+    monkeypatch.setattr(DeploymentService, "submit_deployment", busy)
     with TestClient(create_app(settings)) as client:
         response = client.post("/v1/deployments", json={}, headers=_HEADERS)
     assert response.status_code == 409
@@ -537,7 +541,7 @@ def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
         return {"renewed": [], "skipped": [], "failed": []}
 
     configured = settings.model_copy(update={"certificate_renewal_budget_seconds": 42})
-    monkeypatch.setattr(ControlPlane, "renew_certificates", renew)
+    monkeypatch.setattr(CertificateService, "renew_certificates", renew)
     with TestClient(create_app(configured)) as client:
         response = client.post("/v1/certificates/renew", json={}, headers=_HEADERS)
 
@@ -558,7 +562,7 @@ def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkey
         names.append(threading.current_thread().name)
         return {"renewed": [], "skipped": [], "failed": []}
 
-    monkeypatch.setattr(ControlPlane, "renew_certificates", renew)
+    monkeypatch.setattr(CertificateService, "renew_certificates", renew)
     with TestClient(create_app(settings)) as client:
         assert (
             client.post("/v1/certificates/renew", json={}, headers=_HEADERS).status_code

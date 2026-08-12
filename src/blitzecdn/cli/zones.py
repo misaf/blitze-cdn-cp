@@ -44,7 +44,7 @@ def site_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> N
     have not deployed is already listed here — this is desired state, not what
     the fleet is running. Use 'drift' for that.
     """
-    common.emit(common.control_plane().repository.list_sites(), json_output=json_output)
+    common.emit(common.control_plane().dns.list_sites(), json_output=json_output)
 
 
 @site_app.command("show")
@@ -58,9 +58,7 @@ def site_show(
     where the defaults a record never mentions become visible — it is the same
     document the edges are handed.
     """
-    common.emit(
-        common.control_plane().repository.get_site(name), json_output=json_output
-    )
+    common.emit(common.control_plane().dns.get_site(name), json_output=json_output)
 
 
 # -- Domains -------------------------------------------------------------
@@ -81,7 +79,7 @@ def domain_add(
 @domain_app.command("list")
 def domain_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
     """List the DNS zones delegated to BlitzeCDN."""
-    common.emit(common.control_plane().list_domains(), json_output=json_output)
+    common.emit(common.control_plane().dns.list_domains(), json_output=json_output)
 
 
 @domain_app.command("remove")
@@ -137,7 +135,9 @@ def record_list(
     records carry them too, kept but unused, so toggling the proxy back on
     does not lose them.
     """
-    common.emit(common.control_plane().list_records(domain), json_output=json_output)
+    common.emit(
+        common.control_plane().dns.list_records(domain), json_output=json_output
+    )
 
 
 @record_app.command("proxy")
@@ -253,7 +253,7 @@ def record_firewall(
         # Merged as a plain mapping and revalidated, rather than model_copy'd:
         # model_copy would install the raw lists without running a validator,
         # and these end up interpolated into an nginx directive.
-        current = control.get_record(domain, name, type_).firewall
+        current = control.dns.get_record(domain, name, type_).firewall
         firewall = SiteFirewall.model_validate(current.model_dump() | named)
     record = UpdateRecordCommand(
         domain=domain,
@@ -305,4 +305,4 @@ def dns_export(json_output: Annotated[bool, typer.Option("--json")] = False) -> 
     Proxied records carry no address: they must resolve to an edge, and edge
     addressing is owned by the DNS system rather than the control plane.
     """
-    common.emit(common.control_plane().dns_export(), json_output=json_output)
+    common.emit(common.control_plane().dns.dns_export(), json_output=json_output)

@@ -6,10 +6,16 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.application.commands import CheckOriginsCommand, DecommissionEdgeCommand
+from blitzecdn.application.commands import (
+    AddEdgeCommand,
+    CheckOriginsCommand,
+    DecommissionEdgeCommand,
+    RemoveEdgeCommand,
+    UpdateEdgeCommand,
+)
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.infrastructure.inventory import Inventory
+from blitzecdn.domain.edges import Edge, EdgePatch
 
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
 origin_app = typer.Typer(
@@ -48,11 +54,15 @@ def origin_check(
 
 @edge_app.command("list")
 def edge_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
-    """List configured edge servers."""
-    settings = common.settings()
-    common.emit(
-        Inventory(settings.inventory_path).list_edges(), json_output=json_output
-    )
+    """List edge servers.
+
+    This is exactly what Ansible is given: the same rows the `blitzecdn`
+    inventory plugin publishes. To see them as Ansible sees them, including the
+    group variables that apply on top:
+
+        ansible-inventory -i ansible/inventory/blitzecdn.yml --list
+    """
+    common.emit(common.control_plane().edges.list_edges(), json_output=json_output)
 
 
 @edge_app.command("add")
@@ -77,42 +87,109 @@ def edge_add(
         ),
     ] = None,
     user: Annotated[str, typer.Option("--user", help="Non-root SSH user.")] = "deploy",
+    port: Annotated[
+        int,
+        typer.Option(
+            "--port",
+            min=1,
+            max=65535,
+            help="SSH port. Must match blitzecdn_firewall_ssh_port on the edge.",
+        ),
+    ] = 22,
+    private_key_file: Annotated[
+        str | None,
+        typer.Option(
+            "--private-key-file",
+            help="SSH private key for this edge. Omit to let SSH resolve one.",
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Add an edge while preserving fail-closed firewall policy."""
+    """Register an edge server.
+
+    Nothing is converged and nothing reaches the host: the edge exists from now
+    on, so the next `blitzecdn deploy` includes it. There is no inventory file
+    to write — Ansible reads the fleet from the control plane on every run.
+    """
     if not ssh_source:
         raise typer.BadParameter(
             "at least one --ssh-source management CIDR is required"
         )
-    settings = common.settings()
-    edge = Inventory(settings.inventory_path).add_edge(
-        name,
-        host=host,
-        user=user,
-        ssh_sources=ssh_source,
-        public_addresses=public_address or [],
-    )
+    edge = AddEdgeCommand(
+        edge=Edge(
+            name=name,
+            host=host,
+            user=user,
+            port=port,
+            private_key_file=private_key_file,
+            public_addresses=tuple(public_address or ()),
+            ssh_sources=tuple(ssh_source),
+        )
+    ).execute(common.control_plane(), "cli")
     common.emit(edge, json_output=json_output)
+    if not json_output:
+        typer.echo(f"\nRegistered {edge.name}. Run 'blitzecdn deploy' to converge it.")
 
 
 @edge_app.command("update")
 def edge_update(
     name: Annotated[str, typer.Argument(help="Stable edge name.")],
+    host: Annotated[
+        str | None, typer.Option("--host", help="Replacement SSH hostname or address.")
+    ] = None,
+    user: Annotated[
+        str | None, typer.Option("--user", help="Replacement non-root SSH user.")
+    ] = None,
+    port: Annotated[
+        int | None,
+        typer.Option("--port", min=1, max=65535, help="Replacement SSH port."),
+    ] = None,
+    private_key_file: Annotated[
+        str | None,
+        typer.Option("--private-key-file", help="Replacement SSH private key path."),
+    ] = None,
     public_address: Annotated[
-        list[str],
+        list[str] | None,
         typer.Option(
             "--public-address",
             help="Replacement public CDN IP or hostname; repeat when needed.",
         ),
-    ],
+    ] = None,
+    ssh_source: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--ssh-source",
+            help="Replacement management CIDR; repeat when needed.",
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Replace the public addresses used for DNS and certificate checks."""
-    if not public_address:
-        raise typer.BadParameter("at least one --public-address is required")
-    settings = common.settings()
-    edge = Inventory(settings.inventory_path).set_public_addresses(name, public_address)
+    """Change an edge's connection details or public addresses.
+
+    Each option replaces its own value; anything you do not name is kept. The
+    two list options replace their whole list rather than appending, so
+    removing the last entry is expressible.
+
+    The name cannot be changed: certificates, audit history and `--limit` all
+    refer to it. Remove the edge and add it again under the new name.
+    """
+    supplied = {
+        "host": host,
+        "user": user,
+        "port": port,
+        "private_key_file": private_key_file,
+        "public_addresses": None if public_address is None else tuple(public_address),
+        "ssh_sources": None if ssh_source is None else tuple(ssh_source),
+    }
+    named = {field: value for field, value in supplied.items() if value is not None}
+    if not named:
+        raise typer.BadParameter("give at least one field to change")
+    edge = UpdateEdgeCommand(name=name, patch=EdgePatch.model_validate(named)).execute(
+        common.control_plane(), "cli"
+    )
     common.emit(edge, json_output=json_output)
+    if not json_output:
+        typer.echo(f"\nUpdated {edge.name}. Run 'blitzecdn deploy' to apply.")
 
 
 @edge_app.command("remove")
@@ -137,10 +214,11 @@ def edge_remove(
 ) -> None:
     """Decommission an edge and remove it from desired state.
 
-    Once the inventory entry is gone the host is unaddressable, so the teardown
-    has to happen first. ``--no-decommission`` skips it for a host that was
-    already wiped by other means; the files it would have removed, including
-    private keys, then stay where they are.
+    Once the edge is gone from the control plane the host is unaddressable —
+    the inventory is derived from those same rows — so the teardown has to
+    happen first. ``--no-decommission`` skips it for a host that was already
+    wiped by other means; the files it would have removed, including private
+    keys, then stay where they are.
     """
     prompt = (
         f"Remove BlitzeCDN configuration and TLS keys from {name!r}, then stop "
@@ -150,10 +228,10 @@ def edge_remove(
     )
     if not yes and not typer.confirm(prompt):
         raise typer.Abort()
-    if decommission:
-        DecommissionEdgeCommand(name=name, force=force).execute(
-            common.control_plane(), "cli"
-        )
-    else:
-        Inventory(common.settings().inventory_path).remove_edge(name)
+    command = (
+        DecommissionEdgeCommand(name=name, force=force)
+        if decommission
+        else RemoveEdgeCommand(name=name)
+    )
+    command.execute(common.control_plane(), "cli")
     typer.echo(f"Removed {name}")

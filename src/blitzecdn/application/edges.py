@@ -1,8 +1,16 @@
-"""Operations against edges that are not convergence.
+"""The fleet: who is in it, and what can be done to it short of converging.
 
-Purging, collecting statistics, probing origins and decommissioning a host all
-read or act on the fleet without changing desired state — no deployment record
-is written and, deliberately, the deployment lock is not taken.
+Two kinds of work live here. Registering, updating and removing an edge changes
+*which hosts exist* — and because the Ansible inventory is now read from the
+same rows, writing one here is what publishes it to Ansible. Purging,
+collecting statistics, probing origins and decommissioning read or act on the
+fleet without changing desired state; those write no deployment record and,
+deliberately, do not take the deployment lock.
+
+Edge registration used to bypass this layer entirely: the CLI held an
+``Inventory`` object and rewrote ``hosts.yml`` itself. Nothing was audited, and
+the API could not do it at all. Routing it through a service is what gives
+"who added this edge, and when" an answer.
 """
 
 from __future__ import annotations
@@ -18,6 +26,7 @@ from blitzecdn.domain.cache import (
     PurgeResult,
     SiteCacheStats,
 )
+from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import AnsibleRun, HostRun
@@ -30,7 +39,7 @@ from blitzecdn.exceptions import (
 )
 from blitzecdn.ports import (
     DeploymentRunner,
-    EdgeInventory,
+    EdgeStore,
     EventBus,
     OriginProbe,
     SiteStore,
@@ -38,7 +47,7 @@ from blitzecdn.ports import (
 
 
 class EdgeOperationsService:
-    """Fleet operations that read or clean, rather than converge."""
+    """The fleet roster, and the operations that read or clean it."""
 
     def __init__(
         self,
@@ -47,14 +56,85 @@ class EdgeOperationsService:
         bus: EventBus,
         runner: DeploymentRunner,
         origin_probe: OriginProbe,
-        inventory: EdgeInventory,
+        edges: EdgeStore,
     ) -> None:
         self.settings = settings
         self.sites = sites
         self.bus = bus
         self.runner = runner
         self.origin_probe = origin_probe
-        self.inventory = inventory
+        self.edges = edges
+
+    # -- The roster ----------------------------------------------------
+
+    def list_edges(self) -> list[Edge]:
+        """Every edge, which is exactly what Ansible will be given."""
+        return self.edges.list_edges()
+
+    def get_edge(self, name: str) -> Edge:
+        return self.edges.get_edge(name)
+
+    def add_edge(self, edge: Edge, operator: str) -> Edge:
+        """Register an edge. It joins the fleet on the next run, not this one.
+
+        Nothing is converged here and nothing reaches the host. The edge simply
+        exists from now on, which means the next deploy includes it — so a new
+        edge goes from registered to serving in one ``blitzecdn deploy``,
+        rather than needing an inventory file to be written first and hoping
+        the two agree.
+        """
+        created = self.edges.create_edge(edge)
+        self.bus.publish(
+            domain_event(
+                operator,
+                "edge.added",
+                "edge",
+                created.name,
+                {
+                    "host": created.host,
+                    "user": created.user,
+                    "port": created.port,
+                    "public_addresses": list(created.effective_public_addresses),
+                    "ssh_sources": list(created.ssh_sources),
+                },
+            )
+        )
+        return created
+
+    def update_edge(self, name: str, patch: EdgePatch, operator: str) -> Edge:
+        """Change an existing edge's connection or public details.
+
+        Renaming is deliberately not possible. The name is how a certificate
+        preflight, a ``--limit`` and every audit event so far refer to this
+        host; a rename would silently orphan all of them. Remove and re-add.
+        """
+        current = self.edges.get_edge(name)
+        updated = Edge.model_validate(
+            {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
+        )
+        saved = self.edges.replace_edge(updated)
+        self.bus.publish(
+            domain_event(
+                operator,
+                "edge.updated",
+                "edge",
+                saved.name,
+                {"fields": sorted(patch.model_fields_set)},
+            )
+        )
+        return saved
+
+    def remove_edge(self, name: str, operator: str) -> None:
+        """Stop managing an edge without touching the host.
+
+        The narrow case: a host already wiped by other means, or one that no
+        longer exists. Everything BlitzeCDN put on a live host — its
+        configuration, and the private keys for every certificate it serves —
+        stays exactly where it is, which is why ``decommission_edge`` is what
+        the CLI reaches for by default.
+        """
+        self.edges.delete_edge(name)
+        self.bus.publish(domain_event(operator, "edge.removed", "edge", name))
 
     # -- Origins -------------------------------------------------------
 
@@ -260,7 +340,7 @@ class EdgeOperationsService:
         that is merely down it is the wrong answer: the keys stay where they
         are and nothing will ever come back for them.
         """
-        if name not in {edge["name"] for edge in self.inventory.list_edges()}:
+        if name not in {edge.name for edge in self.edges.list_edges()}:
             raise ConfigurationError(f"edge does not exist: {name}")
 
         hosts: tuple[HostRun, ...] = ()
@@ -304,7 +384,7 @@ class EdgeOperationsService:
                 "if the host no longer exists — forcing leaves its "
                 "configuration and private keys in place."
             )
-        self.inventory.remove_edge(name)
+        self.edges.delete_edge(name)
         return hosts
 
 

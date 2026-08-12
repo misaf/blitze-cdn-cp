@@ -10,7 +10,8 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 from enum import StrEnum
-from typing import Self
+from types import UnionType
+from typing import Self, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -212,12 +213,39 @@ class RecordPatch(BaseModel):
     firewall: SiteFirewall | None = None
 
 
-def _assert_patch_covers_policy() -> None:
-    """Refuse to import if a policy knob has no way to be patched.
+def _without_none(annotation: object) -> object:
+    """``T`` from ``T | None``, so a patch field and its policy field compare.
 
-    Runs at import rather than only under pytest. The failure this guards
-    against — a setting an operator can set on a record and never change again
-    — is silent everywhere else, so the process should not start with it.
+    Applied to both sides rather than only to the patch. Several policy fields
+    are themselves optional — ``origin_sni`` is ``str | None`` on the record as
+    well as on the patch — and stripping ``None`` from just one side would
+    report every one of them as a type mismatch, which is how a check like this
+    ends up deleted for crying wolf. What survives is the question worth asking:
+    do the two agree on the type once "unset" is set aside.
+
+    ``Optional[T]`` is ``Union[T, None]`` at runtime whichever spelling was
+    used, so this reads the union's arms rather than the syntax.
+    """
+    if get_origin(annotation) is not UnionType and get_origin(annotation) is not Union:
+        return annotation
+    arms = [arm for arm in get_args(annotation) if arm is not type(None)]
+    return arms[0] if len(arms) == 1 else annotation
+
+
+def _assert_patch_covers_policy() -> None:
+    """Refuse to import if a policy knob cannot be patched, or patched wrongly.
+
+    Runs at import rather than only under pytest. The failures this guards
+    against — a setting an operator can set on a record and never change again,
+    or one whose patch takes a different type than the record stores — are
+    silent everywhere else, so the process should not start with either.
+
+    Three checks, because there are three ways to drift: a field can be absent,
+    it can be present but required (an unset field would then stop meaning
+    "untouched"), or it can be present and optional while carrying a type the
+    record will refuse. The last one is why this is not just a name comparison:
+    a policy field widened from ``int`` to ``int | str`` and not widened here
+    fails only when an operator finally sends the new form.
     """
     missing = sorted(set(SitePolicy.model_fields) - set(RecordPatch.model_fields))
     if missing:
@@ -236,6 +264,18 @@ def _assert_patch_covers_policy() -> None:
         raise RuntimeError(
             "RecordPatch fields must default to None so an unset field means "
             "'untouched'; these do not: " + ", ".join(required)
+        )
+    mistyped = sorted(
+        f"{name} (record stores {policy.annotation}, patch takes "
+        f"{RecordPatch.model_fields[name].annotation})"
+        for name, policy in SitePolicy.model_fields.items()
+        if _without_none(RecordPatch.model_fields[name].annotation)
+        != _without_none(policy.annotation)
+    )
+    if mistyped:
+        raise RuntimeError(
+            "every RecordPatch field must accept exactly what the record "
+            "stores, widened only with None; these do not: " + ", ".join(mistyped)
         )
 
 

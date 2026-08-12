@@ -6,6 +6,7 @@ import sys
 
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
+from blitzecdn.infrastructure.database import Repository
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
 _VALIDATION = re.compile(r"^[A-Za-z0-9_.-]{1,2048}$")
@@ -23,7 +24,13 @@ def main() -> int:
         return _fail("invalid ACME challenge environment")
     if action == "present" and not _VALIDATION.fullmatch(validation):
         return _fail("invalid ACME validation value")
-    run = AnsibleRunner(Settings.from_environment()).run_acme_challenge(
+    settings = Settings.from_environment()
+    # The runner reads the fleet to expand a host limit. This hook never sets
+    # one — an HTTP-01 challenge has to be published on every edge, because the
+    # CA may validate against any of them — but the runner still needs the
+    # store, and it must be the same database the inventory plugin will read.
+    runner = AnsibleRunner(settings, Repository(settings.database_path).edges)
+    run = runner.run_acme_challenge(
         action=action,
         domain=domain,
         token=token,

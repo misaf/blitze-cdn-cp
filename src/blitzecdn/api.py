@@ -182,7 +182,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-        control_plane.initialize()
+        control_plane.deployments.initialize()
         stop = threading.Event()
         reconciler: threading.Thread | None = None
         interval = resolved.certificate_reconcile_interval_seconds
@@ -311,16 +311,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Create, change, or remove a record instead; the site follows.
     @application.get("/v1/sites", response_model=list[CdnSite])
     def list_sites(_operator: operator_dependency) -> list[CdnSite]:
-        return control_plane.repository.list_sites()
+        return control_plane.dns.list_sites()
 
     @application.get("/v1/sites/{name}", response_model=CdnSite)
     def get_site(name: str, _operator: operator_dependency) -> CdnSite:
         """The fully resolved policy for one site, as handed to the edges."""
-        return control_plane.repository.get_site(name)
+        return control_plane.dns.get_site(name)
 
     @application.get("/v1/domains", response_model=list[Domain])
     def list_domains(_operator: operator_dependency) -> list[Domain]:
-        return control_plane.list_domains()
+        return control_plane.dns.list_domains()
 
     @application.post(
         "/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED
@@ -334,7 +334,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
     def list_records(domain: str, _operator: operator_dependency) -> list[DnsRecord]:
-        return control_plane.list_records(domain)
+        return control_plane.dns.list_records(domain)
 
     @application.post(
         "/v1/domains/{domain}/records",
@@ -380,11 +380,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @application.get("/v1/dns/export")
     def dns_export(_operator: operator_dependency) -> list[dict[str, object]]:
-        return control_plane.dns_export()
+        return control_plane.dns.dns_export()
 
     @application.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
     def certificate(name: str, _operator: operator_dependency) -> CertificateInfo:
-        return control_plane.certificate(name)
+        return control_plane.certificates.certificate(name)
 
     @application.get("/v1/origins/check", response_model=list[OriginCheck])
     def check_origins(_operator: operator_dependency) -> list[OriginCheck]:
@@ -456,8 +456,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     ) -> list[CertificateStatus]:
         """Managed certificates against the clock, soonest expiry first."""
         if expiring_in is None:
-            return control_plane.certificate_statuses()
-        return control_plane.expiring_certificates(expiring_in)
+            return control_plane.certificates.certificate_statuses()
+        return control_plane.certificates.expiring_certificates(expiring_in)
 
     @application.post("/v1/certificates/renew")
     async def renew_certificates(
@@ -544,11 +544,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def deployments(
         _operator: operator_dependency, limit: int = Query(20, ge=1, le=100)
     ) -> list[Deployment]:
-        return control_plane.repository.list_deployments(limit)
+        return control_plane.deployments.list_deployments(limit)
 
     @application.get("/v1/deployments/{deployment_id}", response_model=Deployment)
     def deployment(deployment_id: str, _operator: operator_dependency) -> Deployment:
-        return control_plane.repository.get_deployment(deployment_id)
+        return control_plane.deployments.get_deployment(deployment_id)
 
     @application.post(
         "/v1/drift", response_model=Deployment, status_code=status.HTTP_202_ACCEPTED
@@ -569,7 +569,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     def drift_report(deployment_id: str, _operator: operator_dependency) -> DriftReport:
         """Read any completed check-mode deployment as a drift report."""
-        return control_plane.drift_report(deployment_id)
+        return control_plane.deployments.drift_report(deployment_id)
 
     @application.post(
         "/v1/rollbacks",
@@ -586,7 +586,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def audit_events(
         _operator: operator_dependency, limit: int = Query(100, ge=1, le=500)
     ) -> list[AuditEvent]:
-        return control_plane.repository.list_audit_events(limit)
+        return control_plane.audit.list_audit_events(limit)
 
     return application
 

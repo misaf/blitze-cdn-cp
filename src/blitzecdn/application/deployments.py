@@ -9,14 +9,12 @@ is the zone editor's job, and this service reads its output through
 from __future__ import annotations
 
 import logging
-import threading
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from blitzecdn.application.dns import DnsService
 from blitzecdn.config import Settings
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
 from blitzecdn.domain.events import domain_event
@@ -26,11 +24,14 @@ from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConflictError, ExecutionError
 from blitzecdn.ports import (
+    BackgroundRunner,
     CertificateStore,
     DeploymentRunner,
     DeploymentStore,
     EventBus,
     LogReader,
+    YamlWriter,
+    ZoneEditor,
     ZoneStore,
 )
 
@@ -53,8 +54,9 @@ class DeploymentService:
         bus: EventBus,
         runner: DeploymentRunner,
         certificate_store: CertificateStore,
-        dns: DnsService,
-        write_yaml: Callable[[Path, dict[str, object]], None],
+        dns: ZoneEditor,
+        background: BackgroundRunner,
+        write_yaml: YamlWriter,
         read_log: LogReader,
     ) -> None:
         self.settings = settings
@@ -63,7 +65,12 @@ class DeploymentService:
         self.bus = bus
         self.runner = runner
         self.certificate_store = certificate_store
+        #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
+        #: Carries a queued run onwards after this call has answered. A port,
+        #: so "the deployment happens on a thread" is an adapter decision and a
+        #: test can make it happen inline instead.
+        self.background = background
         #: Injected rather than imported so this layer never reaches for the
         #: filesystem adapter directly. The composition root supplies the
         #: atomic writer; a test can supply anything with the same shape.
@@ -220,6 +227,14 @@ class DeploymentService:
 
     # -- History -------------------------------------------------------
 
+    def get_deployment(self, deployment_id: str) -> Deployment:
+        """One deployment, for an operator or a client polling a queued run."""
+        return self.deployments.get_deployment(deployment_id)
+
+    def list_deployments(self, limit: int = 20) -> list[Deployment]:
+        """Recent deployments, newest first."""
+        return self.deployments.list_deployments(limit)
+
     def site_is_deployed(self, site_name: str) -> bool:
         """Whether the most recent real deployment carried this site.
 
@@ -317,15 +332,13 @@ class DeploymentService:
                 lock.__exit__(None, None, None)
 
         # The lock is released by whoever ends up owning the deployment, and
-        # until the thread is actually running that is still this call. A
-        # thread that cannot be started would otherwise leave the lock held by
-        # a worker that does not exist, and every later deploy, rollback,
+        # until the worker is actually running that is still this call. Work
+        # that cannot be started would otherwise leave the lock held by a
+        # worker that does not exist, and every later deploy, rollback,
         # upload and issuance would fail with DeploymentBusyError until the
         # process was restarted — a permanent outage from a transient failure.
         try:
-            threading.Thread(
-                target=worker, name=f"blitzecdn-deploy-{deployment.id}", daemon=True
-            ).start()
+            self.background.start(worker, name=f"blitzecdn-deploy-{deployment.id}")
         except BaseException as exc:
             try:
                 self.deployments.transition(

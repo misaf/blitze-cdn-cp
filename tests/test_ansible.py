@@ -4,6 +4,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import FakeEdgeStore, edge
 from pydantic import SecretStr
 
 from blitzecdn.domain.runs import RunStatus
@@ -60,7 +61,7 @@ def test_deployment_lock_serializes_processes(settings):
 
 def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypatch):
     """Output goes to a log file; the result comes from the callback document."""
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     captured = []
 
     streams = {}
@@ -94,7 +95,7 @@ def test_the_result_document_is_removed_once_it_has_been_read(settings, monkeypa
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    ansible.AnsibleRunner(settings).run(check=True)
+    ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert seen and not seen[0].exists()
 
@@ -109,7 +110,7 @@ def test_each_run_gets_a_result_path_of_its_own(settings, monkeypatch):
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     runner.run(check=True)
     runner.run(check=True)
 
@@ -124,7 +125,7 @@ def test_a_run_that_reports_nothing_says_where_to_look(settings, monkeypatch):
         return FakePopen(command, return_code=4, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    run = ansible.AnsibleRunner(settings).run(check=False)
+    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert run.status is RunStatus.FAILED
     assert run.reported is False
@@ -142,7 +143,7 @@ def test_an_unparseable_result_is_treated_as_no_result(settings, monkeypatch):
         return FakePopen(command, return_code=2, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    run = ansible.AnsibleRunner(settings).run(check=False)
+    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert run.reported is False
     assert run.status is RunStatus.FAILED
@@ -157,7 +158,7 @@ def test_run_logs_are_pruned_to_the_retention_limit(settings, monkeypatch):
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    runner = ansible.AnsibleRunner(bounded)
+    runner = ansible.AnsibleRunner(bounded, FakeEdgeStore())
     for _ in range(14):
         runner.run(check=True)
 
@@ -173,7 +174,7 @@ def test_each_run_uses_an_isolated_ssh_control_path(settings, monkeypatch):
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     runner.run(check=True)
     runner.run(check=True)
 
@@ -199,7 +200,7 @@ def test_runner_kills_the_whole_process_group_on_timeout(settings, monkeypatch):
     process = FakePopen(["ansible-playbook"], hangs=True)
     killed = _capture_killpg(monkeypatch, process, dies_on_sigterm=True)
 
-    run = ansible.AnsibleRunner(settings).run(check=False)
+    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert run.status is RunStatus.TIMED_OUT
     assert run.return_code == 124
@@ -214,7 +215,7 @@ def test_runner_escalates_to_sigkill_when_ansible_ignores_sigterm(
     process = FakePopen(["ansible-playbook"], hangs=True)
     killed = _capture_killpg(monkeypatch, process, dies_on_sigterm=False)
 
-    timed_out = ansible.AnsibleRunner(settings).run(check=False)
+    timed_out = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
     assert timed_out.status is RunStatus.TIMED_OUT
     assert killed == [
         (process.pid, signal.SIGTERM),
@@ -236,7 +237,7 @@ def test_runner_kills_the_process_group_when_the_operator_interrupts(
     killed = _capture_killpg(monkeypatch, process, dies_on_sigterm=True)
 
     with pytest.raises(KeyboardInterrupt):
-        ansible.AnsibleRunner(settings).run(check=False)
+        ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert killed == [(process.pid, signal.SIGTERM)]
 
@@ -247,7 +248,7 @@ def test_runner_translates_os_errors(settings, monkeypatch):
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fail)
     with pytest.raises(ExecutionError, match="unable to execute"):
-        ansible.AnsibleRunner(settings).run(check=False)
+        ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
 
 def test_runner_validates_required_paths(settings):
@@ -255,7 +256,9 @@ def test_runner_validates_required_paths(settings):
         update={"inventory_path": settings.project_dir / "missing"}
     )
     with pytest.raises(ConfigurationError, match="inventory"):
-        ansible.AnsibleRunner(broken).validate(broken.generated_vars_path)
+        ansible.AnsibleRunner(broken, FakeEdgeStore()).validate(
+            broken.generated_vars_path
+        )
 
 
 def test_runner_builds_acme_challenge_command(settings, monkeypatch):
@@ -269,7 +272,7 @@ def test_runner_builds_acme_challenge_command(settings, monkeypatch):
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    result = ansible.AnsibleRunner(settings).run_acme_challenge(
+    result = ansible.AnsibleRunner(settings, FakeEdgeStore()).run_acme_challenge(
         action="present",
         domain="cdn.example.com",
         token="safe_token",  # noqa: S106 -- public ACME challenge token
@@ -280,26 +283,30 @@ def test_runner_builds_acme_challenge_command(settings, monkeypatch):
     assert "safe_token" not in captured
 
 
-def _with_edges(settings, *names: str) -> None:
-    hosts = "".join(
-        f"        {name}:\n          ansible_host: 198.51.100.{index}\n"
-        for index, name in enumerate(names, start=1)
-    )
-    settings.inventory_path.write_text(
-        f"all:\n  children:\n    blitzecdn_edges:\n      hosts:\n{hosts}",
-        encoding="utf-8",
+def _with_edges(*names: str) -> FakeEdgeStore:
+    """A fleet for the runner to expand a `--limit` against.
+
+    It used to be a YAML file this helper wrote, because the runner read the
+    inventory to answer the same question. It now reads the same rows Ansible
+    will be given, so a test supplies a store rather than a file — and there is
+    no longer a way for the two to disagree about which edges exist.
+    """
+    return FakeEdgeStore(
+        [
+            edge(name, host=f"198.51.100.{index}")
+            for index, name in enumerate(names, start=1)
+        ]
     )
 
 
 def test_a_run_without_a_limit_targets_the_whole_edge_group(settings):
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     assert runner._limit(None) == "blitzecdn_edges"
     assert runner._limit("  ") == "blitzecdn_edges"
 
 
 def test_a_limit_resolves_to_the_matching_edges(settings):
-    _with_edges(settings, "edge-a", "edge-b", "other")
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, _with_edges("edge-a", "edge-b", "other"))
     assert runner._limit("edge-a") == "edge-a"
     assert runner._limit("edge-a,other") == "edge-a,other"
     assert runner._limit("edge-*") == "edge-a,edge-b"
@@ -308,8 +315,7 @@ def test_a_limit_resolves_to_the_matching_edges(settings):
 def test_a_limit_cannot_reach_a_host_outside_the_edge_group(settings):
     """The whole point of resolving against the inventory rather than passing
     a pattern through: an unknown name is refused, not silently targeted."""
-    _with_edges(settings, "edge-a")
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, _with_edges("edge-a"))
     with pytest.raises(ConfigurationError, match="matches none of the configured"):
         runner._limit("database-1")
 
@@ -326,14 +332,12 @@ def test_a_limit_cannot_reach_a_host_outside_the_edge_group(settings):
     ],
 )
 def test_limit_patterns_that_could_widen_a_deploy_are_refused(settings, pattern):
-    _with_edges(settings, "edge-a", "edge-b")
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     with pytest.raises((ConfigurationError, ValueError)):
         runner._limit(pattern)
 
 
 def test_the_limit_reaches_the_ansible_command_line(settings, monkeypatch):
-    _with_edges(settings, "edge-a", "edge-b")
     (settings.ansible_dir / "playbooks/edge.yml").write_text("---\n", encoding="utf-8")
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
     settings.generated_vars_path.write_text("---\n", encoding="utf-8")
@@ -347,7 +351,9 @@ def test_the_limit_reaches_the_ansible_command_line(settings, monkeypatch):
     monkeypatch.setattr(
         ansible.shutil, "which", lambda _name: "/usr/bin/ansible-playbook"
     )
-    ansible.AnsibleRunner(settings).run(check=True, host_limit="edge-a")
+    ansible.AnsibleRunner(settings, _with_edges("edge-a")).run(
+        check=True, host_limit="edge-a"
+    )
 
     command = captured[0]
     assert command[command.index("--limit") + 1] == "edge-a"
@@ -393,7 +399,7 @@ def test_the_callback_document_becomes_per_host_results(settings, monkeypatch):
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    run = ansible.AnsibleRunner(settings).run(check=True)
+    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     hosts = {host.host: host for host in run.hosts}
     assert set(hosts) == {"edge-a", "edge-b", "edge-c"}
@@ -418,7 +424,7 @@ def test_a_change_is_named_not_merely_counted(settings, monkeypatch):
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    run = ansible.AnsibleRunner(settings).run(check=True)
+    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert [change.task for change in run.host("edge-a").changes] == [
         "Render managed sites",
@@ -445,7 +451,7 @@ def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypa
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    run = ansible.AnsibleRunner(settings).run(check=True)
+    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert run.host("edge-a").report == {"nginx_reachable": True}
     assert run.host("edge-b").report is None
@@ -476,7 +482,7 @@ def test_maxmind_credentials_reach_ansible_through_the_environment(
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    ansible.AnsibleRunner(configured).run(check=True)
+    ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
 
     assert captured["BLITZE_MAXMIND_ACCOUNT_ID"] == "123456"
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "SENTINELKEY"
@@ -498,7 +504,7 @@ def test_maxmind_credentials_never_become_command_arguments(settings, monkeypatc
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    ansible.AnsibleRunner(configured).run(check=True)
+    ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
 
     assert captured
     assert not any("SENTINELKEY" in argument for argument in captured)
@@ -524,6 +530,6 @@ def test_the_credential_environment_is_set_even_when_unconfigured(
         return FakePopen(command, **kwargs)
 
     monkeypatch.setattr(ansible.subprocess, "Popen", fake_popen)
-    ansible.AnsibleRunner(settings).run(check=True)
+    ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == ""

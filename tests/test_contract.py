@@ -83,7 +83,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     """Render desired state the way a real deployment would."""
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository)
-    repository.create_site(
+    repository.sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "example-cdn",
@@ -99,7 +99,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
             }
         )
     )
-    repository.create_site(
+    repository.sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "plain-cdn",

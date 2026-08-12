@@ -453,11 +453,12 @@ scratch files inside the ignored `.state/`.
 export ANSIBLE_CONFIG=ansible/ansible.cfg
 export ANSIBLE_LOCAL_TEMP=.state/ansible-local
 yamllint .
-ansible-playbook -i ansible/inventory/hosts.example.yml \
-  ansible/playbooks/edge.yml --syntax-check \
+# `-i` is omitted: ansible.cfg points at the blitzecdn inventory plugin, which
+# reads the fleet from the control-plane database. A syntax check parses no
+# hosts, so it works against an empty one.
+ansible-playbook ansible/playbooks/edge.yml --syntax-check \
   --extra-vars @tests/fixtures/desired-state.yml
-ansible-playbook -i ansible/inventory/hosts.example.yml \
-  ansible/playbooks/acme-challenge.yml --syntax-check
+ansible-playbook ansible/playbooks/acme-challenge.yml --syntax-check
 ansible-lint ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml
 ```
 

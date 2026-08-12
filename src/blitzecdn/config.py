@@ -53,6 +53,9 @@ class Settings(BaseModel):
     state_dir: Path
     database_path: Path
     ansible_dir: Path
+    #: The Ansible inventory *source*, which is the `blitzecdn` plugin's
+    #: configuration rather than a list of hosts. The fleet itself comes from
+    #: the `edges` table; this file only tells Ansible to go and read it.
     inventory_path: Path
     playbook_path: Path
     generated_vars_path: Path
@@ -254,7 +257,7 @@ class Settings(BaseModel):
                 inventory_path=path_value(
                     "BLITZE_INVENTORY",
                     "inventory_path",
-                    root / "ansible/inventory/hosts.yml",
+                    root / "ansible/inventory/blitzecdn.yml",
                 ),
                 playbook_path=path_value(
                     "BLITZE_PLAYBOOK",

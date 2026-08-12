@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,7 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from blitzecdn.config import Settings
+from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.runs import (
     AnsibleRun,
     HostRun,
@@ -18,6 +20,7 @@ from blitzecdn.domain.runs import (
     TaskOutcome,
     TaskResult,
 )
+from blitzecdn.exceptions import ConflictError, NotFoundError
 
 
 def host_run(
@@ -123,6 +126,85 @@ class FakeRunner:
     def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
         self.stats_runs.append(host_limit)
         return self.results.pop(0)
+
+
+class FakeEdgeStore:
+    """An in-memory ``EdgeStore``, for anything that only needs the roster.
+
+    The real store is a SQLite table and also the thing the Ansible inventory
+    plugin reads, so tests about the *plugin* use a real database (see
+    `test_inventory.py`). Everything else — preflight comparing addresses, the
+    runner expanding a host limit — only wants "which edges exist", and a list
+    answers that without a file on disk.
+    """
+
+    def __init__(self, edges: list[Edge] | None = None) -> None:
+        self.edges = list(edges if edges is not None else [edge("edge1")])
+
+    def list_edges(self) -> list[Edge]:
+        return list(self.edges)
+
+    def get_edge(self, name: str) -> Edge:
+        for candidate in self.edges:
+            if candidate.name == name:
+                return candidate
+        raise NotFoundError(f"edge {name!r} does not exist")
+
+    def create_edge(self, new: Edge) -> Edge:
+        if any(candidate.name == new.name for candidate in self.edges):
+            raise ConflictError(f"edge {new.name!r} already exists")
+        self.edges.append(new)
+        return new
+
+    def replace_edge(self, updated: Edge) -> Edge:
+        for index, candidate in enumerate(self.edges):
+            if candidate.name == updated.name:
+                self.edges[index] = updated
+                return updated
+        raise NotFoundError(f"edge {updated.name!r} does not exist")
+
+    def delete_edge(self, name: str) -> None:
+        remaining = [candidate for candidate in self.edges if candidate.name != name]
+        if len(remaining) == len(self.edges):
+            raise NotFoundError(f"edge {name!r} does not exist")
+        self.edges = remaining
+
+
+def edge(name: str = "edge1", **overrides) -> Edge:
+    """An edge with plausible defaults, for a test that does not care."""
+    return Edge.model_validate(
+        {"name": name, "host": f"{name}.example.net", **overrides}
+    )
+
+
+class InlineBackgroundRunner:
+    """Runs queued work on the calling thread, before ``start`` returns.
+
+    A ``BackgroundRunner`` that removes the concurrency from the queued deploy
+    and rollback paths, so a test can assert on the finished deployment rather
+    than polling for it. The lock is released by the work itself either way,
+    which is exactly why running it here rather than on a thread is safe.
+    """
+
+    def start(self, work, *, name):
+        work()
+
+
+class RefusingBackgroundRunner:
+    """A ``BackgroundRunner`` that will not start the work it is given.
+
+    Stands in for the real failure — a process that cannot spawn another thread
+    — which is otherwise only reachable by monkeypatching ``threading``. Flip
+    ``refuse`` to let later work through and prove the deployment lock came back.
+    """
+
+    def __init__(self) -> None:
+        self.refuse = True
+
+    def start(self, work, *, name):
+        if self.refuse:
+            raise RuntimeError("can't start new thread")
+        threading.Thread(target=work, name=name, daemon=True).start()
 
 
 class FakePreflight:
@@ -244,8 +326,8 @@ def seeded(settings):
             runner or FakeRunner(),
             preflight=FakePreflight(),
         )
-        control.create_domain(Domain(name="example.com"), "tester")
-        control.create_record(
+        control.dns.create_domain(Domain(name="example.com"), "tester")
+        control.dns.create_record(
             DnsRecord(
                 domain="example.com",
                 name="cdn",

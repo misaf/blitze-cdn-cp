@@ -3,17 +3,22 @@
 Both entry layers do the same work in the same order: translate their
 transport's arguments — a Typer flag, a JSON body — into a request, run it, and
 translate the outcome back into an exit code or a status code. The commands
-here are the middle of that loop: a parameter object and the facade call that
-belongs to it. A CLI flag and an HTTP field that mean the same thing build the
+here are the middle of that loop: a parameter object and the service call
+that belongs to it. A CLI flag and an HTTP field that mean the same thing build the
 same command, so a behaviour change lands once, in the command, instead of
 twice, in the two entry layers.
 
 Commands are deliberately thin. They hold parameters the entry layer has
-already parsed and validated, call the facade, and return its models untouched.
-Anything beyond the transport boundary — the policy, the locking, the stores —
-belongs to the services and stays out of here. The facade surface they drive
-is declared structurally (:class:`Facade`) so this layer never imports the
-composition root.
+already parsed and validated, call the service that owns the work, and return
+its models untouched. Anything beyond the transport boundary — the policy, the
+locking, the stores — belongs to the services and stays out of here.
+
+Each command reaches for one service off :class:`Services`, which declares
+nothing but the four attributes and so restates no signature. That matters more
+than it looks: a parameter this layer accepts is already written down twice, on
+the command and on the service method it forwards to, and a third copy in an
+interface here would be a copy nothing checks against the other two until a
+caller passes the argument the mismatched one does not take.
 """
 
 from __future__ import annotations
@@ -22,6 +27,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from blitzecdn.application.certificates import CertificateService
+from blitzecdn.application.deployments import DeploymentService
+from blitzecdn.application.dns import DnsService
+from blitzecdn.application.edges import EdgeOperationsService
 from blitzecdn.domain.cache import CacheStatsReport, PurgeEntry, PurgeResult
 from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
@@ -30,95 +39,31 @@ from blitzecdn.domain.certificates import (
 )
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import HostRun
 
 
-class Facade(Protocol):
-    """The slice of the control-plane facade the commands drive.
+class Services(Protocol):
+    """The application services, as a transport reaches them.
 
-    Declared structurally, matching the methods each command calls, so
-    ``application`` depends on an interface it names rather than on the
-    composition root. The concrete object is always a
+    Structural, so this layer names what it needs without importing the
+    composition root — but the attributes are the concrete service classes,
+    which are siblings in this same layer and therefore free to name. The
+    object supplied is always a
     :class:`~blitzecdn.control_plane.ControlPlane`.
     """
 
-    def create_domain(self, domain: Domain, operator: str) -> Domain: ...
-    def delete_domain(self, name: str, operator: str) -> None: ...
-    def create_record(self, record: DnsRecord, operator: str) -> DnsRecord: ...
-    def update_record(
-        self,
-        domain: str,
-        name: str,
-        type_: RecordType,
-        patch: RecordPatch,
-        operator: str,
-    ) -> DnsRecord: ...
-    def delete_record(
-        self, domain: str, name: str, type_: RecordType, operator: str
-    ) -> None: ...
-
-    def upload_certificate(
-        self, name: str, certificate_pem: bytes, private_key_pem: bytes, operator: str
-    ) -> CertificateInfo: ...
-    def request_certificate(
-        self,
-        name: str,
-        operator: str,
-        email: str | None = None,
-        *,
-        skip_preflight: bool = False,
-    ) -> CertificateInfo: ...
-    def certificate_preflight(self, name: str) -> PreflightReport: ...
-    def renew_certificates(
-        self,
-        operator: str,
-        *,
-        within_days: int = CERTIFICATE_RENEWAL_DAYS,
-        force: bool = False,
-        sites: Sequence[str] | None = None,
-        budget_seconds: float | None = None,
-    ) -> dict[str, list[str]]: ...
-    def reconcile_certificates(self, operator: str) -> dict[str, object]: ...
-
-    def validate(self) -> list[str]: ...
-    def deploy(
-        self, operator: str, *, check: bool = False, host_limit: str | None = None
-    ) -> Deployment: ...
-    def submit_deployment(
-        self, operator: str, *, check: bool = False, host_limit: str | None = None
-    ) -> Deployment: ...
-    def rollback(
-        self, operator: str, deployment_id: str | None = None, *, check: bool = False
-    ) -> Deployment: ...
-    def submit_rollback(
-        self, operator: str, deployment_id: str | None = None, *, check: bool = False
-    ) -> Deployment: ...
-    def check_drift(
-        self, operator: str, *, host_limit: str | None = None
-    ) -> DriftReport: ...
-
-    def check_origins(self) -> list[OriginCheck]: ...
-    def purge_cache(
-        self,
-        operator: str,
-        *,
-        entries: Sequence[PurgeEntry] = (),
-        purge_all: bool = False,
-        host_limit: str | None = None,
-    ) -> PurgeResult: ...
-    def cache_stats(
-        self, operator: str, *, host_limit: str | None = None
-    ) -> CacheStatsReport: ...
-    def decommission_edge(
-        self, name: str, operator: str, *, force: bool = False
-    ) -> tuple[HostRun, ...]: ...
+    dns: DnsService
+    certificates: CertificateService
+    deployments: DeploymentService
+    edges: EdgeOperationsService
 
 
 class Command(Protocol):
     """Something a transport can run. ``operator`` is who asked."""
 
-    def execute(self, control_plane: Facade, operator: str) -> object: ...
+    def execute(self, services: Services, operator: str) -> object: ...
 
 
 # ----------------------------------------------------------------------
@@ -132,8 +77,8 @@ class CreateDomainCommand:
 
     name: str
 
-    def execute(self, control_plane: Facade, operator: str) -> Domain:
-        return control_plane.create_domain(Domain(name=self.name), operator)
+    def execute(self, services: Services, operator: str) -> Domain:
+        return services.dns.create_domain(Domain(name=self.name), operator)
 
 
 @dataclass(frozen=True)
@@ -142,8 +87,8 @@ class DeleteDomainCommand:
 
     name: str
 
-    def execute(self, control_plane: Facade, operator: str) -> None:
-        control_plane.delete_domain(self.name, operator)
+    def execute(self, services: Services, operator: str) -> None:
+        services.dns.delete_domain(self.name, operator)
 
 
 @dataclass(frozen=True)
@@ -152,8 +97,8 @@ class CreateRecordCommand:
 
     record: DnsRecord
 
-    def execute(self, control_plane: Facade, operator: str) -> DnsRecord:
-        return control_plane.create_record(self.record, operator)
+    def execute(self, services: Services, operator: str) -> DnsRecord:
+        return services.dns.create_record(self.record, operator)
 
 
 @dataclass(frozen=True)
@@ -165,8 +110,8 @@ class UpdateRecordCommand:
     type_: RecordType
     patch: RecordPatch
 
-    def execute(self, control_plane: Facade, operator: str) -> DnsRecord:
-        return control_plane.update_record(
+    def execute(self, services: Services, operator: str) -> DnsRecord:
+        return services.dns.update_record(
             self.domain, self.name, self.type_, self.patch, operator
         )
 
@@ -179,8 +124,8 @@ class DeleteRecordCommand:
     name: str
     type_: RecordType
 
-    def execute(self, control_plane: Facade, operator: str) -> None:
-        control_plane.delete_record(self.domain, self.name, self.type_, operator)
+    def execute(self, services: Services, operator: str) -> None:
+        services.dns.delete_record(self.domain, self.name, self.type_, operator)
 
 
 # ----------------------------------------------------------------------
@@ -196,8 +141,8 @@ class UploadCertificateCommand:
     certificate_pem: bytes
     private_key_pem: bytes
 
-    def execute(self, control_plane: Facade, operator: str) -> CertificateInfo:
-        return control_plane.upload_certificate(
+    def execute(self, services: Services, operator: str) -> CertificateInfo:
+        return services.certificates.upload_certificate(
             self.name, self.certificate_pem, self.private_key_pem, operator
         )
 
@@ -210,8 +155,8 @@ class RequestCertificateCommand:
     email: str | None = None
     skip_preflight: bool = False
 
-    def execute(self, control_plane: Facade, operator: str) -> CertificateInfo:
-        return control_plane.request_certificate(
+    def execute(self, services: Services, operator: str) -> CertificateInfo:
+        return services.certificates.request_certificate(
             self.name, operator, self.email, skip_preflight=self.skip_preflight
         )
 
@@ -222,8 +167,8 @@ class CertificatePreflightCommand:
 
     name: str
 
-    def execute(self, control_plane: Facade, operator: str) -> PreflightReport:
-        return control_plane.certificate_preflight(self.name)
+    def execute(self, services: Services, operator: str) -> PreflightReport:
+        return services.certificates.certificate_preflight(self.name)
 
 
 @dataclass(frozen=True)
@@ -235,8 +180,8 @@ class RenewCertificatesCommand:
     sites: Sequence[str] | None = None
     budget_seconds: float | None = None
 
-    def execute(self, control_plane: Facade, operator: str) -> dict[str, list[str]]:
-        return control_plane.renew_certificates(
+    def execute(self, services: Services, operator: str) -> dict[str, list[str]]:
+        return services.certificates.renew_certificates(
             operator,
             within_days=self.within_days,
             force=self.force,
@@ -249,8 +194,8 @@ class RenewCertificatesCommand:
 class ReconcileCertificatesCommand:
     """Issue ready first certificates and install them with one deployment."""
 
-    def execute(self, control_plane: Facade, operator: str) -> dict[str, object]:
-        return control_plane.reconcile_certificates(operator)
+    def execute(self, services: Services, operator: str) -> dict[str, object]:
+        return services.certificates.reconcile_certificates(operator)
 
 
 # ----------------------------------------------------------------------
@@ -262,8 +207,8 @@ class ReconcileCertificatesCommand:
 class ValidateCommand:
     """Answer whether desired state is coherent and the play parses."""
 
-    def execute(self, control_plane: Facade, operator: str) -> list[str]:
-        return control_plane.validate()
+    def execute(self, services: Services, operator: str) -> list[str]:
+        return services.deployments.validate()
 
 
 @dataclass(frozen=True)
@@ -273,8 +218,8 @@ class DeployCommand:
     check: bool = False
     host_limit: str | None = None
 
-    def execute(self, control_plane: Facade, operator: str) -> Deployment:
-        return control_plane.deploy(
+    def execute(self, services: Services, operator: str) -> Deployment:
+        return services.deployments.deploy(
             operator, check=self.check, host_limit=self.host_limit
         )
 
@@ -286,8 +231,8 @@ class SubmitDeploymentCommand:
     check: bool = False
     host_limit: str | None = None
 
-    def execute(self, control_plane: Facade, operator: str) -> Deployment:
-        return control_plane.submit_deployment(
+    def execute(self, services: Services, operator: str) -> Deployment:
+        return services.deployments.submit_deployment(
             operator, check=self.check, host_limit=self.host_limit
         )
 
@@ -299,8 +244,10 @@ class RollbackCommand:
     deployment_id: str | None = None
     check: bool = False
 
-    def execute(self, control_plane: Facade, operator: str) -> Deployment:
-        return control_plane.rollback(operator, self.deployment_id, check=self.check)
+    def execute(self, services: Services, operator: str) -> Deployment:
+        return services.deployments.rollback(
+            operator, self.deployment_id, check=self.check
+        )
 
 
 @dataclass(frozen=True)
@@ -310,8 +257,8 @@ class SubmitRollbackCommand:
     deployment_id: str | None = None
     check: bool = False
 
-    def execute(self, control_plane: Facade, operator: str) -> Deployment:
-        return control_plane.submit_rollback(
+    def execute(self, services: Services, operator: str) -> Deployment:
+        return services.deployments.submit_rollback(
             operator, self.deployment_id, check=self.check
         )
 
@@ -322,8 +269,8 @@ class CheckDriftCommand:
 
     host_limit: str | None = None
 
-    def execute(self, control_plane: Facade, operator: str) -> DriftReport:
-        return control_plane.check_drift(operator, host_limit=self.host_limit)
+    def execute(self, services: Services, operator: str) -> DriftReport:
+        return services.deployments.check_drift(operator, host_limit=self.host_limit)
 
 
 # ----------------------------------------------------------------------
@@ -339,8 +286,8 @@ class PurgeCacheCommand:
     purge_all: bool = False
     host_limit: str | None = None
 
-    def execute(self, control_plane: Facade, operator: str) -> PurgeResult:
-        return control_plane.purge_cache(
+    def execute(self, services: Services, operator: str) -> PurgeResult:
+        return services.edges.purge_cache(
             operator,
             entries=self.entries,
             purge_all=self.purge_all,
@@ -352,8 +299,8 @@ class PurgeCacheCommand:
 class CheckOriginsCommand:
     """Connect to every enabled site's origin the way the edge will."""
 
-    def execute(self, control_plane: Facade, operator: str) -> list[OriginCheck]:
-        return control_plane.check_origins()
+    def execute(self, services: Services, operator: str) -> list[OriginCheck]:
+        return services.edges.check_origins()
 
 
 @dataclass(frozen=True)
@@ -362,8 +309,39 @@ class CacheStatsCommand:
 
     host_limit: str | None = None
 
-    def execute(self, control_plane: Facade, operator: str) -> CacheStatsReport:
-        return control_plane.cache_stats(operator, host_limit=self.host_limit)
+    def execute(self, services: Services, operator: str) -> CacheStatsReport:
+        return services.edges.cache_stats(operator, host_limit=self.host_limit)
+
+
+@dataclass(frozen=True)
+class AddEdgeCommand:
+    """Register an edge. Ansible sees it on the next run; nothing converges now."""
+
+    edge: Edge
+
+    def execute(self, services: Services, operator: str) -> Edge:
+        return services.edges.add_edge(self.edge, operator)
+
+
+@dataclass(frozen=True)
+class UpdateEdgeCommand:
+    """Change an edge's connection details or public addresses."""
+
+    name: str
+    patch: EdgePatch
+
+    def execute(self, services: Services, operator: str) -> Edge:
+        return services.edges.update_edge(self.name, self.patch, operator)
+
+
+@dataclass(frozen=True)
+class RemoveEdgeCommand:
+    """Stop managing an edge without touching the host it names."""
+
+    name: str
+
+    def execute(self, services: Services, operator: str) -> None:
+        services.edges.remove_edge(self.name, operator)
 
 
 @dataclass(frozen=True)
@@ -373,11 +351,12 @@ class DecommissionEdgeCommand:
     name: str
     force: bool = False
 
-    def execute(self, control_plane: Facade, operator: str) -> tuple[HostRun, ...]:
-        return control_plane.decommission_edge(self.name, operator, force=self.force)
+    def execute(self, services: Services, operator: str) -> tuple[HostRun, ...]:
+        return services.edges.decommission_edge(self.name, operator, force=self.force)
 
 
 __all__ = [
+    "AddEdgeCommand",
     "CacheStatsCommand",
     "CertificatePreflightCommand",
     "CheckDriftCommand",
@@ -389,12 +368,12 @@ __all__ = [
     "DeleteDomainCommand",
     "DeleteRecordCommand",
     "DeployCommand",
-    "Facade",
     "PurgeCacheCommand",
     "ReconcileCertificatesCommand",
     "RenewCertificatesCommand",
     "RequestCertificateCommand",
     "RollbackCommand",
+    "Services",
     "SubmitDeploymentCommand",
     "SubmitRollbackCommand",
     "UpdateRecordCommand",
