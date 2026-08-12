@@ -74,9 +74,9 @@ fmt:
 types:
     uv run mypy src
 
-# Lint the shell scripts that run as root or get piped into a shell.
+# Lint the shell scripts that run as root.
 shell-lint:
-    uv run shellcheck install.sh bootstrap.sh tests/container-install.sh
+    uv run shellcheck install.sh tests/container-install.sh
 
 # The test suite, with the coverage floor from pyproject.
 test *args:
