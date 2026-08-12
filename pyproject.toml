@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.27"]
+requires = ["hatchling>=1.31.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -24,7 +24,7 @@ dependencies = [
   "alembic>=1.16,<2",
   "SQLAlchemy>=2.0.36,<3",
   "typer>=0.16,<1",
-  "uvicorn[standard]>=0.35,<1",
+  "uvicorn[standard]>=0.52.1,<1",
   # A runtime dependency, not a development one. Ansible exclusively owns
   # remote Linux state, and `infrastructure/ansible.py` launches
   # `ansible-playbook` for every deploy, purge and stats run — a controller
@@ -43,7 +43,7 @@ dependencies = [
 [dependency-groups]
 dev = [
   "ansible-lint>=26.6,<27",
-  "bandit[toml]>=1.8,<2",
+  "bandit[toml]>=1.9.4,<2",
   # Starlette's TestClient uses HTTPX2. Plain httpx is only a deprecated
   # compatibility fallback and emits a warning on every test run.
   "httpx2>=2.9,<3",
