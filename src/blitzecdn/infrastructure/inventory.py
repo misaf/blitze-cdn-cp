@@ -90,9 +90,17 @@ def read_legacy_inventory(path: Path) -> list[Edge]:
     first deploy after an upgrade.
 
     ``blitzecdn_firewall_ssh_sources`` is read from the group's inline ``vars``
-    and given to every imported edge. That is where the old ``edge add`` put
-    it, and the union across edges is what the plugin publishes, so importing
-    it onto each one round-trips to the same set.
+    **and** from the adjacent ``group_vars/`` files, then given to every
+    imported edge. The union across edges is what the plugin publishes, so
+    importing it onto each one round-trips to the same set.
+
+    Reading both is not belt-and-braces. The old ``edge add`` wrote to the
+    inventory's inline ``vars``, but a ``group_vars/`` file outranks that, so on
+    a real installation the *effective* value lived in ``defaults.yml`` and the
+    inline copy did nothing. Importing only the inline copy therefore drops the
+    management CIDRs that were actually in force — and because the firewall role
+    refuses to enable on an empty list, that surfaces much later as a deploy
+    that will not converge, with nothing pointing back at the migration.
     """
     if path.is_symlink():
         raise ConfigurationError(f"refusing to load symlink: {path}")
@@ -106,7 +114,9 @@ def read_legacy_inventory(path: Path) -> list[Edge]:
     except (OSError, yaml.YAMLError, TypeError, KeyError, AttributeError) as exc:
         raise ConfigurationError(f"invalid inventory {path}: {exc}") from exc
 
-    sources = _string_list(variables.get("blitzecdn_firewall_ssh_sources"))
+    sources = _group_var_sources(path) or _string_list(
+        variables.get("blitzecdn_firewall_ssh_sources")
+    )
     edges: list[Edge] = []
     for name, values in sorted(hosts.items()):
         if values is None:
@@ -133,6 +143,56 @@ def read_legacy_inventory(path: Path) -> list[Edge]:
             )
         )
     return edges
+
+
+def _group_var_sources(inventory: Path) -> tuple[str, ...]:
+    """The management CIDRs actually in force, from ``group_vars/``.
+
+    Ansible loads every file in ``group_vars/<group>/`` in alphabetical order
+    and the last one wins, which is the whole reason ``local.yml`` overrides
+    ``defaults.yml``. That order is reproduced here so the value imported is the
+    one the fleet was really being converged with, not the shipped default a
+    site had deliberately replaced.
+
+    Anything unreadable or malformed is skipped rather than raised on. This runs
+    inside ``setup`` on a file the migration does not own, and a stray YAML
+    error in an unrelated group_vars file must not be what stops an upgrade —
+    the inline value is still there to fall back to, and `edge update` can
+    correct whatever this missed.
+    """
+    directory = inventory.parent / f"group_vars/{EDGE_GROUP}"
+    candidates = (
+        sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml"))
+        if directory.is_dir()
+        else []
+    )
+    # A single `group_vars/<group>.yml` file is the other layout Ansible
+    # accepts, and some installations use it instead of the directory.
+    candidates += [
+        path
+        for path in (
+            inventory.parent / f"group_vars/{EDGE_GROUP}.yml",
+            inventory.parent / f"group_vars/{EDGE_GROUP}.yaml",
+        )
+        if path.is_file()
+    ]
+
+    found: tuple[str, ...] = ()
+    for path in candidates:
+        try:
+            document = yaml.safe_load(path.read_text(encoding="utf-8"))
+        except (OSError, yaml.YAMLError):
+            continue
+        if not isinstance(document, dict):
+            continue
+        value = document.get("blitzecdn_firewall_ssh_sources")
+        if value is None:
+            continue
+        try:
+            found = _string_list(value)
+        except ConfigurationError:
+            continue
+    return found
 
 
 def _string_list(value: Any) -> tuple[str, ...]:

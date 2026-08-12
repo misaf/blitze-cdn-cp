@@ -377,3 +377,84 @@ def test_group_vars_overrides_are_skipped_without_the_directory(tmp_path):
     (tmp_path / "inventory").mkdir()
 
     assert initialize_group_vars(tmp_path / "inventory") is None
+
+
+def test_management_cidrs_are_imported_from_group_vars_not_only_the_inventory(
+    tmp_path,
+):
+    """The effective value lived in `group_vars/`, not in the inventory.
+
+    The old `edge add` wrote `blitzecdn_firewall_ssh_sources` into the
+    inventory's inline `vars`, where a `group_vars/` file outranked it — so the
+    CIDRs actually in force were the ones in `defaults.yml`. Importing only the
+    inline copy silently drops them, and because the firewall role refuses to
+    enable on an empty list, that surfaces as a deploy that will not converge
+    long after anyone would connect it to a migration.
+
+    Found by running the real migration against a real installation, where the
+    inventory had no `vars:` block at all.
+    """
+    inventory = tmp_path / "hosts.yml"
+    inventory.write_text(
+        "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
+        "        edge-01:\n          ansible_host: 192.0.2.10\n",
+        encoding="utf-8",
+    )
+    group_vars = tmp_path / f"group_vars/{EDGE_GROUP}"
+    group_vars.mkdir(parents=True)
+    (group_vars / "defaults.yml").write_text(
+        "blitzecdn_firewall_ssh_sources:\n  - 94.183.119.90/32\n", encoding="utf-8"
+    )
+
+    (edge,) = read_legacy_inventory(inventory)
+
+    assert edge.ssh_sources == ("94.183.119.90/32",)
+
+
+def test_a_local_override_wins_over_the_shipped_default(tmp_path):
+    """Ansible loads `group_vars/<group>/` alphabetically and the last wins.
+
+    `local.yml` exists precisely so a site can replace `defaults.yml` without
+    the installer fighting it, so importing `defaults.yml` over a site's own
+    override would restore a value they had deliberately replaced.
+    """
+    inventory = tmp_path / "hosts.yml"
+    inventory.write_text(
+        "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
+        "        edge-01:\n          ansible_host: 192.0.2.10\n",
+        encoding="utf-8",
+    )
+    group_vars = tmp_path / f"group_vars/{EDGE_GROUP}"
+    group_vars.mkdir(parents=True)
+    (group_vars / "defaults.yml").write_text(
+        "blitzecdn_firewall_ssh_sources: [94.183.119.90/32]\n", encoding="utf-8"
+    )
+    (group_vars / "local.yml").write_text(
+        "blitzecdn_firewall_ssh_sources: [203.0.113.0/24]\n", encoding="utf-8"
+    )
+
+    (edge,) = read_legacy_inventory(inventory)
+
+    assert edge.ssh_sources == ("203.0.113.0/24",)
+
+
+def test_an_unreadable_group_vars_file_does_not_stop_the_import(tmp_path):
+    """A stray YAML error elsewhere must not be what blocks an upgrade.
+
+    The inline value is still there to fall back to, and `edge update` can
+    correct whatever this missed — neither of which is true if setup raises.
+    """
+    inventory = tmp_path / "hosts.yml"
+    inventory.write_text(
+        "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
+        "        edge-01:\n          ansible_host: 192.0.2.10\n"
+        "      vars:\n        blitzecdn_firewall_ssh_sources: [10.0.0.0/8]\n",
+        encoding="utf-8",
+    )
+    group_vars = tmp_path / f"group_vars/{EDGE_GROUP}"
+    group_vars.mkdir(parents=True)
+    (group_vars / "broken.yml").write_text("{{ not yaml", encoding="utf-8")
+
+    (edge,) = read_legacy_inventory(inventory)
+
+    assert edge.ssh_sources == ("10.0.0.0/8",)
