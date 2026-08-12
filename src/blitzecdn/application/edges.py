@@ -43,6 +43,7 @@ from blitzecdn.ports import (
     EventBus,
     OriginProbe,
     SiteStore,
+    UnitOfWork,
 )
 
 
@@ -57,6 +58,7 @@ class EdgeOperationsService:
         runner: DeploymentRunner,
         origin_probe: OriginProbe,
         edges: EdgeStore,
+        uow: UnitOfWork,
     ) -> None:
         self.settings = settings
         self.sites = sites
@@ -64,6 +66,7 @@ class EdgeOperationsService:
         self.runner = runner
         self.origin_probe = origin_probe
         self.edges = edges
+        self.uow = uow
 
     # -- The roster ----------------------------------------------------
 
@@ -83,22 +86,23 @@ class EdgeOperationsService:
         rather than needing an inventory file to be written first and hoping
         the two agree.
         """
-        created = self.edges.create_edge(edge)
-        self.bus.publish(
-            domain_event(
-                operator,
-                "edge.added",
-                "edge",
-                created.name,
-                {
-                    "host": created.host,
-                    "user": created.user,
-                    "port": created.port,
-                    "public_addresses": list(created.effective_public_addresses),
-                    "ssh_sources": list(created.ssh_sources),
-                },
+        with self.uow.transaction():
+            created = self.edges.create_edge(edge)
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "edge.added",
+                    "edge",
+                    created.name,
+                    {
+                        "host": created.host,
+                        "user": created.user,
+                        "port": created.port,
+                        "public_addresses": list(created.effective_public_addresses),
+                        "ssh_sources": list(created.ssh_sources),
+                    },
+                )
             )
-        )
         return created
 
     def update_edge(self, name: str, patch: EdgePatch, operator: str) -> Edge:
@@ -112,16 +116,17 @@ class EdgeOperationsService:
         updated = Edge.model_validate(
             {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
         )
-        saved = self.edges.replace_edge(updated)
-        self.bus.publish(
-            domain_event(
-                operator,
-                "edge.updated",
-                "edge",
-                saved.name,
-                {"fields": sorted(patch.model_fields_set)},
+        with self.uow.transaction():
+            saved = self.edges.replace_edge(updated)
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "edge.updated",
+                    "edge",
+                    saved.name,
+                    {"fields": sorted(patch.model_fields_set)},
+                )
             )
-        )
         return saved
 
     def remove_edge(self, name: str, operator: str) -> None:
@@ -133,8 +138,9 @@ class EdgeOperationsService:
         stays exactly where it is, which is why ``decommission_edge`` is what
         the CLI reaches for by default.
         """
-        self.edges.delete_edge(name)
-        self.bus.publish(domain_event(operator, "edge.removed", "edge", name))
+        with self.uow.transaction():
+            self.edges.delete_edge(name)
+            self.bus.publish(domain_event(operator, "edge.removed", "edge", name))
 
     # -- Origins -------------------------------------------------------
 
@@ -362,29 +368,45 @@ class EdgeOperationsService:
                 # and "teardown failed removing /etc/blitzecdn on edge-b".
                 failure = run.summary()
 
-        self.bus.publish(
-            domain_event(
-                operator,
-                "edge.decommissioned"
-                if failure is None
-                else "edge.decommission_failed",
-                "edge",
-                name,
-                {
-                    "forced": force,
-                    "hosts": [host.host for host in hosts],
-                    **({} if failure is None else {"error": failure}),
-                },
-            )
-        )
         if failure is not None and not force:
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "edge.decommission_failed",
+                    "edge",
+                    name,
+                    {
+                        "forced": force,
+                        "hosts": [host.host for host in hosts],
+                        "error": failure,
+                    },
+                )
+            )
             raise ExecutionError(
                 f"teardown of {name} failed and the inventory entry was kept: "
                 f"{failure} Retry once the host is reachable, or pass --force "
                 "if the host no longer exists — forcing leaves its "
                 "configuration and private keys in place."
             )
-        self.edges.delete_edge(name)
+        with self.uow.transaction():
+            self.edges.delete_edge(name)
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    (
+                        "edge.decommissioned"
+                        if failure is None
+                        else "edge.decommission_failed"
+                    ),
+                    "edge",
+                    name,
+                    {
+                        "forced": force,
+                        "hosts": [host.host for host in hosts],
+                        **({} if failure is None else {"error": failure}),
+                    },
+                )
+            )
         return hosts
 
 
