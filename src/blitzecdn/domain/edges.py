@@ -1,15 +1,13 @@
 """An edge server, as the control plane records it.
 
 This is the model the Ansible inventory is *derived from*. There is no
-inventory file to keep in step any more: the ``blitzecdn`` inventory plugin
-reads the edges table at the start of every run, so a host exists for Ansible
-exactly when it exists here.
+inventory file: the ``blitzecdn`` inventory plugin reads the edges table at the
+start of every run, so a host exists for Ansible exactly when it exists here.
 
-That inverts what used to be true. ``ansible/inventory/hosts.yml`` was written
-by the control plane and read by Ansible, which made it a second source of
-truth that could be edited underneath us, symlinked at us, or left holding a
-host the database had already decommissioned. What is left is one table and a
-plugin that reads it.
+One table and a plugin that reads it is the whole mechanism, and the point of
+it is that there is nowhere else a host can be declared — nothing to edit
+underneath the control plane, and no file left holding an edge the database has
+already decommissioned.
 
 Everything here is provider-independent and does no I/O. ``to_inventory``
 renders the host the way the plugin publishes it, and is the whole of the
@@ -210,8 +208,8 @@ class Edge(BaseModel):
             "ansible_user": self.user,
             "ansible_port": self.port,
             # Published from here so the firewall cannot disagree with the port
-            # Ansible actually connects on. They used to be two hand-edited
-            # settings in two files, and a mismatch strands the host: the
+            # Ansible actually connects on. Two independent settings would
+            # strand the host on any mismatch: the
             # firewall closes the port the next converge arrives on, and no
             # later deploy can reach it to undo that.
             "blitzecdn_firewall_ssh_port": self.port,

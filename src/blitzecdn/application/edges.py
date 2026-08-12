@@ -1,16 +1,15 @@
 """The fleet: who is in it, and what can be done to it short of converging.
 
 Two kinds of work live here. Registering, updating and removing an edge changes
-*which hosts exist* — and because the Ansible inventory is now read from the
-same rows, writing one here is what publishes it to Ansible. Purging,
-collecting statistics, probing origins and decommissioning read or act on the
-fleet without changing desired state; those write no deployment record and,
+*which hosts exist* — and because the Ansible inventory is read from the same
+rows, writing one here is what publishes it to Ansible. Purging, collecting
+statistics, probing origins and decommissioning read or act on the fleet
+without changing desired state; those write no deployment record and,
 deliberately, do not take the deployment lock.
 
-Edge registration used to bypass this layer entirely: the CLI held an
-``Inventory`` object and rewrote ``hosts.yml`` itself. Nothing was audited, and
-the API could not do it at all. Routing it through a service is what gives
-"who added this edge, and when" an answer.
+Registration goes through a service rather than straight to the store so that
+both entry points reach it the same way and every change is audited: "who added
+this edge, and when" is a question the audit trail can answer.
 """
 
 from __future__ import annotations
@@ -413,10 +412,10 @@ class EdgeOperationsService:
 def _unreported(what: str, run: AnsibleRun) -> str:
     """Explain a run that produced no per-host result.
 
-    Every fleet operation needs this message and each used to build its own out
-    of whatever was on stderr. There is no stderr to reach for now, and the
-    honest answer is the same in all three cases: nothing came back, here is
-    what the process said about itself, and here is where the output is.
+    All three fleet operations need this message, and the honest answer is the
+    same for each: nothing came back, here is what the process said about
+    itself, and here is where the output is. Built in one place so they cannot
+    drift into three different accounts of the same silence.
     """
     detail = run.error or run.summary()
     location = f" The full output is at {run.log_path}." if run.log_path else ""

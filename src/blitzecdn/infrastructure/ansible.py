@@ -176,7 +176,7 @@ class AnsibleRunner:
         The counters come back through the callback: ``blitzecdn_stats``
         publishes them as the ``blitzecdn_report`` fact and they arrive on
         ``HostRun.report``. Nothing is written to or read from the controller's
-        filesystem, which is what the role used to do.
+        filesystem, so a stats run leaves nothing behind to go stale.
         """
         with self._run_vars("stats", {}) as variables:
             return self._playbook_run(

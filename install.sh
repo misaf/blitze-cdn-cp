@@ -107,6 +107,91 @@ die() {
   exit "${status}"
 }
 
+# The uv release this installer pins, and the checksum of each build of it.
+#
+# Pinned rather than "latest", and verified against a hash that lives in this
+# repository rather than one fetched beside the download. A checksum served
+# from the same place as the artifact only proves the bytes arrived intact; it
+# says nothing about whether the artifact is the one this release was tested
+# against. Refresh both together with `just uv-pin VERSION`.
+UV_VERSION="0.12.3"
+UV_SHA256_x86_64="600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101"
+UV_SHA256_aarch64="bb66cb52e7b1823aed1183630d8d8e5c958840d584a4c55ec10a4cfc168dcca2"
+
+# Print the path to a usable uv, downloading the pinned build if necessary.
+#
+# An operator's own uv is used when it is at least the pinned version: a server
+# that already manages uv through its package manager should not grow a second
+# copy. Anything older, or nothing at all, gets the pinned build unpacked into
+# .state/bin — inside the installation rather than on the system, so uninstall
+# removes it and no other software on the host is affected by our choice.
+ensure_uv() {
+  local existing
+  if existing="$(command -v uv 2>/dev/null)" && [[ -x "${existing}" ]]; then
+    local have
+    have="$("${existing}" --version 2>/dev/null | awk '{print $2}')"
+    if [[ -n "${have}" ]] &&
+      [[ "$(printf '%s\n%s\n' "${UV_VERSION}" "${have}" | sort -V | head -1)" == "${UV_VERSION}" ]]; then
+      printf '%s\n' "${existing}"
+      return 0
+    fi
+  fi
+
+  local vendored=".state/bin/uv"
+  if [[ -x "${vendored}" ]] &&
+    [[ "$("${vendored}" --version 2>/dev/null | awk '{print $2}')" == "${UV_VERSION}" ]]; then
+    printf '%s\n' "${PWD}/${vendored}"
+    return 0
+  fi
+
+  local machine target expected
+  machine="$(uname -m)"
+  case "${machine}" in
+    x86_64 | amd64)
+      target="x86_64-unknown-linux-gnu"
+      expected="${UV_SHA256_x86_64}"
+      ;;
+    aarch64 | arm64)
+      target="aarch64-unknown-linux-gnu"
+      expected="${UV_SHA256_aarch64}"
+      ;;
+    *)
+      die 1 "error: no pinned uv build for ${machine}; install uv ${UV_VERSION} or newer and rerun"
+      ;;
+  esac
+
+  command -v curl >/dev/null 2>&1 ||
+    die 1 "error: curl is required to download uv; install it and rerun"
+
+  local archive
+  archive="$(mktemp)"
+  # shellcheck disable=SC2064 # expand the path now, while it is still in scope
+  trap "rm -f -- '${archive}'" RETURN
+
+  # stderr, not stdout: this function returns the uv path on stdout, and a
+  # progress line there ends up substituted into the caller's variable.
+  echo "Downloading uv ${UV_VERSION} (${target})..." >&2
+  curl -fsSL --proto '=https' --tlsv1.2 -o "${archive}" \
+    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz" ||
+    die 1 "error: could not download uv ${UV_VERSION}"
+
+  local actual
+  actual="$(sha256sum "${archive}" | awk '{print $1}')"
+  [[ "${actual}" == "${expected}" ]] ||
+    die 1 \
+      "error: the uv download does not match its pinned checksum" \
+      "       expected ${expected}" \
+      "       received ${actual}" \
+      "       Refusing to run it. Retry, and if it persists, do not proceed."
+
+  mkdir -p .state/bin
+  tar -xzf "${archive}" -C .state/bin --strip-components=1 \
+    "uv-${target}/uv" ||
+    die 1 "error: could not unpack uv ${UV_VERSION}"
+  chmod 0755 "${vendored}"
+  printf '%s\n' "${PWD}/${vendored}"
+}
+
 # Guard a privileged subcommand. Every caller reports the same thing, so the
 # EUID test exists once — the test harness neutralises this single line to
 # exercise the destructive paths as an unprivileged user.
@@ -287,29 +372,36 @@ if sys.version_info[:2] < (3, 12):
     raise SystemExit("error: BlitzeCDN requires Python 3.12 or newer")
 '
 
-  if [[ -e .venv && (! -x .venv/bin/python || ! -x .venv/bin/pip) ]]; then
+  local uv
+  uv="$(ensure_uv)"
+
+  if [[ -e .venv && ! -x .venv/bin/python ]]; then
     local invalid_venv
     invalid_venv=".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)"
     echo "warning: .venv is incomplete; preserving it as ${invalid_venv}" >&2
     mv -- .venv "${invalid_venv}"
   fi
 
-  if [[ ! -d .venv ]]; then
-    "${python_command}" -m venv .venv
-  fi
-
-  [[ -x .venv/bin/python && -x .venv/bin/pip ]] ||
-    die 1 "error: Python created an incomplete .venv; install the Python venv package and retry"
-
-  # BLITZECDN_DEV=1 installs the test and lint tooling and makes src/ edits take
-  # effect without reinstalling. Without it the venv holds a plain wheel, which is
-  # what an operator wants and what a contributor gets caught by.
+  # `uv sync` builds exactly the environment uv.lock describes, which is what
+  # makes two servers installed a month apart identical. It also *removes*
+  # anything else in .venv, so every runtime requirement has to be a real
+  # dependency in pyproject.toml — ansible-core included.
+  #
+  # --frozen refuses to re-resolve: a lockfile that does not match pyproject
+  # fails the install rather than quietly installing something nobody tested.
+  #
+  # BLITZECDN_DEV=1 adds the test and lint tooling and makes src/ edits take
+  # effect without reinstalling. Without it the venv holds what a server wants
+  # and nothing else.
+  local -a sync_flags=(--frozen --python "${python_command}")
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
-    .venv/bin/python -m pip install -e '.[dev]'
+    "${uv}" sync "${sync_flags[@]}"
   else
-    .venv/bin/python -m pip install .
-    .venv/bin/python -m pip install 'ansible-core>=2.21,<2.22'
+    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
   fi
+
+  [[ -x .venv/bin/python && -x .venv/bin/blitzecdn ]] ||
+    die 1 "error: uv created an incomplete .venv; rerun with --fresh"
 
   # Collections go inside the repository rather than ~/.ansible/collections:
   # ansible/ansible.cfg looks here first, tests/test_contract.py reads whatever
@@ -417,12 +509,15 @@ cmd_standalone() {
   # the packages, the accounts, the SSH trust, the units and the environment
   # file all belong to the role, which converges them the same way the edge
   # roles converge an edge.
-  # python3 and python3-venv build the virtualenv; git is here because
-  # ansible/requirements.yml fetches the edge collection from a Git ref, and
-  # that happens in the default install form below — before the role runs.
+  # python3 is the interpreter uv builds the virtualenv around — uv creates the
+  # environment itself, so python3-venv is no longer needed. curl fetches the
+  # pinned uv build when the host has no uv of its own; ca-certificates is what
+  # makes that fetch verifiable at all, and a minimal image can lack it. git is
+  # here because ansible/requirements.yml fetches the edge collection from a Git
+  # ref, and that happens in the default install form below — before the role runs.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
-  apt-get install -y git python3 python3-venv
+  apt-get install -y ca-certificates curl git python3
 
   # Validated as soon as there is an interpreter to validate with, and before
   # the host is converged: a typo then costs a package install rather than a

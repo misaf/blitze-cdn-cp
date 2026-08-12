@@ -7,57 +7,45 @@ from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import STORED
 
-#: Shape of the JSON in ``deployments.snapshot``: an object carrying the zones,
-#: records, and derived sites a rollback converges.
+#: Shape of the JSON in ``deployments.snapshot``: an object carrying the zones
+#: and records a rollback converges.
+#:
+#: Written on every snapshot and checked on every read. It is not a
+#: compatibility shim — nothing decodes an older shape — but the thing that
+#: makes a future format change fail loudly on the snapshot rather than
+#: silently converge a fleet from a document this code misread.
 SNAPSHOT_VERSION = 3
 
 
-def encode_snapshot(
-    domains: list[Domain], records: list[DnsRecord], sites: list[CdnSite]
-) -> str:
+def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
     """Serialise the desired state a deployment converges and can roll back to.
 
-    Version 3 stores only canonical state. ``sites`` remains an argument for
-    source compatibility with callers and is deliberately ignored.
+    Records are the only canonical state here. Sites are derived from them on
+    read rather than stored alongside, so a snapshot cannot carry two truths
+    that disagree.
     """
-    document: dict[str, Any] = {
-        "version": SNAPSHOT_VERSION,
-        "domains": [domain.model_dump(mode="json") for domain in domains],
-        "records": [record.model_dump(mode="json") for record in records],
-    }
-    # Compatibility for databases created before records became canonical.
-    # Production state with records never serializes the projection.
-    if not records and sites:
-        document["legacy_sites"] = [site.model_dump(mode="json") for site in sites]
-    return json.dumps(document, sort_keys=True)
+    return json.dumps(
+        {
+            "version": SNAPSHOT_VERSION,
+            "domains": [domain.model_dump(mode="json") for domain in domains],
+            "records": [record.model_dump(mode="json") for record in records],
+        },
+        sort_keys=True,
+    )
 
 
 def decode_snapshot(snapshot: str) -> list[CdnSite]:
-    """Return the sites a snapshot converges.
-
-    Version 2 snapshots carried sites. Version 3 derives them from canonical
-    records, removing the possibility of snapshotting contradictory truths.
-    """
+    """Return the sites a snapshot converges, derived from its records."""
     document = _document(snapshot)
-    if document.get("version") == 3:
-        sites: dict[str, CdnSite] = {}
-        for record in (
-            DnsRecord.model_validate(item, context=STORED)
-            for item in document.get("records", [])
-        ):
-            site = record.to_site()
-            if site is not None:
-                sites.setdefault(site.name, site)
-        if sites:
-            return list(sites.values())
-        return [
-            CdnSite.model_validate(item, context=STORED)
-            for item in document.get("legacy_sites", [])
-        ]
-    return [
-        CdnSite.model_validate(item, context=STORED)
-        for item in document.get("sites", [])
-    ]
+    sites: dict[str, CdnSite] = {}
+    for record in (
+        DnsRecord.model_validate(item, context=STORED)
+        for item in document.get("records", [])
+    ):
+        site = record.to_site()
+        if site is not None:
+            sites.setdefault(site.name, site)
+    return list(sites.values())
 
 
 def decode_snapshot_zones(snapshot: str) -> tuple[list[Domain], list[DnsRecord]]:
@@ -76,4 +64,10 @@ def _document(snapshot: str) -> dict[str, Any]:
     data = json.loads(snapshot)
     if not isinstance(data, dict):
         raise ValueError("deployment snapshot is not an object")
+    version = data.get("version")
+    if version != SNAPSHOT_VERSION:
+        raise ValueError(
+            f"deployment snapshot is version {version!r}, "
+            f"but this release reads version {SNAPSHOT_VERSION}"
+        )
     return data

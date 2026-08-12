@@ -11,11 +11,10 @@ blitzecdn_nginx_sites:
     cache_enabled: true
     cache_valid_success: 10m
     cache_valid_not_found: 1m
-    name: example-cdn
+    name: cdn-example-com
     server_names:
       - cdn.example.com
-      - '*.assets.example.com'
-    origin_host: origin.example.com
+    origin_host: 198.51.100.20
   - origin_scheme: http
     enabled: false
     certificate_mode: existing
@@ -38,7 +37,7 @@ blitzecdn_nginx_sites:
       denied_paths:
         - /admin
         - /.git
-    name: plain-cdn
+    name: static-example-com
     server_names:
       - static.example.com
     origin_host: 192.0.2.10

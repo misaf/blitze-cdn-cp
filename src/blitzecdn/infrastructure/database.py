@@ -7,7 +7,7 @@ It is a bundle, not a layer: each store already satisfies its port in
 ever handed more of persistence than it declared.
 
 ``snapshot`` is the one thing that cannot belong to a single store, because the
-desired state a deployment converges spans zones, records and derived sites.
+desired state a deployment converges spans both zones and records.
 """
 
 from __future__ import annotations
@@ -21,10 +21,10 @@ from blitzecdn.domain.snapshots import (
     decode_snapshot_zones,
     encode_snapshot,
 )
+from blitzecdn.infrastructure.engine import Database
 from blitzecdn.infrastructure.stores import (
     AnsibleSettingStore,
     AuditLog,
-    Database,
     DeploymentStore,
     EdgeStore,
     OutboxStore,
@@ -77,8 +77,7 @@ class Repository:
         with self.transaction():
             domains = self.zones.list_domains()
             records = self.zones.list_records()
-            sites = self.sites.list_sites()
-            return encode_snapshot(domains, records, sites)
+            return encode_snapshot(domains, records)
 
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by this repository's stores."""

@@ -85,8 +85,8 @@ class Settings(BaseModel):
     #: question: a split-horizon view, an internal forwarder, or a transparent
     #: proxy that claims every name will all disagree with the public answer
     #: while being perfectly healthy for every other purpose. Empty means fall
-    #: back to the host resolver, which is the old behaviour and still right
-    #: for an air-gapped controller with its own view of public DNS.
+    #: back to the host resolver, which is right for an air-gapped controller
+    #: with its own view of public DNS.
     preflight_dns_servers: tuple[str, ...] = ()
     #: MaxMind credentials for the edge GeoLite2 download, forwarded to Ansible
     #: as environment variables rather than extra-vars.

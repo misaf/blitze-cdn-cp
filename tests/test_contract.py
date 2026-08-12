@@ -30,6 +30,7 @@ import pytest
 import yaml
 
 from blitzecdn.control_plane import ControlPlane
+from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import (
     DESIRED_STATE_VERSION,
     CdnSite,
@@ -80,15 +81,25 @@ def _role_defaults() -> dict[str, Any]:
 
 @pytest.fixture
 def desired_state(settings, tmp_path) -> dict[str, Any]:
-    """Render desired state the way a real deployment would."""
+    """Render desired state the way a real deployment would.
+
+    From records, because that is the only way a site comes to exist. The
+    snapshot this renders from carries records and derives the sites on read,
+    so writing to the derived table here would describe a state no deployment
+    can actually produce.
+    """
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository)
-    repository.sites.create_site(
-        CdnSite.model_validate(
+    repository.zones.create_domain(Domain(name="example.com"))
+    repository.zones.create_record(
+        DnsRecord.model_validate(
             {
-                "name": "example-cdn",
-                "server_names": ["cdn.example.com", "*.assets.example.com"],
-                "origin_host": "origin.example.com",
+                "domain": "example.com",
+                "name": "cdn",
+                # An A record's value is an address, so the origin *hostname*
+                # travels in origin_request_host and origin_sni instead.
+                "value": "198.51.100.20",
+                "proxied": True,
                 "origin_port": 8443,
                 "origin_scheme": HttpScheme.HTTPS,
                 "origin_request_host": "origin.example.com",
@@ -99,12 +110,13 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
             }
         )
     )
-    repository.sites.create_site(
-        CdnSite.model_validate(
+    repository.zones.create_record(
+        DnsRecord.model_validate(
             {
-                "name": "plain-cdn",
-                "server_names": ["static.example.com"],
-                "origin_host": "192.0.2.10",
+                "domain": "example.com",
+                "name": "static",
+                "value": "192.0.2.10",
+                "proxied": True,
                 "origin_scheme": HttpScheme.HTTP,
                 "enabled": False,
                 "cache_enabled": False,
@@ -744,3 +756,23 @@ def test_the_stats_role_no_longer_wants_a_controller_directory():
     )["argument_specs"]["main"]["options"]
 
     assert "blitzecdn_stats_output_dir" not in spec
+
+
+def test_the_controller_environment_points_at_the_inventory_that_exists():
+    """A settings file the controller reads must name a real inventory.
+
+    `BLITZE_INVENTORY` outranks blitzecdn.toml, so a stale value here is not a
+    cosmetic wrong default — it is the value the installed controller uses, and
+    it made `blitzecdn doctor` report a configuration error on every fresh
+    standalone install. It named `hosts.yml`, the static inventory that was
+    deleted when the fleet moved into the database.
+
+    Written on a first installation only, so a wrong value here also never
+    corrects itself on a later converge.
+    """
+    template = (
+        Path(__file__).parents[1]
+        / "ansible/roles/blitzecdn_controlplane/templates/blitzecdn.env.j2"
+    ).read_text(encoding="utf-8")
+    assert "inventory/blitzecdn.yml" in template
+    assert "hosts.yml" not in template

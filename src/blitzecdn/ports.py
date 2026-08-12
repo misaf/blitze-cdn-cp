@@ -196,7 +196,7 @@ class Outbox(Protocol):
 # the same reason everything else is: a service should name the handful of
 # methods it calls on a collaborator rather than take the collaborator whole.
 # Narrow enough that a test can satisfy one without building the real service
-# behind it — which is what the concrete dependency used to make impossible.
+# behind it, which taking the collaborator whole would make impossible.
 
 
 class ZoneEditor(Protocol):
@@ -322,11 +322,10 @@ class YamlWriter(Protocol):
 class EdgeStore(Protocol):
     """The fleet. The Ansible inventory is derived from this, not the reverse.
 
-    This used to be ``EdgeInventory``, a two-method window onto a YAML file the
-    control plane wrote and Ansible read. The file is gone: the
-    ``blitzecdn`` inventory plugin reads these same rows at the start of every
-    run, so writing an edge here *is* publishing it to Ansible, and there is no
-    second artefact that can disagree with the database about which hosts exist.
+    The ``blitzecdn`` inventory plugin reads these same rows at the start of
+    every run, so writing an edge here *is* publishing it to Ansible. There is
+    no second artefact that could disagree with the database about which hosts
+    exist.
     """
 
     def list_edges(self) -> list[Edge]: ...

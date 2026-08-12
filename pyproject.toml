@@ -19,16 +19,31 @@ dependencies = [
   "pydantic>=2.11,<3",
   "PyYAML>=6.0.2,<7",
   "python-multipart>=0.0.20,<1",
+  # Persistence. The ORM owns storage and schema; pydantic remains the
+  # validation authority, so nothing in domain/ or application/ imports these.
+  "alembic>=1.16,<2",
+  "SQLAlchemy>=2.0.36,<3",
   "typer>=0.16,<1",
   "uvicorn[standard]>=0.35,<1",
+  # A runtime dependency, not a development one. Ansible exclusively owns
+  # remote Linux state, and `infrastructure/ansible.py` launches
+  # `ansible-playbook` for every deploy, purge and stats run — a controller
+  # without it cannot converge anything.
+  #
+  # It was previously installed as a separate step by install.sh, which worked
+  # only because pip leaves alone whatever it did not install. `uv sync` builds
+  # the environment the lockfile describes and removes anything else, so a
+  # dependency that is really required has to say so here.
+  "ansible-core>=2.21,<2.22",
 ]
 
-[project.optional-dependencies]
+# PEP 735. Not an extra: these are never part of an install of this package,
+# only of a checkout of it, and `uv sync` installs them by default while
+# `uv sync --no-dev` — what a server runs — leaves them out entirely.
+[dependency-groups]
 dev = [
-  "ansible-core>=2.21,<2.22",
   "ansible-lint>=26.6,<27",
   "bandit[toml]>=1.8,<2",
-  "build>=1.2,<2",
   "httpx>=0.28,<1",
   # Used directly by tests/test_contract.py to render the role templates.
   "Jinja2>=3.1,<4",

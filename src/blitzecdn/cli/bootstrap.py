@@ -1,10 +1,9 @@
-"""First-run commands: scaffold local configuration, and adopt an old fleet.
+"""First-run commands: scaffold the local configuration a controller needs.
 
-``setup`` no longer creates an inventory file. The fleet lives in the ``edges``
-table and Ansible reads it through the ``blitzecdn`` inventory plugin, so the
-only inventory artefact is the plugin's configuration — which is tracked and
-ships with the project. What ``setup`` does own is the one-time migration off
-the static ``hosts.yml`` that installations before this used.
+``setup`` creates no inventory file. The fleet lives in the ``edges`` table and
+Ansible reads it through the ``blitzecdn`` inventory plugin, so the only
+inventory artefact is the plugin's configuration — which is tracked and ships
+with the project.
 """
 
 from __future__ import annotations
@@ -14,11 +13,10 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-import yaml
 
-from blitzecdn.cli import common
+from blitzecdn.cli import common, database
 from blitzecdn.cli.app import app
-from blitzecdn.infrastructure.inventory import read_legacy_inventory
+from blitzecdn.infrastructure.engine import SCHEMA_REVISION
 
 
 def _environment_file_body() -> str:
@@ -55,20 +53,23 @@ def init(
     typer.echo(f"Created {output} with mode 0600")
 
 
-#: Where a pre-plugin installation kept its fleet, and where it goes afterwards.
-LEGACY_INVENTORY = "ansible/inventory/hosts.yml"
-MIGRATED_SUFFIX = ".migrated"
-
-
 @app.command()
 def setup() -> None:
-    """Prepare local configuration, adopting an older static inventory.
+    """Prepare the local configuration a controller needs to run.
 
-    Safe to re-run. Nothing that already exists is overwritten, and the
-    migration below only ever runs against a control plane whose fleet is
-    empty — so a second `setup` cannot resurrect edges that were deliberately
-    removed after the first one.
+    Safe to re-run: nothing that already exists is overwritten.
     """
+    # Before anything touches the database. `install.sh` runs `setup` on both a
+    # fresh install and an update, so this is where an existing controller's
+    # schema catches up with the release that was just unpacked — without it,
+    # every later command in this function would refuse the older schema.
+    _migrate_schema()
+    # Create the database if this is a first run. Ansible reads the fleet
+    # through the `blitzecdn` inventory plugin, which refuses a database that
+    # does not exist — so on a fresh install every playbook failed to parse its
+    # inventory until something happened to create one. `setup` is the command
+    # whose whole job is that something.
+    common.control_plane()
     root = Path.cwd()
     environment_path = root / ".env"
     created: list[str] = []
@@ -80,86 +81,22 @@ def setup() -> None:
         typer.echo(f"BlitzeCDN is ready. Created: {', '.join(created)}")
     else:
         typer.echo("BlitzeCDN is already set up; existing files were preserved.")
-    _migrate_legacy_inventory(root)
-    _migrate_local_settings(root)
     typer.echo("Next: blitzecdn edge add NAME --host ADDRESS --ssh-source YOUR_CIDR")
 
 
-def _migrate_local_settings(root: Path) -> None:
-    """Move legacy local.yml overrides into the database exactly once."""
-    path = root / "ansible/inventory/group_vars/blitzecdn_edges/local.yml"
-    if not path.is_file():
-        return
-    try:
-        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as error:
-        message = f"cannot migrate {path}: invalid YAML: {error}"
-        raise typer.BadParameter(message) from error
-    if not isinstance(document, dict):
-        raise typer.BadParameter(f"cannot migrate {path}: expected a YAML mapping")
+def _migrate_schema() -> None:
+    """Bring an existing database up to this release's schema.
 
-    from blitzecdn.cli.configuration import RESERVED_SETTINGS, _name
-
-    store = common.control_plane().ansible_settings
-    existing = store.list_settings()
-    for name, value in document.items():
-        name = str(name)
-        if name in RESERVED_SETTINGS:
-            continue
-        name = _name(name)
-        if name not in existing:
-            store.set_setting(name, value)
-    migrated = path.with_name(path.name + ".migrated")
-    if migrated.exists():
-        raise typer.BadParameter(f"refusing to overwrite {migrated}")
-    path.rename(migrated)
-    typer.echo(
-        f"Imported {len(document)} global setting(s) into the database; "
-        f"renamed {path.name} to {migrated.name}."
-    )
-
-
-def _migrate_legacy_inventory(root: Path) -> None:
-    """Adopt a static `hosts.yml` into the edges table, once.
-
-    The fleet used to live in that file and now lives in the database, so an
-    upgrade that did nothing here would come up with an empty fleet and a
-    deploy that reports success having converged nothing. Every connection
-    variable is carried across, including the ``ansible_port`` and
-    ``ansible_ssh_private_key_file`` that only ever got there by hand.
-
-    Guarded on the edges table being empty rather than on the file existing.
-    An operator who has already registered edges has a fleet that is
-    authoritative; importing over it would resurrect whatever the stale file
-    still listed, including a host that was decommissioned on purpose.
-
-    The file is renamed rather than deleted or left in place. Left in place it
-    is the next person's source of confusion — it looks like configuration and
-    is read by nothing — and deleting it throws away the only copy of a fleet
-    that took real work to describe.
+    A no-op on a database that does not exist yet — it is created at the head
+    revision on first use — and on one already at head.
     """
-    legacy = root / LEGACY_INVENTORY
-    if not legacy.is_file():
+    path = common.settings().database_path
+    if not path.exists():
         return
-    control_plane = common.control_plane()
-    if control_plane.edges.list_edges():
-        typer.echo(
-            f"\nNote: {LEGACY_INVENTORY} still exists but is no longer read. "
-            "This control plane already has edges registered, so it was left "
-            "alone rather than imported over them. Remove it once you have "
-            "confirmed 'blitzecdn edge list' is right."
-        )
+    before = database.current_revision(path)
+    if before == SCHEMA_REVISION:
         return
-
-    edges = read_legacy_inventory(legacy)
-    for edge in edges:
-        control_plane.edges.add_edge(edge, "setup")
-    migrated = legacy.with_name(legacy.name + MIGRATED_SUFFIX)
-    legacy.rename(migrated)
+    database.upgrade_to_head(path)
     typer.echo(
-        f"\nImported {len(edges)} edge(s) from {LEGACY_INVENTORY} into the "
-        "control plane, which is now the only place the fleet is recorded. "
-        f"The file has been renamed to {migrated.name} — Ansible reads the "
-        "database through ansible/inventory/blitzecdn.yml now.\n"
-        "Check it with: blitzecdn edge list"
+        f"Migrated the database schema: {before or 'unstamped'} -> {SCHEMA_REVISION}"
     )
