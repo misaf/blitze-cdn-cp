@@ -191,8 +191,17 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         '  *"remote get-url origin"*)\n'
         '    echo "https://github.com/misaf/blitze-cdn-cp.git"; exit 0 ;;\n'
         '  *"describe --tags --exact-match HEAD"*)\n'
-        '    echo "v1.2.3"; exit 0 ;;\n'
+        '    [[ -n "${FRESH_GIT_TAG-v1.2.3}" ]] || exit 1\n'
+        '    echo "${FRESH_GIT_TAG-v1.2.3}"; exit 0 ;;\n'
+        '  *"symbolic-ref --quiet --short HEAD"*)\n'
+        '    [[ -n "${FRESH_GIT_BRANCH:-}" ]] || exit 1\n'
+        '    echo "${FRESH_GIT_BRANCH}"; exit 0 ;;\n'
+        '  *"rev-parse HEAD"*)\n'
+        '    echo "0123456789abcdef0123456789abcdef01234567"; exit 0 ;;\n'
         "  clone*)\n"
+        '    if [[ -n "${FRESH_GIT_CLONE_MARKER:-}" ]]; then\n'
+        '      printf "%s\\n" "$*" > "${FRESH_GIT_CLONE_MARKER}"\n'
+        "    fi\n"
         '    target="${@: -1}"\n'
         '    mkdir -p "${target}"\n'
         "    cat > \"${target}/install.sh\" <<'FAKE'\n"
@@ -735,12 +744,15 @@ def test_fresh_reuses_the_same_cleanup_as_uninstall():
     assert 'run "sudo ./install.sh --uninstall"' not in fresh
 
 
-def test_fresh_reinstalls_the_running_release_like_a_new_server():
+def test_fresh_preserves_the_running_source_line_like_a_new_server():
     fresh = _section("fresh")
     assert "require_upstream_origin" in fresh
     assert "remote get-url origin" in _function("require_upstream_origin")
     assert "describe --tags --exact-match HEAD" in fresh
-    assert 'git clone --depth 1 --branch "${revision}"' in fresh
+    assert "symbolic-ref --quiet --short HEAD" in fresh
+    assert '[[ ${revision} != "2.x" ]]' in fresh
+    assert 'git clone --branch "${revision}"' in fresh
+    assert "git clone --depth 1" not in fresh
     assert 'git -C "${INSTALL_DIR}" checkout --detach "${revision}"' in fresh
     assert '"${INSTALL_DIR}/install.sh" standalone ' in fresh
     assert '${fresh_args[@]+"${fresh_args[@]}"}' in fresh
@@ -832,6 +844,33 @@ def test_fresh_rebuild_removes_then_reinstalls_like_a_brand_new_server(
     assert marker.exists(), "the fresh install.sh never ran"
     assert marker.read_text().strip() == "fresh-reinstalled"
     assert (root / "opt/blitzecdn/install.sh").exists(), "no fresh checkout was created"
+
+
+def test_fresh_rebuild_keeps_a_2_x_checkout_on_the_release_branch(tmp_path: Path):
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    reinstall_marker = tmp_path / "fresh-reinstalled"
+    clone_marker = tmp_path / "git-clone-arguments"
+    _fake_installation(root)
+
+    result = _run_sandboxed(
+        script,
+        "--fresh",
+        "--yes",
+        env_extra={
+            "FRESH_GIT_TAG": "",
+            "FRESH_GIT_BRANCH": "2.x",
+            "FRESH_GIT_CLONE_MARKER": str(clone_marker),
+            "FRESH_REINSTALL_MARKER": str(reinstall_marker),
+        },
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert reinstall_marker.exists()
+    clone_args = clone_marker.read_text(encoding="utf-8")
+    assert "clone --branch 2.x" in clone_args
+    assert "--depth" not in clone_args
 
 
 def test_fresh_refuses_to_rebuild_without_a_git_checkout(tmp_path: Path):

@@ -1052,16 +1052,19 @@ cmd_fresh() {
   local remote_url
   remote_url=$(require_upstream_origin)
 
-  # Prefer the exact release tag when the checkout sits on one, so the rebuild
-  # reinstalls the same vX.Y.Z release a brand-new server would. Fall back to
-  # the commit when HEAD is not a tag (a development checkout). Both are read
-  # before the cleanup, because the cleanup deletes the checkout itself.
+  # Preserve the source identity of the running checkout. An exact release tag
+  # stays on that release, the supported 2.x line stays attached to that branch,
+  # and any other development checkout is pinned to its exact commit. All of
+  # this is read before the cleanup, because the cleanup deletes the checkout.
   local revision
   revision=$(repo_git describe --tags --exact-match HEAD 2>/dev/null || true)
-  local at_release_tag=1
+  local named_revision=1
   if [[ -z ${revision} ]]; then
-    revision=$(repo_git rev-parse HEAD)
-    at_release_tag=0
+    revision=$(repo_git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
+    if [[ ${revision} != "2.x" ]]; then
+      revision=$(repo_git rev-parse HEAD)
+      named_revision=0
+    fi
   fi
 
   confirm_destructive "${assume_yes}" fresh
@@ -1070,8 +1073,8 @@ cmd_fresh() {
   # the state it was meant to discard.
   require_clean_removal
 
-  if [[ ${at_release_tag} -eq 1 ]]; then
-    git clone --depth 1 --branch "${revision}" "${remote_url}" "${INSTALL_DIR}"
+  if [[ ${named_revision} -eq 1 ]]; then
+    git clone --branch "${revision}" "${remote_url}" "${INSTALL_DIR}"
   else
     git clone "${remote_url}" "${INSTALL_DIR}"
     git -C "${INSTALL_DIR}" checkout --detach "${revision}"
