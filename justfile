@@ -109,8 +109,30 @@ audit:
 build:
     uv build
 
+# Fail if the published reference no longer describes this control plane.
+#
+# The check lives in the docs repository, because that is where the pages it
+# reads live; this recipe is the direction that matters here — a route, command,
+# setting, or model changed on this side and the documentation was not updated
+# with it. Point `docs` at that checkout; it defaults to a sibling clone.
+#
+# Skips when that checkout is absent, mirroring how the check itself behaves
+# when run from the docs side without this repository: a contributor who has
+# cloned one of the two is not blocked by the other. CI checks both out, so the
+# skip never fires there.
+docs-check docs="../blitze-cdn-web":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -d "{{docs}}" ]; then
+        echo "reference check skipped: no documentation site at {{docs}}"
+        exit 0
+    fi
+    BLITZE_CP_PATH="{{justfile_directory()}}" \
+    BLITZE_CP_PYTHON="{{justfile_directory()}}/.venv/bin/python" \
+        node "{{docs}}/scripts/check-api-surface.mjs" --strict
+
 # Everything CI runs. Run this before pushing.
-check: lock-check lint types shell-lint test ansible-check audit build
+check: lock-check lint types shell-lint test ansible-check audit build docs-check
 
 # --- database -----------------------------------------------------------
 
