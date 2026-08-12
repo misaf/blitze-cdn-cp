@@ -2,12 +2,10 @@
 # GNU General Public License v3.0+
 """Publish the BlitzeCDN fleet to Ansible, straight from the control plane.
 
-This replaces `ansible/inventory/hosts.yml`, which the control plane used to
-write and Ansible used to read. That file was a second source of truth: it
-drifted when hand-edited, it could hold a host the database had already
-decommissioned, and every command that changed the fleet had to remember to
-rewrite it atomically. Now there is one place a host exists — the `edges` table
-— and this plugin reads it at the start of every run.
+There is one place a host exists — the `edges` table — and this plugin reads it
+at the start of every run. No inventory file is written, so nothing can drift
+from the database, hold an edge already decommissioned, or need rewriting
+atomically by every command that changes the fleet.
 
 Deliberately dependency-free. It runs inside `ansible-playbook`, which may be a
 different interpreter from the control plane's virtualenv with no `blitzecdn`
@@ -136,8 +134,7 @@ class InventoryModule(BaseInventoryPlugin):
         # `inventory/group_vars/blitzecdn_edges/defaults.yml`, which also sets
         # this key — an inventory *group* variable loses to that file, so
         # setting it per group here would leave `blitzecdn edge add
-        # --ssh-source` silently doing nothing, which is what it did while the
-        # fleet lived in a static inventory.
+        # --ssh-source` silently doing nothing.
         sources = sorted(
             set(
                 source
@@ -168,6 +165,12 @@ class InventoryModule(BaseInventoryPlugin):
         The connection is read-only and `immutable=0`, so WAL still applies and
         this observes a consistent snapshot of a database being written by a
         concurrent deploy rather than a torn read.
+
+        The columns named below are the whole of the contract with the control
+        plane. Naming them is what makes a change on the other side fail here
+        loudly, and `schema_version` is what says the failure is a version skew
+        rather than a corrupt file. The two list-valued fields are JSON because
+        that is how the ORM stores them.
         """
         uri = "file:%s?mode=ro" % _uri_path(database)
         try:
@@ -180,10 +183,12 @@ class InventoryModule(BaseInventoryPlugin):
             connection.row_factory = sqlite3.Row
             try:
                 rows = connection.execute(
-                    "SELECT name, schema_version, document FROM edges ORDER BY name"
+                    "SELECT name, schema_version, host, user, port, "
+                    "private_key_file, public_addresses, ssh_sources "
+                    "FROM edges ORDER BY name"
                 ).fetchall()
                 setting_rows = connection.execute(
-                    "SELECT name, document FROM ansible_settings ORDER BY name"
+                    "SELECT name, value FROM ansible_settings ORDER BY name"
                 ).fetchall()
             except sqlite3.Error as error:
                 raise AnsibleParserError(
@@ -205,27 +210,43 @@ class InventoryModule(BaseInventoryPlugin):
                     "update it before deploying."
                     % (row["name"], version, SUPPORTED_SCHEMA_VERSION)
                 )
-            try:
-                document = json.loads(row["document"])
-            except ValueError as error:
-                raise AnsibleParserError(
-                    "edge %r has an unreadable record: %s" % (row["name"], error)
-                )
-            # The primary key is the name, so trust the column over the
-            # document if they ever disagree — the column is what `--limit`
-            # was expanded against.
-            document["name"] = row["name"]
-            edges.append(document)
+            edge = {
+                "name": row["name"],
+                "host": row["host"],
+                "user": row["user"],
+                "port": row["port"],
+                "private_key_file": row["private_key_file"],
+            }
+            for column in ("public_addresses", "ssh_sources"):
+                edge[column] = _json_list(row[column], row["name"], column)
+            edges.append(edge)
         settings = {}
         for row in setting_rows:
             try:
-                settings[row["name"]] = json.loads(row["document"])
+                settings[row["name"]] = json.loads(row["value"])
             except ValueError as error:
                 raise AnsibleParserError(
                     "Ansible setting %r has an unreadable value: %s"
                     % (row["name"], error)
                 )
         return edges, settings
+
+
+def _json_list(value, edge_name, column):
+    """One JSON list column, or an empty list when it was never set."""
+    if value is None:
+        return []
+    try:
+        decoded = json.loads(value)
+    except ValueError as error:
+        raise AnsibleParserError(
+            "edge %r has an unreadable %s: %s" % (edge_name, column, error)
+        )
+    if not isinstance(decoded, list):
+        raise AnsibleParserError(
+            "edge %r has a %s that is not a list" % (edge_name, column)
+        )
+    return decoded
 
 
 def _default_database(source):

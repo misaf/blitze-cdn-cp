@@ -20,6 +20,7 @@ from blitzecdn.cli import (
     certs,
     common,
     configuration,
+    database,
     deploy,
     diagnostics,
     edges,
@@ -39,6 +40,7 @@ app.add_typer(certs.cert_app, name="cert")
 app.add_typer(edges.origin_app, name="origin")
 app.add_typer(cache.cache_app, name="cache")
 app.add_typer(configuration.config_app, name="config")
+app.add_typer(database.database_app, name="db")
 
 __all__ = [
     "ExitCode",

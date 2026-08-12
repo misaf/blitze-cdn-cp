@@ -616,7 +616,9 @@ def test_installer_installs_only_third_party_collections():
 
 def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():
     script = _script()
-    assert "! -x .venv/bin/python || ! -x .venv/bin/pip" in script
+    # `pip` is no longer the tell: uv builds the environment and a server
+    # install has no pip in it at all.
+    assert "! -x .venv/bin/python" in script
     assert ".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)" in script
 
 
@@ -1052,7 +1054,9 @@ def test_role_and_installer_agree_on_the_units_to_manage():
 def test_standalone_bootstraps_only_what_ansible_needs():
     """Everything else is the role's job; this list is the bootstrap contract."""
     standalone = _section("standalone")
-    assert "apt-get install -y git python3 python3-venv" in standalone
+    # uv creates the virtualenv itself, so python3-venv left the list; curl and
+    # ca-certificates joined it because the pinned uv is fetched over HTTPS.
+    assert "apt-get install -y ca-certificates curl git python3" in standalone
     assert "converge_control_plane" in standalone
     # Accounts, sudo, SSH trust and units must not be done twice.
     for moved in ("useradd", "visudo", "ssh-keygen", "ssh-keyscan", "openssl rand"):
@@ -1150,3 +1154,150 @@ def test_no_upper_bound_on_the_python_version():
 
     pyproject = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
     assert 'requires-python = ">=3.12"' in pyproject
+
+
+# --- uv: the pinned toolchain the installer builds the virtualenv with --------
+
+#: Preamble for a stub curl: find the output path the way curl does.
+#:
+#: install.sh passes several flags before `-o`, so a stub that guesses at a
+#: positional argument writes the download somewhere else entirely — and then
+#: the checksum test still "passes", because a file that was never created
+#: cannot match either. Parsing the flag is what makes these tests mean
+#: something.
+_CURL_STUB = """#!/usr/bin/env bash
+out=""
+while [[ $# -gt 0 ]]; do
+  if [[ $1 == -o ]]; then out=$2; shift 2; else shift; fi
+done
+[[ -n "${out}" ]] || { echo "stub curl: no -o argument" >&2; exit 2; }
+"""
+
+
+def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Path:
+    """A runnable script holding just `die` and `ensure_uv`.
+
+    Extracted from install.sh rather than copied, so a change to either
+    function is exercised here instead of drifting away from a stale duplicate.
+    The script cannot be sourced whole — its last line dispatches a subcommand.
+    """
+    pins = re.search(
+        r"^UV_VERSION=.*?^UV_SHA256_aarch64=.*?$", _script(), re.DOTALL | re.MULTILINE
+    )
+    assert pins is not None, "the uv pins are no longer where the harness expects"
+    harness = tmp_path / "harness.sh"
+    harness.write_text(
+        "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
+        f"{pins.group(0)}\n"
+        "die() {\n" + _function("die") + "\n}\n"
+        "ensure_uv() {\n" + _function("ensure_uv") + "\n}\n"
+        "ensure_uv\n",
+        encoding="utf-8",
+    )
+    harness.chmod(0o755)
+
+    stub_bin = tmp_path / "bin"
+    stub_bin.mkdir()
+    (stub_bin / "curl").write_text(curl_body, encoding="utf-8")
+    (stub_bin / "curl").chmod(0o755)
+    # install.sh calls sha256sum, which is right for the Debian and Ubuntu
+    # servers it installs onto but absent on a macOS developer machine. Stubbed
+    # so the test runs the same everywhere: what is under test is the
+    # comparison and the refusal, not the hashing.
+    (stub_bin / "sha256sum").write_text(
+        f'#!/usr/bin/env bash\nprintf "%s  %s\\n" "{digest}" "$1"\n',
+        encoding="utf-8",
+    )
+    (stub_bin / "sha256sum").chmod(0o755)
+    return harness
+
+
+def _run_harness(tmp_path: Path, harness: Path) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(  # noqa: S603 - fixed executable and generated script
+        [BASH, str(harness)],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+        # Deliberately not the caller's PATH: a developer with uv installed
+        # would otherwise satisfy the lookup and skip the code under test.
+        env={"PATH": f"{tmp_path / 'bin'}:/usr/bin:/bin", "HOME": str(tmp_path)},
+    )
+
+
+def test_the_installer_pins_uv_and_a_checksum_for_every_architecture():
+    """An unpinned download is an unreviewed dependency running as root."""
+    script = _script()
+    assert re.search(r'^UV_VERSION="\d+\.\d+\.\d+"$', script, re.MULTILINE)
+    for architecture in ("x86_64", "aarch64"):
+        assert re.search(
+            rf'^UV_SHA256_{architecture}="[0-9a-f]{{64}}"$', script, re.MULTILINE
+        ), f"no pinned checksum for {architecture}"
+    # Downloaded over HTTPS with the protocol pinned, so a redirect to plain
+    # HTTP cannot silently downgrade the fetch.
+    assert "--proto '=https' --tlsv1.2" in script
+
+
+def test_a_uv_download_that_fails_its_checksum_is_refused(tmp_path: Path):
+    """The whole point of pinning: a tampered archive must never be executed."""
+    harness = _uv_harness(
+        tmp_path,
+        # Writes a well-formed file that is simply not the pinned artifact.
+        curl_body=_CURL_STUB + 'printf "not the real uv" > "${out}"\n',
+    )
+
+    result = _run_harness(tmp_path, harness)
+
+    assert result.returncode != 0
+    assert "does not match its pinned checksum" in result.stderr
+    assert not (tmp_path / ".state/bin/uv").exists(), "refused, but installed anyway"
+
+
+def test_an_existing_recent_uv_is_used_rather_than_downloaded(tmp_path: Path):
+    """A host that already manages uv must not grow a second copy."""
+    harness = _uv_harness(
+        tmp_path,
+        curl_body='#!/usr/bin/env bash\necho "curl must not run" >&2\nexit 1\n',
+    )
+    stub_uv = tmp_path / "bin" / "uv"
+    # Far above any version this installer will pin.
+    stub_uv.write_text('#!/usr/bin/env bash\necho "uv 99.0.0"\n', encoding="utf-8")
+    stub_uv.chmod(0o755)
+
+    result = _run_harness(tmp_path, harness)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(stub_uv)
+    assert not (tmp_path / ".state/bin/uv").exists()
+
+
+def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
+    """The function's stdout is its return value, so nothing else may go there.
+
+    A progress message printed to stdout is substituted into the caller's
+    `uv="$(ensure_uv)"` along with the path, and the install then fails on a
+    command name with a sentence in front of it.
+    """
+    expected = re.search(
+        r'^UV_SHA256_x86_64="([0-9a-f]{64})"$', _script(), re.MULTILINE
+    )
+    assert expected is not None
+    harness = _uv_harness(
+        tmp_path,
+        # A real tar laid out the way the release is: one directory named for
+        # the target, holding the binary ensure_uv strips a component off.
+        curl_body=(
+            _CURL_STUB + 'work="$(mktemp -d)"\n'
+            'mkdir -p "${work}/uv-x86_64-unknown-linux-gnu"\n'
+            'printf "#!/bin/sh\\necho uv 0.0.0\\n" '
+            '> "${work}/uv-x86_64-unknown-linux-gnu/uv"\n'
+            'tar -czf "${out}" -C "${work}" uv-x86_64-unknown-linux-gnu\n'
+        ),
+        digest=expected.group(1),
+    )
+
+    result = _run_harness(tmp_path, harness)
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(tmp_path / ".state/bin/uv")
+    assert (tmp_path / ".state/bin/uv").is_file()

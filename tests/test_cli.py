@@ -76,6 +76,12 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
     assert result.exit_code == 0
     assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
     assert not (tmp_path / "ansible/inventory/hosts.yml").exists()
+    # The inventory plugin refuses a database that does not exist, so a fresh
+    # install where `setup` left none could not run a single playbook — every
+    # one of them failed to parse its inventory before reaching a task.
+    assert cli.Settings.from_environment(
+        {}, project_dir=tmp_path
+    ).database_path.exists()
     settings = cli.Settings.from_environment({}, project_dir=tmp_path)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     added = runner.invoke(
@@ -149,113 +155,6 @@ def test_registering_an_edge_is_audited(tmp_path, monkeypatch):
     assert "edge.updated" in actions
     update = next(event for event in events if event.action == "edge.updated")
     assert update.details["fields"] == ["port"]
-
-
-def test_setup_imports_a_legacy_inventory_and_renames_it(tmp_path, monkeypatch):
-    """An upgrade must not come up with an empty fleet.
-
-    The fleet used to live in `hosts.yml`. An upgrade that ignored it would
-    leave a control plane whose next deploy converges nothing and reports
-    success, so `setup` adopts the file once — including the `ansible_port` and
-    key path that only ever got there by hand, because the old CLI had no flags
-    for either.
-    """
-    monkeypatch.chdir(tmp_path)
-    legacy = tmp_path / "ansible/inventory/hosts.yml"
-    legacy.parent.mkdir(parents=True)
-    legacy.write_text(
-        "all:\n"
-        "  children:\n"
-        "    blitzecdn_edges:\n"
-        "      hosts:\n"
-        "        edge-01:\n"
-        "          ansible_host: touba.blitze\n"
-        "          ansible_user: chakavak\n"
-        "          ansible_port: 7845\n"
-        "          ansible_ssh_private_key_file: ~/.ssh/blitzecdn\n"
-        "      vars:\n"
-        "        blitzecdn_firewall_ssh_sources:\n"
-        "          - 94.183.119.90/32\n",
-        encoding="utf-8",
-    )
-
-    result = runner.invoke(cli.app, ["setup"])
-
-    assert result.exit_code == 0, result.stdout
-    assert "Imported 1 edge(s)" in result.stdout
-    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
-    (edge,) = Repository(settings.database_path).edges.list_edges()
-    assert edge.host == "touba.blitze"
-    assert edge.port == 7845
-    assert edge.private_key_file == "~/.ssh/blitzecdn"
-    assert edge.ssh_sources == ("94.183.119.90/32",)
-    # Renamed rather than deleted: it is the only copy of a fleet that took
-    # real work to describe, and left in place it reads as live configuration.
-    assert not legacy.exists()
-    assert (tmp_path / "ansible/inventory/hosts.yml.migrated").is_file()
-
-
-def test_setup_imports_local_group_vars_into_database(tmp_path, monkeypatch):
-    monkeypatch.chdir(tmp_path)
-    local = tmp_path / "ansible/inventory/group_vars/blitzecdn_edges/local.yml"
-    local.parent.mkdir(parents=True)
-    local.write_text(
-        "blitzecdn_firewall_enabled: true\nblitzecdn_base_timezone: UTC\n",
-        encoding="utf-8",
-    )
-
-    result = runner.invoke(cli.app, ["setup"])
-
-    assert result.exit_code == 0, result.stdout
-    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
-    assert Repository(settings.database_path).ansible_settings.list_settings() == {
-        "blitzecdn_base_timezone": "UTC",
-        "blitzecdn_firewall_enabled": True,
-    }
-    assert not local.exists()
-    assert local.with_name("local.yml.migrated").is_file()
-
-
-def test_setup_does_not_import_over_an_existing_fleet(tmp_path, monkeypatch):
-    """A second `setup` must not resurrect a decommissioned host.
-
-    Guarded on the fleet being empty rather than on the file being absent —
-    someone may keep the old file around, and importing it over edges that have
-    since been removed on purpose would put them back.
-    """
-    monkeypatch.chdir(tmp_path)
-    assert runner.invoke(cli.app, ["setup"]).exit_code == 0
-    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
-    monkeypatch.setattr(cli.common, "settings", lambda: settings)
-    runner.invoke(
-        cli.app,
-        [
-            "edge",
-            "add",
-            "current",
-            "--host",
-            "192.0.2.10",
-            "--ssh-source",
-            "10.0.0.0/8",
-        ],
-    )
-    legacy = tmp_path / "ansible/inventory/hosts.yml"
-    legacy.parent.mkdir(parents=True, exist_ok=True)
-    legacy.write_text(
-        "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
-        "        decommissioned-long-ago:\n          ansible_host: 192.0.2.99\n",
-        encoding="utf-8",
-    )
-
-    result = runner.invoke(cli.app, ["setup"])
-
-    assert result.exit_code == 0
-    assert "no longer read" in result.stdout
-    names = [
-        edge.name for edge in Repository(settings.database_path).edges.list_edges()
-    ]
-    assert names == ["current"]
-    assert legacy.is_file()
 
 
 def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, capsys):

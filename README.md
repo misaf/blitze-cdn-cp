@@ -54,10 +54,6 @@ sudo /opt/blitzecdn/install.sh update --check
 sudo /opt/blitzecdn/install.sh update
 ```
 
-Installations made before this release carry a separate
-`update-standalone.sh`. Run that one a final time — it upgrades the checkout to
-a release where `install.sh update` has replaced it.
-
 The updater accepts `--version vX.Y.Z` to select an exact release and `--yes`
 for unattended confirmation. It backs up `.state`, local environment settings,
 and `/etc/blitzecdn`, preserves credentials and desired state, validates the
@@ -116,7 +112,7 @@ behaves:
 
 | Variable | Effect |
 | --- | --- |
-| `BLITZECDN_DEV=1` | Install `-e '.[dev]'`: test and lint tooling, and `src/` edits take effect without reinstalling. |
+| `BLITZECDN_DEV=1` | Install the `dev` dependency group too: test and lint tooling, and `src/` edits take effect without reinstalling. |
 | `BLITZECDN_WRAPPER_DIR` | Where to put the `blitzecdn` command (default `~/.local/bin`). |
 | `BLITZECDN_USER_WRAPPER=0` | Do not put `blitzecdn` on `PATH`; use `.venv/bin/blitzecdn`. |
 | `BLITZE_ALLOW_EMPTY_SITES=true` | Explicitly permit a deployment to remove the final previously managed sites. Leave unset during normal operation. |
@@ -215,9 +211,6 @@ blitzecdn config set blitzecdn_firewall_enabled true
 blitzecdn config list
 blitzecdn config unset blitzecdn_firewall_enabled
 ```
-
-On upgrade, `blitzecdn setup` imports an existing `local.yml` once and renames
-it to `local.yml.migrated` so it can no longer override the database.
 
 The CLI automatically loads `.env` from the project directory as local
 defaults; already-exported variables take precedence. Production services can
@@ -435,25 +428,40 @@ with transactional shared infrastructure.
 
 ## Development
 
-Install with `BLITZECDN_DEV=1` first. `pre-commit install` runs the formatting,
-shell, and hygiene hooks on every commit; the rest is what CI checks.
+Dependencies are managed with [uv](https://docs.astral.sh/uv/) and the tasks
+with [just](https://just.systems). `just install` builds the environment from
+`uv.lock`; `pre-commit install` adds the formatting, shell, and hygiene hooks
+on every commit.
 
-Python:
-
-```bash
-ruff format --check src tests
-ruff check src tests
-mypy src                       # strict
-pytest                         # fails under 85% coverage
-pytest tests/test_domain.py -k some_case --no-cov   # one test, no coverage gate
-```
-
-`install.sh` runs as root, provisions users, writes sudoers, and stops
-services, so it is linted like the Python:
+`just check` runs every gate CI runs, in the same order — the workflow calls
+these same recipes rather than repeating the commands, so a green local run
+means a green pipeline:
 
 ```bash
-shellcheck install.sh
+just install
+just check
 ```
+
+The gates individually, when you want one of them:
+
+```bash
+just lint          # ruff format --check, then ruff check
+just types         # mypy, strict
+just test          # fails under 85% coverage
+just shell-lint    # install.sh runs as root, so it is linted like the Python
+just ansible-check # yamllint, playbook syntax, ansible-lint
+just audit         # bandit and pip-audit
+```
+
+`just test` passes its arguments through, so a single case is:
+
+```bash
+just test tests/test_domain.py -k some_case --no-cov
+```
+
+Dependencies live in `pyproject.toml` and are pinned in `uv.lock`, which is
+committed. After editing either, `just lock` re-resolves and `just lock-check`
+is the CI gate that fails when the two have drifted apart.
 
 Ansible. Both variables matter: without `ANSIBLE_CONFIG` the collection path
 and connection settings are not picked up, and `ANSIBLE_LOCAL_TEMP` keeps

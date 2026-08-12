@@ -18,14 +18,19 @@ jobs:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v7.0.0
+      - uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.14"
-          cache: pip
+          version: "0.12.3"
+          enable-cache: true
+      # The Python uv builds the environment around. Pinned here rather than
+      # left to uv so CI and a server install agree on the interpreter.
+      - name: Install Python
+        run: uv python install 3.14
+      - uses: extractions/setup-just@v3
       - name: Validate release tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
-          python - <<'PY'
+          python3 - <<'PY'
           import os
           import pathlib
           import tomllib
@@ -36,55 +41,34 @@ jobs:
           if tag != f"v{version}":
               raise SystemExit(f"release tag {tag!r} must equal v{version}")
           PY
+      # Every gate below is a justfile recipe, and `just check` runs all of
+      # them in this order. Nothing here duplicates a command: a gate added to
+      # the justfile is a gate this workflow picks up without a second edit,
+      # and a contributor running `just check` locally runs this pipeline.
+      #
       # Every BlitzeCDN role lives in ansible/roles/ and is checked out with
       # this repository, so only third-party dependencies are installed here.
       - name: Install project and collection dependencies
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -e '.[dev]'
-          ansible-galaxy collection install -r ansible/requirements.yml \
-            -p .state/collections
+        run: just install
+      - name: Lockfile is current
+        run: just lock-check
       - name: Python format and lint
-        run: |
-          ruff format --check src tests
-          ruff check src tests
+        run: just lint
       - name: Strict type checking
-        run: mypy src
+        run: just types
       # install.sh provisions users, writes sudoers, and stops services as
       # root, and bootstrap.sh is served over HTTPS to be piped into a shell.
       # Nothing else in this workflow reads either.
       - name: Shell lint
-        run: shellcheck install.sh bootstrap.sh tests/container-install.sh
+        run: just shell-lint
       - name: Tests and coverage
-        run: pytest --cov-report=xml
+        run: just test --cov-report=xml
       - name: YAML and Ansible lint
-        env:
-          ANSIBLE_CONFIG: ansible/ansible.cfg
-          ANSIBLE_LOCAL_TEMP: .state/ansible-local
-        run: |
-          yamllint .
-          ansible-playbook \
-            -i ansible/inventory/hosts.example.yml \
-            ansible/playbooks/edge.yml \
-            --syntax-check \
-            --extra-vars @tests/fixtures/desired-state.yml
-          ansible-playbook \
-            -i ansible/inventory/hosts.example.yml \
-            ansible/playbooks/acme-challenge.yml \
-            --syntax-check
-          ansible-lint \
-            ansible/playbooks/edge.yml \
-            ansible/playbooks/acme-challenge.yml \
-            ansible/playbooks/control-plane.yml \
-            ansible/playbooks/decommission.yml \
-            ansible/playbooks/cache-purge.yml \
-            ansible/playbooks/stats.yml
+        run: just ansible-check
       - name: Security checks
-        run: |
-          bandit -c pyproject.toml -r src
-          pip-audit
+        run: just audit
       - name: Build package
-        run: python -m build
+        run: just build
 
   # The only job that runs `install.sh standalone` against a real init on a real
   # distribution. Everything in the job above asserts on the scripts' shape or

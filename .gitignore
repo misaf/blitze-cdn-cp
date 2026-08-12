@@ -12,16 +12,12 @@ data/*.yml
 data/*.db
 data/*.db-shm
 data/*.db-wal
+# Runtime locks a deploy takes. `uv.lock` is not one of them: it is the
+# dependency lockfile every install and every CI run builds from, so it has to
+# be tracked. Without this exception the broad pattern above silently drops it,
+# and `uv sync --frozen` then fails on a checkout that looks complete.
 **/*.lock
-# The fleet lives in the control-plane database now. These are only ever
-# present on an installation that predates dynamic inventory; `blitzecdn
-# setup` imports the first and renames it to the second.
-ansible/inventory/hosts.yml
-ansible/inventory/hosts.yml.migrated
-# Operator overrides for the edge group. Tracked defaults live beside it in
-# defaults.yml; keeping this one untracked is what lets `./install.sh update`
-# replace those defaults without colliding with local configuration.
-ansible/inventory/group_vars/blitzecdn_edges/local.yml
+!uv.lock
 log/*.log
 *.retry
 

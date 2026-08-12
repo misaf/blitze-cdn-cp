@@ -40,7 +40,7 @@ def domain_event(
     resource_id: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> DomainEvent:
-    """Build an event the way the audit trail used to be written, field by field."""
+    """Build an event from the audit trail's own fields, one by one."""
     return DomainEvent(
         operator=operator,
         action=action,

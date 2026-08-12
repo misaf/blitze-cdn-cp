@@ -381,7 +381,7 @@ class DeploymentService:
                         deployment.id,
                         DeploymentStatus.QUEUED,
                         DeploymentStatus.FAILED,
-                        finished_at=datetime.now(UTC).isoformat(),
+                        finished_at=datetime.now(UTC),
                         result=self._aborted_run(exc, interrupted=False),
                     )
                     self.bus.publish(
@@ -405,7 +405,7 @@ class DeploymentService:
             deployment.id,
             DeploymentStatus.QUEUED,
             DeploymentStatus.RUNNING,
-            started_at=datetime.now(UTC).isoformat(),
+            started_at=datetime.now(UTC),
         )
         try:
             snapshot = self.deployments.deployment_snapshot(deployment.id)
@@ -429,7 +429,7 @@ class DeploymentService:
                     deployment.id,
                     DeploymentStatus.RUNNING,
                     target_status,
-                    finished_at=datetime.now(UTC).isoformat(),
+                    finished_at=datetime.now(UTC),
                     result=run,
                 )
                 self.bus.publish(
@@ -466,7 +466,7 @@ class DeploymentService:
                         if interrupted
                         else DeploymentStatus.FAILED
                     ),
-                    finished_at=datetime.now(UTC).isoformat(),
+                    finished_at=datetime.now(UTC),
                     # The runner never produced a result, so one is synthesised for
                     # the record: a deployment that ended without a run still has to
                     # say why, and every reader now expects to find that in `result`.

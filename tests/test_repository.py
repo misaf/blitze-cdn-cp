@@ -7,6 +7,7 @@ from blitzecdn.domain.deployments import DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.domain.sites import CdnSite
+from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
 
@@ -29,9 +30,16 @@ def test_site_crud_and_audit(settings, site_payload):
         repository.sites.get_site(site.name)
 
 
-def test_deployment_transitions_snapshots_and_recovery(settings, site_payload):
+def test_deployment_transitions_snapshots_and_recovery(
+    settings, domain_payload, record_payload
+):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    # A snapshot carries records, not the sites derived from them, so the
+    # fixture has to create the canonical thing.
+    repository.zones.create_domain(Domain.model_validate(domain_payload))
+    repository.zones.create_record(
+        DnsRecord.model_validate(record_payload, context=STORED)
+    )
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     assert (
         repository.decode_snapshot(
@@ -61,9 +69,14 @@ def test_deployment_transitions_snapshots_and_recovery(settings, site_payload):
     )
 
 
-def test_rollback_target_requires_different_success(settings, site_payload):
+def test_rollback_target_requires_different_success(
+    settings, domain_payload, record_payload
+):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    repository.zones.create_domain(Domain.model_validate(domain_payload))
+    repository.zones.create_record(
+        DnsRecord.model_validate(record_payload, context=STORED)
+    )
     current = repository.snapshot()
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     repository.deployments.transition(
@@ -82,9 +95,9 @@ def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
 
     def observe(method):
         def wrapped(*args, **kwargs):
-            connection = getattr(repository.database._local, "connection", None)
-            assert connection is not None
-            connections.append(id(connection))
+            session = repository.database.current_session()
+            assert session is not None
+            connections.append(id(session))
             return method(*args, **kwargs)
 
         return wrapped
@@ -95,13 +108,10 @@ def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
     monkeypatch.setattr(
         repository.zones, "list_records", observe(repository.zones.list_records)
     )
-    monkeypatch.setattr(
-        repository.sites, "list_sites", observe(repository.sites.list_sites)
-    )
 
     repository.snapshot()
 
-    assert len(connections) == 3
+    assert len(connections) == 2
     assert len(set(connections)) == 1
 
 

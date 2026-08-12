@@ -14,9 +14,9 @@ restate a signature already written on the service.
 
 Everything reachable from here is a service or a port. The concrete
 ``Repository`` is deliberately not an attribute: an entry layer that could
-reach it would be one import away from calling SQLite directly, and the read
-endpoints that used to do exactly that are the reason this rule is written down
-rather than assumed.
+reach it would be one import away from calling SQLite directly, which is easy
+to do by accident in a read path and invisible in review — so the rule is
+written down rather than assumed.
 """
 
 from __future__ import annotations

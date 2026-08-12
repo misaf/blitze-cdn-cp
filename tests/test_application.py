@@ -719,7 +719,7 @@ def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings, site_payl
     assert runner.host_limits == ["edge-a"]
 
 
-def test_a_canary_is_never_the_automatic_rollback_target(settings, site_payload):
+def test_a_canary_is_never_the_automatic_rollback_target(settings):
     """A limited run only proves one edge reached that snapshot.
 
     Rolling the fleet back to it would converge every other edge onto a state
@@ -729,17 +729,25 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings, site_payload)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
 
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    # Three distinct desired states, made the only supported way: by changing
+    # records. A snapshot carries records and derives sites from them, so
+    # editing the derived table would produce three identical snapshots.
+    repository.zones.create_domain(Domain(name="example.com"))
+    repository.zones.create_record(
+        DnsRecord(domain="example.com", name="cdn", value="198.51.100.10", proxied=True)
+    )
     full = control.deployments.deploy("alice")
 
-    repository.sites.replace_all_sites([])
+    repository.zones.delete_record("example.com", "cdn", RecordType.A)
     canary = control.deployments.deploy("alice", host_limit="edge-a")
     assert canary.status is DeploymentStatus.SUCCEEDED
 
     # A third, distinct state, so both earlier snapshots are eligible and the
     # canary is the more recent of the two. Without the filter it would win.
-    repository.sites.create_site(
-        CdnSite.model_validate({**site_payload, "name": "somewhere-else"})
+    repository.zones.create_record(
+        DnsRecord(
+            domain="example.com", name="other", value="198.51.100.11", proxied=True
+        )
     )
     assert (
         repository.deployments.successful_rollback_target(repository.snapshot()).id
