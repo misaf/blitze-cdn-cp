@@ -95,7 +95,7 @@ ansible-check:
         --extra-vars @tests/fixtures/desired-state.yml
     uv run ansible-playbook -i tests/fixtures/blitzecdn.yml \
         ansible/playbooks/acme-challenge.yml --syntax-check
-    uv run ansible-lint \
+    ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
         ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml \
         ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \
         ansible/playbooks/cache-purge.yml ansible/playbooks/stats.yml
