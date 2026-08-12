@@ -83,32 +83,32 @@ def test_record_value_must_match_its_type(type_, value):
 def test_records_require_their_zone(settings):
     repository = Repository(settings.database_path)
     with pytest.raises(NotFoundError, match="does not exist"):
-        repository.create_record(
+        repository.zones.create_record(
             DnsRecord(domain="absent.example", name="x", value="198.51.100.1")
         )
 
 
 def test_duplicate_records_conflict(settings):
     repository = Repository(settings.database_path)
-    repository.create_domain(Domain(name="example.com"))
+    repository.zones.create_domain(Domain(name="example.com"))
     record = DnsRecord(domain="example.com", name="api", value="198.51.100.1")
-    repository.create_record(record)
+    repository.zones.create_record(record)
     with pytest.raises(ConflictError, match="already exists"):
-        repository.create_record(record)
+        repository.zones.create_record(record)
     # A different type at the same name is a different record.
-    repository.create_record(
+    repository.zones.create_record(
         DnsRecord(
             domain="example.com", name="api", type=RecordType.AAAA, value="2001:db8::1"
         )
     )
-    assert len(repository.list_records("example.com")) == 2
+    assert len(repository.zones.list_records("example.com")) == 2
 
 
 def test_snapshot_round_trips_zones(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
@@ -132,13 +132,13 @@ def test_a_record_stored_with_a_now_invalid_country_stays_operable(settings):
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository)
-    control.create_domain(Domain(name="example.com"), "test")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "test")
+    control.dns.create_record(
         DnsRecord(domain="example.com", name="sub", value="203.0.113.5", proxied=True),
         "test",
     )
-    current = control.get_record("example.com", "sub", RecordType.A)
-    repository.replace_record(
+    current = control.dns.get_record("example.com", "sub", RecordType.A)
+    repository.zones.replace_record(
         DnsRecord.model_validate(
             current.model_dump() | {"firewall": {"denied_countries": ["UK"]}},
             context=STORED,
@@ -146,12 +146,14 @@ def test_a_record_stored_with_a_now_invalid_country_stays_operable(settings):
     )
 
     # Readable: list, get, and the derived site all survive the bad value.
-    assert control.list_records("example.com")[0].firewall.denied_countries == ("UK",)
-    assert control.get_record("example.com", "sub", RecordType.A)
-    assert repository.list_sites()
+    assert control.dns.list_records("example.com")[0].firewall.denied_countries == (
+        "UK",
+    )
+    assert control.dns.get_record("example.com", "sub", RecordType.A)
+    assert repository.sites.list_sites()
 
     # Correctable, and the fix reaches the derived site.
-    fixed = control.update_record(
+    fixed = control.dns.update_record(
         "example.com",
         "sub",
         RecordType.A,
@@ -161,5 +163,5 @@ def test_a_record_stored_with_a_now_invalid_country_stays_operable(settings):
     assert fixed.firewall.denied_countries == ("GB",)
 
     # And deletable, which it was not before.
-    control.delete_record("example.com", "sub", RecordType.A, "test")
-    assert control.list_records("example.com") == []
+    control.dns.delete_record("example.com", "sub", RecordType.A, "test")
+    assert control.dns.list_records("example.com") == []

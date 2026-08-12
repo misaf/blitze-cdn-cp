@@ -13,7 +13,11 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 **/*.lock
+# The fleet lives in the control-plane database now. These are only ever
+# present on an installation that predates dynamic inventory; `blitzecdn
+# setup` imports the first and renames it to the second.
 ansible/inventory/hosts.yml
+ansible/inventory/hosts.yml.migrated
 # Operator overrides for the edge group. Tracked defaults live beside it in
 # defaults.yml; keeping this one untracked is what lets `./install.sh update`
 # replace those defaults without colliding with local configuration.

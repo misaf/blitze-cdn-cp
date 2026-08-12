@@ -12,8 +12,6 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from time import monotonic
 
-from blitzecdn.application.deployments import DeploymentService
-from blitzecdn.application.dns import DnsService
 from blitzecdn.config import Settings
 from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
@@ -27,11 +25,13 @@ from blitzecdn.domain.sites import CdnSite, CertificateMode
 from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
 from blitzecdn.ports import (
     CertificateStore,
+    DeploymentGateway,
     DeploymentRunner,
     EventBus,
     Issuer,
     Preflight,
     SiteStore,
+    ZoneEditor,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,8 +49,8 @@ class CertificateService:
         certificate_store: CertificateStore,
         issuer: Issuer,
         preflight: Preflight,
-        dns: DnsService,
-        deployments: DeploymentService,
+        dns: ZoneEditor,
+        deployments: DeploymentGateway,
     ) -> None:
         self.settings = settings
         self.sites = sites

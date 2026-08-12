@@ -19,11 +19,19 @@ blitzecdn_nginx_acme_root: "{{ blitzecdn_acme_root }}"
 
 blitzecdn_base_timezone: Asia/Tehran
 blitzecdn_firewall_enabled: false
-# Must match ansible_port for every edge in this group. The firewall opens this
-# port and nothing else; a mismatch strands the host on the next converge.
-blitzecdn_firewall_ssh_port: 7845
-blitzecdn_firewall_ssh_sources:
-  - 94.183.119.90/32
+# blitzecdn_firewall_ssh_port and blitzecdn_firewall_ssh_sources are NOT set
+# here any more. Both describe an edge, so both are recorded on the edge and
+# published by the `blitzecdn` inventory plugin as host variables:
+#
+#   blitzecdn edge add edge-01 --host 192.0.2.10 --port 7845 \
+#       --ssh-source 94.183.119.90/32
+#
+# The port is published from the same field as ansible_port, so the firewall
+# can no longer close the port Ansible connects on — which is exactly what
+# maintaining them as two separate settings in two files invited.
+#
+# Host variables outrank this file, so re-adding either key here would have no
+# effect. Use `blitzecdn edge update` instead.
 blitzecdn_nginx_sites: []
 
 # Edges accept public keys only. The role refuses to disable passwords unless

@@ -13,10 +13,12 @@ service documents its real reach into persistence.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Protocol
 
+from blitzecdn.domain.audit import AuditEvent
 from blitzecdn.domain.certificates import (
     CertificateInfo,
     CertificateSource,
@@ -24,10 +26,11 @@ from blitzecdn.domain.certificates import (
 )
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
+from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.events import DomainEvent
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import AnsibleRun
-from blitzecdn.domain.sites import CdnSite
+from blitzecdn.domain.sites import CdnSite, CertificateMode
 
 # ----------------------------------------------------------------------
 # Persistence
@@ -104,6 +107,20 @@ class DeploymentStore(Protocol):
     def successful_rollback_target(self, current_snapshot: str) -> Deployment: ...
 
 
+class AuditTrail(Protocol):
+    """The append-only operator log, as the entry layers need to read it.
+
+    Read-only on purpose. The trail is *written* by the subscriber the
+    composition root registers on the bus (see :class:`EventBus`), never by a
+    caller — so a port that offered an ``audit`` method would be an invitation
+    to record something no domain event ever announced.
+    """
+
+    def get_audit_event(self, event_id: int) -> AuditEvent: ...
+
+    def list_audit_events(self, limit: int = 100) -> list[AuditEvent]: ...
+
+
 class EventBus(Protocol):
     """Where the application publishes that something happened.
 
@@ -117,8 +134,76 @@ class EventBus(Protocol):
 
 
 # ----------------------------------------------------------------------
+# Services, as their siblings see them
+# ----------------------------------------------------------------------
+#
+# The application services form a DAG (see ``application/__init__.py``), so a
+# few of them legitimately depend on one another. They are declared here for
+# the same reason everything else is: a service should name the handful of
+# methods it calls on a collaborator rather than take the collaborator whole.
+# Narrow enough that a test can satisfy one without building the real service
+# behind it — which is what the concrete dependency used to make impossible.
+
+
+class ZoneEditor(Protocol):
+    """What the other services need from the zone editor.
+
+    Four methods out of ``DnsService``'s twenty. Certificate state has to land
+    on the *record* rather than on the derived site, so issuing a certificate
+    unavoidably reaches back into the zone editor — but only this far.
+    """
+
+    def sync_sites(self) -> None: ...
+
+    #: Ways the stored zones and their derived sites contradict each other.
+    #: A deploy asks before it converges anything, because the contradictions
+    #: are the kind that would otherwise reach an edge as a valid-looking
+    #: config serving the wrong site.
+    def validation_errors(self) -> list[str]: ...
+
+    def record_for_site(self, site_name: str) -> DnsRecord: ...
+
+    def activate_managed_certificate(
+        self, site: CdnSite, mode: CertificateMode
+    ) -> CdnSite: ...
+
+
+class DeploymentGateway(Protocol):
+    """What the certificate service needs from the deployment service.
+
+    Issuance asks whether a site is actually on the edges (HTTP-01 cannot
+    validate a vhost nothing serves), and reconciliation installs what it
+    issued. Nothing else.
+    """
+
+    def site_is_deployed(self, site_name: str) -> bool: ...
+
+    def deploy(
+        self, operator: str, *, check: bool = False, host_limit: str | None = None
+    ) -> Deployment: ...
+
+
+# ----------------------------------------------------------------------
 # Process execution
 # ----------------------------------------------------------------------
+
+
+class BackgroundRunner(Protocol):
+    """Starts work that outlives the call that asked for it.
+
+    The queued deploy and rollback endpoints answer before the run finishes, so
+    something has to carry the run onwards. That something is a concrete
+    concurrency mechanism, which makes it an adapter — the application layer
+    injects it like every other, and a test can supply a runner that executes
+    inline and observe a whole queued deployment synchronously.
+
+    ``start`` must raise if the work will not be run. The caller owns the
+    deployment lock at that moment and releases it on failure; a runner that
+    swallowed the error would leave the lock held by a worker that does not
+    exist, and every later deploy would fail until the process restarted.
+    """
+
+    def start(self, work: Callable[[], None], *, name: str) -> None: ...
 
 
 class DeploymentRunner(Protocol):
@@ -161,12 +246,44 @@ class LogReader(Protocol):
     def __call__(self, path: Path | str | None, *, limit: int) -> str: ...
 
 
-class EdgeInventory(Protocol):
-    """The inventory file, as the application needs to read and edit it."""
+class YamlWriter(Protocol):
+    """Publishes the desired-state document Ansible reads.
 
-    def list_edges(self) -> list[dict[str, str]]: ...
+    A port rather than a bare ``Callable`` so it reads like its neighbours and
+    can carry the one thing about it that matters: the write has to be atomic.
+    A deploy renders this file while holding the deployment lock and Ansible
+    reads it moments later, so a reader must never observe a partial document —
+    an edge converged from half a desired state is worse than one that did not
+    converge at all.
 
-    def remove_edge(self, name: str) -> None: ...
+    Positional-only, because the parameters of a function-shaped port are an
+    implementation's business: the adapter may name its second argument
+    ``payload`` and take extra keyword arguments with defaults, and none of
+    that is something a caller here should have to match.
+    """
+
+    def __call__(self, path: Path, document: dict[str, object], /) -> None: ...
+
+
+class EdgeStore(Protocol):
+    """The fleet. The Ansible inventory is derived from this, not the reverse.
+
+    This used to be ``EdgeInventory``, a two-method window onto a YAML file the
+    control plane wrote and Ansible read. The file is gone: the
+    ``blitzecdn`` inventory plugin reads these same rows at the start of every
+    run, so writing an edge here *is* publishing it to Ansible, and there is no
+    second artefact that can disagree with the database about which hosts exist.
+    """
+
+    def list_edges(self) -> list[Edge]: ...
+
+    def get_edge(self, name: str) -> Edge: ...
+
+    def create_edge(self, edge: Edge) -> Edge: ...
+
+    def replace_edge(self, edge: Edge) -> Edge: ...
+
+    def delete_edge(self, name: str) -> None: ...
 
 
 # ----------------------------------------------------------------------
@@ -209,15 +326,20 @@ class OriginProbe(Protocol):
 
 
 __all__ = [
+    "AuditTrail",
+    "BackgroundRunner",
     "CertificateStore",
+    "DeploymentGateway",
     "DeploymentRunner",
     "DeploymentStore",
-    "EdgeInventory",
+    "EdgeStore",
     "EventBus",
     "Issuer",
     "LogReader",
     "OriginProbe",
     "Preflight",
     "SiteStore",
+    "YamlWriter",
+    "ZoneEditor",
     "ZoneStore",
 ]

@@ -64,12 +64,18 @@ def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_pa
 
 
 def test_setup_and_edge_workflow(tmp_path, monkeypatch):
+    """Register, list, update and remove an edge — with no inventory file.
+
+    `setup` no longer creates one. The fleet is a table, and Ansible reads it
+    through the `blitzecdn` inventory plugin, so the roster these commands
+    change *is* the inventory rather than something that has to be written out
+    to become one.
+    """
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(cli.app, ["setup"])
     assert result.exit_code == 0
     assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
-    inventory = tmp_path / "ansible/inventory/hosts.yml"
-    assert inventory.exists()
+    assert not (tmp_path / "ansible/inventory/hosts.yml").exists()
     settings = cli.Settings.from_environment({}, project_dir=tmp_path)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     added = runner.invoke(
@@ -104,11 +110,131 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
     )
     assert json.loads(updated.stdout)["public_addresses"] == ["203.0.113.11"]
     # --no-decommission because `setup` scaffolds no playbooks: this test is
-    # about inventory bookkeeping, and the teardown path is covered below.
+    # about the roster, and the teardown path is covered below.
     removed = runner.invoke(
         cli.app, ["edge", "remove", "edge-01", "--yes", "--no-decommission"]
     )
     assert removed.exit_code == 0
+    assert json.loads(runner.invoke(cli.app, ["edge", "list", "--json"]).stdout) == []
+
+
+def test_registering_an_edge_is_audited(tmp_path, monkeypatch):
+    """Who added this host, and when.
+
+    Unanswerable before: the CLI held the inventory file and rewrote it
+    directly, so nothing about the fleet ever reached the audit trail.
+    """
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(cli.app, ["setup"]).exit_code == 0
+    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
+
+    runner.invoke(
+        cli.app,
+        [
+            "edge",
+            "add",
+            "edge-01",
+            "--host",
+            "192.0.2.10",
+            "--ssh-source",
+            "10.0.0.0/8",
+        ],
+    )
+    runner.invoke(cli.app, ["edge", "update", "edge-01", "--port", "7845"])
+
+    events = Repository(settings.database_path).audit_log.list_audit_events()
+    actions = [event.action for event in events]
+    assert "edge.added" in actions
+    assert "edge.updated" in actions
+    update = next(event for event in events if event.action == "edge.updated")
+    assert update.details["fields"] == ["port"]
+
+
+def test_setup_imports_a_legacy_inventory_and_renames_it(tmp_path, monkeypatch):
+    """An upgrade must not come up with an empty fleet.
+
+    The fleet used to live in `hosts.yml`. An upgrade that ignored it would
+    leave a control plane whose next deploy converges nothing and reports
+    success, so `setup` adopts the file once — including the `ansible_port` and
+    key path that only ever got there by hand, because the old CLI had no flags
+    for either.
+    """
+    monkeypatch.chdir(tmp_path)
+    legacy = tmp_path / "ansible/inventory/hosts.yml"
+    legacy.parent.mkdir(parents=True)
+    legacy.write_text(
+        "all:\n"
+        "  children:\n"
+        "    blitzecdn_edges:\n"
+        "      hosts:\n"
+        "        edge-01:\n"
+        "          ansible_host: touba.blitze\n"
+        "          ansible_user: chakavak\n"
+        "          ansible_port: 7845\n"
+        "          ansible_ssh_private_key_file: ~/.ssh/blitzecdn\n"
+        "      vars:\n"
+        "        blitzecdn_firewall_ssh_sources:\n"
+        "          - 94.183.119.90/32\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(cli.app, ["setup"])
+
+    assert result.exit_code == 0, result.stdout
+    assert "Imported 1 edge(s)" in result.stdout
+    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
+    (edge,) = Repository(settings.database_path).edges.list_edges()
+    assert edge.host == "touba.blitze"
+    assert edge.port == 7845
+    assert edge.private_key_file == "~/.ssh/blitzecdn"
+    assert edge.ssh_sources == ("94.183.119.90/32",)
+    # Renamed rather than deleted: it is the only copy of a fleet that took
+    # real work to describe, and left in place it reads as live configuration.
+    assert not legacy.exists()
+    assert (tmp_path / "ansible/inventory/hosts.yml.migrated").is_file()
+
+
+def test_setup_does_not_import_over_an_existing_fleet(tmp_path, monkeypatch):
+    """A second `setup` must not resurrect a decommissioned host.
+
+    Guarded on the fleet being empty rather than on the file being absent —
+    someone may keep the old file around, and importing it over edges that have
+    since been removed on purpose would put them back.
+    """
+    monkeypatch.chdir(tmp_path)
+    assert runner.invoke(cli.app, ["setup"]).exit_code == 0
+    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
+    runner.invoke(
+        cli.app,
+        [
+            "edge",
+            "add",
+            "current",
+            "--host",
+            "192.0.2.10",
+            "--ssh-source",
+            "10.0.0.0/8",
+        ],
+    )
+    legacy = tmp_path / "ansible/inventory/hosts.yml"
+    legacy.parent.mkdir(parents=True, exist_ok=True)
+    legacy.write_text(
+        "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
+        "        decommissioned-long-ago:\n          ansible_host: 192.0.2.99\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(cli.app, ["setup"])
+
+    assert result.exit_code == 0
+    assert "no longer read" in result.stdout
+    names = [
+        edge.name for edge in Repository(settings.database_path).edges.list_edges()
+    ]
+    assert names == ["current"]
+    assert legacy.is_file()
 
 
 def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, capsys):
@@ -280,7 +406,7 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
 
 def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch):
     repository = Repository(settings.database_path)
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
     fake = FakeRunner(
         [
             ansible_run(host_run("edge-a")),
@@ -308,14 +434,16 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
 ):
     repository = Repository(settings.database_path)
     site = CdnSite.model_validate(site_payload)
-    repository.create_site(site)
+    repository.sites.create_site(site)
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     report = FakePreflight().check(site, deployed=True, record_ttl=300)
     requested: list[str] = []
-    monkeypatch.setattr(control, "certificate_preflight", lambda _name: report)
     monkeypatch.setattr(
-        control,
+        control.certificates, "certificate_preflight", lambda _name: report
+    )
+    monkeypatch.setattr(
+        control.certificates,
         "request_certificate",
         lambda name, _operator, *_args, **_kwargs: requested.append(name),
     )
@@ -348,19 +476,23 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
 ):
     repository = Repository(settings.database_path)
     site = CdnSite.model_validate(site_payload)
-    repository.create_site(site)
+    repository.sites.create_site(site)
     control = ControlPlane(
         settings,
         repository,
         FakeRunner([ansible_run(host_run("edge-a"))]),
     )  # type: ignore[arg-type]
     report = FakePreflight(("dns",)).check(site, deployed=True, record_ttl=300)
-    monkeypatch.setattr(control, "certificate_preflight", lambda _name: report)
+    monkeypatch.setattr(
+        control.certificates, "certificate_preflight", lambda _name: report
+    )
 
     def _unexpected_request(_name, _operator):
         raise AssertionError("the CA must not be contacted after a blocked preflight")
 
-    monkeypatch.setattr(control, "request_certificate", _unexpected_request)
+    monkeypatch.setattr(
+        control.certificates, "request_certificate", _unexpected_request
+    )
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(
@@ -378,7 +510,7 @@ def test_interactive_deploy_validates_previews_and_applies(
     settings, site_payload, monkeypatch
 ):
     repository = Repository(settings.database_path)
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
     # `validate` reads the first result without consuming it, so one entry
     # serves both it and the preview; the second is the apply.
     fake = FakeRunner(
@@ -411,17 +543,28 @@ def _control(settings, monkeypatch, runner_double=None, preflight=None):
     return control
 
 
+def _store(settings):
+    """A repository on the same database, for seeding and for reading back.
+
+    The control plane does not hand out its stores — that is the point of the
+    layering rule — so a test that wants to plant a derived site or read the
+    audit trail straight from SQLite opens its own handle on the same file
+    rather than reaching through the object under test.
+    """
+    return Repository(settings.database_path)
+
+
 def _seed_certificate(control, certificate_pair, *, days):
     """Create the proxied record a certificate has to belong to, and upload one."""
-    control.create_domain(Domain(name="example.com"), "cli")
-    record = control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    record = control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
         "cli",
     )
     certificate, key = certificate_pair((record.fqdn,), days=days)
-    control.upload_certificate(record.site_name, certificate, key, "cli")
+    control.certificates.upload_certificate(record.site_name, certificate, key, "cli")
     return record.site_name
 
 
@@ -470,7 +613,7 @@ def test_deploy_with_a_limit_says_the_rollout_is_unfinished(settings, monkeypatc
         "        edge-a:\n          ansible_host: 198.51.100.1\n",
         encoding="utf-8",
     )
-    control.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_domain(Domain(name="example.com"), "cli")
 
     result = runner.invoke(cli.app, ["deploy", "--yes", "--limit", "edge-a"])
 
@@ -508,8 +651,8 @@ def test_cert_list_exits_four_when_a_certificate_has_expired(
 
 
 def test_origin_check_reports_an_unreachable_origin(settings, monkeypatch):
-    control = _control(settings, monkeypatch)
-    control.repository.create_site(
+    _control(settings, monkeypatch)
+    _store(settings).sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "cdn-example-com",
@@ -558,7 +701,7 @@ def test_cert_renew_points_at_the_deploy_that_installs_the_result(
     """Renewal only refreshes the controller's store; edges keep the old one."""
     control = _control(settings, monkeypatch)
     monkeypatch.setattr(
-        control,
+        control.certificates,
         "renew_certificates",
         lambda *a, **k: _renewal(renewed=["cdn-example-com"]),
     )
@@ -584,7 +727,7 @@ def test_cert_renew_passes_the_expiry_window_and_force_through(settings, monkeyp
         )
         return _renewal()
 
-    monkeypatch.setattr(control, "renew_certificates", _capture)
+    monkeypatch.setattr(control.certificates, "renew_certificates", _capture)
 
     result = runner.invoke(cli.app, ["cert", "renew", "--expiring-in", "45", "--force"])
 
@@ -602,7 +745,7 @@ def test_cert_renew_reports_skipped_certificates_without_failing(settings, monke
     """An uploaded certificate cannot be reissued here, but that is not an error."""
     control = _control(settings, monkeypatch)
     monkeypatch.setattr(
-        control,
+        control.certificates,
         "renew_certificates",
         lambda *a, **k: _renewal(skipped=["cdn-example-com: was uploaded"]),
     )
@@ -618,7 +761,7 @@ def test_cert_renew_exits_five_when_a_renewal_fails(settings, monkeypatch):
     """Scheduled runs need a non-zero code to alert on, even if others renewed."""
     control = _control(settings, monkeypatch)
     monkeypatch.setattr(
-        control,
+        control.certificates,
         "renew_certificates",
         lambda *a, **k: _renewal(
             renewed=["a-example-com"], failed=["b-example-com: CA said no"]
@@ -634,7 +777,7 @@ def test_cert_renew_exits_five_when_a_renewal_fails(settings, monkeypatch):
 def test_cert_renew_json_output_carries_all_three_outcomes(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     monkeypatch.setattr(
-        control,
+        control.certificates,
         "renew_certificates",
         lambda *a, **k: _renewal(renewed=["a"], skipped=["b"], failed=["c"]),
     )
@@ -656,7 +799,7 @@ def test_cert_renew_can_deploy_successful_renewals(settings, monkeypatch):
         settings, monkeypatch, FakeRunner([ansible_run(host_run("edge-a"))])
     )
     monkeypatch.setattr(
-        control,
+        control.certificates,
         "renew_certificates",
         lambda *a, **k: _renewal(renewed=["cdn-example-com"]),
     )
@@ -672,7 +815,7 @@ def test_cert_renew_can_deploy_successful_renewals(settings, monkeypatch):
 def test_cert_renew_does_not_deploy_after_a_failed_renewal(settings, monkeypatch):
     control = _control(settings, monkeypatch, FakeRunner())
     monkeypatch.setattr(
-        control,
+        control.certificates,
         "renew_certificates",
         lambda *a, **k: _renewal(failed=["cdn-example-com: CA said no"]),
     )
@@ -694,7 +837,9 @@ def test_control_plane_factory_builds_from_the_environment(settings, monkeypatch
 
 def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    monkeypatch.setattr(control, "validate", lambda: ["playbook is missing"])
+    monkeypatch.setattr(
+        control.deployments, "validate", lambda: ["playbook is missing"]
+    )
 
     result = runner.invoke(cli.app, ["validate"])
 
@@ -704,7 +849,7 @@ def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
 
 def test_plan_exits_five_when_check_mode_fails(settings, site_payload, monkeypatch):
     repository = Repository(settings.database_path)
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(
         settings,
         repository,
@@ -728,7 +873,9 @@ def test_interactive_deploy_refuses_to_preview_an_invalid_configuration(
 ):
     """The preview costs an Ansible run, so validation gates it."""
     control = _control(settings, monkeypatch)
-    monkeypatch.setattr(control, "validate", lambda: ["inventory has no edges"])
+    monkeypatch.setattr(
+        control.deployments, "validate", lambda: ["inventory has no edges"]
+    )
 
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
 
@@ -741,7 +888,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     settings, site_payload, monkeypatch
 ):
     repository = Repository(settings.database_path)
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
@@ -756,7 +903,9 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
 def test_rollback_changes_nothing_when_the_operator_declines(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     called = []
-    monkeypatch.setattr(control, "rollback", lambda *a, **k: called.append(a))
+    monkeypatch.setattr(
+        control.deployments, "rollback", lambda *a, **k: called.append(a)
+    )
 
     result = runner.invoke(cli.app, ["rollback", "some-deployment-id"], input="n\n")
 
@@ -776,20 +925,20 @@ def test_drift_says_so_when_no_edge_answered(settings, monkeypatch):
 
 def test_domain_remove_keeps_the_zone_when_the_operator_declines(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    control.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_domain(Domain(name="example.com"), "cli")
 
     result = runner.invoke(cli.app, ["domain", "remove", "example.com"], input="n\n")
 
     assert result.exit_code == 1
-    assert [domain.name for domain in control.list_domains()] == ["example.com"]
+    assert [domain.name for domain in control.dns.list_domains()] == ["example.com"]
 
 
 def test_record_remove_keeps_the_record_when_the_operator_declines(
     settings, monkeypatch
 ):
     control = _control(settings, monkeypatch)
-    control.create_domain(Domain(name="example.com"), "cli")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
         DnsRecord(domain="example.com", name="cdn", value="198.51.100.10"), "cli"
     )
 
@@ -798,7 +947,7 @@ def test_record_remove_keeps_the_record_when_the_operator_declines(
     )
 
     assert result.exit_code == 1
-    assert len(control.repository.list_records("example.com")) == 1
+    assert len(_store(settings).zones.list_records("example.com")) == 1
 
 
 def _torn_down():
@@ -857,14 +1006,14 @@ def test_edge_remove_keeps_the_entry_when_the_teardown_fails(settings, monkeypat
 def test_edge_remove_force_drops_a_host_that_no_longer_exists(settings, monkeypatch):
     """--force is for a destroyed instance, which can never report clean."""
     double = FakeRunner([_unreachable()])
-    control = _control(settings, monkeypatch, double)
+    _control(settings, monkeypatch, double)
     _add_edge()
 
     result = runner.invoke(cli.app, ["edge", "remove", "edge-01", "--yes", "--force"])
 
     assert result.exit_code == 0
     assert json.loads(runner.invoke(cli.app, ["edge", "list", "--json"]).stdout) == []
-    actions = [event.action for event in control.repository.list_audit_events()]
+    actions = [event.action for event in _store(settings).audit_log.list_audit_events()]
     assert "edge.decommission_failed" in actions
 
 
@@ -920,8 +1069,8 @@ def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
 def test_site_show_reveals_defaults_a_record_never_mentioned(settings, monkeypatch):
     """A site is derived, so its resolved policy is not visible on the record."""
     control = _control(settings, monkeypatch)
-    control.create_domain(Domain(name="example.com"), "cli")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
@@ -958,7 +1107,7 @@ def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
         seen.update(sites=sites)
         return _renewal(renewed=list(sites or []))
 
-    monkeypatch.setattr(control, "renew_certificates", _capture)
+    monkeypatch.setattr(control.certificates, "renew_certificates", _capture)
 
     result = runner.invoke(
         cli.app, ["cert", "renew", "--site", "a-example-com", "--site", "b-example-com"]
@@ -976,7 +1125,7 @@ def test_cert_renew_without_the_site_option_considers_everything(settings, monke
         seen.update(sites=sites)
         return _renewal()
 
-    monkeypatch.setattr(control, "renew_certificates", _capture)
+    monkeypatch.setattr(control.certificates, "renew_certificates", _capture)
 
     assert runner.invoke(cli.app, ["cert", "renew"]).exit_code == 0
     assert seen["sites"] is None
@@ -991,14 +1140,14 @@ def _purge_ok():
     return ansible_run(host_run("edge-a", changed=1))
 
 
-def _purgeable_site(control):
+def _purgeable_site(settings):
     """A site serving TLS, because these tests purge `https://` URLs.
 
     The scheme leads the cache key, so the control plane refuses a purge for a
     scheme the site never serves. A site without TLS caches nothing under
     https.
     """
-    control.repository.create_site(
+    _store(settings).sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "cdn-example-com",
@@ -1014,8 +1163,8 @@ def _purgeable_site(control):
 
 def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch):
     fake = FakeRunner([_purge_ok()])
-    control = _control(settings, monkeypatch, fake)
-    _purgeable_site(control)
+    _control(settings, monkeypatch, fake)
+    _purgeable_site(settings)
 
     result = runner.invoke(
         cli.app, ["cache", "purge", "--url", "https://cdn.example.com/app.js"]
@@ -1030,8 +1179,8 @@ def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch
 def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
     """It is part of $request_uri, so '/a' and '/a?v=2' are different entries."""
     fake = FakeRunner([_purge_ok()])
-    control = _control(settings, monkeypatch, fake)
-    _purgeable_site(control)
+    _control(settings, monkeypatch, fake)
+    _purgeable_site(settings)
 
     runner.invoke(cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a?v=2"])
 
@@ -1040,8 +1189,8 @@ def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
 
 def test_cache_purge_defaults_a_bare_url_to_https_and_root(settings, monkeypatch):
     fake = FakeRunner([_purge_ok()])
-    control = _control(settings, monkeypatch, fake)
-    _purgeable_site(control)
+    _control(settings, monkeypatch, fake)
+    _purgeable_site(settings)
 
     runner.invoke(cli.app, ["cache", "purge", "--url", "cdn.example.com"])
 
@@ -1081,8 +1230,8 @@ def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch
     partial = ansible_run(
         host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
     )
-    control = _control(settings, monkeypatch, FakeRunner([partial]))
-    _purgeable_site(control)
+    _control(settings, monkeypatch, FakeRunner([partial]))
+    _purgeable_site(settings)
 
     result = runner.invoke(
         cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a.js"]
@@ -1095,8 +1244,8 @@ def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch
 def test_cache_purge_reports_an_unserved_host_without_a_traceback(
     settings, monkeypatch
 ):
-    control = _control(settings, monkeypatch, FakeRunner([_purge_ok()]))
-    _purgeable_site(control)
+    _control(settings, monkeypatch, FakeRunner([_purge_ok()]))
+    _purgeable_site(settings)
     monkeypatch.setattr(
         sys,
         "argv",

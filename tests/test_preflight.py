@@ -12,8 +12,10 @@ from typing import ClassVar
 import dns.exception
 import dns.resolver
 import pytest
+from conftest import FakeEdgeStore
 
 from blitzecdn.domain.certificates import PreflightSeverity
+from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.sites import CdnSite, HttpScheme
 from blitzecdn.infrastructure import preflight as preflight_module
@@ -57,7 +59,7 @@ def build(settings, monkeypatch):
         addresses: dict[str, set[str]] | None = None,
         caa: tuple[str, list[tuple[str, str]]] | None = None,
         caa_error: Exception | None = None,
-        edges: list[dict[str, str]] | None = None,
+        edges: list[Edge] | None = None,
         origin_ok: bool = True,
     ) -> CertificatePreflight:
         resolved = addresses or {}
@@ -74,13 +76,9 @@ def build(settings, monkeypatch):
 
         monkeypatch.setattr(CertificatePreflight, "_closest_caa", closest_caa)
 
-        class FakeInventory:
-            def list_edges(self):
-                return edges if edges is not None else [{"host": "edge1.example.net"}]
-
         return CertificatePreflight(
             settings,
-            inventory=FakeInventory(),  # type: ignore[arg-type]
+            FakeEdgeStore(edges),  # type: ignore[arg-type]
             origin_probe=FakeOriginProbe(ok=origin_ok),  # type: ignore[arg-type]
         )
 
@@ -155,10 +153,11 @@ def test_public_edge_addresses_are_distinct_from_the_ssh_host(build, site):
             "203.0.113.5": {"203.0.113.5"},
         },
         edges=[
-            {
-                "host": "localhost",
-                "public_addresses": ["203.0.113.5"],
-            }
+            Edge(
+                name="edge1",
+                host="localhost",
+                public_addresses=("203.0.113.5",),
+            )
         ],
     ).check(site, deployed=True)
     assert _check(report, "dns").passed
@@ -189,7 +188,7 @@ def test_an_unresolvable_hostname_blocks(build, site):
     assert not report.ok
 
 
-def test_an_inventory_with_no_usable_edge_blocks_rather_than_passing(build, site):
+def test_a_fleet_with_no_usable_edge_blocks_rather_than_passing(build, site):
     """With nothing to compare against, the check cannot pass vacuously."""
     report = build(addresses={"cdn.example.com": {"203.0.113.5"}}, edges=[]).check(
         site, deployed=True
@@ -198,10 +197,10 @@ def test_an_inventory_with_no_usable_edge_blocks_rather_than_passing(build, site
     assert "no edge address" in _check(report, "dns").detail
 
 
-def test_an_unreadable_inventory_does_not_raise(settings, monkeypatch, site):
-    class ExplodingInventory:
+def test_an_unreadable_fleet_does_not_raise(settings, monkeypatch, site):
+    class ExplodingEdgeStore:
         def list_edges(self):
-            raise OSError("inventory is unreadable")
+            raise OSError("the edges table is unreadable")
 
     monkeypatch.setattr(
         preflight_module, "_resolve", lambda host, resolver=None: {"203.0.113.5"}
@@ -213,7 +212,7 @@ def test_an_unreadable_inventory_does_not_raise(settings, monkeypatch, site):
     )
     report = CertificatePreflight(
         settings,
-        inventory=ExplodingInventory(),  # type: ignore[arg-type]
+        ExplodingEdgeStore(),  # type: ignore[arg-type]
         origin_probe=FakeOriginProbe(),  # type: ignore[arg-type]
     ).check(site, deployed=True)
     assert not _check(report, "dns").passed
@@ -410,7 +409,9 @@ def test_closest_caa_stops_at_the_first_ancestor_that_answers(settings, monkeypa
             raise AssertionError("the walk should have stopped at example.com")
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
-    found = CertificatePreflight(settings)._closest_caa("cdn.example.com")
+    found = CertificatePreflight(settings, FakeEdgeStore())._closest_caa(
+        "cdn.example.com"
+    )
 
     assert found == ("example.com", [("issue", "letsencrypt.org")])
     assert asked == ["cdn.example.com", "example.com"]
@@ -425,7 +426,10 @@ def test_closest_caa_returns_none_when_no_ancestor_has_a_record(settings, monkey
             raise dns.resolver.NXDOMAIN
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
-    assert CertificatePreflight(settings)._closest_caa("cdn.example.com") is None
+    assert (
+        CertificatePreflight(settings, FakeEdgeStore())._closest_caa("cdn.example.com")
+        is None
+    )
 
 
 # --- explicit preflight resolvers -------------------------------------------
@@ -476,7 +480,7 @@ def test_configured_servers_are_used_instead_of_the_host_resolver(
     )
     addresses = preflight_module._resolve(
         "www.example.com",
-        CertificatePreflight(configured, inventory=object())._address_resolver(),
+        CertificatePreflight(configured, FakeEdgeStore())._address_resolver(),
     )
     assert addresses == {"203.0.113.9"}
     assert recording_resolver.instances[-1].nameservers == ["1.1.1.1", "1.0.0.1"]
@@ -484,9 +488,7 @@ def test_configured_servers_are_used_instead_of_the_host_resolver(
 
 def test_without_configured_servers_the_host_resolver_is_still_used(settings):
     """Default behaviour is unchanged, so /etc/hosts keeps applying."""
-    assert (
-        CertificatePreflight(settings, inventory=object())._address_resolver() is None
-    )
+    assert CertificatePreflight(settings, FakeEdgeStore())._address_resolver() is None
 
 
 def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build):
@@ -498,12 +500,8 @@ def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build)
     )
     monkeypatch.setattr(CertificatePreflight, "_closest_caa", lambda self, name: None)
 
-    class FakeInventory:
-        def list_edges(self):
-            return [{"host": "edge1.example.net"}]
-
     report = CertificatePreflight(
-        configured, inventory=FakeInventory(), origin_probe=FakeOriginProbe()
+        configured, FakeEdgeStore(), origin_probe=FakeOriginProbe()
     ).check(
         CdnSite(
             name="site",

@@ -37,9 +37,8 @@ from blitzecdn.domain.certificates import (
     PreflightSeverity,
 )
 from blitzecdn.domain.sites import CdnSite
-from blitzecdn.infrastructure.inventory import Inventory
 from blitzecdn.infrastructure.origins import OriginProbe as ConcreteOriginProbe
-from blitzecdn.ports import OriginProbe
+from blitzecdn.ports import EdgeStore, OriginProbe
 
 #: CAA property tags we understand. ``issue`` governs ordinary issuance,
 #: ``issuewild`` wildcard issuance; RFC 8659 says a wildcard order consults
@@ -55,11 +54,11 @@ class CertificatePreflight:
     def __init__(
         self,
         settings: Settings,
-        inventory: Inventory | None = None,
+        edges: EdgeStore,
         origin_probe: OriginProbe | None = None,
     ) -> None:
         self._settings = settings
-        self._inventory = inventory or Inventory(settings.inventory_path)
+        self._edges = edges
         self._origin_probe = origin_probe or ConcreteOriginProbe(settings)
 
     def _resolver(self) -> dns.resolver.Resolver:
@@ -144,25 +143,27 @@ class CertificatePreflight:
         return _passed("dns", f"{_join_names(resolvable)} resolve{note} to an edge")
 
     def _edge_addresses(self) -> set[str]:
-        """Every address the inventory's edges answer on.
+        """Every address the recorded edges answer on publicly.
 
-        An ``ansible_host`` may be a name rather than an address, so each one is
-        resolved. A single unresolvable edge is skipped rather than failing the
-        check: the question here is whether the customer's hostname lands on one
-        of our edges, and an edge we cannot resolve is a separate problem that
-        ``validate`` and a deploy both surface on their own.
+        ``effective_public_addresses`` rather than the connection host: this
+        asks what the *world* reaches, and on a NAT'd edge the address the
+        controller connects to is not it. A public address may be a name rather
+        than an address, so each one is resolved. A single unresolvable edge is
+        skipped rather than failing the check — the question here is whether the
+        customer's hostname lands on one of our edges, and an edge we cannot
+        resolve is a separate problem that ``validate`` and a deploy both
+        surface on their own.
         """
         addresses: set[str] = set()
         try:
-            edges = self._inventory.list_edges()
-        except Exception:  # noqa: BLE001 -- an unreadable inventory is reported
-            # by `validate` and by every deploy; preflight must not be the thing
+            edges = self._edges.list_edges()
+        except Exception:  # noqa: BLE001 -- an unreadable fleet is reported by
+            # `validate` and by every deploy; preflight must not be the thing
             # that turns it into a stack trace.
             return addresses
         resolver = self._address_resolver()
         for edge in edges:
-            public_addresses = edge.get("public_addresses") or [edge["host"]]
-            for address in public_addresses:
+            for address in edge.effective_public_addresses:
                 addresses |= _resolve(address, resolver)
         return addresses
 

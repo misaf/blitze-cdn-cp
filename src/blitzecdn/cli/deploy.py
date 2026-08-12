@@ -100,7 +100,7 @@ def deploy(
     skipped: dict[str, str] = {}
     certificate_deployment = None
     if request_certificates:
-        for site in control.repository.list_sites():
+        for site in control.dns.list_sites():
             if site.certificate_mode is not CertificateMode.DISABLED:
                 continue
             report = CertificatePreflightCommand(site.name).execute(control, "cli")
@@ -224,10 +224,10 @@ def status(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Show one deployment or recent deployment history."""
-    repository = common.control_plane().repository
+    deployments = common.control_plane().deployments
     value = (
-        repository.get_deployment(deployment_id)
+        deployments.get_deployment(deployment_id)
         if deployment_id
-        else repository.list_deployments(limit)
+        else deployments.list_deployments(limit)
     )
     common.emit(value, json_output=json_output)

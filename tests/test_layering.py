@@ -158,6 +158,34 @@ def test_the_api_reaches_infrastructure_only_through_the_control_plane():
     assert _violations("api", ("blitzecdn.infrastructure",)) == []
 
 
+def test_the_entry_layers_never_reach_through_to_a_store():
+    """Reads go through a service or a port, the same as writes.
+
+    The write path was always disciplined — a command, a service, a port — while
+    the read endpoints quietly did ``control_plane.repository.list_sites()``,
+    which is the HTTP layer calling an infrastructure adapter directly. Both
+    halves of that are now gone: ``ControlPlane`` exposes no ``repository``, and
+    this refuses the attribute by name so a future one cannot be reintroduced
+    under a different route.
+
+    Named rather than typed, because ``ControlPlane`` is built by a factory the
+    entry layers call at runtime; mypy would catch a missing attribute on the
+    class, and this catches ``getattr`` and anything reached through a local.
+    """
+    offenders = [
+        f"{path.name}:{node.lineno} reads .{node.attr}"
+        for layer in ("api", "cli")
+        for path in _modules(layer)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Attribute)
+        and node.attr in {"repository", "database", "audit_log"}
+    ]
+    assert offenders == [], (
+        "the entry layers read through the services and the ports on "
+        "ControlPlane, never through a store: " + "; ".join(offenders)
+    )
+
+
 def test_no_application_logic_reads_ansible_output():
     """The rule that replaced recap parsing, enforced rather than remembered.
 

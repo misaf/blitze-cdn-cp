@@ -1,0 +1,27 @@
+---
+# The BlitzeCDN fleet, read from the control-plane database.
+#
+# This file is the inventory. It holds no hosts, and it never will: the edges
+# live in the `edges` table of the control-plane SQLite database, and the
+# `blitzecdn` inventory plugin publishes them into the `blitzecdn_edges` group
+# at the start of every run.
+#
+# Manage the fleet through the control plane, not by editing anything here:
+#
+#   blitzecdn edge add edge-01 --host 192.0.2.10 --ssh-source 198.51.100.0/24
+#   blitzecdn edge list
+#   blitzecdn edge remove edge-01
+#
+# To see exactly what Ansible will be given:
+#
+#   ansible-inventory -i ansible/inventory/blitzecdn.yml --list
+#
+# The database path comes from BLITZE_DATABASE_PATH, which the control plane
+# exports for every run it starts. Set `database:` below only if you run
+# ansible-playbook by hand against a database somewhere unusual.
+plugin: blitzecdn
+# database: /var/lib/blitzecdn/control-plane.db
+
+# Group-wide settings still live in group_vars/blitzecdn_edges/ beside this
+# file. They are loaded for the group this plugin creates exactly as they were
+# for the group the old static inventory declared.

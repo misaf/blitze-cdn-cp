@@ -6,7 +6,15 @@ from pathlib import Path
 
 import pytest
 import yaml
-from conftest import FakePreflight, FakeRunner, ansible_run, host_run
+from conftest import (
+    FakeEdgeStore,
+    FakePreflight,
+    FakeRunner,
+    InlineBackgroundRunner,
+    RefusingBackgroundRunner,
+    ansible_run,
+    host_run,
+)
 
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.cache import PurgeEntry
@@ -26,8 +34,8 @@ def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
     way one comes into existence — so this is the shared setup for anything
     that needs `cdn-example-com` to exist.
     """
-    control.create_domain(Domain(name="example.com"), "alice")
-    return control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    return control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
@@ -39,19 +47,19 @@ def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
-    record = control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    record = control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
         "alice",
     )
-    control.update_record(
+    control.dns.update_record(
         "example.com", "cdn", RecordType.A, RecordPatch(cache_enabled=False), "alice"
     )
-    assert repository.get_site(record.site_name).cache_enabled is False
-    assert control.validate() == []
-    result = control.deploy("alice")
+    assert repository.sites.get_site(record.site_name).cache_enabled is False
+    assert control.deployments.validate() == []
+    result = control.deployments.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
     assert result.result is not None
     assert [host.host for host in result.hosts] == ["edge-a"]
@@ -62,7 +70,7 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
 
-    assert control.deploy("alice").status is DeploymentStatus.SUCCEEDED
+    assert control.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "blitzecdn_nginx_allow_empty_sites: false" in desired
 
@@ -71,7 +79,7 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
         repository,
         FakeRunner(),
     )  # type: ignore[arg-type]
-    assert approved.deploy("alice").status is DeploymentStatus.SUCCEEDED
+    assert approved.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "blitzecdn_nginx_allow_empty_sites: true" in desired
 
@@ -85,9 +93,9 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
     control = ControlPlane(settings, repository, InterruptedRunner())  # type: ignore[arg-type]
 
     with pytest.raises(KeyboardInterrupt):
-        control.deploy("alice")
+        control.deployments.deploy("alice")
 
-    deployment = repository.list_deployments(1)[0]
+    deployment = repository.deployments.list_deployments(1)[0]
     assert deployment.status is DeploymentStatus.ABANDONED
     assert deployment.finished_at is not None
     assert deployment.result is not None
@@ -98,27 +106,27 @@ def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
     """The CDN on/off switch is what decides whether the edge serves a name."""
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
         "alice",
     )
-    control.create_record(
+    control.dns.create_record(
         DnsRecord(domain="example.com", name="db", value="198.51.100.11"), "alice"
     )
 
     # Only the proxied record reaches the edge.
-    assert [site.server_names[0] for site in repository.list_sites()] == [
+    assert [site.server_names[0] for site in repository.sites.list_sites()] == [
         "cdn.example.com"
     ]
 
-    control.set_proxied("example.com", "cdn", RecordType.A, False, "alice")
-    assert repository.list_sites() == []
+    control.dns.set_proxied("example.com", "cdn", RecordType.A, False, "alice")
+    assert repository.sites.list_sites() == []
 
-    control.set_proxied("example.com", "cdn", RecordType.A, True, "alice")
-    assert [site.server_names[0] for site in repository.list_sites()] == [
+    control.dns.set_proxied("example.com", "cdn", RecordType.A, True, "alice")
+    assert [site.server_names[0] for site in repository.sites.list_sites()] == [
         "cdn.example.com"
     ]
 
@@ -126,31 +134,31 @@ def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
 def test_removing_a_domain_takes_its_virtual_hosts_off_the_edge(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
         "alice",
     )
-    control.delete_domain("example.com", "alice")
-    assert repository.list_records() == []
-    assert repository.list_sites() == []
+    control.dns.delete_domain("example.com", "alice")
+    assert repository.zones.list_records() == []
+    assert repository.sites.list_sites() == []
 
 
 def test_records_that_collide_on_a_derived_site_name_are_refused(settings):
     """'a.b.example.com' and 'a-b.example.com' both flatten to a-b-example-com."""
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
         DnsRecord(
             domain="example.com", name="a.b", value="198.51.100.10", proxied=True
         ),
         "alice",
     )
     with pytest.raises(ConflictError, match="internal site name"):
-        control.create_record(
+        control.dns.create_record(
             DnsRecord(
                 domain="example.com", name="a-b", value="198.51.100.11", proxied=True
             ),
@@ -162,23 +170,26 @@ def test_validate_reports_a_collision_that_bypassed_the_create_check(settings):
     """Backstop for records restored from a snapshot rather than created."""
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("a.b", "a-b"):
-        repository.create_record(
+        repository.zones.create_record(
             DnsRecord(
                 domain="example.com", name=label, value="198.51.100.10", proxied=True
             )
         )
-    assert any("derive the internal site name" in error for error in control.validate())
+    assert any(
+        "derive the internal site name" in error
+        for error in control.deployments.validate()
+    )
     # Deriving must survive the collision rather than fail to write. Any record
     # change triggers the re-derivation, so use one to exercise that path.
-    control.create_record(
+    control.dns.create_record(
         DnsRecord(
             domain="example.com", name="www", value="198.51.100.12", proxied=True
         ),
         "alice",
     )
-    assert sorted(site.name for site in repository.list_sites()) == [
+    assert sorted(site.name for site in repository.sites.list_sites()) == [
         "a-b-example-com",
         "www-example-com",
     ]
@@ -188,8 +199,8 @@ def test_validate_rejects_acme_on_a_reserved_domain(settings):
     """No public CA issues for .test, so catch it before certbot is invoked."""
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    control.create_domain(Domain(name="vendra.test"), "alice")
-    control.create_record(
+    control.dns.create_domain(Domain(name="vendra.test"), "alice")
+    control.dns.create_record(
         DnsRecord(
             domain="vendra.test",
             name="api",
@@ -201,7 +212,7 @@ def test_validate_rejects_acme_on_a_reserved_domain(settings):
         ),
         "alice",
     )
-    assert any("reserved name" in error for error in control.validate())
+    assert any("reserved name" in error for error in control.deployments.validate())
 
 
 def test_failed_and_timed_out_deployments_are_recorded(settings):
@@ -217,8 +228,11 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
         ]
     )
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    assert control.deploy("alice").status is DeploymentStatus.FAILED
-    assert control.deploy("alice", check=True).status is DeploymentStatus.TIMED_OUT
+    assert control.deployments.deploy("alice").status is DeploymentStatus.FAILED
+    assert (
+        control.deployments.deploy("alice", check=True).status
+        is DeploymentStatus.TIMED_OUT
+    )
     assert runner.check_modes == [False, True]
 
 
@@ -229,23 +243,23 @@ def test_rollback_updates_canonical_state_only_after_success(settings, site_payl
         repository,
         FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
-    control.create_domain(Domain(name="example.com"), "alice")
-    original = control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    original = control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
         ),
         "alice",
     )
-    successful = control.deploy("alice")
-    control.update_record(
+    successful = control.deployments.deploy("alice")
+    control.dns.update_record(
         "example.com", "cdn", RecordType.A, RecordPatch(value="192.0.2.99"), "alice"
     )
-    result = control.rollback("alice", successful.id)
+    result = control.deployments.rollback("alice", successful.id)
     assert result.status is DeploymentStatus.SUCCEEDED
     # Rollback restores the record, and the derived site follows from it.
-    restored = repository.get_record("example.com", "cdn", RecordType.A)
+    restored = repository.zones.get_record("example.com", "cdn", RecordType.A)
     assert restored.value == original.value
-    assert repository.get_site(original.site_name).origin_host == original.value
+    assert repository.sites.get_site(original.site_name).origin_host == original.value
 
 
 def test_rollback_holds_the_lock_across_the_canonical_state_swap(
@@ -264,24 +278,26 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
             finally:
                 events.append("unlocked")
 
-    original_replace = repository.replace_all_sites
+    original_replace = repository.sites.replace_all_sites
 
     def recording_replace(sites):
         events.append("sites-replaced")
         original_replace(sites)
 
-    repository.replace_all_sites = recording_replace  # type: ignore[method-assign]
+    repository.sites.replace_all_sites = recording_replace  # type: ignore[method-assign]
     control = ControlPlane(
         settings,
         repository,
         LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     original = CdnSite.model_validate(site_payload)
-    repository.create_site(original)
-    successful = control.deploy("alice")
-    repository.replace_site(original.model_copy(update={"origin_host": "192.0.2.99"}))
+    repository.sites.create_site(original)
+    successful = control.deployments.deploy("alice")
+    repository.sites.replace_site(
+        original.model_copy(update={"origin_host": "192.0.2.99"})
+    )
 
-    control.rollback("alice", successful.id)
+    control.deployments.rollback("alice", successful.id)
 
     assert events == [
         "locked",
@@ -302,9 +318,9 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_paylo
             return super().run(check=check)
 
     control = ControlPlane(settings, repository, BlockingRunner())  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    queued = control.submit_deployment("alice")
+    queued = control.deployments.submit_deployment("alice")
     assert queued.status is DeploymentStatus.QUEUED
 
     release.set()
@@ -316,54 +332,87 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
     with pytest.raises(NotFoundError):
-        control.submit_rollback("alice")
+        control.deployments.submit_rollback("alice")
 
 
 def test_submit_releases_the_lock_after_the_worker_finishes(settings, site_payload):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    queued = control.submit_deployment("alice")
+    queued = control.deployments.submit_deployment("alice")
     assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
     # A second submission proves the worker handed the lock back.
     control.runner.results = [ansible_run(host_run("edge-a"))]
-    again = control.submit_deployment("alice")
+    again = control.deployments.submit_deployment("alice")
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
-def test_a_worker_that_cannot_start_does_not_strand_the_lock(
-    settings, site_payload, monkeypatch
+def test_a_queued_deployment_converges_whatever_carries_the_work(
+    settings, site_payload
 ):
-    """A transient failure must not become a permanent outage.
+    """The queued path, observed without waiting on a thread.
 
-    The lock is released by whoever owns the deployment, and until the thread
-    is running that is still `submit`. A thread that never starts used to leave
-    it held by a worker that did not exist, and every later deploy, rollback,
-    upload and issuance failed with DeploymentBusyError until someone restarted
-    the process.
+    ``submit_deployment`` answers before the run finishes, which used to mean a
+    test of it either polled or raced. The runner that carries the work is a
+    port, so supplying one that runs inline makes the whole queued path — lock,
+    QUEUED record, converge, release — a synchronous assertion, and what is left
+    untested is only the threading itself.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=InlineBackgroundRunner(),
+    )
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    def refuse_to_start(self):
-        raise RuntimeError("can't start new thread")
+    queued = control.deployments.submit_deployment("alice")
 
-    monkeypatch.setattr(threading.Thread, "start", refuse_to_start)
+    # No _await_terminal: the work is already done by the time submit returns.
+    assert repository.deployments.get_deployment(queued.id).status is (
+        DeploymentStatus.SUCCEEDED
+    )
+
+
+def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payload):
+    """A transient failure must not become a permanent outage.
+
+    The lock is released by whoever owns the deployment, and until the worker is
+    running that is still `submit`. Work that never starts used to leave it held
+    by a worker that did not exist, and every later deploy, rollback, upload and
+    issuance failed with DeploymentBusyError until someone restarted the
+    process.
+
+    Driven through the port rather than by monkeypatching ``Thread.start``:
+    refusing to start is part of the ``BackgroundRunner`` contract, so a runner
+    that refuses is a legitimate implementation of it rather than a global the
+    test has to remember to undo.
+    """
+    repository = Repository(settings.database_path)
+    refusing = RefusingBackgroundRunner()
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=refusing,
+    )
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
     with pytest.raises(RuntimeError):
-        control.submit_deployment("alice")
-    monkeypatch.undo()
+        control.deployments.submit_deployment("alice")
 
     # The deployment is recorded as failed rather than left QUEUED forever.
-    recorded = repository.list_deployments(1)[0]
+    recorded = repository.deployments.list_deployments(1)[0]
     assert recorded.status is DeploymentStatus.FAILED
     assert recorded.result is not None
     assert recorded.result.status is RunStatus.UNSTARTED
 
     # And the lock came back, so the control plane still works.
+    refusing.refuse = False
     control.runner.results = [ansible_run(host_run("edge-a"))]
-    again = control.submit_deployment("alice")
+    again = control.deployments.submit_deployment("alice")
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
@@ -374,12 +423,12 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
 
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, ExplodingRunner())  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     with pytest.raises(ExecutionError):
-        control.deploy("alice")
+        control.deployments.deploy("alice")
 
-    recorded = repository.list_deployments(1)[0]
+    recorded = repository.deployments.list_deployments(1)[0]
     assert recorded.status is DeploymentStatus.FAILED
     # The runner raised before Ansible reported anything, so the deployment
     # carries a synthesised result rather than none: every reader looks in the
@@ -389,7 +438,7 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
     assert "unable to execute Ansible" in (recorded.result.error or "")
     assert any(
         event.action == "deployment.failed"
-        for event in repository.list_audit_events(10)
+        for event in repository.audit_log.list_audit_events(10)
     )
 
 
@@ -406,12 +455,12 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_pay
             return ansible_run(host_run("edge-a"))
 
     control = ControlPlane(settings, repository, ExplodingOnceRunner())  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    first = control.submit_deployment("alice")
+    first = control.deployments.submit_deployment("alice")
     assert _await_terminal(repository, first.id) is DeploymentStatus.FAILED
 
-    second = control.submit_deployment("alice")
+    second = control.deployments.submit_deployment("alice")
     assert _await_terminal(repository, second.id) is DeploymentStatus.SUCCEEDED
 
 
@@ -421,7 +470,7 @@ def _await_terminal(
     deadline = time.monotonic() + timeout
     pending = {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
     while time.monotonic() < deadline:
-        status = repository.get_deployment(deployment_id).status
+        status = repository.deployments.get_deployment(deployment_id).status
         if status not in pending:
             return status
         time.sleep(0.01)
@@ -448,18 +497,20 @@ def test_upload_and_request_certificate_activate_managed_tls(
     _seed_proxied_record(control)
     certificate, key = certificate_pair()
 
-    uploaded = control.upload_certificate("cdn-example-com", certificate, key, "alice")
+    uploaded = control.certificates.upload_certificate(
+        "cdn-example-com", certificate, key, "alice"
+    )
     assert uploaded.source == "uploaded"
-    assert repository.get_site("cdn-example-com").certificate_mode == "uploaded"
+    assert repository.sites.get_site("cdn-example-com").certificate_mode == "uploaded"
 
-    requested = control.request_certificate(
+    requested = control.certificates.request_certificate(
         "cdn-example-com", "alice", "owner@example.com"
     )
     assert requested.source == "acme"
-    assert control.certificate("cdn-example-com") == requested
-    assert repository.get_site("cdn-example-com").certificate_mode == "requested"
+    assert control.certificates.certificate("cdn-example-com") == requested
+    assert repository.sites.get_site("cdn-example-com").certificate_mode == "requested"
 
-    result = control.deploy("alice", check=True)
+    result = control.deployments.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "certificate_source_path" in desired
@@ -485,13 +536,13 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     )  # type: ignore[arg-type]
     site_name = _seed_proxied_record(control).site_name
 
-    result = control.reconcile_certificates("timer")
+    result = control.certificates.reconcile_certificates("timer")
 
     assert result["issued"] == [site_name]
     assert result["skipped"] == {}
     assert result["failed"] == {}
     assert result["deployment"].status is DeploymentStatus.SUCCEEDED
-    assert repository.get_site(site_name).certificate_mode == "requested"
+    assert repository.sites.get_site(site_name).certificate_mode == "requested"
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):
@@ -509,7 +560,7 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
     )  # type: ignore[arg-type]
     site_name = _seed_proxied_record(control).site_name
 
-    result = control.reconcile_certificates("timer")
+    result = control.certificates.reconcile_certificates("timer")
 
     assert result["issued"] == []
     assert "dns" in result["skipped"][site_name]
@@ -518,12 +569,12 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
 
 def test_request_certificate_requires_email(settings, site_payload):
     repository = Repository(settings.database_path)
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
     from blitzecdn.exceptions import ConflictError
 
     with pytest.raises(ConflictError, match="email"):
-        control.request_certificate("cdn-example-com", "alice")
+        control.certificates.request_certificate("cdn-example-com", "alice")
 
 
 def test_certificate_upload_holds_deployment_lock(
@@ -561,7 +612,9 @@ def test_certificate_upload_holds_deployment_lock(
     events.clear()  # seeding does not take the deployment lock
     certificate, key = certificate_pair()
 
-    control.upload_certificate("cdn-example-com", certificate, key, "alice")
+    control.certificates.upload_certificate(
+        "cdn-example-com", certificate, key, "alice"
+    )
 
     assert events == ["locked", "installed", "unlocked"]
 
@@ -570,9 +623,9 @@ def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings, site_payl
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    result = control.deploy("alice", host_limit=" edge-a ")
+    result = control.deployments.deploy("alice", host_limit=" edge-a ")
 
     assert result.host_limit == "edge-a", "the limit is normalised before storage"
     assert runner.host_limits == ["edge-a"]
@@ -588,19 +641,22 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings, site_payload)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
 
-    repository.create_site(CdnSite.model_validate(site_payload))
-    full = control.deploy("alice")
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    full = control.deployments.deploy("alice")
 
-    repository.replace_all_sites([])
-    canary = control.deploy("alice", host_limit="edge-a")
+    repository.sites.replace_all_sites([])
+    canary = control.deployments.deploy("alice", host_limit="edge-a")
     assert canary.status is DeploymentStatus.SUCCEEDED
 
     # A third, distinct state, so both earlier snapshots are eligible and the
     # canary is the more recent of the two. Without the filter it would win.
-    repository.create_site(
+    repository.sites.create_site(
         CdnSite.model_validate({**site_payload, "name": "somewhere-else"})
     )
-    assert repository.successful_rollback_target(repository.snapshot()).id == full.id
+    assert (
+        repository.deployments.successful_rollback_target(repository.snapshot()).id
+        == full.id
+    )
 
 
 def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(
@@ -608,12 +664,12 @@ def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(
 ):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     with pytest.raises(ValueError, match="only narrow a deploy"):
-        control.deploy("alice", host_limit="edge-a:!edge-b")
+        control.deployments.deploy("alice", host_limit="edge-a:!edge-b")
 
-    assert repository.list_deployments(5) == []
+    assert repository.deployments.list_deployments(5) == []
 
 
 def _in_sync_run():
@@ -639,9 +695,9 @@ def test_drift_check_runs_without_changing_anything(settings, site_payload):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_in_sync_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    report = control.check_drift("alice")
+    report = control.deployments.check_drift("alice")
 
     assert runner.check_modes == [True], "a drift check must never apply changes"
     assert report.in_sync is True
@@ -652,15 +708,15 @@ def test_drift_check_names_the_edges_that_moved(settings, site_payload):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    report = control.check_drift("alice")
+    report = control.deployments.check_drift("alice")
 
     assert report.in_sync is False
     assert [host.host for host in report.drifted] == ["edge-a"]
     assert any(
         event.action == "drift.checked" and event.details["drifted"] == ["edge-a"]
-        for event in repository.list_audit_events(10)
+        for event in repository.audit_log.list_audit_events(10)
     )
 
 
@@ -670,10 +726,10 @@ def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    first = control.check_drift("alice")
-    again = control.drift_report(first.deployment_id)
+    first = control.deployments.check_drift("alice")
+    again = control.deployments.drift_report(first.deployment_id)
 
     assert again.hosts == first.hosts
 
@@ -683,11 +739,11 @@ def test_an_applied_deployment_is_not_a_drift_report(settings, site_payload):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
-    repository.create_site(CdnSite.model_validate(site_payload))
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
 
-    applied = control.deploy("alice")
+    applied = control.deployments.deploy("alice")
     with pytest.raises(ConflictError, match="applied changes"):
-        control.drift_report(applied.id)
+        control.deployments.drift_report(applied.id)
 
 
 class _RecordingIssuer:
@@ -708,7 +764,9 @@ class _RecordingIssuer:
 def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
     record = _seed_proxied_record(control)
     certificate, key = certificate_pair((record.fqdn,), days=days)
-    return control.upload_certificate(record.site_name, certificate, key, "alice")
+    return control.certificates.upload_certificate(
+        record.site_name, certificate, key, "alice"
+    )
 
 
 def test_certificate_statuses_report_time_left(settings, certificate_pair):
@@ -716,12 +774,12 @@ def test_certificate_statuses_report_time_left(settings, certificate_pair):
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
     _proxied_site_with_certificate(control, repository, certificate_pair, days=10)
 
-    statuses = control.certificate_statuses()
+    statuses = control.certificates.certificate_statuses()
 
     assert len(statuses) == 1
     assert statuses[0].days_remaining == 9  # a whole day has not yet elapsed
     assert statuses[0].renewable is False, "an uploaded certificate is not renewable"
-    assert control.expiring_certificates() == statuses
+    assert control.certificates.expiring_certificates() == statuses
 
 
 def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate_pair):
@@ -729,8 +787,8 @@ def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
     _proxied_site_with_certificate(control, repository, certificate_pair, days=89)
 
-    assert control.certificate_statuses() != []
-    assert control.expiring_certificates() == []
+    assert control.certificates.certificate_statuses() != []
+    assert control.certificates.expiring_certificates() == []
 
 
 def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
@@ -745,9 +803,9 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
     )
     control.settings = settings
 
-    control.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label, days in (("due", 5), ("healthy", 80)):
-        record = control.create_record(
+        record = control.dns.create_record(
             DnsRecord(
                 domain="example.com",
                 name=label,
@@ -757,17 +815,23 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
             "alice",
         )
         certificate, key = certificate_pair((record.fqdn,), days=days)
-        control.upload_certificate(record.site_name, certificate, key, "alice")
+        control.certificates.upload_certificate(
+            record.site_name, certificate, key, "alice"
+        )
         # Uploaded certificates are never renewable, so re-request each one to
         # put it under ACME management the way a real ACME site would be.
-        control.request_certificate(record.site_name, "alice", "ops@example.com")
+        control.certificates.request_certificate(
+            record.site_name, "alice", "ops@example.com"
+        )
     issuer.issued.clear()
 
     # Both now carry the issuer's 90-day certificate, so nothing is due.
-    assert control.renew_certificates("alice")["renewed"] == []
+    assert control.certificates.renew_certificates("alice")["renewed"] == []
     assert issuer.issued == []
 
-    assert sorted(control.renew_certificates("alice", force=True)["renewed"]) == [
+    assert sorted(
+        control.certificates.renew_certificates("alice", force=True)["renewed"]
+    ) == [
         "due-example-com",
         "healthy-example-com",
     ]
@@ -792,17 +856,21 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
-    control.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("one", "two"):
-        record = control.create_record(
+        record = control.dns.create_record(
             DnsRecord(
                 domain="example.com", name=label, value="198.51.100.10", proxied=True
             ),
             "alice",
         )
         certificate, key = certificate_pair((record.fqdn,), days=5)
-        control.upload_certificate(record.site_name, certificate, key, "alice")
-        control.request_certificate(record.site_name, "alice", "ops@example.com")
+        control.certificates.upload_certificate(
+            record.site_name, certificate, key, "alice"
+        )
+        control.certificates.request_certificate(
+            record.site_name, "alice", "ops@example.com"
+        )
     issuer.issued.clear()
 
     # Time runs out the moment the first site has been renewed.
@@ -811,7 +879,9 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
         "blitzecdn.application.certificates.monotonic", lambda: next(clock)
     )
 
-    result = control.renew_certificates("alice", force=True, budget_seconds=1)
+    result = control.certificates.renew_certificates(
+        "alice", force=True, budget_seconds=1
+    )
 
     assert len(result["renewed"]) == 1
     assert len(issuer.issued) == 1, "the budget must not interrupt an issuance"
@@ -831,19 +901,23 @@ def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
-    control.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("one", "two"):
-        record = control.create_record(
+        record = control.dns.create_record(
             DnsRecord(
                 domain="example.com", name=label, value="198.51.100.10", proxied=True
             ),
             "alice",
         )
         certificate, key = certificate_pair((record.fqdn,), days=5)
-        control.upload_certificate(record.site_name, certificate, key, "alice")
-        control.request_certificate(record.site_name, "alice", "ops@example.com")
+        control.certificates.upload_certificate(
+            record.site_name, certificate, key, "alice"
+        )
+        control.certificates.request_certificate(
+            record.site_name, "alice", "ops@example.com"
+        )
 
-    result = control.renew_certificates("alice", force=True)
+    result = control.certificates.renew_certificates("alice", force=True)
 
     assert len(result["renewed"]) == 2
     assert result["skipped"] == []
@@ -863,7 +937,7 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
     )
     _proxied_site_with_certificate(control, repository, certificate_pair, days=3)
 
-    result = control.renew_certificates("alice")
+    result = control.certificates.renew_certificates("alice")
 
     assert result["renewed"] == []
     assert issuer.issued == [], "BlitzeCDN must not reissue someone else's certificate"
@@ -882,16 +956,18 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
 
-    control.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("broken", "fine"):
-        record = control.create_record(
+        record = control.dns.create_record(
             DnsRecord(
                 domain="example.com", name=label, value="198.51.100.10", proxied=True
             ),
             "alice",
         )
         certificate, key = certificate_pair((record.fqdn,), days=5)
-        control.upload_certificate(record.site_name, certificate, key, "alice")
+        control.certificates.upload_certificate(
+            record.site_name, certificate, key, "alice"
+        )
         # Restamp the stored metadata as an ACME issue registered to an
         # address, which is what a real renewable certificate looks like.
         info = control.certificate_store.get(record.site_name)
@@ -903,7 +979,7 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
             encoding="utf-8",
         )
 
-    result = control.renew_certificates("alice")
+    result = control.certificates.renew_certificates("alice")
 
     assert result["renewed"] == ["fine-example-com"]
     assert len(result["failed"]) == 1
@@ -912,17 +988,21 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
 
 def _two_acme_sites(control, certificate_pair):
     """Two sites under ACME management, both freshly issued and not yet due."""
-    control.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("first", "second"):
-        record = control.create_record(
+        record = control.dns.create_record(
             DnsRecord(
                 domain="example.com", name=label, value="198.51.100.10", proxied=True
             ),
             "alice",
         )
         certificate, key = certificate_pair((record.fqdn,), days=80)
-        control.upload_certificate(record.site_name, certificate, key, "alice")
-        control.request_certificate(record.site_name, "alice", "ops@example.com")
+        control.certificates.upload_certificate(
+            record.site_name, certificate, key, "alice"
+        )
+        control.certificates.request_certificate(
+            record.site_name, "alice", "ops@example.com"
+        )
 
 
 def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
@@ -939,7 +1019,7 @@ def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
     _two_acme_sites(control, certificate_pair)
     issuer.issued.clear()
 
-    result = control.renew_certificates(
+    result = control.certificates.renew_certificates(
         "alice", force=True, sites=["first-example-com"]
     )
 
@@ -963,7 +1043,9 @@ def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_
     issuer.issued.clear()
 
     with pytest.raises(NotFoundError, match="frist-example-com"):
-        control.renew_certificates("alice", force=True, sites=["frist-example-com"])
+        control.certificates.renew_certificates(
+            "alice", force=True, sites=["frist-example-com"]
+        )
 
     # Nothing was renewed before the unknown name was noticed.
     assert issuer.issued == []
@@ -981,10 +1063,12 @@ def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_p
     )
     _two_acme_sites(control, certificate_pair)
 
-    control.renew_certificates("alice", force=True, sites=["second-example-com"])
-    narrowed = repository.list_audit_events()[0]
-    control.renew_certificates("alice")
-    full = repository.list_audit_events()[0]
+    control.certificates.renew_certificates(
+        "alice", force=True, sites=["second-example-com"]
+    )
+    narrowed = repository.audit_log.list_audit_events()[0]
+    control.certificates.renew_certificates("alice")
+    full = repository.audit_log.list_audit_events()[0]
 
     assert narrowed.action == "certificates.renewed"
     assert narrowed.details["sites"] == ["second-example-com"]
@@ -1002,7 +1086,7 @@ def _purge_run():
 
 
 def _site(control, repository, name="cdn-example-com", server="cdn.example.com"):
-    repository.create_site(
+    repository.sites.create_site(
         CdnSite.model_validate(
             {"name": name, "server_names": [server], "origin_host": "o.example.com"}
         )
@@ -1015,7 +1099,7 @@ def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository)
 
-    result = control.purge_cache(
+    result = control.edges.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -1036,7 +1120,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     _site(control, repository)
 
     with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
-        control.purge_cache(
+        control.edges.purge_cache(
             "alice", entries=[PurgeEntry(host="other.example.com", uri="/x")]
         )
     assert fake.purges == []
@@ -1049,7 +1133,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository, server="*.assets.example.com")
 
-    result = control.purge_cache(
+    result = control.edges.purge_cache(
         "alice",
         entries=[
             PurgeEntry(
@@ -1073,7 +1157,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     _site(control, repository)
 
     with pytest.raises(ConflictError, match="scheme"):
-        control.purge_cache(
+        control.edges.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(
@@ -1089,7 +1173,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
-    repository.create_site(
+    repository.sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "tls-example-com",
@@ -1103,7 +1187,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     )
 
     with pytest.raises(ConflictError, match="scheme"):
-        control.purge_cache(
+        control.edges.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(
@@ -1118,7 +1202,7 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
-    repository.create_site(
+    repository.sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "off-example-com",
@@ -1130,7 +1214,7 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
     )
 
     with pytest.raises(NotFoundError):
-        control.purge_cache(
+        control.edges.purge_cache(
             "alice", entries=[PurgeEntry(host="off.example.com", uri="/x")]
         )
 
@@ -1141,7 +1225,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     _site(control, repository)
 
     with pytest.raises(ConflictError):
-        control.purge_cache(
+        control.edges.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
@@ -1153,7 +1237,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
 def test_a_purge_with_nothing_to_do_is_refused(settings):
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
     with pytest.raises(ConflictError):
-        control.purge_cache("alice")
+        control.edges.purge_cache("alice")
 
 
 def test_purging_everything_needs_no_site_to_exist(settings):
@@ -1161,7 +1245,7 @@ def test_purging_everything_needs_no_site_to_exist(settings):
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, Repository(settings.database_path), fake)  # type: ignore[arg-type]
 
-    result = control.purge_cache("alice", purge_all=True)
+    result = control.edges.purge_cache("alice", purge_all=True)
 
     assert result.complete is True
     assert fake.purges[0][1] is True
@@ -1176,7 +1260,7 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
     control = ControlPlane(settings, repository, FakeRunner([partial]))  # type: ignore[arg-type]
     _site(control, repository)
 
-    result = control.purge_cache(
+    result = control.edges.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -1198,7 +1282,7 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
     _site(control, repository)
 
     with pytest.raises(ExecutionError, match="no edge reported"):
-        control.purge_cache(
+        control.edges.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
@@ -1211,14 +1295,14 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
     control = ControlPlane(settings, repository, FakeRunner([_purge_run()]))  # type: ignore[arg-type]
     _site(control, repository)
 
-    control.purge_cache(
+    control.edges.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
         ],
     )
 
-    event = repository.list_audit_events()[0]
+    event = repository.audit_log.list_audit_events()[0]
     assert event.action == "cache.purged"
     assert event.details["complete"] is True
     assert event.details["entries"][0]["uri"] == "/app.js"
@@ -1269,7 +1353,7 @@ def test_statistics_are_aggregated_across_the_fleet(settings):
         ),
     )
 
-    report = control.cache_stats("alice")
+    report = control.edges.cache_stats("alice")
 
     assert report.hit_ratio == 0.85
     assert {edge.host for edge in report.reporting} == {"edge-a", "edge-b"}
@@ -1289,7 +1373,7 @@ def test_an_edge_that_published_nothing_is_silent_rather_than_missing(settings):
         host_run("edge-b", ok=5),
     )
 
-    report = control.cache_stats("alice")
+    report = control.edges.cache_stats("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert [edge.host for edge in report.reporting] == ["edge-a"]
@@ -1302,7 +1386,7 @@ def test_an_unreachable_edge_is_reported_as_unreachable(settings):
         host_run("edge-b", ok=0, unreachable=1),
     )
 
-    report = control.cache_stats("alice")
+    report = control.edges.cache_stats("alice")
 
     assert [(e.host, e.error) for e in report.silent] == [("edge-b", "unreachable")]
 
@@ -1315,7 +1399,7 @@ def test_an_edge_whose_stats_role_failed_is_not_counted(settings):
         host_run("edge-b", failure="collect-cache-stats.sh returned 1"),
     )
 
-    report = control.cache_stats("alice")
+    report = control.edges.cache_stats("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert report.requests == 1
@@ -1342,7 +1426,7 @@ def test_a_malformed_edge_report_degrades_instead_of_raising(settings):
         ),
     )
 
-    report = control.cache_stats("alice")
+    report = control.edges.cache_stats("alice")
 
     assert report.requests == 1
     edge_b = next(edge for edge in report.edges if edge.host == "edge-b")
@@ -1359,8 +1443,8 @@ def test_statistics_are_recorded_in_the_audit_trail(settings):
         _reporting("edge-b", [{"site": "a", "outcome": "MISS", "requests": 1}]),
     )
 
-    control.cache_stats("alice")
-    event = Repository(settings.database_path).list_audit_events()[0]
+    control.edges.cache_stats("alice")
+    event = Repository(settings.database_path).audit_log.list_audit_events()[0]
 
     assert event.action == "cache.stats_collected"
     assert event.details["hit_ratio"] == 0.5
@@ -1394,7 +1478,9 @@ def test_a_blocked_preflight_refuses_before_reaching_the_ca(settings, certificat
     _seed_proxied_record(control)
 
     with pytest.raises(ConflictError, match="preflight failed"):
-        control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+        control.certificates.request_certificate(
+            "cdn-example-com", "alice", "ops@example.com"
+        )
 
     assert issuer.issued == []
 
@@ -1406,7 +1492,9 @@ def test_the_refusal_names_the_failed_check_and_the_way_past_it(
     _seed_proxied_record(control)
 
     with pytest.raises(ConflictError) as raised:
-        control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+        control.certificates.request_certificate(
+            "cdn-example-com", "alice", "ops@example.com"
+        )
 
     assert "caa" in str(raised.value)
     assert "skip_preflight" in str(raised.value)
@@ -1418,7 +1506,7 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
     )
     _seed_proxied_record(control)
 
-    info = control.request_certificate(
+    info = control.certificates.request_certificate(
         "cdn-example-com", "alice", "ops@example.com", skip_preflight=True
     )
 
@@ -1426,7 +1514,7 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
     assert issuer.issued == [("cdn-example-com", "ops@example.com")]
     overrides = [
         event
-        for event in repository.list_audit_events()
+        for event in repository.audit_log.list_audit_events()
         if event.action == "certificate.requested.preflight_overridden"
     ]
     assert len(overrides) == 1
@@ -1439,8 +1527,8 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
 def test_preflight_is_told_the_records_ttl(settings, certificate_pair):
     """The TTL advisory is only possible if the record's own value reaches it."""
     control, _, _, preflight = _preflight_control(settings, certificate_pair)
-    control.create_domain(Domain(name="example.com"), "alice")
-    control.create_record(
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
         DnsRecord(
             domain="example.com",
             name="cdn",
@@ -1451,7 +1539,9 @@ def test_preflight_is_told_the_records_ttl(settings, certificate_pair):
         "alice",
     )
 
-    control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+    control.certificates.request_certificate(
+        "cdn-example-com", "alice", "ops@example.com"
+    )
 
     assert preflight.calls[-1] == ("cdn-example-com", False, 7200)
 
@@ -1462,11 +1552,13 @@ def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
     """A renewal that cannot validate has to reach the timer's exit code."""
     control, _, issuer, preflight = _preflight_control(settings, certificate_pair)
     _proxied_site_with_certificate(control, None, certificate_pair, days=3)
-    control.request_certificate("cdn-example-com", "alice", "ops@example.com")
+    control.certificates.request_certificate(
+        "cdn-example-com", "alice", "ops@example.com"
+    )
     issuer.issued.clear()
     preflight.failures = ("dns",)
 
-    result = control.renew_certificates("alice", force=True)
+    result = control.certificates.renew_certificates("alice", force=True)
 
     assert result["renewed"] == []
     assert len(result["failed"]) == 1
@@ -1482,10 +1574,10 @@ def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair)
     # Two runs, so the fake runner needs a result for each.
     control.runner.results.append(ansible_run(host_run("edge-a")))
 
-    control.deploy("alice", check=True)
+    control.deployments.deploy("alice", check=True)
     assert control.deployments.site_is_deployed("cdn-example-com") is False
 
-    control.deploy("alice")
+    control.deployments.deploy("alice")
     assert control.deployments.site_is_deployed("cdn-example-com") is True
 
 
@@ -1494,7 +1586,7 @@ def test_a_site_absent_from_the_last_deployment_is_not_deployed(
 ):
     control, _, _, _ = _preflight_control(settings, certificate_pair)
     _seed_proxied_record(control)
-    control.deploy("alice")
+    control.deployments.deploy("alice")
 
     assert control.deployments.site_is_deployed("cdn-example-com") is True
     assert control.deployments.site_is_deployed("other-example-com") is False
@@ -1506,7 +1598,7 @@ def test_certificate_preflight_reports_without_contacting_a_ca(
     control, _, issuer, _ = _preflight_control(settings, certificate_pair, ("dns",))
     _seed_proxied_record(control)
 
-    report = control.certificate_preflight("cdn-example-com")
+    report = control.certificates.certificate_preflight("cdn-example-com")
 
     assert report.site == "cdn-example-com"
     assert not report.ok
@@ -1530,7 +1622,7 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
     settings.generated_vars_path.write_text("in-flight deploy\n", encoding="utf-8")
 
-    assert control.validate() == []
+    assert control.deployments.validate() == []
 
     assert settings.generated_vars_path.read_text(encoding="utf-8") == (
         "in-flight deploy\n"
@@ -1554,7 +1646,7 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     settings.cache_purge_playbook_path.write_text(
         "- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8"
     )
-    runner = ansible.AnsibleRunner(settings)
+    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     seen: list[dict[str, object]] = []
 
     def capture(command, *, timeout, playbook):
@@ -1599,8 +1691,8 @@ def test_a_collection_reads_only_its_own_run(settings):
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
 
-    first = control.cache_stats("alice")
-    second = control.cache_stats("alice")
+    first = control.edges.cache_stats("alice")
+    second = control.edges.cache_stats("alice")
 
     assert first.requests == 1
     assert [edge.host for edge in first.reporting] == ["edge-a"]

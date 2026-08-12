@@ -24,7 +24,7 @@ def audit(
 ) -> None:
     """Show immutable operator audit events."""
     common.emit(
-        common.control_plane().repository.list_audit_events(limit),
+        common.control_plane().audit.list_audit_events(limit),
         json_output=json_output,
     )
 
@@ -51,7 +51,7 @@ def doctor(
     # Certificate expiry is read from the local store, so it belongs in a
     # check that promises not to touch the network. It is also the thing most
     # likely to take a site down while every other check stays green.
-    expiring = common.control_plane().expiring_certificates()
+    expiring = common.control_plane().certificates.expiring_certificates()
     report = {
         "python_supported": True,
         "state_dir": str(settings.state_dir),

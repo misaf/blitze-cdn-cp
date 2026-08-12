@@ -9,8 +9,12 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
     calls = []
 
     class Runner:
-        def __init__(self, _settings):
-            pass
+        def __init__(self, _settings, edges):
+            # The hook opens the same database the inventory plugin will read,
+            # so the runner it builds is handed a real edge store. Recorded
+            # rather than ignored: passing the wrong one would mean a challenge
+            # published to a different fleet than the CA is about to validate.
+            calls.append({"edges": type(edges).__name__})
 
         def run_acme_challenge(self, **values):
             calls.append(values)
@@ -31,7 +35,8 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
         ),
     )
     assert acme_hook.main() == 0
-    assert calls[0]["action"] == "present"
+    assert calls[0] == {"edges": "EdgeStore"}
+    assert calls[1]["action"] == "present"
 
 
 def test_acme_hook_fails_closed(monkeypatch):

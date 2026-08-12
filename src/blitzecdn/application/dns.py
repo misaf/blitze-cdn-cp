@@ -27,6 +27,21 @@ class DnsService:
         self.sites = sites
         self.bus = bus
 
+    # -- Sites ---------------------------------------------------------
+    #
+    # Read-only, and deliberately the only way in. Sites are derived from
+    # records by ``sync_sites`` below, so a caller that reached the sites table
+    # directly could edit a row that survives exactly until the next record
+    # change re-derives over it.
+
+    def list_sites(self) -> list[CdnSite]:
+        """Every virtual host the edges should serve."""
+        return self.sites.list_sites()
+
+    def get_site(self, name: str) -> CdnSite:
+        """One site's fully resolved policy, as handed to the edges."""
+        return self.sites.get_site(name)
+
     # -- Domains -------------------------------------------------------
 
     def list_domains(self) -> list[Domain]:

@@ -25,6 +25,7 @@ from blitzecdn.domain.deployments import (
     require_transition,
 )
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
+from blitzecdn.domain.edges import EDGE_SCHEMA_VERSION, Edge
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import STORED
@@ -71,6 +72,24 @@ CREATE TABLE IF NOT EXISTS deployments (
     snapshot TEXT NOT NULL,
     host_limit TEXT
 );
+-- The fleet, and the only place it is recorded. Read by two very different
+-- things: `EdgeStore` below, and the `blitzecdn` Ansible inventory plugin,
+-- which opens this file read-only at the start of every run.
+--
+-- That second reader is why this table alone carries `schema_version`. Every
+-- other table here is read back through the model that wrote it, so a shape
+-- change is caught by pydantic in the same process. The plugin lives in
+-- `ansible/plugins/inventory/` and may run under a different interpreter with
+-- no `blitzecdn` on its path, so it parses `document` as plain JSON and has
+-- nothing to validate against — it checks this column first and refuses a
+-- version it was not written for, rather than silently publishing a fleet it
+-- half understood.
+CREATE TABLE IF NOT EXISTS edges (
+    name TEXT PRIMARY KEY,
+    schema_version INTEGER NOT NULL,
+    document TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
@@ -115,6 +134,75 @@ class Database:
     @staticmethod
     def now() -> str:
         return datetime.now(UTC).isoformat()
+
+
+class EdgeStore:
+    """The fleet, and the table the Ansible inventory plugin reads.
+
+    Ordinary CRUD with one unusual obligation: every row is written with
+    :data:`~blitzecdn.domain.edges.EDGE_SCHEMA_VERSION`, because a reader
+    outside this process depends on it. See the note on the ``edges`` table.
+    """
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def list_edges(self) -> list[Edge]:
+        with self._db.connect() as connection:
+            rows = connection.execute(
+                "SELECT document FROM edges ORDER BY name"
+            ).fetchall()
+        return [
+            Edge.model_validate_json(row["document"], context=STORED) for row in rows
+        ]
+
+    def get_edge(self, name: str) -> Edge:
+        with self._db.connect() as connection:
+            row = connection.execute(
+                "SELECT document FROM edges WHERE name = ?", (name,)
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(f"edge {name!r} does not exist")
+        return Edge.model_validate_json(row["document"], context=STORED)
+
+    def create_edge(self, edge: Edge) -> Edge:
+        try:
+            with self._db.lock, self._db.connect() as connection:
+                connection.execute(
+                    "INSERT INTO edges (name, schema_version, document, updated_at) "
+                    "VALUES (?, ?, ?, ?)",
+                    (
+                        edge.name,
+                        EDGE_SCHEMA_VERSION,
+                        edge.model_dump_json(),
+                        self._db.now(),
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise ConflictError(f"edge {edge.name!r} already exists") from exc
+        return edge
+
+    def replace_edge(self, edge: Edge) -> Edge:
+        with self._db.lock, self._db.connect() as connection:
+            cursor = connection.execute(
+                "UPDATE edges SET schema_version = ?, document = ?, updated_at = ? "
+                "WHERE name = ?",
+                (
+                    EDGE_SCHEMA_VERSION,
+                    edge.model_dump_json(),
+                    self._db.now(),
+                    edge.name,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise NotFoundError(f"edge {edge.name!r} does not exist")
+        return edge
+
+    def delete_edge(self, name: str) -> None:
+        with self._db.lock, self._db.connect() as connection:
+            cursor = connection.execute("DELETE FROM edges WHERE name = ?", (name,))
+            if cursor.rowcount != 1:
+                raise NotFoundError(f"edge {name!r} does not exist")
 
 
 class SiteStore:
@@ -347,6 +435,17 @@ class DeploymentStore:
     def __init__(self, database: Database, snapshot_source: Callable[[], str]) -> None:
         self._db = database
         self._snapshot_source = snapshot_source
+
+    def snapshot(self) -> str:
+        """Desired state as it stands right now, not as any deployment saw it.
+
+        Exposed because the callers that want to *record* a snapshot and the
+        callers that want to *read the current one* — validate, and choosing a
+        rollback target — are the same callers, and making them hold a second
+        object for the second question only invited them to be given the whole
+        of persistence to get it.
+        """
+        return self._snapshot_source()
 
     def create_deployment(
         self,

@@ -1,7 +1,7 @@
 [blitzecdn]
 state_dir = ".state"
 ansible_dir = "ansible"
-inventory_path = "ansible/inventory/hosts.yml"
+inventory_path = "ansible/inventory/blitzecdn.yml"
 playbook_path = "ansible/playbooks/edge.yml"
 generated_vars_path = ".state/desired-state.yml"
 deployment_lock_path = ".state/deployment.lock"
@@ -21,3 +21,7 @@ output_limit_bytes = 1048576
 run_log_retention = 500
 # Refuse to remove the final managed sites unless explicitly changed to true.
 allow_empty_sites = false
+# Resolvers for certificate preflight, as IP addresses. Unset uses the host
+# resolver, which is the wrong view wherever this host resolves differently from
+# the public internet (split-horizon zone, internal forwarder, transparent proxy).
+# preflight_dns_servers = ["1.1.1.1", "1.0.0.1"]
