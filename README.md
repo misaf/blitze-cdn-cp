@@ -24,7 +24,7 @@ To run an independent control plane and edge on the same Debian 13+ or Ubuntu
 installer:
 
 ```bash
-sudo git clone --branch v2.0.0 --depth 1 \
+sudo git clone --branch 2.x \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install.sh standalone \
   --admin-cidr 203.0.113.8/32 \
@@ -71,12 +71,13 @@ sudo /opt/blitzecdn/install.sh --fresh [--yes] [STANDALONE OPTIONS]
 sudo /opt/blitzecdn/install.sh --uninstall [--yes]
 ```
 
-`--fresh` reads the release tag from the current checkout, removes every
-BlitzeCDN artifact, clones that same release from the upstream origin, and runs
-the standalone installer with the options you pass. The checkout must be a Git
-clone of the upstream repository. `--uninstall` only removes; it is safe to
-rerun and keeps working even when `/opt/blitzecdn` was already deleted. Both
-ask for confirmation unless `--yes` is given.
+`--fresh` preserves the current source line: it reclones an exact release tag,
+keeps a `2.x` installation attached to that branch, or pins any other
+development checkout to its exact commit. It removes every BlitzeCDN artifact
+first, then runs the standalone installer with the options you pass. The
+checkout must be a Git clone of the upstream repository. `--uninstall` only
+removes; it is safe to rerun and keeps working even when `/opt/blitzecdn` was
+already deleted. Both ask for confirmation unless `--yes` is given.
 
 ### Controller-only installation
 
@@ -90,10 +91,11 @@ Setup never overwrites an existing `.env` or inventory, so re-running it is
 safe.
 
 To provision a whole server instead — control plane and edge on the same host —
-clone a release to `/opt/blitzecdn` and run the standalone installer:
+clone the maintained `2.x` branch to `/opt/blitzecdn` and run the standalone
+installer:
 
 ```bash
-sudo git clone --branch vX.Y.Z https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
+sudo git clone --branch 2.x https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install.sh standalone --admin-cidr 203.0.113.8/32 --email ops@example.com
 ```
 
