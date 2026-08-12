@@ -663,3 +663,187 @@ def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):
             ).status_code
             == 422
         )
+
+
+# ----------------------------------------------------------------------
+# Edges. Writing one here is what puts a host into the Ansible inventory:
+# the `blitzecdn` plugin reads these same rows at the start of every run.
+# ----------------------------------------------------------------------
+
+
+_EDGE = {
+    "name": "edge-01",
+    "host": "192.0.2.10",
+    "ssh_sources": ["198.51.100.0/24"],
+}
+
+
+def test_edge_crud_over_http(settings):
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/v1/edges", headers=_HEADERS).json() == []
+
+        created = client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        assert created.status_code == 201
+        assert created.json()["name"] == "edge-01"
+        # Defaults are resolved by the model, not left for the plugin to guess.
+        assert created.json()["user"] == "deploy"
+        assert created.json()["port"] == 22
+
+        assert client.post("/v1/edges", json=_EDGE, headers=_HEADERS).status_code == 409
+        assert len(client.get("/v1/edges", headers=_HEADERS).json()) == 1
+        assert (
+            client.get("/v1/edges/edge-01", headers=_HEADERS).json()["host"]
+            == "192.0.2.10"
+        )
+        assert client.get("/v1/edges/absent", headers=_HEADERS).status_code == 404
+
+        patched = client.patch(
+            "/v1/edges/edge-01",
+            json={"port": 7845, "public_addresses": ["203.0.113.10"]},
+            headers=_HEADERS,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["port"] == 7845
+        assert patched.json()["public_addresses"] == ["203.0.113.10"]
+        # Untouched fields survive a patch.
+        assert patched.json()["ssh_sources"] == ["198.51.100.0/24"]
+
+        assert (
+            client.patch(
+                "/v1/edges/absent", json={"port": 22}, headers=_HEADERS
+            ).status_code
+            == 404
+        )
+
+
+def test_an_edge_patch_cannot_rename_the_host(settings):
+    """The name is how certificates, audit history and `--limit` refer to it.
+
+    `EdgePatch` has no name field and forbids extras, so a rename is a 422 at
+    the boundary rather than a silently ignored key — which would leave the
+    caller believing a rename had happened.
+    """
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+
+        response = client.patch(
+            "/v1/edges/edge-01", json={"name": "edge-99"}, headers=_HEADERS
+        )
+
+        assert response.status_code == 422
+
+
+def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
+    """Validation is the model's, so the API rejects exactly what the CLI does."""
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/edges",
+            json={**_EDGE, "ssh_sources": ["anywhere"]},
+            headers=_HEADERS,
+        )
+
+        assert response.status_code == 422
+        assert client.get("/v1/edges", headers=_HEADERS).json() == []
+
+
+def test_removing_an_edge_without_decommissioning_says_so(settings):
+    """The narrow case, and the response has to be honest about it.
+
+    `decommission=false` leaves BlitzeCDN's configuration and every TLS private
+    key on the host. A 204 could not distinguish that from a real teardown, so
+    the body reports which one happened.
+    """
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+
+        response = client.delete(
+            "/v1/edges/edge-01?decommission=false", headers=_HEADERS
+        )
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "name": "edge-01",
+            "decommissioned": False,
+            "hosts": [],
+        }
+        assert client.get("/v1/edges", headers=_HEADERS).json() == []
+
+
+def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
+    """Deregistering first would strand the host.
+
+    The inventory is derived from these rows, so an edge removed before its
+    teardown succeeded is a host no playbook can address again — still serving
+    its last converged virtual hosts, still holding their private keys.
+    """
+    monkeypatch.setattr(
+        EdgeOperationsService,
+        "decommission_edge",
+        lambda self, name, operator, force=False: (_ for _ in ()).throw(
+            ExecutionError("teardown of edge-01 failed")
+        ),
+    )
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+
+        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
+
+        assert response.status_code == 502
+        assert [
+            edge["name"] for edge in client.get("/v1/edges", headers=_HEADERS).json()
+        ] == ["edge-01"]
+
+
+def test_registering_an_edge_is_audited(settings):
+    """Unanswerable before: edges never went through a service, so never a bus."""
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        client.patch("/v1/edges/edge-01", json={"port": 7845}, headers=_HEADERS)
+
+        events = client.get("/v1/audit-events", headers=_HEADERS).json()
+
+        actions = [event["action"] for event in events]
+        assert "edge.added" in actions
+        assert "edge.updated" in actions
+        update = next(event for event in events if event["action"] == "edge.updated")
+        assert update["details"]["fields"] == ["port"]
+
+
+def test_edge_routes_require_authentication(settings):
+    """Every edge route is a control route; none may be read unauthenticated."""
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/v1/edges").status_code == 401
+        assert client.post("/v1/edges", json=_EDGE).status_code == 401
+        assert client.patch("/v1/edges/edge-01", json={"port": 22}).status_code == 401
+        assert client.delete("/v1/edges/edge-01").status_code == 401
+
+
+def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
+    """The body carries the teardown result, which is why this is not a 204.
+
+    During an incident "the edge is gone" is not the useful part — which tasks
+    ran on which host is, and a forced removal that tore nothing down looks
+    identical without it.
+    """
+    monkeypatch.setattr(
+        EdgeOperationsService,
+        "decommission_edge",
+        lambda self, name, operator, force=False: (
+            host_run("edge-01", changes=("remove /etc/blitzecdn",)),
+        ),
+    )
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+
+        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["decommissioned"] is True
+        assert [host["host"] for host in body["hosts"]] == ["edge-01"]
+        assert body["hosts"][0]["changes"][0]["task"] == "remove /etc/blitzecdn"
+        # Deliberately no assertion that the edge is gone: this stubs
+        # `decommission_edge`, which owns the deregistration too, so such an
+        # assertion would be checking the stub. That the teardown runs before
+        # the removal is covered by the failure case above and by the service
+        # tests.

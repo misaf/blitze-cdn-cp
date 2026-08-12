@@ -27,19 +27,23 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn import __version__
 from blitzecdn.application.commands import (
+    AddEdgeCommand,
     CacheStatsCommand,
     CertificatePreflightCommand,
     CheckOriginsCommand,
     CreateDomainCommand,
     CreateRecordCommand,
+    DecommissionEdgeCommand,
     DeleteDomainCommand,
     DeleteRecordCommand,
     PurgeCacheCommand,
     ReconcileCertificatesCommand,
+    RemoveEdgeCommand,
     RenewCertificatesCommand,
     RequestCertificateCommand,
     SubmitDeploymentCommand,
     SubmitRollbackCommand,
+    UpdateEdgeCommand,
     UpdateRecordCommand,
     UploadCertificateCommand,
 )
@@ -60,7 +64,9 @@ from blitzecdn.domain.certificates import (
 )
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.runs import HostRun
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import EDGE_LIMIT
 from blitzecdn.exceptions import (
@@ -163,6 +169,28 @@ class RenewRequest(BaseModel):
 class RollbackRequest(BaseModel):
     deployment_id: str | None = Field(default=None, min_length=32, max_length=32)
     check: bool = False
+
+
+class EdgeRemoval(BaseModel):
+    """What `DELETE /v1/edges/{name}` did, since 204 could not say.
+
+    A removal has two halves that fail independently: the teardown on the host,
+    and the deregistration here. Only the second is guaranteed to have happened
+    by the time this is returned — a forced removal deregisters an edge whose
+    teardown failed, on purpose, for a host that no longer exists.
+
+    So the outcome of the first half is reported rather than implied.
+    ``hosts`` is empty when no edge reported at all, and otherwise carries the
+    per-host result including the tasks that failed.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    name: str
+    #: False when `?decommission=false` skipped the teardown entirely, leaving
+    #: BlitzeCDN's configuration and TLS private keys on the host.
+    decommissioned: bool
+    hosts: tuple[HostRun, ...] = ()
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -385,6 +413,95 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @application.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
     def certificate(name: str, _operator: operator_dependency) -> CertificateInfo:
         return control_plane.certificates.certificate(name)
+
+    # Edges are the fleet, and the Ansible inventory is derived from them: the
+    # `blitzecdn` inventory plugin reads these same rows at the start of every
+    # run. So a write here is what puts a host into — or takes it out of — the
+    # next deployment, and there is no inventory file to publish afterwards.
+    @application.get("/v1/edges", response_model=list[Edge])
+    def list_edges(_operator: operator_dependency) -> list[Edge]:
+        """Every registered edge, which is exactly what Ansible will be given."""
+        return control_plane.edges.list_edges()
+
+    @application.get("/v1/edges/{name}", response_model=Edge)
+    def get_edge(name: str, _operator: operator_dependency) -> Edge:
+        return control_plane.edges.get_edge(name)
+
+    @application.post(
+        "/v1/edges", response_model=Edge, status_code=status.HTTP_201_CREATED
+    )
+    def add_edge(edge: Edge, operator: operator_dependency) -> Edge:
+        """Register an edge. Nothing is converged and no host is contacted.
+
+        201 rather than 202: this creates a record and returns having finished,
+        unlike the deployment routes. The edge starts existing now and joins the
+        fleet on the next `POST /v1/deployments`.
+        """
+        return AddEdgeCommand(edge=edge).execute(control_plane, operator)
+
+    @application.patch("/v1/edges/{name}", response_model=Edge)
+    def update_edge(name: str, patch: EdgePatch, operator: operator_dependency) -> Edge:
+        """Change connection details or public addresses.
+
+        The name is not patchable — certificates, audit history and deployment
+        host limits all refer to it, so a rename would orphan them silently.
+        `EdgePatch` has no such field, which makes that a 422 rather than a
+        surprise.
+
+        `public_addresses` and `ssh_sources` replace their whole list; sending
+        `[]` clears them. Merging would make "remove the last entry"
+        inexpressible.
+        """
+        return UpdateEdgeCommand(name=name, patch=patch).execute(
+            control_plane, operator
+        )
+
+    @application.delete("/v1/edges/{name}", response_model=EdgeRemoval)
+    def remove_edge(
+        name: str,
+        operator: operator_dependency,
+        decommission: bool = Query(
+            True,
+            description=(
+                "Strip BlitzeCDN configuration and TLS private keys from the "
+                "host before deregistering it."
+            ),
+        ),
+        force: bool = Query(
+            False,
+            description=(
+                "Deregister even if the teardown failed. For a host that no "
+                "longer exists; on one that is merely unreachable this leaves "
+                "its configuration and private keys in place."
+            ),
+        ),
+    ) -> EdgeRemoval:
+        """Tear the host down, then deregister it — in that order.
+
+        The order is the whole point. The inventory is derived from these rows,
+        so deregistering first leaves a host no playbook can address again,
+        still serving its last converged virtual hosts and still holding their
+        private keys.
+
+        Answers inline rather than queueing, following the purge and stats
+        routes: this runs one playbook against one host, which is a far smaller
+        job than the fleet-wide operations those already serve synchronously. It
+        is nonetheless bounded by `deployment_timeout_seconds`, so a caller
+        should use a client timeout to match.
+
+        Returns 200 with the teardown result rather than 204. A forced removal
+        that tore nothing down is still a success by the caller's own
+        instruction, and the only place that distinction survives is this body —
+        `hosts` is empty when no edge reported, and carries the failed tasks
+        when one did.
+        """
+        if not decommission:
+            RemoveEdgeCommand(name=name).execute(control_plane, operator)
+            return EdgeRemoval(name=name, decommissioned=False)
+        hosts = DecommissionEdgeCommand(name=name, force=force).execute(
+            control_plane, operator
+        )
+        return EdgeRemoval(name=name, decommissioned=True, hosts=hosts)
 
     @application.get("/v1/origins/check", response_model=list[OriginCheck])
     def check_origins(_operator: operator_dependency) -> list[OriginCheck]:
