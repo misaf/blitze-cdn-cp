@@ -89,23 +89,21 @@ pinned Ansible collection into `.state/collections`, and runs initial setup.
 Setup never overwrites an existing `.env` or inventory, so re-running it is
 safe.
 
-To provision a whole server in one command instead — control plane and edge on
-the same host — use the bootstrap script, which clones the newest release to
-`/opt/blitzecdn` and runs `install.sh standalone`:
+To provision a whole server instead — control plane and edge on the same host —
+clone a release to `/opt/blitzecdn` and run the standalone installer:
 
 ```bash
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/misaf/blitze-cdn-cp/HEAD/bootstrap.sh)" bootstrap \
-  --admin-cidr 203.0.113.8/32 --email ops@example.com
+sudo git clone --branch vX.Y.Z https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
+sudo /opt/blitzecdn/install.sh standalone --admin-cidr 203.0.113.8/32 --email ops@example.com
 ```
 
-Keep the word `bootstrap`: `bash -c SCRIPT NAME ARG...` assigns `NAME` to
-`$0`, so it names the script rather than selecting a subcommand, and leaving
-it out makes the shell swallow `--admin-cidr` as `$0`.
+The path is not a suggestion: the hardened systemd units name `/opt/blitzecdn`,
+and `update` and `--fresh` need a real clone with the right origin, so an
+unpacked tarball elsewhere will not do.
 
-It runs as root and provisions the host, so read it first. It installs a release
-tag rather than a branch, verifies the tag against the package version, and
-refuses to run when `/opt/blitzecdn` already exists — upgrade with
-`sudo /opt/blitzecdn/install.sh update`.
+It runs as root and provisions the host — a service account, a sudo rule, SSH
+keys, public services — so read `install.sh` before you run it. Upgrade later
+with `sudo /opt/blitzecdn/install.sh update`.
 
 Environment variables that change what it installs, or how a later deploy
 behaves:

@@ -57,8 +57,7 @@ jobs:
       - name: Strict type checking
         run: just types
       # install.sh provisions users, writes sudoers, and stops services as
-      # root, and bootstrap.sh is served over HTTPS to be piped into a shell.
-      # Nothing else in this workflow reads either.
+      # root. Nothing else in this workflow reads it.
       - name: Shell lint
         run: just shell-lint
       - name: Tests and coverage

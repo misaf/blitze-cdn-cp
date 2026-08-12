@@ -1147,10 +1147,9 @@ def test_no_upper_bound_on_the_python_version():
     An interpreter that genuinely breaks the control plane should fail the test
     suite, not be refused at install time on a host nobody has tried yet.
     """
-    for path in ("install.sh", "bootstrap.sh"):
-        script = (PROJECT_DIR / path).read_text(encoding="utf-8")
-        assert "sys.version_info[:2] < (3, 12)" in script, path
-        assert "(3, 15)" not in script, f"{path} still refuses a future Python"
+    script = (PROJECT_DIR / "install.sh").read_text(encoding="utf-8")
+    assert "sys.version_info[:2] < (3, 12)" in script
+    assert "(3, 15)" not in script, "install.sh still refuses a future Python"
 
     pyproject = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
     assert 'requires-python = ">=3.12"' in pyproject
