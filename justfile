@@ -77,7 +77,7 @@ types:
 
 # Lint the shell scripts that run as root.
 shell-lint:
-    uv run shellcheck install.sh tests/container-install.sh
+    uv run shellcheck install.sh tests/container-install.sh tests/container-upgrade.sh
 
 # The test suite, with the coverage floor from pyproject.
 test *args:

@@ -16,7 +16,7 @@ dependencies = [
   # the CA refuses the order.
   "dnspython>=2.7,<3",
   "fastapi>=0.116,<1",
-  "pydantic>=2.11,<3",
+  "pydantic>=2.13.4,<3",
   "PyYAML>=6.0.2,<7",
   "python-multipart>=0.0.20,<1",
   # Persistence. The ORM owns storage and schema; pydantic remains the
@@ -44,14 +44,16 @@ dependencies = [
 dev = [
   "ansible-lint>=26.6,<27",
   "bandit[toml]>=1.8,<2",
-  "httpx>=0.28,<1",
+  # Starlette's TestClient uses HTTPX2. Plain httpx is only a deprecated
+  # compatibility fallback and emits a warning on every test run.
+  "httpx2>=2.9,<3",
   # Used directly by tests/test_contract.py to render the role templates.
   "Jinja2>=3.1,<4",
-  "mypy>=1.17,<2",
+  "mypy>=2.3,<3",
   "pip-audit>=2.9,<3",
   "pre-commit>=4.2,<5",
   "pytest>=9.0.3,<10",
-  "pytest-cov>=6.2,<7",
+  "pytest-cov>=7.1,<8",
   "ruff>=0.12,<1",
   # install.sh runs as root and can stop services, so it is linted like the
   # Python. The wheel bundles the real ShellCheck binary, which keeps it a venv
@@ -69,6 +71,7 @@ packages = ["src/blitzecdn"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-config --strict-markers --cov=blitzecdn --cov-report=term-missing --cov-fail-under=85"
+filterwarnings = ["error"]
 testpaths = ["tests"]
 
 [tool.coverage.run]
