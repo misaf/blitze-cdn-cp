@@ -82,9 +82,13 @@ class ControlPlane:
         preflight: Preflight | None = None,
         edges_store: EdgeStorePort | None = None,
         background: BackgroundRunner | None = None,
+        pool_connections: bool = False,
     ) -> None:
         self.settings = settings
-        store = repository or Repository(settings.database_path)
+        store = repository or Repository(
+            settings.database_path, pool_connections=pool_connections
+        )
+        self._owned_repository = store if repository is None else None
         # The fleet, and the rows the `blitzecdn` Ansible inventory plugin reads
         # for itself at the start of every run. Both the runner and preflight
         # take it so that "which edges exist" has exactly one answer, whoever is
@@ -161,7 +165,20 @@ class ControlPlane:
             store,
         )
 
+    def close(self) -> None:
+        """Release adapters created by this composition root.
 
-def build_control_plane(settings: Settings) -> ControlPlane:
+        Injected repositories remain the caller's responsibility. This keeps
+        tests and embedded callers free to share one repository between more
+        than one control plane without one instance closing another's store.
+        """
+        repository, self._owned_repository = self._owned_repository, None
+        if repository is not None:
+            repository.close()
+
+
+def build_control_plane(
+    settings: Settings, *, pool_connections: bool = False
+) -> ControlPlane:
     """Build a control plane wired to the real adapters."""
-    return ControlPlane(settings)
+    return ControlPlane(settings, pool_connections=pool_connections)

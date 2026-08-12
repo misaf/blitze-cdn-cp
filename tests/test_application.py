@@ -43,6 +43,23 @@ def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
     )
 
 
+def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch):
+    closed: list[Repository] = []
+    monkeypatch.setattr(
+        Repository, "close", lambda repository: closed.append(repository)
+    )
+
+    owned = ControlPlane(settings)
+    owned.close()
+    owned.close()
+
+    injected_repository = Repository(settings.database_path)
+    injected = ControlPlane(settings, injected_repository)
+    injected.close()
+
+    assert len(closed) == 1
+
+
 def test_dns_write_projection_and_audit_are_one_transaction(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
