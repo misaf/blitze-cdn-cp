@@ -171,7 +171,12 @@ ensure_uv() {
   # stderr, not stdout: this function returns the uv path on stdout, and a
   # progress line there ends up substituted into the caller's variable.
   echo "Downloading uv ${UV_VERSION} (${target})..." >&2
-  curl -fsSL --proto '=https' --tlsv1.2 -o "${archive}" \
+  # --retry covers the 5xx and connection resets the release CDN serves now and
+  # then; without it a single bad second fails a whole provisioning run. The
+  # checksum below is what makes a retried download safe to trust.
+  curl -fsSL --proto '=https' --tlsv1.2 \
+    --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
+    -o "${archive}" \
     "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz" ||
     die 1 "error: could not download uv ${UV_VERSION}"
 
