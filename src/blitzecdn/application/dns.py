@@ -16,16 +16,19 @@ from blitzecdn.domain.sites import (
     managed_certificate_paths,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.ports import EventBus, SiteStore, ZoneStore
+from blitzecdn.ports import EventBus, SiteStore, UnitOfWork, ZoneStore
 
 
 class DnsService:
     """The zone editor. Every other service reads sites this one derives."""
 
-    def __init__(self, zones: ZoneStore, sites: SiteStore, bus: EventBus) -> None:
+    def __init__(
+        self, zones: ZoneStore, sites: SiteStore, bus: EventBus, uow: UnitOfWork
+    ) -> None:
         self.zones = zones
         self.sites = sites
         self.bus = bus
+        self.uow = uow
 
     # -- Sites ---------------------------------------------------------
     #
@@ -48,10 +51,11 @@ class DnsService:
         return self.zones.list_domains()
 
     def create_domain(self, domain: Domain, operator: str) -> Domain:
-        created = self.zones.create_domain(domain)
-        self.bus.publish(
-            domain_event(operator, "domain.created", "domain", domain.name)
-        )
+        with self.uow.transaction():
+            created = self.zones.create_domain(domain)
+            self.bus.publish(
+                domain_event(operator, "domain.created", "domain", domain.name)
+            )
         return created
 
     def delete_domain(self, name: str, operator: str) -> None:
@@ -60,9 +64,10 @@ class DnsService:
         The records go by cascade, so their virtual hosts have to come off the
         edge in the same breath — hence the re-derivation before returning.
         """
-        self.zones.delete_domain(name)
-        self.sync_sites()
-        self.bus.publish(domain_event(operator, "domain.deleted", "domain", name))
+        with self.uow.transaction():
+            self.zones.delete_domain(name)
+            self.sync_sites()
+            self.bus.publish(domain_event(operator, "domain.deleted", "domain", name))
 
     # -- Records -------------------------------------------------------
 
@@ -77,17 +82,18 @@ class DnsService:
 
     def create_record(self, record: DnsRecord, operator: str) -> DnsRecord:
         self._reject_derived_name_collision(record)
-        created = self.zones.create_record(record)
-        self.sync_sites()
-        self.bus.publish(
-            domain_event(
-                operator,
-                "record.created",
-                "record",
-                created.fqdn,
-                {"type": created.type.value, "proxied": created.proxied},
+        with self.uow.transaction():
+            created = self.zones.create_record(record)
+            self.sync_sites()
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "record.created",
+                    "record",
+                    created.fqdn,
+                    {"type": created.type.value, "proxied": created.proxied},
+                )
             )
-        )
         return created
 
     def update_record(
@@ -103,17 +109,18 @@ class DnsService:
             {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
         )
         self._reject_derived_name_collision(updated)
-        saved = self.zones.replace_record(updated)
-        self.sync_sites()
-        self.bus.publish(
-            domain_event(
-                operator,
-                "record.updated",
-                "record",
-                saved.fqdn,
-                {"fields": sorted(patch.model_fields_set)},
+        with self.uow.transaction():
+            saved = self.zones.replace_record(updated)
+            self.sync_sites()
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "record.updated",
+                    "record",
+                    saved.fqdn,
+                    {"fields": sorted(patch.model_fields_set)},
+                )
             )
-        )
         return saved
 
     def set_proxied(
@@ -135,11 +142,12 @@ class DnsService:
         self, domain: str, name: str, type_: RecordType, operator: str
     ) -> None:
         record = self.zones.get_record(domain, name, type_)
-        self.zones.delete_record(domain, name, type_)
-        self.sync_sites()
-        self.bus.publish(
-            domain_event(operator, "record.deleted", "record", record.fqdn)
-        )
+        with self.uow.transaction():
+            self.zones.delete_record(domain, name, type_)
+            self.sync_sites()
+            self.bus.publish(
+                domain_event(operator, "record.deleted", "record", record.fqdn)
+            )
 
     def _reject_derived_name_collision(self, record: DnsRecord) -> None:
         """Refuse a record whose site name another record already derives.
@@ -203,18 +211,19 @@ class DnsService:
         """Point a site's record at the managed certificate paths and re-derive."""
         certificate_path, certificate_key_path = managed_certificate_paths(site.name)
         record = self.record_for_site(site.name)
-        self.zones.replace_record(
-            DnsRecord.model_validate(
-                {
-                    **record.model_dump(),
-                    "certificate_mode": mode,
-                    "certificate_path": certificate_path,
-                    "certificate_key_path": certificate_key_path,
-                }
+        with self.uow.transaction():
+            self.zones.replace_record(
+                DnsRecord.model_validate(
+                    {
+                        **record.model_dump(),
+                        "certificate_mode": mode,
+                        "certificate_path": certificate_path,
+                        "certificate_key_path": certificate_key_path,
+                    }
+                )
             )
-        )
-        self.sync_sites()
-        return self.sites.get_site(site.name)
+            self.sync_sites()
+            return self.sites.get_site(site.name)
 
     # -- Reporting -----------------------------------------------------
 

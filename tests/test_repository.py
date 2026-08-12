@@ -69,3 +69,32 @@ def test_rollback_target_requires_different_success(settings, site_payload):
     )
     with pytest.raises(NotFoundError):
         repository.deployments.successful_rollback_target(current)
+
+
+def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
+    repository = Repository(settings.database_path)
+    connections: list[int] = []
+
+    def observe(method):
+        def wrapped(*args, **kwargs):
+            connection = getattr(repository.database._local, "connection", None)
+            assert connection is not None
+            connections.append(id(connection))
+            return method(*args, **kwargs)
+
+        return wrapped
+
+    monkeypatch.setattr(
+        repository.zones, "list_domains", observe(repository.zones.list_domains)
+    )
+    monkeypatch.setattr(
+        repository.zones, "list_records", observe(repository.zones.list_records)
+    )
+    monkeypatch.setattr(
+        repository.sites, "list_sites", observe(repository.sites.list_sites)
+    )
+
+    repository.snapshot()
+
+    assert len(connections) == 3
+    assert len(set(connections)) == 1

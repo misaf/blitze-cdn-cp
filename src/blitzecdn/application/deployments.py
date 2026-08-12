@@ -30,6 +30,7 @@ from blitzecdn.ports import (
     DeploymentStore,
     EventBus,
     LogReader,
+    UnitOfWork,
     YamlWriter,
     ZoneEditor,
     ZoneStore,
@@ -58,6 +59,7 @@ class DeploymentService:
         background: BackgroundRunner,
         write_yaml: YamlWriter,
         read_log: LogReader,
+        uow: UnitOfWork,
     ) -> None:
         self.settings = settings
         self.deployments = deployments
@@ -79,6 +81,7 @@ class DeploymentService:
         #: `validate` is the one caller, and only because `--syntax-check` runs
         #: no play and so leaves the callback nothing to report.
         self.read_log = read_log
+        self.uow = uow
 
     def initialize(self) -> int:
         return self.deployments.abandon_running()
@@ -270,22 +273,27 @@ class DeploymentService:
         # rather than what was typed, and a malformed limit is refused before a
         # deployment row exists to explain.
         limit = validate_edge_limit(host_limit)
-        deployment = self.deployments.create_deployment(
-            operator,
-            check_mode=check,
-            rollback_of=rollback_of,
-            snapshot=snapshot,
-            host_limit=limit,
-        )
-        self.bus.publish(
-            domain_event(
+        with self.uow.transaction():
+            deployment = self.deployments.create_deployment(
                 operator,
-                "deployment.queued",
-                "deployment",
-                deployment.id,
-                {"check_mode": check, "rollback_of": rollback_of, "host_limit": limit},
+                check_mode=check,
+                rollback_of=rollback_of,
+                snapshot=snapshot,
+                host_limit=limit,
             )
-        )
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "deployment.queued",
+                    "deployment",
+                    deployment.id,
+                    {
+                        "check_mode": check,
+                        "rollback_of": rollback_of,
+                        "host_limit": limit,
+                    },
+                )
+            )
         return deployment
 
     def _queue_rollback(
@@ -341,22 +349,23 @@ class DeploymentService:
             self.background.start(worker, name=f"blitzecdn-deploy-{deployment.id}")
         except BaseException as exc:
             try:
-                self.deployments.transition(
-                    deployment.id,
-                    DeploymentStatus.QUEUED,
-                    DeploymentStatus.FAILED,
-                    finished_at=datetime.now(UTC).isoformat(),
-                    result=self._aborted_run(exc, interrupted=False),
-                )
-                self.bus.publish(
-                    domain_event(
-                        operator,
-                        "deployment.failed",
-                        "deployment",
+                with self.uow.transaction():
+                    self.deployments.transition(
                         deployment.id,
-                        {"error_type": type(exc).__name__},
+                        DeploymentStatus.QUEUED,
+                        DeploymentStatus.FAILED,
+                        finished_at=datetime.now(UTC).isoformat(),
+                        result=self._aborted_run(exc, interrupted=False),
                     )
-                )
+                    self.bus.publish(
+                        domain_event(
+                            operator,
+                            "deployment.failed",
+                            "deployment",
+                            deployment.id,
+                            {"error_type": type(exc).__name__},
+                        )
+                    )
             finally:
                 lock.__exit__(None, None, None)
             raise
@@ -375,76 +384,81 @@ class DeploymentService:
             snapshot = self.deployments.deployment_snapshot(deployment.id)
             self.write_desired_state(snapshot, self.settings.generated_vars_path)
             run = self.runner.run(check=check, host_limit=deployment.host_limit)
-            deployment = self.deployments.transition(
-                deployment.id,
-                DeploymentStatus.RUNNING,
-                DeploymentStatus.of(run),
-                finished_at=datetime.now(UTC).isoformat(),
-                result=run,
+            target_status = DeploymentStatus.of(run)
+            adopts_rollback = (
+                deployment.rollback_of
+                and target_status is DeploymentStatus.SUCCEEDED
+                and not check
             )
+            with self.uow.transaction():
+                if adopts_rollback:
+                    # Canonical adoption is part of rollback success. If it
+                    # fails, this transaction rolls back and the RUNNING row is
+                    # subsequently finalized as FAILED by the exception path.
+                    domains, records = decode_snapshot_zones(snapshot)
+                    self.zones.replace_all_records(domains, records)
+                    self.dns.sync_sites()
+                deployment = self.deployments.transition(
+                    deployment.id,
+                    DeploymentStatus.RUNNING,
+                    target_status,
+                    finished_at=datetime.now(UTC).isoformat(),
+                    result=run,
+                )
+                self.bus.publish(
+                    domain_event(
+                        operator,
+                        f"deployment.{deployment.status}",
+                        "deployment",
+                        deployment.id,
+                        {
+                            "return_code": run.return_code,
+                            "changed": [host.host for host in run.changed_hosts],
+                            "failed": [host.host for host in run.failed_hosts],
+                        },
+                    )
+                )
+                if adopts_rollback:
+                    self.bus.publish(
+                        domain_event(
+                            operator,
+                            "rollback.applied",
+                            "deployment",
+                            deployment.id,
+                            {"target": deployment.rollback_of},
+                        )
+                    )
         except BaseException as exc:
             interrupted = not isinstance(exc, Exception)
-            deployment = self.deployments.transition(
-                deployment.id,
-                DeploymentStatus.RUNNING,
-                (
-                    DeploymentStatus.ABANDONED
-                    if interrupted
-                    else DeploymentStatus.FAILED
-                ),
-                finished_at=datetime.now(UTC).isoformat(),
-                # The runner never produced a result, so one is synthesised for
-                # the record: a deployment that ended without a run still has to
-                # say why, and every reader now expects to find that in `result`.
-                result=self._aborted_run(exc, interrupted=interrupted),
-            )
-            self.bus.publish(
-                domain_event(
-                    operator,
-                    "deployment.abandoned" if interrupted else "deployment.failed",
-                    "deployment",
+            with self.uow.transaction():
+                deployment = self.deployments.transition(
                     deployment.id,
-                    {"error_type": type(exc).__name__},
+                    DeploymentStatus.RUNNING,
+                    (
+                        DeploymentStatus.ABANDONED
+                        if interrupted
+                        else DeploymentStatus.FAILED
+                    ),
+                    finished_at=datetime.now(UTC).isoformat(),
+                    # The runner never produced a result, so one is synthesised for
+                    # the record: a deployment that ended without a run still has to
+                    # say why, and every reader now expects to find that in `result`.
+                    result=self._aborted_run(exc, interrupted=interrupted),
                 )
-            )
+                self.bus.publish(
+                    domain_event(
+                        operator,
+                        "deployment.abandoned" if interrupted else "deployment.failed",
+                        "deployment",
+                        deployment.id,
+                        {"error_type": type(exc).__name__},
+                    )
+                )
             if interrupted:
                 raise
             if isinstance(exc, ExecutionError):
                 raise
             return deployment
-        self.bus.publish(
-            domain_event(
-                operator,
-                f"deployment.{deployment.status}",
-                "deployment",
-                deployment.id,
-                {
-                    "return_code": run.return_code,
-                    "changed": [host.host for host in run.changed_hosts],
-                    "failed": [host.host for host in run.failed_hosts],
-                },
-            )
-        )
-        if (
-            deployment.rollback_of
-            and deployment.status is DeploymentStatus.SUCCEEDED
-            and not check
-        ):
-            # Restore the zones the snapshot carried and re-derive from them,
-            # so records and sites cannot end up disagreeing about what is
-            # served.
-            domains, records = decode_snapshot_zones(snapshot)
-            self.zones.replace_all_records(domains, records)
-            self.dns.sync_sites()
-            self.bus.publish(
-                domain_event(
-                    operator,
-                    "rollback.applied",
-                    "deployment",
-                    deployment.id,
-                    {"target": deployment.rollback_of},
-                )
-            )
         return deployment
 
     @staticmethod

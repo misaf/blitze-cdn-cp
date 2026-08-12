@@ -108,10 +108,20 @@ class Database:
     def __init__(self, path: Path) -> None:
         self._path = path
         self.lock = threading.RLock()
+        self._local = threading.local()
         self._initialize()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
+        ambient = getattr(self._local, "connection", None)
+        if ambient is not None:
+            yield ambient
+            return
+        with self._connection() as connection:
+            yield connection
+
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
         self._path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         connection = sqlite3.connect(self._path, timeout=30)
         connection.row_factory = sqlite3.Row
@@ -125,6 +135,24 @@ class Database:
             raise
         finally:
             connection.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Join all nested store calls to one SQLite transaction.
+
+        The connection is thread-local because queued deployments finish on a
+        worker thread. Nested use cases join the ambient transaction rather
+        than committing a portion of their caller's work early.
+        """
+        if getattr(self._local, "connection", None) is not None:
+            yield
+            return
+        with self.lock, self._connection() as connection:
+            self._local.connection = connection
+            try:
+                yield
+            finally:
+                del self._local.connection
 
     def _initialize(self) -> None:
         with self.lock, self.connect() as connection:
