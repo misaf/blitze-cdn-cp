@@ -342,8 +342,13 @@ EOF
       echo "Installed ${wrapper}; run 'blitzecdn' from any directory."
       ;;
     *)
+      # Name the file the invoking shell actually reads. zsh — the default on
+      # macOS since Catalina — never sources ~/.profile, so the generic advice
+      # leaves the operator with a command that is still not found.
+      local login_rc=.profile
+      [[ ${SHELL##*/} == zsh ]] && login_rc=.zprofile
       echo "Installed ${wrapper}, which is not on your PATH yet. Add it with:"
-      echo "  echo 'export PATH=\"${wrapper_dir}:\${PATH}\"' >> ~/.profile"
+      echo "  echo 'export PATH=\"${wrapper_dir}:\${PATH}\"' >> \"\${HOME}\"/${login_rc}"
       ;;
   esac
 }
