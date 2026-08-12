@@ -20,6 +20,7 @@ why.
 """
 
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -1173,6 +1174,25 @@ done
 """
 
 
+def _host_uv_target() -> str:
+    """The release triple `ensure_uv` should pick on the machine running this.
+
+    Derived rather than hardcoded: these tests run on the Linux servers CI uses
+    and on the macOS laptops the controller-only checkout is developed on, and
+    a harness that always expected a Linux triple is exactly the assumption
+    that shipped a Linux binary to a Mac.
+    """
+    platforms = {"Linux": "unknown-linux-gnu", "Darwin": "apple-darwin"}
+    architectures = {
+        "x86_64": "x86_64",
+        "amd64": "x86_64",
+        "aarch64": "aarch64",
+        "arm64": "aarch64",
+    }
+    system = platforms[platform.system()]
+    return f"{architectures[platform.machine()]}-{system}"
+
+
 def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Path:
     """A runnable script holding just `die` and `ensure_uv`.
 
@@ -1181,7 +1201,9 @@ def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Pa
     The script cannot be sourced whole — its last line dispatches a subcommand.
     """
     pins = re.search(
-        r"^UV_VERSION=.*?^UV_SHA256_aarch64=.*?$", _script(), re.DOTALL | re.MULTILINE
+        r"^UV_VERSION=.*?^UV_SHA256_aarch64_apple_darwin=.*?$",
+        _script(),
+        re.DOTALL | re.MULTILINE,
     )
     assert pins is not None, "the uv pins are no longer where the harness expects"
     harness = tmp_path / "harness.sh"
@@ -1189,6 +1211,7 @@ def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Pa
         "#!/usr/bin/env bash\nset -Eeuo pipefail\n"
         f"{pins.group(0)}\n"
         "die() {\n" + _function("die") + "\n}\n"
+        "sha256_of() {\n" + _function("sha256_of") + "\n}\n"
         "ensure_uv() {\n" + _function("ensure_uv") + "\n}\n"
         "ensure_uv\n",
         encoding="utf-8",
@@ -1228,10 +1251,16 @@ def test_the_installer_pins_uv_and_a_checksum_for_every_architecture():
     """An unpinned download is an unreviewed dependency running as root."""
     script = _script()
     assert re.search(r'^UV_VERSION="\d+\.\d+\.\d+"$', script, re.MULTILINE)
-    for architecture in ("x86_64", "aarch64"):
-        assert re.search(
-            rf'^UV_SHA256_{architecture}="[0-9a-f]{{64}}"$', script, re.MULTILINE
-        ), f"no pinned checksum for {architecture}"
+    for triple in (
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+    ):
+        name = "UV_SHA256_" + triple.replace("-", "_")
+        assert re.search(rf'^{name}="[0-9a-f]{{64}}"$', script, re.MULTILINE), (
+            f"no pinned checksum for {triple}"
+        )
     # Downloaded over HTTPS with the protocol pinned, so a redirect to plain
     # HTTP cannot silently downgrade the fetch.
     assert "--proto '=https' --tlsv1.2" in script
@@ -1250,6 +1279,70 @@ def test_a_uv_download_that_fails_its_checksum_is_refused(tmp_path: Path):
     assert result.returncode != 0
     assert "does not match its pinned checksum" in result.stderr
     assert not (tmp_path / ".state/bin/uv").exists(), "refused, but installed anyway"
+
+
+@pytest.mark.parametrize(
+    ("system", "machine", "triple"),
+    [
+        ("Linux", "x86_64", "x86_64-unknown-linux-gnu"),
+        ("Linux", "aarch64", "aarch64-unknown-linux-gnu"),
+        ("Darwin", "x86_64", "x86_64-apple-darwin"),
+        ("Darwin", "arm64", "aarch64-apple-darwin"),
+    ],
+)
+def test_the_download_follows_the_host_os_not_only_its_architecture(
+    tmp_path: Path, system: str, machine: str, triple: str
+):
+    """A Linux build unpacked on a Mac passes its checksum and then cannot run.
+
+    The failure surfaces as `cannot execute binary file` well after the point
+    that was supposed to catch a wrong artifact, so the triple has to be right
+    before the download, not discovered after it.
+    """
+    harness = _uv_harness(
+        tmp_path,
+        # Records the URL, then writes something that fails the checksum: what
+        # is under test is which artifact was asked for.
+        curl_body=(
+            '#!/usr/bin/env bash\nprintf "%s\\n" "$@" > "${HOME}/requested-url"\n'
+            + _CURL_STUB
+            + 'printf "not the real uv" > "${out}"\n'
+        ),
+    )
+    uname = tmp_path / "bin" / "uname"
+    uname.write_text(
+        "#!/usr/bin/env bash\n"
+        f'case "$1" in -s) echo {system} ;; -m) echo {machine} ;; esac\n',
+        encoding="utf-8",
+    )
+    uname.chmod(0o755)
+
+    result = _run_harness(tmp_path, harness)
+
+    assert result.returncode != 0, "the stub archive should have failed its checksum"
+    assert f"uv-{triple}.tar.gz" in (tmp_path / "requested-url").read_text()
+
+
+def test_an_unsupported_os_says_so_instead_of_downloading_a_linux_build(
+    tmp_path: Path,
+):
+    """Naming the platform is the difference between a fix and a puzzle."""
+    harness = _uv_harness(
+        tmp_path,
+        curl_body='#!/usr/bin/env bash\necho "curl must not run" >&2\nexit 1\n',
+    )
+    uname = tmp_path / "bin" / "uname"
+    uname.write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in -s) echo FreeBSD ;; -m) echo x86_64 ;; esac\n',
+        encoding="utf-8",
+    )
+    uname.chmod(0o755)
+
+    result = _run_harness(tmp_path, harness)
+
+    assert result.returncode != 0
+    assert "no pinned uv build for FreeBSD" in result.stderr
 
 
 def test_an_existing_recent_uv_is_used_rather_than_downloaded(tmp_path: Path):
@@ -1277,9 +1370,9 @@ def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
     `uv="$(ensure_uv)"` along with the path, and the install then fails on a
     command name with a sentence in front of it.
     """
-    expected = re.search(
-        r'^UV_SHA256_x86_64="([0-9a-f]{64})"$', _script(), re.MULTILINE
-    )
+    target = _host_uv_target()
+    name = "UV_SHA256_" + target.replace("-", "_")
+    expected = re.search(rf'^{name}="([0-9a-f]{{64}})"$', _script(), re.MULTILINE)
     assert expected is not None
     harness = _uv_harness(
         tmp_path,
@@ -1287,10 +1380,10 @@ def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
         # the target, holding the binary ensure_uv strips a component off.
         curl_body=(
             _CURL_STUB + 'work="$(mktemp -d)"\n'
-            'mkdir -p "${work}/uv-x86_64-unknown-linux-gnu"\n'
+            f'mkdir -p "${{work}}/uv-{target}"\n'
             'printf "#!/bin/sh\\necho uv 0.0.0\\n" '
-            '> "${work}/uv-x86_64-unknown-linux-gnu/uv"\n'
-            'tar -czf "${out}" -C "${work}" uv-x86_64-unknown-linux-gnu\n'
+            f'> "${{work}}/uv-{target}/uv"\n'
+            f'tar -czf "${{out}}" -C "${{work}}" uv-{target}\n'
         ),
         digest=expected.group(1),
     )

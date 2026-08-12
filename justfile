@@ -46,13 +46,14 @@ lock-check:
 uv-pin version:
     #!/usr/bin/env bash
     set -euo pipefail
-    for target in x86_64 aarch64; do
-        triple="${target}-unknown-linux-gnu"
+    for triple in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+                  x86_64-apple-darwin aarch64-apple-darwin; do
         sum=$(curl -fsSL --proto '=https' --tlsv1.2 \
             "https://github.com/astral-sh/uv/releases/download/{{version}}/uv-${triple}.tar.gz.sha256" \
             | awk '{print $1}')
         [[ -n "${sum}" ]] || { echo "no checksum for ${triple}" >&2; exit 1; }
-        sed -i.bak -E "s|^UV_SHA256_${target}=.*|UV_SHA256_${target}=\"${sum}\"|" install.sh
+        name="UV_SHA256_${triple//-/_}"
+        sed -i.bak -E "s|^${name}=.*|${name}=\"${sum}\"|" install.sh
     done
     sed -i.bak -E 's|^UV_VERSION=.*|UV_VERSION="{{version}}"|' install.sh
     rm -f install.sh.bak
