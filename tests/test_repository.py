@@ -2,6 +2,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy.pool import NullPool, QueuePool
 
 from blitzecdn.domain.deployments import DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain
@@ -10,6 +11,36 @@ from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
+
+
+def test_database_does_not_retain_idle_connections(settings):
+    repository = Repository(settings.database_path)
+
+    assert isinstance(repository.database.engine.pool, NullPool)
+
+
+def test_database_uses_a_bounded_pool_for_a_long_lived_server(settings):
+    repository = Repository(settings.database_path, pool_connections=True)
+
+    assert isinstance(repository.database.engine.pool, QueuePool)
+    assert repository.database.engine.pool.size() == 5
+
+    repository.close()
+
+
+def test_repository_close_disposes_the_engine(settings, monkeypatch):
+    repository = Repository(settings.database_path)
+    disposed = False
+
+    def dispose() -> None:
+        nonlocal disposed
+        disposed = True
+
+    monkeypatch.setattr(repository.database.engine, "dispose", dispose)
+
+    repository.close()
+
+    assert disposed
 
 
 def test_site_crud_and_audit(settings, site_payload):

@@ -19,6 +19,7 @@ from typing import Any
 from sqlalchemy import Engine, create_engine, event, inspect
 from sqlalchemy.engine.reflection import Inspector
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import NullPool, QueuePool
 
 from blitzecdn.exceptions import ConfigurationError
 from blitzecdn.infrastructure.models import Base
@@ -83,7 +84,7 @@ def _configure_sqlite(engine: Engine) -> None:
 class Database:
     """The database file: engine, schema, sessions, and the write lock."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, pool_connections: bool = False) -> None:
         self._path = path
         # Kept from the sqlite3 implementation. SQLite admits one writer, and
         # serialising them here means a concurrent use case waits on a lock
@@ -91,12 +92,27 @@ class Database:
         # database. Reentrant because nested use cases join their caller.
         self.lock = threading.RLock()
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        pool_options: dict[str, Any]
+        if pool_connections:
+            # The API is long-lived and repeatedly reads local state. A small,
+            # bounded pool avoids reconnecting for every request while keeping
+            # the maximum SQLite footprint explicit.
+            pool_options = {
+                "poolclass": QueuePool,
+                "pool_size": 5,
+                "max_overflow": 5,
+                "pool_timeout": 30,
+            }
+        else:
+            # A CLI invocation is short-lived and currently builds its own
+            # repository. Retaining a connection there only defers its cleanup
+            # until process exit; the server opts into pooling and closes it in
+            # its lifespan handler.
+            pool_options = {"poolclass": NullPool}
         self.engine = create_engine(
             f"sqlite+pysqlite:///{path}",
-            # The stores are synchronous and short-lived, and SQLite is a local
-            # file: pooling connections across threads buys nothing and costs
-            # the per-connection PRAGMAs above.
             future=True,
+            **pool_options,
         )
         _configure_sqlite(self.engine)
         self._sessions = sessionmaker(
@@ -156,6 +172,11 @@ class Database:
         call :meth:`session` and get the right answer either way.
         """
         return _SESSION.get()
+
+    def close(self) -> None:
+        """Release engine-owned resources during application shutdown."""
+        with self.lock:
+            self.engine.dispose()
 
     def _initialize(self) -> None:
         """Create the schema on a fresh database, or refuse a stale one.

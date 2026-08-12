@@ -55,8 +55,8 @@ class Repository:
     like the whole of persistence to callers that needed one table of it.
     """
 
-    def __init__(self, path: Path) -> None:
-        self.database = Database(path)
+    def __init__(self, path: Path, *, pool_connections: bool = False) -> None:
+        self.database = Database(path, pool_connections=pool_connections)
         self.sites = SiteStore(self.database)
         self.zones = ZoneStore(self.database)
         self.edges = EdgeStore(self.database)
@@ -82,6 +82,10 @@ class Repository:
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by this repository's stores."""
         return self.database.transaction()
+
+    def close(self) -> None:
+        """Release persistence resources owned by this repository."""
+        self.database.close()
 
     decode_snapshot = staticmethod(decode_snapshot)
     decode_snapshot_zones = staticmethod(decode_snapshot_zones)
