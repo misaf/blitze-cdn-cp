@@ -1,0 +1,5 @@
+---
+# Syntax checks run in a fresh checkout with no control-plane database. Exercise
+# the real inventory plugin without weakening the strict production inventory.
+plugin: blitzecdn
+strict: false
