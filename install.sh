@@ -114,9 +114,36 @@ die() {
 # from the same place as the artifact only proves the bytes arrived intact; it
 # says nothing about whether the artifact is the one this release was tested
 # against. Refresh both together with `just uv-pin VERSION`.
+#
+# One pin per release target. The Linux builds are what a server installs; the
+# macOS builds exist because a controller-only checkout is a developer machine
+# as often as a server, and a Linux binary unpacked onto a Mac fails with
+# "cannot execute binary file" long after the checksum said the bytes were fine.
 UV_VERSION="0.12.3"
-UV_SHA256_x86_64="600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101"
-UV_SHA256_aarch64="bb66cb52e7b1823aed1183630d8d8e5c958840d584a4c55ec10a4cfc168dcca2"
+# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
+UV_SHA256_x86_64_unknown_linux_gnu="600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101"
+# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
+UV_SHA256_aarch64_unknown_linux_gnu="bb66cb52e7b1823aed1183630d8d8e5c958840d584a4c55ec10a4cfc168dcca2"
+# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
+UV_SHA256_x86_64_apple_darwin="4c9f52262a14da336e4a42ed24992d12d0c956acde87619e4611d321dffa602b"
+# shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
+UV_SHA256_aarch64_apple_darwin="546f7f8a6c70ff13a3a9d2bc958db3427298cebf3e0cb756f9177133b7068843"
+
+# Print the SHA-256 of a file.
+#
+# `sha256sum` is coreutils and ships on every server this installs onto; macOS
+# has `shasum` instead and only grows `sha256sum` if somebody installed GNU
+# coreutils. Checking both means the verification below cannot be skipped for
+# want of a tool name.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$1" | awk '{print $1}'
+  else
+    die 1 "error: need sha256sum or shasum to verify the uv download"
+  fi
+}
 
 # Print the path to a usable uv, downloading the pinned build if necessary.
 #
@@ -144,21 +171,30 @@ ensure_uv() {
     return 0
   fi
 
-  local machine target expected
+  # Both halves of the target triple are detected. Deriving only the
+  # architecture and assuming Linux is what put a Linux binary on a Mac.
+  local system machine platform architecture target pin expected
+  system="$(uname -s)"
   machine="$(uname -m)"
+  case "${system}" in
+    Linux) platform="unknown-linux-gnu" ;;
+    Darwin) platform="apple-darwin" ;;
+    *)
+      die 1 "error: no pinned uv build for ${system}; install uv ${UV_VERSION} or newer and rerun"
+      ;;
+  esac
   case "${machine}" in
-    x86_64 | amd64)
-      target="x86_64-unknown-linux-gnu"
-      expected="${UV_SHA256_x86_64}"
-      ;;
-    aarch64 | arm64)
-      target="aarch64-unknown-linux-gnu"
-      expected="${UV_SHA256_aarch64}"
-      ;;
+    x86_64 | amd64) architecture="x86_64" ;;
+    aarch64 | arm64) architecture="aarch64" ;;
     *)
       die 1 "error: no pinned uv build for ${machine}; install uv ${UV_VERSION} or newer and rerun"
       ;;
   esac
+  target="${architecture}-${platform}"
+  pin="UV_SHA256_${target//-/_}"
+  expected="${!pin-}"
+  [[ -n "${expected}" ]] ||
+    die 1 "error: no pinned checksum for ${target}; install uv ${UV_VERSION} or newer and rerun"
 
   command -v curl >/dev/null 2>&1 ||
     die 1 "error: curl is required to download uv; install it and rerun"
@@ -181,7 +217,7 @@ ensure_uv() {
     die 1 "error: could not download uv ${UV_VERSION}"
 
   local actual
-  actual="$(sha256sum "${archive}" | awk '{print $1}')"
+  actual="$(sha256_of "${archive}")"
   [[ "${actual}" == "${expected}" ]] ||
     die 1 \
       "error: the uv download does not match its pinned checksum" \
