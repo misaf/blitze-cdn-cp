@@ -451,7 +451,14 @@ just test          # fails under 85% coverage
 just shell-lint    # install.sh runs as root, so it is linted like the Python
 just ansible-check # yamllint, playbook syntax, ansible-lint
 just audit         # bandit and pip-audit
+just docs-check    # the published reference still describes this control plane
 ```
+
+`just docs-check` reads the documentation site from `../blitze-cdn-web`, or from
+a path given as its argument, and fails when a route, model, CLI command,
+setting, or environment variable here has no counterpart on its reference page —
+or when a documented example no longer parses as the model it illustrates. It
+skips when that checkout is absent; CI checks it out and does not.
 
 `just test` passes its arguments through, so a single case is:
 
@@ -502,7 +509,10 @@ BlitzeCDN is two repositories:
 
 Documentation prose and maintained reference pages live in **blitze-cdn-web**.
 When a route, flag, setting, or role variable changes, review and update the
-affected pages there in the same release workflow.
+affected pages there in the same release workflow. CI enforces the coverage half
+of that from both sides — `just docs-check` here, `npm run check:surface`
+there — but only a person can notice that a description became wrong rather than
+absent.
 
 Report vulnerabilities privately to the repository maintainers. Do not open a
 public issue containing exploit details or credentials; rotate any exposed key

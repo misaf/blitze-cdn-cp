@@ -70,6 +70,49 @@ jobs:
       - name: Build package
         run: just build
 
+  # The published reference is hand-written MDX in another repository, so
+  # nothing in the job above can notice that a route, command, setting, or
+  # model changed here and left the documentation describing the old one. This
+  # job is that noticing, and it belongs on this side: drift starts with a
+  # change to the control plane, and this is where the author can still fix it
+  # in the same pull request.
+  #
+  # It only reads the docs repository. A documentation-only change is checked
+  # by that repository's own pipeline, which runs the same script the other way
+  # around.
+  documentation:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      # Pinned to the release branch for the same reason the docs repository
+      # pins this one: the published pages describe the released control plane.
+      - name: Check out the documentation site
+        uses: actions/checkout@v7.0.1
+        with:
+          repository: misaf/blitze-cdn-web
+          ref: 1.x
+          path: docs-site
+          persist-credentials: false
+      - uses: actions/setup-node@v7.0.0
+        with:
+          node-version: '24'
+      - uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.12.3"
+          enable-cache: true
+      - name: Install Python
+        run: uv python install 3.14
+      - uses: extractions/setup-just@v3
+      # The check imports `blitzecdn`; the collections `just install` also
+      # fetches are not involved, so this is the narrower sync.
+      - name: Install the control plane
+        run: uv sync --frozen
+      - name: Check the reference against this control plane
+        run: just docs-check docs-site
+
   # The only job that runs `install.sh standalone` against a real init on a real
   # distribution. Everything in the job above asserts on the scripts' shape or
   # runs them with the privileged commands stubbed, and neither can catch a
