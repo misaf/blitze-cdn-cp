@@ -28,6 +28,13 @@ from blitzecdn.domain.deployments import Deployment, DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.events import DomainEvent
+from blitzecdn.domain.operations import (
+    OutboxEvent,
+    Workflow,
+    WorkflowKind,
+    WorkflowStatus,
+    WorkflowStep,
+)
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import AnsibleRun
 from blitzecdn.domain.sites import CdnSite, CertificateMode
@@ -52,6 +59,10 @@ class SiteStore(Protocol):
 
     def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
 
+    def projection_revision(self) -> str | None: ...
+
+    def set_projection_revision(self, revision: str) -> None: ...
+
 
 class ZoneStore(Protocol):
     """Zones and records — the source of truth sites are derived from."""
@@ -70,7 +81,9 @@ class ZoneStore(Protocol):
 
     def create_record(self, record: DnsRecord) -> DnsRecord: ...
 
-    def replace_record(self, record: DnsRecord) -> DnsRecord: ...
+    def replace_record(
+        self, record: DnsRecord, *, expected: DnsRecord | None = None
+    ) -> DnsRecord: ...
 
     def delete_record(self, domain: str, name: str, type_: RecordType) -> None: ...
 
@@ -137,6 +150,41 @@ class EventBus(Protocol):
     """
 
     def publish(self, event: DomainEvent) -> None: ...
+
+
+class WorkflowJournal(Protocol):
+    def create(
+        self,
+        workflow_id: str,
+        kind: WorkflowKind,
+        operator: str,
+        resource_id: str | None = None,
+    ) -> Workflow: ...
+
+    def advance(
+        self,
+        workflow_id: str,
+        status: WorkflowStatus,
+        *,
+        step: WorkflowStep | None = None,
+        error: str | None = None,
+    ) -> Workflow: ...
+
+    def unfinished(self) -> list[Workflow]: ...
+
+    def get(self, workflow_id: str) -> Workflow: ...
+
+    def list_workflows(self, limit: int = 100) -> list[Workflow]: ...
+
+
+class Outbox(Protocol):
+    def enqueue(self, topic: str, event_key: str, payload: dict[str, Any]) -> None: ...
+
+    def pending(self, limit: int = 100) -> list[OutboxEvent]: ...
+
+    def delivered(self, event_id: int) -> None: ...
+
+    def failed(self, event_id: int, error: str) -> None: ...
 
 
 # ----------------------------------------------------------------------
@@ -287,7 +335,7 @@ class EdgeStore(Protocol):
 
     def create_edge(self, edge: Edge) -> Edge: ...
 
-    def replace_edge(self, edge: Edge) -> Edge: ...
+    def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge: ...
 
     def delete_edge(self, name: str) -> None: ...
 
@@ -343,8 +391,10 @@ __all__ = [
     "Issuer",
     "LogReader",
     "OriginProbe",
+    "Outbox",
     "Preflight",
     "SiteStore",
+    "WorkflowJournal",
     "YamlWriter",
     "ZoneEditor",
     "ZoneStore",

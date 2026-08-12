@@ -15,23 +15,32 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
+from blitzecdn.application.deployment_support import (
+    DesiredStateRenderer,
+    DriftInterpreter,
+    RollbackPlanner,
+)
+from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
 from blitzecdn.domain.events import domain_event
+from blitzecdn.domain.operations import (
+    DeploymentMode,
+    DeployRequest,
+    FleetTarget,
+    WorkflowKind,
+)
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
-from blitzecdn.domain.sites import DESIRED_STATE_VERSION, CertificateMode
 from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
 from blitzecdn.domain.validation import validate_edge_limit
-from blitzecdn.exceptions import ConflictError, ExecutionError
+from blitzecdn.exceptions import ExecutionError
 from blitzecdn.ports import (
     BackgroundRunner,
-    CertificateStore,
     DeploymentRunner,
     DeploymentStore,
     EventBus,
     LogReader,
     UnitOfWork,
-    YamlWriter,
     ZoneEditor,
     ZoneStore,
 )
@@ -54,19 +63,20 @@ class DeploymentService:
         zones: ZoneStore,
         bus: EventBus,
         runner: DeploymentRunner,
-        certificate_store: CertificateStore,
         dns: ZoneEditor,
         background: BackgroundRunner,
-        write_yaml: YamlWriter,
         read_log: LogReader,
         uow: UnitOfWork,
+        workflows: WorkflowCoordinator,
+        renderer: DesiredStateRenderer,
+        rollbacks: RollbackPlanner,
+        drift: DriftInterpreter,
     ) -> None:
         self.settings = settings
         self.deployments = deployments
         self.zones = zones
         self.bus = bus
         self.runner = runner
-        self.certificate_store = certificate_store
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
         #: Carries a queued run onwards after this call has answered. A port,
@@ -76,12 +86,15 @@ class DeploymentService:
         #: Injected rather than imported so this layer never reaches for the
         #: filesystem adapter directly. The composition root supplies the
         #: atomic writer; a test can supply anything with the same shape.
-        self.write_yaml = write_yaml
         #: Quotes a run log into a message for an operator. Never branched on:
         #: `validate` is the one caller, and only because `--syntax-check` runs
         #: no play and so leaves the callback nothing to report.
         self.read_log = read_log
         self.uow = uow
+        self.workflows = workflows
+        self.renderer = renderer
+        self.rollbacks = rollbacks
+        self.drift = drift
 
     def initialize(self) -> int:
         return self.deployments.abandon_running()
@@ -140,10 +153,30 @@ class DeploymentService:
         snapshot became reality on the named edges only, and the rest are
         still serving whatever they had.
         """
-        with self.runner.lock():
-            return self.converge(
-                self._queue(operator, check=check, host_limit=host_limit), operator
-            )
+        return self.execute_deployment(
+            DeployRequest(
+                mode=DeploymentMode.CHECK if check else DeploymentMode.APPLY,
+                target=FleetTarget(host_limit=host_limit),
+            ),
+            operator,
+        )
+
+    def execute_deployment(self, request: DeployRequest, operator: str) -> Deployment:
+        """Execute an intention-revealing deployment request."""
+        with self.workflows.run(WorkflowKind.DEPLOYMENT, operator) as progress:
+            with self.runner.lock():
+                deployment = self.converge(
+                    self._queue(
+                        operator,
+                        check=request.mode is DeploymentMode.CHECK,
+                        host_limit=request.target.host_limit,
+                    ),
+                    operator,
+                )
+            progress.checkpoint("converged", {"deployment_id": deployment.id})
+            if deployment.status is not DeploymentStatus.SUCCEEDED:
+                progress.fail(deployment.detail or deployment.status.value)
+            return deployment
 
     def submit_deployment(
         self, operator: str, *, check: bool = False, host_limit: str | None = None
@@ -168,10 +201,20 @@ class DeploymentService:
         leave the control plane asserting a state the rest of the fleet has
         never been given — the precise disagreement rollback exists to end.
         """
-        with self.runner.lock():
-            return self.converge(
-                self._queue_rollback(operator, deployment_id, check=check), operator
+        with self.workflows.run(
+            WorkflowKind.ROLLBACK, operator, deployment_id
+        ) as progress:
+            with self.runner.lock():
+                deployment = self.converge(
+                    self._queue_rollback(operator, deployment_id, check=check),
+                    operator,
+                )
+            progress.checkpoint(
+                "converged_and_adopted", {"deployment_id": deployment.id}
             )
+            if deployment.status is not DeploymentStatus.SUCCEEDED:
+                progress.fail(deployment.detail or deployment.status.value)
+            return deployment
 
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
@@ -220,13 +263,7 @@ class DeploymentService:
         produced rather than re-deriving anything.
         """
         deployment = self.deployments.get_deployment(deployment_id)
-        if not deployment.check_mode:
-            raise ConflictError(
-                f"deployment {deployment_id} applied changes rather than "
-                "previewing them, so its result describes what it did, not "
-                "what had drifted. Run 'blitzecdn drift' instead."
-            )
-        return DriftReport.of(deployment)
+        return self.drift.report(deployment)
 
     # -- History -------------------------------------------------------
 
@@ -299,17 +336,7 @@ class DeploymentService:
     def _queue_rollback(
         self, operator: str, deployment_id: str | None, *, check: bool
     ) -> Deployment:
-        target = (
-            self.deployments.get_deployment(deployment_id)
-            if deployment_id
-            else self.deployments.successful_rollback_target(
-                self.deployments.snapshot()
-            )
-        )
-        if target.check_mode or target.status is not DeploymentStatus.SUCCEEDED:
-            raise ConflictError(
-                "rollback target must be a successful applied deployment"
-            )
+        target = self.rollbacks.target(deployment_id)
         return self._queue(
             operator,
             check=check,
@@ -493,23 +520,4 @@ class DeploymentService:
         a deploy publishes to ``generated_vars_path`` under the lock, while
         ``validate`` renders to a scratch path it then throws away.
         """
-        sites = decode_snapshot(snapshot)
-        documents: list[dict[str, object]] = []
-        for site in sites:
-            document = site.to_ansible()
-            if site.certificate_mode in {
-                CertificateMode.UPLOADED,
-                CertificateMode.REQUESTED,
-            }:
-                certificate, private_key = self.certificate_store.sources(site.name)
-                document["certificate_source_path"] = str(certificate)
-                document["certificate_key_source_path"] = str(private_key)
-            documents.append(document)
-        self.write_yaml(
-            path,
-            {
-                "blitzecdn_desired_state_version": DESIRED_STATE_VERSION,
-                "blitzecdn_nginx_allow_empty_sites": self.settings.allow_empty_sites,
-                "blitzecdn_nginx_sites": documents,
-            },
-        )
+        self.renderer.render(snapshot, path)

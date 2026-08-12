@@ -65,6 +65,7 @@ from blitzecdn.domain.certificates import (
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.edges import Edge, EdgePatch
+from blitzecdn.domain.operations import Workflow
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import HostRun
 from blitzecdn.domain.sites import CdnSite
@@ -211,6 +212,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         control_plane.deployments.initialize()
+        control_plane.recovery.reconcile_interrupted()
+        control_plane.outbox.dispatch()
         stop = threading.Event()
         reconciler: threading.Thread | None = None
         interval = resolved.certificate_reconcile_interval_seconds
@@ -662,6 +665,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _operator: operator_dependency, limit: int = Query(20, ge=1, le=100)
     ) -> list[Deployment]:
         return control_plane.deployments.list_deployments(limit)
+
+    @application.get("/v1/workflows", response_model=list[Workflow])
+    def list_workflows(
+        _operator: operator_dependency,
+        limit: int = Query(default=100, ge=1, le=1000),
+    ) -> list[Workflow]:
+        """Durable progress for operations that crossed external systems."""
+        return control_plane.workflow_history.list_workflows(limit)
+
+    @application.get("/v1/workflows/{workflow_id}", response_model=Workflow)
+    def get_workflow(workflow_id: str, _operator: operator_dependency) -> Workflow:
+        return control_plane.workflow_history.get(workflow_id)
 
     @application.get("/v1/deployments/{deployment_id}", response_model=Deployment)
     def deployment(deployment_id: str, _operator: operator_dependency) -> Deployment:

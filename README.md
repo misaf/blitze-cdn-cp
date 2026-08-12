@@ -203,11 +203,21 @@ Precedence is explicit:
 3. Inventory/group/host variables describe environment policy.
 4. Namespaced role defaults provide non-secret implementation defaults.
 
-Group variables live in `ansible/inventory/group_vars/`, beside the inventory
-file. Ansible only auto-loads `group_vars` adjacent to the inventory or the
-playbook, so a `group_vars/` directory anywhere else — including the repository
-root or `ansible/` — is silently ignored and every setting in it falls back to
-the role default.
+Fleet-wide, non-secret Ansible policy is stored in the control-plane database.
+Manage overrides with `blitzecdn config set/list/unset`; the dynamic inventory
+plugin publishes them to every edge. Shipped defaults remain in
+`ansible/inventory/group_vars/`, but do not edit those tracked files. Secrets
+remain in `.env` and edge-specific SSH policy remains on each edge record.
+
+```bash
+blitzecdn config set blitzecdn_base_timezone Asia/Tehran
+blitzecdn config set blitzecdn_firewall_enabled true
+blitzecdn config list
+blitzecdn config unset blitzecdn_firewall_enabled
+```
+
+On upgrade, `blitzecdn setup` imports an existing `local.yml` once and renames
+it to `local.yml.migrated` so it can no longer override the database.
 
 The CLI automatically loads `.env` from the project directory as local
 defaults; already-exported variables take precedence. Production services can

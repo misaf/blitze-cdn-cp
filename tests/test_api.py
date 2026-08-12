@@ -11,11 +11,13 @@ from blitzecdn.application import (
     DeploymentService,
     EdgeOperationsService,
 )
+from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
     ExecutionError,
 )
+from blitzecdn.infrastructure.database import Repository
 
 
 def test_health_is_public_and_controls_require_auth(settings):
@@ -57,6 +59,25 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
         assert "/v1/deployments" in paths
         assert "/v1/sites/{name}/certificate/request" in paths
         assert "/v1/sites/{name}/certificate/upload" in paths
+        assert "/v1/workflows" in paths
+
+
+def test_interrupted_workflows_are_recovered_and_visible(settings):
+    repository = Repository(settings.database_path)
+    workflow = repository.workflows.create(
+        "interrupted", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+    )
+
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/v1/workflows").status_code == 401
+        response = client.get("/v1/workflows", headers={"X-API-Key": "x" * 32})
+        detail = client.get(
+            f"/v1/workflows/{workflow.id}", headers={"X-API-Key": "x" * 32}
+        )
+
+    assert response.status_code == 200
+    assert response.json()[0]["status"] == "needs_review"
+    assert detail.json()["error"].startswith("the controller restarted")
 
 
 def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payload):

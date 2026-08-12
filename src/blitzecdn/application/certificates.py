@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from time import monotonic
 
+from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
@@ -21,6 +22,11 @@ from blitzecdn.domain.certificates import (
     PreflightReport,
 )
 from blitzecdn.domain.events import domain_event
+from blitzecdn.domain.operations import (
+    CertificateRequest,
+    PreflightPolicy,
+    WorkflowKind,
+)
 from blitzecdn.domain.sites import CdnSite, CertificateMode
 from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
 from blitzecdn.ports import (
@@ -53,6 +59,7 @@ class CertificateService:
         dns: ZoneEditor,
         deployments: DeploymentGateway,
         uow: UnitOfWork,
+        workflows: WorkflowCoordinator,
     ) -> None:
         self.settings = settings
         self.sites = sites
@@ -64,6 +71,7 @@ class CertificateService:
         self.dns = dns
         self.deployments = deployments
         self.uow = uow
+        self.workflows = workflows
 
     # -- Installing ----------------------------------------------------
 
@@ -74,7 +82,10 @@ class CertificateService:
         private_key_pem: bytes,
         operator: str,
     ) -> CertificateInfo:
-        with self.runner.lock():
+        with (
+            self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress,
+            self.runner.lock(),
+        ):
             site = self.sites.get_site(name)
             info = self.certificate_store.install(
                 site,
@@ -82,6 +93,7 @@ class CertificateService:
                 private_key_pem,
                 source=CertificateSource.UPLOADED,
             )
+            progress.checkpoint("installed", {"site": name})
             with self.uow.transaction():
                 self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
                 self.bus.publish(
@@ -96,6 +108,7 @@ class CertificateService:
                         },
                     )
                 )
+            progress.checkpoint("activated", {"site": name})
         return info
 
     # -- Preflight -----------------------------------------------------
@@ -175,20 +188,42 @@ class CertificateService:
         *,
         skip_preflight: bool = False,
     ) -> CertificateInfo:
-        registration_email = email or self.settings.acme_default_email
+        return self.execute_certificate_request(
+            CertificateRequest(
+                site=name,
+                registration_email=email,
+                preflight=(
+                    PreflightPolicy.OVERRIDE
+                    if skip_preflight
+                    else PreflightPolicy.ENFORCE
+                ),
+            ),
+            operator,
+        )
+
+    def execute_certificate_request(
+        self, request: CertificateRequest, operator: str
+    ) -> CertificateInfo:
+        registration_email = (
+            request.registration_email or self.settings.acme_default_email
+        )
         if not registration_email:
             raise ConflictError(
                 "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
             )
-        with self.runner.lock():
-            site = self.sites.get_site(name)
-            info = self._issue_certificate_locked(
-                site,
-                operator,
-                registration_email,
-                skip_preflight=skip_preflight,
-            )
-        return info
+        with self.workflows.run(
+            WorkflowKind.CERTIFICATE, operator, request.site
+        ) as progress:
+            with self.runner.lock():
+                site = self.sites.get_site(request.site)
+                info = self._issue_certificate_locked(
+                    site,
+                    operator,
+                    registration_email,
+                    skip_preflight=request.preflight is PreflightPolicy.OVERRIDE,
+                )
+                progress.checkpoint("issued_and_activated", {"site": request.site})
+            return info
 
     def _issue_certificate_locked(
         self,

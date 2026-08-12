@@ -27,11 +27,25 @@ from blitzecdn.application import (
     DnsService,
     EdgeOperationsService,
 )
+from blitzecdn.application.deployment_support import (
+    DesiredStateRenderer,
+    DriftInterpreter,
+    RollbackPlanner,
+)
+from blitzecdn.application.workflows import (
+    OutboxDispatcher,
+    RecoveryService,
+    WorkflowCoordinator,
+)
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
-from blitzecdn.infrastructure.events import AuditObserver, InProcessEventBus
+from blitzecdn.infrastructure.events import (
+    AuditObserver,
+    InProcessEventBus,
+    OutboxObserver,
+)
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
@@ -76,6 +90,7 @@ class ControlPlane:
         # take it so that "which edges exist" has exactly one answer, whoever is
         # asking and whichever process they are in.
         self.edges_store = edges_store or store.edges
+        self.ansible_settings = store.ansible_settings
         self.runner = runner or AnsibleRunner(settings, self.edges_store)
         self.certificate_store = certificate_store or CertificateStore(settings)
         self.issuer = issuer or CertbotIssuer(settings)
@@ -94,22 +109,34 @@ class ControlPlane:
         # services can publish "something happened" without knowing who listens.
         self.bus = InProcessEventBus()
         self.bus.subscribe(AuditObserver(store.audit_log))
+        self.bus.subscribe(OutboxObserver(store.outbox))
+        self.workflows = WorkflowCoordinator(store.workflows, store)
+        self.workflow_history = store.workflows
+        self.recovery = RecoveryService(store.workflows, store)
+        self.outbox = OutboxDispatcher(
+            store.outbox, {"domain.event": lambda _event: None}
+        )
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
         self.dns = DnsService(store.zones, store.sites, self.bus, store)
+        renderer = DesiredStateRenderer(
+            settings, self.certificate_store, atomic_write_yaml
+        )
         self.deployments = DeploymentService(
             settings,
             store.deployments,
             store.zones,
             self.bus,
             self.runner,
-            self.certificate_store,
             self.dns,
             self.background,
-            atomic_write_yaml,
             read_log_tail,
             store,
+            self.workflows,
+            renderer,
+            RollbackPlanner(store.deployments),
+            DriftInterpreter(),
         )
         self.certificates = CertificateService(
             settings,
@@ -122,6 +149,7 @@ class ControlPlane:
             self.dns,
             self.deployments,
             store,
+            self.workflows,
         )
         self.edges = EdgeOperationsService(
             settings,

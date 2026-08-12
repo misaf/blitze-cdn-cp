@@ -67,9 +67,39 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings):
 
     assert repository.zones.list_records() == []
     assert repository.sites.list_sites() == []
+    assert [event.payload["action"] for event in repository.outbox.pending()] == [
+        "domain.created"
+    ]
     assert [event.action for event in repository.audit_log.list_audit_events()] == [
         "domain.created"
     ]
+
+
+def test_projection_drift_is_detected_and_repairable(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    record = _seed_proxied_record(control)
+    repository.sites.replace_all_sites([])
+
+    assert control.dns.validation_errors() == [
+        "the site projection is stale; rebuild it before deploying"
+    ]
+    control.dns.rebuild_site_projection()
+
+    assert control.dns.validation_errors() == []
+    assert repository.sites.get_site(record.site_name).origin_host == record.value
+
+
+def test_external_deployment_run_never_holds_a_database_transaction(settings):
+    repository = Repository(settings.database_path)
+
+    class TransactionAwareRunner(FakeRunner):
+        def run(self, *, check: bool, host_limit: str | None = None):
+            assert getattr(repository.database._local, "connection", None) is None
+            return super().run(check=check, host_limit=host_limit)
+
+    control = ControlPlane(settings, repository, TransactionAwareRunner())  # type: ignore[arg-type]
+    control.deployments.deploy("alice")
 
 
 def test_crud_validate_and_successful_deploy(settings):

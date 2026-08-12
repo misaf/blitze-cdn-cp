@@ -117,7 +117,7 @@ class EdgeOperationsService:
             {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
         )
         with self.uow.transaction():
-            saved = self.edges.replace_edge(updated)
+            saved = self.edges.replace_edge(updated, expected=current)
             self.bus.publish(
                 domain_event(
                     operator,

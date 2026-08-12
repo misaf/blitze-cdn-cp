@@ -19,6 +19,7 @@ from blitzecdn.cli import (
     cache,
     certs,
     common,
+    configuration,
     deploy,
     diagnostics,
     edges,
@@ -37,6 +38,7 @@ app.add_typer(zones.dns_app, name="dns")
 app.add_typer(certs.cert_app, name="cert")
 app.add_typer(edges.origin_app, name="origin")
 app.add_typer(cache.cache_app, name="cache")
+app.add_typer(configuration.config_app, name="config")
 
 __all__ = [
     "ExitCode",
@@ -46,6 +48,7 @@ __all__ = [
     "cache",
     "certs",
     "common",
+    "configuration",
     "control_plane",
     "deploy",
     "diagnostics",
