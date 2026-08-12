@@ -43,6 +43,35 @@ def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
     )
 
 
+def test_dns_write_projection_and_audit_are_one_transaction(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+
+    def refuse_event(_event):
+        raise RuntimeError("audit subscriber failed")
+
+    # Registered after the real audit observer: both its audit insert and the
+    # record/site writes must still be rolled back when this subscriber fails.
+    control.bus.subscribe(refuse_event)
+    with pytest.raises(RuntimeError, match="audit subscriber failed"):
+        control.dns.create_record(
+            DnsRecord(
+                domain="example.com",
+                name="cdn",
+                value="198.51.100.10",
+                proxied=True,
+            ),
+            "alice",
+        )
+
+    assert repository.zones.list_records() == []
+    assert repository.sites.list_sites() == []
+    assert [event.action for event in repository.audit_log.list_audit_events()] == [
+        "domain.created"
+    ]
+
+
 def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
@@ -260,6 +289,35 @@ def test_rollback_updates_canonical_state_only_after_success(settings, site_payl
     restored = repository.zones.get_record("example.com", "cdn", RecordType.A)
     assert restored.value == original.value
     assert repository.sites.get_site(original.site_name).origin_host == original.value
+
+
+def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+    )  # type: ignore[arg-type]
+    original = _seed_proxied_record(control)
+    successful = control.deployments.deploy("alice")
+    control.dns.update_record(
+        "example.com", "cdn", RecordType.A, RecordPatch(value="192.0.2.99"), "alice"
+    )
+    current = repository.zones.get_record("example.com", "cdn", RecordType.A)
+
+    def fail_projection(_sites):
+        raise RuntimeError("projection failed")
+
+    repository.sites.replace_all_sites = fail_projection  # type: ignore[method-assign]
+    result = control.deployments.rollback("alice", successful.id)
+
+    assert result.status is DeploymentStatus.FAILED
+    assert repository.zones.get_record("example.com", "cdn", RecordType.A) == current
+    actions = [event.action for event in repository.audit_log.list_audit_events(10)]
+    assert "rollback.applied" not in actions
+    # Only the original deployment may have announced success.
+    assert actions.count("deployment.succeeded") == 1
+    assert original.value != current.value
 
 
 def test_rollback_holds_the_lock_across_the_canonical_state_swap(

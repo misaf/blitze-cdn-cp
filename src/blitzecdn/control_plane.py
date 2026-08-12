@@ -97,7 +97,7 @@ class ControlPlane:
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
-        self.dns = DnsService(store.zones, store.sites, self.bus)
+        self.dns = DnsService(store.zones, store.sites, self.bus, store)
         self.deployments = DeploymentService(
             settings,
             store.deployments,
@@ -109,6 +109,7 @@ class ControlPlane:
             self.background,
             atomic_write_yaml,
             read_log_tail,
+            store,
         )
         self.certificates = CertificateService(
             settings,
@@ -120,6 +121,7 @@ class ControlPlane:
             self.preflight,
             self.dns,
             self.deployments,
+            store,
         )
         self.edges = EdgeOperationsService(
             settings,
@@ -128,6 +130,7 @@ class ControlPlane:
             self.runner,
             self.origin_probe,
             self.edges_store,
+            store,
         )
 
 

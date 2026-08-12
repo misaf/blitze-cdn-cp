@@ -37,6 +37,12 @@ from blitzecdn.domain.sites import CdnSite, CertificateMode
 # ----------------------------------------------------------------------
 
 
+class UnitOfWork(Protocol):
+    """One atomic boundary shared by every store used by a use case."""
+
+    def transaction(self) -> AbstractContextManager[Any]: ...
+
+
 class SiteStore(Protocol):
     """The derived virtual hosts. Written only by re-derivation from records."""
 

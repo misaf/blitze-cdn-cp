@@ -31,6 +31,7 @@ from blitzecdn.ports import (
     Issuer,
     Preflight,
     SiteStore,
+    UnitOfWork,
     ZoneEditor,
 )
 
@@ -51,6 +52,7 @@ class CertificateService:
         preflight: Preflight,
         dns: ZoneEditor,
         deployments: DeploymentGateway,
+        uow: UnitOfWork,
     ) -> None:
         self.settings = settings
         self.sites = sites
@@ -61,6 +63,7 @@ class CertificateService:
         self.preflight = preflight
         self.dns = dns
         self.deployments = deployments
+        self.uow = uow
 
     # -- Installing ----------------------------------------------------
 
@@ -79,19 +82,20 @@ class CertificateService:
                 private_key_pem,
                 source=CertificateSource.UPLOADED,
             )
-            self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
-        self.bus.publish(
-            domain_event(
-                operator,
-                "certificate.uploaded",
-                "site",
-                name,
-                {
-                    "domains": list(info.domains),
-                    "not_after": info.not_after.isoformat(),
-                },
-            )
-        )
+            with self.uow.transaction():
+                self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
+                self.bus.publish(
+                    domain_event(
+                        operator,
+                        "certificate.uploaded",
+                        "site",
+                        name,
+                        {
+                            "domains": list(info.domains),
+                            "not_after": info.not_after.isoformat(),
+                        },
+                    )
+                )
         return info
 
     # -- Preflight -----------------------------------------------------
@@ -206,19 +210,20 @@ class CertificateService:
             source=CertificateSource.ACME,
             email=registration_email,
         )
-        self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
-        self.bus.publish(
-            domain_event(
-                operator,
-                "certificate.requested",
-                "site",
-                site.name,
-                {
-                    "domains": list(info.domains),
-                    "not_after": info.not_after.isoformat(),
-                },
+        with self.uow.transaction():
+            self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "certificate.requested",
+                    "site",
+                    site.name,
+                    {
+                        "domains": list(info.domains),
+                        "not_after": info.not_after.isoformat(),
+                    },
+                )
             )
-        )
         return info
 
     def reconcile_certificates(self, operator: str) -> dict[str, object]:

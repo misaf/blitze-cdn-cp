@@ -12,6 +12,7 @@ desired state a deployment converges spans zones, records and derived sites.
 
 from __future__ import annotations
 
+from contextlib import AbstractContextManager
 from pathlib import Path
 
 from blitzecdn.domain.snapshots import (
@@ -67,11 +68,15 @@ class Repository:
         it records a snapshot with every deployment without knowing what a
         snapshot contains.
         """
-        return encode_snapshot(
-            self.zones.list_domains(),
-            self.zones.list_records(),
-            self.sites.list_sites(),
-        )
+        with self.transaction():
+            domains = self.zones.list_domains()
+            records = self.zones.list_records()
+            sites = self.sites.list_sites()
+            return encode_snapshot(domains, records, sites)
+
+    def transaction(self) -> AbstractContextManager[None]:
+        """Open the Unit of Work shared by this repository's stores."""
+        return self.database.transaction()
 
     decode_snapshot = staticmethod(decode_snapshot)
     decode_snapshot_zones = staticmethod(decode_snapshot_zones)
