@@ -195,6 +195,27 @@ def test_setup_imports_a_legacy_inventory_and_renames_it(tmp_path, monkeypatch):
     assert (tmp_path / "ansible/inventory/hosts.yml.migrated").is_file()
 
 
+def test_setup_imports_local_group_vars_into_database(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    local = tmp_path / "ansible/inventory/group_vars/blitzecdn_edges/local.yml"
+    local.parent.mkdir(parents=True)
+    local.write_text(
+        "blitzecdn_firewall_enabled: true\nblitzecdn_base_timezone: UTC\n",
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(cli.app, ["setup"])
+
+    assert result.exit_code == 0, result.stdout
+    settings = cli.Settings.from_environment({}, project_dir=tmp_path)
+    assert Repository(settings.database_path).ansible_settings.list_settings() == {
+        "blitzecdn_base_timezone": "UTC",
+        "blitzecdn_firewall_enabled": True,
+    }
+    assert not local.exists()
+    assert local.with_name("local.yml.migrated").is_file()
+
+
 def test_setup_does_not_import_over_an_existing_fleet(tmp_path, monkeypatch):
     """A second `setup` must not resurrect a decommissioned host.
 

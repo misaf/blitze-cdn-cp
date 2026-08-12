@@ -124,7 +124,7 @@ class InventoryModule(BaseInventoryPlugin):
                 % database
             )
 
-        edges = self._load(database)
+        edges, settings = self._load(database)
 
         # Created even when empty, so a play limited to the group reports
         # "skipping: no hosts matched" rather than failing on an unknown
@@ -152,6 +152,11 @@ class InventoryModule(BaseInventoryPlugin):
             self.inventory.add_host(name, group=EDGE_GROUP)
             for key, value in _host_variables(edge).items():
                 self.inventory.set_variable(name, key, value)
+            # Host variables outrank the shipped group_vars defaults. Settings
+            # are fleet-wide, but publishing them at host precedence is what
+            # makes the database authoritative without generating a YAML file.
+            for key, value in settings.items():
+                self.inventory.set_variable(name, key, value)
             if sources:
                 self.inventory.set_variable(
                     name, "blitzecdn_firewall_ssh_sources", sources
@@ -176,6 +181,9 @@ class InventoryModule(BaseInventoryPlugin):
             try:
                 rows = connection.execute(
                     "SELECT name, schema_version, document FROM edges ORDER BY name"
+                ).fetchall()
+                setting_rows = connection.execute(
+                    "SELECT name, document FROM ansible_settings ORDER BY name"
                 ).fetchall()
             except sqlite3.Error as error:
                 raise AnsibleParserError(
@@ -208,7 +216,16 @@ class InventoryModule(BaseInventoryPlugin):
             # was expanded against.
             document["name"] = row["name"]
             edges.append(document)
-        return edges
+        settings = {}
+        for row in setting_rows:
+            try:
+                settings[row["name"]] = json.loads(row["document"])
+            except ValueError as error:
+                raise AnsibleParserError(
+                    "Ansible setting %r has an unreadable value: %s"
+                    % (row["name"], error)
+                )
+        return edges, settings
 
 
 def _default_database(source):

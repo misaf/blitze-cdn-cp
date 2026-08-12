@@ -12,6 +12,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict
 
+from blitzecdn.domain.operations import DeploymentId, Operator
 from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
 
 
@@ -88,9 +89,9 @@ def require_transition(current: DeploymentStatus, target: DeploymentStatus) -> N
 class Deployment(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    id: str
+    id: DeploymentId
     status: DeploymentStatus
-    operator: str
+    operator: Operator
     check_mode: bool
     #: Host pattern this run was narrowed to, or ``None`` for every edge.
     #:

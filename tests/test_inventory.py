@@ -169,6 +169,18 @@ def test_an_absent_optional_field_is_absent_rather_than_null(fleet):
     assert "blitzecdn_public_addresses" not in hostvars["edge-01"]
 
 
+def test_database_settings_override_shipped_group_vars(fleet):
+    database, _ = fleet
+    Repository(database).ansible_settings.set_setting(
+        "blitzecdn_firewall_enabled", True
+    )
+
+    hostvars = _ansible_inventory(database)["_meta"]["hostvars"]
+
+    assert hostvars["edge-01"]["blitzecdn_firewall_enabled"] is True
+    assert hostvars["edge-02"]["blitzecdn_firewall_enabled"] is True
+
+
 def test_management_networks_reach_every_edge_and_outrank_group_vars(fleet):
     """The union, as a host variable, which is the whole point of it being one.
 

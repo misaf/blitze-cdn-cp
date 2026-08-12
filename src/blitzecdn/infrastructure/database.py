@@ -22,11 +22,14 @@ from blitzecdn.domain.snapshots import (
     encode_snapshot,
 )
 from blitzecdn.infrastructure.stores import (
+    AnsibleSettingStore,
     AuditLog,
     Database,
     DeploymentStore,
     EdgeStore,
+    OutboxStore,
     SiteStore,
+    WorkflowStore,
     ZoneStore,
 )
 
@@ -57,8 +60,11 @@ class Repository:
         self.sites = SiteStore(self.database)
         self.zones = ZoneStore(self.database)
         self.edges = EdgeStore(self.database)
+        self.ansible_settings = AnsibleSettingStore(self.database)
         self.deployments = DeploymentStore(self.database, self.snapshot)
         self.audit_log = AuditLog(self.database)
+        self.workflows = WorkflowStore(self.database)
+        self.outbox = OutboxStore(self.database)
 
     def snapshot(self) -> str:
         """Serialise the desired state a deployment converges and can roll back to.

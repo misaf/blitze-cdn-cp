@@ -1,6 +1,11 @@
+import sqlite3
+from datetime import UTC, datetime
+
 import pytest
 
 from blitzecdn.domain.deployments import DeploymentStatus
+from blitzecdn.domain.dns import DnsRecord, Domain
+from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
@@ -98,3 +103,54 @@ def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
 
     assert len(connections) == 3
     assert len(set(connections)) == 1
+
+
+def test_workflow_and_outbox_are_durable_and_idempotent(settings):
+    repository = Repository(settings.database_path)
+    workflow = repository.workflows.create(
+        "workflow-1", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+    )
+    assert workflow.status is WorkflowStatus.PENDING
+    repository.workflows.advance(
+        workflow.id,
+        WorkflowStatus.RUNNING,
+        step=WorkflowStep(name="issued", completed_at=datetime.now(UTC)),
+    )
+    assert repository.workflows.unfinished()[0].steps[0].name == "issued"
+
+    repository.outbox.enqueue("webhook", "certificate:1", {"site": "cdn"})
+    repository.outbox.enqueue("webhook", "certificate:1", {"site": "duplicate"})
+    pending = repository.outbox.pending()
+    assert len(pending) == 1
+    repository.outbox.failed(pending[0].id, "temporarily unavailable")
+    assert repository.outbox.pending()[0].attempts == 1
+    repository.outbox.delivered(pending[0].id)
+    assert repository.outbox.pending() == []
+
+
+def test_begin_immediate_reserves_the_cross_process_writer(settings):
+    repository = Repository(settings.database_path)
+    other = sqlite3.connect(settings.database_path, timeout=0.01)
+    try:
+        with (
+            repository.transaction(),
+            pytest.raises(sqlite3.OperationalError, match="locked"),
+        ):
+            other.execute("BEGIN IMMEDIATE")
+    finally:
+        other.close()
+
+
+def test_record_updates_detect_a_stale_expected_version(settings):
+    repository = Repository(settings.database_path)
+    repository.zones.create_domain(Domain(name="example.com"))
+    original = repository.zones.create_record(
+        DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
+    )
+    winner = original.model_copy(update={"value": "192.0.2.2"})
+    repository.zones.replace_record(winner, expected=original)
+
+    with pytest.raises(ConflictError, match="changed while it was being edited"):
+        repository.zones.replace_record(
+            original.model_copy(update={"value": "192.0.2.3"}), expected=original
+        )

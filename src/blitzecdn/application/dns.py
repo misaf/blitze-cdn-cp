@@ -8,6 +8,8 @@ record change silently reverts it.
 
 from __future__ import annotations
 
+import hashlib
+
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import (
@@ -110,7 +112,7 @@ class DnsService:
         )
         self._reject_derived_name_collision(updated)
         with self.uow.transaction():
-            saved = self.zones.replace_record(updated)
+            saved = self.zones.replace_record(updated, expected=current)
             self.sync_sites()
             self.bus.publish(
                 domain_event(
@@ -172,7 +174,14 @@ class DnsService:
 
     def sync_sites(self) -> None:
         """Rewrite the derived sites table from the records that produce it."""
-        self.sites.replace_all_sites(self.derive_sites())
+        records = self.zones.list_records()
+        self.sites.replace_all_sites(self._derive_sites(records))
+        self.sites.set_projection_revision(self._records_revision(records))
+
+    def rebuild_site_projection(self) -> None:
+        """Repair the site read model from its canonical DNS records."""
+        with self.uow.transaction():
+            self.sync_sites()
 
     def derive_sites(self) -> list[CdnSite]:
         """Derive the virtual hosts the edge should serve.
@@ -183,12 +192,26 @@ class DnsService:
         integrity error deep inside a rollback. ``validation_errors()`` still
         reports it.
         """
+        return self._derive_sites(self.zones.list_records())
+
+    @staticmethod
+    def _derive_sites(records: list[DnsRecord]) -> list[CdnSite]:
         sites: dict[str, CdnSite] = {}
-        for record in self.zones.list_records():
+        for record in records:
             site = record.to_site()
             if site is not None:
                 sites.setdefault(site.name, site)
         return list(sites.values())
+
+    @staticmethod
+    def _records_revision(records: list[DnsRecord]) -> str:
+        canonical = "\n".join(
+            record.model_dump_json()
+            for record in sorted(
+                records, key=lambda item: (item.domain, item.name, item.type.value)
+            )
+        )
+        return hashlib.sha256(canonical.encode()).hexdigest()
 
     def record_for_site(self, site_name: str) -> DnsRecord:
         """Find the record a derived site came from.
@@ -220,7 +243,8 @@ class DnsService:
                         "certificate_path": certificate_path,
                         "certificate_key_path": certificate_key_path,
                     }
-                )
+                ),
+                expected=record,
             )
             self.sync_sites()
             return self.sites.get_site(site.name)
@@ -251,12 +275,23 @@ class DnsService:
     def validation_errors(self) -> list[str]:
         """Ways the stored zones and their derived sites contradict each other."""
         errors: list[str] = []
+        records = self.zones.list_records()
+        revision = self.sites.projection_revision()
+        expected_revision = self._records_revision(records)
+        stored_sites = self.sites.list_sites()
+        projection_differs = stored_sites != sorted(
+            self._derive_sites(records), key=lambda site: site.name
+        )
+        if (revision != expected_revision or projection_differs) and (
+            records or revision is not None
+        ):
+            errors.append("the site projection is stale; rebuild it before deploying")
 
         # Two records can flatten to one site name (a.b.example.com and
         # a-b.example.com both give a-b-example-com), which would silently make
         # one overwrite the other in the derived table.
         derived: dict[str, str] = {}
-        for record in self.zones.list_records():
+        for record in records:
             if not record.proxied:
                 continue
             previous = derived.setdefault(record.site_name, record.fqdn)

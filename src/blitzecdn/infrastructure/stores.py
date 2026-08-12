@@ -26,6 +26,13 @@ from blitzecdn.domain.deployments import (
 )
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.edges import EDGE_SCHEMA_VERSION, Edge
+from blitzecdn.domain.operations import (
+    OutboxEvent,
+    Workflow,
+    WorkflowKind,
+    WorkflowStatus,
+    WorkflowStep,
+)
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import STORED
@@ -90,6 +97,11 @@ CREATE TABLE IF NOT EXISTS edges (
     document TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ansible_settings (
+    name TEXT PRIMARY KEY,
+    document TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS audit_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
@@ -98,6 +110,35 @@ CREATE TABLE IF NOT EXISTS audit_events (
     resource_type TEXT NOT NULL,
     resource_id TEXT,
     details TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS workflows (
+    id TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    resource_id TEXT,
+    status TEXT NOT NULL,
+    operator TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    steps TEXT NOT NULL DEFAULT '[]',
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS workflows_status_idx ON workflows(status, updated_at);
+CREATE TABLE IF NOT EXISTS outbox_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    topic TEXT NOT NULL,
+    event_key TEXT NOT NULL UNIQUE,
+    payload TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    delivered_at TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT
+);
+CREATE INDEX IF NOT EXISTS outbox_pending_idx
+    ON outbox_events(delivered_at, id);
+CREATE TABLE IF NOT EXISTS projection_state (
+    name TEXT PRIMARY KEY,
+    source_revision TEXT NOT NULL,
+    projected_at TEXT NOT NULL
 );
 """
 
@@ -148,6 +189,10 @@ class Database:
             yield
             return
         with self.lock, self._connection() as connection:
+            # Acquire the SQLite writer reservation at the Unit-of-Work
+            # boundary, rather than discovering a competing writer halfway
+            # through a multi-store use case.
+            connection.execute("BEGIN IMMEDIATE")
             self._local.connection = connection
             try:
                 yield
@@ -162,6 +207,38 @@ class Database:
     @staticmethod
     def now() -> str:
         return datetime.now(UTC).isoformat()
+
+
+class AnsibleSettingStore:
+    """Non-secret, fleet-wide Ansible policy stored by the control plane."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def list_settings(self) -> dict[str, Any]:
+        with self._db.connect() as connection:
+            rows = connection.execute(
+                "SELECT name, document FROM ansible_settings ORDER BY name"
+            ).fetchall()
+        return {row["name"]: json.loads(row["document"]) for row in rows}
+
+    def set_setting(self, name: str, value: Any) -> None:
+        document = json.dumps(value, separators=(",", ":"), sort_keys=True)
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                "INSERT INTO ansible_settings (name, document, updated_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET "
+                "document = excluded.document, updated_at = excluded.updated_at",
+                (name, document, self._db.now()),
+            )
+
+    def delete_setting(self, name: str) -> None:
+        with self._db.lock, self._db.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM ansible_settings WHERE name = ?", (name,)
+            )
+        if cursor.rowcount == 0:
+            raise NotFoundError(f"Ansible setting {name!r} does not exist")
 
 
 class EdgeStore:
@@ -210,19 +287,31 @@ class EdgeStore:
             raise ConflictError(f"edge {edge.name!r} already exists") from exc
         return edge
 
-    def replace_edge(self, edge: Edge) -> Edge:
+    def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge:
         with self._db.lock, self._db.connect() as connection:
-            cursor = connection.execute(
-                "UPDATE edges SET schema_version = ?, document = ?, updated_at = ? "
-                "WHERE name = ?",
-                (
-                    EDGE_SCHEMA_VERSION,
-                    edge.model_dump_json(),
-                    self._db.now(),
-                    edge.name,
-                ),
+            values = (
+                EDGE_SCHEMA_VERSION,
+                edge.model_dump_json(),
+                self._db.now(),
+                edge.name,
             )
+            if expected is None:
+                cursor = connection.execute(
+                    "UPDATE edges SET schema_version = ?, document = ?, "
+                    "updated_at = ? WHERE name = ?",
+                    values,
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE edges SET schema_version = ?, document = ?, "
+                    "updated_at = ? WHERE name = ? AND document = ?",
+                    (*values, expected.model_dump_json()),
+                )
             if cursor.rowcount != 1:
+                if expected is not None:
+                    raise ConflictError(
+                        f"edge {edge.name!r} changed while it was being edited"
+                    )
                 raise NotFoundError(f"edge {edge.name!r} does not exist")
         return edge
 
@@ -294,6 +383,24 @@ class SiteStore:
             connection.executemany(
                 "INSERT INTO sites (name, document, updated_at) VALUES (?, ?, ?)",
                 [(site.name, site.model_dump_json(), self._db.now()) for site in sites],
+            )
+
+    def projection_revision(self) -> str | None:
+        with self._db.connect() as connection:
+            row = connection.execute(
+                "SELECT source_revision FROM projection_state WHERE name = 'sites'"
+            ).fetchone()
+        return str(row["source_revision"]) if row else None
+
+    def set_projection_revision(self, revision: str) -> None:
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                """INSERT INTO projection_state (name, source_revision, projected_at)
+                   VALUES ('sites', ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                     source_revision = excluded.source_revision,
+                     projected_at = excluded.projected_at""",
+                (revision, self._db.now()),
             )
 
 
@@ -391,20 +498,35 @@ class ZoneStore:
             ) from exc
         return record
 
-    def replace_record(self, record: DnsRecord) -> DnsRecord:
+    def replace_record(
+        self, record: DnsRecord, *, expected: DnsRecord | None = None
+    ) -> DnsRecord:
         with self._db.lock, self._db.connect() as connection:
-            cursor = connection.execute(
-                "UPDATE dns_records SET document = ?, updated_at = ? "
-                "WHERE domain = ? AND name = ? AND type = ?",
-                (
-                    record.model_dump_json(),
-                    self._db.now(),
-                    record.domain,
-                    record.name,
-                    record.type.value,
-                ),
+            values = (
+                record.model_dump_json(),
+                self._db.now(),
+                record.domain,
+                record.name,
+                record.type.value,
             )
+            if expected is None:
+                cursor = connection.execute(
+                    "UPDATE dns_records SET document = ?, updated_at = ? "
+                    "WHERE domain = ? AND name = ? AND type = ?",
+                    values,
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE dns_records SET document = ?, updated_at = ? "
+                    "WHERE domain = ? AND name = ? AND type = ? AND document = ?",
+                    (*values, expected.model_dump_json()),
+                )
             if cursor.rowcount != 1:
+                if expected is not None:
+                    raise ConflictError(
+                        f"{record.type.value} record {record.name!r} changed "
+                        "while it was being edited"
+                    )
                 raise NotFoundError(
                     f"{record.type.value} record {record.name!r} in "
                     f"{record.domain!r} does not exist"
@@ -678,3 +800,133 @@ class AuditLog:
         data = dict(row)
         data["details"] = json.loads(data["details"])
         return AuditEvent.model_validate(data)
+
+
+class WorkflowStore:
+    """Durable progress for work spanning SQLite and external systems."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def create(
+        self,
+        workflow_id: str,
+        kind: WorkflowKind,
+        operator: str,
+        resource_id: str | None = None,
+    ) -> Workflow:
+        now = self._db.now()
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                """INSERT INTO workflows
+                   (id,kind,resource_id,status,operator,created_at,updated_at,steps)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, '[]')""",
+                (
+                    workflow_id,
+                    kind,
+                    resource_id,
+                    WorkflowStatus.PENDING,
+                    operator,
+                    now,
+                    now,
+                ),
+            )
+        return self.get(workflow_id)
+
+    def advance(
+        self,
+        workflow_id: str,
+        status: WorkflowStatus,
+        *,
+        step: WorkflowStep | None = None,
+        error: str | None = None,
+    ) -> Workflow:
+        current = self.get(workflow_id)
+        steps = (*current.steps, step) if step else current.steps
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                """UPDATE workflows
+                   SET status = ?, updated_at = ?, steps = ?, error = ?
+                   WHERE id = ?""",
+                (
+                    status,
+                    self._db.now(),
+                    json.dumps([item.model_dump(mode="json") for item in steps]),
+                    error,
+                    workflow_id,
+                ),
+            )
+        return self.get(workflow_id)
+
+    def get(self, workflow_id: str) -> Workflow:
+        with self._db.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM workflows WHERE id = ?", (workflow_id,)
+            ).fetchone()
+        if row is None:
+            raise NotFoundError(f"workflow {workflow_id!r} does not exist")
+        data = dict(row)
+        data["steps"] = json.loads(data["steps"])
+        return Workflow.model_validate(data)
+
+    def unfinished(self) -> list[Workflow]:
+        with self._db.connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM workflows
+                   WHERE status IN (?, ?) ORDER BY created_at""",
+                (WorkflowStatus.PENDING, WorkflowStatus.RUNNING),
+            ).fetchall()
+        return [self.get(str(row["id"])) for row in rows]
+
+    def list_workflows(self, limit: int = 100) -> list[Workflow]:
+        with self._db.connect() as connection:
+            rows = connection.execute(
+                "SELECT id FROM workflows ORDER BY created_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+        return [self.get(str(row["id"])) for row in rows]
+
+
+class OutboxStore:
+    """Transactional integration events with retry metadata."""
+
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def enqueue(self, topic: str, event_key: str, payload: dict[str, Any]) -> None:
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                """INSERT OR IGNORE INTO outbox_events
+                   (topic,event_key,payload,created_at) VALUES (?, ?, ?, ?)""",
+                (topic, event_key, json.dumps(payload, sort_keys=True), self._db.now()),
+            )
+
+    def pending(self, limit: int = 100) -> list[OutboxEvent]:
+        with self._db.connect() as connection:
+            rows = connection.execute(
+                """SELECT * FROM outbox_events WHERE delivered_at IS NULL
+                   ORDER BY id LIMIT ?""",
+                (limit,),
+            ).fetchall()
+        return [self._event(row) for row in rows]
+
+    def delivered(self, event_id: int) -> None:
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                """UPDATE outbox_events SET delivered_at = ?, attempts = attempts + 1,
+                   last_error = NULL WHERE id = ? AND delivered_at IS NULL""",
+                (self._db.now(), event_id),
+            )
+
+    def failed(self, event_id: int, error: str) -> None:
+        with self._db.lock, self._db.connect() as connection:
+            connection.execute(
+                """UPDATE outbox_events SET attempts = attempts + 1, last_error = ?
+                   WHERE id = ? AND delivered_at IS NULL""",
+                (error, event_id),
+            )
+
+    @staticmethod
+    def _event(row: sqlite3.Row) -> OutboxEvent:
+        data = dict(row)
+        data["payload"] = json.loads(data["payload"])
+        return OutboxEvent.model_validate(data)

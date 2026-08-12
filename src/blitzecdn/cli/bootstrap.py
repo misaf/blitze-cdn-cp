@@ -14,13 +14,11 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import yaml
 
 from blitzecdn.cli import common
 from blitzecdn.cli.app import app
-from blitzecdn.infrastructure.inventory import (
-    initialize_group_vars,
-    read_legacy_inventory,
-)
+from blitzecdn.infrastructure.inventory import read_legacy_inventory
 
 
 def _environment_file_body() -> str:
@@ -78,18 +76,47 @@ def setup() -> None:
         environment_path.write_text(_environment_file_body(), encoding="utf-8")
         environment_path.chmod(0o600)
         created.append(str(environment_path.relative_to(root)))
-    # Runs on every setup, not only a fresh one: an existing install upgrading
-    # into the group_vars directory layout needs this file too, and it is the
-    # one place site configuration can go without blocking the next update.
-    group_vars = initialize_group_vars(root / "ansible/inventory")
-    if group_vars is not None:
-        created.append(str(group_vars.relative_to(root)))
     if created:
         typer.echo(f"BlitzeCDN is ready. Created: {', '.join(created)}")
     else:
         typer.echo("BlitzeCDN is already set up; existing files were preserved.")
     _migrate_legacy_inventory(root)
+    _migrate_local_settings(root)
     typer.echo("Next: blitzecdn edge add NAME --host ADDRESS --ssh-source YOUR_CIDR")
+
+
+def _migrate_local_settings(root: Path) -> None:
+    """Move legacy local.yml overrides into the database exactly once."""
+    path = root / "ansible/inventory/group_vars/blitzecdn_edges/local.yml"
+    if not path.is_file():
+        return
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as error:
+        message = f"cannot migrate {path}: invalid YAML: {error}"
+        raise typer.BadParameter(message) from error
+    if not isinstance(document, dict):
+        raise typer.BadParameter(f"cannot migrate {path}: expected a YAML mapping")
+
+    from blitzecdn.cli.configuration import RESERVED_SETTINGS, _name
+
+    store = common.control_plane().ansible_settings
+    existing = store.list_settings()
+    for name, value in document.items():
+        name = str(name)
+        if name in RESERVED_SETTINGS:
+            continue
+        name = _name(name)
+        if name not in existing:
+            store.set_setting(name, value)
+    migrated = path.with_name(path.name + ".migrated")
+    if migrated.exists():
+        raise typer.BadParameter(f"refusing to overwrite {migrated}")
+    path.rename(migrated)
+    typer.echo(
+        f"Imported {len(document)} global setting(s) into the database; "
+        f"renamed {path.name} to {migrated.name}."
+    )
 
 
 def _migrate_legacy_inventory(root: Path) -> None:
