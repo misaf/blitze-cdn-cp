@@ -84,17 +84,16 @@ test *args:
 
 # YAML, playbook syntax, and role linting.
 #
-# The syntax checks run against the real dynamic inventory. They used to name
-# `hosts.example.yml`, which was deleted when the fleet moved into the database
-# — so these two steps had been failing in CI ever since, on a missing file
-# rather than on anything about the playbooks. An empty fleet is fine here: a
-# syntax check parses the play, it does not need a host to target.
+# The syntax checks use the dynamic inventory plugin in its explicit non-strict
+# mode. A fresh checkout has no control-plane database, and a syntax check does
+# not need hosts; production keeps using the strict inventory in
+# `ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
 ansible-check:
     uv run yamllint .
-    uv run ansible-playbook -i ansible/inventory/blitzecdn.yml \
+    uv run ansible-playbook -i tests/fixtures/blitzecdn.yml \
         ansible/playbooks/edge.yml --syntax-check \
         --extra-vars @tests/fixtures/desired-state.yml
-    uv run ansible-playbook -i ansible/inventory/blitzecdn.yml \
+    uv run ansible-playbook -i tests/fixtures/blitzecdn.yml \
         ansible/playbooks/acme-challenge.yml --syntax-check
     uv run ansible-lint \
         ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml \
