@@ -20,6 +20,7 @@ blitzecdn_controlplane_packages: [certbot, git, openssh-server, openssl, sudo]
 # leaves the file alone, which is what `install.sh update` wants.
 blitzecdn_controlplane_acme_email: ""
 blitzecdn_controlplane_certificate_reconcile_seconds: 600
+blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
 
 # Kept in step with SYSTEMD_UNITS and SERVICES in install.sh, which needs the
 # same lists to uninstall a host whose collections may already be gone.
