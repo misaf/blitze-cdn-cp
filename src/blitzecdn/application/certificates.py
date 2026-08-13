@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
+from typing import Literal
 
 from blitzecdn.application.workflows import WorkflowCoordinator, WorkflowProgress
 from blitzecdn.config import Settings
@@ -439,30 +440,14 @@ class CertificateService:
         renewed: list[str] = []
         skipped: list[str] = []
         failed: list[str] = []
-        now = datetime.now(UTC)
         deadline = (
             None if budget_seconds is None else monotonic() + max(budget_seconds, 0.0)
         )
-        stored = self.persistence.certificates.list_all()
-        selected = None if sites is None else set(sites)
-        if selected is not None:
-            unknown = sorted(selected - {info.site for info in stored})
-            if unknown:
-                raise NotFoundError("no managed certificate for: " + ", ".join(unknown))
-        for current in stored:
-            if selected is not None and current.site not in selected:
-                continue
-            status = CertificateStatus.of(current, now=now)
-            if not status.renewable:
-                if status.days_remaining <= within_days:
-                    skipped.append(
-                        f"{status.site}: expires in {status.days_remaining} day(s) "
-                        "but was uploaded, not issued by BlitzeCDN. Ask whoever "
-                        "supplied it for a replacement and upload that."
-                    )
-                continue
-            if not force and not status.due_for_renewal(within_days):
-                continue
+        candidates, deferred = self._renewal_candidates(
+            within_days=within_days, force=force, sites=sites
+        )
+        skipped.extend(deferred)
+        for current, status in candidates:
             if deadline is not None and monotonic() >= deadline:
                 skipped.append(
                     f"{status.site}: not attempted, the renewal budget of "
@@ -470,31 +455,14 @@ class CertificateService:
                     "be retried by the next run."
                 )
                 continue
-            try:
-                # Renew under the address the certificate was registered with,
-                # so a changed default cannot silently move an existing
-                # subscription to a different ACME account.
-                info = self.request_certificate(status.site, operator, current.email)
-            except DeploymentBusyError:
-                # Not a failure. Issuance takes the deployment lock, so a
-                # deploy running now means this site was never attempted — and
-                # a fleet deploy can span a whole sweep. Filed as failed, it
-                # read exactly like a CA refusal, which is the one thing a
-                # renewal report must not get wrong near an expiry.
-                skipped.append(
-                    f"{status.site}: not attempted, a deployment was running. It "
-                    "will be retried by the next run."
-                )
-                _LOGGER.info(
-                    "renewal deferred for %s: deployment in progress", status.site
-                )
-                continue
-            except BlitzeError as exc:
-                failed.append(f"{status.site}: {exc}")
-                _LOGGER.warning("renewal failed for %s: %s", status.site, exc)
-                continue
-            renewed.append(status.site)
-            _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
+            outcome, message = self._renew_one(current, status, operator)
+            match outcome:
+                case "renewed":
+                    renewed.append(message)
+                case "skipped":
+                    skipped.append(message)
+                case "failed":
+                    failed.append(message)
         self.bus.publish(
             domain_event(
                 operator,
@@ -517,3 +485,60 @@ class CertificateService:
         return RenewalResult(
             renewed=tuple(renewed), skipped=tuple(skipped), failed=tuple(failed)
         )
+
+    def _renewal_candidates(
+        self,
+        *,
+        within_days: int,
+        force: bool,
+        sites: Sequence[str] | None,
+    ) -> tuple[list[tuple[CertificateInfo, CertificateStatus]], list[str]]:
+        """Select renewable certificates and explain actionable exclusions."""
+        stored = self.persistence.certificates.list_all()
+        selected = None if sites is None else set(sites)
+        if selected is not None:
+            unknown = sorted(selected - {info.site for info in stored})
+            if unknown:
+                raise NotFoundError("no managed certificate for: " + ", ".join(unknown))
+
+        candidates: list[tuple[CertificateInfo, CertificateStatus]] = []
+        skipped: list[str] = []
+        now = datetime.now(UTC)
+        for current in stored:
+            if selected is not None and current.site not in selected:
+                continue
+            status = CertificateStatus.of(current, now=now)
+            if not status.renewable:
+                if status.days_remaining <= within_days:
+                    skipped.append(
+                        f"{status.site}: expires in {status.days_remaining} day(s) "
+                        "but was uploaded, not issued by BlitzeCDN. Ask whoever "
+                        "supplied it for a replacement and upload that."
+                    )
+                continue
+            if force or status.due_for_renewal(within_days):
+                candidates.append((current, status))
+        return candidates, skipped
+
+    def _renew_one(
+        self,
+        current: CertificateInfo,
+        status: CertificateStatus,
+        operator: str,
+    ) -> tuple[Literal["renewed", "skipped", "failed"], str]:
+        """Attempt one renewal and classify its operator-facing result."""
+        try:
+            # Preserve the subscription's ACME account when the default changes.
+            info = self.request_certificate(status.site, operator, current.email)
+        except DeploymentBusyError:
+            _LOGGER.info("renewal deferred for %s: deployment in progress", status.site)
+            return (
+                "skipped",
+                f"{status.site}: not attempted, a deployment was running. It will "
+                "be retried by the next run.",
+            )
+        except BlitzeError as exc:
+            _LOGGER.warning("renewal failed for %s: %s", status.site, exc)
+            return "failed", f"{status.site}: {exc}"
+        _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
+        return "renewed", status.site
