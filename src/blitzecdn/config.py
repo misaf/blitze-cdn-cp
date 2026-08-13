@@ -24,6 +24,7 @@ _PROJECT_KEYS = {
     "deployment_timeout_seconds",
     "output_limit_bytes",
     "run_log_retention",
+    "history_retention",
     "allow_empty_sites",
     "certificate_dir",
     "acme_challenge_playbook_path",
@@ -120,6 +121,14 @@ class Settings(BaseModel):
     #: The newest are kept; a deployment whose log has aged out still has its
     #: structured result, which is what the control plane reasons from.
     run_log_retention: int = Field(default=500, ge=10, le=100_000)
+    #: How many check-mode deployments and finished workflows to keep.
+    #:
+    #: The drift timer fires hourly and each firing writes a deployment row
+    #: carrying a *complete* copy of every zone and record, so without a bound
+    #: this table grows by a full desired state every hour whether or not
+    #: anything changed. Real deployments are never pruned: they are the
+    #: snapshots a rollback chooses from.
+    history_retention: int = Field(default=1000, ge=50, le=100_000)
     certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
     #: Wall-clock budget for one renewal sweep served over HTTP.
     #:
@@ -344,6 +353,9 @@ class Settings(BaseModel):
                 ),
                 run_log_retention=int(
                     str(value("BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500))
+                ),
+                history_retention=int(
+                    str(value("BLITZE_HISTORY_RETENTION", "history_retention", 1000))
                 ),
                 acme_ca_domain=str(
                     value("BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org")
