@@ -306,8 +306,9 @@ class Settings(BaseSettings):
 
         Kept for maintenance, debugging and operator inspection. No application
         code reads these — what the control plane acts on comes from the
-        ``blitzecdn_result`` callback — so a missing or rotated-away log costs
-        an explanation, never a decision.
+        Runner's structured events (with the ``blitzecdn_result`` document as a
+        fallback) — so a missing or rotated-away log costs an explanation,
+        never a decision.
         """
         return self.state_dir / "logs"
 
