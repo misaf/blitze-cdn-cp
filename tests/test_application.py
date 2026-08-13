@@ -626,6 +626,137 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
     )
 
 
+def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
+    settings, certificate_pair, monkeypatch
+):
+    """Lock contention is "come back later", not "the CA refused".
+
+    Issuance takes the deployment lock, so a fleet deploy can span a whole
+    sweep. Filed under `failed` it read exactly like a CA rejection, which is
+    the one thing a renewal report must not get wrong near an expiry — and the
+    next run picks the site up regardless.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    _seed_proxied_record(control)
+    site = repository.sites.list_sites()[0]
+    certificate, key = certificate_pair((site.server_names[0],), days=5)
+    control.certificate_store.install(
+        site, certificate, key, source=CertificateSource.ACME, email="ops@example.com"
+    )
+
+    def busy(*_args, **_kwargs):
+        raise DeploymentBusyError("another deployment is already running")
+
+    monkeypatch.setattr(control.certificates, "request_certificate", busy)
+
+    result = control.certificates.renew_certificates("alice")
+
+    assert result.failed == ()
+    assert len(result.skipped) == 1
+    assert "a deployment was running" in result.skipped[0]
+    assert result.ok is True
+
+
+def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
+    """The CA may have issued a certificate that reached no disk here.
+
+    That is a rate-limited issuance spent on nothing, and it is the state worth
+    recognising before retrying — so the journal has to distinguish it from an
+    interruption after the PEM was stored, which the next issuance corrects for
+    free. Both used to arrive as one undifferentiated NEEDS_REVIEW.
+    """
+    configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
+    repository = Repository(configured.database_path)
+    control = ControlPlane(
+        configured, repository, FakeRunner(), preflight=FakePreflight()
+    )  # type: ignore[arg-type]
+    _seed_proxied_record(control)
+
+    class DyingStore:
+        def install(self, *_args, **_kwargs):
+            raise OSError("disk full")
+
+    monkeypatch.setattr(control.certificates, "certificate_store", DyingStore())
+    monkeypatch.setattr(
+        control.certificates.issuer, "issue", lambda *_a, **_k: (b"cert", b"key")
+    )
+
+    with pytest.raises(OSError):
+        control.certificates.request_certificate("cdn-example-com", "alice")
+
+    workflow = repository.workflows.list_workflows(10)[0]
+    assert workflow.status is WorkflowStatus.FAILED
+    # It got past the CA and no further, which is the whole distinction.
+    assert [step.name for step in workflow.steps] == ["issued"]
+
+
+def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
+    """The lost update rollback used to make silently.
+
+    Record writes deliberately do not take the deployment lock, and adoption
+    restores wholesale — so a record created during a minutes-long fleet
+    rollback was deleted by the adoption that followed it, with no conflict and
+    an audit trail showing it created and never removed. The write is done from
+    inside the runner here because that is exactly when the window is open.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+    )  # type: ignore[arg-type]
+    _seed_proxied_record(control)
+    successful = control.deployments.deploy("alice")
+
+    concurrent = DnsRecord(
+        domain="example.com", name="late", value="198.51.100.77", proxied=True
+    )
+
+    class WritingRunner(FakeRunner):
+        def run(self, *, check, host_limit=None):
+            # Mid-run: the fleet is converging the old snapshot while an
+            # operator adds a record the rollback has never heard of.
+            control.dns.create_record(concurrent, "bob")
+            return super().run(check=check, host_limit=host_limit)
+
+    control.runner = WritingRunner([ansible_run(host_run("edge-a"))])
+    control.deployments.runner = control.runner
+
+    rolled_back = control.deployments.rollback("alice", successful.id)
+
+    assert rolled_back.status is DeploymentStatus.FAILED
+    assert "changed while this rollback was converging" in (rolled_back.detail or "")
+    # The whole point: the record that arrived late is still there.
+    assert (
+        repository.zones.get_record("example.com", "late", RecordType.A) == concurrent
+    )
+
+
+def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
+    """The guard must not refuse the ordinary case."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
+    )  # type: ignore[arg-type]
+    original = _seed_proxied_record(control)
+    successful = control.deployments.deploy("alice")
+    control.dns.update_record(
+        "example.com",
+        "cdn",
+        RecordType.A,
+        RecordPatch(value="203.0.113.55"),
+        "alice",
+    )
+
+    rolled_back = control.deployments.rollback("alice", successful.id)
+
+    assert rolled_back.status is DeploymentStatus.SUCCEEDED
+    assert repository.zones.get_record("example.com", "cdn", RecordType.A) == original
+
+
 def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_payload):
     repository = Repository(settings.database_path)
     release = threading.Event()
@@ -923,10 +1054,10 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
 
     result = control.certificates.reconcile_certificates("timer")
 
-    assert result["issued"] == [site_name]
-    assert result["skipped"] == {}
-    assert result["failed"] == {}
-    assert result["deployment"].status is DeploymentStatus.SUCCEEDED
+    assert result.issued == (site_name,)
+    assert result.skipped == {}
+    assert result.failed == {}
+    assert result.deployment.status is DeploymentStatus.SUCCEEDED
     assert repository.sites.get_site(site_name).certificate_mode == "requested"
 
 
@@ -947,9 +1078,9 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
 
     result = control.certificates.reconcile_certificates("timer")
 
-    assert result["issued"] == []
-    assert "dns" in result["skipped"][site_name]
-    assert result["deployment"] is None
+    assert result.issued == ()
+    assert "dns" in result.skipped[site_name]
+    assert result.deployment is None
 
 
 def test_request_certificate_requires_email(settings, site_payload):
@@ -1219,11 +1350,11 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
     issuer.issued.clear()
 
     # Both now carry the issuer's 90-day certificate, so nothing is due.
-    assert control.certificates.renew_certificates("alice")["renewed"] == []
+    assert control.certificates.renew_certificates("alice").renewed == ()
     assert issuer.issued == []
 
     assert sorted(
-        control.certificates.renew_certificates("alice", force=True)["renewed"]
+        control.certificates.renew_certificates("alice", force=True).renewed
     ) == [
         "due-example-com",
         "healthy-example-com",
@@ -1276,11 +1407,11 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
         "alice", force=True, budget_seconds=1
     )
 
-    assert len(result["renewed"]) == 1
+    assert len(result.renewed) == 1
     assert len(issuer.issued) == 1, "the budget must not interrupt an issuance"
-    assert len(result["skipped"]) == 1
-    assert "renewal budget" in result["skipped"][0]
-    assert "retried by the next run" in result["skipped"][0]
+    assert len(result.skipped) == 1
+    assert "renewal budget" in result.skipped[0]
+    assert "retried by the next run" in result.skipped[0]
 
 
 def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
@@ -1312,8 +1443,8 @@ def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
 
     result = control.certificates.renew_certificates("alice", force=True)
 
-    assert len(result["renewed"]) == 2
-    assert result["skipped"] == []
+    assert len(result.renewed) == 2
+    assert result.skipped == ()
 
 
 def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
@@ -1332,9 +1463,9 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
 
     result = control.certificates.renew_certificates("alice")
 
-    assert result["renewed"] == []
+    assert result.renewed == ()
     assert issuer.issued == [], "BlitzeCDN must not reissue someone else's certificate"
-    assert "uploaded, not issued by BlitzeCDN" in result["skipped"][0]
+    assert "uploaded, not issued by BlitzeCDN" in result.skipped[0]
 
 
 def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair):
@@ -1374,9 +1505,9 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
 
     result = control.certificates.renew_certificates("alice")
 
-    assert result["renewed"] == ["fine-example-com"]
-    assert len(result["failed"]) == 1
-    assert "broken-example-com" in result["failed"][0]
+    assert result.renewed == ("fine-example-com",)
+    assert len(result.failed) == 1
+    assert "broken-example-com" in result.failed[0]
 
 
 def _two_acme_sites(control, certificate_pair):
@@ -1416,7 +1547,7 @@ def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
         "alice", force=True, sites=["first-example-com"]
     )
 
-    assert result["renewed"] == ["first-example-com"]
+    assert result.renewed == ("first-example-com",)
     # The unselected site never reached the CA at all.
     assert [site for site, _ in issuer.issued] == ["first-example-com"]
 
@@ -1953,9 +2084,9 @@ def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
 
     result = control.certificates.renew_certificates("alice", force=True)
 
-    assert result["renewed"] == []
-    assert len(result["failed"]) == 1
-    assert "preflight failed" in result["failed"][0]
+    assert result.renewed == ()
+    assert len(result.failed) == 1
+    assert "preflight failed" in result.failed[0]
     assert issuer.issued == []
 
 

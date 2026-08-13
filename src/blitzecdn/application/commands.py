@@ -37,6 +37,8 @@ from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateInfo,
     PreflightReport,
+    ReconciliationResult,
+    RenewalResult,
 )
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
@@ -182,7 +184,7 @@ class RenewCertificatesCommand:
     sites: Sequence[str] | None = None
     budget_seconds: float | None = None
 
-    def execute(self, services: Services, operator: str) -> dict[str, list[str]]:
+    def execute(self, services: Services, operator: str) -> RenewalResult:
         return services.certificates.renew_certificates(
             operator,
             within_days=self.within_days,
@@ -196,7 +198,7 @@ class RenewCertificatesCommand:
 class ReconcileCertificatesCommand:
     """Issue ready first certificates and install them with one deployment."""
 
-    def execute(self, services: Services, operator: str) -> dict[str, object]:
+    def execute(self, services: Services, operator: str) -> ReconciliationResult:
         return services.certificates.reconcile_certificates(operator)
 
 

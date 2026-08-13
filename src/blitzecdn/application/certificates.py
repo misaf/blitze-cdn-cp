@@ -12,7 +12,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from time import monotonic
 
-from blitzecdn.application.workflows import WorkflowCoordinator
+from blitzecdn.application.workflows import WorkflowCoordinator, WorkflowProgress
 from blitzecdn.config import Settings
 from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
@@ -20,6 +20,8 @@ from blitzecdn.domain.certificates import (
     CertificateSource,
     CertificateStatus,
     PreflightReport,
+    ReconciliationResult,
+    RenewalResult,
 )
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.operations import (
@@ -28,7 +30,12 @@ from blitzecdn.domain.operations import (
     WorkflowKind,
 )
 from blitzecdn.domain.sites import CdnSite, CertificateMode
-from blitzecdn.exceptions import BlitzeError, ConflictError, NotFoundError
+from blitzecdn.exceptions import (
+    BlitzeError,
+    ConflictError,
+    DeploymentBusyError,
+    NotFoundError,
+)
 from blitzecdn.ports import (
     CertificateStore,
     DeploymentGateway,
@@ -221,8 +228,9 @@ class CertificateService:
                     operator,
                     registration_email,
                     skip_preflight=request.preflight is PreflightPolicy.OVERRIDE,
+                    progress=progress,
                 )
-                progress.checkpoint("issued_and_activated", {"site": request.site})
+                progress.checkpoint("activated", {"site": request.site})
             return info
 
     def _issue_certificate_locked(
@@ -232,12 +240,29 @@ class CertificateService:
         registration_email: str,
         *,
         skip_preflight: bool = False,
+        progress: WorkflowProgress | None = None,
     ) -> CertificateInfo:
-        """Issue and activate one certificate while the caller holds the lock."""
+        """Issue and activate one certificate while the caller holds the lock.
+
+        Checkpointed between each step, because the three of them fail in ways
+        that need different answers and only the journal survives to say which
+        happened. Between ``issued`` and ``stored`` the CA has handed out a
+        certificate that exists nowhere on this machine — a rate-limited
+        issuance spent on nothing, and the one state worth recognising before
+        retrying. Between ``stored`` and ``activated`` the PEM is on disk and
+        only the record still points at the old mode, which the next issuance
+        corrects for free.
+
+        Without them an interrupted issuance left one undifferentiated
+        NEEDS_REVIEW workflow, which is the same thing recovery says about an
+        upload that had already finished.
+        """
         self._enforce_preflight(
             site, operator, skip=skip_preflight, action="certificate.requested"
         )
         certificate_pem, private_key_pem = self.issuer.issue(site, registration_email)
+        if progress is not None:
+            progress.checkpoint("issued", {"site": site.name})
         info = self.certificate_store.install(
             site,
             certificate_pem,
@@ -245,6 +270,8 @@ class CertificateService:
             source=CertificateSource.ACME,
             email=registration_email,
         )
+        if progress is not None:
+            progress.checkpoint("stored", {"site": site.name})
         with self.uow.transaction():
             self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
             self.bus.publish(
@@ -261,7 +288,7 @@ class CertificateService:
             )
         return info
 
-    def reconcile_certificates(self, operator: str) -> dict[str, object]:
+    def reconcile_certificates(self, operator: str) -> ReconciliationResult:
         """Issue ready first certificates and install them with one deployment.
 
         Eligibility is checked again after taking the cross-process lock. Two
@@ -279,7 +306,16 @@ class CertificateService:
                 skipped[candidate.name] = report.summary()
                 continue
             try:
-                with self.runner.lock():
+                # Journalled like every other path to the CA. This one is the
+                # least attended — a scheduler thread on a timer — so an
+                # interruption here is the most likely to be discovered later
+                # and the least likely to have anyone watching when it happens.
+                with (
+                    self.workflows.run(
+                        WorkflowKind.CERTIFICATE, operator, candidate.name
+                    ) as progress,
+                    self.runner.lock(),
+                ):
                     site = self.sites.get_site(candidate.name)
                     if site.certificate_mode is not CertificateMode.DISABLED:
                         continue
@@ -290,19 +326,24 @@ class CertificateService:
                             "issuance"
                         )
                     self._issue_certificate_locked(
-                        site, operator, registration_email, skip_preflight=False
+                        site,
+                        operator,
+                        registration_email,
+                        skip_preflight=False,
+                        progress=progress,
                     )
+                    progress.checkpoint("activated", {"site": site.name})
                 issued.append(site.name)
             except BlitzeError as exc:
                 failed[candidate.name] = str(exc)
 
         deployment = self.deployments.deploy(operator) if issued else None
-        return {
-            "issued": issued,
-            "skipped": skipped,
-            "failed": failed,
-            "deployment": deployment,
-        }
+        return ReconciliationResult(
+            issued=tuple(issued),
+            skipped=skipped,
+            failed=failed,
+            deployment=deployment,
+        )
 
     # -- Reporting -----------------------------------------------------
 
@@ -343,7 +384,7 @@ class CertificateService:
         force: bool = False,
         sites: Sequence[str] | None = None,
         budget_seconds: float | None = None,
-    ) -> dict[str, list[str]]:
+    ) -> RenewalResult:
         """Reissue ACME certificates that are close to expiry.
 
         Every certificate is attempted even if an earlier one fails. Renewal
@@ -416,6 +457,20 @@ class CertificateService:
                 # so a changed default cannot silently move an existing
                 # subscription to a different ACME account.
                 info = self.request_certificate(status.site, operator, current.email)
+            except DeploymentBusyError:
+                # Not a failure. Issuance takes the deployment lock, so a
+                # deploy running now means this site was never attempted — and
+                # a fleet deploy can span a whole sweep. Filed as failed, it
+                # read exactly like a CA refusal, which is the one thing a
+                # renewal report must not get wrong near an expiry.
+                skipped.append(
+                    f"{status.site}: not attempted, a deployment was running. It "
+                    "will be retried by the next run."
+                )
+                _LOGGER.info(
+                    "renewal deferred for %s: deployment in progress", status.site
+                )
+                continue
             except BlitzeError as exc:
                 failed.append(f"{status.site}: {exc}")
                 _LOGGER.warning("renewal failed for %s: %s", status.site, exc)
@@ -441,4 +496,6 @@ class CertificateService:
                 },
             )
         )
-        return {"renewed": renewed, "skipped": skipped, "failed": failed}
+        return RenewalResult(
+            renewed=tuple(renewed), skipped=tuple(skipped), failed=tuple(failed)
+        )
