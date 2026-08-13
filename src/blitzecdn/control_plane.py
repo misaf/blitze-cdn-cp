@@ -118,7 +118,9 @@ class ControlPlane:
         # services can publish "something happened" without knowing who listens.
         self.bus = InProcessEventBus()
         self.bus.subscribe(AuditObserver(store.audit_log))
-        self.workflows = WorkflowCoordinator(store.workflows, store)
+        self.workflows = WorkflowCoordinator(
+            store.workflows, store, settings.history_retention
+        )
         self.workflow_history = store.workflows
         self.recovery = RecoveryService(store.workflows, store)
 
@@ -173,7 +175,6 @@ class ControlPlane:
             self.workflows,
         )
         self.edges = EdgeOperationsService(
-            settings,
             store.sites,
             self.bus,
             self.runner,

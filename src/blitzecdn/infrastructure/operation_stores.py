@@ -91,6 +91,36 @@ class WorkflowStore:
             ).all()
             return [self._workflow(row) for row in rows]
 
+    def prune_finished(self, keep: int) -> int:
+        """Drop finished workflows beyond the newest ``keep``.
+
+        Never an unfinished one. Those are what ``reconcile_interrupted`` turns
+        into NEEDS_REVIEW at startup, and a workflow removed before anyone
+        looked at it is the record of ambiguous external work — a certificate
+        the CA may have issued — disappearing.
+
+        NEEDS_REVIEW counts as finished for this and is therefore prunable,
+        which is deliberate: it is a terminal state an operator has been shown,
+        and keeping the newest ``keep`` of them is what retention means
+        everywhere else here.
+        """
+        with self._db.session() as session:
+            unfinished = (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
+            survivors = (
+                select(WorkflowRow.id)
+                .where(WorkflowRow.status.not_in(unfinished))
+                .order_by(WorkflowRow.created_at.desc())
+                .limit(keep)
+                .scalar_subquery()
+            )
+            result = session.execute(
+                delete(WorkflowRow).where(
+                    WorkflowRow.status.not_in(unfinished),
+                    WorkflowRow.id.not_in(survivors),
+                )
+            )
+            return cast("CursorResult[Any]", result).rowcount
+
     def list_workflows(self, limit: int = 100) -> list[Workflow]:
         with self._db.session() as session:
             rows = session.scalars(

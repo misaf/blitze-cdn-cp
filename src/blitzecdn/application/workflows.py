@@ -35,9 +35,15 @@ class WorkflowProgress:
 class WorkflowCoordinator:
     """Records idempotent checkpoints around work SQLite cannot roll back."""
 
-    def __init__(self, journal: WorkflowJournal, uow: UnitOfWork) -> None:
+    def __init__(
+        self, journal: WorkflowJournal, uow: UnitOfWork, retention: int = 1000
+    ) -> None:
         self.journal = journal
         self.uow = uow
+        #: How many finished workflows to keep. Applied when one closes, so the
+        #: policy runs whenever the thing it bounds happens rather than needing
+        #: a timer that may never have been installed.
+        self.retention = retention
 
     @contextmanager
     def run(
@@ -82,6 +88,7 @@ class WorkflowCoordinator:
                     ),
                     error=progress.error,
                 )
+                self.journal.prune_finished(self.retention)
 
 
 class RecoveryService:
@@ -128,6 +135,10 @@ class OutboxDispatcher:
     @property
     def enabled(self) -> bool:
         return bool(self.handlers)
+
+    def undelivered(self) -> int:
+        """How many events are still waiting, for an operator or a metric."""
+        return self.outbox.undelivered()
 
     def dispatch(self, limit: int = 100) -> int:
         """Deliver what is pending, then drop the oldest receipts.
