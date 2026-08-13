@@ -1317,3 +1317,17 @@ def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(tmp_path / ".state/bin/uv")
     assert (tmp_path / ".state/bin/uv").is_file()
+
+
+def test_cli_wrapper_preserves_the_explicit_empty_site_approval():
+    """The one destructive approval must survive sudo and the env file."""
+    wrapper = (
+        PROJECT_DIR / "ansible/roles/blitzecdn_controlplane/templates/blitzecdn-cli.j2"
+    ).read_text(encoding="utf-8")
+
+    captured = "allow_empty_sites_override=${BLITZE_ALLOW_EMPTY_SITES-}"
+    restored = "BLITZE_ALLOW_EMPTY_SITES=${allow_empty_sites_override}"
+    assert captured in wrapper
+    assert "--preserve-env=BLITZE_ALLOW_EMPTY_SITES" in wrapper
+    assert restored in wrapper
+    assert wrapper.index(captured) < wrapper.index("source ") < wrapper.index(restored)
