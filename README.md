@@ -166,7 +166,7 @@ The package is layered, and the layering is checked rather than trusted:
 | Application | `application/` | Orchestrates the domain through those ports. Never names a concrete adapter. |
 | Infrastructure | `infrastructure/` | SQLite, Ansible, Certbot, filesystem, inventory, DNS. Matched to ports structurally — it never imports them. |
 | Composition root | `control_plane.py` | The one module that knows both halves. Builds the adapters and injects them into the services. |
-| Entry points | `cli/`, `api.py` | Call the `ControlPlane` facade. |
+| Entry points | `cli/`, `api/` | Call the `ControlPlane` facade. CLI commands and HTTP routers are split along matching feature boundaries. |
 
 `tests/test_layering.py` walks the real source tree and fails when `domain/` or
 `application/` imports an adapter package — fastapi, typer, sqlite3,

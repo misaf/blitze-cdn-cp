@@ -2,10 +2,21 @@ import threading
 import time
 
 from conftest import FakeRunner, ansible_run, host_run
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
 from blitzecdn.api import create_app
+from blitzecdn.api.dependencies import get_control_plane
+from blitzecdn.api.routes import (
+    cache,
+    certificates,
+    deployments,
+    diagnostics,
+    edges,
+    sites,
+    zones,
+)
 from blitzecdn.application import (
     CertificateService,
     DeploymentService,
@@ -31,6 +42,43 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
     monkeypatch.setattr("blitzecdn.api.build_control_plane", build)
     create_app(settings)
     assert built == []
+
+
+def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
+    routers = (diagnostics, sites, zones, edges, cache, certificates, deployments)
+    routes = [
+        route
+        for module in routers
+        for route in module.router.routes
+        if isinstance(route, APIRoute)
+    ]
+    modules = {
+        route.endpoint.__module__
+        for route in routes
+        if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/")
+    }
+    assert modules == {
+        "blitzecdn.api.routes.cache",
+        "blitzecdn.api.routes.certificates",
+        "blitzecdn.api.routes.deployments",
+        "blitzecdn.api.routes.diagnostics",
+        "blitzecdn.api.routes.edges",
+        "blitzecdn.api.routes.sites",
+        "blitzecdn.api.routes.zones",
+    }
+
+    def dependency_calls(route: APIRoute) -> set[object]:
+        pending = list(route.dependant.dependencies)
+        calls: set[object] = set()
+        while pending:
+            dependency = pending.pop()
+            calls.add(dependency.call)
+            pending.extend(dependency.dependencies)
+        return calls
+
+    for route in routes:
+        if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/"):
+            assert get_control_plane in dependency_calls(route), route.path
 
 
 def test_health_is_public_and_controls_require_auth(settings):
