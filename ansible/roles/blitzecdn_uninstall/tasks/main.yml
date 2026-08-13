@@ -1,0 +1,94 @@
+---
+# This role deliberately leaves the checkout in place. It contains the
+# ansible-playbook process executing these tasks; install.sh removes it after
+# the play exits. Packages are shared host state and are not removed either.
+
+- name: Stop and disable BlitzeCDN services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ blitzecdn_uninstall_controlplane_units + blitzecdn_uninstall_edge_units }}"
+  failed_when: false
+
+- name: Remove BlitzeCDN systemd units
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop: "{{ blitzecdn_uninstall_controlplane_units + blitzecdn_uninstall_edge_units }}"
+  notify: Reload systemd after removing units
+
+- name: Locate managed Nginx configurations
+  ansible.builtin.find:
+    paths:
+      - /etc/nginx/sites-available
+      - /etc/nginx/conf.d
+    patterns: "*.conf"
+    contains: "^{{ blitzecdn_uninstall_nginx_marker | regex_escape }}$"
+  register: blitzecdn_uninstall_nginx_configs
+
+- name: Remove links for managed Nginx sites
+  ansible.builtin.file:
+    path: "/etc/nginx/sites-enabled/{{ item.path | basename }}"
+    state: absent
+  loop: "{{ blitzecdn_uninstall_nginx_configs.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
+
+- name: Remove managed Nginx configurations
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ blitzecdn_uninstall_nginx_configs.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: blitzecdn_uninstall_nginx_removed
+  notify: Validate and reload Nginx after uninstall
+
+- name: Check whether Nginx is installed
+  ansible.builtin.stat:
+    path: /usr/sbin/nginx
+  register: blitzecdn_uninstall_nginx_binary
+
+- name: Validate remaining Nginx configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/nginx, -t]
+  changed_when: false
+  when:
+    - blitzecdn_uninstall_nginx_binary.stat.exists
+    - blitzecdn_uninstall_nginx_removed is changed
+
+- name: Remove exact BlitzeCDN-owned host paths
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: >-
+    {{ blitzecdn_uninstall_managed_paths +
+       [blitzecdn_uninstall_config_dir,
+        blitzecdn_uninstall_cli_wrapper,
+        blitzecdn_uninstall_sudoers_file] }}
+
+# Accounts come last: stopping the services first gives userdel a clean chance
+# to remove them, and removing them through the user module also removes their
+# dedicated homes and the local SSH trust stored there.
+- name: Remove BlitzeCDN service accounts and homes
+  ansible.builtin.user:
+    name: "{{ item.name }}"
+    state: absent
+    remove: true
+    force: true
+  loop:
+    - name: "{{ blitzecdn_uninstall_service_user }}"
+      home: "{{ blitzecdn_uninstall_service_home }}"
+    - name: "{{ blitzecdn_uninstall_deploy_user }}"
+      home: "{{ blitzecdn_uninstall_deploy_home }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Ensure dedicated account homes are absent
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ blitzecdn_uninstall_service_home }}"
+    - "{{ blitzecdn_uninstall_deploy_home }}"

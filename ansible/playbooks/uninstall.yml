@@ -1,0 +1,13 @@
+---
+# Runs before install.sh removes /opt/blitzecdn and therefore before it removes
+# the Ansible executable running this play. The shell installer retains a
+# recovery cleanup for hosts whose checkout or virtualenv is already missing.
+- name: Remove BlitzeCDN-managed state from a standalone host
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  any_errors_fatal: true
+  roles:
+    - role: blitzecdn_uninstall
+      tags: [uninstall]
