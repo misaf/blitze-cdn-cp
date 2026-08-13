@@ -24,10 +24,9 @@ dependencies = [
   "alembic>=1.16,<2",
   "typer>=0.16,<1",
   "uvicorn[standard]>=0.52.1,<1",
-  # A runtime dependency, not a development one. Ansible exclusively owns
-  # remote Linux state, and `infrastructure/ansible.py` launches
-  # `ansible-playbook` for every deploy, purge and stats run — a controller
-  # without it cannot converge anything.
+  # Runtime dependencies, not development tools. Ansible exclusively owns
+  # remote Linux state. Ansible Runner provides the stable Python execution
+  # boundary, while ansible-core supplies the playbook engine and plugins.
   #
   # It was previously installed as a separate step by install.sh, which worked
   # only because pip leaves alone whatever it did not install. `uv sync` builds
@@ -38,6 +37,7 @@ dependencies = [
   "apscheduler>=3.11,<4",
   "sqlmodel>=0.0.31,<0.1",
   "dramatiq[redis]>=2.0,<3",
+  "ansible-runner>=2.4,<3",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,
@@ -97,6 +97,6 @@ packages = ["blitzecdn"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]
-# This adapter must launch Ansible. It uses a fixed argument array, never a
-# shell, rejects missing executables, closes stdin, and enforces a timeout.
+# The certificate adapter must launch Certbot. It uses a fixed argument array,
+# never a shell, closes stdin, and enforces a timeout.
 skips = ["B404", "B603"]

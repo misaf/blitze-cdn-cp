@@ -107,8 +107,8 @@ class RunStatus(StrEnum):
 
     SUCCEEDED = "succeeded"
     FAILED = "failed"
-    #: Killed at ``deployment_timeout_seconds``. Its process group went with
-    #: it, but whatever it had already changed on an edge stays changed.
+    #: Stopped by Ansible Runner at ``deployment_timeout_seconds``. Whatever it
+    #: had already changed on an edge stays changed.
     TIMED_OUT = "timed_out"
     #: Ansible could not be executed at all, so there is no exit code to read
     #: and nothing ran on any host. Distinct from ``FAILED`` — which means

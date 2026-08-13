@@ -2,7 +2,6 @@ import re
 import time
 from contextlib import contextmanager
 from dataclasses import replace
-from pathlib import Path
 
 import pytest
 import yaml
@@ -2281,9 +2280,8 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     seen: list[dict[str, object]] = []
 
-    def capture(command, *, timeout, playbook, targeted=()):
-        path = Path(next(arg for arg in command if arg.startswith("@"))[1:])
-        seen.append(yaml.safe_load(path.read_text(encoding="utf-8")))
+    def capture(*, variables, **_kwargs):
+        seen.append(yaml.safe_load(variables.read_text(encoding="utf-8")))
         return _purge_run()
 
     monkeypatch.setattr(runner, "_execute", capture)
