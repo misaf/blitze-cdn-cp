@@ -1,6 +1,7 @@
 import json
 import signal
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -10,6 +11,9 @@ from pydantic import SecretStr
 from blitzecdn.domain.runs import RunStatus
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure import ansible
+
+#: The package under test, for the subprocess in the lock test below.
+PROJECT_SRC = Path(__file__).resolve().parent.parent / "src"
 
 
 def _callback_result(environment, hosts):
@@ -57,6 +61,41 @@ def test_deployment_lock_serializes_processes(settings):
         pass
     with ansible.DeploymentLock(settings.deployment_lock_path):
         pass
+
+
+def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
+    """`flock` is per open file description, and the fleet has several writers.
+
+    The check above uses two descriptors in one process, which is the same
+    mechanism but not the same claim. What the lock has to guarantee is that a
+    CLI deploy, an API worker and a systemd timer cannot converge at once, and
+    those are separate processes — so one of them is a real subprocess here.
+    """
+    script = "\n".join(
+        [
+            "import sys",
+            f"sys.path.insert(0, {str(PROJECT_SRC)!r})",
+            "from pathlib import Path",
+            "from blitzecdn.infrastructure.ansible import DeploymentLock",
+            "from blitzecdn.exceptions import DeploymentBusyError",
+            "try:",
+            f"    with DeploymentLock(Path({str(settings.deployment_lock_path)!r})):",
+            "        print('acquired')",
+            "except DeploymentBusyError:",
+            "    print('busy')",
+        ]
+    )
+
+    with ansible.DeploymentLock(settings.deployment_lock_path):
+        held = subprocess.run(  # noqa: S603 - fixed argv built here
+            [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
+        )
+    assert held.stdout.strip() == "busy", held.stderr
+
+    released = subprocess.run(  # noqa: S603 - fixed argv built here
+        [sys.executable, "-c", script], capture_output=True, text=True, timeout=30
+    )
+    assert released.stdout.strip() == "acquired", released.stderr
 
 
 def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypatch):
