@@ -325,7 +325,7 @@ converge_control_plane() {
   # would break the next command run as that account.
   ANSIBLE_CONFIG=ansible/ansible.cfg ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" \
-    ansible/playbooks/control-plane.yml "$@"
+    -i localhost, ansible/playbooks/control-plane.yml "$@"
   rm -rf -- "${ansible_tmp}"
 }
 
@@ -344,7 +344,7 @@ converge_uninstall() {
   local ansible_tmp
   ansible_tmp=$(mktemp -d)
   ANSIBLE_CONFIG="${INSTALL_DIR}/ansible/ansible.cfg" ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
-    "${executable}" "${playbook}"
+    "${executable}" -i localhost, "${playbook}"
   rm -rf -- "${ansible_tmp}"
 }
 
