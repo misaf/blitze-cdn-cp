@@ -22,6 +22,7 @@ why.
 import os
 import platform
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -245,6 +246,8 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "opt/blitzecdn/.state/ansible-local",
         root / "opt/blitzecdn/.env",
         root / "opt/blitzecdn/.venv/bin/python",
+        root / "opt/blitzecdn/.venv/bin/ansible-playbook",
+        root / "opt/blitzecdn/ansible/playbooks/uninstall.yml",
         root / "opt/blitzecdn/blitzecdn.toml",
         root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/blitzecdn.env",
@@ -280,6 +283,19 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
             "# Managed by BlitzeCDN. Local edits are overwritten.\nx\n",
             encoding="utf-8",
         )
+    # The installer owns only invocation and final checkout removal. This
+    # stand-in models a successful uninstall play by removing the system paths
+    # from the fixture; it deliberately leaves /opt/blitzecdn for Bash.
+    ansible = root / "opt/blitzecdn/.venv/bin/ansible-playbook"
+    system_paths = [path for path in owned if root / "opt/blitzecdn" not in path.parents]
+    ansible.write_text(
+        "#!/usr/bin/env bash\nset -euo pipefail\n"
+        + "rm -rf -- "
+        + " ".join(shlex.quote(str(path)) for path in system_paths)
+        + "\n",
+        encoding="utf-8",
+    )
+    ansible.chmod(0o700)
     return owned
 
 
@@ -571,56 +587,24 @@ def test_destructive_commands_survive_deleting_their_own_directory():
     for name in ("uninstall", "fresh"):
         section = _section(name)
         assert "reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC" in section
-        # The copy must be taken before the cleanup deletes this file.
+        # The copy must be taken before final self-removal deletes this file.
         assert section.index("reexec_from_private_copy") < section.index(
-            "remove_blitzecdn_artifacts"
+            "remove_installation_directory"
         )
 
 
-def test_cleanup_removes_every_owned_artifact():
-    cleanup = _function("remove_blitzecdn_artifacts")
-    for fragment in (
-        'systemctl stop "${SERVICES[@]}" "${EDGE_MANAGED_UNITS[@]}"',
-        'systemctl disable "${SERVICES[@]}" "${EDGE_MANAGED_UNITS[@]}"',
-        'rm -f -- "/etc/systemd/system/${unit}"',
-        "systemctl daemon-reload",
-        'rm -rf -- "${CONFIG_DIR}" "${CLI_WRAPPER}" "${SUDOERS_FILE}"',
-        'rm -rf -- "${INSTALL_DIR}"',
-        "remove_service_account blitzecdn /var/lib/blitzecdn",
-        "remove_service_account deploy /home/deploy",
-        'rm -rf -- "${EDGE_MANAGED_FILES[@]}"',
-        'grep -q "${NGINX_MARKER}" "${conf}"',
-    ):
-        assert fragment in cleanup
-
-
-def test_cleanup_tolerates_a_partial_or_already_removed_installation():
-    cleanup = _function("remove_blitzecdn_artifacts")
-    assert "|| true" in cleanup
-    assert "|| continue" in cleanup
-    assert "2>/dev/null" in cleanup
-    assert "[[ -f ${conf} ]] || continue" in cleanup
-
-
-def test_cleanup_removes_service_accounts_and_homes():
-    cleanup = _function("remove_blitzecdn_artifacts")
-    assert "remove_service_account blitzecdn /var/lib/blitzecdn" in cleanup
-    assert "remove_service_account deploy /home/deploy" in cleanup
-
-
-def test_cleanup_only_touches_marker_matched_nginx_and_owned_drop_ins():
-    """Unrelated nginx config and ssh drop-ins must survive because cleanup
-    removes marker-matched sites and the exact owned paths, not whole dirs."""
-    cleanup = _function("remove_blitzecdn_artifacts")
-    nginx_glob = (
-        "for conf in /etc/nginx/conf.d/*.conf /etc/nginx/sites-available/*.conf"
+def test_bash_delegates_all_system_teardown_to_ansible():
+    script = _script()
+    uninstall = _section("uninstall")
+    assert "converge_uninstall" in uninstall
+    assert uninstall.index("converge_uninstall") < uninstall.index(
+        "remove_installation_directory"
     )
-    assert nginx_glob in cleanup
-    assert 'grep -q "${NGINX_MARKER}" "${conf}"' in cleanup
-    assert "rm -rf -- /etc/nginx" not in cleanup
-    assert "rm -rf -- /etc/ssh" not in cleanup
-    assert 'rm -rf -- "${EDGE_MANAGED_FILES[@]}"' in cleanup
-    assert "/etc/ssh/sshd_config.d/50-blitzecdn.conf" in _script()
+    for operation in ("systemctl", "userdel", "loginctl", "pkill", "nginx -t"):
+        assert operation not in uninstall
+    assert _function("remove_installation_directory").strip() == (
+        'rm -rf -- "${INSTALL_DIR}"'
+    )
 
 
 def test_destructive_commands_require_confirmation():
@@ -634,9 +618,10 @@ def test_destructive_commands_require_confirmation():
     assert "Cancelled." in confirm
 
 
-def test_fresh_reuses_the_same_cleanup_as_uninstall():
+def test_fresh_reuses_the_same_ansible_teardown_as_uninstall():
     fresh = _section("fresh")
-    assert "remove_blitzecdn_artifacts" in fresh
+    assert "converge_uninstall" in fresh
+    assert "remove_installation_directory" in fresh
     assert 'run "sudo ./install.sh --uninstall"' not in fresh
 
 
@@ -690,20 +675,20 @@ def test_uninstall_asks_for_confirmation_and_can_be_cancelled(tmp_path):
     assert all(path.exists() for path in owned)
 
 
-def test_uninstall_is_idempotent_and_safe_to_rerun(tmp_path):
+def test_uninstall_requires_the_ansible_runtime(tmp_path):
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
     _stub_bin(sandbox, root)
     _fake_installation(root)
 
-    first = _run_sandboxed(script, "--uninstall", "--yes")
-    second = _run_sandboxed(script, "--uninstall", "--yes")
+    shutil.rmtree(root / "opt/blitzecdn/.venv")
+    result = _run_sandboxed(script, "--uninstall", "--yes")
 
-    assert first.returncode == 0, first.stdout + first.stderr
-    assert second.returncode == 0, second.stdout + second.stderr
+    assert result.returncode == 1
+    assert "Ansible is missing" in result.stderr
 
 
-def test_uninstall_works_even_when_the_installation_directory_is_already_deleted(
+def test_uninstall_refuses_when_the_installation_directory_is_already_deleted(
     tmp_path: Path,
 ):
     sandbox = tmp_path / "sandbox"
@@ -715,9 +700,9 @@ def test_uninstall_works_even_when_the_installation_directory_is_already_deleted
 
     result = _run_sandboxed(script, "--uninstall", "--yes")
 
-    assert result.returncode == 0, result.stdout + result.stderr
-    for path in owned:
-        assert not path.exists(), f"owned artifact survived uninstall: {path}"
+    assert result.returncode == 1
+    assert "Ansible is missing" in result.stderr
+    assert any(path.exists() for path in owned if root / "opt/blitzecdn" not in path.parents)
 
 
 def test_fresh_rebuild_removes_then_reinstalls_like_a_brand_new_server(
@@ -977,12 +962,9 @@ def test_host_key_scan_is_stable_across_runs():
     assert "sort" in written["ansible.builtin.copy"]["content"]
 
 
-def test_role_and_installer_agree_on_the_units_to_manage():
-    """The installer removes what the role installs, without importing it."""
+def test_controlplane_role_services_are_managed_as_units():
+    """Every service started by the role must be one of its installed units."""
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
-    script = _script()
-    for unit in defaults["blitzecdn_controlplane_units"]:
-        assert unit in script, f"{unit} is installed by the role but never removed"
     for service in defaults["blitzecdn_controlplane_services"]:
         assert service in defaults["blitzecdn_controlplane_units"]
 
@@ -999,34 +981,7 @@ def test_standalone_bootstraps_only_what_ansible_needs():
         assert moved not in standalone, f"{moved} still runs in the installer"
 
 
-def test_uninstall_fails_loudly_when_an_account_cannot_be_removed(tmp_path: Path):
-    """Reporting success with an account still on the host is the bug.
-
-    userdel refuses while a process is running as the account, and the loopback
-    SSH check a standalone installation performs can leave one behind. The
-    failure used to be swallowed, so the uninstaller printed "BlitzeCDN has been
-    removed" over a host that still had the deploy account.
-    """
-    sandbox = tmp_path / "sandbox"
-    script, root = _instrument(sandbox)
-    _stub_bin(sandbox, root)
-    owned = _fake_installation(root)
-
-    result = _run_sandboxed(
-        script, "--uninstall", "--yes", env_extra={"USERDEL_REFUSES": "1"}
-    )
-
-    assert result.returncode != 0, result.stdout
-    assert "was not fully removed" in result.stderr
-    assert "blitzecdn: the account still exists" in result.stderr
-    assert "deploy: the account still exists" in result.stderr
-    assert "BlitzeCDN has been removed" not in result.stdout
-    # The cleanup still ran to completion, so a retry has less to do.
-    assert not [path for path in owned if path.exists()], "cleanup stopped early"
-
-
-def test_uninstall_succeeds_when_the_accounts_are_actually_removed(tmp_path: Path):
-    """The same path without the refusal, so the guard cannot pass vacuously."""
+def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
     _stub_bin(sandbox, root)
@@ -1036,43 +991,6 @@ def test_uninstall_succeeds_when_the_accounts_are_actually_removed(tmp_path: Pat
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "BlitzeCDN has been removed" in result.stdout
-    assert "was not fully removed" not in result.stderr
-
-
-def test_uninstall_terminates_account_processes_before_userdel(tmp_path: Path):
-    """Persistent loopback SSH processes must not make uninstall fail."""
-    sandbox = tmp_path / "sandbox"
-    script, root = _instrument(sandbox)
-    _stub_bin(sandbox, root)
-    _fake_installation(root)
-
-    result = _run_sandboxed(
-        script, "--uninstall", "--yes", env_extra={"PROCESS_HOLDERS": "1"}
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert (sandbox / "processes-terminated").exists()
-    assert "BlitzeCDN has been removed" in result.stdout
-
-
-def test_fresh_refuses_to_rebuild_on_a_half_removed_host(tmp_path: Path):
-    """A rebuild over a surviving account inherits the state it was to discard."""
-    sandbox = tmp_path / "sandbox"
-    script, root = _instrument(sandbox)
-    _stub_bin(sandbox, root)
-    _fake_installation(root)
-    marker = sandbox / "fresh-marker"
-
-    result = _run_sandboxed(
-        script,
-        "--fresh",
-        "--yes",
-        env_extra={"USERDEL_REFUSES": "1", "FRESH_REINSTALL_MARKER": str(marker)},
-    )
-
-    assert result.returncode != 0
-    assert "was not fully removed" in result.stderr
-    assert not marker.exists(), "the rebuild ran over a half-removed host"
 
 
 def test_the_controller_floor_is_higher_than_the_edge_floor():
