@@ -63,8 +63,10 @@ keeps a `2.x` installation attached to that branch, or pins any other
 development checkout to its exact commit. It removes every BlitzeCDN artifact
 first, then runs the standalone installer with the options you pass. The
 checkout must be a Git clone of the upstream repository. `--uninstall` only
-removes; it is safe to rerun and keeps working even when `/opt/blitzecdn` was
-already deleted. Both ask for confirmation unless `--yes` is given.
+removes. Both operations require the checkout's Ansible runtime because Ansible
+is the single implementation of system teardown; Bash removes `/opt/blitzecdn`
+only after that play succeeds. Both ask for confirmation unless `--yes` is
+given.
 
 ### Controller-only installation
 
