@@ -1,4 +1,3 @@
-import json
 import shlex
 import shutil
 import subprocess
@@ -17,16 +16,57 @@ from blitzecdn.infrastructure import ansible
 PROJECT_SRC = Path(__file__).resolve().parent.parent / "src"
 
 
-def _callback_result(environment, hosts):
-    """Write what the `blitzecdn_result` callback would have written.
-
-    The runner reads its result from the path it puts in BLITZE_RESULT_PATH, so
-    a double for the child process has to produce a document there — that file
-    is the contract, and nothing about the terminal output matters any more.
-    """
-    Path(environment["BLITZE_RESULT_PATH"]).write_text(
-        json.dumps({"playbook": "edge.yml", "hosts": hosts}), encoding="utf-8"
-    )
+def _runner_events(arguments, hosts):
+    """Feed host results through the same structured Runner event contract."""
+    handler = arguments["event_handler"]
+    stats = {key: {} for key in ("ok", "changed", "failures", "dark", "skipped")}
+    for host in hosts:
+        name = host["host"]
+        for change in host.get("changes", []):
+            handler(
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "host": name,
+                        "task": change["task"],
+                        "res": {"changed": True},
+                    },
+                }
+            )
+        for failure in host.get("failures", []):
+            outcome = failure.get("outcome", "failed")
+            handler(
+                {
+                    "event": "runner_on_unreachable"
+                    if outcome == "unreachable"
+                    else "runner_on_failed",
+                    "event_data": {
+                        "host": name,
+                        "task": failure["task"],
+                        "res": {"msg": failure.get("message", "no message")},
+                    },
+                }
+            )
+        if host.get("report") is not None:
+            handler(
+                {
+                    "event": "runner_on_ok",
+                    "event_data": {
+                        "host": name,
+                        "task": "Publish report",
+                        "res": {"ansible_facts": {"blitzecdn_report": host["report"]}},
+                    },
+                }
+            )
+        for source, target in (
+            ("ok", "ok"),
+            ("changed", "changed"),
+            ("failed", "failures"),
+            ("unreachable", "dark"),
+            ("skipped", "skipped"),
+        ):
+            stats[target][name] = host.get(source, 0)
+    handler({"event": "playbook_on_stats", "event_data": stats})
 
 
 class FakeRunnerResult:
@@ -107,7 +147,7 @@ def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
 
 
 def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypatch):
-    """Output goes to a log file; the result comes from the callback document."""
+    """Output goes to a log file; results come from Runner events."""
     runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     captured = []
     invocation: dict[str, object] = {}
@@ -115,7 +155,7 @@ def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypat
     def fake_run(**kwargs):
         invocation.update(kwargs)
         captured.extend(_runner_command(kwargs))
-        _callback_result(kwargs["envvars"], [{"host": "edge-a", "ok": 4, "changed": 1}])
+        _runner_events(kwargs, [{"host": "edge-a", "ok": 4, "changed": 1}])
         return _runner_result(
             kwargs, output=b"TASK [something] ***\nchanged: [edge-a]\n"
         )
@@ -130,38 +170,6 @@ def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypat
     assert invocation["settings"] == {"runner_mode": "subprocess"}
     assert invocation["timeout"] == settings.deployment_timeout_seconds
     assert Path(run.log_path).read_text(encoding="utf-8").startswith("TASK [")
-
-
-def test_the_result_document_is_removed_once_it_has_been_read(settings, monkeypatch):
-    """It is working state: what survives is the parsed result and the log."""
-    seen: list[Path] = []
-
-    def fake_run(**kwargs):
-        seen.append(Path(kwargs["envvars"]["BLITZE_RESULT_PATH"]))
-        _callback_result(kwargs["envvars"], [{"host": "edge-a"}])
-        return _runner_result(kwargs)
-
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
-    ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
-
-    assert seen and not seen[0].exists()
-
-
-def test_each_run_gets_a_result_path_of_its_own(settings, monkeypatch):
-    """Purge, stats and decommission all skip the lock, so runs overlap."""
-    paths: list[str] = []
-
-    def fake_run(**kwargs):
-        paths.append(kwargs["envvars"]["BLITZE_RESULT_PATH"])
-        _callback_result(kwargs["envvars"], [{"host": "edge-a"}])
-        return _runner_result(kwargs)
-
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
-    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
-    runner.run(check=True)
-    runner.run(check=True)
-
-    assert len(set(paths)) == 2
 
 
 def test_a_run_that_reports_nothing_says_where_to_look(settings, monkeypatch):
@@ -181,28 +189,12 @@ def test_a_run_that_reports_nothing_says_where_to_look(settings, monkeypatch):
     assert run.log_path is not None and run.log_path in (run.error or "")
 
 
-def test_an_unparseable_result_is_treated_as_no_result(settings, monkeypatch):
-    """A half-written document must not become half-believed host data."""
-
-    def fake_run(**kwargs):
-        Path(kwargs["envvars"]["BLITZE_RESULT_PATH"]).write_text(
-            '{"hosts": [', encoding="utf-8"
-        )
-        return _runner_result(kwargs, rc=2)
-
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
-    run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
-
-    assert run.reported is False
-    assert run.status is RunStatus.FAILED
-
-
 def test_run_logs_are_pruned_to_the_retention_limit(settings, monkeypatch):
     """One log per invocation, and the drift timer alone fires on a schedule."""
     bounded = settings.model_copy(update={"run_log_retention": 10})
 
     def fake_run(**kwargs):
-        _callback_result(kwargs["envvars"], [{"host": "edge-a"}])
+        _runner_events(kwargs, [{"host": "edge-a"}])
         return _runner_result(kwargs)
 
     monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
@@ -284,16 +276,13 @@ def test_real_ansible_runner_executes_a_syntax_check(settings, tmp_path):
 @pytest.mark.filterwarnings(
     r"ignore:codecs\.open\(\) is deprecated\. Use open\(\) instead\.:DeprecationWarning"
 )
-def test_real_ansible_runner_keeps_the_structured_callback(settings, tmp_path):
-    """Runner's event callback must not displace the domain-result callback."""
+def test_real_ansible_runner_produces_structured_events(settings, tmp_path):
+    """The real Runner event stream must produce domain host results."""
     executable = shutil.which("ansible-playbook")
     if executable is None:
         pytest.skip("ansible-playbook is not installed")
-    callback_dir = PROJECT_SRC.parent / "ansible/plugins/callback"
     (settings.ansible_dir / "ansible.cfg").write_text(
-        "[defaults]\n"
-        f"callback_plugins = {callback_dir}\n"
-        "callbacks_enabled = blitzecdn_result\n",
+        "[defaults]\n",
         encoding="utf-8",
     )
     settings.inventory_path.write_text(
@@ -306,7 +295,7 @@ def test_real_ansible_runner_keeps_the_structured_callback(settings, tmp_path):
         "  gather_facts: false\n"
         "  tasks:\n"
         "    - ansible.builtin.debug:\n"
-        "        msg: callback integration\n",
+        "        msg: Runner event integration\n",
         encoding="utf-8",
     )
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
@@ -430,8 +419,8 @@ def test_the_limit_reaches_the_ansible_command_line(settings, monkeypatch):
     assert command.count("--limit") == 1
 
 
-# A document in the shape `blitzecdn_result` writes. This is the seam the
-# control plane depends on now, so it is pinned here rather than assumed.
+# Representative structured Runner events, expressed as their resulting host
+# data so the shared test helper can emit them concisely.
 _RESULT = {
     "playbook": "edge.yml",
     "hosts": [
@@ -461,11 +450,9 @@ _RESULT = {
 }
 
 
-def test_the_callback_document_becomes_per_host_results(settings, monkeypatch):
+def test_runner_events_become_per_host_results(settings, monkeypatch):
     def fake_run(**kwargs):
-        Path(kwargs["envvars"]["BLITZE_RESULT_PATH"]).write_text(
-            json.dumps(_RESULT), encoding="utf-8"
-        )
+        _runner_events(kwargs, _RESULT["hosts"])
         return _runner_result(kwargs)
 
     monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
@@ -481,16 +468,14 @@ def test_the_callback_document_becomes_per_host_results(settings, monkeypatch):
 
 
 def test_a_change_is_named_not_merely_counted(settings, monkeypatch):
-    """The reason for a callback rather than a recap.
+    """The reason for structured events rather than a recap.
 
     A recap could say "edge-a would change 2 tasks" and no more. Naming them is
     what makes a drift report answer the question an operator actually has.
     """
 
     def fake_run(**kwargs):
-        Path(kwargs["envvars"]["BLITZE_RESULT_PATH"]).write_text(
-            json.dumps(_RESULT), encoding="utf-8"
-        )
+        _runner_events(kwargs, _RESULT["hosts"])
         return _runner_result(kwargs)
 
     monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
@@ -507,16 +492,12 @@ def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypa
     """`blitzecdn_report` is how a role returns data rather than an outcome."""
 
     def fake_run(**kwargs):
-        Path(kwargs["envvars"]["BLITZE_RESULT_PATH"]).write_text(
-            json.dumps(
-                {
-                    "hosts": [
-                        {"host": "edge-a", "report": {"nginx_reachable": True}},
-                        {"host": "edge-b"},
-                    ]
-                }
-            ),
-            encoding="utf-8",
+        _runner_events(
+            kwargs,
+            [
+                {"host": "edge-a", "report": {"nginx_reachable": True}},
+                {"host": "edge-b"},
+            ],
         )
         return _runner_result(kwargs)
 
