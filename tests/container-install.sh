@@ -92,10 +92,10 @@ say "Converging this host as an edge"
 # gates and the package retries were all unexercised: a role could be rewritten
 # into something that cannot converge and every gate would stay green.
 #
-# A standalone install is already control plane and edge on one host with local
-# SSH trust, so registering localhost as an edge is the whole setup.
-in_container "cd / && blitzecdn edge add local --host 127.0.0.1 --ssh-source ${ADMIN_CIDR} --public-address 127.0.0.1" ||
-  fail "could not register the local edge"
+# The post-bootstrap CLI handoff records edge-local; this verifies that handoff
+# rather than creating a second inventory row for the same machine.
+in_container 'cd / && blitzecdn edge list --json | grep -q '"'"'"name": "edge-local"'"'"'' ||
+  fail "the installer did not register the local edge"
 in_container 'cd / && blitzecdn domain add example.test' || fail "could not add a zone"
 in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1 --proxied' ||
   fail "could not add a proxied record"

@@ -77,9 +77,9 @@ only after the complete play succeeds. Both ask for confirmation unless
 ```
 
 The installer verifies Python, creates the private environment, installs the
-pinned Ansible collection into `.state/collections`, and runs initial setup.
-Setup never overwrites an existing `.env` or inventory, so re-running it is
-safe.
+pinned Ansible collections into `.state/collections`, and then hands initial
+setup and command-wrapper generation to the installed Python runtime. Setup never
+overwrites an existing `.env`, so re-running it is safe.
 
 To provision a whole server instead — control plane and edge on the same host —
 clone the maintained `2.x` branch to `/opt/blitzecdn` and run the standalone
@@ -94,8 +94,10 @@ The path is not a suggestion: the hardened systemd units name `/opt/blitzecdn`,
 and `--fresh` needs a real clone with the right origin, so an unpacked tarball
 elsewhere will not do.
 
-It runs as root and provisions the host — a service account, a sudo rule, SSH
-keys, public services — so read `install.sh` before you run it.
+It runs as root, but Bash only establishes the Python/Ansible runtime and invokes
+the control-plane and uninstall playbooks. Ansible owns accounts, sudo, SSH
+trust, units, and other host state; the installed control-plane runtime owns local-edge
+registration and the optional first deployment.
 
 Environment variables that change what it installs, or how a later deploy
 behaves:

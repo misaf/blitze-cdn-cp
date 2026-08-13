@@ -287,7 +287,9 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
     # stand-in models a successful uninstall play by removing the system paths
     # from the fixture; it deliberately leaves /opt/blitzecdn for Bash.
     ansible = root / "opt/blitzecdn/.venv/bin/ansible-playbook"
-    system_paths = [path for path in owned if root / "opt/blitzecdn" not in path.parents]
+    system_paths = [
+        path for path in owned if root / "opt/blitzecdn" not in path.parents
+    ]
     ansible.write_text(
         "#!/usr/bin/env bash\nset -euo pipefail\n"
         + "rm -rf -- "
@@ -498,18 +500,18 @@ def test_standalone_keeps_the_management_api_on_loopback():
 
 
 def test_standalone_defaults_to_no_deployment():
-    standalone = _section("standalone")
-    assert "run_deploy=0" in standalone
-    assert "Initial deployment skipped (safe default)" in standalone
+    assert "parsed_deploy=0" in _script()
+    assert "[[ ${parsed_deploy} -eq 1 ]] && handoff_args+=(--deploy)" in _section(
+        "standalone"
+    )
 
 
 def test_standalone_guards_existing_sites_from_empty_desired_state():
     standalone = _section("standalone")
-    assert (
-        "readonly MANAGED_SITE_REGISTRY=/etc/nginx/blitzecdn-managed-sites" in _script()
-    )
-    assert "[[ -s ${MANAGED_SITE_REGISTRY} ]]" in standalone
-    assert "this edge has managed sites but desired state is empty" in standalone
+    assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
+    assert "blitzecdn_nginx_allow_empty_sites" in (
+        PROJECT_DIR / "src/blitzecdn/application/deployment_support.py"
+    ).read_text(encoding="utf-8")
 
 
 def test_role_does_not_take_ownership_of_role_managed_home_data():
@@ -663,7 +665,7 @@ def test_fresh_preserves_the_running_source_line_like_a_new_server():
     assert "git clone --depth 1" not in fresh
     assert 'git -C "${INSTALL_DIR}" checkout --detach "${revision}"' in fresh
     assert '"${INSTALL_DIR}/install.sh" standalone ' in fresh
-    assert '${fresh_args[@]+"${fresh_args[@]}"}' in fresh
+    assert '${parsed_forward_args[@]+"${parsed_forward_args[@]}"}' in fresh
 
 
 def test_fresh_refuses_to_rebuild_without_a_source_checkout():
@@ -729,7 +731,9 @@ def test_uninstall_refuses_when_the_installation_directory_is_already_deleted(
 
     assert result.returncode == 1
     assert "Ansible is missing" in result.stderr
-    assert any(path.exists() for path in owned if root / "opt/blitzecdn" not in path.parents)
+    assert any(
+        path.exists() for path in owned if root / "opt/blitzecdn" not in path.parents
+    )
 
 
 def test_fresh_rebuild_removes_then_reinstalls_like_a_brand_new_server(
@@ -793,138 +797,17 @@ def test_fresh_refuses_to_rebuild_without_a_git_checkout(tmp_path: Path):
     assert "is not a Git checkout" in result.stderr
 
 
-# --- the `blitzecdn` command the no-argument install puts on PATH -------------
-#
-# The wrapper is what makes the CLI runnable outside the checkout, so these run
-# the real generator against a fake HOME rather than asserting on its text.
-
-
-def _install_user_wrapper(
-    tmp_path: Path, checkout: Path, **env_extra: str
-) -> subprocess.CompletedProcess[str]:
-    """Run install_user_wrapper alone, with HOME redirected under tmp_path."""
-    driver = tmp_path / "drive.sh"
-    driver.write_text(
-        "set -Eeuo pipefail\n"
-        f"readonly USER_WRAPPER_MARKER={_marker()!r}\n"
-        f'script_dir="{checkout}"\n'
-        f"{_function_source('install_user_wrapper')}\n"
-        "install_user_wrapper\n",
-        encoding="utf-8",
-    )
-    environment = {**os.environ, "HOME": str(tmp_path / "home"), **env_extra}
-    return subprocess.run(  # noqa: S603 - fixed executable and generated driver
-        [BASH, str(driver)],
-        check=False,
-        capture_output=True,
-        text=True,
-        env=environment,
-    )
-
-
-def _marker() -> str:
-    match = re.search(r"readonly USER_WRAPPER_MARKER='([^']*)'", _script())
-    assert match is not None, "USER_WRAPPER_MARKER not found in install.sh"
-    return match.group(1)
-
-
-def _function_source(name: str) -> str:
-    return f"{name}() {{{_function(name)}\n}}"
-
-
-def test_user_wrapper_pins_the_checkout_as_the_project_directory(tmp_path: Path):
-    """Without BLITZE_PROJECT_DIR the CLI would use the caller's directory."""
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-
-    result = _install_user_wrapper(tmp_path, checkout)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    wrapper = tmp_path / "home/.local/bin/blitzecdn"
-    assert wrapper.exists()
-    assert os.access(wrapper, os.X_OK)
-    body = wrapper.read_text()
-    assert f"BLITZE_PROJECT_DIR={checkout}" in body
-    assert f"{checkout}/.venv/bin/blitzecdn" in body
-    assert '"$@"' in body
-
-
-def test_user_wrapper_is_rewritten_on_every_install(tmp_path: Path):
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-    _install_user_wrapper(tmp_path, checkout)
-    other = tmp_path / "other-checkout"
-    other.mkdir()
-
-    result = _install_user_wrapper(tmp_path, other)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    body = (tmp_path / "home/.local/bin/blitzecdn").read_text()
-    assert f"BLITZE_PROJECT_DIR={other}" in body
-
-
-def test_user_wrapper_never_overwrites_a_foreign_command(tmp_path: Path):
-    """A `blitzecdn` this installer did not write may be anyone's program."""
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-    wrapper = tmp_path / "home/.local/bin/blitzecdn"
-    wrapper.parent.mkdir(parents=True)
-    wrapper.write_text("#!/bin/sh\necho not ours\n", encoding="utf-8")
-
-    result = _install_user_wrapper(tmp_path, checkout)
-
-    assert result.returncode == 0
-    assert wrapper.read_text() == "#!/bin/sh\necho not ours\n"
-    assert "was not written by this installer" in result.stderr
-
-
-def test_user_wrapper_can_be_declined(tmp_path: Path):
-    """The server installs suppress it; ${CLI_WRAPPER} is the command there."""
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-
-    result = _install_user_wrapper(tmp_path, checkout, BLITZECDN_USER_WRAPPER="0")
-
-    assert result.returncode == 0
-    assert not (tmp_path / "home/.local/bin/blitzecdn").exists()
-
-
-def test_user_wrapper_honours_an_explicit_directory(tmp_path: Path):
-    checkout = tmp_path / "checkout"
-    checkout.mkdir()
-    target = tmp_path / "elsewhere/bin"
-
-    result = _install_user_wrapper(
-        tmp_path, checkout, BLITZECDN_WRAPPER_DIR=str(target)
-    )
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert (target / "blitzecdn").exists()
-
-
-def test_user_wrapper_survives_a_checkout_path_with_spaces(tmp_path: Path):
-    checkout = tmp_path / "my checkout"
-    checkout.mkdir()
-
-    result = _install_user_wrapper(tmp_path, checkout)
-
-    assert result.returncode == 0, result.stdout + result.stderr
-    wrapper = tmp_path / "home/.local/bin/blitzecdn"
-    printed = subprocess.run(  # noqa: S603 - fixed executable, generated wrapper
-        [BASH, "-c", f'set -- --version; . "{wrapper}"'],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    # The venv does not exist here; reaching an exec failure on the right path
-    # proves the quoting survived the space.
-    assert "my checkout/.venv/bin/blitzecdn" in printed.stderr
-
-
 def test_the_default_install_ends_by_installing_the_wrapper():
     """Otherwise the CLI is only reachable from inside the checkout."""
     install = _section("install")
-    assert "install_user_wrapper" in install
+    assert "handoff_user_wrapper" in install
+
+
+def test_every_command_uses_the_shared_option_parser():
+    script = _script()
+    assert script.count("while [[ $# -gt 0 ]]") == 1
+    for command in ("install", "standalone", "uninstall", "fresh"):
+        assert f") parse_options {command} " in script
 
 
 def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
