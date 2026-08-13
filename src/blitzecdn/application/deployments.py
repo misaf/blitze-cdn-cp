@@ -586,85 +586,98 @@ class DeploymentService:
             run = self.execution.runner.run(
                 check=check, host_limit=deployment.host_limit
             )
-            target_status = DeploymentStatus.of(run)
-            adopts_rollback = (
-                deployment.rollback_of
-                and target_status is DeploymentStatus.SUCCEEDED
-                and not check
+            deployment = self._complete_run(
+                deployment, run, snapshot, operator, check=check
             )
-            with self.persistence.uow.transaction():
-                if adopts_rollback:
-                    # Canonical adoption is part of rollback success. If it
-                    # fails, this transaction rolls back and the RUNNING row is
-                    # subsequently finalized as FAILED by the exception path.
-                    self._require_unchanged_canonical(deployment)
-                    domains, records = decode_snapshot_zones(snapshot)
-                    self.persistence.zones.replace_all_records(domains, records)
-                    self.dns.sync_sites()
-                deployment = self.persistence.deployments.transition(
-                    deployment.id,
-                    DeploymentStatus.RUNNING,
-                    target_status,
-                    finished_at=datetime.now(UTC),
-                    result=run,
-                )
-                if target_status is DeploymentStatus.SUCCEEDED and not check:
-                    self.persistence.requirements.clear("certificates")
-                self.bus.publish(
-                    domain_event(
-                        operator,
-                        f"deployment.{deployment.status}",
-                        "deployment",
-                        deployment.id,
-                        {
-                            "return_code": run.return_code,
-                            "changed": [host.host for host in run.changed_hosts],
-                            "failed": [host.host for host in run.failed_hosts],
-                        },
-                    )
-                )
-                if adopts_rollback:
-                    self.bus.publish(
-                        domain_event(
-                            operator,
-                            "rollback.applied",
-                            "deployment",
-                            deployment.id,
-                            {"target": deployment.rollback_of},
-                        )
-                    )
         except BaseException as exc:
-            interrupted = not isinstance(exc, Exception)
-            with self.persistence.uow.transaction():
-                deployment = self.persistence.deployments.transition(
-                    deployment.id,
-                    DeploymentStatus.RUNNING,
-                    (
-                        DeploymentStatus.ABANDONED
-                        if interrupted
-                        else DeploymentStatus.FAILED
-                    ),
-                    finished_at=datetime.now(UTC),
-                    # The runner never produced a result, so one is synthesised for
-                    # the record: a deployment that ended without a run still has to
-                    # say why, and every reader now expects to find that in `result`.
-                    result=self._aborted_run(exc, interrupted=interrupted),
-                )
-                self.bus.publish(
-                    domain_event(
-                        operator,
-                        "deployment.abandoned" if interrupted else "deployment.failed",
-                        "deployment",
-                        deployment.id,
-                        {"error_type": type(exc).__name__},
-                    )
-                )
+            deployment, interrupted = self._fail_convergence(deployment, operator, exc)
             if interrupted:
                 raise
             if isinstance(exc, ExecutionError):
                 raise
             return deployment
         return deployment
+
+    def _complete_run(
+        self,
+        deployment: Deployment,
+        run: AnsibleRun,
+        snapshot: str,
+        operator: str,
+        *,
+        check: bool,
+    ) -> Deployment:
+        """Commit a runner result and atomically adopt a successful rollback."""
+        target_status = DeploymentStatus.of(run)
+        adopts_rollback = bool(
+            deployment.rollback_of
+            and target_status is DeploymentStatus.SUCCEEDED
+            and not check
+        )
+        with self.persistence.uow.transaction():
+            if adopts_rollback:
+                self._require_unchanged_canonical(deployment)
+                domains, records = decode_snapshot_zones(snapshot)
+                self.persistence.zones.replace_all_records(domains, records)
+                self.dns.sync_sites()
+            deployment = self.persistence.deployments.transition(
+                deployment.id,
+                DeploymentStatus.RUNNING,
+                target_status,
+                finished_at=datetime.now(UTC),
+                result=run,
+            )
+            if target_status is DeploymentStatus.SUCCEEDED and not check:
+                self.persistence.requirements.clear("certificates")
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    f"deployment.{deployment.status}",
+                    "deployment",
+                    deployment.id,
+                    {
+                        "return_code": run.return_code,
+                        "changed": [host.host for host in run.changed_hosts],
+                        "failed": [host.host for host in run.failed_hosts],
+                    },
+                )
+            )
+            if adopts_rollback:
+                self.bus.publish(
+                    domain_event(
+                        operator,
+                        "rollback.applied",
+                        "deployment",
+                        deployment.id,
+                        {"target": deployment.rollback_of},
+                    )
+                )
+        return deployment
+
+    def _fail_convergence(
+        self, deployment: Deployment, operator: str, exc: BaseException
+    ) -> tuple[Deployment, bool]:
+        """Finalize a convergence that ended before producing a usable result."""
+        interrupted = not isinstance(exc, Exception)
+        status = DeploymentStatus.ABANDONED if interrupted else DeploymentStatus.FAILED
+        with self.persistence.uow.transaction():
+            deployment = self.persistence.deployments.transition(
+                deployment.id,
+                DeploymentStatus.RUNNING,
+                status,
+                finished_at=datetime.now(UTC),
+                result=self._aborted_run(exc, interrupted=interrupted),
+            )
+            self.bus.publish(
+                domain_event(
+                    operator,
+                    "deployment.abandoned" if interrupted else "deployment.failed",
+                    "deployment",
+                    deployment.id,
+                    {"error_type": type(exc).__name__},
+                )
+            )
+        return deployment, interrupted
 
     @staticmethod
     def _aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
