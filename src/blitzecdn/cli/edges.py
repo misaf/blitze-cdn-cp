@@ -25,9 +25,7 @@ origin_app = typer.Typer(
 
 @origin_app.command("check")
 def origin_check(
-    limit: Annotated[
-        str | None, typer.Option("--limit", help="Narrow the check to some edges.")
-    ] = None,
+    limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Ask the edges to connect to the origins they proxy to.

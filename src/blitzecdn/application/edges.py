@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from blitzecdn.config import Settings
 from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.origins import EdgeOriginChecks, OriginCheck, OriginReport
@@ -41,7 +40,6 @@ class EdgeOperationsService:
 
     def __init__(
         self,
-        settings: Settings,
         sites: SiteStore,
         bus: EventBus,
         runner: DeploymentRunner,
@@ -49,7 +47,6 @@ class EdgeOperationsService:
         edges: EdgeStore,
         uow: UnitOfWork,
     ) -> None:
-        self.settings = settings
         self.sites = sites
         self.bus = bus
         self.runner = runner
