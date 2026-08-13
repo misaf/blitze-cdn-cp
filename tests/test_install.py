@@ -594,7 +594,6 @@ def test_destructive_commands_survive_deleting_their_own_directory():
 
 
 def test_bash_delegates_all_system_teardown_to_ansible():
-    script = _script()
     uninstall = _section("uninstall")
     assert "converge_uninstall" in uninstall
     assert uninstall.index("converge_uninstall") < uninstall.index(
@@ -607,12 +606,40 @@ def test_bash_delegates_all_system_teardown_to_ansible():
     )
 
 
+def test_uninstall_reuses_the_canonical_edge_teardown_role():
+    uninstall_tasks = yaml.safe_load(
+        (SCRIPT.parent / "ansible/roles/blitzecdn_uninstall/tasks/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    handoffs = [
+        task
+        for task in uninstall_tasks
+        if task.get("ansible.builtin.include_role", {}).get("name")
+        == "blitzecdn_teardown"
+    ]
+    assert len(handoffs) == 1
+    assert handoffs[0]["vars"]["blitzecdn_teardown_remove_logs"] is True
+
+    serialized = yaml.safe_dump(uninstall_tasks)
+    for duplicated_edge_detail in (
+        "nginx_marker",
+        "sites-available",
+        "sites-enabled",
+        "blitzecdn-managed-sites",
+        "/var/cache/nginx",
+        "/var/log/nginx",
+    ):
+        assert duplicated_edge_detail not in serialized
+
+
 def test_destructive_commands_require_confirmation():
     for name in ("uninstall", "fresh"):
         section = _section(name)
         assert "confirm_destructive" in section
-        assert "assume_yes=0" in section
-        assert "--yes)" in section
+        assert 'confirm_destructive "${parsed_yes}"' in section
+    parser = _function("parse_options")
+    assert "--yes|--deploy|--allow-empty-sites)" in parser
     confirm = _function("confirm_destructive")
     assert "read -r -p" in confirm
     assert "Cancelled." in confirm

@@ -1,5 +1,4 @@
 ---
-blitzecdn_uninstall_config_dir: /etc/blitzecdn
 blitzecdn_uninstall_cli_wrapper: /usr/local/bin/blitzecdn
 blitzecdn_uninstall_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_uninstall_service_user: blitzecdn
@@ -10,20 +9,3 @@ blitzecdn_uninstall_deploy_home: /home/deploy
 blitzecdn_uninstall_controlplane_units:
   - blitzecdn-api.service
   - blitzecdn-worker.service
-blitzecdn_uninstall_edge_units:
-  - blitzecdn-geoipupdate.service
-  - blitzecdn-geoipupdate.timer
-
-# Exact BlitzeCDN-owned paths. Packages and shared service configuration are
-# deliberately outside the role's ownership and survive uninstall.
-blitzecdn_uninstall_managed_paths:
-  - /etc/nginx/blitzecdn-managed-sites
-  - /var/cache/nginx/blitzecdn
-  - /etc/systemd/resolved.conf.d/blitzecdn.conf
-  - /var/log/nginx/blitzecdn-access.log
-  - /etc/fail2ban/jail.d/blitzecdn-sshd.local
-  - /etc/ssh/sshd_config.d/50-blitzecdn.conf
-  - /etc/sysctl.d/60-blitzecdn.conf
-  - /etc/GeoIP.conf
-
-blitzecdn_uninstall_nginx_marker: "# Managed by BlitzeCDN. Local edits are overwritten."

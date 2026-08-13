@@ -7,6 +7,14 @@ blitzecdn_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
 blitzecdn_teardown_acme_root: /var/lib/blitzecdn/acme
 blitzecdn_teardown_state_path: /etc/blitzecdn
 blitzecdn_teardown_resolver_file: /etc/systemd/resolved.conf.d/blitzecdn.conf
+blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
+blitzecdn_teardown_sshd_file: /etc/ssh/sshd_config.d/50-blitzecdn.conf
+blitzecdn_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.local
+blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
+blitzecdn_teardown_geoip_config_file: /etc/GeoIP.conf
+blitzecdn_teardown_geoip_units:
+  - blitzecdn-geoipupdate.service
+  - blitzecdn-geoipupdate.timer
 
 # Every file this collection writes into the nginx tree carries this as its
 # first line. Selecting by marker rather than by the managed-sites registry is
