@@ -27,6 +27,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from blitzecdn.application.cache import CacheService
 from blitzecdn.application.certificates import CertificateService
 from blitzecdn.application.deployments import DeploymentService
 from blitzecdn.application.dns import DnsService
@@ -40,7 +41,7 @@ from blitzecdn.domain.certificates import (
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.edges import Edge, EdgePatch
-from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.origins import OriginReport
 from blitzecdn.domain.runs import HostRun
 
 
@@ -58,6 +59,7 @@ class Services(Protocol):
     certificates: CertificateService
     deployments: DeploymentService
     edges: EdgeOperationsService
+    cache: CacheService
 
 
 class Command(Protocol):
@@ -287,7 +289,7 @@ class PurgeCacheCommand:
     host_limit: str | None = None
 
     def execute(self, services: Services, operator: str) -> PurgeResult:
-        return services.edges.purge_cache(
+        return services.cache.purge_cache(
             operator,
             entries=self.entries,
             purge_all=self.purge_all,
@@ -297,10 +299,12 @@ class PurgeCacheCommand:
 
 @dataclass(frozen=True)
 class CheckOriginsCommand:
-    """Connect to every enabled site's origin the way the edge will."""
+    """Ask the edges to connect to the origins they proxy to."""
 
-    def execute(self, services: Services, operator: str) -> list[OriginCheck]:
-        return services.edges.check_origins()
+    host_limit: str | None = None
+
+    def execute(self, services: Services, operator: str) -> OriginReport:
+        return services.edges.check_origins(operator, host_limit=self.host_limit)
 
 
 @dataclass(frozen=True)
@@ -310,7 +314,7 @@ class CacheStatsCommand:
     host_limit: str | None = None
 
     def execute(self, services: Services, operator: str) -> CacheStatsReport:
-        return services.edges.cache_stats(operator, host_limit=self.host_limit)
+        return services.cache.cache_stats(operator, host_limit=self.host_limit)
 
 
 @dataclass(frozen=True)

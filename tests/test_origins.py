@@ -65,13 +65,12 @@ def test_a_listening_http_origin_is_reachable(settings):
     with _listener() as port:
         result = OriginProbe(settings).check(_site(origin_port=port))
 
-    assert result.resolved is True
     assert result.reachable is True
     assert result.tls_verified is None, "TLS is not a question for an http origin"
     assert result.ok is True
 
 
-def test_a_closed_port_is_resolved_but_not_reachable(settings):
+def test_a_closed_port_is_not_reachable(settings):
     # Bind and close so the port is almost certainly free and refuses.
     probe = socket.socket()
     probe.bind(("127.0.0.1", 0))
@@ -80,7 +79,6 @@ def test_a_closed_port_is_resolved_but_not_reachable(settings):
 
     result = OriginProbe(settings).check(_site(origin_port=port))
 
-    assert result.resolved is True
     assert result.reachable is False
     assert result.ok is False
     assert result.detail and "cannot connect" in result.detail
@@ -91,7 +89,6 @@ def test_an_origin_that_does_not_resolve_says_so(settings):
         _site(origin_host="origin.invalid", origin_port=443)
     )
 
-    assert result.resolved is False
     assert result.reachable is False
     assert result.detail and "does not resolve" in result.detail
 
@@ -152,8 +149,22 @@ def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
     assert OriginProbe(settings).check(site).sni == "origin.example.com"
 
 
-def test_checking_no_sites_does_no_work(settings):
-    assert OriginProbe(settings).check_all([]) == []
+def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
+    """The edges do the connecting now, and are told what to connect to here.
+
+    The port and the SNI are decided in one place so the fleet's probe and the
+    controller's advisory one cannot disagree about what a site's origin is.
+    """
+    site = _site(origin_host="origin.example.com", origin_scheme=HttpScheme.HTTPS)
+    rendered = OriginProbe(settings).to_probe(site)
+
+    assert rendered == {
+        "name": site.name,
+        "origin_host": "origin.example.com",
+        "origin_port": 443,
+        "origin_scheme": "https",
+        "origin_sni": site.effective_origin_sni,
+    }
 
 
 @pytest.mark.parametrize(

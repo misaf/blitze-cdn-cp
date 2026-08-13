@@ -186,6 +186,8 @@ class Outbox(Protocol):
 
     def failed(self, event_id: int, error: str) -> None: ...
 
+    def prune_delivered(self, keep: int) -> int: ...
+
 
 # ----------------------------------------------------------------------
 # Services, as their siblings see them
@@ -286,6 +288,12 @@ class DeploymentRunner(Protocol):
 
     def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun: ...
 
+    #: ``sites`` is passed rather than read from the desired-state file: this
+    #: takes no deployment lock, so that file may belong to a deploy in flight.
+    def run_origin_check(
+        self, *, sites: list[dict[str, object]], host_limit: str | None = None
+    ) -> AnsibleRun: ...
+
     def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
 
 
@@ -373,9 +381,23 @@ class Preflight(Protocol):
 
 
 class OriginProbe(Protocol):
-    def check(self, site: CdnSite) -> OriginCheck: ...
+    """A site's origin: how to reach it, and what the controller sees of it.
 
-    def check_all(self, sites: list[CdnSite]) -> list[OriginCheck]: ...
+    ``to_probe`` renders an origin for whoever is going to connect to it. The
+    operator-facing check is answered by the *edges* — ``check_origins`` runs a
+    playbook, because the controller's routes, resolver and egress rules are not
+    the ones that carry traffic, and an origin allow-listing the edges refuses
+    the controller while working perfectly.
+
+    ``check`` is the controller connecting for itself, and survives for exactly
+    one caller: the advisory origin check inside certificate preflight, which
+    has to answer in milliseconds during issuance and cannot run a playbook. It
+    is advisory there precisely because of the vantage point.
+    """
+
+    def to_probe(self, site: CdnSite) -> dict[str, object]: ...
+
+    def check(self, site: CdnSite) -> OriginCheck: ...
 
 
 __all__ = [

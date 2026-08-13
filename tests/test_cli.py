@@ -3,7 +3,13 @@ import sys
 
 import pytest
 from click.utils import strip_ansi
-from conftest import FakePreflight, FakeRunner, ansible_run, host_run
+from conftest import (
+    FakePreflight,
+    FakeRunner,
+    ansible_run,
+    host_run,
+    origin_report,
+)
 from typer.testing import CliRunner
 
 from blitzecdn import cli
@@ -570,29 +576,78 @@ def test_cert_list_exits_four_when_a_certificate_has_expired(
     assert result.exit_code == cli.ExitCode.CONFLICT
 
 
-def test_origin_check_reports_an_unreachable_origin(settings, monkeypatch):
-    _control(settings, monkeypatch)
+def _seed_origin_site(settings):
     _store(settings).sites.create_site(
         CdnSite.model_validate(
             {
                 "name": "cdn-example-com",
                 "server_names": ["cdn.example.com"],
-                "origin_host": "origin.invalid",
+                "origin_host": "origin.example.com",
             }
         )
     )
 
+
+def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
+    settings, monkeypatch
+):
+    """The fleet answers, so the answer is per edge as well as per site.
+
+    An origin no edge can reach is down; one only some edges can reach is a
+    routing or allow-list problem. Reporting which edges failed is what lets an
+    operator tell those apart, and is the whole reason the check moved off the
+    controller.
+    """
+    _control(
+        settings,
+        monkeypatch,
+        FakeRunner(
+            [
+                ansible_run(
+                    origin_report("edge-a"),
+                    origin_report("edge-b", reachable=False, detail="timed out"),
+                )
+            ]
+        ),
+    )
+    _seed_origin_site(settings)
+
     result = runner.invoke(cli.app, ["origin", "check"])
 
     assert result.exit_code == cli.ExitCode.CONFIGURATION
-    assert "does not resolve" in result.output
+    assert "cdn-example-com: unreachable from edge-b" in result.output
+    assert "edge-a" not in result.output.split("unreachable from")[1]
 
 
-def test_origin_check_says_so_when_there_is_nothing_to_check(settings, monkeypatch):
-    _control(settings, monkeypatch)
+def test_origin_check_passes_when_every_edge_reaches_every_origin(
+    settings, monkeypatch
+):
+    _control(
+        settings,
+        monkeypatch,
+        FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))]),
+    )
+    _seed_origin_site(settings)
+
     result = runner.invoke(cli.app, ["origin", "check"])
+
     assert result.exit_code == 0
-    assert "No enabled sites to check." in result.output
+    assert "answered as expected" in result.output
+
+
+def test_origin_check_reports_an_edge_that_said_nothing(settings, monkeypatch):
+    """A silent edge is not a passing edge."""
+    _control(
+        settings,
+        monkeypatch,
+        FakeRunner([ansible_run(host_run("edge-a", unreachable=1))]),
+    )
+    _seed_origin_site(settings)
+
+    result = runner.invoke(cli.app, ["origin", "check"])
+
+    assert result.exit_code == 0
+    assert "edge-a: unreachable" in result.output
 
 
 def test_doctor_surfaces_certificates_close_to_expiry(

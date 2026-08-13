@@ -332,13 +332,15 @@ def test_an_applied_deployment_is_not_readable_as_drift(settings):
         assert response.status_code == 409
 
 
-def test_certificates_and_origins_are_readable(settings):
+def test_certificates_are_readable(settings):
+    # Origins are no longer among these: the check runs a playbook across the
+    # fleet now, so it is a POST like the cache-statistics route rather than a
+    # read the controller can answer by itself.
     with TestClient(create_app(settings)) as client:
         assert client.get("/v1/certificates", headers=_HEADERS).json() == []
         assert (
             client.get("/v1/certificates?expiring_in=30", headers=_HEADERS).json() == []
         )
-        assert client.get("/v1/origins/check", headers=_HEADERS).json() == []
         assert (
             client.post("/v1/certificates/renew", json={}, headers=_HEADERS).json()[
                 "renewed"
@@ -524,10 +526,12 @@ def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch)
     monkeypatch.setattr(
         EdgeOperationsService,
         "check_origins",
-        lambda _self: (_ for _ in ()).throw(ConfigurationError("no edges configured")),
+        lambda _self, _operator, **_kwargs: (_ for _ in ()).throw(
+            ConfigurationError("no edges configured")
+        ),
     )
     with TestClient(create_app(settings)) as client:
-        response = client.get("/v1/origins/check", headers=_HEADERS)
+        response = client.post("/v1/origins/check", json={}, headers=_HEADERS)
     assert response.status_code == 400
     assert response.json()["detail"] == "no edges configured"
 
@@ -536,10 +540,12 @@ def test_an_execution_error_is_a_502(settings, monkeypatch):
     monkeypatch.setattr(
         EdgeOperationsService,
         "check_origins",
-        lambda _self: (_ for _ in ()).throw(ExecutionError("ansible would not start")),
+        lambda _self, _operator, **_kwargs: (_ for _ in ()).throw(
+            ExecutionError("ansible would not start")
+        ),
     )
     with TestClient(create_app(settings)) as client:
-        response = client.get("/v1/origins/check", headers=_HEADERS)
+        response = client.post("/v1/origins/check", json={}, headers=_HEADERS)
     assert response.status_code == 502
 
 

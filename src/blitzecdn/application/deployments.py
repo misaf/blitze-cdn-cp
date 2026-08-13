@@ -33,7 +33,7 @@ from blitzecdn.domain.operations import (
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
 from blitzecdn.domain.validation import validate_edge_limit
-from blitzecdn.exceptions import ExecutionError
+from blitzecdn.exceptions import DeploymentBusyError, ExecutionError
 from blitzecdn.ports import (
     BackgroundRunner,
     DeploymentRunner,
@@ -83,21 +83,46 @@ class DeploymentService:
         #: so "the deployment happens on a thread" is an adapter decision and a
         #: test can make it happen inline instead.
         self.background = background
-        #: Injected rather than imported so this layer never reaches for the
-        #: filesystem adapter directly. The composition root supplies the
-        #: atomic writer; a test can supply anything with the same shape.
         #: Quotes a run log into a message for an operator. Never branched on:
         #: `validate` is the one caller, and only because `--syntax-check` runs
         #: no play and so leaves the callback nothing to report.
         self.read_log = read_log
         self.uow = uow
         self.workflows = workflows
+        #: Turns a snapshot into the desired-state document Ansible reads. It
+        #: holds the atomic writer, injected rather than imported so this layer
+        #: never reaches for the filesystem adapter directly; the composition
+        #: root supplies it and a test can supply anything with the same shape.
         self.renderer = renderer
         self.rollbacks = rollbacks
         self.drift = drift
 
     def initialize(self) -> int:
-        return self.deployments.abandon_running()
+        """Close out deployments a previous controller process left in flight.
+
+        Only ever under the deployment lock, and this is not a formality. The
+        rows this abandons are identified by status alone, so a controller that
+        abandoned unconditionally could not tell "left behind by a process that
+        died" from "being converged right now by another process" — and the
+        second is ordinary here: the API restarts while a CLI ``blitzecdn
+        deploy`` is minutes into a run, which is exactly what an upgrade does.
+        Abandoning that run rewrites the record of a deployment still changing
+        edges, and its own final transition then fails against the status this
+        put there, so a run that succeeded ends up recorded as neither.
+
+        A held lock therefore means "someone is deploying", which is the one
+        case where there is nothing to recover, so declining is the whole fix.
+        The next start with an idle lock does the cleanup.
+        """
+        try:
+            with self.runner.lock():
+                return self.deployments.abandon_running()
+        except DeploymentBusyError:
+            _LOGGER.info(
+                "another process holds the deployment lock; leaving in-flight "
+                "deployments alone"
+            )
+            return 0
 
     # -- Validation ----------------------------------------------------
 
@@ -163,9 +188,10 @@ class DeploymentService:
 
     def execute_deployment(self, request: DeployRequest, operator: str) -> Deployment:
         """Execute an intention-revealing deployment request."""
-        with self.workflows.run(WorkflowKind.DEPLOYMENT, operator) as progress:
+
+        def converge_under_lock() -> Deployment:
             with self.runner.lock():
-                deployment = self.converge(
+                return self.converge(
                     self._queue(
                         operator,
                         check=request.mode is DeploymentMode.CHECK,
@@ -173,7 +199,30 @@ class DeploymentService:
                     ),
                     operator,
                 )
-            progress.checkpoint("converged", {"deployment_id": deployment.id})
+
+        return self._journalled(
+            WorkflowKind.DEPLOYMENT, operator, None, "converged", converge_under_lock
+        )
+
+    def _journalled(
+        self,
+        kind: WorkflowKind,
+        operator: str,
+        resource_id: str | None,
+        checkpoint: str,
+        work: Callable[[], Deployment],
+    ) -> Deployment:
+        """Converge inside a workflow record, whoever asked for the convergence.
+
+        Every path that runs Ansible goes through here, so the durable trace no
+        longer depends on which transport was used. It did: the synchronous
+        path took a workflow and the queued path did not, which left the run
+        that outlives the call that started it — and therefore the one that most
+        needs a record surviving a restart — as the one without a record at all.
+        """
+        with self.workflows.run(kind, operator, resource_id) as progress:
+            deployment = work()
+            progress.checkpoint(checkpoint, {"deployment_id": deployment.id})
             if deployment.status is not DeploymentStatus.SUCCEEDED:
                 progress.fail(deployment.detail or deployment.status.value)
             return deployment
@@ -188,7 +237,10 @@ class DeploymentService:
         ``GET /v1/deployments/{id}`` for the outcome.
         """
         return self._submit(
-            lambda: self._queue(operator, check=check, host_limit=host_limit), operator
+            lambda: self._queue(operator, check=check, host_limit=host_limit),
+            operator,
+            WorkflowKind.DEPLOYMENT,
+            "converged",
         )
 
     def rollback(
@@ -201,27 +253,31 @@ class DeploymentService:
         leave the control plane asserting a state the rest of the fleet has
         never been given — the precise disagreement rollback exists to end.
         """
-        with self.workflows.run(
-            WorkflowKind.ROLLBACK, operator, deployment_id
-        ) as progress:
+
+        def converge_under_lock() -> Deployment:
             with self.runner.lock():
-                deployment = self.converge(
+                return self.converge(
                     self._queue_rollback(operator, deployment_id, check=check),
                     operator,
                 )
-            progress.checkpoint(
-                "converged_and_adopted", {"deployment_id": deployment.id}
-            )
-            if deployment.status is not DeploymentStatus.SUCCEEDED:
-                progress.fail(deployment.detail or deployment.status.value)
-            return deployment
+
+        return self._journalled(
+            WorkflowKind.ROLLBACK,
+            operator,
+            deployment_id,
+            "converged_and_adopted",
+            converge_under_lock,
+        )
 
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:
         """Queue a rollback on a worker thread and return the queued record."""
         return self._submit(
-            lambda: self._queue_rollback(operator, deployment_id, check=check), operator
+            lambda: self._queue_rollback(operator, deployment_id, check=check),
+            operator,
+            WorkflowKind.ROLLBACK,
+            "converged_and_adopted",
         )
 
     # -- Drift ---------------------------------------------------------
@@ -344,11 +400,21 @@ class DeploymentService:
             rollback_of=target.id,
         )
 
-    def _submit(self, queue: Callable[[], Deployment], operator: str) -> Deployment:
+    def _submit(
+        self,
+        queue: Callable[[], Deployment],
+        operator: str,
+        kind: WorkflowKind,
+        checkpoint: str,
+    ) -> Deployment:
         """Take the deployment lock now, hand it to a worker, return the record.
 
         The lock is an fcntl lock on an open file, so releasing it from the
         worker thread is equivalent to releasing it here.
+
+        The workflow belongs to the worker rather than to this call: it should
+        cover the convergence, and the convergence is what happens after this
+        has already answered.
         """
         lock = self.runner.lock()
         lock.__enter__()
@@ -360,7 +426,13 @@ class DeploymentService:
 
         def worker() -> None:
             try:
-                self.converge(deployment, operator)
+                self._journalled(
+                    kind,
+                    operator,
+                    deployment.id,
+                    checkpoint,
+                    lambda: self.converge(deployment, operator),
+                )
             except Exception:
                 _LOGGER.exception("deployment %s failed", deployment.id)
             finally:

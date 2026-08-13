@@ -3,8 +3,11 @@
   hosts: blitzecdn_edges
   become: true
   gather_facts: true
+  # One failed edge stops the play. `max_fail_percentage` is deliberately not
+  # set alongside this: it expresses the same policy in a second dialect, and
+  # the two invite a later reader to change one and believe they have changed
+  # the rule. `any_errors_fatal` is the stricter of the pair and wins anyway.
   any_errors_fatal: true
-  max_fail_percentage: 0
   serial: "25%"
   pre_tasks:
     - name: Validate supported operating system

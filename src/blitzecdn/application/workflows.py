@@ -107,14 +107,36 @@ class RecoveryService:
         return recovered
 
 
+#: Delivered events kept as receipts before the oldest are dropped.
+OUTBOX_RETENTION = 1000
+
+
 class OutboxDispatcher:
-    """Retryable, idempotency-keyed delivery outside business transactions."""
+    """Retryable, idempotency-keyed delivery outside business transactions.
+
+    ``enabled`` is false when no handler is configured, which is the ordinary
+    case: nothing subscribes to these events unless an operator has wired an
+    integration. The composition root asks before it subscribes the observer
+    that writes them, so an unconfigured controller enqueues nothing rather
+    than filling a table whose only reader is a no-op.
+    """
 
     def __init__(self, outbox: Outbox, handlers: Mapping[str, IntegrationHandler]):
         self.outbox = outbox
         self.handlers = handlers
 
+    @property
+    def enabled(self) -> bool:
+        return bool(self.handlers)
+
     def dispatch(self, limit: int = 100) -> int:
+        """Deliver what is pending, then drop the oldest receipts.
+
+        Pruning happens here rather than on a schedule of its own for the same
+        reason run-log retention lives in the runner: a policy applied by
+        whatever already runs is a policy that cannot silently stop being
+        applied because a timer was never installed.
+        """
         delivered = 0
         for event in self.outbox.pending(limit):
             handler = self.handlers.get(event.topic)
@@ -127,4 +149,5 @@ class OutboxDispatcher:
                 continue
             self.outbox.delivered(event.id)
             delivered += 1
+        self.outbox.prune_delivered(OUTBOX_RETENTION)
         return delivered

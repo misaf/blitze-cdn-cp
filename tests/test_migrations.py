@@ -4,8 +4,8 @@ There is one revision and no installation older than it, so there is no data
 migration to verify. What still needs testing is the machinery that will carry
 the *next* one: that the head revision and the constant the code compares
 against agree, that a new database is stamped rather than left to replay
-migrations it never needed, and that a database missing a column is refused
-loudly instead of half-used.
+migrations it never needed, and that a database missing a column — or a whole
+table — is refused loudly instead of half-used.
 
 These run Alembic against a real file rather than asserting on the scripts'
 text. A migration that imports cleanly and does the wrong thing is the whole
@@ -87,6 +87,32 @@ def test_an_unmigrated_database_is_refused_rather_than_half_used(tmp_path):
     assert "blitzecdn db upgrade" in str(error.value)
     # Names a column an operator can check for themselves.
     assert "edges.port" in str(error.value)
+
+
+def test_a_database_missing_a_whole_table_is_refused_too(tmp_path):
+    """The other half of "one migration behind", and the quieter one.
+
+    A migration that adds a table leaves an unmigrated database without it
+    entirely, so there is no column for the check above to find missing.
+    `create_all` is not reached — the file has tables — so nothing creates it
+    either, and the controller would start cleanly and fail on `no such table`
+    at whichever query reached it first, mid-deploy.
+    """
+    path = tmp_path / "control-plane.db"
+    Database(path)
+    connection = sqlite3.connect(path)
+    connection.execute("DROP TABLE outbox_events")
+    connection.commit()
+    connection.close()
+
+    with pytest.raises(ConfigurationError) as error:
+        Database(path)
+
+    assert "older schema" in str(error.value)
+    assert "blitzecdn db upgrade" in str(error.value)
+    # Named as the table it is, not as a list of every column on it.
+    assert "missing outbox_events." in str(error.value)
+    assert "outbox_events.event_key" not in str(error.value)
 
 
 def test_the_revision_reported_is_the_one_stamped(tmp_path):

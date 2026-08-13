@@ -8,6 +8,10 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: blitzecdn_nginx_apt
+  until: blitzecdn_nginx_apt is success
+  retries: 3
+  delay: 5
 
 - name: Install the GeoIP2 Nginx module
   ansible.builtin.apt:
@@ -15,6 +19,10 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: blitzecdn_nginx_geoip_apt
+  until: blitzecdn_nginx_geoip_apt is success
+  retries: 3
+  delay: 5
   when: blitzecdn_nginx_geoip_enabled
   notify: Validate and reload Nginx
 
@@ -32,6 +40,10 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+      register: blitzecdn_nginx_updater_apt
+      until: blitzecdn_nginx_updater_apt is success
+      retries: 3
+      delay: 5
 
     # 0600 root: the license key authenticates to a MaxMind account, so it is
     # a credential rather than a database identifier.
@@ -65,6 +77,13 @@
         argv: ["{{ blitzecdn_nginx_geoip_updater_binary }}"]
       register: blitzecdn_nginx_geoip_fetch
       changed_when: blitzecdn_nginx_geoip_fetch.rc == 0
+      # Longer between attempts than the package tasks use. This one crosses
+      # the public internet to a service that rate-limits, so a failure may
+      # well be "not yet" rather than "not working", and retrying it hard
+      # would be the wrong answer to the most likely cause.
+      until: blitzecdn_nginx_geoip_fetch is success
+      retries: 3
+      delay: 15
       when:
         - not blitzecdn_nginx_geoip_present.stat.exists
         - not ansible_check_mode

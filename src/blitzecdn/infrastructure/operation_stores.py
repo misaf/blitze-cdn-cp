@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from blitzecdn.domain.operations import (
@@ -169,6 +169,32 @@ class OutboxStore:
                 )
                 .values(attempts=OutboxEventRow.attempts + 1, last_error=error)
             )
+
+    def prune_delivered(self, keep: int) -> int:
+        """Drop delivered events beyond the newest ``keep``.
+
+        A delivered row has done its whole job; what is left is a receipt. They
+        arrive at the rate the fleet changes and nothing else removes them, so
+        without this the table is a log that only grows — on a controller whose
+        state directory is also holding a SQLite database, run logs and
+        certificates. The newest are kept because the only question ever asked
+        of a delivered event is "did that recent thing go out".
+        """
+        with self._db.session() as session:
+            survivors = (
+                select(OutboxEventRow.id)
+                .where(OutboxEventRow.delivered_at.is_not(None))
+                .order_by(OutboxEventRow.id.desc())
+                .limit(keep)
+                .scalar_subquery()
+            )
+            result = session.execute(
+                delete(OutboxEventRow).where(
+                    OutboxEventRow.delivered_at.is_not(None),
+                    OutboxEventRow.id.not_in(survivors),
+                )
+            )
+            return cast("CursorResult[Any]", result).rowcount
 
     def undelivered(self) -> int:
         """How many events are still waiting. For operators, not for delivery."""

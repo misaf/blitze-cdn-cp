@@ -21,7 +21,10 @@ written down rather than assumed.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 from blitzecdn.application import (
+    CacheService,
     CertificateService,
     DeploymentService,
     DnsService,
@@ -33,6 +36,7 @@ from blitzecdn.application.deployment_support import (
     RollbackPlanner,
 )
 from blitzecdn.application.workflows import (
+    IntegrationHandler,
     OutboxDispatcher,
     RecoveryService,
     WorkflowCoordinator,
@@ -83,6 +87,7 @@ class ControlPlane:
         edges_store: EdgeStorePort | None = None,
         background: BackgroundRunner | None = None,
         pool_connections: bool = False,
+        integrations: Mapping[str, IntegrationHandler] | None = None,
     ) -> None:
         self.settings = settings
         store = repository or Repository(
@@ -113,13 +118,25 @@ class ControlPlane:
         # services can publish "something happened" without knowing who listens.
         self.bus = InProcessEventBus()
         self.bus.subscribe(AuditObserver(store.audit_log))
-        self.bus.subscribe(OutboxObserver(store.outbox))
         self.workflows = WorkflowCoordinator(store.workflows, store)
         self.workflow_history = store.workflows
         self.recovery = RecoveryService(store.workflows, store)
-        self.outbox = OutboxDispatcher(
-            store.outbox, {"domain.event": lambda _event: None}
-        )
+
+        # The outbox is only wired when something is actually listening.
+        #
+        # It used to be subscribed unconditionally against a handler that did
+        # nothing, so every domain event was written to a table whose only
+        # consumer discarded it — and only when an API process happened to
+        # start, since nothing else dispatched. A controller driven by the CLI
+        # and the systemd timers therefore accumulated rows forever that no
+        # code would ever read. Enqueueing nothing is the honest state of a
+        # control plane with no integration configured; passing `integrations`
+        # is what turns the machinery on, and the audit trail — which is
+        # subscribed unconditionally above — remains the record of what
+        # happened either way.
+        self.outbox = OutboxDispatcher(store.outbox, dict(integrations or {}))
+        if self.outbox.enabled:
+            self.bus.subscribe(OutboxObserver(store.outbox))
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
@@ -164,6 +181,10 @@ class ControlPlane:
             self.edges_store,
             store,
         )
+        # Reads sites to decide what may be purged and never writes one, so it
+        # is handed the store rather than the zone editor: purging is not a
+        # change to desired state and must not be able to become one.
+        self.cache = CacheService(store.sites, self.bus, self.runner)
 
     def close(self) -> None:
         """Release adapters created by this composition root.
@@ -178,7 +199,12 @@ class ControlPlane:
 
 
 def build_control_plane(
-    settings: Settings, *, pool_connections: bool = False
+    settings: Settings,
+    *,
+    pool_connections: bool = False,
+    integrations: Mapping[str, IntegrationHandler] | None = None,
 ) -> ControlPlane:
     """Build a control plane wired to the real adapters."""
-    return ControlPlane(settings, pool_connections=pool_connections)
+    return ControlPlane(
+        settings, pool_connections=pool_connections, integrations=integrations
+    )

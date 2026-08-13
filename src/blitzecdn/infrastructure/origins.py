@@ -1,16 +1,18 @@
-"""Probe the origins the edges will proxy to.
+"""Describing an origin, and the controller's own narrow view of one.
 
-`ControlPlane.validate()` is static: it checks that desired state is internally
-consistent and that Ansible can parse the playbook. It cannot catch the most
-common way a new site fails in production — the origin is not reachable from
-where we are, is listening on a different port, or presents a certificate that
-does not match the SNI we will send. Those surface as 502s minutes after a
-deploy that reported success.
+Two jobs, and the split matters. ``to_probe`` renders a site's origin — host,
+port, scheme, SNI — for whoever is going to connect to it, which for the
+operator-facing check is the edges: ``EdgeOperationsService.check_origins``
+runs a playbook, so the answer comes from the machines that actually carry the
+traffic. This module used to *be* that check, and the answer it gave was about
+the controller's network rather than the fleet's: an origin that allow-lists
+the edges refuses the controller, and one reachable only from the controller's
+subnet passed here and then 502'd on every edge.
 
-This does the connection the edge would do, from the controller. That is not
-the same vantage point as an edge, so a pass here is evidence rather than
-proof; a failure, though, is nearly always real and is worth knowing before a
-deploy rather than after.
+``check`` is what remains of the controller connecting for itself, and it has
+exactly one caller — the advisory origin check inside certificate preflight,
+which answers during issuance and cannot wait for a playbook. It is advisory
+there for precisely the reason above, and says so.
 
 The hosts contacted are the origins an operator has already declared in
 desired state, and the probe sends no application data — it connects,
@@ -22,7 +24,6 @@ from __future__ import annotations
 import socket
 import ssl
 from collections.abc import Mapping
-from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
 from typing import Any
 
@@ -32,25 +33,28 @@ from blitzecdn.domain.sites import CdnSite, HttpScheme
 
 _DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
 
-#: Origins are probed in parallel because a fleet with many sites would
-#: otherwise take (sites x timeout) seconds to report in the worst case, which
-#: is long enough that nobody runs the check. Bounded so a large desired state
-#: cannot open hundreds of sockets at once.
-_MAX_PARALLEL_PROBES = 8
-
 
 class OriginProbe:
-    """Connects to an origin the way the edge will, and reports what happened."""
+    """An origin's address, and what the controller alone can see of it."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
-    def check_all(self, sites: list[CdnSite]) -> list[OriginCheck]:
-        if not sites:
-            return []
-        workers = min(_MAX_PARALLEL_PROBES, len(sites))
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            return list(pool.map(self.check, sites))
+    def to_probe(self, site: CdnSite) -> dict[str, object]:
+        """Render one site's origin for the edge-side check.
+
+        The port and SNI are decided here rather than in the playbook so that
+        the two probes — the edges' and the controller's advisory one — cannot
+        disagree about what a site's origin is. A Jinja default in a role would
+        be a second copy of this rule with no test holding it to the first.
+        """
+        return {
+            "name": site.name,
+            "origin_host": site.origin_host,
+            "origin_port": site.origin_port or _DEFAULT_PORTS[site.origin_scheme],
+            "origin_scheme": site.origin_scheme.value,
+            "origin_sni": site.effective_origin_sni,
+        }
 
     def check(self, site: CdnSite) -> OriginCheck:
         port = site.origin_port or _DEFAULT_PORTS[site.origin_scheme]
@@ -83,7 +87,6 @@ class OriginProbe:
             return result.model_copy(
                 update={"detail": f"{site.origin_host} resolves to no addresses"}
             )
-        result = result.model_copy(update={"resolved": True})
 
         try:
             connection = socket.create_connection((site.origin_host, port), timeout)
