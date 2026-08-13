@@ -8,6 +8,7 @@ changed.
 
 from __future__ import annotations
 
+import fcntl
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -206,7 +207,15 @@ class Database:
 
     def _initialize(self) -> None:
         """Create and validate the schema using Alembic as its sole owner."""
-        with self.lock:
+        # The API, worker, and installer handoff can start together after a
+        # first install. The in-process RLock cannot serialize those separate
+        # processes, while Alembic's empty-schema check and first CREATE TABLE
+        # are not atomic. Keep a stable sidecar and take an advisory lock for
+        # the complete upgrade/check boundary.
+        migration_lock = self._path.with_name(f".{self._path.name}.migration.lock")
+        with self.lock, migration_lock.open("a+b") as lock_file:
+            migration_lock.chmod(0o600)
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             config = Config(stdout=StringIO())
             config.set_main_option(
                 "script_location",
