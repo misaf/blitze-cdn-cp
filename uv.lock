@@ -100,6 +100,21 @@ wheels = [
 ]
 
 [[package]]
+name = "ansible-runner"
+version = "2.4.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "packaging" },
+    { name = "pexpect" },
+    { name = "python-daemon" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/68/4f/62222b42b52cc771db51ccc77ffac19cc5f0196ff61de7c93585845a819b/ansible_runner-2.4.3.tar.gz", hash = "sha256:5f3025529bb968fdc3b627457dd8d418dbf9d53bc73735d50e69c28544d53031", size = 154148, upload-time = "2026-03-16T18:42:14.861Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e3/89/fa7f81db6134caa455c9351373ee934b5fdeed212eb939d6c42d80d683d7/ansible_runner-2.4.3-py3-none-any.whl", hash = "sha256:cdac6daa151a50084ffda710e769db23fa975fc0507796191d7708831b286e37", size = 80257, upload-time = "2026-03-16T18:42:13.72Z" },
+]
+
+[[package]]
 name = "anyio"
 version = "4.14.2"
 source = { registry = "https://pypi.org/simple" }
@@ -251,6 +266,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "ansible-core" },
+    { name = "ansible-runner" },
     { name = "apscheduler" },
     { name = "cryptography" },
     { name = "dnspython" },
@@ -286,6 +302,7 @@ dev = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.16,<2" },
     { name = "ansible-core", specifier = ">=2.21,<2.22" },
+    { name = "ansible-runner", specifier = ">=2.4,<3" },
     { name = "apscheduler", specifier = ">=3.11,<4" },
     { name = "cryptography", specifier = ">=45,<51" },
     { name = "dnspython", specifier = ">=2.7,<3" },
@@ -1167,6 +1184,15 @@ wheels = [
 ]
 
 [[package]]
+name = "lockfile"
+version = "0.12.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/17/47/72cb04a58a35ec495f96984dddb48232b551aafb95bde614605b754fe6f7/lockfile-0.12.2.tar.gz", hash = "sha256:6aed02de03cba24efabcd600b30540140634fc06cfa603822d508d5361e9f799", size = 20874, upload-time = "2015-11-25T18:29:58.279Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c8/22/9460e311f340cb62d26a38c419b1381b8593b0bb6b5d1f056938b086d362/lockfile-0.12.2-py2.py3-none-any.whl", hash = "sha256:6c3cb24f344923d30b2785d5ad75182c8ea7ac1b6171b08657258ec7429d50fa", size = 13564, upload-time = "2015-11-25T18:29:51.462Z" },
+]
+
+[[package]]
 name = "mako"
 version = "1.4.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1405,6 +1431,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pexpect"
+version = "4.9.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "ptyprocess" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9e/c3/059298687310d527a58bb01f3b1965787ee3b40dce76752eda8b44e9a2c5/pexpect-4.9.0-py2.py3-none-any.whl", hash = "sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523", size = 63772, upload-time = "2023-11-25T06:56:14.81Z" },
+]
+
+[[package]]
 name = "pip"
 version = "26.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1491,6 +1529,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/74/89/1f3e8e1fc3e97de0fa963495832f581f025f29471602a309e48808244292/pre_commit-4.6.2.tar.gz", hash = "sha256:8f5d7bfb021ecdbcd9d49d89847082dd24172ccde534390081a679ad046e2441", size = 198670, upload-time = "2026-08-10T22:07:18.421Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/45/e2/bbb7129c9e7999a6b8ee9cca3b66486c25c423ab5a75f34071798b74ce94/pre_commit-4.6.2-py2.py3-none-any.whl", hash = "sha256:e2dde9a75d3bce11bd3831c26d134df00a2803c1d818be6a0383c3dcda25dc4e", size = 226202, upload-time = "2026-08-10T22:07:16.942Z" },
+]
+
+[[package]]
+name = "ptyprocess"
+version = "0.7.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/20/e5/16ff212c1e452235a90aeb09066144d0c5a6a8c0834397e03f5224495c4e/ptyprocess-0.7.0.tar.gz", hash = "sha256:5c5d0a3b48ceee0b48485e0c26037c0acd7d29765ca3fbb5cb3831d347423220", size = 70762, upload-time = "2020-12-28T15:15:30.155Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/22/a6/858897256d0deac81a172289110f31629fc4cee19b6f01283303e18c8db3/ptyprocess-0.7.0-py2.py3-none-any.whl", hash = "sha256:4b41f3967fce3af57cc7e94b888626c18bf37a083e3651ca8feeb66d492fef35", size = 13993, upload-time = "2020-12-28T15:15:28.35Z" },
 ]
 
 [[package]]
@@ -1664,6 +1711,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/b1/51/a849f96e117386044471c8ec2bd6cfebacda285da9525c9106aeb28da671/pytest_cov-7.1.0.tar.gz", hash = "sha256:30674f2b5f6351aa09702a9c8c364f6a01c27aae0c1366ae8016160d1efc56b2", size = 55592, upload-time = "2026-03-21T20:11:16.284Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/9d/7a/d968e294073affff457b041c2be9868a40c1c71f4a35fcc1e45e5493067b/pytest_cov-7.1.0-py3-none-any.whl", hash = "sha256:a0461110b7865f9a271aa1b51e516c9a95de9d696734a2f71e3e78f46e1d4678", size = 22876, upload-time = "2026-03-21T20:11:14.438Z" },
+]
+
+[[package]]
+name = "python-daemon"
+version = "3.1.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "lockfile" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/3d/37/4f10e37bdabc058a32989da2daf29e57dc59dbc5395497f3d36d5f5e2694/python_daemon-3.1.2.tar.gz", hash = "sha256:f7b04335adc473de877f5117e26d5f1142f4c9f7cd765408f0877757be5afbf4", size = 71576, upload-time = "2024-12-03T08:41:07.843Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/45/3c/b88167e2d6785c0e781ee5d498b07472aeb9b6765da3b19e7cc9e0813841/python_daemon-3.1.2-py3-none-any.whl", hash = "sha256:b906833cef63502994ad48e2eab213259ed9bb18d54fa8774dcba2ff7864cec6", size = 30872, upload-time = "2024-12-03T08:41:03.322Z" },
 ]
 
 [[package]]

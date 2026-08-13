@@ -32,9 +32,9 @@ def terminate_process_group(
 ) -> None:
     """Stop a ``start_new_session`` child *and* every worker it forked.
 
-    Killing only the direct child leaves tools that fan out across hosts —
-    ansible-playbook, certbot — with orphaned workers that keep mutating remote
-    state after we have already recorded the run as timed out. ``drain`` reaps
+    Killing only the direct child leaves tools such as certbot with orphaned
+    workers that keep mutating remote state after we have already recorded the
+    run as timed out. ``drain`` reaps
     the child; pass ``process.communicate`` when its output is piped and
     ``process.wait`` when it is not.
     """

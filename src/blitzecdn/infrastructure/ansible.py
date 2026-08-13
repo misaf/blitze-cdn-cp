@@ -14,8 +14,8 @@ from __future__ import annotations
 import fcntl
 import json
 import os
+import shlex
 import shutil
-import subprocess
 import tempfile
 from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager, suppress
@@ -23,8 +23,13 @@ from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from types import TracebackType
-from typing import IO
+from typing import Any
 from uuid import uuid4
+
+import ansible_runner  # type: ignore[import-untyped]
+from ansible_runner import (
+    exceptions as runner_exceptions,
+)
 
 from blitzecdn.config import Settings
 from blitzecdn.domain.edges import EDGE_GROUP
@@ -32,7 +37,6 @@ from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml
-from blitzecdn.infrastructure.process import terminate_process_group
 from blitzecdn.ports import EdgeStore
 
 __all__ = ["AnsibleRunner", "DeploymentLock"]
@@ -103,17 +107,21 @@ class AnsibleRunner:
         """
         self._validate_paths()
         return self._execute(
-            self._command(check=True, syntax_check=True, variables=variables),
-            timeout=120,
             playbook=self._settings.playbook_path,
+            variables=variables,
+            host_limit=None,
+            timeout=120,
+            syntax_check=True,
         )
 
     def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun:
         self._validate_paths()
         return self._execute(
-            self._command(check=check, host_limit=host_limit),
-            timeout=self._settings.deployment_timeout_seconds,
             playbook=self._settings.playbook_path,
+            variables=self._settings.generated_vars_path,
+            host_limit=host_limit,
+            timeout=self._settings.deployment_timeout_seconds,
+            check=check,
             targeted=self._targeted(host_limit),
         )
 
@@ -135,17 +143,12 @@ class AnsibleRunner:
                 "blitzecdn_acme_validation": validation,
             },
         ) as variables:
-            command = [
-                self._settings.ansible_playbook,
-                str(playbook),
-                "--inventory",
-                str(self._settings.inventory_path),
-                "--extra-vars",
-                f"@{variables}",
-                "--limit",
-                EDGE_GROUP,
-            ]
-            return self._execute(command, timeout=120, playbook=playbook)
+            return self._execute(
+                playbook=playbook,
+                variables=variables,
+                host_limit=None,
+                timeout=120,
+            )
 
     def run_cache_purge(
         self,
@@ -221,10 +224,14 @@ class AnsibleRunner:
     def _playbook_run(
         self, playbook: Path, variables: Path, host_limit: str | None
     ) -> AnsibleRun:
+        self._validate_paths()
+        if not playbook.is_file():
+            raise ConfigurationError(f"playbook does not exist: {playbook}")
         return self._execute(
-            self._playbook_command(playbook, variables, host_limit),
-            timeout=self._settings.deployment_timeout_seconds,
             playbook=playbook,
+            variables=variables,
+            host_limit=host_limit,
+            timeout=self._settings.deployment_timeout_seconds,
             targeted=self._targeted(host_limit),
         )
 
@@ -253,23 +260,6 @@ class AnsibleRunner:
         finally:
             path.unlink(missing_ok=True)
 
-    def _playbook_command(
-        self, playbook: Path, variables: Path, host_limit: str | None
-    ) -> list[str]:
-        self._validate_paths()
-        if not playbook.is_file():
-            raise ConfigurationError(f"playbook does not exist: {playbook}")
-        return [
-            self._settings.ansible_playbook,
-            str(playbook),
-            "--inventory",
-            str(self._settings.inventory_path),
-            "--extra-vars",
-            f"@{variables}",
-            "--limit",
-            self._limit(host_limit),
-        ]
-
     def _validate_paths(self) -> None:
         errors = self._settings.validate_runtime()
         if errors:
@@ -284,30 +274,6 @@ class AnsibleRunner:
             raise ConfigurationError(
                 f"ansible-playbook is not available on PATH: {executable}"
             )
-
-    def _command(
-        self,
-        *,
-        check: bool,
-        syntax_check: bool = False,
-        host_limit: str | None = None,
-        variables: Path | None = None,
-    ) -> list[str]:
-        command = [
-            self._settings.ansible_playbook,
-            str(self._settings.playbook_path),
-            "--inventory",
-            str(self._settings.inventory_path),
-            "--extra-vars",
-            f"@{variables or self._settings.generated_vars_path}",
-            "--limit",
-            self._limit(host_limit),
-        ]
-        if syntax_check:
-            command.append("--syntax-check")
-        elif check:
-            command.extend(("--check", "--diff"))
-        return command
 
     def _targeted(self, host_limit: str | None) -> tuple[str, ...]:
         """The edges a limit resolves to, as names, for the run record.
@@ -360,10 +326,13 @@ class AnsibleRunner:
 
     def _execute(
         self,
-        command: list[str],
         *,
-        timeout: int,
         playbook: Path,
+        variables: Path,
+        host_limit: str | None,
+        timeout: int,
+        check: bool = False,
+        syntax_check: bool = False,
         targeted: tuple[str, ...] = (),
     ) -> AnsibleRun:
         run_id = uuid4().hex
@@ -375,29 +344,35 @@ class AnsibleRunner:
 
         environment = self._environment(result_path)
         control_root = self._settings.state_dir / "ansible-control"
+        artifact_root = self._settings.state_dir / "ansible-runner"
         control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with (
-            tempfile.TemporaryDirectory(dir=control_root) as control_path,
-            # One combined stream. Ansible interleaves the two, and a log read
-            # during an incident is easier to follow in the order things
-            # actually happened than split across two files.
-            log_path.open("wb") as log,
-        ):
+        artifact_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        with tempfile.TemporaryDirectory(dir=control_root) as control_path:
             environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
-            # A process that could not be started at all still raises: the
-            # runner either produces a real result or says it could not run,
-            # and `RunStatus.UNSTARTED` is reserved for the record the
-            # application writes in that case.
-            return_code, timed_out = self._spawn(
-                command, environment, log, timeout=timeout
+            result = self._run_ansible(
+                run_id=run_id,
+                artifact_root=artifact_root,
+                playbook=playbook,
+                variables=variables,
+                host_limit=host_limit,
+                environment=environment,
+                timeout=timeout,
+                check=check,
+                syntax_check=syntax_check,
             )
+        artifact_path = artifact_root / run_id
+        self._keep_runner_output(artifact_path, log_path)
+        shutil.rmtree(artifact_path, ignore_errors=True)
 
         status = (
             RunStatus.TIMED_OUT
-            if timed_out
+            if result.status == "timeout"
             else RunStatus.SUCCEEDED
-            if return_code == 0
+            if result.rc == 0
             else RunStatus.FAILED
+        )
+        return_code = (
+            _TIMEOUT_RETURN_CODE if status is RunStatus.TIMED_OUT else result.rc
         )
         hosts = self._read_result(result_path)
         self._prune_logs()
@@ -413,6 +388,60 @@ class AnsibleRunner:
             log_path=str(log_path),
             error=self._unreported_detail(status, hosts, log_path),
         )
+
+    def _run_ansible(
+        self,
+        *,
+        run_id: str,
+        artifact_root: Path,
+        playbook: Path,
+        variables: Path,
+        host_limit: str | None,
+        environment: dict[str, str],
+        timeout: int,
+        check: bool,
+        syntax_check: bool,
+    ) -> Any:
+        """Execute through Ansible Runner without exposing it above this adapter."""
+        options = ["--extra-vars", f"@{variables}"]
+        if syntax_check:
+            options.append("--syntax-check")
+        elif check:
+            options.extend(("--check", "--diff"))
+        # Supplying a custom binary puts Runner in raw execution mode, where it
+        # deliberately does not append its `playbook` parameter. Keep the
+        # configured executable support and make the playbook explicit.
+        options.append(str(playbook))
+        try:
+            return ansible_runner.run(
+                private_data_dir=str(self._settings.state_dir),
+                project_dir=str(self._settings.ansible_dir),
+                artifact_dir=str(artifact_root),
+                ident=run_id,
+                inventory=str(self._settings.inventory_path),
+                limit=self._limit(host_limit),
+                binary=self._settings.ansible_playbook,
+                cmdline=shlex.join(options),
+                envvars=environment,
+                settings={"runner_mode": "subprocess"},
+                timeout=timeout,
+                quiet=True,
+                suppress_env_files=True,
+                rotate_artifacts=0,
+            )
+        except (OSError, runner_exceptions.AnsibleRunnerException) as exc:
+            raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
+
+    @staticmethod
+    def _keep_runner_output(artifact_path: Path, log_path: Path) -> None:
+        """Move Runner's combined stdout into the stable operator log path."""
+        stdout = artifact_path / "stdout"
+        try:
+            stdout.replace(log_path)
+        except OSError:
+            # Runner may fail before it creates stdout. Preserve the invariant
+            # that every attempted run still has a log path to inspect.
+            log_path.touch(mode=0o600, exist_ok=True)
 
     def _environment(self, result_path: Path) -> dict[str, str]:
         environment = os.environ.copy()
@@ -442,40 +471,6 @@ class AnsibleRunner:
             self._settings.maxmind_license_key.get_secret_value()
         )
         return environment
-
-    def _spawn(
-        self,
-        command: list[str],
-        environment: dict[str, str],
-        log: IO[bytes],
-        *,
-        timeout: int,
-    ) -> tuple[int, bool]:
-        try:
-            process = subprocess.Popen(  # noqa: S603 -- fixed executable and argument array
-                command,
-                cwd=self._settings.ansible_dir,
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                start_new_session=True,
-            )
-        except OSError as exc:
-            raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
-        try:
-            return process.wait(timeout=timeout), False
-        except subprocess.TimeoutExpired:
-            # Ansible forks a worker per host; killing only the playbook
-            # leaves them converging edges behind our back.
-            terminate_process_group(process, process.wait)
-            return _TIMEOUT_RETURN_CODE, True
-        except BaseException:
-            # A CLI disconnect, Ctrl-C, or service stop must not orphan the
-            # playbook and let it keep changing edges after its deployment
-            # record has stopped receiving updates.
-            terminate_process_group(process, process.wait)
-            raise
 
     @staticmethod
     def _read_result(path: Path) -> tuple[HostRun, ...]:
