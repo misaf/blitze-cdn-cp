@@ -62,6 +62,7 @@ from blitzecdn.infrastructure.engine import Database
 from blitzecdn.infrastructure.models import (
     AnsibleSettingRow,
     AuditEventRow,
+    DeploymentRequirementRow,
     DeploymentRow,
     DnsRecordRow,
     DomainRow,
@@ -75,12 +76,42 @@ __all__ = [
     "AnsibleSettingStore",
     "AuditLog",
     "Database",
+    "DeploymentRequirementStore",
     "DeploymentStore",
     "EdgeStore",
     "SiteStore",
     "WorkflowStore",
     "ZoneStore",
 ]
+
+
+class DeploymentRequirementStore:
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def require(self, kind: str) -> None:
+        with self._db.session() as session:
+            session.execute(
+                sqlite_insert(DeploymentRequirementRow)
+                .values(kind=kind, requested_at=self._db.now())
+                .on_conflict_do_update(
+                    index_elements=[DeploymentRequirementRow.kind],
+                    set_={"requested_at": self._db.now()},
+                )
+            )
+
+    def clear(self, kind: str) -> None:
+        with self._db.session() as session:
+            session.execute(
+                delete(DeploymentRequirementRow).where(
+                    DeploymentRequirementRow.kind == kind
+                )
+            )
+
+    def pending(self, kind: str) -> bool:
+        with self._db.session() as session:
+            return session.get(DeploymentRequirementRow, kind) is not None
+
 
 #: Fields of a record that are columns; everything else is CDN policy. Derived
 #: from the model rather than typed out twice, so a new policy field lands in

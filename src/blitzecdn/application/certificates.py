@@ -39,6 +39,7 @@ from blitzecdn.exceptions import (
 from blitzecdn.ports import (
     CertificateStore,
     DeploymentGateway,
+    DeploymentRequirements,
     DeploymentRunner,
     EventBus,
     Issuer,
@@ -67,6 +68,7 @@ class CertificateService:
         deployments: DeploymentGateway,
         uow: UnitOfWork,
         workflows: WorkflowCoordinator,
+        deployment_requirements: DeploymentRequirements,
     ) -> None:
         self.settings = settings
         self.sites = sites
@@ -79,6 +81,7 @@ class CertificateService:
         self.deployments = deployments
         self.uow = uow
         self.workflows = workflows
+        self.deployment_requirements = deployment_requirements
 
     # -- Installing ----------------------------------------------------
 
@@ -103,6 +106,7 @@ class CertificateService:
             progress.checkpoint("installed", {"site": name})
             with self.uow.transaction():
                 self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
+                self.deployment_requirements.require("certificates")
                 self.bus.publish(
                     domain_event(
                         operator,
@@ -274,6 +278,7 @@ class CertificateService:
             progress.checkpoint("stored", {"site": site.name})
         with self.uow.transaction():
             self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
+            self.deployment_requirements.require("certificates")
             self.bus.publish(
                 domain_event(
                     operator,

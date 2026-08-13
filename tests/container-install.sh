@@ -127,8 +127,9 @@ in_container 'test ! -e /etc/nginx/sites-enabled/cdn-example-test.conf' ||
 in_container 'nginx -t' || fail "nginx does not load after the site was withdrawn"
 
 say "Backing up the database while the API is serving"
-in_container 'cd / && blitzecdn db backup /root/backup.db' || fail "db backup failed"
-in_container 'test -s /root/backup.db' || fail "the backup is empty"
+in_container 'cd / && blitzecdn db backup /var/lib/blitzecdn/backup.db' ||
+  fail "db backup failed"
+in_container 'test -s /var/lib/blitzecdn/backup.db' || fail "the backup is empty"
 
 say "Re-running the installer"
 credential_before=$(in_container 'sha256sum /etc/blitzecdn/blitzecdn.env')

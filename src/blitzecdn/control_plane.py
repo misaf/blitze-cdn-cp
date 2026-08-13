@@ -21,6 +21,8 @@ written down rather than assumed.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from blitzecdn.application import (
     CacheService,
     CertificateService,
@@ -43,6 +45,7 @@ from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
 from blitzecdn.infrastructure.process import DramatiqBackgroundRunner
+from blitzecdn.infrastructure.queue import redis_ready
 from blitzecdn.ports import (
     AuditTrail,
     BackgroundRunner,
@@ -76,6 +79,7 @@ class ControlPlane:
         preflight: Preflight | None = None,
         edges_store: EdgeStorePort | None = None,
         background: BackgroundRunner | QueueBackgroundRunner | None = None,
+        broker_ready: Callable[[str], bool] | None = None,
         pool_connections: bool = False,
     ) -> None:
         self.settings = settings
@@ -99,6 +103,10 @@ class ControlPlane:
         self.background = background or DramatiqBackgroundRunner(
             str(settings.redis_url)
         )
+        readiness_probe = broker_ready or redis_ready
+        self._broker_ready: Callable[[], bool] = lambda: readiness_probe(
+            str(settings.redis_url)
+        )
 
         # The audit trail as a read-only port. It is written by the observer
         # below, never by a caller, so nothing here can record an event no
@@ -113,6 +121,7 @@ class ControlPlane:
             store.workflows, store, settings.history_retention
         )
         self.workflow_history = store.workflows
+        self.deployment_requirements = store.deployment_requirements
         self.recovery = RecoveryService(store.workflows, store)
 
         # Each store is passed where its port is asked for, so a service is
@@ -135,6 +144,7 @@ class ControlPlane:
             renderer,
             RollbackPlanner(store.deployments),
             DriftInterpreter(),
+            store.deployment_requirements,
         )
         self.certificates = CertificateService(
             settings,
@@ -148,6 +158,7 @@ class ControlPlane:
             self.deployments,
             store,
             self.workflows,
+            store.deployment_requirements,
         )
         self.edges = EdgeOperationsService(
             store.sites,
@@ -161,6 +172,10 @@ class ControlPlane:
         # is handed the store rather than the zone editor: purging is not a
         # change to desired state and must not be able to become one.
         self.cache = CacheService(store.sites, self.bus, self.runner)
+
+    def broker_ready(self) -> bool:
+        """Whether the durable work broker is currently reachable."""
+        return self._broker_ready()
 
     def close(self) -> None:
         """Release adapters created by this composition root.

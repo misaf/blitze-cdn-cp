@@ -19,7 +19,6 @@ from blitzecdn.exceptions import (
 )
 from blitzecdn.infrastructure.database import Repository
 from blitzecdn.infrastructure.operation_stores import WorkflowStore
-from blitzecdn.infrastructure.queue import reconcile_certificates
 
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):
@@ -43,6 +42,14 @@ def test_health_is_public_and_controls_require_auth(settings):
         )
 
 
+def test_health_reports_redis_unavailable(settings, monkeypatch):
+    monkeypatch.setattr("blitzecdn.control_plane.redis_ready", lambda _url: False)
+    with TestClient(create_app(settings)) as client:
+        response = client.get("/health")
+    assert response.status_code == 503
+    assert response.json() == {"status": "unavailable", "detail": "ConnectionError"}
+
+
 def test_api_service_runs_certificate_reconciliation_on_its_interval(
     settings, monkeypatch
 ):
@@ -51,10 +58,13 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
         update={"certificate_reconcile_interval_seconds": 1}
     )
 
-    def enqueue():
+    def enqueue(_url, operation, *, ttl_seconds):
+        assert operation == "reconcile-certificates"
+        assert ttl_seconds >= 2
         called.set()
+        return True
 
-    monkeypatch.setattr(reconcile_certificates, "send", enqueue)
+    monkeypatch.setattr("blitzecdn.scheduler.enqueue_scheduled_once", enqueue)
 
     with TestClient(create_app(configured)):
         assert called.wait(2)

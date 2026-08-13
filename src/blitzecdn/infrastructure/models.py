@@ -314,3 +314,12 @@ class ProjectionStateRow(Base, table=True):
     name: str = Field(sa_column=Column(String, primary_key=True))
     source_revision: str
     projected_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+
+
+class DeploymentRequirementRow(Base, table=True):
+    """Durable reasons the current desired state must reach the fleet."""
+
+    __tablename__ = "deployment_requirements"
+
+    kind: str = Field(sa_column=Column(String, primary_key=True))
+    requested_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

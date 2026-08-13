@@ -20,6 +20,7 @@ from blitzecdn.infrastructure.engine import Database
 from blitzecdn.infrastructure.stores import (
     AnsibleSettingStore,
     AuditLog,
+    DeploymentRequirementStore,
     DeploymentStore,
     EdgeStore,
     SiteStore,
@@ -55,6 +56,7 @@ class Repository:
         self.edges = EdgeStore(self.database)
         self.ansible_settings = AnsibleSettingStore(self.database)
         self.deployments = DeploymentStore(self.database, self.snapshot)
+        self.deployment_requirements = DeploymentRequirementStore(self.database)
         self.audit_log = AuditLog(self.database)
         self.workflows = WorkflowStore(self.database)
 

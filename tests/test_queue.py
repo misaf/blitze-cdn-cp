@@ -2,15 +2,42 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import dramatiq
+import pytest
 from dramatiq.brokers.stub import StubBroker
 
+from blitzecdn.infrastructure import queue
 from blitzecdn.infrastructure.queue import (
     check_drift,
     reconcile_certificates,
     renew_certificates,
     run_deployment,
 )
+
+
+class FakeRedis:
+    values: ClassVar[dict[str, str]] = {}
+
+    @classmethod
+    def from_url(cls, _url: str, **_kwargs):
+        return cls()
+
+    def set(self, key: str, value: str, **_kwargs) -> bool:
+        if key in self.values:
+            return False
+        self.values[key] = value
+        return True
+
+    def eval(self, _script: str, _keys: int, key: str, token: str) -> int:
+        if self.values.get(key) != token:
+            return 0
+        del self.values[key]
+        return 1
+
+    def close(self) -> None:
+        pass
 
 
 def test_actors_publish_to_the_expected_queues():
@@ -23,9 +50,9 @@ def test_actors_publish_to_the_expected_queues():
             actor.broker = broker
             broker.declare_actor(actor)
         run_deployment.send("deployment-id")
-        reconcile_certificates.send()
-        renew_certificates.send()
-        check_drift.send()
+        reconcile_certificates.send("reconcile-token")
+        renew_certificates.send("renew-token")
+        check_drift.send("drift-token")
 
         deployment = dramatiq.Message.decode(broker.queues["deployments"].get_nowait())
         scheduled = [
@@ -38,6 +65,38 @@ def test_actors_publish_to_the_expected_queues():
             "renew_certificates",
             "check_drift",
         }
+        assert {message.args for message in scheduled} == {
+            ("reconcile-token",),
+            ("renew-token",),
+            ("drift-token",),
+        }
     finally:
         for actor, original in zip(actors, previous, strict=True):
             actor.broker = original
+
+
+def test_scheduled_enqueue_is_atomic_and_passes_ownership_token(monkeypatch):
+    FakeRedis.values.clear()
+    sent: list[str] = []
+    monkeypatch.setattr(queue, "Redis", FakeRedis)
+    monkeypatch.setattr(queue.check_drift, "send", lambda token: sent.append(token))
+
+    assert queue.enqueue_scheduled_once("redis://test", "check-drift", ttl_seconds=60)
+    assert not queue.enqueue_scheduled_once(
+        "redis://test", "check-drift", ttl_seconds=60
+    )
+    assert len(sent) == 1
+
+
+def test_failed_scheduled_publish_releases_its_key(monkeypatch):
+    FakeRedis.values.clear()
+    monkeypatch.setattr(queue, "Redis", FakeRedis)
+
+    def fail(_token: str) -> None:
+        raise RuntimeError("broker unavailable")
+
+    monkeypatch.setattr(queue.check_drift, "send", fail)
+    with pytest.raises(RuntimeError, match="broker unavailable"):
+        queue.enqueue_scheduled_once("redis://test", "check-drift", ttl_seconds=60)
+
+    assert FakeRedis.values == {}

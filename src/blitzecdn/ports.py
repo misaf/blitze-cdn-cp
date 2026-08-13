@@ -49,6 +49,14 @@ class UnitOfWork(Protocol):
     def transaction(self) -> AbstractContextManager[Any]: ...
 
 
+class DeploymentRequirements(Protocol):
+    def require(self, kind: str) -> None: ...
+
+    def clear(self, kind: str) -> None: ...
+
+    def pending(self, kind: str) -> bool: ...
+
+
 class SiteStore(Protocol):
     """The derived virtual hosts. Written only by re-derivation from records."""
 
