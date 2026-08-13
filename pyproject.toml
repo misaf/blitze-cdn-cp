@@ -87,7 +87,14 @@ target-version = "py312"
 line-length = 88
 
 [tool.ruff.lint]
-select = ["A", "ASYNC", "B", "BLE", "C4", "E", "F", "I", "N", "PERF", "RUF", "S", "SIM", "UP"]
+select = ["A", "ASYNC", "B", "BLE", "C4", "C90", "E", "F", "I", "N", "PERF", "PLR0912", "PLR0915", "RUF", "S", "SIM", "UP"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 12
+
+[tool.ruff.lint.pylint]
+max-branches = 15
+max-statements = 60
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
