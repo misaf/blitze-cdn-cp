@@ -4,9 +4,8 @@ Every application decision about a run — did it converge, which edges drifted,
 which host still serves a purged object, whether an edge is safe to forget — is
 made from these models and from nothing else.
 
-They are populated from Ansible Runner's structured event stream. The
-``blitzecdn_result`` callback also writes a per-invocation JSON document as a
-compatibility fallback. Raw Ansible output goes to a per-run log file that no
+They are populated from Ansible Runner's structured event stream. Raw Ansible
+output goes to a per-run log file that no
 application code reads: it exists for an operator, and for the one case
 structured output cannot cover — a process that died before Ansible could
 report anything.
@@ -121,9 +120,9 @@ class RunStatus(StrEnum):
 class AnsibleRun(BaseModel):
     """The authoritative result of one invocation.
 
-    ``hosts`` comes from the callback. ``status`` and ``return_code`` come from
-    the process, because a run can die in ways no callback survives to report —
-    which is exactly why both halves are kept.
+    ``hosts`` comes from Runner events. ``status`` and ``return_code`` come from
+    the process, because a run can die before emitting host events — which is
+    exactly why both halves are kept.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -156,7 +155,7 @@ class AnsibleRun(BaseModel):
 
     @property
     def reported(self) -> bool:
-        """Whether the callback produced per-host results.
+        """Whether Runner produced per-host results.
 
         False for ``--syntax-check``, which runs no play and so has no hosts to
         report — there, the return code is the whole answer. False elsewhere

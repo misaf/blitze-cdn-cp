@@ -54,7 +54,6 @@ def _imports(path: Path) -> set[str]:
             found.add(node.module)
     return found
 
-
 def _violations(package: str, forbidden: tuple[str, ...]) -> list[str]:
     def banned(imported: str) -> bool:
         root = imported.split(".")[0]
@@ -201,7 +200,7 @@ def test_no_application_logic_reads_ansible_output():
     """The rule that replaced recap parsing, enforced rather than remembered.
 
     Raw Ansible output is kept per run for operators to read; the control plane
-    decides from the structured callback result and nothing else. The failure
+    decides from structured Runner events and nothing else. The failure
     this guards against is quiet — someone reaches for a log to answer a
     question the result already answers, and the answer starts depending on
     Ansible's wording again.
@@ -251,21 +250,3 @@ def _output_uses(path: Path) -> list[str]:
         ):
             found.append("matches on PLAY RECAP")
     return found
-
-
-def test_the_callback_plugin_stays_out_of_the_package():
-    """It runs inside Ansible's process, not ours.
-
-    Shipping it under `src/blitzecdn` would put an `ansible` import inside the
-    package and give the layering rules something they cannot classify. It
-    lives beside the playbooks it serves, and `ansible.cfg` points at it.
-    """
-    plugin = _SOURCE.parent.parent / "ansible/plugins/callback/blitzecdn_result.py"
-    assert plugin.is_file()
-    assert not list(_SOURCE.rglob("*callback*.py"))
-
-    config = (_SOURCE.parent.parent / "ansible/ansible.cfg").read_text(encoding="utf-8")
-    assert "callbacks_enabled = blitzecdn_result" in config, (
-        "the plugin only runs when ansible.cfg enables it; without this every "
-        "run would silently report no hosts"
-    )

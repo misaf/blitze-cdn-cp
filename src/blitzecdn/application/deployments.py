@@ -106,7 +106,7 @@ class DeploymentService:
         #: test can make it happen inline instead.
         #: Quotes a run log into a message for an operator. Never branched on:
         #: `validate` is the one caller, and only because `--syntax-check` runs
-        #: no play and so leaves the callback nothing to report.
+        #: no play and so emits no host events.
         self.workflows = workflows
         #: Turns a snapshot into the desired-state document Ansible reads. It
         #: holds the atomic writer, injected rather than imported so this layer

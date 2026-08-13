@@ -1,10 +1,9 @@
 """Running Ansible, and turning what it reports into domain models.
 
-Every invocation produces two artefacts. An Ansible Runner event handler turns
+Every invocation produces one retained artefact. An Ansible Runner event handler turns
 structured task and recap events into an
 :class:`~blitzecdn.domain.runs.AnsibleRun` — that is the only thing the
-application layer sees. The ``blitzecdn_result`` callback document remains a
-compatibility fallback. Raw terminal output goes to a log file under
+application layer sees. Raw terminal output goes to a log file under
 ``state_dir/logs`` that nothing here parses; it is kept so an operator has the
 full account of a run, and so a process that died before Ansible could report
 anything still leaves evidence behind.
@@ -13,7 +12,6 @@ anything still leaves evidence behind.
 from __future__ import annotations
 
 import fcntl
-import json
 import os
 import shlex
 import shutil
@@ -200,7 +198,7 @@ class AnsibleRunner:
         """Parse the playbook against ``variables``, changing nothing.
 
         The only run whose answer is the return code alone: ``--syntax-check``
-        executes no play, so there is no host for the callback to report on.
+        executes no play, so there is no host event to report.
         ``AnsibleRun.reported`` is false here by design, and the log file holds
         whatever Ansible said about the parse failure.
 
@@ -298,7 +296,7 @@ class AnsibleRunner:
     def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
         """Collect cache and connection counters from the edges in scope.
 
-        The counters come back through the callback: ``blitzecdn_stats``
+        The counters come back through Runner events: ``blitzecdn_stats``
         publishes them as the ``blitzecdn_report`` fact and they arrive on
         ``HostRun.report``. Nothing is written to or read from the controller's
         filesystem, so a stats run leaves nothing behind to go stale.
@@ -441,11 +439,9 @@ class AnsibleRunner:
         run_id = uuid4().hex
         started_at = datetime.now(UTC)
         log_path = self._settings.log_dir / f"{run_id}.log"
-        result_path = self._settings.run_dir / f"result-{run_id}.json"
         log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        result_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
-        environment = self._environment(result_path)
+        environment = self._environment()
         events = _RunnerEvents()
         control_root = self._settings.state_dir / "ansible-control"
         artifact_root = self._settings.state_dir / "ansible-runner"
@@ -479,7 +475,7 @@ class AnsibleRunner:
         return_code = (
             _TIMEOUT_RETURN_CODE if status is RunStatus.TIMED_OUT else result.rc
         )
-        hosts = events.hosts() or self._read_result(result_path)
+        hosts = events.hosts()
         self._prune_logs()
         return AnsibleRun(
             id=run_id,
@@ -550,22 +546,15 @@ class AnsibleRunner:
             # that every attempted run still has a log path to inspect.
             log_path.touch(mode=0o600, exist_ok=True)
 
-    def _environment(self, result_path: Path) -> dict[str, str]:
+    def _environment(self) -> dict[str, str]:
         environment = os.environ.copy()
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
         environment["ANSIBLE_LOCAL_TEMP"] = str(
             self._settings.state_dir / "ansible-local"
         )
-        # Runner configures its own callback plumbing. State our aggregate
-        # callback explicitly so it remains enabled alongside Runner's event
-        # callback instead of relying only on callbacks_enabled in ansible.cfg.
-        environment["ANSIBLE_CALLBACKS_ENABLED"] = "blitzecdn_result"
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
-        # Where the compatibility callback writes this run's document. Per-run,
-        # so two unlocked runs cannot overwrite each other's results.
-        environment["BLITZE_RESULT_PATH"] = str(result_path)
         # Where the `blitzecdn` inventory plugin reads the fleet from. Absolute,
         # because Ansible runs with cwd set to `ansible_dir` and the configured
         # path may well be relative to the project root instead. This is the
@@ -582,29 +571,6 @@ class AnsibleRunner:
             self._settings.maxmind_license_key.get_secret_value()
         )
         return environment
-
-    @staticmethod
-    def _read_result(path: Path) -> tuple[HostRun, ...]:
-        """Read the callback's document, then remove it.
-
-        The models it feeds are what gets persisted, so the file itself is
-        working state. A document that will not parse is treated as no document
-        at all: the run then reports as unreported, and the log is the account.
-        """
-        try:
-            document = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return ()
-        finally:
-            path.unlink(missing_ok=True)
-        if not isinstance(document, dict):
-            return ()
-        try:
-            return tuple(
-                HostRun.model_validate(host) for host in document.get("hosts") or []
-            )
-        except ValueError:
-            return ()
 
     def _prune_logs(self) -> None:
         """Keep the newest ``run_log_retention`` logs and drop the rest.

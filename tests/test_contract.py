@@ -714,17 +714,17 @@ def test_the_stats_role_publishes_through_the_agreed_report_fact():
     reporting success — the silent-no-op failure this suite exists to catch.
     """
     tasks = (STATS_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    plugin = (PROJECT_DIR / "ansible/plugins/callback/blitzecdn_result.py").read_text(
+    adapter = (PROJECT_DIR / "src/blitzecdn/infrastructure/ansible.py").read_text(
         encoding="utf-8"
     )
 
-    assert 'REPORT_FACT = "blitzecdn_report"' in plugin, (
-        "the callback plugin no longer collects blitzecdn_report; the stats "
+    assert 'get("blitzecdn_report")' in adapter, (
+        "the Runner event adapter no longer collects blitzecdn_report; the stats "
         "role publishes it and nothing else would carry the counters back"
     )
     assert "blitzecdn_report:" in tasks, (
         "blitzecdn_stats must publish its document as the blitzecdn_report "
-        "fact — see REPORT_FACT in ansible/plugins/callback/blitzecdn_result.py"
+        "fact consumed by the Runner event adapter"
     )
 
 
