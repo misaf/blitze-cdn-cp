@@ -119,7 +119,7 @@ in_container 'systemctl is-active --quiet nginx' || fail "nginx is not running"
 # Converging twice must change nothing: the drift check is the assertion.
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"
 in_container 'cd / && blitzecdn drift --json' || {
-  # shellcheck disable=SC2016 -- expand these variables inside the container.
+  # shellcheck disable=SC2016
   in_container 'latest=$(ls -t /opt/blitzecdn/.state/logs/*.log | head -1); printf "Ansible log: %s\n" "$latest"; sed -n "1,240p" "$latest"' || true
   fail "the fleet reports drift immediately after converging"
 }
