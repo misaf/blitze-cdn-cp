@@ -11,6 +11,7 @@ from blitzecdn.application import (
     DeploymentService,
     EdgeOperationsService,
 )
+from blitzecdn.domain.certificates import ReconciliationResult
 from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.exceptions import (
     ConfigurationError,
@@ -18,6 +19,7 @@ from blitzecdn.exceptions import (
     ExecutionError,
 )
 from blitzecdn.infrastructure.database import Repository
+from blitzecdn.infrastructure.operation_stores import WorkflowStore
 
 
 def test_health_is_public_and_controls_require_auth(settings):
@@ -40,7 +42,7 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
     def reconcile(_self, operator):
         assert operator == "scheduler"
         called.set()
-        return {"issued": [], "skipped": {}, "failed": {}, "deployment": None}
+        return ReconciliationResult()
 
     monkeypatch.setattr(CertificateService, "reconcile_certificates", reconcile)
 
@@ -878,3 +880,40 @@ def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
         # assertion would be checking the stub. That the teardown runs before
         # the removal is covered by the failure case above and by the service
         # tests.
+
+
+def test_health_reports_unavailable_when_persistence_will_not_answer(
+    settings, monkeypatch
+):
+    """A probe on uvicorn is not a probe on the control plane.
+
+    It answered ok unconditionally, so a database gone unreadable — or one on a
+    schema this release refuses — still reported healthy to whatever was
+    watching. 503 rather than an error body: the caller reads the status.
+    """
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/health").status_code == 200
+
+        def refuse(_self, _limit=100):
+            raise OSError("database is locked")
+
+        monkeypatch.setattr(WorkflowStore, "list_workflows", refuse)
+        response = client.get("/health")
+
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
+
+
+def test_metrics_are_authenticated_and_readable(settings):
+    """Gauges read out of SQLite at scrape time — no in-memory counters."""
+    with TestClient(create_app(settings)) as client:
+        assert client.get("/metrics").status_code == 401
+        response = client.get("/metrics", headers=_HEADERS)
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/plain")
+    body = response.text
+    assert "blitzecdn_edges 0" in body
+    assert "blitzecdn_sites 0" in body
+    assert "blitzecdn_certificates_expiring 0" in body
+    assert "# TYPE blitzecdn_outbox_undelivered gauge" in body
