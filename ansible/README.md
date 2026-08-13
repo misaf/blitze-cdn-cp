@@ -4,14 +4,20 @@ This directory is the operator-side half of the deployment: the inventory
 plugin, group variables, connection settings, and the playbooks the control
 plane invokes.
 
+Ansible is the single source of truth for host installation and teardown.
+Python decides when to run those operations and records their results; the
+shell installer only bootstraps Ansible, invokes it, and removes its own
+checkout after the uninstall play succeeds.
+
 **There is no inventory file to edit.** The fleet lives in the `edges` table of
 the control-plane database, and `plugins/inventory/blitzecdn.py` reads it at the
 start of every run — so a host exists for Ansible exactly when it exists in the
 control plane, with nothing in between to drift. Manage it with `blitzecdn edge
 add`, `edge update`, `edge list` and `edge remove`.
 
-The roles are **not** here — they ship in the `blitzecdn.edge` collection,
-pinned in [`requirements.yml`](requirements.yml).
+The BlitzeCDN roles live in `roles/` and are loaded directly from this checkout.
+[`requirements.yml`](requirements.yml) pins only the third-party collections
+used by those roles.
 
 ```bash
 ansible-galaxy collection install -r requirements.yml -p ../.state/collections
@@ -19,7 +25,7 @@ ansible-galaxy collection install -r requirements.yml -p ../.state/collections
 
 | Path | Purpose |
 | --- | --- |
-| `requirements.yml` | Pins the exact `blitzecdn.edge` version this controller deploys |
+| `requirements.yml` | Pins third-party Ansible collections used by the local roles |
 | `inventory/blitzecdn.yml` | The inventory: configuration for the plugin below, not a host list |
 | `plugins/inventory/blitzecdn.py` | Publishes the `edges` table into the `blitzecdn_edges` group |
 | `inventory/group_vars/` | Environment policy for `blitzecdn_edges` |
@@ -28,6 +34,7 @@ ansible-galaxy collection install -r requirements.yml -p ../.state/collections
 | `playbooks/cache-purge.yml` | Removes cached responses by key, or empties the cache |
 | `playbooks/stats.yml` | Collects cache and connection counters from every edge |
 | `playbooks/decommission.yml` | Takes a host out of service and removes managed state |
+| `playbooks/uninstall.yml` | Removes managed state from a standalone controller/edge host |
 | `ansible.cfg` | Connection, fork, and collection-path settings |
 
 `playbooks/edge.yml` converges only the `blitzecdn_edges` inventory group. Tags
