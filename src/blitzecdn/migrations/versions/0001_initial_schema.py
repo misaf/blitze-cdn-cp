@@ -79,9 +79,19 @@ def upgrade() -> None:
         ),
         sa.Column("result", sqlite.JSON(), nullable=True),
         sa.Column("snapshot", sa.String(), nullable=False),
+        sa.Column("canonical_digest", sa.String(), nullable=True),
         sa.ForeignKeyConstraint(
             ["rollback_of"],
             ["deployments.id"],
+        ),
+        sa.CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed', "
+            "'timed_out', 'abandoned')",
+            name="deployments_status_check",
+        ),
+        sa.CheckConstraint(
+            "rollback_of IS NULL OR rollback_of != id",
+            name="deployments_no_self_rollback_check",
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -99,12 +109,12 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", blitzecdn.infrastructure.models.UtcDateTime(), nullable=False
         ),
+        sa.CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
         sa.PrimaryKeyConstraint("name"),
     )
     op.create_table(
         "edges",
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("schema_version", sa.Integer(), nullable=False),
         sa.Column("host", sa.String(), nullable=False),
         sa.Column("user", sa.String(), nullable=False),
         sa.Column("port", sa.Integer(), nullable=False),
@@ -114,30 +124,11 @@ def upgrade() -> None:
         sa.Column(
             "updated_at", blitzecdn.infrastructure.models.UtcDateTime(), nullable=False
         ),
+        sa.CheckConstraint("port BETWEEN 1 AND 65535", name="edges_port_check"),
+        sa.CheckConstraint("length(host) > 0", name="edges_host_nonempty_check"),
+        sa.CheckConstraint("length(user) > 0", name="edges_user_nonempty_check"),
         sa.PrimaryKeyConstraint("name"),
     )
-    op.create_table(
-        "outbox_events",
-        sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column("topic", sa.String(), nullable=False),
-        sa.Column("event_key", sa.String(), nullable=False),
-        sa.Column("payload", sqlite.JSON(), nullable=False),
-        sa.Column(
-            "created_at", blitzecdn.infrastructure.models.UtcDateTime(), nullable=False
-        ),
-        sa.Column(
-            "delivered_at", blitzecdn.infrastructure.models.UtcDateTime(), nullable=True
-        ),
-        sa.Column("attempts", sa.Integer(), nullable=False),
-        sa.Column("last_error", sa.String(), nullable=True),
-        sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("event_key", name="outbox_events_event_key_key"),
-    )
-    with op.batch_alter_table("outbox_events", schema=None) as batch_op:
-        batch_op.create_index(
-            "outbox_pending_idx", ["delivered_at", "id"], unique=False
-        )
-
     op.create_table(
         "projection_state",
         sa.Column("name", sa.String(), nullable=False),
@@ -175,6 +166,14 @@ def upgrade() -> None:
         ),
         sa.Column("steps", sqlite.JSON(), nullable=False),
         sa.Column("error", sa.String(), nullable=True),
+        sa.CheckConstraint(
+            "kind IN ('deployment', 'rollback', 'certificate')",
+            name="workflows_kind_check",
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
+            name="workflows_status_check",
+        ),
         sa.PrimaryKeyConstraint("id"),
     )
     with op.batch_alter_table("workflows", schema=None) as batch_op:
@@ -195,6 +194,12 @@ def upgrade() -> None:
             "updated_at", blitzecdn.infrastructure.models.UtcDateTime(), nullable=False
         ),
         sa.ForeignKeyConstraint(["domain"], ["domains.name"], ondelete="CASCADE"),
+        sa.CheckConstraint("ttl BETWEEN 1 AND 604800", name="dns_records_ttl_check"),
+        sa.CheckConstraint("type IN ('A', 'AAAA')", name="dns_records_type_check"),
+        sa.CheckConstraint("length(name) > 0", name="dns_records_name_nonempty_check"),
+        sa.CheckConstraint(
+            "length(value) > 0", name="dns_records_value_nonempty_check"
+        ),
         sa.PrimaryKeyConstraint("domain", "name", "type"),
     )
     # ### end Alembic commands ###
@@ -209,10 +214,6 @@ def downgrade() -> None:
     op.drop_table("workflows")
     op.drop_table("sites")
     op.drop_table("projection_state")
-    with op.batch_alter_table("outbox_events", schema=None) as batch_op:
-        batch_op.drop_index("outbox_pending_idx")
-
-    op.drop_table("outbox_events")
     op.drop_table("edges")
     op.drop_table("domains")
     with op.batch_alter_table("deployments", schema=None) as batch_op:

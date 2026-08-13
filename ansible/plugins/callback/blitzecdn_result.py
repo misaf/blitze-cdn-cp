@@ -24,7 +24,7 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ansible.plugins.callback import CallbackBase
 
@@ -54,7 +54,7 @@ _MAX_MESSAGE = 2000
 
 
 def _now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 class CallbackModule(CallbackBase):

@@ -21,8 +21,6 @@ written down rather than assumed.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from blitzecdn.application import (
     CacheService,
     CertificateService,
@@ -35,31 +33,23 @@ from blitzecdn.application.deployment_support import (
     DriftInterpreter,
     RollbackPlanner,
 )
-from blitzecdn.application.workflows import (
-    IntegrationHandler,
-    OutboxDispatcher,
-    RecoveryService,
-    WorkflowCoordinator,
-)
+from blitzecdn.application.workflows import RecoveryService, WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
-from blitzecdn.infrastructure.events import (
-    AuditObserver,
-    InProcessEventBus,
-    OutboxObserver,
-)
+from blitzecdn.infrastructure.events import AuditObserver, InProcessEventBus
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
-from blitzecdn.infrastructure.process import ThreadBackgroundRunner
+from blitzecdn.infrastructure.process import DramatiqBackgroundRunner
 from blitzecdn.ports import (
     AuditTrail,
     BackgroundRunner,
     DeploymentRunner,
     Issuer,
     Preflight,
+    QueueBackgroundRunner,
 )
 from blitzecdn.ports import (
     CertificateStore as CertificateStorePort,
@@ -85,9 +75,8 @@ class ControlPlane:
         origin_probe: OriginProbePort | None = None,
         preflight: Preflight | None = None,
         edges_store: EdgeStorePort | None = None,
-        background: BackgroundRunner | None = None,
+        background: BackgroundRunner | QueueBackgroundRunner | None = None,
         pool_connections: bool = False,
-        integrations: Mapping[str, IntegrationHandler] | None = None,
     ) -> None:
         self.settings = settings
         store = repository or Repository(
@@ -107,7 +96,9 @@ class ControlPlane:
         self.preflight = preflight or CertificatePreflight(
             settings, self.edges_store, origin_probe=self.origin_probe
         )
-        self.background = background or ThreadBackgroundRunner()
+        self.background = background or DramatiqBackgroundRunner(
+            str(settings.redis_url)
+        )
 
         # The audit trail as a read-only port. It is written by the observer
         # below, never by a caller, so nothing here can record an event no
@@ -123,22 +114,6 @@ class ControlPlane:
         )
         self.workflow_history = store.workflows
         self.recovery = RecoveryService(store.workflows, store)
-
-        # The outbox is only wired when something is actually listening.
-        #
-        # It used to be subscribed unconditionally against a handler that did
-        # nothing, so every domain event was written to a table whose only
-        # consumer discarded it — and only when an API process happened to
-        # start, since nothing else dispatched. A controller driven by the CLI
-        # and the systemd timers therefore accumulated rows forever that no
-        # code would ever read. Enqueueing nothing is the honest state of a
-        # control plane with no integration configured; passing `integrations`
-        # is what turns the machinery on, and the audit trail — which is
-        # subscribed unconditionally above — remains the record of what
-        # happened either way.
-        self.outbox = OutboxDispatcher(store.outbox, dict(integrations or {}))
-        if self.outbox.enabled:
-            self.bus.subscribe(OutboxObserver(store.outbox))
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
@@ -203,9 +178,6 @@ def build_control_plane(
     settings: Settings,
     *,
     pool_connections: bool = False,
-    integrations: Mapping[str, IntegrationHandler] | None = None,
 ) -> ControlPlane:
     """Build a control plane wired to the real adapters."""
-    return ControlPlane(
-        settings, pool_connections=pool_connections, integrations=integrations
-    )
+    return ControlPlane(settings, pool_connections=pool_connections)

@@ -1,13 +1,7 @@
 ---
-# Shipped defaults for every edge. Tracked, so `./install.sh update` replaces
-# this file wholesale on upgrade.
-#
-# Do not edit it. Store site-specific values with `blitzecdn config set`; the
-# inventory plugin publishes database overrides at host precedence. Editing
-# this file makes the installer refuse to update:
-#
-#   error: tracked files in /opt/blitzecdn have local changes
-#
+# Shipped defaults for every edge. Do not edit them: store fleet values with
+# `blitzecdn config set` so they are validated, audited, and backed up. The
+# inventory plugin publishes database overrides at host precedence.
 # Keys without a database override fall through to the values here.
 # Single source of truth for the ACME webroot. The nginx role serves challenges
 # from it and the acme-challenge playbook writes them into it; if the two ever

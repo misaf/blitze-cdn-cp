@@ -235,7 +235,7 @@ class AnsibleRunner:
         A fixed filename per playbook made the file shared mutable state between
         overlapping runs, and overlap is ordinary here rather than exceptional:
         purge, stats and decommission all deliberately skip the deployment lock,
-        the API serves them from a thread pool, and the systemd timers are
+        the API serves them from a thread pool, and Dramatiq jobs are
         separate processes over one state directory. Whoever wrote last won — so
         a purge of two URLs could find ``purge_all: true`` in the file by the
         time its own playbook read it, empty the cache on every edge, and still

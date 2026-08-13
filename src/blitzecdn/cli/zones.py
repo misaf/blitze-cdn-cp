@@ -10,15 +10,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.application.commands import (
-    CreateDomainCommand,
-    CreateRecordCommand,
-    DeleteDomainCommand,
-    DeleteRecordCommand,
-    UpdateRecordCommand,
-)
 from blitzecdn.cli import common
-from blitzecdn.domain.dns import DnsRecord, RecordPatch, RecordType
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.sites import SiteFirewall
 
 site_app = typer.Typer(
@@ -71,7 +64,7 @@ def domain_add(
 ) -> None:
     """Register a DNS zone delegated to BlitzeCDN."""
     common.emit(
-        CreateDomainCommand(name=name).execute(common.control_plane(), "cli"),
+        common.control_plane().dns.create_domain(Domain(name=name), "cli"),
         json_output=json_output,
     )
 
@@ -90,7 +83,7 @@ def domain_remove(
     """Remove a zone and every record in it."""
     if not yes and not typer.confirm(f"Delete {name!r} and all of its records?"):
         raise typer.Abort()
-    DeleteDomainCommand(name=name).execute(common.control_plane(), "cli")
+    common.control_plane().dns.delete_domain(name, "cli")
     typer.echo(f"Deleted {name}")
 
 
@@ -118,7 +111,7 @@ def record_add(
         domain=domain, name=name, type=type_, value=value, ttl=ttl, proxied=proxied
     )
     common.emit(
-        CreateRecordCommand(record=record).execute(common.control_plane(), "cli"),
+        common.control_plane().dns.create_record(record, "cli"),
         json_output=json_output,
     )
 
@@ -155,9 +148,9 @@ def record_proxy(
     Takes effect on the edge at the next deploy. It only reaches clients once
     DNS answers accordingly, which the DNS system owns.
     """
-    record = UpdateRecordCommand(
-        domain=domain, name=name, type_=type_, patch=RecordPatch(proxied=on)
-    ).execute(common.control_plane(), "cli")
+    record = common.control_plane().dns.update_record(
+        domain, name, type_, RecordPatch(proxied=on), "cli"
+    )
     common.emit(record, json_output=json_output)
     if not json_output:
         typer.echo(
@@ -255,12 +248,9 @@ def record_firewall(
         # and these end up interpolated into an nginx directive.
         current = control.dns.get_record(domain, name, type_).firewall
         firewall = SiteFirewall.model_validate(current.model_dump() | named)
-    record = UpdateRecordCommand(
-        domain=domain,
-        name=name,
-        type_=type_,
-        patch=RecordPatch(firewall=firewall),
-    ).execute(control, "cli")
+    record = control.dns.update_record(
+        domain, name, type_, RecordPatch(firewall=firewall), "cli"
+    )
     common.emit(record, json_output=json_output)
     if not json_output:
         rules = sum(len(getattr(record.firewall, f)) for f in SiteFirewall.model_fields)
@@ -289,9 +279,7 @@ def record_remove(
     label = f"{name}.{domain}" if name != "@" else domain
     if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):
         raise typer.Abort()
-    DeleteRecordCommand(domain=domain, name=name, type_=type_).execute(
-        common.control_plane(), "cli"
-    )
+    common.control_plane().dns.delete_record(domain, name, type_, "cli")
     typer.echo(f"Deleted {label}")
 
 

@@ -14,9 +14,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.cli import common, database
+from blitzecdn.cli import common
 from blitzecdn.cli.app import app
-from blitzecdn.infrastructure.engine import SCHEMA_REVISION
 
 
 def _environment_file_body() -> str:
@@ -59,12 +58,7 @@ def setup() -> None:
 
     Safe to re-run: nothing that already exists is overwritten.
     """
-    # Before anything touches the database. `install.sh` runs `setup` on both a
-    # fresh install and an update, so this is where an existing controller's
-    # schema catches up with the release that was just unpacked — without it,
-    # every later command in this function would refuse the older schema.
-    _migrate_schema()
-    # Create the database if this is a first run. Ansible reads the fleet
+    # Create the database on first run. Ansible reads the fleet
     # through the `blitzecdn` inventory plugin, which refuses a database that
     # does not exist — so on a fresh install every playbook failed to parse its
     # inventory until something happened to create one. `setup` is the command
@@ -82,21 +76,3 @@ def setup() -> None:
     else:
         typer.echo("BlitzeCDN is already set up; existing files were preserved.")
     typer.echo("Next: blitzecdn edge add NAME --host ADDRESS --ssh-source YOUR_CIDR")
-
-
-def _migrate_schema() -> None:
-    """Bring an existing database up to this release's schema.
-
-    A no-op on a database that does not exist yet — it is created at the head
-    revision on first use — and on one already at head.
-    """
-    path = common.settings().database_path
-    if not path.exists():
-        return
-    before = database.current_revision(path)
-    if before == SCHEMA_REVISION:
-        return
-    database.upgrade_to_head(path)
-    typer.echo(
-        f"Migrated the database schema: {before or 'unstamped'} -> {SCHEMA_REVISION}"
-    )

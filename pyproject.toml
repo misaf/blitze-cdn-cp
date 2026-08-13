@@ -22,7 +22,6 @@ dependencies = [
   # Persistence. The ORM owns storage and schema; pydantic remains the
   # validation authority, so nothing in domain/ or application/ imports these.
   "alembic>=1.16,<2",
-  "SQLAlchemy>=2.0.36,<3",
   "typer>=0.16,<1",
   "uvicorn[standard]>=0.52.1,<1",
   # A runtime dependency, not a development one. Ansible exclusively owns
@@ -35,6 +34,10 @@ dependencies = [
   # the environment the lockfile describes and removes anything else, so a
   # dependency that is really required has to say so here.
   "ansible-core>=2.21,<2.22",
+  "pydantic-settings>=2.12,<3",
+  "apscheduler>=3.11,<4",
+  "sqlmodel>=0.0.31,<0.1",
+  "dramatiq[redis]>=2.0,<3",
 ]
 
 # PEP 735. Not an extra: these are never part of an install of this package,

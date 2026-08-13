@@ -47,19 +47,6 @@ The API remains bound to loopback; connect without opening another public port:
 ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 ```
 
-Update an existing standalone installation to the newest stable release:
-
-```bash
-sudo /opt/blitzecdn/install.sh update --check
-sudo /opt/blitzecdn/install.sh update
-```
-
-The updater accepts `--version vX.Y.Z` to select an exact release and `--yes`
-for unattended confirmation. It backs up `.state`, local environment settings,
-and `/etc/blitzecdn`, preserves credentials and desired state, validates the
-updated service with `blitzecdn doctor`, and never deploys edge configuration.
-Review `blitzecdn plan` and run `blitzecdn deploy` separately after an update.
-
 Every standalone server has its own desired state and credentials. It does not
 replicate changes to another standalone server.
 
@@ -100,12 +87,11 @@ sudo /opt/blitzecdn/install.sh standalone --admin-cidr 203.0.113.8/32 --email op
 ```
 
 The path is not a suggestion: the hardened systemd units name `/opt/blitzecdn`,
-and `update` and `--fresh` need a real clone with the right origin, so an
-unpacked tarball elsewhere will not do.
+and `--fresh` needs a real clone with the right origin, so an unpacked tarball
+elsewhere will not do.
 
 It runs as root and provisions the host — a service account, a sudo rule, SSH
-keys, public services — so read `install.sh` before you run it. Upgrade later
-with `sudo /opt/blitzecdn/install.sh update`.
+keys, public services — so read `install.sh` before you run it.
 
 Environment variables that change what it installs, or how a later deploy
 behaves:
@@ -280,7 +266,7 @@ Unlike the CLI, the API does not block on a convergence. A run can take
 `deployment_timeout_seconds`
 (default 900), far longer than any HTTP client or reverse proxy will wait, so
 `POST /v1/deployments` and `POST /v1/rollbacks` return `202 Accepted` with a
-`queued` record and converge on a worker thread. Poll
+`queued` record and converge in the Dramatiq worker. Poll
 `GET /v1/deployments/{id}` for the outcome. The record is committed to SQLite
 before the worker starts, and startup marks orphaned `queued`/`running` records
 `abandoned`, so a controller crash is visible rather than silent. Rejections
@@ -297,16 +283,6 @@ and the OpenAPI schema at `/openapi.json`. These documentation routes describe
 the API but do not bypass authentication on control operations.
 
 ## Control plane / edge contract
-
-The control plane emits `blitzecdn_desired_state_version` with every deployment
-and the Nginx role refuses any version it does not support, so a mismatched
-pair fails before touching a host rather than partway through a rollout. Bump
-`DESIRED_STATE_VERSION` in `src/blitzecdn/domain/sites.py` when the
-`blitzecdn_nginx_sites` shape changes in a way an older role cannot honour, and
-add the new version to `blitzecdn_nginx_supported_state_versions` in the Nginx
-role — adding to that list rather than replacing it, so an edge converged by an
-earlier release keeps working. The current schema is version 2, and the role
-supports 1 and 2.
 
 `tests/test_contract.py` enforces the boundary: it renders desired state from
 real models and checks it against the role's `argument_specs.yml`, then renders

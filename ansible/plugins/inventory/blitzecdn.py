@@ -10,9 +10,8 @@ atomically by every command that changes the fleet.
 Deliberately dependency-free. It runs inside `ansible-playbook`, which may be a
 different interpreter from the control plane's virtualenv with no `blitzecdn`
 on its path, so this imports nothing but the standard library and Ansible's own
-plugin base. The consequence is that it cannot validate rows against the
-pydantic model that wrote them, which is why every row carries `schema_version`
-and why this refuses one it was not written for.
+plugin base. The selected columns are the complete inventory contract, so a
+schema mismatch fails at the query boundary.
 
 Read-only, and it says so: the database is opened through a `file:...?mode=ro`
 URI. An inventory plugin runs before anything else in a play, often against a
@@ -21,9 +20,13 @@ take a write lock — let alone hold one while Ansible resolves a few hundred
 hosts.
 """
 
-from __future__ import absolute_import, division, print_function
+import json
+import os
+import sqlite3
 
-__metaclass__ = type
+from ansible.errors import AnsibleParserError
+
+from ansible.plugins.inventory import BaseInventoryPlugin
 
 DOCUMENTATION = """
     name: blitzecdn
@@ -72,20 +75,6 @@ plugin: blitzecdn
 #   ansible-inventory -i ansible/inventory/blitzecdn.yml --list
 """
 
-import json
-import os
-import sqlite3
-
-from ansible.errors import AnsibleParserError
-from ansible.plugins.inventory import BaseInventoryPlugin
-
-#: Must match ``blitzecdn.domain.edges.EDGE_SCHEMA_VERSION``. A row written
-#: with a higher version is refused rather than guessed at: the two halves ship
-#: and are upgraded independently, and a control plane that has moved ahead of
-#: this checkout should fail at the start of a run, not converge a fleet this
-#: plugin only partly understood.
-SUPPORTED_SCHEMA_VERSION = 1
-
 #: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
@@ -119,12 +108,12 @@ class InventoryModule(BaseInventoryPlugin):
         name check here is what stops this from being handed, say, a host_vars
         file. The `plugin:` key inside is verified by `_read_config_data`.
         """
-        if not super(InventoryModule, self).verify_file(path):
+        if not super().verify_file(path):
             return False
         return path.endswith(("blitzecdn.yml", "blitzecdn.yaml"))
 
     def parse(self, inventory, loader, path, cache=True):
-        super(InventoryModule, self).parse(inventory, loader, path, cache)
+        super().parse(inventory, loader, path, cache)
         self._read_config_data(path)
 
         database = self.get_option("database") or _default_database(path)
@@ -136,9 +125,8 @@ class InventoryModule(BaseInventoryPlugin):
                 self.inventory.add_group(EDGE_GROUP)
                 return
             raise AnsibleParserError(
-                "control-plane database does not exist: %s. Run `blitzecdn "
+                f"control-plane database does not exist: {database}. Run `blitzecdn "
                 "setup`, or set strict: false to treat this as an empty fleet."
-                % database
             )
 
         edges, settings = self._load(database)
@@ -155,11 +143,11 @@ class InventoryModule(BaseInventoryPlugin):
         # setting it per group here would leave `blitzecdn edge add
         # --ssh-source` silently doing nothing.
         sources = sorted(
-            set(
+            {
                 source
                 for edge in edges
                 for source in edge.get("ssh_sources") or []
-            ),
+            },
             key=_source_order,
         )
 
@@ -187,22 +175,21 @@ class InventoryModule(BaseInventoryPlugin):
 
         The columns named below are the whole of the contract with the control
         plane. Naming them is what makes a change on the other side fail here
-        loudly, and `schema_version` is what says the failure is a version skew
-        rather than a corrupt file. The two list-valued fields are JSON because
-        that is how the ORM stores them.
+        loudly. The two list-valued fields are JSON because that is how the ORM
+        stores them.
         """
-        uri = "file:%s?mode=ro" % _uri_path(database)
+        uri = f"file:{_uri_path(database)}?mode=ro"
         try:
             connection = sqlite3.connect(uri, uri=True, timeout=15)
         except sqlite3.Error as error:
             raise AnsibleParserError(
-                "cannot open the control-plane database %s: %s" % (database, error)
-            )
+                f"cannot open the control-plane database {database}: {error}"
+            ) from error
         try:
             connection.row_factory = sqlite3.Row
             try:
                 rows = connection.execute(
-                    "SELECT name, schema_version, host, user, port, "
+                    "SELECT name, host, user, port, "
                     "private_key_file, public_addresses, ssh_sources "
                     "FROM edges ORDER BY name"
                 ).fetchall()
@@ -211,24 +198,14 @@ class InventoryModule(BaseInventoryPlugin):
                 ).fetchall()
             except sqlite3.Error as error:
                 raise AnsibleParserError(
-                    "cannot read the edges table in %s: %s. This database may "
-                    "predate dynamic inventory; run `blitzecdn setup` to "
-                    "migrate it." % (database, error)
-                )
+                    f"cannot read the inventory tables in {database}: {error}. "
+                    "Run `blitzecdn setup` to create a fresh database."
+                ) from error
         finally:
             connection.close()
 
         edges = []
         for row in rows:
-            version = row["schema_version"]
-            if version > SUPPORTED_SCHEMA_VERSION:
-                raise AnsibleParserError(
-                    "edge %r was written with schema version %s, but this "
-                    "inventory plugin understands at most %s. The Ansible tree "
-                    "is older than the control plane that wrote this database; "
-                    "update it before deploying."
-                    % (row["name"], version, SUPPORTED_SCHEMA_VERSION)
-                )
             edge = {
                 "name": row["name"],
                 "host": row["host"],
@@ -243,18 +220,16 @@ class InventoryModule(BaseInventoryPlugin):
         for row in setting_rows:
             if row["name"] in RESERVED_SETTINGS:
                 self.display.warning(
-                    "ignoring fleet setting %r: it is derived per edge and "
-                    "publishing it would override every edge at once"
-                    % (row["name"],)
+                    f"ignoring fleet setting {row['name']!r}: it is derived per "
+                    "edge and publishing it would override every edge at once"
                 )
                 continue
             try:
                 settings[row["name"]] = json.loads(row["value"])
             except ValueError as error:
                 raise AnsibleParserError(
-                    "Ansible setting %r has an unreadable value: %s"
-                    % (row["name"], error)
-                )
+                    f"Ansible setting {row['name']!r} has an unreadable value: {error}"
+                ) from error
         return edges, settings
 
 
@@ -266,11 +241,11 @@ def _json_list(value, edge_name, column):
         decoded = json.loads(value)
     except ValueError as error:
         raise AnsibleParserError(
-            "edge %r has an unreadable %s: %s" % (edge_name, column, error)
-        )
+            f"edge {edge_name!r} has an unreadable {column}: {error}"
+        ) from error
     if not isinstance(decoded, list):
         raise AnsibleParserError(
-            "edge %r has a %s that is not a list" % (edge_name, column)
+            f"edge {edge_name!r} has a {column} that is not a list"
         )
     return decoded
 

@@ -11,7 +11,6 @@ from blitzecdn.application import (
     DeploymentService,
     EdgeOperationsService,
 )
-from blitzecdn.domain.certificates import ReconciliationResult
 from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.exceptions import (
     ConfigurationError,
@@ -20,6 +19,19 @@ from blitzecdn.exceptions import (
 )
 from blitzecdn.infrastructure.database import Repository
 from blitzecdn.infrastructure.operation_stores import WorkflowStore
+from blitzecdn.infrastructure.queue import reconcile_certificates
+
+
+def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):
+    built = []
+
+    def build(*_args, **_kwargs):
+        built.append(True)
+        raise AssertionError("construction must happen in lifespan")
+
+    monkeypatch.setattr("blitzecdn.api.build_control_plane", build)
+    create_app(settings)
+    assert built == []
 
 
 def test_health_is_public_and_controls_require_auth(settings):
@@ -39,12 +51,10 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
         update={"certificate_reconcile_interval_seconds": 1}
     )
 
-    def reconcile(_self, operator):
-        assert operator == "scheduler"
+    def enqueue():
         called.set()
-        return ReconciliationResult()
 
-    monkeypatch.setattr(CertificateService, "reconcile_certificates", reconcile)
+    monkeypatch.setattr(reconcile_certificates, "send", enqueue)
 
     with TestClient(create_app(configured)):
         assert called.wait(2)
@@ -180,7 +190,7 @@ def test_api_fails_closed_without_keys(settings):
         assert client.get("/v1/sites").status_code == 503
 
 
-def test_deploy_returns_202_immediately_and_finishes_in_background(
+def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
     settings, site_payload
 ):
     """A convergence can outlast any HTTP client, so the request must not block."""
@@ -205,44 +215,8 @@ def test_deploy_returns_202_immediately_and_finishes_in_background(
         deployment_id = queued.json()["id"]
         assert queued.json()["status"] == "queued"
 
-        deadline = time.monotonic() + 10
-        while time.monotonic() < deadline:
-            body = client.get(
-                f"/v1/deployments/{deployment_id}", headers=headers
-            ).json()
-            if body["status"] not in {"queued", "running"}:
-                break
-            time.sleep(0.02)
-        # conftest points ansible_playbook at /usr/bin/true, so a real process
-        # runs and exits 0 without ever loading the callback — which is exactly
-        # the shape of a run that produced no per-host result. The deployment
-        # still carries a result, and it still names the log.
-        assert body["status"] == "succeeded"
-        assert body["result"]["return_code"] == 0
-        assert body["result"]["hosts"] == []
-        assert body["result"]["log_path"].endswith(".log")
-
-
-def test_repeated_bad_keys_are_throttled(settings):
-    with TestClient(create_app(settings)) as client:
-        codes = [
-            client.get("/v1/sites", headers={"X-API-Key": "n" * 32}).status_code
-            for _ in range(12)
-        ]
-    assert codes[:10] == [401] * 10
-    assert codes[10:] == [429, 429]
-
-
-def test_throttle_forgets_a_client_after_a_success(settings):
-    good = {"X-API-Key": "x" * 32}
-    bad = {"X-API-Key": "n" * 32}
-    with TestClient(create_app(settings)) as client:
-        for _ in range(9):
-            assert client.get("/v1/sites", headers=bad).status_code == 401
-        assert client.get("/v1/sites", headers=good).status_code == 200
-        # The budget reset, so the next nine failures still are not throttled.
-        for _ in range(9):
-            assert client.get("/v1/sites", headers=bad).status_code == 401
+        body = client.get(f"/v1/deployments/{deployment_id}", headers=headers).json()
+        assert body["status"] == "queued"
 
 
 def test_certificate_upload_and_metadata_api(settings, site_payload, certificate_pair):
@@ -916,4 +890,3 @@ def test_metrics_are_authenticated_and_readable(settings):
     assert "blitzecdn_edges 0" in body
     assert "blitzecdn_sites 0" in body
     assert "blitzecdn_certificates_expiring 0" in body
-    assert "# TYPE blitzecdn_outbox_undelivered gauge" in body

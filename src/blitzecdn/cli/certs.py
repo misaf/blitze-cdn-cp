@@ -6,12 +6,6 @@ from typing import Annotated, Any
 
 import typer
 
-from blitzecdn.application.commands import (
-    CertificatePreflightCommand,
-    DeployCommand,
-    ReconcileCertificatesCommand,
-    RenewCertificatesCommand,
-)
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.domain.certificates import CERTIFICATE_RENEWAL_DAYS
@@ -66,9 +60,7 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = CertificatePreflightCommand(name=name).execute(
-        common.control_plane(), "cli"
-    )
+    report = common.control_plane().certificates.certificate_preflight(name)
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -122,12 +114,17 @@ def cert_renew(
     Use --site to retry a single failure without sending every other
     subscription back to the CA, which is rate limited.
     """
-    result = RenewCertificatesCommand(
-        within_days=expiring_in, force=force, sites=site or None
-    ).execute(common.control_plane(), "cli")
+    control = common.control_plane()
+    result = control.certificates.renew_certificates(
+        "cli",
+        within_days=expiring_in,
+        force=force,
+        sites=site or None,
+        budget_seconds=None,
+    )
     deployment = None
     if deploy_after and result.renewed and not result.failed:
-        deployment = DeployCommand().execute(common.control_plane(), "cli")
+        deployment = control.deployments.deploy("cli")
     output: dict[str, Any] = result.model_dump(mode="json")
     if deploy_after:
         output["deployment"] = (
@@ -163,7 +160,7 @@ def cert_reconcile(
     preflights never contact the CA, and the deployment runs only after at
     least one new certificate was issued.
     """
-    result = ReconcileCertificatesCommand().execute(common.control_plane(), "cli")
+    result = common.control_plane().certificates.reconcile_certificates("cli")
     common.emit(result, json_output=json_output)
     deployment = result.deployment
     if result.failed or (

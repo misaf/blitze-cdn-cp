@@ -6,9 +6,10 @@ import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import Field, RedisDsn, SecretStr, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from blitzecdn.exceptions import ConfigurationError
 
@@ -39,6 +40,9 @@ _PROJECT_KEYS = {
     "preflight_dns_timeout_seconds",
     "preflight_dns_servers",
     "certificate_reconcile_interval_seconds",
+    "certificate_renewal_interval_seconds",
+    "drift_check_interval_seconds",
+    "redis_url",
     "certificate_renewal_budget_seconds",
     "certificate_renewal_workers",
     # The MaxMind account ID is an identifier and belongs here. Its license key
@@ -48,8 +52,20 @@ _PROJECT_KEYS = {
 }
 
 
-class Settings(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
+class Settings(BaseSettings):
+    """Validated application settings assembled from environment and TOML.
+
+    ``from_environment`` owns source precedence and the path defaults that are
+    relative to ``project_dir``.  ``BaseSettings`` owns typed coercion and the
+    settings model itself, so booleans, integers and secrets no longer need a
+    parallel hand-written conversion layer.
+    """
+
+    model_config = SettingsConfigDict(
+        extra="forbid",
+        frozen=True,
+        populate_by_name=True,
+    )
 
     project_dir: Path
     state_dir: Path
@@ -130,6 +146,9 @@ class Settings(BaseModel):
     #: snapshots a rollback chooses from.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
     certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
+    certificate_renewal_interval_seconds: int = Field(default=43_200, ge=0, le=604_800)
+    drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
+    redis_url: RedisDsn = RedisDsn("redis://127.0.0.1:6379/0")
     #: Wall-clock budget for one renewal sweep served over HTTP.
     #:
     #: A sweep runs certbot per site, each bounded only by
@@ -234,23 +253,12 @@ class Settings(BaseModel):
             Path(env.get("BLITZE_CONFIG", root / "blitzecdn.toml"))
         )
 
-        def value(environment_name: str, config_name: str, default: object) -> object:
+        def value(environment_name: str, config_name: str, default: object) -> Any:
             return env.get(environment_name, project_config.get(config_name, default))
 
         def path_value(environment_name: str, config_name: str, default: Path) -> Path:
             candidate = Path(str(value(environment_name, config_name, default)))
             return candidate if candidate.is_absolute() else root / candidate
-
-        def bool_value(environment_name: str, config_name: str, default: bool) -> bool:
-            raw = value(environment_name, config_name, default)
-            if isinstance(raw, bool):
-                return raw
-            normalized = str(raw).strip().lower()
-            if normalized in {"1", "true", "yes", "on"}:
-                return True
-            if normalized in {"0", "false", "no", "off"}:
-                return False
-            raise ValueError(f"{environment_name} must be true or false")
 
         state = path_value("BLITZE_STATE_DIR", "state_dir", root / ".state")
         keys = cls._read_api_keys(env)
@@ -333,29 +341,21 @@ class Settings(BaseModel):
                     )
                     else None
                 ),
-                deployment_timeout_seconds=int(
-                    str(
-                        value(
-                            "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
-                            "deployment_timeout_seconds",
-                            900,
-                        )
-                    )
+                deployment_timeout_seconds=value(
+                    "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
+                    "deployment_timeout_seconds",
+                    900,
                 ),
-                output_limit_bytes=int(
-                    str(
-                        value(
-                            "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
-                            "output_limit_bytes",
-                            1_048_576,
-                        )
-                    )
+                output_limit_bytes=value(
+                    "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
+                    "output_limit_bytes",
+                    1_048_576,
                 ),
-                run_log_retention=int(
-                    str(value("BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500))
+                run_log_retention=value(
+                    "BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500
                 ),
-                history_retention=int(
-                    str(value("BLITZE_HISTORY_RETENTION", "history_retention", 1000))
+                history_retention=value(
+                    "BLITZE_HISTORY_RETENTION", "history_retention", 1000
                 ),
                 acme_ca_domain=str(
                     value("BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org")
@@ -363,56 +363,49 @@ class Settings(BaseModel):
                 .strip()
                 .lower()
                 .rstrip("."),
-                preflight_dns_timeout_seconds=int(
-                    str(
-                        value(
-                            "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
-                            "preflight_dns_timeout_seconds",
-                            5,
-                        )
-                    )
+                preflight_dns_timeout_seconds=value(
+                    "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
+                    "preflight_dns_timeout_seconds",
+                    5,
                 ),
                 preflight_dns_servers=cls._read_dns_servers(
                     value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
                 ),
-                allow_empty_sites=bool_value(
+                allow_empty_sites=value(
                     "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites", False
                 ),
-                origin_check_timeout_seconds=int(
-                    str(
-                        value(
-                            "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
-                            "origin_check_timeout_seconds",
-                            5,
-                        )
-                    )
+                origin_check_timeout_seconds=value(
+                    "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
+                    "origin_check_timeout_seconds",
+                    5,
                 ),
-                certificate_reconcile_interval_seconds=int(
-                    str(
-                        value(
-                            "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
-                            "certificate_reconcile_interval_seconds",
-                            600,
-                        )
-                    )
+                certificate_reconcile_interval_seconds=value(
+                    "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
+                    "certificate_reconcile_interval_seconds",
+                    600,
                 ),
-                certificate_renewal_budget_seconds=int(
-                    str(
-                        value(
-                            "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS",
-                            "certificate_renewal_budget_seconds",
-                            300,
-                        )
-                    )
+                certificate_renewal_interval_seconds=value(
+                    "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS",
+                    "certificate_renewal_interval_seconds",
+                    43_200,
                 ),
-                certificate_renewal_workers=int(
-                    str(
-                        value(
-                            "BLITZE_CERTIFICATE_RENEWAL_WORKERS",
-                            "certificate_renewal_workers",
-                            2,
-                        )
-                    )
+                drift_check_interval_seconds=value(
+                    "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
+                    "drift_check_interval_seconds",
+                    3600,
+                ),
+                redis_url=value(
+                    "BLITZE_REDIS_URL", "redis_url", "redis://127.0.0.1:6379/0"
+                ),
+                certificate_renewal_budget_seconds=value(
+                    "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS",
+                    "certificate_renewal_budget_seconds",
+                    300,
+                ),
+                certificate_renewal_workers=value(
+                    "BLITZE_CERTIFICATE_RENEWAL_WORKERS",
+                    "certificate_renewal_workers",
+                    2,
                 ),
                 maxmind_account_id=str(
                     value("BLITZE_MAXMIND_ACCOUNT_ID", "maxmind_account_id", "")

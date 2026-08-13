@@ -15,26 +15,19 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from pathlib import Path
 
-from blitzecdn.domain.snapshots import (
-    SNAPSHOT_VERSION,
-    decode_snapshot,
-    decode_snapshot_zones,
-    encode_snapshot,
-)
+from blitzecdn.domain.snapshots import encode_snapshot
 from blitzecdn.infrastructure.engine import Database
 from blitzecdn.infrastructure.stores import (
     AnsibleSettingStore,
     AuditLog,
     DeploymentStore,
     EdgeStore,
-    OutboxStore,
     SiteStore,
     WorkflowStore,
     ZoneStore,
 )
 
 __all__ = [
-    "SNAPSHOT_VERSION",
     "AuditLog",
     "Database",
     "DeploymentStore",
@@ -64,7 +57,6 @@ class Repository:
         self.deployments = DeploymentStore(self.database, self.snapshot)
         self.audit_log = AuditLog(self.database)
         self.workflows = WorkflowStore(self.database)
-        self.outbox = OutboxStore(self.database)
 
     def snapshot(self) -> str:
         """Serialise the desired state a deployment converges and can roll back to.
@@ -86,6 +78,3 @@ class Repository:
     def close(self) -> None:
         """Release persistence resources owned by this repository."""
         self.database.close()
-
-    decode_snapshot = staticmethod(decode_snapshot)
-    decode_snapshot_zones = staticmethod(decode_snapshot_zones)

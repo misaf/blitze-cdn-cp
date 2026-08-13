@@ -77,7 +77,7 @@ types:
 
 # Lint the shell scripts that run as root.
 shell-lint:
-    uv run shellcheck install.sh tests/container-install.sh tests/container-upgrade.sh
+    uv run shellcheck install.sh tests/container-install.sh
 
 # The test suite, with the coverage floor from pyproject.
 test *args:
@@ -137,14 +137,6 @@ docs-check docs="../blitze-cdn-web":
 check: lock-check lint types shell-lint test ansible-check audit build docs-check
 
 # --- database -----------------------------------------------------------
-
-# Show the schema revision the local database is on.
-db-current:
-    uv run blitzecdn db current
-
-# Migrate the local database to the newest revision.
-db-upgrade:
-    uv run blitzecdn db upgrade
 
 # Create a migration from the difference between models.py and the database.
 db-revision message:

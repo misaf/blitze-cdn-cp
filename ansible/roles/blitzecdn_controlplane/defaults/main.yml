@@ -13,24 +13,22 @@ blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 
 # python3 and python3-venv are absent here on purpose: the installer has already
 # had to install them to build the virtualenv this play is running from.
-blitzecdn_controlplane_packages: [certbot, git, openssh-server, openssl, sudo]
+blitzecdn_controlplane_packages: [certbot, git, openssh-server, openssl, redis-server, sudo]
 
 # Set on a first installation only. An existing environment file keeps its
 # credentials; supplying an address repoints the ACME account, and omitting it
-# leaves the file alone, which is what `install.sh update` wants.
+# leaves the file alone on a repair run.
 blitzecdn_controlplane_acme_email: ""
 blitzecdn_controlplane_certificate_reconcile_seconds: 600
+blitzecdn_controlplane_certificate_renewal_seconds: 43200
+blitzecdn_controlplane_drift_check_seconds: 3600
 blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
 
 # Kept in step with SYSTEMD_UNITS and SERVICES in install.sh, which needs the
 # same lists to uninstall a host whose collections may already be gone.
 blitzecdn_controlplane_units:
   - blitzecdn-api.service
-  - blitzecdn-cert-renew.service
-  - blitzecdn-cert-renew.timer
-  - blitzecdn-drift.service
-  - blitzecdn-drift.timer
+  - blitzecdn-worker.service
 blitzecdn_controlplane_services:
   - blitzecdn-api.service
-  - blitzecdn-cert-renew.timer
-  - blitzecdn-drift.timer
+  - blitzecdn-worker.service

@@ -93,17 +93,3 @@ class Workflow(BaseModel):
         if self.status is WorkflowStatus.FAILED and not self.error:
             raise ValueError("a failed workflow must explain its failure")
         return self
-
-
-class OutboxEvent(BaseModel):
-    """A committed integration event awaiting idempotent delivery."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    id: int
-    topic: str
-    event_key: str
-    payload: dict[str, Any]
-    created_at: datetime
-    delivered_at: datetime | None = None
-    attempts: int = 0
-    last_error: str | None = None

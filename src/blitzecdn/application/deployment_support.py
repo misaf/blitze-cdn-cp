@@ -6,7 +6,7 @@ from pathlib import Path
 
 from blitzecdn.config import Settings
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
-from blitzecdn.domain.sites import DESIRED_STATE_VERSION, CertificateMode
+from blitzecdn.domain.sites import CertificateMode
 from blitzecdn.domain.snapshots import decode_snapshot
 from blitzecdn.exceptions import ConflictError
 from blitzecdn.ports import CertificateStore, DeploymentStore, YamlWriter
@@ -40,7 +40,6 @@ class DesiredStateRenderer:
         self.write_yaml(
             path,
             {
-                "blitzecdn_desired_state_version": DESIRED_STATE_VERSION,
                 "blitzecdn_nginx_allow_empty_sites": self.settings.allow_empty_sites,
                 "blitzecdn_nginx_sites": documents,
             },
