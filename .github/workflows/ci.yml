@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v7
@@ -26,7 +26,7 @@ jobs:
       # left to uv so CI and a server install agree on the interpreter.
       - name: Install Python
         run: uv python install 3.14
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       - name: Validate release tag
         if: startsWith(github.ref, 'refs/tags/')
         run: |
@@ -81,7 +81,7 @@ jobs:
       matrix:
         python-version: ['3.12', '3.13']
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v7
@@ -109,13 +109,13 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       # Pinned to the release branch for the same reason the docs repository
       # pins this one: the published pages describe the released control plane.
       - name: Check out the documentation site
-        uses: actions/checkout@v7.0.1
+        uses: actions/checkout@v7
         with:
           repository: misaf/blitze-cdn-web
           ref: 1.x
@@ -130,7 +130,7 @@ jobs:
           enable-cache: true
       - name: Install Python
         run: uv python install 3.14
-      - uses: extractions/setup-just@v3
+      - uses: extractions/setup-just@v4
       # The check imports `blitzecdn`; the collections `just install` also
       # fetches are not involved, so this is the narrower sync.
       - name: Install the control plane
@@ -155,7 +155,7 @@ jobs:
       matrix:
         image: [debian:13, ubuntu:24.04, ubuntu:26.04]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install, re-install, and uninstall
         run: bash tests/container-install.sh ${{ matrix.image }}
 
@@ -167,7 +167,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
       - name: Install old release and upgrade it
