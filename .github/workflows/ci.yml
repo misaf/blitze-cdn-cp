@@ -62,6 +62,18 @@ jobs:
         run: just shell-lint
       - name: Tests and coverage
         run: just test --cov-report=xml
+      # The report was produced and then thrown away with the runner. Kept as
+      # an artifact so a coverage question about a specific run can be answered
+      # after the fact rather than by re-running the suite locally and hoping
+      # it matches.
+      - name: Keep the coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.run_id }}
+          path: coverage.xml
+          retention-days: 14
+          if-no-files-found: error
       - name: YAML and Ansible lint
         run: just ansible-check
       - name: Security checks
