@@ -16,7 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, runtime_checkable
 
 from blitzecdn.domain.audit import AuditEvent
 from blitzecdn.domain.certificates import (
@@ -29,7 +29,6 @@ from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.events import DomainEvent
 from blitzecdn.domain.operations import (
-    OutboxEvent,
     Workflow,
     WorkflowKind,
     WorkflowStatus,
@@ -122,7 +121,9 @@ class DeploymentStore(Protocol):
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]: ...
 
-    def abandon_running(self) -> int: ...
+    def queued_deployments(self) -> list[Deployment]: ...
+
+    def abandon_running(self, *, include_queued: bool = True) -> int: ...
 
     def prune_history(self, keep: int) -> int: ...
 
@@ -180,20 +181,6 @@ class WorkflowJournal(Protocol):
     def get(self, workflow_id: str) -> Workflow: ...
 
     def list_workflows(self, limit: int = 100) -> list[Workflow]: ...
-
-
-class Outbox(Protocol):
-    def enqueue(self, topic: str, event_key: str, payload: dict[str, Any]) -> None: ...
-
-    def pending(self, limit: int = 100) -> list[OutboxEvent]: ...
-
-    def delivered(self, event_id: int) -> None: ...
-
-    def failed(self, event_id: int, error: str) -> None: ...
-
-    def prune_delivered(self, keep: int) -> int: ...
-
-    def undelivered(self) -> int: ...
 
 
 # ----------------------------------------------------------------------
@@ -267,6 +254,13 @@ class BackgroundRunner(Protocol):
     """
 
     def start(self, work: Callable[[], None], *, name: str) -> None: ...
+
+
+@runtime_checkable
+class QueueBackgroundRunner(Protocol):
+    """Enqueues a durable identifier for an out-of-process worker."""
+
+    def enqueue(self, deployment_id: str) -> None: ...
 
 
 class DeploymentRunner(Protocol):
@@ -419,8 +413,8 @@ __all__ = [
     "Issuer",
     "LogReader",
     "OriginProbe",
-    "Outbox",
     "Preflight",
+    "QueueBackgroundRunner",
     "SiteStore",
     "WorkflowJournal",
     "YamlWriter",

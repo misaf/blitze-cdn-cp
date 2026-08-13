@@ -6,15 +6,12 @@ the roles this control plane actually deploys. Nothing else stops a new
 
 Every assertion here is about the boundary between them, not either side alone:
 
-* the desired-state document carries a schema version the role supports;
 * every key `CdnSite.to_ansible()` emits is declared in `argument_specs.yml`;
 * every key the role marks required is actually present;
 * declared `choices` cover the values the domain enums can produce;
 * `site.conf.j2` renders from real model output without raising.
 
-When one of these fails, change the model and the role together in one commit,
-and bump `DESIRED_STATE_VERSION` if an edge converged by an older release
-cannot honour the new shape.
+When one of these fails, change the model and the role together in one commit.
 """
 
 from __future__ import annotations
@@ -32,7 +29,6 @@ import yaml
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import (
-    DESIRED_STATE_VERSION,
     CdnSite,
     CertificateMode,
     HttpScheme,
@@ -237,15 +233,6 @@ def test_controller_refuses_password_authentication():
     assert "host_key_checking = True" in config
 
 
-def test_desired_state_declares_a_version_the_role_supports(desired_state):
-    supported = _role_defaults()["blitzecdn_nginx_supported_state_versions"]
-    assert desired_state["blitzecdn_desired_state_version"] == DESIRED_STATE_VERSION
-    assert DESIRED_STATE_VERSION in supported, (
-        "The control plane emits a schema version the edge role rejects. "
-        "Ship both repositories together."
-    )
-
-
 def test_empty_site_removal_requires_explicit_approval(desired_state):
     assert desired_state["blitzecdn_nginx_allow_empty_sites"] is False
     assert "blitzecdn_nginx_allow_empty_sites" in _role_spec()
@@ -261,9 +248,7 @@ def test_every_emitted_key_is_declared_by_the_role(desired_state):
             f"CdnSite emits {sorted(undeclared)}, which the pinned "
             "blitzecdn.edge collection does not declare in "
             "roles/blitzecdn_nginx/meta/argument_specs.yml. Add them in the "
-            "edge repository, release it, bump the pin in "
-            "ansible/requirements.yml, and bump DESIRED_STATE_VERSION if "
-            "older roles cannot ignore them."
+            "edge repository and release it."
         )
 
 
@@ -583,7 +568,6 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
     variables = (
         _role_defaults()
         | {
-            "blitzecdn_desired_state_version": DESIRED_STATE_VERSION,
             "blitzecdn_nginx_sites": sites,
         }
         | overrides

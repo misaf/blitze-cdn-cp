@@ -2,22 +2,19 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 from blitzecdn.domain.operations import (
-    OutboxEvent,
     Workflow,
     WorkflowKind,
     WorkflowStatus,
     WorkflowStep,
 )
-from blitzecdn.ports import Outbox, UnitOfWork, WorkflowJournal
-
-IntegrationHandler = Callable[[OutboxEvent], None]
+from blitzecdn.ports import UnitOfWork, WorkflowJournal
 
 
 class WorkflowProgress:
@@ -112,53 +109,3 @@ class RecoveryService:
                 for workflow in self.journal.unfinished()
             ]
         return recovered
-
-
-#: Delivered events kept as receipts before the oldest are dropped.
-OUTBOX_RETENTION = 1000
-
-
-class OutboxDispatcher:
-    """Retryable, idempotency-keyed delivery outside business transactions.
-
-    ``enabled`` is false when no handler is configured, which is the ordinary
-    case: nothing subscribes to these events unless an operator has wired an
-    integration. The composition root asks before it subscribes the observer
-    that writes them, so an unconfigured controller enqueues nothing rather
-    than filling a table whose only reader is a no-op.
-    """
-
-    def __init__(self, outbox: Outbox, handlers: Mapping[str, IntegrationHandler]):
-        self.outbox = outbox
-        self.handlers = handlers
-
-    @property
-    def enabled(self) -> bool:
-        return bool(self.handlers)
-
-    def undelivered(self) -> int:
-        """How many events are still waiting, for an operator or a metric."""
-        return self.outbox.undelivered()
-
-    def dispatch(self, limit: int = 100) -> int:
-        """Deliver what is pending, then drop the oldest receipts.
-
-        Pruning happens here rather than on a schedule of its own for the same
-        reason run-log retention lives in the runner: a policy applied by
-        whatever already runs is a policy that cannot silently stop being
-        applied because a timer was never installed.
-        """
-        delivered = 0
-        for event in self.outbox.pending(limit):
-            handler = self.handlers.get(event.topic)
-            if handler is None:
-                continue
-            try:
-                handler(event)
-            except Exception as exc:  # noqa: BLE001 - isolation is the contract
-                self.outbox.failed(event.id, f"{type(exc).__name__}: {exc}")
-                continue
-            self.outbox.delivered(event.id)
-            delivered += 1
-        self.outbox.prune_delivered(OUTBOX_RETENTION)
-        return delivered

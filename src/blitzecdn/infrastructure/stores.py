@@ -29,6 +29,12 @@ methods, so both now refuse an ``expected`` comparison outside one — see
 every future caller had to know about and no test could notice being dropped.
 """
 
+# SQLModel annotates table attributes as instance values while its SQLAlchemy
+# foundation exposes the same attributes as expressions on the class. These
+# codes occur only in bulk UPDATE/DELETE/upsert expressions SQLModel does not
+# wrap; ordinary model construction and store return types remain checked.
+# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
+
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -47,7 +53,7 @@ from blitzecdn.domain.deployments import (
     require_transition,
 )
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
-from blitzecdn.domain.edges import EDGE_SCHEMA_VERSION, Edge
+from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import STORED, validate_setting_name
@@ -63,7 +69,7 @@ from blitzecdn.infrastructure.models import (
     ProjectionStateRow,
     SiteRow,
 )
-from blitzecdn.infrastructure.operation_stores import OutboxStore, WorkflowStore
+from blitzecdn.infrastructure.operation_stores import WorkflowStore
 
 __all__ = [
     "AnsibleSettingStore",
@@ -71,7 +77,6 @@ __all__ = [
     "Database",
     "DeploymentStore",
     "EdgeStore",
-    "OutboxStore",
     "SiteStore",
     "WorkflowStore",
     "ZoneStore",
@@ -93,12 +98,6 @@ def _rows_affected(result: Result[Any]) -> int:
     did that touch" stays one readable expression.
     """
     return cast("CursorResult[Any]", result).rowcount
-
-
-def _split(model: Any, columns: frozenset[str]) -> dict[str, Any]:
-    """The model's non-column fields, JSON-ready, for a ``policy`` column."""
-    dumped = model.model_dump(mode="json")
-    return {key: value for key, value in dumped.items() if key not in columns}
 
 
 class AnsibleSettingStore:
@@ -146,12 +145,7 @@ class AnsibleSettingStore:
 
 
 class EdgeStore:
-    """The fleet, and the table the Ansible inventory plugin reads.
-
-    Ordinary CRUD with one unusual obligation: every row is written with
-    :data:`~blitzecdn.domain.edges.EDGE_SCHEMA_VERSION`, because a reader
-    outside this process depends on it. See :class:`.models.EdgeRow`.
-    """
+    """The fleet, and the table the Ansible inventory plugin reads."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -204,7 +198,6 @@ class EdgeStore:
         return row
 
     def _apply(self, row: EdgeRow, edge: Edge) -> None:
-        row.schema_version = EDGE_SCHEMA_VERSION
         row.host = edge.host
         row.user = edge.user
         row.port = edge.port
@@ -309,7 +302,7 @@ class SiteStore:
     def _apply(self, row: SiteRow, site: CdnSite) -> None:
         row.server_names = list(site.server_names)
         row.origin_host = site.origin_host
-        row.policy = _split(site, _SITE_COLUMNS)
+        row.policy = site.model_dump(mode="json", exclude=_SITE_COLUMNS)
         row.updated_at = self._db.now()
 
     @staticmethod
@@ -454,7 +447,7 @@ class ZoneStore:
         row.value = record.value
         row.ttl = record.ttl
         row.proxied = record.proxied
-        row.policy = _split(record, _RECORD_COLUMNS)
+        row.policy = record.model_dump(mode="json", exclude=_RECORD_COLUMNS)
         row.updated_at = self._db.now()
 
     @staticmethod
@@ -587,7 +580,16 @@ class DeploymentStore:
             ).all()
             return [self._deployment(row) for row in rows]
 
-    def abandon_running(self) -> int:
+    def queued_deployments(self) -> list[Deployment]:
+        with self._db.session() as session:
+            rows = session.scalars(
+                select(DeploymentRow)
+                .where(DeploymentRow.status == DeploymentStatus.QUEUED)
+                .order_by(DeploymentRow.created_at)
+            ).all()
+            return [self._deployment(row) for row in rows]
+
+    def abandon_running(self, *, include_queued: bool = True) -> int:
         """Close out deployments the last controller process left in flight.
 
         They are given a result of their own rather than only a status: every
@@ -603,18 +605,14 @@ class DeploymentStore:
             finished_at=datetime.now(UTC),
             error="the controller restarted before this deployment completed",
         ).model_dump(mode="json")
+        statuses = [DeploymentStatus.RUNNING.value]
+        if include_queued:
+            statuses.append(DeploymentStatus.QUEUED.value)
         with self._db.session() as session:
             return _rows_affected(
                 session.execute(
                     update(DeploymentRow)
-                    .where(
-                        DeploymentRow.status.in_(
-                            (
-                                DeploymentStatus.QUEUED.value,
-                                DeploymentStatus.RUNNING.value,
-                            )
-                        )
-                    )
+                    .where(DeploymentRow.status.in_(statuses))
                     .values(
                         status=DeploymentStatus.ABANDONED.value,
                         finished_at=now,

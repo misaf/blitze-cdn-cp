@@ -3,14 +3,6 @@ argument_specs:
   main:
     short_description: Converge Nginx CDN virtual hosts.
     options:
-      blitzecdn_desired_state_version:
-        type: int
-        required: true
-        description: Schema version of the desired-state document from the control plane.
-      blitzecdn_nginx_supported_state_versions:
-        type: list
-        elements: int
-        required: true
       blitzecdn_nginx_sites:
         type: list
         elements: dict

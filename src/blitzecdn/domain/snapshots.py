@@ -8,15 +8,6 @@ from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.validation import STORED
 
-#: Shape of the JSON in ``deployments.snapshot``: an object carrying the zones
-#: and records a rollback converges.
-#:
-#: Written on every snapshot and checked on every read. It is not a
-#: compatibility shim — nothing decodes an older shape — but the thing that
-#: makes a future format change fail loudly on the snapshot rather than
-#: silently converge a fleet from a document this code misread.
-SNAPSHOT_VERSION = 3
-
 
 def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
     """Serialise the desired state a deployment converges and can roll back to.
@@ -27,7 +18,6 @@ def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
     """
     return json.dumps(
         {
-            "version": SNAPSHOT_VERSION,
             "domains": [domain.model_dump(mode="json") for domain in domains],
             "records": [record.model_dump(mode="json") for record in records],
         },
@@ -77,10 +67,4 @@ def _document(snapshot: str) -> dict[str, Any]:
     data = json.loads(snapshot)
     if not isinstance(data, dict):
         raise ValueError("deployment snapshot is not an object")
-    version = data.get("version")
-    if version != SNAPSHOT_VERSION:
-        raise ValueError(
-            f"deployment snapshot is version {version!r}, "
-            f"but this release reads version {SNAPSHOT_VERSION}"
-        )
     return data

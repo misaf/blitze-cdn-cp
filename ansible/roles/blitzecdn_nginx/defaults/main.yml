@@ -1,11 +1,4 @@
 ---
-# Desired-state schema versions this role can honour. List more than one only
-# while supporting a control plane mid-upgrade.
-#
-# 2 added the per-site `firewall` block. 1 is still accepted: a v1 document
-# simply carries no firewall key, and the template defaults it to empty, so a
-# controller that has not been upgraded yet converges unchanged.
-blitzecdn_nginx_supported_state_versions: [1, 2]
 blitzecdn_nginx_sites: []
 # Removing the final managed site is unusually destructive and often means a
 # new controller was pointed at an existing edge before its state was imported.

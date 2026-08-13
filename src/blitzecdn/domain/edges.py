@@ -32,7 +32,6 @@ from blitzecdn.domain.validation import hostname, is_stored, unique
 #: the one it knows, so an upgraded control plane and a stale checkout of the
 #: Ansible tree fail loudly at the start of a run instead of converging a fleet
 #: the plugin only half understood.
-EDGE_SCHEMA_VERSION = 1
 
 #: The Ansible group every managed edge belongs to. The playbooks target it by
 #: name, so it is part of the contract with the roles rather than a label.
@@ -277,7 +276,6 @@ def _source_order(source: str) -> tuple[int, Any]:
 __all__ = [
     "EDGE_GROUP",
     "EDGE_NAME",
-    "EDGE_SCHEMA_VERSION",
     "Edge",
     "EdgePatch",
     "firewall_sources",

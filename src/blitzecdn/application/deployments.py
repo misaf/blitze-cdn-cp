@@ -44,6 +44,7 @@ from blitzecdn.ports import (
     DeploymentStore,
     EventBus,
     LogReader,
+    QueueBackgroundRunner,
     UnitOfWork,
     ZoneEditor,
     ZoneStore,
@@ -68,7 +69,7 @@ class DeploymentService:
         bus: EventBus,
         runner: DeploymentRunner,
         dns: ZoneEditor,
-        background: BackgroundRunner,
+        background: BackgroundRunner | QueueBackgroundRunner,
         read_log: LogReader,
         uow: UnitOfWork,
         workflows: WorkflowCoordinator,
@@ -84,7 +85,7 @@ class DeploymentService:
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
         #: Carries a queued run onwards after this call has answered. A port,
-        #: so "the deployment happens on a thread" is an adapter decision and a
+        #: so "the deployment happens in a worker" is an adapter decision and a
         #: test can make it happen inline instead.
         self.background = background
         #: Quotes a run log into a message for an operator. Never branched on:
@@ -120,7 +121,11 @@ class DeploymentService:
         """
         try:
             with self.runner.lock():
-                return self.deployments.abandon_running()
+                if isinstance(self.background, QueueBackgroundRunner):
+                    for deployment in self.deployments.queued_deployments():
+                        self.background.enqueue(deployment.id)
+                    return 0
+                return self.deployments.abandon_running(include_queued=True)
         except DeploymentBusyError:
             _LOGGER.info(
                 "another process holds the deployment lock; leaving in-flight "
@@ -234,7 +239,7 @@ class DeploymentService:
     def submit_deployment(
         self, operator: str, *, check: bool = False, host_limit: str | None = None
     ) -> Deployment:
-        """Queue a convergence on a worker thread and return the queued record.
+        """Queue a convergence for a Dramatiq worker and return the queued record.
 
         A full run can take as long as ``deployment_timeout_seconds``, far
         longer than any HTTP client will wait, so callers poll
@@ -276,13 +281,35 @@ class DeploymentService:
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:
-        """Queue a rollback on a worker thread and return the queued record."""
+        """Queue a rollback for a Dramatiq worker and return the queued record."""
         return self._submit(
             lambda: self._queue_rollback(operator, deployment_id, check=check),
             operator,
             WorkflowKind.ROLLBACK,
             "converged_and_adopted",
         )
+
+    def run_queued(self, deployment_id: str) -> Deployment:
+        """Run one durable queue item, ignoring duplicate delivery safely."""
+        with self.runner.lock():
+            deployment = self.deployments.get_deployment(deployment_id)
+            if deployment.status is not DeploymentStatus.QUEUED:
+                return deployment
+            kind = (
+                WorkflowKind.ROLLBACK
+                if deployment.rollback_of
+                else WorkflowKind.DEPLOYMENT
+            )
+            checkpoint = (
+                "converged_and_adopted" if deployment.rollback_of else "converged"
+            )
+            return self._journalled(
+                kind,
+                deployment.operator,
+                deployment.id,
+                checkpoint,
+                lambda: self.converge(deployment, deployment.operator),
+            )
 
     # -- Drift ---------------------------------------------------------
 
@@ -427,7 +454,7 @@ class DeploymentService:
         """Take the deployment lock now, hand it to a worker, return the record.
 
         The lock is an fcntl lock on an open file, so releasing it from the
-        worker thread is equivalent to releasing it here.
+        worker process is equivalent to releasing it here.
 
         The workflow belongs to the worker rather than to this call: it should
         cover the convergence, and the convergence is what happens after this
@@ -462,7 +489,14 @@ class DeploymentService:
         # upload and issuance would fail with DeploymentBusyError until the
         # process was restarted — a permanent outage from a transient failure.
         try:
-            self.background.start(worker, name=f"blitzecdn-deploy-{deployment.id}")
+            if isinstance(self.background, QueueBackgroundRunner):
+                # A Dramatiq worker reconstructs the control plane and owns its
+                # own cross-process deployment lock. The API cannot transfer
+                # an open fcntl lock through Redis.
+                self.background.enqueue(deployment.id)
+                lock.__exit__(None, None, None)
+            else:
+                self.background.start(worker, name=f"blitzecdn-deploy-{deployment.id}")
         except BaseException as exc:
             try:
                 with self.uow.transaction():

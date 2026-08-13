@@ -1,4 +1,4 @@
-"""The physical schema, as SQLAlchemy declarative models.
+"""The physical schema, as SQLModel table models.
 
 This module is the *only* description of what is on disk, and Alembic
 generates migrations by comparing against it. Nothing else may create or alter
@@ -8,10 +8,10 @@ reason about.
 What is a column, and what is JSON
 ----------------------------------
 A field earns a column when something queries it: identity, foreign keys,
-lifecycle status, timestamps, and anything a ``WHERE`` or ``ORDER BY`` names
+    lifecycle status, timestamps, and anything a ``WHERE`` or ``ORDER BY`` names
 today. Nested value objects that no query reaches — a site's cache and firewall
-policy, the ``AnsibleRun`` a deployment produced, a workflow's steps, an outbox
-payload — stay whole in a JSON column.
+policy, the ``AnsibleRun`` a deployment produced, or a workflow's steps — stay
+whole in a JSON column.
 
 That line is deliberate rather than lazy. Normalising a site policy into tables
 would give the pydantic models in :mod:`blitzecdn.domain` a rival definition of
@@ -27,19 +27,20 @@ models, which every store still round-trips through.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any, ClassVar
+from typing import Any
 
 from sqlalchemy import (
+    CheckConstraint,
+    Column,
     ForeignKey,
     Index,
     Integer,
     String,
     TypeDecorator,
-    UniqueConstraint,
 )
 from sqlalchemy.dialects.sqlite import JSON
 from sqlalchemy.engine.interfaces import Dialect
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlmodel import Field, SQLModel
 
 
 class UtcDateTime(TypeDecorator[datetime]):
@@ -86,33 +87,25 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-class Base(DeclarativeBase):
+class Base(SQLModel):
     """Declarative base for every table in the control-plane database."""
 
-    type_annotation_map: ClassVar[dict[Any, Any]] = {
-        datetime: UtcDateTime,
-        dict[str, Any]: JSON,
-        list[Any]: JSON,
-    }
+    __abstract__ = True
 
 
-class DomainRow(Base):
+class DomainRow(Base, table=True):
     """A delegated zone. Holds no records; they are keyed by name below."""
 
     __tablename__ = "domains"
-
-    name: Mapped[str] = mapped_column(String, primary_key=True)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
-
-    records: Mapped[list[DnsRecordRow]] = relationship(
-        back_populates="domain_row",
-        cascade="all, delete-orphan",
-        passive_deletes=True,
-        order_by="(DnsRecordRow.name, DnsRecordRow.type)",
+    __table_args__ = (
+        CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
     )
 
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
-class DnsRecordRow(Base):
+
+class DnsRecordRow(Base, table=True):
     """One record, plus the CDN policy that applies when it is proxied.
 
     ``value``, ``ttl`` and ``proxied`` are columns because they are the answer
@@ -123,26 +116,32 @@ class DnsRecordRow(Base):
     """
 
     __tablename__ = "dns_records"
+    __table_args__ = (
+        CheckConstraint("ttl BETWEEN 1 AND 604800", name="dns_records_ttl_check"),
+        CheckConstraint("type IN ('A', 'AAAA')", name="dns_records_type_check"),
+        CheckConstraint("length(name) > 0", name="dns_records_name_nonempty_check"),
+        CheckConstraint("length(value) > 0", name="dns_records_value_nonempty_check"),
+    )
 
     # ON DELETE CASCADE is load-bearing rather than convenience: a record
     # outliving its domain would keep deriving a virtual host for a zone we no
     # longer serve. `PRAGMA foreign_keys` is enabled per connection in
     # database.py, without which SQLite ignores this entirely.
-    domain: Mapped[str] = mapped_column(
-        ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
+    domain: str = Field(
+        sa_column=Column(
+            String, ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
+        )
     )
-    name: Mapped[str] = mapped_column(String, primary_key=True)
-    type: Mapped[str] = mapped_column(String, primary_key=True)
-    value: Mapped[str]
-    ttl: Mapped[int]
-    proxied: Mapped[bool]
-    policy: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
-
-    domain_row: Mapped[DomainRow] = relationship(back_populates="records")
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    type: str = Field(sa_column=Column(String, primary_key=True))
+    value: str
+    ttl: int
+    proxied: bool
+    policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
-class SiteRow(Base):
+class SiteRow(Base, table=True):
     """The derived virtual hosts.
 
     The one table that is a projection rather than a source of truth: it is
@@ -153,48 +152,47 @@ class SiteRow(Base):
 
     __tablename__ = "sites"
 
-    name: Mapped[str] = mapped_column(String, primary_key=True)
+    name: str = Field(sa_column=Column(String, primary_key=True))
     #: The virtual host names nginx answers on, and where it fetches from.
     #: Columns because "which site serves this hostname" is a question worth
     #: asking of the database rather than of every decoded policy in turn.
-    server_names: Mapped[list[Any]] = mapped_column(default=list)
-    origin_host: Mapped[str]
-    policy: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+    server_names: list[Any] = Field(default_factory=list, sa_type=JSON)
+    origin_host: str
+    policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
-class EdgeRow(Base):
+class EdgeRow(Base, table=True):
     """The fleet, and the table the Ansible inventory plugin reads.
 
     This table is a published contract, not private storage. The plugin in
     ``ansible/plugins/inventory/`` opens the file read-only at the start of
     every run, possibly under a different interpreter with no ``blitzecdn`` on
     its path, so it reads these columns directly and has no model to validate
-    against. That is why this table alone carries ``schema_version``: the
-    plugin checks it first and refuses a version it was not written for,
-    rather than publishing a fleet it half understood.
-
-    Changing a column here means changing the plugin and bumping
-    :data:`~blitzecdn.domain.edges.EDGE_SCHEMA_VERSION` in the same commit.
-    ``tests/test_inventory.py`` fails if the two drift.
+    against. Its explicit SELECT is the schema contract, so changes here and
+    in that query must land together.
     """
 
     __tablename__ = "edges"
+    __table_args__ = (
+        CheckConstraint("port BETWEEN 1 AND 65535", name="edges_port_check"),
+        CheckConstraint("length(host) > 0", name="edges_host_nonempty_check"),
+        CheckConstraint("length(user) > 0", name="edges_user_nonempty_check"),
+    )
 
-    name: Mapped[str] = mapped_column(String, primary_key=True)
-    schema_version: Mapped[int]
-    host: Mapped[str]
-    user: Mapped[str]
-    port: Mapped[int]
-    private_key_file: Mapped[str | None]
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    host: str
+    user: str
+    port: int
+    private_key_file: str | None = None
     #: Lists rather than a child table: they are small, always read whole with
     #: the edge, and never joined or filtered on.
-    public_addresses: Mapped[list[Any]] = mapped_column(default=list)
-    ssh_sources: Mapped[list[Any]] = mapped_column(default=list)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+    public_addresses: list[Any] = Field(default_factory=list, sa_type=JSON)
+    ssh_sources: list[Any] = Field(default_factory=list, sa_type=JSON)
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
-class AnsibleSettingRow(Base):
+class AnsibleSettingRow(Base, table=True):
     """Non-secret, fleet-wide Ansible policy.
 
     ``value`` is JSON because the whole point is that an operator sets an
@@ -204,12 +202,12 @@ class AnsibleSettingRow(Base):
 
     __tablename__ = "ansible_settings"
 
-    name: Mapped[str] = mapped_column(String, primary_key=True)
-    value: Mapped[dict[str, Any]] = mapped_column(JSON)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    value: dict[str, Any] = Field(sa_type=JSON)
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
-class DeploymentRow(Base):
+class DeploymentRow(Base, table=True):
     """Convergence history.
 
     ``result`` is the JSON of one :class:`~blitzecdn.domain.runs.AnsibleRun`:
@@ -220,21 +218,34 @@ class DeploymentRow(Base):
     """
 
     __tablename__ = "deployments"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed', "
+            "'timed_out', 'abandoned')",
+            name="deployments_status_check",
+        ),
+        CheckConstraint(
+            "rollback_of IS NULL OR rollback_of != id",
+            name="deployments_no_self_rollback_check",
+        ),
+    )
 
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    status: Mapped[str] = mapped_column(String, index=True)
-    operator: Mapped[str]
-    check_mode: Mapped[bool]
-    rollback_of: Mapped[str | None] = mapped_column(ForeignKey("deployments.id"))
-    host_limit: Mapped[str | None]
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
-    started_at: Mapped[datetime | None]
-    finished_at: Mapped[datetime | None]
-    result: Mapped[dict[str, Any] | None] = mapped_column(JSON)
+    id: str = Field(sa_column=Column(String, primary_key=True))
+    status: str = Field(index=True)
+    operator: str
+    check_mode: bool
+    rollback_of: str | None = Field(default=None, foreign_key="deployments.id")
+    host_limit: str | None = None
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_type=UtcDateTime, index=True
+    )
+    started_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
+    finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
+    result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
     #: The desired state this deployment converged, and can roll back to.
     #: Opaque here on purpose — its shape is versioned by
     #: :mod:`blitzecdn.domain.snapshots`, not by this schema.
-    snapshot: Mapped[str]
+    snapshot: str
     #: For a rollback: a digest of the canonical desired state as it stood when
     #: this rollback was queued. Adoption compares it against canonical state
     #: again and refuses if it moved, because ``replace_all_records`` restores
@@ -244,69 +255,62 @@ class DeploymentRow(Base):
     #: A digest rather than a second snapshot: these rows already carry a full
     #: copy of desired state, and all this needs to answer is "the same or not".
     #: ``NULL`` on an ordinary deployment, which adopts nothing.
-    canonical_digest: Mapped[str | None]
+    canonical_digest: str | None = None
 
 
-class AuditEventRow(Base):
+class AuditEventRow(Base, table=True):
     """The append-only record of who changed what."""
 
     __tablename__ = "audit_events"
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow, index=True)
-    operator: Mapped[str]
-    action: Mapped[str]
-    resource_type: Mapped[str]
-    resource_id: Mapped[str | None]
-    details: Mapped[dict[str, Any]] = mapped_column(default=dict)
+    id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, primary_key=True, autoincrement=True),
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_type=UtcDateTime, index=True
+    )
+    operator: str
+    action: str
+    resource_type: str
+    resource_id: str | None = None
+    details: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
 
 
-class WorkflowRow(Base):
+class WorkflowRow(Base, table=True):
     """Crash-visible progress for work that crosses out of this transaction."""
 
     __tablename__ = "workflows"
-    __table_args__ = (Index("workflows_status_idx", "status", "updated_at"),)
-
-    id: Mapped[str] = mapped_column(String, primary_key=True)
-    kind: Mapped[str]
-    resource_id: Mapped[str | None]
-    status: Mapped[str]
-    operator: Mapped[str]
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    updated_at: Mapped[datetime] = mapped_column(default=utcnow)
-    #: An append-only list of checkpoints. Ordered, read whole, never queried
-    #: into — a child table would buy nothing but joins.
-    steps: Mapped[list[Any]] = mapped_column(default=list)
-    error: Mapped[str | None]
-
-
-class OutboxEventRow(Base):
-    """A committed integration event awaiting idempotent delivery."""
-
-    __tablename__ = "outbox_events"
     __table_args__ = (
-        # The uniqueness that makes redelivery safe: the observer writes with
-        # INSERT OR IGNORE keyed on this, inside the transaction that published
-        # the event.
-        UniqueConstraint("event_key", name="outbox_events_event_key_key"),
-        Index("outbox_pending_idx", "delivered_at", "id"),
+        CheckConstraint(
+            "kind IN ('deployment', 'rollback', 'certificate')",
+            name="workflows_kind_check",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
+            name="workflows_status_check",
+        ),
+        Index("workflows_status_idx", "status", "updated_at"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    topic: Mapped[str]
-    event_key: Mapped[str]
-    payload: Mapped[dict[str, Any]] = mapped_column(default=dict)
-    created_at: Mapped[datetime] = mapped_column(default=utcnow)
-    delivered_at: Mapped[datetime | None]
-    attempts: Mapped[int] = mapped_column(default=0)
-    last_error: Mapped[str | None]
+    id: str = Field(sa_column=Column(String, primary_key=True))
+    kind: str
+    resource_id: str | None = None
+    status: str
+    operator: str
+    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+    #: An append-only list of checkpoints. Ordered, read whole, never queried
+    #: into — a child table would buy nothing but joins.
+    steps: list[Any] = Field(default_factory=list, sa_type=JSON)
+    error: str | None = None
 
 
-class ProjectionStateRow(Base):
+class ProjectionStateRow(Base, table=True):
     """What revision of the source a derived table was last built from."""
 
     __tablename__ = "projection_state"
 
-    name: Mapped[str] = mapped_column(String, primary_key=True)
-    source_revision: Mapped[str]
-    projected_at: Mapped[datetime] = mapped_column(default=utcnow)
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    source_revision: str
+    projected_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

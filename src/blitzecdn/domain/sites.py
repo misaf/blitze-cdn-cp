@@ -26,22 +26,6 @@ from blitzecdn.domain.validation import (
     unique,
 )
 
-#: Version of the desired-state document handed to Ansible.
-#:
-#: This is the contract between the control plane and the edge roles, which
-#: ship and version independently. Bump it whenever the shape of
-#: ``blitzecdn_nginx_sites`` changes in a way an older role cannot honour —
-#: a new required key, a renamed key, or new semantics for an existing one.
-#: Adding a key that older roles can safely ignore does not need a bump.
-#: The nginx role refuses to run against a version it does not support, so
-#: skew fails before a host is touched instead of midway through a rollout.
-#:
-#: 2 added the per-site ``firewall`` block. Role argument validation rejects a
-#: suboption it does not declare, so a 1.6.0 role cannot ignore the new key
-#: even on a site that leaves the block empty — hence the bump rather than an
-#: additive change.
-DESIRED_STATE_VERSION = 2
-
 #: Certificates BlitzeCDN installs itself live here, one directory per site.
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 

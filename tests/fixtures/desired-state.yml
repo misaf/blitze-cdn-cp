@@ -1,5 +1,4 @@
 ---
-blitzecdn_desired_state_version: 2
 blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_sites:
   - origin_port: 8443

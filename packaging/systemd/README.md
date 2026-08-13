@@ -1,9 +1,9 @@
-# Scheduled control-plane runs
+# Control-plane service
 
-The API service owns first-certificate reconciliation while it runs. The renewal
-and drift timers are also safe unattended: renewal leaves anything not yet due
-alone and deploys only after renewing at least one certificate; drift exits `6`
-so a scheduler can alert on it. None is enabled automatically.
+The API service uses APScheduler only to publish certificate reconciliation,
+renewal, and drift jobs. All scheduled jobs, deployments, and rollbacks are
+sent through Redis to the Dramatiq worker. systemd owns the process lifecycle:
+starting at boot, restarting after failure, privileges, and logs.
 
 Both units assume the control plane runs as an unprivileged `blitzecdn` account
 out of `/opt/blitzecdn`. It needs no privilege on the controller — everything it
@@ -17,45 +17,22 @@ read-only except what `ReadWritePaths` lists, so a path you forget is not a
 permissions warning — it is a run that fails on its first write.
 
 ```bash
-sudo cp packaging/systemd/blitzecdn-*.service /etc/systemd/system/
-sudo cp packaging/systemd/blitzecdn-*.timer /etc/systemd/system/
+sudo cp packaging/systemd/blitzecdn-api.service /etc/systemd/system/
+sudo cp packaging/systemd/blitzecdn-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now blitzecdn-api.service
-sudo systemctl enable --now blitzecdn-cert-renew.timer
-sudo systemctl enable --now blitzecdn-drift.timer
+sudo systemctl enable --now blitzecdn-worker.service
 ```
 
-Verify before trusting the schedule — a timer that never fires looks exactly
-like a fleet that never drifts:
+Verify the service and inspect scheduled activity in its journal:
 
 ```bash
-systemctl list-timers 'blitzecdn-*'
-sudo systemctl start blitzecdn-drift.service   # run once, now
-journalctl -u blitzecdn-drift.service -n 50
+journalctl -u blitzecdn-api.service -n 100
 ```
 
-## Reading the results
-
-The packaged renewal service uses `cert renew --deploy`: it installs renewed
-material on the edge fleet in the same run and fails if either renewal or that
-deployment fails. Interactive renewal without `--deploy` still updates only the
-controller store.
-
-`blitzecdn drift` exits `6` when a reachable edge no longer matches desired
-state. `blitzecdn-drift.service` lists that as a success status on purpose: it
-is a real answer, not a malfunction. Marking it `failed` would bury a check that
-genuinely broke among all the ones that merely found drift.
-
-So alert on the exit code, not on unit failure:
-
-```bash
-journalctl -u blitzecdn-drift.service -o json --since -1d \
-  | grep -c '"EXIT_STATUS":"6"'
-```
-
-To be paged when a unit genuinely breaks — the check could not run at all — add
-a drop-in with `OnFailure=` pointing at your notification unit. That fires for
-breakage, not for drift.
+Set an interval to `0` to disable its job. Renewal defaults to 12 hours, drift
+to one hour, and first-certificate reconciliation to ten minutes. Drift and job
+failures are written to the API service journal.
 
 ## What is deliberately not scheduled
 

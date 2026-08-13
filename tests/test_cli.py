@@ -1393,23 +1393,14 @@ def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
     assert "resolver" not in result.output
 
 
-def test_version_reports_all_three_contract_versions():
-    """`--version` answers the question a schema-skew failure raises.
-
-    A role refusing `blitzecdn_desired_state_version` means the control plane
-    and the edge collection disagree. Reporting only the package version would
-    leave the operator to dig the other two out of `ansible/requirements.yml`
-    and the domain model.
-    """
+def test_version_reports_package_version():
     from blitzecdn import __version__
-    from blitzecdn.domain.sites import DESIRED_STATE_VERSION
 
     result = runner.invoke(cli.app, ["--version"])
 
     assert result.exit_code == 0
     assert f"blitzecdn {__version__}" in result.output
     assert "blitzecdn.edge" not in result.output
-    assert f"desired-state schema {DESIRED_STATE_VERSION}" in result.output
 
 
 def _walk_commands(app, prefix="blitzecdn"):

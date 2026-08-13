@@ -1,5 +1,4 @@
 import re
-import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
@@ -69,14 +68,10 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
 
 def test_dns_write_projection_and_audit_are_one_transaction(settings):
     repository = Repository(settings.database_path)
-    # Built with an integration so the outbox is wired: the property under test
-    # is that an enqueued event is part of the same transaction as the write
-    # that announced it, and there is nothing to enqueue without one.
     control = ControlPlane(
         settings,
         repository,
         FakeRunner(),  # type: ignore[arg-type]
-        integrations={"domain.event": lambda _event: None},
     )
     control.dns.create_domain(Domain(name="example.com"), "alice")
 
@@ -99,61 +94,9 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings):
 
     assert repository.zones.list_records() == []
     assert repository.sites.list_sites() == []
-    assert [event.payload["action"] for event in repository.outbox.pending()] == [
-        "domain.created"
-    ]
     assert [event.action for event in repository.audit_log.list_audit_events()] == [
         "domain.created"
     ]
-
-
-def test_no_integration_means_nothing_is_enqueued(settings):
-    """The outbox is a delivery queue, so an unread one is only a leak.
-
-    It used to be subscribed unconditionally against a handler that discarded
-    what it was given, and dispatched only when an API process started — so a
-    controller driven by the CLI and the timers wrote rows forever that nothing
-    would ever read. The audit trail, which is subscribed either way, is what
-    records that something happened.
-    """
-    repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
-
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-
-    assert control.outbox.enabled is False
-    assert repository.outbox.pending() == []
-    assert repository.outbox.undelivered() == 0
-    assert [event.action for event in repository.audit_log.list_audit_events()] == [
-        "domain.created"
-    ]
-
-
-def test_dispatch_delivers_then_bounds_the_receipts(settings):
-    """Delivered rows are receipts; something has to drop the oldest.
-
-    Pruned by the dispatcher rather than by a timer of its own, so retention
-    cannot silently stop being applied because a unit was never installed.
-    """
-    delivered: list[str] = []
-    repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
-        integrations={"domain.event": lambda event: delivered.append(event.event_key)},
-    )
-    for index in range(4):
-        control.dns.create_domain(Domain(name=f"example{index}.com"), "alice")
-
-    assert repository.outbox.undelivered() == 4
-    assert control.outbox.dispatch() == 4
-    assert len(delivered) == 4
-    assert repository.outbox.undelivered() == 0
-
-    # Retention applies to what has been delivered, never to what has not.
-    assert repository.outbox.prune_delivered(1) == 3
-    assert control.outbox.dispatch() == 0
 
 
 def test_projection_drift_is_detected_and_repairable(settings):
@@ -592,7 +535,12 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
 def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
     """The case startup recovery exists for: nobody is deploying."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=InlineBackgroundRunner(),
+    )
     stranded = repository.deployments.create_deployment("alice", check_mode=False)
 
     assert control.deployments.initialize() == 1
@@ -759,21 +707,88 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
 
 def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_payload):
     repository = Repository(settings.database_path)
-    release = threading.Event()
 
-    class BlockingRunner(FakeRunner):
-        def run(self, *, check, host_limit=None):
-            assert release.wait(timeout=5), "worker never reached the runner"
-            return super().run(check=check)
+    class Queue:
+        def __init__(self):
+            self.ids: list[str] = []
 
-    control = ControlPlane(settings, repository, BlockingRunner())  # type: ignore[arg-type]
+        def enqueue(self, deployment_id: str) -> None:
+            self.ids.append(deployment_id)
+
+    queue = Queue()
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=queue,
+    )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
     assert queued.status is DeploymentStatus.QUEUED
 
-    release.set()
-    assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
+    assert queue.ids == [queued.id]
+    control.deployments.run_queued(queue.ids.pop())
+    assert repository.deployments.get_deployment(queued.id).status is (
+        DeploymentStatus.SUCCEEDED
+    )
+
+
+def test_durable_queue_receives_only_the_deployment_id(settings, site_payload):
+    repository = Repository(settings.database_path)
+
+    class Queue:
+        def __init__(self):
+            self.ids = []
+
+        def enqueue(self, deployment_id):
+            self.ids.append(deployment_id)
+
+    queue = Queue()
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=queue,
+    )
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    queued = control.deployments.submit_deployment("alice")
+
+    assert queue.ids == [queued.id]
+    assert (
+        repository.deployments.get_deployment(queued.id).status
+        is DeploymentStatus.QUEUED
+    )
+    # Redis publish and the SQLite commit cannot be atomic. Startup republishes
+    # queued identifiers so a crash between them cannot strand the record.
+    assert control.deployments.initialize() == 0
+    assert queue.ids == [queued.id, queued.id]
+
+
+def test_durable_queue_delivery_is_idempotent(settings, site_payload):
+    repository = Repository(settings.database_path)
+
+    class Queue:
+        def enqueue(self, deployment_id):
+            pass
+
+    runner = FakeRunner()
+    control = ControlPlane(
+        settings,
+        repository,
+        runner,  # type: ignore[arg-type]
+        background=Queue(),
+    )
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    queued = control.deployments.submit_deployment("alice")
+
+    first = control.deployments.run_queued(queued.id)
+    duplicate = control.deployments.run_queued(queued.id)
+
+    assert first.status is DeploymentStatus.SUCCEEDED
+    assert duplicate.status is DeploymentStatus.SUCCEEDED
+    assert runner.check_modes == [False]
 
 
 def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
@@ -785,7 +800,12 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
     one did not, which had it backwards.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=InlineBackgroundRunner(),
+    )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
@@ -813,6 +833,7 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
                 )
             ]
         ),
+        background=InlineBackgroundRunner(),
     )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
@@ -833,7 +854,12 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
 
 def test_submit_releases_the_lock_after_the_worker_finishes(settings, site_payload):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        background=InlineBackgroundRunner(),
+    )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
@@ -939,7 +965,7 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
 
 
 def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_payload):
-    """An exception on the worker thread must not strand the deployment lock."""
+    """An exception in a worker must not strand the deployment lock."""
     repository = Repository(settings.database_path)
     calls: list[int] = []
 
@@ -950,14 +976,34 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_pay
                 raise ExecutionError("boom")
             return ansible_run(host_run("edge-a"))
 
-    control = ControlPlane(settings, repository, ExplodingOnceRunner())  # type: ignore[arg-type]
+    class Queue:
+        def __init__(self):
+            self.ids: list[str] = []
+
+        def enqueue(self, deployment_id: str) -> None:
+            self.ids.append(deployment_id)
+
+    queue = Queue()
+    control = ControlPlane(
+        settings,
+        repository,
+        ExplodingOnceRunner(),  # type: ignore[arg-type]
+        background=queue,
+    )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     first = control.deployments.submit_deployment("alice")
-    assert _await_terminal(repository, first.id) is DeploymentStatus.FAILED
+    with pytest.raises(ExecutionError, match="boom"):
+        control.deployments.run_queued(queue.ids.pop(0))
+    assert repository.deployments.get_deployment(first.id).status is (
+        DeploymentStatus.FAILED
+    )
 
     second = control.deployments.submit_deployment("alice")
-    assert _await_terminal(repository, second.id) is DeploymentStatus.SUCCEEDED
+    control.deployments.run_queued(queue.ids.pop(0))
+    assert repository.deployments.get_deployment(second.id).status is (
+        DeploymentStatus.SUCCEEDED
+    )
 
 
 def _await_terminal(

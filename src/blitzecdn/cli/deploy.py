@@ -6,13 +6,6 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.application.commands import (
-    CheckDriftCommand,
-    DeployCommand,
-    ReconcileCertificatesCommand,
-    RollbackCommand,
-    ValidateCommand,
-)
 from blitzecdn.cli import common
 from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
@@ -22,7 +15,7 @@ from blitzecdn.domain.deployments import DeploymentStatus
 @app.command()
 def validate(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
     """Validate configuration, desired state, inventory, and playbook syntax."""
-    errors = ValidateCommand().execute(common.control_plane(), "cli")
+    errors = common.control_plane().deployments.validate()
     common.emit({"valid": not errors, "errors": errors}, json_output=json_output)
     if errors:
         raise typer.Exit(ExitCode.CONFIGURATION)
@@ -34,8 +27,8 @@ def plan(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Run Ansible check mode and show the resulting deployment record."""
-    result = DeployCommand(check=True, host_limit=limit).execute(
-        common.control_plane(), "cli"
+    result = common.control_plane().deployments.deploy(
+        "cli", check=True, host_limit=limit
     )
     common.emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
@@ -75,12 +68,12 @@ def deploy(
         )
     control = common.control_plane()
     if not yes:
-        errors = ValidateCommand().execute(control, "cli")
+        errors = control.deployments.validate()
         if errors:
             common.emit({"valid": False, "errors": errors}, json_output=json_output)
             raise typer.Exit(ExitCode.CONFIGURATION)
         typer.echo("Configuration is valid. Previewing changes...")
-        preview = DeployCommand(check=True, host_limit=limit).execute(control, "cli")
+        preview = control.deployments.deploy("cli", check=True, host_limit=limit)
         if preview.status is not DeploymentStatus.SUCCEEDED:
             common.emit(preview, json_output=json_output)
             raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -89,7 +82,7 @@ def deploy(
         target = f"edges matching {limit!r}" if limit else "all configured edges"
         if not typer.confirm(f"Apply these changes to {target}?"):
             raise typer.Abort()
-    result = DeployCommand(host_limit=limit).execute(control, "cli")
+    result = control.deployments.deploy("cli", host_limit=limit)
     if result.status is not DeploymentStatus.SUCCEEDED:
         common.emit(result, json_output=json_output)
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -101,7 +94,7 @@ def deploy(
         # never re-checked eligibility under the deployment lock, so two
         # reconcilers could each contact the CA for one site, and one failing
         # site aborted the rest instead of being recorded and stepped over.
-        reconciliation = ReconcileCertificatesCommand().execute(control, "cli")
+        reconciliation = control.certificates.reconcile_certificates("cli")
         common.emit(
             {
                 "deployment": result.model_dump(mode="json"),
@@ -148,8 +141,8 @@ def rollback(
         )
     ):
         raise typer.Abort()
-    result = RollbackCommand(deployment_id=deployment_id, check=check).execute(
-        common.control_plane(), "cli"
+    result = common.control_plane().deployments.rollback(
+        "cli", deployment_id, check=check
     )
     common.emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
@@ -166,7 +159,7 @@ def drift(
     Changes nothing: it is a check-mode run read as a question. Exits 6 when a
     reachable edge would change, so it can be scheduled and alerted on.
     """
-    report = CheckDriftCommand(host_limit=limit).execute(common.control_plane(), "cli")
+    report = common.control_plane().deployments.check_drift("cli", host_limit=limit)
     common.emit(
         {
             "deployment_id": report.deployment_id,

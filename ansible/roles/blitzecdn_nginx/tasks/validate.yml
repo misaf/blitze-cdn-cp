@@ -5,22 +5,6 @@
 # desired state, which is the only place these conditionals and assertions are
 # ever evaluated rather than merely parsed. `--syntax-check` and ansible-lint
 # both pass a `when:` that fails at run time.
-# The control plane and these roles ship and version independently, so the
-# desired-state document carries a schema version. Refuse a version this role
-# was not written against: failing here costs nothing, while converging a
-# half-understood document leaves edges in a state neither side intended.
-- name: Require a supported desired-state schema version
-  ansible.builtin.assert:
-    that:
-      - blitzecdn_desired_state_version is defined
-      - blitzecdn_desired_state_version in blitzecdn_nginx_supported_state_versions
-    fail_msg: >-
-      This edge role supports desired-state schema
-      {{ blitzecdn_nginx_supported_state_versions | join(', ') }} but the control
-      plane sent {{ blitzecdn_desired_state_version | default('none') }}.
-      Upgrade the control plane and the edge collection together.
-  run_once: true
-
 - name: Validate site values before changing the host
   ansible.builtin.assert:
     that:

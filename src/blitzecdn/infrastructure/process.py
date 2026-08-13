@@ -3,7 +3,6 @@ from __future__ import annotations
 import os
 import signal
 import subprocess
-import threading
 from collections.abc import Callable
 from contextlib import suppress
 from typing import Any
@@ -11,21 +10,18 @@ from typing import Any
 _LOOKUP_ERRORS = (ProcessLookupError, PermissionError)
 
 
-class ThreadBackgroundRunner:
-    """Runs queued work on a daemon thread. The ``BackgroundRunner`` adapter.
+class DramatiqBackgroundRunner:
+    """Queues deployment identifiers for a separate Dramatiq worker."""
 
-    Daemon threads because the work is a deployment: it holds a cross-process
-    lock and writes its outcome to the database, and a controller being shut
-    down mid-run must not be blocked from exiting by it. The interrupted run is
-    recorded as ABANDONED by ``abandon_running`` on the next start.
+    def __init__(self, redis_url: str) -> None:
+        from blitzecdn.infrastructure.queue import configure_broker
 
-    ``start`` deliberately does not catch anything ``Thread.start`` raises. The
-    caller is holding the deployment lock and unwinds it on failure; see
-    :class:`~blitzecdn.ports.BackgroundRunner`.
-    """
+        configure_broker(redis_url)
 
-    def start(self, work: Callable[[], None], *, name: str) -> None:
-        threading.Thread(target=work, name=name, daemon=True).start()
+    def enqueue(self, deployment_id: str) -> None:
+        from blitzecdn.infrastructure.queue import run_deployment
+
+        run_deployment.send(deployment_id)
 
 
 def terminate_process_group(

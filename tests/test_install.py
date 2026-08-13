@@ -239,15 +239,10 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "etc/blitzecdn/blitzecdn.env",
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/systemd/system/blitzecdn-api.service",
-        root / "etc/systemd/system/blitzecdn-cert-renew.service",
-        root / "etc/systemd/system/blitzecdn-cert-renew.timer",
-        root / "etc/systemd/system/blitzecdn-drift.service",
-        root / "etc/systemd/system/blitzecdn-drift.timer",
         root / "etc/systemd/system/blitzecdn-geoipupdate.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.timer",
         root / "usr/local/bin/blitzecdn",
         root / "etc/sudoers.d/blitzecdn-deploy",
-        root / "var/backups/blitzecdn/20250101T000000Z-v1.7.2.tar.gz",
         root / "etc/nginx/blitzecdn-managed-sites",
         root / "etc/nginx/conf.d/blitzecdn-cache.conf",
         root / "etc/nginx/conf.d/blitzecdn-geoip.conf",
@@ -347,12 +342,7 @@ def test_installer_has_valid_shell_syntax():
 
 
 def test_default_form_takes_no_arguments():
-    """The upgrade path depends on this.
-
-    `update` checks out the new release and runs its install.sh with no
-    arguments, from a copy of the *previous* release's script. A default form
-    that required an argument would strand every installed host.
-    """
+    """Controller-only installation has an intentionally argument-free form."""
     result = _run("--bogus")
     assert result.returncode == 2
     assert "takes no arguments" in result.stderr
@@ -362,7 +352,6 @@ def test_root_help_lists_every_subcommand():
     result = _run("--help")
     assert result.returncode == 0
     assert "standalone" in result.stdout
-    assert "update" in result.stdout
     assert "--fresh" in result.stdout
     assert "--uninstall" in result.stdout
     assert "BLITZECDN_WRAPPER_DIR" in result.stdout
@@ -373,9 +362,8 @@ def test_every_help_form_exits_zero(form: str):
     assert _run(form).returncode == 0
 
 
-@pytest.mark.parametrize("subcommand", ["standalone", "update"])
+@pytest.mark.parametrize("subcommand", ["standalone"])
 def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
-    """Neither may do anything before establishing it is root."""
     result = _run(subcommand)
     assert result.returncode == 1
     assert "sudo" in result.stderr
@@ -391,7 +379,6 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--admin-cidr"),
         ("standalone", "--email"),
         ("standalone", "--public-address"),
-        ("update", "--version"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
@@ -400,7 +387,7 @@ def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option:
     assert "needs a value" in result.stderr
 
 
-@pytest.mark.parametrize("subcommand", ["standalone", "update"])
+@pytest.mark.parametrize("subcommand", ["standalone"])
 def test_unknown_options_are_rejected_with_usage(subcommand: str):
     result = _run(subcommand, "--not-an-option")
     assert result.returncode == 2
@@ -412,7 +399,6 @@ def test_unknown_options_are_rejected_with_usage(subcommand: str):
     ("subcommand", "expected"),
     [
         ("standalone", ["--admin-cidr CIDR", "--email ADDRESS", "--deploy"]),
-        ("update", ["--version vX.Y.Z", "--check", "--yes"]),
     ],
 )
 def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[str]):
@@ -477,108 +463,7 @@ def test_acme_email_validation(email: str, accepted: bool):
     assert (result.returncode == 0) is accepted
 
 
-# --- release-tag selection ---------------------------------------------------
-
-
-def _tag_pipeline(ls_remote_output: str) -> list[str]:
-    """Run the script's own tag-extraction pipeline over fake ls-remote output."""
-    match = re.search(r"(sed -n 's#\.\*refs/tags/.*?#p') \|\n\s*(sort -V)", _script())
-    assert match is not None, "tag extraction pipeline not found in install.sh"
-    pipeline = f"{match.group(1)} | {match.group(2)}"
-    result = subprocess.run(  # noqa: S603 - pipeline extracted from the script
-        [BASH, "-c", pipeline],
-        input=ls_remote_output,
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    return result.stdout.split()
-
-
-def test_tag_selection_keeps_only_stable_releases_and_orders_them_numerically():
-    versions = _tag_pipeline(
-        "aaa\trefs/tags/v1.2.7\n"
-        "bbb\trefs/tags/v1.10.0\n"
-        "ccc\trefs/tags/v1.2.9\n"
-        "ddd\trefs/tags/v2.0.0-rc1\n"
-        "eee\trefs/tags/nightly\n"
-        "fff\trefs/tags/v1.2\n"
-    )
-    # Prereleases and non-version tags are dropped, and 1.10.0 sorts above
-    # 1.2.9 rather than lexically below it.
-    assert versions == ["v1.2.7", "v1.2.9", "v1.10.0"]
-    assert versions[-1] == "v1.10.0"
-
-
-def test_tag_membership_test_does_not_accept_a_prefix_match():
-    """`v1.2.9` must not be considered present in a list holding `v1.2.90`."""
-    script = (
-        "remote_versions=(v1.2.90 v1.3.0); target_version=v1.2.9\n"
-        'if [[ " ${remote_versions[*]} " == *" ${target_version} "* ]]; then\n'
-        "  echo present\nelse\n  echo absent\nfi\n"
-    )
-    result = subprocess.run(  # noqa: S603 - fixed executable, literal script
-        [BASH, "-c", script],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    assert result.stdout.strip() == "absent"
-    # The same comparison, in the same form, must be what the script uses.
-    assert '[[ " ${remote_versions[*]} " == *" ${target_version} "* ]]' in _script()
-
-
 # --- structural guarantees no unprivileged run can reach ---------------------
-
-
-def test_update_never_deploys():
-    """A deploy rewrites edge configuration; an update must only change code."""
-    update = _section("update")
-    assert (
-        re.search(r"(?m)^\s*(?:run_blitzecdn|/usr/local/bin/blitzecdn) deploy", update)
-        is None
-    )
-    assert '"${CLI_WRAPPER}" doctor' in update
-
-
-def test_update_reinstalls_through_the_argument_free_default_form():
-    """Both the success path and the rollback path must call it bare."""
-    update = _section("update")
-    assert update.count("run_install_as_service_account") == 2
-    # A redirection may follow, but never an argument.
-    assert re.search(r"run_install_as_service_account +[\w-]", update) is None
-    # And the helper they share must itself pass the script no arguments.
-    helper = _function("run_install_as_service_account")
-    assert re.search(
-        r"runuser -u blitzecdn -- env BLITZECDN_USER_WRAPPER=0 "
-        r'"\$\{INSTALL_DIR\}/install\.sh"\s*$',
-        helper,
-    )
-
-
-def test_update_runs_from_a_private_copy_before_rewriting_the_checkout():
-    """Checking out a release overwrites this file while bash is reading it."""
-    update = _section("update")
-    assert "reexec_from_private_copy BLITZECDN_UPDATE_REEXEC update" in update
-    # The copy must happen before anything touches the checkout.
-    assert update.index("reexec_from_private_copy") < update.index("repo_git fetch")
-
-
-def test_update_backs_up_state_and_rolls_back_on_failure():
-    update = _section("update")
-    assert "backup_items=(opt/blitzecdn/.state)" in update
-    assert "etc/blitzecdn" in update
-    assert "trap rollback ERR" in update
-    assert 'repo_git checkout --detach "${previous_commit}"' in update
-
-
-def test_update_scopes_git_safe_directory_without_changing_global_config():
-    script = _script()
-    assert 'git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" "$@"' in script
-    assert "git config --global" not in script
-
-
 def test_standalone_keeps_the_management_api_on_loopback():
     script = _script()
     assert "ssh -L 8000:127.0.0.1:8000" in script
@@ -688,7 +573,7 @@ def test_cleanup_removes_every_owned_artifact():
         'systemctl disable "${SERVICES[@]}" "${EDGE_MANAGED_UNITS[@]}"',
         'rm -f -- "/etc/systemd/system/${unit}"',
         "systemctl daemon-reload",
-        'rm -rf -- "${CONFIG_DIR}" "${CLI_WRAPPER}" "${SUDOERS_FILE}" "${BACKUP_DIR}"',
+        'rm -rf -- "${CONFIG_DIR}" "${CLI_WRAPPER}" "${SUDOERS_FILE}"',
         'rm -rf -- "${INSTALL_DIR}"',
         "remove_service_account blitzecdn /var/lib/blitzecdn",
         "remove_service_account deploy /home/deploy",

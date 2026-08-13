@@ -8,7 +8,6 @@ import typer
 import uvicorn
 
 from blitzecdn.api import create_app
-from blitzecdn.application.commands import CacheStatsCommand
 from blitzecdn.cli import common
 from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
@@ -103,7 +102,7 @@ def stats(
     errors nginx served itself, and sites with caching disabled are excluded
     rather than scored as misses.
     """
-    report = CacheStatsCommand(host_limit=limit).execute(common.control_plane(), "cli")
+    report = common.control_plane().cache.cache_stats("cli", host_limit=limit)
     if json_output:
         common.emit(_stats_document(report, by_site=by_site), json_output=True)
         return

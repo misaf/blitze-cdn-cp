@@ -170,17 +170,3 @@ jobs:
       - uses: actions/checkout@v7
       - name: Install, re-install, and uninstall
         run: bash tests/container-install.sh ${{ matrix.image }}
-
-  # Fresh-install tests use the working tree. This job covers the other risky
-  # path: upgrading a real published installation while preserving credentials
-  # and database state.
-  upgrade:
-    name: Upgrade v2.0.0 to v2.0.1
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-      - name: Install old release and upgrade it
-        run: bash tests/container-upgrade.sh ubuntu:24.04 v2.0.0 v2.0.1

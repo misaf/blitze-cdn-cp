@@ -6,13 +6,6 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.application.commands import (
-    AddEdgeCommand,
-    CheckOriginsCommand,
-    DecommissionEdgeCommand,
-    RemoveEdgeCommand,
-    UpdateEdgeCommand,
-)
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.domain.edges import Edge, EdgePatch
@@ -40,9 +33,7 @@ def origin_check(
     not reach it — an origin no edge can reach is down, while one only some can
     reach is a routing or allow-list problem.
     """
-    report = CheckOriginsCommand(host_limit=limit).execute(
-        common.control_plane(), "cli"
-    )
+    report = common.control_plane().edges.check_origins("cli", host_limit=limit)
     common.emit(report, json_output=json_output)
     if json_output:
         if report.failing_sites:
@@ -127,8 +118,8 @@ def edge_add(
         raise typer.BadParameter(
             "at least one --ssh-source management CIDR is required"
         )
-    edge = AddEdgeCommand(
-        edge=Edge(
+    edge = common.control_plane().edges.add_edge(
+        Edge(
             name=name,
             host=host,
             user=user,
@@ -136,8 +127,9 @@ def edge_add(
             private_key_file=private_key_file,
             public_addresses=tuple(public_address or ()),
             ssh_sources=tuple(ssh_source),
-        )
-    ).execute(common.control_plane(), "cli")
+        ),
+        "cli",
+    )
     common.emit(edge, json_output=json_output)
     if not json_output:
         typer.echo(f"\nRegistered {edge.name}. Run 'blitzecdn deploy' to converge it.")
@@ -196,8 +188,8 @@ def edge_update(
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter("give at least one field to change")
-    edge = UpdateEdgeCommand(name=name, patch=EdgePatch.model_validate(named)).execute(
-        common.control_plane(), "cli"
+    edge = common.control_plane().edges.update_edge(
+        name, EdgePatch.model_validate(named), "cli"
     )
     common.emit(edge, json_output=json_output)
     if not json_output:
@@ -240,10 +232,9 @@ def edge_remove(
     )
     if not yes and not typer.confirm(prompt):
         raise typer.Abort()
-    command = (
-        DecommissionEdgeCommand(name=name, force=force)
-        if decommission
-        else RemoveEdgeCommand(name=name)
-    )
-    command.execute(common.control_plane(), "cli")
+    control = common.control_plane()
+    if decommission:
+        control.edges.decommission_edge(name, "cli", force=force)
+    else:
+        control.edges.remove_edge(name, "cli")
     typer.echo(f"Removed {name}")

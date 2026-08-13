@@ -11,7 +11,6 @@ from typing import Annotated
 import typer
 
 from blitzecdn import __version__
-from blitzecdn.domain.sites import DESIRED_STATE_VERSION
 from blitzecdn.logging import configure_logging
 
 app = typer.Typer(
@@ -33,18 +32,10 @@ app = typer.Typer(
 
 
 def _version_callback(value: bool) -> None:
-    """Print the schema version alongside the package version.
-
-    The roles ship with this package now, so one version covers the control
-    plane and the edge roles together. The desired-state schema is still worth
-    printing on its own: an edge converged by an older release can refuse a
-    schema version, and that failure names a number an operator would otherwise
-    have to dig out of the domain model.
-    """
+    """Print the package version."""
     if not value:
         return
     typer.echo(f"blitzecdn {__version__}")
-    typer.echo(f"desired-state schema {DESIRED_STATE_VERSION}")
     raise typer.Exit()
 
 

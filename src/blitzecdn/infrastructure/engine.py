@@ -13,20 +13,19 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
+from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import Engine, create_engine, event, inspect
-from sqlalchemy.engine.reflection import Inspector
-from sqlalchemy.orm import Session, sessionmaker
+from alembic import command
+from alembic.config import Config
+from alembic.util.exc import CommandError
+from sqlalchemy import Engine, event
+from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool, QueuePool
+from sqlmodel import Session, create_engine
 
 from blitzecdn.exceptions import ConfigurationError
-from blitzecdn.infrastructure.models import Base
-
-#: The migration this code expects the database to be at. Must equal the head
-#: revision in ``migrations/versions``; ``tests/test_migrations.py`` checks it.
-SCHEMA_REVISION = "0002"
 
 #: The ambient Unit of Work. A ContextVar rather than ``threading.local`` so a
 #: transaction is scoped to the logical operation: queued deployments finish on
@@ -115,10 +114,14 @@ class Database:
             **pool_options,
         )
         _configure_sqlite(self.engine)
-        self._sessions = sessionmaker(
-            bind=self.engine, expire_on_commit=False, future=True
-        )
-        self._initialize()
+        try:
+            self._initialize()
+        except BaseException:
+            self.engine.dispose()
+            raise
+
+    def _new_session(self) -> Session:
+        return Session(self.engine, expire_on_commit=False)
 
     @contextmanager
     def session(self) -> Iterator[Session]:
@@ -133,7 +136,7 @@ class Database:
         if ambient is not None:
             yield ambient
             return
-        with self.lock, self._sessions() as session, session.begin():
+        with self.lock, self._new_session() as session, session.begin():
             yield session
 
     @contextmanager
@@ -149,7 +152,7 @@ class Database:
             return
         immediate = _IMMEDIATE.set(True)
         try:
-            with self.lock, self._sessions() as session, session.begin():
+            with self.lock, self._new_session() as session, session.begin():
                 # `session.begin()` is lazy: without this the transaction —
                 # and so the writer reservation — would not start until the
                 # first statement, which is the deferred behaviour BEGIN
@@ -202,72 +205,27 @@ class Database:
             self.engine.dispose()
 
     def _initialize(self) -> None:
-        """Create the schema on a fresh database, or refuse a stale one.
-
-        Alembic owns *changes*; this owns the empty-file case, so a new install
-        is usable without a migration run. It is stamped at the head revision
-        on the way, because a database created from the current models has, by
-        definition, every migration already applied — leaving it unstamped
-        would make the first real upgrade try to replay them.
-
-        An existing database missing anything the models declare is refused
-        outright. ``create_all`` silently skips tables that already exist, so
-        without this check a controller whose package has moved ahead of its
-        database would run against the older shape and fail one confusing
-        query at a time, mid-deploy, rather than at startup.
-        """
+        """Create and validate the schema using Alembic as its sole owner."""
         with self.lock:
-            inspector = inspect(self.engine)
-            tables = set(inspector.get_table_names())
-            if not tables - {"alembic_version"}:
-                Base.metadata.create_all(self.engine)
-                self._stamp(SCHEMA_REVISION)
-                return
-            self._require_current_schema(inspector, tables)
-
-    def _require_current_schema(self, inspector: Inspector, tables: set[str]) -> None:
-        """Refuse a database that does not carry everything the models declare.
-
-        Both halves of "missing" count. A database one migration behind may be
-        short a column on a table it already has, or short the whole table that
-        migration introduced — and only the first was checked here, so a
-        controller whose package had gained a table would start cleanly and then
-        fail on `no such table` at whichever query reached it first, mid-deploy.
-        An absent table is named on its own rather than through each of its
-        columns, so the message stays the size of the problem.
-        """
-        missing: list[str] = []
-        for table in Base.metadata.sorted_tables:
-            if table.name not in tables:
-                missing.append(table.name)
-                continue
-            present = {column["name"] for column in inspector.get_columns(table.name)}
-            missing.extend(
-                f"{table.name}.{column.name}"
-                for column in table.columns
-                if column.name not in present
+            config = Config(stdout=StringIO())
+            config.set_main_option(
+                "script_location",
+                str(Path(__file__).parents[1] / "migrations"),
             )
-        if missing:
-            raise ConfigurationError(
-                f"{self._path} is on an older schema and is missing "
-                f"{', '.join(sorted(missing))}. Run `blitzecdn db upgrade` to "
-                "migrate it, after `blitzecdn db backup` — the migration "
-                "rewrites tables, and a copy taken with `cp` while the API is "
-                "serving is not a consistent one."
+            config.set_main_option(
+                "sqlalchemy.url",
+                URL.create(
+                    "sqlite+pysqlite", database=str(self._path)
+                ).render_as_string(hide_password=False),
             )
-
-    def _stamp(self, revision: str) -> None:
-        """Record the schema revision without running any migration."""
-        with self.engine.begin() as connection:
-            connection.exec_driver_sql(
-                "CREATE TABLE IF NOT EXISTS alembic_version "
-                "(version_num VARCHAR(32) NOT NULL "
-                "CONSTRAINT alembic_version_pkc PRIMARY KEY)"
-            )
-            connection.exec_driver_sql("DELETE FROM alembic_version")
-            connection.exec_driver_sql(
-                "INSERT INTO alembic_version (version_num) VALUES (?)", (revision,)
-            )
+            try:
+                command.upgrade(config, "head")
+                command.check(config)
+            except (CommandError, RuntimeError) as exc:
+                raise ConfigurationError(
+                    f"{self._path} has an incompatible or damaged schema: {exc}. "
+                    "Remove it and run `blitzecdn setup` for a clean install."
+                ) from exc
 
     @staticmethod
     def now() -> datetime:

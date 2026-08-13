@@ -8,6 +8,7 @@ from blitzecdn.domain.deployments import DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.domain.sites import CdnSite
+from blitzecdn.domain.snapshots import decode_snapshot
 from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
@@ -73,9 +74,9 @@ def test_deployment_transitions_snapshots_and_recovery(
     )
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     assert (
-        repository.decode_snapshot(
-            repository.deployments.deployment_snapshot(deployment.id)
-        )[0].name
+        decode_snapshot(repository.deployments.deployment_snapshot(deployment.id))[
+            0
+        ].name
         == "cdn-example-com"
     )
     running = repository.deployments.transition(
@@ -146,7 +147,7 @@ def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
     assert len(set(connections)) == 1
 
 
-def test_workflow_and_outbox_are_durable_and_idempotent(settings):
+def test_workflow_progress_is_durable(settings):
     repository = Repository(settings.database_path)
     workflow = repository.workflows.create(
         "workflow-1", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
@@ -158,15 +159,6 @@ def test_workflow_and_outbox_are_durable_and_idempotent(settings):
         step=WorkflowStep(name="issued", completed_at=datetime.now(UTC)),
     )
     assert repository.workflows.unfinished()[0].steps[0].name == "issued"
-
-    repository.outbox.enqueue("webhook", "certificate:1", {"site": "cdn"})
-    repository.outbox.enqueue("webhook", "certificate:1", {"site": "duplicate"})
-    pending = repository.outbox.pending()
-    assert len(pending) == 1
-    repository.outbox.failed(pending[0].id, "temporarily unavailable")
-    assert repository.outbox.pending()[0].attempts == 1
-    repository.outbox.delivered(pending[0].id)
-    assert repository.outbox.pending() == []
 
 
 def test_begin_immediate_reserves_the_cross_process_writer(settings):

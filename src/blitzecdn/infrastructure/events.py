@@ -18,7 +18,6 @@ from collections.abc import Callable
 
 from blitzecdn.domain.events import DomainEvent
 from blitzecdn.infrastructure.stores import AuditLog
-from blitzecdn.ports import Outbox
 
 Subscriber = Callable[[DomainEvent], None]
 
@@ -54,26 +53,4 @@ class AuditObserver:
             resource_type=event.resource_type,
             resource_id=event.resource_id,
             details=event.details,
-        )
-
-
-class OutboxObserver:
-    """Copies committed domain events for delivery to external consumers."""
-
-    def __init__(self, outbox: Outbox) -> None:
-        self._outbox = outbox
-
-    def __call__(self, event: DomainEvent) -> None:
-        key = ":".join(
-            (
-                event.action,
-                event.resource_type,
-                event.resource_id or "fleet",
-                event.occurred_at.isoformat(),
-            )
-        )
-        self._outbox.enqueue(
-            "domain.event",
-            key,
-            event.model_dump(mode="json"),
         )

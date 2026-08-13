@@ -14,6 +14,7 @@ from blitzecdn.domain.dns import (
     derive_site_name,
 )
 from blitzecdn.domain.sites import CdnSite, SiteFirewall
+from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
 from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
@@ -115,12 +116,10 @@ def test_snapshot_round_trips_zones(settings):
         "alice",
     )
     snapshot = repository.snapshot()
-    domains, records = repository.decode_snapshot_zones(snapshot)
+    domains, records = decode_snapshot_zones(snapshot)
     assert [domain.name for domain in domains] == ["example.com"]
     assert [record.fqdn for record in records] == ["cdn.example.com"]
-    assert [site.name for site in repository.decode_snapshot(snapshot)] == [
-        "cdn-example-com"
-    ]
+    assert [site.name for site in decode_snapshot(snapshot)] == ["cdn-example-com"]
 
 
 def test_a_record_stored_with_a_now_invalid_country_stays_operable(settings):

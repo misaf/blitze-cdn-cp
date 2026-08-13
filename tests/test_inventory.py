@@ -207,7 +207,7 @@ def test_the_plugins_reserved_names_match_the_domains():
 
     The plugin runs under whatever interpreter `ansible-playbook` is, with no
     `blitzecdn` on its path, so it has to carry its own copy — the same reason
-    it carries its own `EDGE_GROUP` and `SUPPORTED_SCHEMA_VERSION`. Loaded by
+    it carries its own `EDGE_GROUP`. Loaded by
     path here, from where Ansible loads it, so a name added on one side and not
     the other fails rather than silently publishing a variable that can close
     the SSH port on every edge.
@@ -276,38 +276,3 @@ def test_an_empty_fleet_still_declares_the_group(tmp_path: Path):
     # resolve to nothing instead of raising on an unknown pattern.
     assert EDGE_GROUP in document["all"]["children"]
     assert document.get(EDGE_GROUP, {}).get("hosts", []) == []
-
-
-def test_a_schema_version_from_the_future_is_refused(fleet):
-    """A stale Ansible tree must fail loudly, not publish half an edge.
-
-    The plugin and the control plane are upgraded separately — one is a Python
-    package, the other a directory of YAML someone may have deployed from a
-    different checkout. A row written by a newer control plane is refused,
-    because the alternative is converging a fleet from fields this plugin does
-    not know it is missing.
-    """
-    database, _ = fleet
-    import sqlite3
-
-    connection = sqlite3.connect(database)
-    connection.execute("UPDATE edges SET schema_version = 99 WHERE name = 'edge-01'")
-    connection.commit()
-    connection.close()
-
-    completed = subprocess.run(  # noqa: S603 - fixed argv built in this test
-        [_executable(), "-i", str(INVENTORY_SOURCE), "--list"],
-        cwd=ANSIBLE_DIR,
-        env={
-            **os.environ,
-            "ANSIBLE_CONFIG": str(ANSIBLE_DIR / "ansible.cfg"),
-            "BLITZE_DATABASE_PATH": str(database),
-        },
-        capture_output=True,
-        text=True,
-        timeout=60,
-        check=False,
-    )
-
-    assert completed.returncode != 0
-    assert "schema version 99" in completed.stderr

@@ -158,6 +158,17 @@ def test_the_api_reaches_infrastructure_only_through_the_control_plane():
     assert _violations("api", ("blitzecdn.infrastructure",)) == []
 
 
+def test_removed_subsystems_do_not_return():
+    """The fresh schema has one queue and no dormant integration machinery."""
+    offenders = [
+        str(path.relative_to(_SOURCE))
+        for path in _SOURCE.rglob("*.py")
+        if "outbox" in path.read_text(encoding="utf-8").lower()
+        or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
 def test_the_entry_layers_never_reach_through_to_a_store():
     """Reads go through a service or a port, the same as writes.
 
