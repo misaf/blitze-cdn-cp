@@ -157,8 +157,7 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         encoding="utf-8",
     )
     (bindir / "pkill").write_text(
-        "#!/usr/bin/env bash\n"
-        f'touch "{process_marker}"\n',
+        f'#!/usr/bin/env bash\ntouch "{process_marker}"\n',
         encoding="utf-8",
     )
     # userdel and getent share a marker directory so the pair behaves like a
