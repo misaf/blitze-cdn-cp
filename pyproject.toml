@@ -52,6 +52,8 @@ dev = [
   "httpx2>=2.9,<3",
   # Used directly by tests/test_contract.py to render the role templates.
   "Jinja2>=3.1,<4",
+  # Exercise validation and serialization invariants over generated inputs.
+  "hypothesis>=6,<7",
   "mypy>=2.3,<3",
   "pip-audit>=2.9,<3",
   "pre-commit>=4.2,<5",
