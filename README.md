@@ -64,9 +64,11 @@ development checkout to its exact commit. It removes every BlitzeCDN artifact
 first, then runs the standalone installer with the options you pass. The
 checkout must be a Git clone of the upstream repository. `--uninstall` only
 removes. Both operations require the checkout's Ansible runtime because Ansible
-is the single implementation of system teardown; Bash removes `/opt/blitzecdn`
-only after that play succeeds. Both ask for confirmation unless `--yes` is
-given.
+is the single implementation of system teardown. Standalone uninstall invokes
+the same `blitzecdn_teardown` role as normal edge decommissioning, then removes
+controller-only units, accounts, and commands. Bash removes `/opt/blitzecdn`
+only after the complete play succeeds. Both ask for confirmation unless
+`--yes` is given.
 
 ### Controller-only installation
 

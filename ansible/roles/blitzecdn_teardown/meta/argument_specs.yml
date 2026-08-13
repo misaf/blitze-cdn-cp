@@ -9,10 +9,9 @@ argument_specs:
         cache and status configuration, the managed-sites registry, the cache
         contents, the ACME webroot, and /etc/blitzecdn including private keys.
       - >-
-        Leaves nginx installed and running, and does not touch the sshd or
-        firewall policy. Both of those are the controls that keep the host
-        reachable and closed; reverting them as part of a teardown can strand
-        an operator or expose a host that is merely unmanaged, not retired.
+        Leaves shared packages installed, but withdraws the dedicated Nginx,
+        firewall, resolver, SSH, Fail2Ban, kernel and GeoIP artifacts written by
+        the edge roles. It does not alter unrelated administrator configuration.
       - >-
         Must run while the host is still in inventory. Once the control plane
         drops the inventory entry no playbook can reach the host again, and
@@ -36,6 +35,25 @@ argument_specs:
         description: >-
           Root of the controller-written state tree, holding managed TLS
           certificates and keys under tls/. Removed recursively.
+      blitzecdn_teardown_firewall_registry:
+        type: path
+        required: true
+      blitzecdn_teardown_sshd_file:
+        type: path
+        required: true
+      blitzecdn_teardown_fail2ban_file:
+        type: path
+        required: true
+      blitzecdn_teardown_sysctl_file:
+        type: path
+        required: true
+      blitzecdn_teardown_geoip_config_file:
+        type: path
+        required: true
+      blitzecdn_teardown_geoip_units:
+        type: list
+        elements: str
+        required: true
       blitzecdn_teardown_marker:
         type: str
         required: true

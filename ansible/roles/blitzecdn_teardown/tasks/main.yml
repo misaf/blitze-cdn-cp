@@ -67,13 +67,6 @@
     - blitzecdn_teardown_nginx_binary.stat.exists
     - not ansible_check_mode
 
-# Only once no loaded configuration refers to them. This is the tree holding
-# private keys, so it is the one removal that must not be skipped quietly.
-- name: Remove controller-written state and TLS material
-  ansible.builtin.file:
-    path: "{{ blitzecdn_teardown_state_path }}"
-    state: absent
-
 - name: Remove the ACME webroot
   ansible.builtin.file:
     path: "{{ blitzecdn_teardown_acme_root }}"
@@ -83,6 +76,72 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_teardown_cache_path }}"
     state: absent
+
+- name: Inspect the managed firewall rule registry
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_teardown_firewall_registry }}"
+  register: blitzecdn_teardown_firewall_registry_stat
+
+- name: Read the managed firewall rule registry
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_teardown_firewall_registry }}"
+  register: blitzecdn_teardown_firewall_registry_content
+  when: blitzecdn_teardown_firewall_registry_stat.stat.exists
+
+- name: Select managed firewall rules
+  ansible.builtin.set_fact:
+    blitzecdn_teardown_firewall_rules: >-
+      {{
+        (blitzecdn_teardown_firewall_registry_content.content | default('') | b64decode).splitlines()
+        | select('match', '^(tcp|udp)\|[0-9]{1,5}\|[^|]+$') | list
+      }}
+
+- name: Withdraw managed firewall rules
+  community.general.ufw:
+    rule: allow
+    direction: in
+    delete: true
+    proto: "{{ item.split('|')[0] }}"
+    port: "{{ item.split('|')[1] }}"
+    src: "{{ item.split('|')[2] }}"
+  loop: "{{ blitzecdn_teardown_firewall_rules }}"
+  when: not ansible_check_mode
+
+# Only after the firewall registry has been consumed, and once no loaded Nginx
+# configuration refers to its TLS files. This tree contains both artifacts.
+- name: Remove controller-written edge state and TLS material
+  ansible.builtin.file:
+    path: "{{ blitzecdn_teardown_state_path }}"
+    state: absent
+
+- name: Stop and disable edge-owned timers and services
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ blitzecdn_teardown_geoip_units }}"
+  failed_when: false
+
+- name: Remove edge-owned timers and service units
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop: "{{ blitzecdn_teardown_geoip_units }}"
+  notify: Reload systemd after edge teardown
+
+- name: Remove edge security and GeoIP configuration
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ blitzecdn_teardown_sshd_file }}"
+    - "{{ blitzecdn_teardown_fail2ban_file }}"
+    - "{{ blitzecdn_teardown_sysctl_file }}"
+    - "{{ blitzecdn_teardown_geoip_config_file }}"
+  notify:
+    - Reload SSH after edge teardown
+    - Reload Fail2Ban after edge teardown
+    - Reapply kernel settings after edge teardown
 
 - name: Remove the access log
   ansible.builtin.file:
@@ -115,12 +174,21 @@
   ansible.builtin.stat:
     path: "{{ item }}"
   register: blitzecdn_teardown_residue
-  loop:
-    - "{{ blitzecdn_teardown_state_path }}"
-    - "{{ blitzecdn_teardown_cache_path }}"
-    - "{{ blitzecdn_teardown_acme_root }}"
-    - "{{ blitzecdn_teardown_managed_sites_file }}"
-    - "{{ blitzecdn_teardown_resolver_file }}"
+  loop: >-
+    {{
+      [blitzecdn_teardown_state_path,
+       blitzecdn_teardown_cache_path,
+       blitzecdn_teardown_acme_root,
+       blitzecdn_teardown_managed_sites_file,
+       blitzecdn_teardown_resolver_file,
+       blitzecdn_teardown_sshd_file,
+       blitzecdn_teardown_fail2ban_file,
+       blitzecdn_teardown_sysctl_file,
+       blitzecdn_teardown_geoip_config_file]
+      + ([blitzecdn_teardown_access_log_path] if blitzecdn_teardown_remove_logs else [])
+      + (blitzecdn_teardown_geoip_units
+         | map('regex_replace', '^', '/etc/systemd/system/') | list)
+    }}
 
 - name: Fail if anything survived
   ansible.builtin.assert:

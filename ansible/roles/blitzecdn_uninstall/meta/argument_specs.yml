@@ -3,8 +3,6 @@ argument_specs:
   main:
     short_description: Remove state managed by a standalone BlitzeCDN installation
     options:
-      blitzecdn_uninstall_config_dir:
-        type: path
       blitzecdn_uninstall_cli_wrapper:
         type: path
       blitzecdn_uninstall_sudoers_file:
@@ -20,11 +18,3 @@ argument_specs:
       blitzecdn_uninstall_controlplane_units:
         type: list
         elements: str
-      blitzecdn_uninstall_edge_units:
-        type: list
-        elements: str
-      blitzecdn_uninstall_managed_paths:
-        type: list
-        elements: path
-      blitzecdn_uninstall_nginx_marker:
-        type: str
