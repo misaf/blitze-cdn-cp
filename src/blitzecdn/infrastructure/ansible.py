@@ -33,7 +33,13 @@ from ansible_runner import (
 
 from blitzecdn.config import Settings
 from blitzecdn.domain.edges import EDGE_GROUP
-from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
+from blitzecdn.domain.runs import (
+    AnsibleRun,
+    HostRun,
+    RunStatus,
+    TaskOutcome,
+    TaskResult,
+)
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml
@@ -44,6 +50,102 @@ __all__ = ["AnsibleRunner", "DeploymentLock"]
 #: Exit code recorded for a run killed at its timeout, matching the shell
 #: convention for a process ended by a signal after a deadline.
 _TIMEOUT_RETURN_CODE = 124
+_MAX_FAILURE_MESSAGE = 2000
+
+
+class _RunnerEvents:
+    """Translate Runner's event stream into the control-plane result contract."""
+
+    def __init__(self) -> None:
+        self._hosts: dict[str, dict[str, Any]] = {}
+
+    def __call__(self, event: dict[str, Any]) -> bool:
+        name = str(event.get("event") or "")
+        data = event.get("event_data") or {}
+        if not isinstance(data, dict):
+            return True
+        if name == "playbook_on_stats":
+            self._apply_stats(data)
+            return True
+        host_name = data.get("host")
+        if not isinstance(host_name, str) or not host_name:
+            return True
+        host = self._host(host_name)
+        result = data.get("res") or {}
+        if not isinstance(result, dict):
+            result = {}
+        if name == "runner_on_ok":
+            if result.get("changed"):
+                host["changes"].append(self._task(data, TaskOutcome.CHANGED))
+            report = (result.get("ansible_facts") or {}).get("blitzecdn_report")
+            if isinstance(report, dict):
+                host["report"] = report
+        elif name == "runner_on_failed" and not result.get("_ansible_ignore_errors"):
+            host["failures"].append(self._task(data, TaskOutcome.FAILED, result))
+        elif name == "runner_on_unreachable":
+            host["failures"].append(self._task(data, TaskOutcome.UNREACHABLE, result))
+        return True
+
+    def hosts(self) -> tuple[HostRun, ...]:
+        return tuple(
+            HostRun.model_validate(self._hosts[name]) for name in sorted(self._hosts)
+        )
+
+    def _host(self, name: str) -> dict[str, Any]:
+        return self._hosts.setdefault(
+            name,
+            {
+                "host": name,
+                "ok": 0,
+                "changed": 0,
+                "failed": 0,
+                "unreachable": 0,
+                "skipped": 0,
+                "rescued": 0,
+                "ignored": 0,
+                "changes": [],
+                "failures": [],
+                "report": None,
+            },
+        )
+
+    def _apply_stats(self, data: dict[str, Any]) -> None:
+        for event_key, model_key in (
+            ("ok", "ok"),
+            ("changed", "changed"),
+            ("failures", "failed"),
+            ("dark", "unreachable"),
+            ("skipped", "skipped"),
+            ("rescued", "rescued"),
+            ("ignored", "ignored"),
+        ):
+            counts = data.get(event_key) or {}
+            if not isinstance(counts, dict):
+                continue
+            for name, count in counts.items():
+                self._host(str(name))[model_key] = int(count)
+
+    @staticmethod
+    def _task(
+        data: dict[str, Any],
+        outcome: TaskOutcome,
+        result: dict[str, Any] | None = None,
+    ) -> TaskResult:
+        message = None
+        if result is not None:
+            for key in ("msg", "stderr", "stdout", "reason", "exception"):
+                value = result.get(key)
+                if isinstance(value, str) and value.strip():
+                    message = value.strip()[:_MAX_FAILURE_MESSAGE]
+                    break
+            message = message or "no message"
+        return TaskResult(
+            task=str(data.get("task") or "unnamed task").strip(),
+            action=str(data.get("task_action") or ""),
+            outcome=outcome,
+            message=message,
+            role=str(data["role"]) if data.get("role") else None,
+        )
 
 
 class DeploymentLock(AbstractContextManager["DeploymentLock"]):
@@ -343,6 +445,7 @@ class AnsibleRunner:
         result_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         environment = self._environment(result_path)
+        events = _RunnerEvents()
         control_root = self._settings.state_dir / "ansible-control"
         artifact_root = self._settings.state_dir / "ansible-runner"
         control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -359,6 +462,7 @@ class AnsibleRunner:
                 timeout=timeout,
                 check=check,
                 syntax_check=syntax_check,
+                event_handler=events,
             )
         artifact_path = artifact_root / run_id
         self._keep_runner_output(artifact_path, log_path)
@@ -374,7 +478,7 @@ class AnsibleRunner:
         return_code = (
             _TIMEOUT_RETURN_CODE if status is RunStatus.TIMED_OUT else result.rc
         )
-        hosts = self._read_result(result_path)
+        hosts = events.hosts() or self._read_result(result_path)
         self._prune_logs()
         return AnsibleRun(
             id=run_id,
@@ -401,6 +505,7 @@ class AnsibleRunner:
         timeout: int,
         check: bool,
         syntax_check: bool,
+        event_handler: _RunnerEvents,
     ) -> Any:
         """Execute through Ansible Runner without exposing it above this adapter."""
         options = ["--extra-vars", f"@{variables}"]
@@ -428,6 +533,7 @@ class AnsibleRunner:
                 quiet=True,
                 suppress_env_files=True,
                 rotate_artifacts=0,
+                event_handler=event_handler,
             )
         except (OSError, runner_exceptions.AnsibleRunnerException) as exc:
             raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
