@@ -700,18 +700,26 @@ remove_service_account() {
       echo "warning: leaving ${account} alone (its home is ${home}, not ${expected_home})" >&2
       return 0
     fi
-    # The installer's own loopback SSH check logs the deployment account in, and
-    # logind keeps a user@UID.service manager alive after the session closes.
-    # userdel refuses while it runs, so without this an uninstall would fail on
-    # essentially every standalone host — the account is busy because installing
-    # made it busy. Gated on loginctl so it is a no-op off systemd.
+    # The installer's own loopback SSH check logs the deployment account in.
+    # Ask logind to close its sessions first, then explicitly stop anything it
+    # does not track (notably Ansible's persistent SSH control processes).
+    # Restrict both signals to the account already verified above: uninstalling
+    # must not leave one of its processes behind and then pretend userdel worked.
     if command -v loginctl >/dev/null 2>&1; then
       loginctl terminate-user "${account}" >/dev/null 2>&1 || true
+    fi
+    if command -v pgrep >/dev/null 2>&1 &&
+      command -v pkill >/dev/null 2>&1 &&
+      pgrep -u "${account}" >/dev/null 2>&1; then
+      pkill -TERM -u "${account}" >/dev/null 2>&1 || true
       local waited=0
       while [[ ${waited} -lt 10 ]] && pgrep -u "${account}" >/dev/null 2>&1; do
         sleep 1
         waited=$((waited + 1))
       done
+      if pgrep -u "${account}" >/dev/null 2>&1; then
+        pkill -KILL -u "${account}" >/dev/null 2>&1 || true
+      fi
     fi
 
     if command -v userdel >/dev/null 2>&1; then
