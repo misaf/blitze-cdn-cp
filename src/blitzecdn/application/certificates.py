@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from time import monotonic
 
@@ -52,36 +53,46 @@ from blitzecdn.ports import (
 _LOGGER = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class CertificatePersistence:
+    """Certificate and site state committed in the same workflows."""
+
+    sites: SiteStore
+    certificates: CertificateStore
+    uow: UnitOfWork
+    requirements: DeploymentRequirements
+
+
+@dataclass(frozen=True)
+class CertificateExecution:
+    """External capabilities used while managing certificates."""
+
+    runner: DeploymentRunner
+    issuer: Issuer
+    preflight: Preflight
+
+
 class CertificateService:
     """Everything that talks to a CA or to the certificate store."""
 
     def __init__(
         self,
+        *,
         settings: Settings,
-        sites: SiteStore,
+        persistence: CertificatePersistence,
+        execution: CertificateExecution,
         bus: EventBus,
-        runner: DeploymentRunner,
-        certificate_store: CertificateStore,
-        issuer: Issuer,
-        preflight: Preflight,
         dns: ZoneEditor,
         deployments: DeploymentGateway,
-        uow: UnitOfWork,
         workflows: WorkflowCoordinator,
-        deployment_requirements: DeploymentRequirements,
     ) -> None:
         self.settings = settings
-        self.sites = sites
+        self.persistence = persistence
+        self.execution = execution
         self.bus = bus
-        self.runner = runner
-        self.certificate_store = certificate_store
-        self.issuer = issuer
-        self.preflight = preflight
         self.dns = dns
         self.deployments = deployments
-        self.uow = uow
         self.workflows = workflows
-        self.deployment_requirements = deployment_requirements
 
     # -- Installing ----------------------------------------------------
 
@@ -94,19 +105,19 @@ class CertificateService:
     ) -> CertificateInfo:
         with (
             self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress,
-            self.runner.lock(),
+            self.execution.runner.lock(),
         ):
-            site = self.sites.get_site(name)
-            info = self.certificate_store.install(
+            site = self.persistence.sites.get_site(name)
+            info = self.persistence.certificates.install(
                 site,
                 certificate_pem,
                 private_key_pem,
                 source=CertificateSource.UPLOADED,
             )
             progress.checkpoint("installed", {"site": name})
-            with self.uow.transaction():
+            with self.persistence.uow.transaction():
                 self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
-                self.deployment_requirements.require("certificates")
+                self.persistence.requirements.require("certificates")
                 self.bus.publish(
                     domain_event(
                         operator,
@@ -131,9 +142,9 @@ class CertificateService:
         and so the answer to "why did issuance fail" does not require reading
         certbot's output.
         """
-        site = self.sites.get_site(name)
+        site = self.persistence.sites.get_site(name)
         record = self.dns.record_for_site(site.name)
-        return self.preflight.check(
+        return self.execution.preflight.check(
             site,
             deployed=self.deployments.site_is_deployed(site.name),
             record_ttl=record.ttl,
@@ -149,7 +160,7 @@ class CertificateService:
         after an incident, and it should not require reading every certificate
         event to answer.
         """
-        report = self.preflight.check(
+        report = self.execution.preflight.check(
             site,
             deployed=self.deployments.site_is_deployed(site.name),
             record_ttl=self.dns.record_for_site(site.name).ttl,
@@ -225,8 +236,8 @@ class CertificateService:
         with self.workflows.run(
             WorkflowKind.CERTIFICATE, operator, request.site
         ) as progress:
-            with self.runner.lock():
-                site = self.sites.get_site(request.site)
+            with self.execution.runner.lock():
+                site = self.persistence.sites.get_site(request.site)
                 info = self._issue_certificate_locked(
                     site,
                     operator,
@@ -264,10 +275,12 @@ class CertificateService:
         self._enforce_preflight(
             site, operator, skip=skip_preflight, action="certificate.requested"
         )
-        certificate_pem, private_key_pem = self.issuer.issue(site, registration_email)
+        certificate_pem, private_key_pem = self.execution.issuer.issue(
+            site, registration_email
+        )
         if progress is not None:
             progress.checkpoint("issued", {"site": site.name})
-        info = self.certificate_store.install(
+        info = self.persistence.certificates.install(
             site,
             certificate_pem,
             private_key_pem,
@@ -276,9 +289,9 @@ class CertificateService:
         )
         if progress is not None:
             progress.checkpoint("stored", {"site": site.name})
-        with self.uow.transaction():
+        with self.persistence.uow.transaction():
             self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
-            self.deployment_requirements.require("certificates")
+            self.persistence.requirements.require("certificates")
             self.bus.publish(
                 domain_event(
                     operator,
@@ -303,7 +316,7 @@ class CertificateService:
         issued: list[str] = []
         skipped: dict[str, str] = {}
         failed: dict[str, str] = {}
-        for candidate in self.sites.list_sites():
+        for candidate in self.persistence.sites.list_sites():
             if candidate.certificate_mode is not CertificateMode.DISABLED:
                 continue
             report = self.certificate_preflight(candidate.name)
@@ -319,9 +332,9 @@ class CertificateService:
                     self.workflows.run(
                         WorkflowKind.CERTIFICATE, operator, candidate.name
                     ) as progress,
-                    self.runner.lock(),
+                    self.execution.runner.lock(),
                 ):
-                    site = self.sites.get_site(candidate.name)
+                    site = self.persistence.sites.get_site(candidate.name)
                     if site.certificate_mode is not CertificateMode.DISABLED:
                         continue
                     registration_email = self.settings.acme_default_email
@@ -353,15 +366,15 @@ class CertificateService:
     # -- Reporting -----------------------------------------------------
 
     def certificate(self, name: str) -> CertificateInfo:
-        self.sites.get_site(name)
-        return self.certificate_store.get(name)
+        self.persistence.sites.get_site(name)
+        return self.persistence.certificates.get(name)
 
     def certificate_statuses(self) -> list[CertificateStatus]:
         """Every managed certificate against the clock, soonest expiry first."""
         now = datetime.now(UTC)
         return [
             CertificateStatus.of(info, now=now)
-            for info in self.certificate_store.list_all()
+            for info in self.persistence.certificates.list_all()
         ]
 
     def expiring_certificates(
@@ -430,7 +443,7 @@ class CertificateService:
         deadline = (
             None if budget_seconds is None else monotonic() + max(budget_seconds, 0.0)
         )
-        stored = self.certificate_store.list_all()
+        stored = self.persistence.certificates.list_all()
         selected = None if sites is None else set(sites)
         if selected is not None:
             unknown = sorted(selected - {info.site for info in stored})

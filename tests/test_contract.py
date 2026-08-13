@@ -85,7 +85,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     can actually produce.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository)
+    control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
         DnsRecord.model_validate(

@@ -107,7 +107,9 @@ def test_duplicate_records_conflict(settings):
 
 def test_snapshot_round_trips_zones(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     control.dns.create_record(
         DnsRecord(
@@ -130,7 +132,7 @@ def test_a_record_stored_with_a_now_invalid_country_stays_operable(settings):
     actually needs, through the repository rather than the model alone.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository)
+    control = ControlPlane(settings=settings, repository=repository)
     control.dns.create_domain(Domain(name="example.com"), "test")
     control.dns.create_record(
         DnsRecord(domain="example.com", name="sub", value="203.0.113.5", proxied=True),

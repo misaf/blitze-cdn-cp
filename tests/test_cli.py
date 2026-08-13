@@ -38,7 +38,11 @@ def test_init_creates_private_environment_file(tmp_path):
 
 
 def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_path):
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     assert runner.invoke(cli.app, ["domain", "add", "example.com"]).exit_code == 0
@@ -169,7 +173,11 @@ def test_registering_an_edge_is_audited(tmp_path, monkeypatch):
 
 def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, capsys):
     """`run()` is outside Click, so it must exit rather than raise."""
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     monkeypatch.setattr(sys, "argv", ["blitzecdn", "record", "list", "absent.example"])
@@ -186,7 +194,11 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
 
 def test_cli_proxy_toggle_drives_the_derived_site(settings, monkeypatch):
     """`record proxy --on/--off` is the CDN switch for one subdomain."""
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     added = runner.invoke(
@@ -217,7 +229,11 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     that replaces the whole block. Getting this wrong would silently drop the
     rules a second invocation did not repeat.
     """
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
@@ -271,7 +287,11 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
 
 def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch):
     """203.0.113.5/24 means one address to the operator and 256 to nginx."""
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
@@ -293,7 +313,11 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
 
 
 def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
@@ -317,7 +341,11 @@ def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
 
 
 def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatch):
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
@@ -347,7 +375,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch
             ansible_run(host_run("edge-a")),
         ]
     )
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
@@ -370,7 +398,7 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
     repository.sites.create_site(site)
     configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
-    control = ControlPlane(configured, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=configured, repository=repository, runner=fake)  # type: ignore[arg-type]
     report = FakePreflight().check(site, deployed=True, record_ttl=300)
     requested: list[str] = []
     monkeypatch.setattr(
@@ -416,9 +444,9 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
     site = CdnSite.model_validate(site_payload)
     repository.sites.create_site(site)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(host_run("edge-a"))]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a"))]),
     )  # type: ignore[arg-type]
     report = FakePreflight(("dns",)).check(site, deployed=True, record_ttl=300)
     monkeypatch.setattr(
@@ -457,7 +485,7 @@ def test_interactive_deploy_validates_previews_and_applies(
             ansible_run(host_run("edge-a", changes=("Render managed sites",))),
         ]
     )
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
@@ -471,9 +499,9 @@ def test_interactive_deploy_validates_previews_and_applies(
 
 def _control(settings, monkeypatch, runner_double=None, preflight=None):
     control = ControlPlane(
-        settings,
-        Repository(settings.database_path),
-        runner_double or FakeRunner(),
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=runner_double or FakeRunner(),
         preflight=preflight or FakePreflight(),
     )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
@@ -836,9 +864,9 @@ def test_plan_exits_five_when_check_mode_fails(settings, site_payload, monkeypat
     repository = Repository(settings.database_path)
     repository.sites.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(
             [
                 ansible_run(
                     host_run("edge-a", ok=0, unreachable=1),
@@ -875,7 +903,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     repository = Repository(settings.database_path)
     repository.sites.create_site(CdnSite.model_validate(site_payload))
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")

@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -59,51 +60,60 @@ _LOGGER = logging.getLogger(__name__)
 _DEPLOYMENT_LOOKBACK = 50
 
 
+@dataclass(frozen=True)
+class DeploymentPersistence:
+    """State capabilities changed together by deployment workflows."""
+
+    deployments: DeploymentStore
+    zones: ZoneStore
+    uow: UnitOfWork
+    requirements: DeploymentRequirements
+
+
+@dataclass(frozen=True)
+class DeploymentExecution:
+    """Collaborators that render, launch, and observe deployment work."""
+
+    runner: DeploymentRunner
+    background: BackgroundRunner | QueueBackgroundRunner
+    read_log: LogReader
+    renderer: DesiredStateRenderer
+
+
 class DeploymentService:
     """Runs Ansible against a recorded snapshot and owns the deployment lock."""
 
     def __init__(
         self,
+        *,
         settings: Settings,
-        deployments: DeploymentStore,
-        zones: ZoneStore,
+        persistence: DeploymentPersistence,
+        execution: DeploymentExecution,
         bus: EventBus,
-        runner: DeploymentRunner,
         dns: ZoneEditor,
-        background: BackgroundRunner | QueueBackgroundRunner,
-        read_log: LogReader,
-        uow: UnitOfWork,
         workflows: WorkflowCoordinator,
-        renderer: DesiredStateRenderer,
         rollbacks: RollbackPlanner,
         drift: DriftInterpreter,
-        deployment_requirements: DeploymentRequirements,
     ) -> None:
         self.settings = settings
-        self.deployments = deployments
-        self.zones = zones
+        self.persistence = persistence
+        self.execution = execution
         self.bus = bus
-        self.runner = runner
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
         #: Carries a queued run onwards after this call has answered. A port,
         #: so "the deployment happens in a worker" is an adapter decision and a
         #: test can make it happen inline instead.
-        self.background = background
         #: Quotes a run log into a message for an operator. Never branched on:
         #: `validate` is the one caller, and only because `--syntax-check` runs
         #: no play and so leaves the callback nothing to report.
-        self.read_log = read_log
-        self.uow = uow
         self.workflows = workflows
         #: Turns a snapshot into the desired-state document Ansible reads. It
         #: holds the atomic writer, injected rather than imported so this layer
         #: never reaches for the filesystem adapter directly; the composition
         #: root supplies it and a test can supply anything with the same shape.
-        self.renderer = renderer
         self.rollbacks = rollbacks
         self.drift = drift
-        self.deployment_requirements = deployment_requirements
 
     def initialize(self) -> int:
         """Close out deployments a previous controller process left in flight.
@@ -123,12 +133,12 @@ class DeploymentService:
         The next start with an idle lock does the cleanup.
         """
         try:
-            with self.runner.lock():
-                if isinstance(self.background, QueueBackgroundRunner):
-                    for deployment in self.deployments.queued_deployments():
-                        self.background.enqueue(deployment.id)
+            with self.execution.runner.lock():
+                if isinstance(self.execution.background, QueueBackgroundRunner):
+                    for deployment in self.persistence.deployments.queued_deployments():
+                        self.execution.background.enqueue(deployment.id)
                     return 0
-                return self.deployments.abandon_running(include_queued=True)
+                return self.persistence.deployments.abandon_running(include_queued=True)
         except DeploymentBusyError:
             _LOGGER.info(
                 "another process holds the deployment lock; leaving in-flight "
@@ -153,15 +163,19 @@ class DeploymentService:
         errors = self.settings.validate_runtime()
         errors.extend(self.dns.validation_errors())
         if not errors:
-            with self._scratch_desired_state(self.deployments.snapshot()) as variables:
-                run = self.runner.validate(variables)
+            with self._scratch_desired_state(
+                self.persistence.deployments.snapshot()
+            ) as variables:
+                run = self.execution.runner.validate(variables)
             if not run.succeeded:
                 # The one place a log is read back. `--syntax-check` executes no
                 # play, so there is no structured result to explain a refusal —
                 # the return code decides, and Ansible's own message is quoted
                 # so the operator does not have to go and find it.
                 errors.append(
-                    self.read_log(run.log_path, limit=self.settings.output_limit_bytes)
+                    self.execution.read_log(
+                        run.log_path, limit=self.settings.output_limit_bytes
+                    )
                     or run.summary()
                 )
         return errors
@@ -202,7 +216,7 @@ class DeploymentService:
         """Execute an intention-revealing deployment request."""
 
         def converge_under_lock() -> Deployment:
-            with self.runner.lock():
+            with self.execution.runner.lock():
                 return self.converge(
                     self._queue(
                         operator,
@@ -267,7 +281,7 @@ class DeploymentService:
         """
 
         def converge_under_lock() -> Deployment:
-            with self.runner.lock():
+            with self.execution.runner.lock():
                 return self.converge(
                     self._queue_rollback(operator, deployment_id, check=check),
                     operator,
@@ -294,8 +308,8 @@ class DeploymentService:
 
     def run_queued(self, deployment_id: str) -> Deployment:
         """Run one durable queue item, ignoring duplicate delivery safely."""
-        with self.runner.lock():
-            deployment = self.deployments.get_deployment(deployment_id)
+        with self.execution.runner.lock():
+            deployment = self.persistence.deployments.get_deployment(deployment_id)
             if deployment.status is not DeploymentStatus.QUEUED:
                 return deployment
             kind = (
@@ -352,18 +366,18 @@ class DeploymentService:
         result is the structured one, so this reads the same object a live run
         produced rather than re-deriving anything.
         """
-        deployment = self.deployments.get_deployment(deployment_id)
+        deployment = self.persistence.deployments.get_deployment(deployment_id)
         return self.drift.report(deployment)
 
     # -- History -------------------------------------------------------
 
     def get_deployment(self, deployment_id: str) -> Deployment:
         """One deployment, for an operator or a client polling a queued run."""
-        return self.deployments.get_deployment(deployment_id)
+        return self.persistence.deployments.get_deployment(deployment_id)
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         """Recent deployments, newest first."""
-        return self.deployments.list_deployments(limit)
+        return self.persistence.deployments.list_deployments(limit)
 
     def site_is_deployed(self, site_name: str) -> bool:
         """Whether the most recent real deployment carried this site.
@@ -375,12 +389,14 @@ class DeploymentService:
         canaries. Only the newest successful run is consulted; an older one
         listing the site says nothing about whether it is still deployed.
         """
-        for deployment in self.deployments.list_deployments(limit=_DEPLOYMENT_LOOKBACK):
+        for deployment in self.persistence.deployments.list_deployments(
+            limit=_DEPLOYMENT_LOOKBACK
+        ):
             if deployment.status is not DeploymentStatus.SUCCEEDED:
                 continue
             if deployment.check_mode:
                 continue
-            snapshot = self.deployments.deployment_snapshot(deployment.id)
+            snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
             return any(site.name == site_name for site in decode_snapshot(snapshot))
         return False
 
@@ -401,8 +417,8 @@ class DeploymentService:
         # rather than what was typed, and a malformed limit is refused before a
         # deployment row exists to explain.
         limit = validate_edge_limit(host_limit)
-        with self.uow.transaction():
-            deployment = self.deployments.create_deployment(
+        with self.persistence.uow.transaction():
+            deployment = self.persistence.deployments.create_deployment(
                 operator,
                 check_mode=check,
                 rollback_of=rollback_of,
@@ -414,7 +430,7 @@ class DeploymentService:
             # retention lives in the runner: a policy enforced by a timer of
             # its own is one that silently stops being enforced when the unit
             # was never installed.
-            self.deployments.prune_history(self.settings.history_retention)
+            self.persistence.deployments.prune_history(self.settings.history_retention)
             self.bus.publish(
                 domain_event(
                     operator,
@@ -437,14 +453,14 @@ class DeploymentService:
         return self._queue(
             operator,
             check=check,
-            snapshot=self.deployments.deployment_snapshot(target.id),
+            snapshot=self.persistence.deployments.deployment_snapshot(target.id),
             rollback_of=target.id,
             # What canonical state looks like right now. Adoption compares
             # against this and refuses if a record was written while the
             # rollback was converging — the deployment lock does not exclude
             # record writes, and restoring wholesale over one would delete it
             # with no conflict and nothing left to say it existed.
-            canonical_digest=snapshot_digest(self.deployments.snapshot()),
+            canonical_digest=snapshot_digest(self.persistence.deployments.snapshot()),
         )
 
     def _submit(
@@ -463,7 +479,7 @@ class DeploymentService:
         cover the convergence, and the convergence is what happens after this
         has already answered.
         """
-        lock = self.runner.lock()
+        lock = self.execution.runner.lock()
         lock.__enter__()
         try:
             deployment = queue()
@@ -492,18 +508,20 @@ class DeploymentService:
         # upload and issuance would fail with DeploymentBusyError until the
         # process was restarted — a permanent outage from a transient failure.
         try:
-            if isinstance(self.background, QueueBackgroundRunner):
+            if isinstance(self.execution.background, QueueBackgroundRunner):
                 # A Dramatiq worker reconstructs the control plane and owns its
                 # own cross-process deployment lock. The API cannot transfer
                 # an open fcntl lock through Redis.
-                self.background.enqueue(deployment.id)
+                self.execution.background.enqueue(deployment.id)
                 lock.__exit__(None, None, None)
             else:
-                self.background.start(worker, name=f"blitzecdn-deploy-{deployment.id}")
+                self.execution.background.start(
+                    worker, name=f"blitzecdn-deploy-{deployment.id}"
+                )
         except BaseException as exc:
             try:
-                with self.uow.transaction():
-                    self.deployments.transition(
+                with self.persistence.uow.transaction():
+                    self.persistence.deployments.transition(
                         deployment.id,
                         DeploymentStatus.QUEUED,
                         DeploymentStatus.FAILED,
@@ -544,7 +562,7 @@ class DeploymentService:
         """
         if deployment.canonical_digest is None:
             return
-        current = snapshot_digest(self.deployments.snapshot())
+        current = snapshot_digest(self.persistence.deployments.snapshot())
         if current != deployment.canonical_digest:
             raise ConflictError(
                 "desired state changed while this rollback was converging, so "
@@ -556,32 +574,34 @@ class DeploymentService:
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
         """Run Ansible for a queued deployment. Callers must hold the lock."""
         check = deployment.check_mode
-        deployment = self.deployments.transition(
+        deployment = self.persistence.deployments.transition(
             deployment.id,
             DeploymentStatus.QUEUED,
             DeploymentStatus.RUNNING,
             started_at=datetime.now(UTC),
         )
         try:
-            snapshot = self.deployments.deployment_snapshot(deployment.id)
+            snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
             self.write_desired_state(snapshot, self.settings.generated_vars_path)
-            run = self.runner.run(check=check, host_limit=deployment.host_limit)
+            run = self.execution.runner.run(
+                check=check, host_limit=deployment.host_limit
+            )
             target_status = DeploymentStatus.of(run)
             adopts_rollback = (
                 deployment.rollback_of
                 and target_status is DeploymentStatus.SUCCEEDED
                 and not check
             )
-            with self.uow.transaction():
+            with self.persistence.uow.transaction():
                 if adopts_rollback:
                     # Canonical adoption is part of rollback success. If it
                     # fails, this transaction rolls back and the RUNNING row is
                     # subsequently finalized as FAILED by the exception path.
                     self._require_unchanged_canonical(deployment)
                     domains, records = decode_snapshot_zones(snapshot)
-                    self.zones.replace_all_records(domains, records)
+                    self.persistence.zones.replace_all_records(domains, records)
                     self.dns.sync_sites()
-                deployment = self.deployments.transition(
+                deployment = self.persistence.deployments.transition(
                     deployment.id,
                     DeploymentStatus.RUNNING,
                     target_status,
@@ -589,7 +609,7 @@ class DeploymentService:
                     result=run,
                 )
                 if target_status is DeploymentStatus.SUCCEEDED and not check:
-                    self.deployment_requirements.clear("certificates")
+                    self.persistence.requirements.clear("certificates")
                 self.bus.publish(
                     domain_event(
                         operator,
@@ -615,8 +635,8 @@ class DeploymentService:
                     )
         except BaseException as exc:
             interrupted = not isinstance(exc, Exception)
-            with self.uow.transaction():
-                deployment = self.deployments.transition(
+            with self.persistence.uow.transaction():
+                deployment = self.persistence.deployments.transition(
                     deployment.id,
                     DeploymentStatus.RUNNING,
                     (
@@ -678,4 +698,4 @@ class DeploymentService:
         a deploy publishes to ``generated_vars_path`` under the lock, while
         ``validate`` renders to a scratch path it then throws away.
         """
-        self.renderer.render(snapshot, path)
+        self.execution.renderer.render(snapshot, path)

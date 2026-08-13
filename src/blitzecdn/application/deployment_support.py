@@ -17,6 +17,7 @@ class DesiredStateRenderer:
 
     def __init__(
         self,
+        *,
         settings: Settings,
         certificates: CertificateStore,
         write_yaml: YamlWriter,
@@ -49,7 +50,7 @@ class DesiredStateRenderer:
 class RollbackPlanner:
     """Selects and validates rollback targets without executing them."""
 
-    def __init__(self, deployments: DeploymentStore) -> None:
+    def __init__(self, *, deployments: DeploymentStore) -> None:
         self.deployments = deployments
 
     def target(self, deployment_id: str | None) -> Deployment:

@@ -28,14 +28,26 @@ far it reaches.
 from __future__ import annotations
 
 from blitzecdn.application.cache import CacheService
-from blitzecdn.application.certificates import CertificateService
-from blitzecdn.application.deployments import DeploymentService
+from blitzecdn.application.certificates import (
+    CertificateExecution,
+    CertificatePersistence,
+    CertificateService,
+)
+from blitzecdn.application.deployments import (
+    DeploymentExecution,
+    DeploymentPersistence,
+    DeploymentService,
+)
 from blitzecdn.application.dns import DnsService
 from blitzecdn.application.edges import EdgeOperationsService
 
 __all__ = [
     "CacheService",
+    "CertificateExecution",
+    "CertificatePersistence",
     "CertificateService",
+    "DeploymentExecution",
+    "DeploymentPersistence",
     "DeploymentService",
     "DnsService",
     "EdgeOperationsService",

@@ -25,7 +25,11 @@ from collections.abc import Callable
 
 from blitzecdn.application import (
     CacheService,
+    CertificateExecution,
+    CertificatePersistence,
     CertificateService,
+    DeploymentExecution,
+    DeploymentPersistence,
     DeploymentService,
     DnsService,
     EdgeOperationsService,
@@ -70,6 +74,7 @@ class ControlPlane:
 
     def __init__(
         self,
+        *,
         settings: Settings,
         repository: Repository | None = None,
         runner: DeploymentRunner | None = None,
@@ -118,60 +123,81 @@ class ControlPlane:
         self.bus = InProcessEventBus()
         self.bus.subscribe(AuditObserver(store.audit_log))
         self.workflows = WorkflowCoordinator(
-            store.workflows, store, settings.history_retention
+            journal=store.workflows,
+            uow=store,
+            retention=settings.history_retention,
         )
         self.workflow_history = store.workflows
         self.deployment_requirements = store.deployment_requirements
-        self.recovery = RecoveryService(store.workflows, store)
+        self.recovery = RecoveryService(journal=store.workflows, uow=store)
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
-        self.dns = DnsService(store.zones, store.sites, self.bus, store)
+        self.dns = DnsService(
+            zones=store.zones,
+            sites=store.sites,
+            bus=self.bus,
+            uow=store,
+        )
         renderer = DesiredStateRenderer(
-            settings, self.certificate_store, atomic_write_yaml
+            settings=settings,
+            certificates=self.certificate_store,
+            write_yaml=atomic_write_yaml,
         )
         self.deployments = DeploymentService(
-            settings,
-            store.deployments,
-            store.zones,
-            self.bus,
-            self.runner,
-            self.dns,
-            self.background,
-            read_log_tail,
-            store,
-            self.workflows,
-            renderer,
-            RollbackPlanner(store.deployments),
-            DriftInterpreter(),
-            store.deployment_requirements,
+            settings=settings,
+            persistence=DeploymentPersistence(
+                deployments=store.deployments,
+                zones=store.zones,
+                uow=store,
+                requirements=store.deployment_requirements,
+            ),
+            execution=DeploymentExecution(
+                runner=self.runner,
+                background=self.background,
+                read_log=read_log_tail,
+                renderer=renderer,
+            ),
+            bus=self.bus,
+            dns=self.dns,
+            workflows=self.workflows,
+            rollbacks=RollbackPlanner(deployments=store.deployments),
+            drift=DriftInterpreter(),
         )
         self.certificates = CertificateService(
-            settings,
-            store.sites,
-            self.bus,
-            self.runner,
-            self.certificate_store,
-            self.issuer,
-            self.preflight,
-            self.dns,
-            self.deployments,
-            store,
-            self.workflows,
-            store.deployment_requirements,
+            settings=settings,
+            persistence=CertificatePersistence(
+                sites=store.sites,
+                certificates=self.certificate_store,
+                uow=store,
+                requirements=store.deployment_requirements,
+            ),
+            execution=CertificateExecution(
+                runner=self.runner,
+                issuer=self.issuer,
+                preflight=self.preflight,
+            ),
+            bus=self.bus,
+            dns=self.dns,
+            deployments=self.deployments,
+            workflows=self.workflows,
         )
         self.edges = EdgeOperationsService(
-            store.sites,
-            self.bus,
-            self.runner,
-            self.origin_probe,
-            self.edges_store,
-            store,
+            sites=store.sites,
+            bus=self.bus,
+            runner=self.runner,
+            origin_probe=self.origin_probe,
+            edges=self.edges_store,
+            uow=store,
         )
         # Reads sites to decide what may be purged and never writes one, so it
         # is handed the store rather than the zone editor: purging is not a
         # change to desired state and must not be able to become one.
-        self.cache = CacheService(store.sites, self.bus, self.runner)
+        self.cache = CacheService(
+            sites=store.sites,
+            bus=self.bus,
+            runner=self.runner,
+        )
 
     def broker_ready(self) -> bool:
         """Whether the durable work broker is currently reachable."""
@@ -195,4 +221,4 @@ def build_control_plane(
     pool_connections: bool = False,
 ) -> ControlPlane:
     """Build a control plane wired to the real adapters."""
-    return ControlPlane(settings, pool_connections=pool_connections)
+    return ControlPlane(settings=settings, pool_connections=pool_connections)

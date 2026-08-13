@@ -37,6 +37,7 @@ class CacheService:
 
     def __init__(
         self,
+        *,
         sites: SiteStore,
         bus: EventBus,
         runner: DeploymentRunner,

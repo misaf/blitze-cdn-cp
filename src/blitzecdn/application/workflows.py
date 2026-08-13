@@ -20,6 +20,7 @@ from blitzecdn.ports import UnitOfWork, WorkflowJournal
 class WorkflowProgress:
     def __init__(
         self,
+        *,
         checkpoint: Callable[[str, dict[str, Any] | None], Workflow],
     ) -> None:
         self.checkpoint = checkpoint
@@ -33,7 +34,11 @@ class WorkflowCoordinator:
     """Records idempotent checkpoints around work SQLite cannot roll back."""
 
     def __init__(
-        self, journal: WorkflowJournal, uow: UnitOfWork, retention: int = 1000
+        self,
+        *,
+        journal: WorkflowJournal,
+        uow: UnitOfWork,
+        retention: int = 1000,
     ) -> None:
         self.journal = journal
         self.uow = uow
@@ -64,7 +69,7 @@ class WorkflowCoordinator:
                 )
 
         try:
-            progress = WorkflowProgress(checkpoint)
+            progress = WorkflowProgress(checkpoint=checkpoint)
             yield progress
         except BaseException as exc:
             with self.uow.transaction():
@@ -91,7 +96,7 @@ class WorkflowCoordinator:
 class RecoveryService:
     """Turns ambiguous work from a previous process into operator-visible state."""
 
-    def __init__(self, journal: WorkflowJournal, uow: UnitOfWork) -> None:
+    def __init__(self, *, journal: WorkflowJournal, uow: UnitOfWork) -> None:
         self.journal = journal
         self.uow = uow
 

@@ -1,6 +1,7 @@
 import re
 import time
 from contextlib import contextmanager
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -55,12 +56,12 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
         Repository, "close", lambda repository: closed.append(repository)
     )
 
-    owned = ControlPlane(settings)
+    owned = ControlPlane(settings=settings)
     owned.close()
     owned.close()
 
     injected_repository = Repository(settings.database_path)
-    injected = ControlPlane(settings, injected_repository)
+    injected = ControlPlane(settings=settings, repository=injected_repository)
     injected.close()
 
     assert len(closed) == 1
@@ -69,9 +70,9 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
 def test_dns_write_projection_and_audit_are_one_transaction(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
     )
     control.dns.create_domain(Domain(name="example.com"), "alice")
 
@@ -101,7 +102,9 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings):
 
 def test_projection_drift_is_detected_and_repairable(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     record = _seed_proxied_record(control)
     repository.sites.replace_all_sites([])
 
@@ -122,14 +125,16 @@ def test_external_deployment_run_never_holds_a_database_transaction(settings):
             assert getattr(repository.database._local, "connection", None) is None
             return super().run(check=check, host_limit=host_limit)
 
-    control = ControlPlane(settings, repository, TransactionAwareRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=TransactionAwareRunner()
+    )  # type: ignore[arg-type]
     control.deployments.deploy("alice")
 
 
 def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     record = control.dns.create_record(
         DnsRecord(
@@ -151,16 +156,18 @@ def test_crud_validate_and_successful_deploy(settings):
 
 def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
 
     assert control.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "blitzecdn_nginx_allow_empty_sites: false" in desired
 
     approved = ControlPlane(
-        settings.model_copy(update={"allow_empty_sites": True}),
-        repository,
-        FakeRunner(),
+        settings=settings.model_copy(update={"allow_empty_sites": True}),
+        repository=repository,
+        runner=FakeRunner(),
     )  # type: ignore[arg-type]
     assert approved.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
@@ -173,7 +180,9 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
             raise KeyboardInterrupt
 
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, InterruptedRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=InterruptedRunner()
+    )  # type: ignore[arg-type]
 
     with pytest.raises(KeyboardInterrupt):
         control.deployments.deploy("alice")
@@ -188,7 +197,9 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
 def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
     """The CDN on/off switch is what decides whether the edge serves a name."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     control.dns.create_record(
         DnsRecord(
@@ -216,7 +227,9 @@ def test_proxy_toggle_adds_and_removes_the_edge_virtual_host(settings):
 
 def test_removing_a_domain_takes_its_virtual_hosts_off_the_edge(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     control.dns.create_record(
         DnsRecord(
@@ -232,7 +245,9 @@ def test_removing_a_domain_takes_its_virtual_hosts_off_the_edge(settings):
 def test_records_that_collide_on_a_derived_site_name_are_refused(settings):
     """'a.b.example.com' and 'a-b.example.com' both flatten to a-b-example-com."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     control.dns.create_record(
         DnsRecord(
@@ -252,7 +267,9 @@ def test_records_that_collide_on_a_derived_site_name_are_refused(settings):
 def test_validate_reports_a_collision_that_bypassed_the_create_check(settings):
     """Backstop for records restored from a snapshot rather than created."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("a.b", "a-b"):
         repository.zones.create_record(
@@ -281,7 +298,9 @@ def test_validate_reports_a_collision_that_bypassed_the_create_check(settings):
 def test_validate_rejects_acme_on_a_reserved_domain(settings):
     """No public CA issues for .test, so catch it before certbot is invoked."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="vendra.test"), "alice")
     control.dns.create_record(
         DnsRecord(
@@ -310,7 +329,7 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
             ansible_run(status=RunStatus.TIMED_OUT, return_code=124),
         ]
     )
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     assert control.deployments.deploy("alice").status is DeploymentStatus.FAILED
     assert (
         control.deployments.deploy("alice", check=True).status
@@ -322,9 +341,9 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
 def test_rollback_updates_canonical_state_only_after_success(settings, site_payload):
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     control.dns.create_domain(Domain(name="example.com"), "alice")
     original = control.dns.create_record(
@@ -348,9 +367,9 @@ def test_rollback_updates_canonical_state_only_after_success(settings, site_payl
 def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
@@ -398,9 +417,9 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
 
     repository.sites.replace_all_sites = recording_replace  # type: ignore[method-assign]
     control = ControlPlane(
-        settings,
-        repository,
-        LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+        settings=settings,
+        repository=repository,
+        runner=LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     original = CdnSite.model_validate(site_payload)
     repository.sites.create_site(original)
@@ -439,7 +458,9 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(
         return_code=2,
         targeted=("edge-a", "edge-b", "edge-c", "edge-d"),
     )
-    control = ControlPlane(settings, repository, FakeRunner([stopped]))  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner([stopped])
+    )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     deployment = control.deployments.deploy("alice")
@@ -458,7 +479,9 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings, site_payload)
         host_run("edge-a", changed=0),
         targeted=("edge-a", "edge-b"),
     )
-    control = ControlPlane(settings, repository, FakeRunner([partial]))  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner([partial])
+    )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     report = control.deployments.check_drift("alice")
@@ -479,7 +502,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     report = control.edges.check_origins("alice", host_limit="edge-*")
@@ -496,9 +519,9 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
     """The distinction a single vantage point could never have made."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(
             [
                 ansible_run(
                     origin_report("edge-a"),
@@ -520,9 +543,9 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
     """An edge that said nothing has not confirmed anything."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
     )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
@@ -536,9 +559,9 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
     """The case startup recovery exists for: nobody is deploying."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=InlineBackgroundRunner(),
     )
     stranded = repository.deployments.create_deployment("alice", check_mode=False)
@@ -565,7 +588,9 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
         def lock(self):
             raise DeploymentBusyError("another deployment is already running")
 
-    control = ControlPlane(settings, repository, BusyRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=BusyRunner()
+    )  # type: ignore[arg-type]
     live = repository.deployments.create_deployment("alice", check_mode=False)
 
     assert control.deployments.initialize() == 0
@@ -585,7 +610,9 @@ def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
     next run picks the site up regardless.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     _seed_proxied_record(control)
     site = repository.sites.list_sites()[0]
     certificate, key = certificate_pair((site.server_names[0],), days=5)
@@ -617,7 +644,10 @@ def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
     configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
     repository = Repository(configured.database_path)
     control = ControlPlane(
-        configured, repository, FakeRunner(), preflight=FakePreflight()
+        settings=configured,
+        repository=repository,
+        runner=FakeRunner(),
+        preflight=FakePreflight(),
     )  # type: ignore[arg-type]
     _seed_proxied_record(control)
 
@@ -625,9 +655,13 @@ def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
         def install(self, *_args, **_kwargs):
             raise OSError("disk full")
 
-    monkeypatch.setattr(control.certificates, "certificate_store", DyingStore())
+    control.certificates.persistence = replace(
+        control.certificates.persistence, certificates=DyingStore()
+    )  # type: ignore[arg-type]
     monkeypatch.setattr(
-        control.certificates.issuer, "issue", lambda *_a, **_k: (b"cert", b"key")
+        control.certificates.execution.issuer,
+        "issue",
+        lambda *_a, **_k: (b"cert", b"key"),
     )
 
     with pytest.raises(OSError):
@@ -650,9 +684,9 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
     _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
@@ -669,7 +703,9 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
             return super().run(check=check, host_limit=host_limit)
 
     control.runner = WritingRunner([ansible_run(host_run("edge-a"))])
-    control.deployments.runner = control.runner
+    control.deployments.execution = replace(
+        control.deployments.execution, runner=control.runner
+    )
 
     rolled_back = control.deployments.rollback("alice", successful.id)
 
@@ -685,9 +721,9 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     """The guard must not refuse the ordinary case."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
     )  # type: ignore[arg-type]
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
@@ -717,9 +753,9 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_paylo
 
     queue = Queue()
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -746,9 +782,9 @@ def test_durable_queue_receives_only_the_deployment_id(settings, site_payload):
 
     queue = Queue()
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -775,9 +811,9 @@ def test_durable_queue_delivery_is_idempotent(settings, site_payload):
 
     runner = FakeRunner()
     control = ControlPlane(
-        settings,
-        repository,
-        runner,  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=runner,  # type: ignore[arg-type]
         background=Queue(),
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -801,9 +837,9 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=InlineBackgroundRunner(),
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -822,9 +858,9 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
     """A workflow that succeeded while its deployment failed would mislead."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(
             [
                 ansible_run(
                     host_run("edge-a", failed=1, failure="nginx -t refused it"),
@@ -847,7 +883,9 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
 def test_submit_rollback_reports_conflicts_synchronously(settings):
     """Nothing to roll back to must surface as an error, not a queued record."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     with pytest.raises(NotFoundError):
         control.deployments.submit_rollback("alice")
 
@@ -855,9 +893,9 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
 def test_submit_releases_the_lock_after_the_worker_finishes(settings, site_payload):
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=InlineBackgroundRunner(),
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -883,9 +921,9 @@ def test_a_queued_deployment_converges_whatever_carries_the_work(
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=InlineBackgroundRunner(),
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -915,9 +953,9 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payl
     repository = Repository(settings.database_path)
     refusing = RefusingBackgroundRunner()
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         background=refusing,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -944,7 +982,9 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
             raise ExecutionError("unable to execute Ansible")
 
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, ExplodingRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=ExplodingRunner()
+    )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     with pytest.raises(ExecutionError):
@@ -985,9 +1025,9 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_pay
 
     queue = Queue()
     control = ControlPlane(
-        settings,
-        repository,
-        ExplodingOnceRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=ExplodingOnceRunner(),  # type: ignore[arg-type]
         background=queue,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
@@ -1050,9 +1090,9 @@ def test_upload_and_request_certificate_activate_managed_tls(
 
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),
         issuer=FakeIssuer(),
         preflight=FakePreflight(),
     )  # type: ignore[arg-type]
@@ -1090,9 +1130,9 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
     repository = Repository(configured.database_path)
     control = ControlPlane(
-        configured,
-        repository,
-        FakeRunner([ansible_run(host_run("edge-a"))]),
+        settings=configured,
+        repository=repository,
+        runner=FakeRunner([ansible_run(host_run("edge-a"))]),
         issuer=FakeIssuer(),
         preflight=FakePreflight(),
     )  # type: ignore[arg-type]
@@ -1114,9 +1154,9 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
 
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),
         issuer=UnexpectedIssuer(),
         preflight=FakePreflight(("dns",)),
     )  # type: ignore[arg-type]
@@ -1132,7 +1172,9 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
 def test_request_certificate_requires_email(settings, site_payload):
     repository = Repository(settings.database_path)
     repository.sites.create_site(CdnSite.model_validate(site_payload))
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     from blitzecdn.exceptions import ConflictError
 
     with pytest.raises(ConflictError, match="email"):
@@ -1165,9 +1207,9 @@ def test_certificate_upload_holds_deployment_lock(
 
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        LockingRunner(),
+        settings=settings,
+        repository=repository,
+        runner=LockingRunner(),
         certificate_store=RecordingStore(),  # type: ignore[arg-type]
     )
     _seed_proxied_record(control)
@@ -1184,7 +1226,7 @@ def test_certificate_upload_holds_deployment_lock(
 def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings, site_payload):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     result = control.deployments.deploy("alice", host_limit=" edge-a ")
@@ -1201,7 +1243,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
     """
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
 
     # Three distinct desired states, made the only supported way: by changing
     # records. A snapshot carries records and derives sites from them, so
@@ -1233,7 +1275,9 @@ def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(
     settings, site_payload
 ):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     with pytest.raises(ValueError, match="only narrow a deploy"):
@@ -1264,7 +1308,7 @@ def _drifted_run():
 def test_drift_check_runs_without_changing_anything(settings, site_payload):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_in_sync_run()])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     report = control.deployments.check_drift("alice")
@@ -1277,7 +1321,7 @@ def test_drift_check_runs_without_changing_anything(settings, site_payload):
 def test_drift_check_names_the_edges_that_moved(settings, site_payload):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     report = control.deployments.check_drift("alice")
@@ -1295,7 +1339,7 @@ def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
 ):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     first = control.deployments.check_drift("alice")
@@ -1308,7 +1352,7 @@ def test_an_applied_deployment_is_not_a_drift_report(settings, site_payload):
     """Its output says what it did, not what had drifted."""
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings, repository, runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     applied = control.deployments.deploy("alice")
@@ -1341,7 +1385,9 @@ def _proxied_site_with_certificate(control, repository, certificate_pair, *, day
 
 def test_certificate_statuses_report_time_left(settings, certificate_pair):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     _proxied_site_with_certificate(control, repository, certificate_pair, days=10)
 
     statuses = control.certificates.certificate_statuses()
@@ -1354,7 +1400,9 @@ def test_certificate_statuses_report_time_left(settings, certificate_pair):
 
 def test_a_healthy_certificate_is_not_reported_as_expiring(settings, certificate_pair):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     _proxied_site_with_certificate(control, repository, certificate_pair, days=89)
 
     assert control.certificates.certificate_statuses() != []
@@ -1365,9 +1413,9 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1420,9 +1468,9 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1465,9 +1513,9 @@ def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1499,9 +1547,9 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1519,9 +1567,9 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair, fails={"broken-example-com"})
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1580,9 +1628,9 @@ def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1603,9 +1651,9 @@ def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1625,9 +1673,9 @@ def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_p
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
@@ -1666,7 +1714,7 @@ def _site(control, repository, name="cdn-example-com", server="cdn.example.com")
 def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     _site(control, repository)
 
     result = control.cache.purge_cache(
@@ -1686,7 +1734,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     """Otherwise it reports success having removed nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     _site(control, repository)
 
     with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
@@ -1700,7 +1748,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     """nginx matches *.example.com to a.example.com, so purge must too."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     _site(control, repository, server="*.assets.example.com")
 
     result = control.cache.purge_cache(
@@ -1723,7 +1771,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     _site(control, repository)
 
     with pytest.raises(ConflictError, match="scheme"):
@@ -1742,7 +1790,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     """Port 80 only answers 308 for a TLS site, so it caches nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     repository.sites.create_site(
         CdnSite.model_validate(
             {
@@ -1771,7 +1819,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
 def test_a_purge_for_a_disabled_site_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     repository.sites.create_site(
         CdnSite.model_validate(
             {
@@ -1791,7 +1839,9 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
 
 def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
     _site(control, repository)
 
     with pytest.raises(ConflictError):
@@ -1805,7 +1855,11 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
 
 
 def test_a_purge_with_nothing_to_do_is_refused(settings):
-    control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
     with pytest.raises(ConflictError):
         control.cache.purge_cache("alice")
 
@@ -1813,7 +1867,9 @@ def test_a_purge_with_nothing_to_do_is_refused(settings):
 def test_purging_everything_needs_no_site_to_exist(settings):
     """--all is about the cache on disk, not about what is currently declared."""
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings, Repository(settings.database_path), fake)  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=Repository(settings.database_path), runner=fake
+    )  # type: ignore[arg-type]
 
     result = control.cache.purge_cache("alice", purge_all=True)
 
@@ -1827,7 +1883,9 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
     partial = ansible_run(
         host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
     )
-    control = ControlPlane(settings, repository, FakeRunner([partial]))  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner([partial])
+    )  # type: ignore[arg-type]
     _site(control, repository)
 
     result = control.cache.purge_cache(
@@ -1845,9 +1903,9 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
     """Silence is not success: the object may still be served everywhere."""
     repository = Repository(settings.database_path)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner([ansible_run(status=RunStatus.FAILED, return_code=1)]),
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner([ansible_run(status=RunStatus.FAILED, return_code=1)]),
     )  # type: ignore[arg-type]
     _site(control, repository)
 
@@ -1862,7 +1920,9 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
 
 def test_a_purge_is_recorded_in_the_audit_trail(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner([_purge_run()]))  # type: ignore[arg-type]
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner([_purge_run()])
+    )  # type: ignore[arg-type]
     _site(control, repository)
 
     control.cache.purge_cache(
@@ -1891,7 +1951,9 @@ def _stats_control(settings, *hosts):
     picture, so the roster and the numbers cannot disagree.
     """
     fake = FakeRunner([ansible_run(*hosts)])
-    return ControlPlane(settings, Repository(settings.database_path), fake), fake  # type: ignore[arg-type]
+    return ControlPlane(
+        settings=settings, repository=Repository(settings.database_path), runner=fake
+    ), fake  # type: ignore[arg-type]
 
 
 def _report(cache, *, reachable=True):
@@ -2033,9 +2095,9 @@ def _preflight_control(settings, certificate_pair, failures=()):
     issuer = _RecordingIssuer(certificate_pair)
     preflight = FakePreflight(failures)
     control = ControlPlane(
-        settings,
-        repository,
-        FakeRunner(),  # type: ignore[arg-type]
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),  # type: ignore[arg-type]
         issuer=issuer,
         preflight=preflight,  # type: ignore[arg-type]
     )
@@ -2186,7 +2248,7 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner()
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
     _seed_proxied_record(control)
 
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2259,7 +2321,7 @@ def test_a_collection_reads_only_its_own_run(settings):
             ),
         ]
     )
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
 
     first = control.cache.cache_stats("alice")
     second = control.cache.cache_stats("alice")
