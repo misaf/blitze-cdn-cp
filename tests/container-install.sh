@@ -83,6 +83,52 @@ in_container 'systemctl is-enabled --quiet blitzecdn-drift.timer' || fail "drift
 in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
 
+say "Converging this host as an edge"
+# The one place an edge role is ever executed. Everything else about the roles
+# is checked by shape — ansible-lint, --syntax-check, the argument-spec
+# contract test — and none of that runs a task. So the nginx block/rescue, the
+# managed-site registry that drives stale removal, the `not ansible_check_mode`
+# gates and the package retries were all unexercised: a role could be rewritten
+# into something that cannot converge and every gate would stay green.
+#
+# A standalone install is already control plane and edge on one host with local
+# SSH trust, so registering localhost as an edge is the whole setup.
+in_container "cd / && blitzecdn edge add local --host 127.0.0.1 --ssh-source ${ADMIN_CIDR} --public-address 127.0.0.1" ||
+  fail "could not register the local edge"
+in_container 'cd / && blitzecdn domain add example.test' || fail "could not add a zone"
+in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1 --proxied' ||
+  fail "could not add a proxied record"
+
+# Check mode first: it must survive a host that has never converged, which is
+# the case the `not ansible_check_mode` gates exist for.
+in_container 'cd / && blitzecdn plan --json >/dev/null' || fail "check-mode run failed"
+
+in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "deploy failed"
+in_container 'test -f /etc/nginx/sites-enabled/cdn-example-test.conf' ||
+  fail "the deploy did not enable the managed site"
+in_container 'nginx -t' || fail "the converged nginx configuration does not load"
+in_container 'grep -q "^cdn-example-test$" /etc/nginx/blitzecdn-managed-sites' ||
+  fail "the managed-site registry was not written"
+in_container 'systemctl is-active --quiet nginx' || fail "nginx is not running"
+
+# Converging twice must change nothing: the drift check is the assertion.
+in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"
+in_container 'cd / && blitzecdn drift --json >/dev/null' ||
+  fail "the fleet reports drift immediately after converging"
+
+# Removing the record must withdraw the vhost, which is the registry's job.
+in_container 'cd / && blitzecdn record remove example.test cdn --yes' ||
+  fail "could not remove the record"
+in_container 'cd / && BLITZE_ALLOW_EMPTY_SITES=true blitzecdn deploy --yes --json >/dev/null' ||
+  fail "withdrawing the last site failed"
+in_container 'test ! -e /etc/nginx/sites-enabled/cdn-example-test.conf' ||
+  fail "the stale site was left enabled"
+in_container 'nginx -t' || fail "nginx does not load after the site was withdrawn"
+
+say "Backing up the database while the API is serving"
+in_container 'cd / && blitzecdn db backup /root/backup.db' || fail "db backup failed"
+in_container 'test -s /root/backup.db' || fail "the backup is empty"
+
 say "Re-running the installer"
 credential_before=$(in_container 'sha256sum /etc/blitzecdn/blitzecdn.env')
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
