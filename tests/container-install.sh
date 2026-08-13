@@ -77,7 +77,11 @@ in_container 'getent passwd blitzecdn >/dev/null' || fail "no blitzecdn account"
 in_container 'getent passwd deploy >/dev/null' || fail "no deploy account"
 in_container 'test -x /usr/local/bin/blitzecdn' || fail "no CLI wrapper"
 in_container 'test -f /etc/blitzecdn/blitzecdn.env' || fail "no environment file"
-in_container 'systemctl is-active --quiet blitzecdn-api.service' || fail "API not running"
+in_container 'systemctl is-active --quiet blitzecdn-api.service' || {
+  in_container 'systemctl status --no-pager blitzecdn-api.service' || true
+  in_container 'journalctl --no-pager -u blitzecdn-api.service -n 100' || true
+  fail "API not running"
+}
 in_container 'systemctl is-active --quiet redis-server.service' || fail "Redis not running"
 in_container 'systemctl is-active --quiet blitzecdn-worker.service' || fail "worker not running"
 # From / rather than the checkout: the wrapper exists to make that work.
@@ -114,7 +118,7 @@ in_container 'systemctl is-active --quiet nginx' || fail "nginx is not running"
 
 # Converging twice must change nothing: the drift check is the assertion.
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"
-in_container 'cd / && blitzecdn drift --json >/dev/null' ||
+in_container 'cd / && blitzecdn drift --json' ||
   fail "the fleet reports drift immediately after converging"
 
 # Removing the record must withdraw the vhost, which is the registry's job.
