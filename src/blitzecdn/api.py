@@ -191,6 +191,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         """
         try:
             control_plane.workflow_history.list_workflows(1)
+            if not control_plane.broker_ready():
+                raise ConnectionError("Redis did not answer PING")
         except Exception as exc:
             _LOGGER.exception("health check failed")
             response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE

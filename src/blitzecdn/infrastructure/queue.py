@@ -4,14 +4,64 @@ from __future__ import annotations
 
 import logging
 import os
+from uuid import uuid4
 
 import dramatiq
 from dramatiq.brokers.redis import RedisBroker
+from redis import Redis
 
 from blitzecdn.config import Settings
 
 _LOGGER = logging.getLogger(__name__)
 _broker_url: str | None = None
+_SCHEDULE_KEY_PREFIX = "blitzecdn:scheduled:"
+_RELEASE_IF_OWNER = """
+if redis.call('get', KEYS[1]) == ARGV[1] then
+  return redis.call('del', KEYS[1])
+end
+return 0
+"""
+
+
+def redis_ready(redis_url: str) -> bool:
+    """Whether the mandatory broker answers within the readiness budget."""
+    client = Redis.from_url(redis_url, socket_connect_timeout=1.0, socket_timeout=1.0)
+    try:
+        return bool(client.ping())
+    finally:
+        client.close()
+
+
+def enqueue_scheduled_once(redis_url: str, operation: str, *, ttl_seconds: int) -> bool:
+    """Atomically publish at most one queued/running copy of an operation."""
+    client = Redis.from_url(redis_url)
+    key = f"{_SCHEDULE_KEY_PREFIX}{operation}"
+    token = uuid4().hex
+    try:
+        if not client.set(key, token, nx=True, ex=ttl_seconds):
+            return False
+        try:
+            globals()[operation.replace("-", "_")].send(token)
+        except BaseException:
+            client.eval(_RELEASE_IF_OWNER, 1, key, token)
+            raise
+        return True
+    finally:
+        client.close()
+
+
+def _release_schedule_key(operation: str, token: str) -> None:
+    settings = Settings.from_environment()
+    client = Redis.from_url(str(settings.redis_url))
+    try:
+        client.eval(
+            _RELEASE_IF_OWNER,
+            1,
+            f"{_SCHEDULE_KEY_PREFIX}{operation}",
+            token,
+        )
+    finally:
+        client.close()
 
 
 def configure_broker(redis_url: str) -> None:
@@ -57,39 +107,42 @@ def run_deployment(deployment_id: str) -> None:
         control.close()
 
 
-def _run_control_plane(operation: str) -> None:
+def _run_control_plane(operation: str, token: str) -> None:
     """Run one scheduled operation in the worker process."""
     from blitzecdn.control_plane import build_control_plane
 
     control = build_control_plane(Settings.from_environment())
     try:
-        if operation == "certificate-reconciliation":
+        if operation == "reconcile-certificates":
             control.certificates.reconcile_certificates("scheduler")
-        elif operation == "certificate-renewal":
-            result = control.certificates.renew_certificates(
+        elif operation == "renew-certificates":
+            control.certificates.renew_certificates(
                 "scheduler",
                 budget_seconds=control.settings.certificate_renewal_budget_seconds,
             )
-            if result.renewed:
-                control.deployments.submit_deployment("scheduler")
-        elif operation == "drift-check":
+        elif operation == "check-drift":
             control.deployments.check_drift("scheduler")
         else:  # pragma: no cover - actors below provide the closed set
             raise ValueError(f"unknown scheduled operation: {operation}")
+        if control.deployment_requirements.pending("certificates"):
+            control.deployments.submit_deployment("scheduler")
     finally:
-        control.close()
+        try:
+            control.close()
+        finally:
+            _release_schedule_key(operation, token)
 
 
 @dramatiq.actor(max_retries=0, queue_name="scheduled")
-def reconcile_certificates() -> None:
-    _run_control_plane("certificate-reconciliation")
+def reconcile_certificates(token: str) -> None:
+    _run_control_plane("reconcile-certificates", token)
 
 
 @dramatiq.actor(max_retries=0, queue_name="scheduled")
-def renew_certificates() -> None:
-    _run_control_plane("certificate-renewal")
+def renew_certificates(token: str) -> None:
+    _run_control_plane("renew-certificates", token)
 
 
 @dramatiq.actor(max_retries=0, queue_name="scheduled")
-def check_drift() -> None:
-    _run_control_plane("drift-check")
+def check_drift(token: str) -> None:
+    _run_control_plane("check-drift", token)

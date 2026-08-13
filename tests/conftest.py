@@ -32,9 +32,10 @@ from blitzecdn.infrastructure.queue import (
 
 
 @pytest.fixture(autouse=True)
-def dramatiq_stub_broker():
+def dramatiq_stub_broker(monkeypatch):
     """Keep unit and API tests independent of an external Redis process."""
     broker = StubBroker()
+    monkeypatch.setattr("blitzecdn.control_plane.redis_ready", lambda _url: True)
     previous_broker = dramatiq.get_broker()
     actors = (run_deployment, reconcile_certificates, renew_certificates, check_drift)
     previous_actor_brokers = [actor.broker for actor in actors]

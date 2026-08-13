@@ -161,6 +161,19 @@ def test_workflow_progress_is_durable(settings):
     assert repository.workflows.unfinished()[0].steps[0].name == "issued"
 
 
+def test_deployment_requirements_are_durable_and_idempotent(settings):
+    repository = Repository(settings.database_path)
+    repository.deployment_requirements.require("certificates")
+    repository.deployment_requirements.require("certificates")
+    repository.close()
+
+    reopened = Repository(settings.database_path)
+    assert reopened.deployment_requirements.pending("certificates")
+    reopened.deployment_requirements.clear("certificates")
+    assert not reopened.deployment_requirements.pending("certificates")
+    reopened.close()
+
+
 def test_begin_immediate_reserves_the_cross_process_writer(settings):
     repository = Repository(settings.database_path)
     other = sqlite3.connect(settings.database_path, timeout=0.01)

@@ -40,6 +40,7 @@ from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 from blitzecdn.ports import (
     BackgroundRunner,
+    DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
     EventBus,
@@ -76,6 +77,7 @@ class DeploymentService:
         renderer: DesiredStateRenderer,
         rollbacks: RollbackPlanner,
         drift: DriftInterpreter,
+        deployment_requirements: DeploymentRequirements,
     ) -> None:
         self.settings = settings
         self.deployments = deployments
@@ -101,6 +103,7 @@ class DeploymentService:
         self.renderer = renderer
         self.rollbacks = rollbacks
         self.drift = drift
+        self.deployment_requirements = deployment_requirements
 
     def initialize(self) -> int:
         """Close out deployments a previous controller process left in flight.
@@ -585,6 +588,8 @@ class DeploymentService:
                     finished_at=datetime.now(UTC),
                     result=run,
                 )
+                if target_status is DeploymentStatus.SUCCEEDED and not check:
+                    self.deployment_requirements.clear("certificates")
                 self.bus.publish(
                     domain_event(
                         operator,
