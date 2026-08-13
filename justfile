@@ -99,6 +99,7 @@ ansible-check:
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
         ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml \
         ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \
+        ansible/playbooks/uninstall.yml \
         ansible/playbooks/cache-purge.yml ansible/playbooks/stats.yml \
         ansible/playbooks/origin-check.yml
 
