@@ -1,10 +1,20 @@
 ---
+# Retried like every other package task in this tree. An apt mirror refusing a
+# connection, or a repository being rewritten mid-fetch, is transient and
+# common — and with `any_errors_fatal` on the play, one such blip on one edge
+# aborts convergence for the whole fleet. Three attempts five seconds apart
+# cost nothing on a healthy run and turn the usual mirror hiccup into a
+# non-event. A mirror that is genuinely down still fails, just later.
 - name: Install baseline packages
   ansible.builtin.apt:
     name: "{{ blitzecdn_base_packages }}"
     state: present
     update_cache: true
     cache_valid_time: 3600
+  register: blitzecdn_base_apt
+  until: blitzecdn_base_apt is success
+  retries: 3
+  delay: 5
 - name: Configure system timezone
   community.general.timezone:
     name: "{{ blitzecdn_base_timezone }}"

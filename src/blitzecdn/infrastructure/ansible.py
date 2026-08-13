@@ -31,6 +31,7 @@ from blitzecdn.domain.edges import EDGE_GROUP
 from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
+from blitzecdn.infrastructure.filesystem import atomic_write_yaml
 from blitzecdn.infrastructure.process import terminate_process_group
 from blitzecdn.ports import EdgeStore
 
@@ -113,6 +114,7 @@ class AnsibleRunner:
             self._command(check=check, host_limit=host_limit),
             timeout=self._settings.deployment_timeout_seconds,
             playbook=self._settings.playbook_path,
+            targeted=self._targeted(host_limit),
         )
 
     def run_acme_challenge(
@@ -170,6 +172,23 @@ class AnsibleRunner:
                 self._settings.cache_purge_playbook_path, variables, host_limit
             )
 
+    def run_origin_check(
+        self, *, sites: list[dict[str, object]], host_limit: str | None = None
+    ) -> AnsibleRun:
+        """Ask each edge to connect to the origins it proxies to.
+
+        The sites are handed over as run variables rather than read from the
+        desired-state file: this takes no deployment lock, so the shared file
+        may belong to a deploy in flight, and the check is a question about
+        what is configured *now* rather than about what is being converged.
+        """
+        with self._run_vars(
+            "origin-check", {"blitzecdn_origins_sites": sites}
+        ) as vars_:
+            return self._playbook_run(
+                self._settings.origin_check_playbook_path, vars_, host_limit
+            )
+
     def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
         """Collect cache and connection counters from the edges in scope.
 
@@ -206,6 +225,7 @@ class AnsibleRunner:
             self._playbook_command(playbook, variables, host_limit),
             timeout=self._settings.deployment_timeout_seconds,
             playbook=playbook,
+            targeted=self._targeted(host_limit),
         )
 
     @contextmanager
@@ -224,8 +244,6 @@ class AnsibleRunner:
         Removed when the run ends: these carry one caller's request, not state
         anything reads afterwards.
         """
-        from blitzecdn.infrastructure.filesystem import atomic_write_yaml
-
         directory = self._settings.run_dir
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = directory / f"{prefix}-{uuid4().hex}.yml"
@@ -291,6 +309,18 @@ class AnsibleRunner:
             command.extend(("--check", "--diff"))
         return command
 
+    def _targeted(self, host_limit: str | None) -> tuple[str, ...]:
+        """The edges a limit resolves to, as names, for the run record.
+
+        Answered from the same expansion :meth:`_limit` performs and therefore
+        from the same rows Ansible is about to be given, so "what did this run
+        aim at" cannot disagree with what it actually targeted.
+        """
+        resolved = self._limit(host_limit)
+        if resolved == EDGE_GROUP:
+            return tuple(edge.name for edge in self._edges.list_edges())
+        return tuple(resolved.split(","))
+
     def _limit(self, host_limit: str | None) -> str:
         """Resolve a host limit to explicit edge names, or the whole group.
 
@@ -329,7 +359,12 @@ class AnsibleRunner:
     # -- Execution -----------------------------------------------------
 
     def _execute(
-        self, command: list[str], *, timeout: int, playbook: Path
+        self,
+        command: list[str],
+        *,
+        timeout: int,
+        playbook: Path,
+        targeted: tuple[str, ...] = (),
     ) -> AnsibleRun:
         run_id = uuid4().hex
         started_at = datetime.now(UTC)
@@ -374,6 +409,7 @@ class AnsibleRunner:
             started_at=started_at,
             finished_at=datetime.now(UTC),
             hosts=hosts,
+            targeted=targeted,
             log_path=str(log_path),
             error=self._unreported_detail(status, hosts, log_path),
         )

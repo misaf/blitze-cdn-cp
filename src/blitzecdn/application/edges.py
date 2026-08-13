@@ -1,41 +1,31 @@
 """The fleet: who is in it, and what can be done to it short of converging.
 
-Two kinds of work live here. Registering, updating and removing an edge changes
-*which hosts exist* — and because the Ansible inventory is read from the same
-rows, writing one here is what publishes it to Ansible. Purging, collecting
-statistics, probing origins and decommissioning read or act on the fleet
-without changing desired state; those write no deployment record and,
-deliberately, do not take the deployment lock.
+Registering, updating and removing an edge changes *which hosts exist* — and
+because the Ansible inventory is read from the same rows, writing one here is
+what publishes it to Ansible. Probing origins and decommissioning read or act
+on the fleet without changing desired state; those write no deployment record
+and, deliberately, do not take the deployment lock.
 
 Registration goes through a service rather than straight to the store so that
 both entry points reach it the same way and every change is audited: "who added
 this edge, and when" is a question the audit trail can answer.
+
+What is *stored* on the edges is a different question and lives in
+:mod:`blitzecdn.application.cache`. Purging and cache statistics were here only
+because they also reach the fleet, which describes the transport rather than
+the work.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from blitzecdn.config import Settings
-from blitzecdn.domain.cache import (
-    CacheStatsReport,
-    EdgeStats,
-    PurgeEntry,
-    PurgeResult,
-    SiteCacheStats,
-)
 from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.events import domain_event
-from blitzecdn.domain.origins import OriginCheck
-from blitzecdn.domain.runs import AnsibleRun, HostRun
-from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
-from blitzecdn.exceptions import (
-    ConfigurationError,
-    ConflictError,
-    ExecutionError,
-    NotFoundError,
-)
+from blitzecdn.domain.origins import EdgeOriginChecks, OriginCheck, OriginReport
+from blitzecdn.domain.runs import HostRun
+from blitzecdn.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.ports import (
     DeploymentRunner,
     EdgeStore,
@@ -143,8 +133,21 @@ class EdgeOperationsService:
 
     # -- Origins -------------------------------------------------------
 
-    def check_origins(self) -> list[OriginCheck]:
-        """Connect to every enabled site's origin the way the edge will.
+    def check_origins(
+        self, operator: str, *, host_limit: str | None = None
+    ) -> OriginReport:
+        """Ask every edge to connect to the origins it proxies to.
+
+        Answered by the fleet rather than by the controller. The controller's
+        routes, resolver and egress rules are not the ones that carry traffic:
+        an origin allow-listing the edges' addresses refuses the controller
+        while working perfectly, and one reachable only from the controller's
+        subnet passes and then 502s on every edge. Both were this check
+        reporting confidently on a question nobody asked.
+
+        Per edge *and* per site for the same reason. An origin no edge can
+        reach is down; one some edges can reach is a routing or allow-list
+        problem, and a single vantage point could never tell those apart.
 
         Deliberately not folded into ``validate()``, which ``deploy`` runs.
         Validation is about desired state being coherent and has to stay fast
@@ -155,175 +158,35 @@ class EdgeOperationsService:
         Disabled sites are skipped: the edge will not proxy to them, so their
         origins being down is not a fact about anything.
         """
-        return self.origin_probe.check_all(
-            [site for site in self.sites.list_sites() if site.enabled]
-        )
-
-    # -- Cache ---------------------------------------------------------
-
-    def purge_cache(
-        self,
-        operator: str,
-        *,
-        entries: Sequence[PurgeEntry] = (),
-        purge_all: bool = False,
-        host_limit: str | None = None,
-    ) -> PurgeResult:
-        """Remove cached responses from the edges.
-
-        Which hostnames may be purged is decided here rather than on the edge:
-        a hostname no site serves is refused, because a purge that quietly
-        matches nothing is indistinguishable from one that worked, and the
-        operator learns nothing until the stale object is still being served.
-
-        Purging is not deploying. Nothing about desired state changes, no
-        deployment record is written, and the deployment lock is not taken —
-        the moment a purge is most needed is the moment a deploy is most likely
-        to already be running.
-        """
-        if purge_all and entries:
-            raise ConflictError(
-                "purge everything and purge named entries are different "
-                "operations; ask for one or the other"
-            )
-        if not purge_all and not entries:
-            raise ConflictError(
-                "nothing to purge: give at least one entry or purge all"
-            )
-        if entries:
-            self._reject_unpurgeable(entries)
-        run = self.runner.run_cache_purge(
-            entries=[entry.to_ansible() for entry in entries],
-            purge_all=purge_all,
+        sites = [site for site in self.sites.list_sites() if site.enabled]
+        run = self.runner.run_origin_check(
+            sites=[self.origin_probe.to_probe(site) for site in sites],
             host_limit=host_limit,
         )
-        report = PurgeResult(
-            purged_at=datetime.now(UTC),
-            entries=tuple(entries),
-            purge_all=purge_all,
+        report = OriginReport(
+            checked_at=datetime.now(UTC),
             host_limit=host_limit,
-            hosts=run.hosts,
+            edges=tuple(_edge_origins(host) for host in run.hosts),
         )
         self.bus.publish(
             domain_event(
                 operator,
-                "cache.purged",
+                "origins.checked",
                 "site",
                 None,
                 {
-                    "purge_all": purge_all,
-                    "entries": [entry.to_ansible() for entry in entries],
                     "host_limit": host_limit,
-                    "complete": report.complete,
-                    "failed": [host.host for host in report.failed],
-                },
-            )
-        )
-        if not report.hosts:
-            raise ExecutionError(_unreported("purge", run))
-        return report
-
-    def _reject_unpurgeable(self, entries: Sequence[PurgeEntry]) -> None:
-        """Refuse an entry no enabled site could have cached.
-
-        Two ways that happens, and either would otherwise report a successful
-        purge of nothing.
-
-        The hostname may be one no site answers to. Wildcard server names match
-        their subdomains, the same way nginx matches them, so purging
-        ``a.cdn.example.com`` under a ``*.example.com`` site is allowed.
-
-        Or the scheme may be one the site never serves. The cache key begins
-        with ``$scheme``, so the two are different entries: a site with TLS
-        answers port 80 with a 308 and caches nothing under ``http``, and a site
-        without TLS never sees an ``https`` request at all. Purging the wrong one
-        computes a different MD5, deletes a file that was never written, and
-        reports every edge as purged.
-        """
-        exact: dict[str, CdnSite] = {}
-        wildcards: list[tuple[str, CdnSite]] = []
-        for site in self.sites.list_sites():
-            if not site.enabled:
-                continue
-            for name in site.server_names:
-                if name.startswith("*."):
-                    wildcards.append((name[2:], site))
-                else:
-                    exact.setdefault(name, site)
-
-        unknown: set[str] = set()
-        mismatched: set[str] = set()
-        for entry in entries:
-            owner = exact.get(entry.host) or next(
-                (
-                    candidate
-                    for suffix, candidate in wildcards
-                    if entry.host.endswith(f".{suffix}")
-                ),
-                None,
-            )
-            if owner is None:
-                unknown.add(entry.host)
-                continue
-            served = (
-                HttpScheme.HTTP
-                if owner.certificate_mode is CertificateMode.DISABLED
-                else HttpScheme.HTTPS
-            )
-            if entry.scheme is not served:
-                mismatched.add(
-                    f"{entry.scheme.value}://{entry.host}{entry.uri} "
-                    f"({owner.name} serves {served.value})"
-                )
-        if unknown:
-            raise NotFoundError(
-                "no enabled site serves: "
-                + ", ".join(sorted(unknown))
-                + ". A purge for a hostname nothing serves would report success "
-                "having removed nothing."
-            )
-        if mismatched:
-            raise ConflictError(
-                "nothing is cached under the scheme requested for: "
-                + "; ".join(sorted(mismatched))
-                + ". The cache key starts with the scheme, so purging the other "
-                "one would report success having removed nothing."
-            )
-
-    def cache_stats(
-        self, operator: str, *, host_limit: str | None = None
-    ) -> CacheStatsReport:
-        """Collect cache effectiveness from the edges.
-
-        Read-only and unlocked. Every edge's counters arrive on its own
-        ``HostRun.report``, published by the role as the ``blitzecdn_report``
-        fact, so the roster and the numbers are the same object — an edge that
-        ran but produced nothing is reported as silent rather than vanishing
-        from the fleet, and there is no controller-side directory to reset,
-        collide over, or read a previous run's document out of.
-        """
-        run = self.runner.run_stats(host_limit=host_limit)
-        report = CacheStatsReport(
-            collected_at=datetime.now(UTC),
-            host_limit=host_limit,
-            edges=tuple(_edge_stats(host) for host in run.hosts),
-        )
-        self.bus.publish(
-            domain_event(
-                operator,
-                "cache.stats_collected",
-                "deployment",
-                None,
-                {
-                    "host_limit": host_limit,
-                    "reporting": [edge.host for edge in report.reporting],
+                    "sites": len(sites),
                     "silent": [edge.host for edge in report.silent],
-                    "hit_ratio": report.hit_ratio,
+                    "failing": {
+                        site: list(hosts)
+                        for site, hosts in report.failing_sites.items()
+                    },
                 },
             )
         )
         if not report.edges:
-            raise ExecutionError(_unreported("statistics", run))
+            raise ExecutionError(run.unreported("origin check"))
         return report
 
     # -- Decommissioning -----------------------------------------------
@@ -360,7 +223,7 @@ class EdgeOperationsService:
             # anything reports changed>0, which is what success looks like
             # here. Only failed and unreachable mean files were left behind.
             if not hosts:
-                failure = _unreported("teardown", run)
+                failure = run.unreported("teardown")
             elif not run.succeeded or any(not host.succeeded for host in hosts):
                 # run.summary() names the task that failed, on the host it
                 # failed on. That is the difference between "teardown failed"
@@ -409,69 +272,74 @@ class EdgeOperationsService:
         return hosts
 
 
-def _unreported(what: str, run: AnsibleRun) -> str:
-    """Explain a run that produced no per-host result.
+def _edge_origins(host: HostRun) -> EdgeOriginChecks:
+    """Read one edge's published origin report defensively.
 
-    All three fleet operations need this message, and the honest answer is the
-    same for each: nothing came back, here is what the process said about
-    itself, and here is where the output is. Built in one place so they cannot
-    drift into three different accounts of the same silence.
-    """
-    detail = run.error or run.summary()
-    location = f" The full output is at {run.log_path}." if run.log_path else ""
-    return f"no edge reported a {what} result. {detail}{location}"
-
-
-def _edge_stats(host: HostRun) -> EdgeStats:
-    """Read one edge's published report defensively.
-
-    The shape is ours — `blitzecdn_stats` builds it — but it crossed a machine
-    boundary, so a partial or malformed document must degrade to "this edge
-    said nothing usable" rather than raise out of a fleet-wide report.
+    The shape is ours — `blitzecdn_origins` builds it — but it crossed a
+    machine boundary, so a partial or malformed document must degrade to "this
+    edge said nothing usable" rather than raise out of a fleet-wide report. The
+    same reasoning as the statistics reader, and the same failure it prevents:
+    one edge with a mangled document taking the whole answer down with it.
     """
     if not host.reached:
-        return EdgeStats(host=host.host, error="unreachable")
+        return EdgeOriginChecks(host=host.host, error="unreachable")
     if not host.succeeded:
-        return EdgeStats(host=host.host, error="the stats role failed on this edge")
+        return EdgeOriginChecks(
+            host=host.host, error="the origin check role failed on this edge"
+        )
     document = host.report
     if document is None:
-        return EdgeStats(host=host.host, error="the edge published no report")
-    outcomes: dict[str, dict[str, int]] = {}
-    rows = document.get("cache")
+        return EdgeOriginChecks(host=host.host, error="the edge published no report")
+    rows = document.get("origins")
+    checks: list[OriginCheck] = []
     for row in rows if isinstance(rows, list) else []:
         if not isinstance(row, dict):
             continue
-        site = str(row.get("site", "")).strip()
-        outcome = str(row.get("outcome", "")).strip().upper()
         try:
-            requests = int(row.get("requests", 0))
-        except (TypeError, ValueError):
+            checks.append(OriginCheck.model_validate(_origin_row(row)))
+        except ValueError:
+            # One unreadable row must not discard the rest of this edge's
+            # answers; the sites it did report on are still true.
             continue
-        if not site or not outcome or requests < 0:
-            continue
-        outcomes.setdefault(site, {})[outcome] = (
-            outcomes.setdefault(site, {}).get(outcome, 0) + requests
-        )
-    raw_connections = document.get("connections")
-    connections = {
-        str(key): int(value)
-        for key, value in (
-            raw_connections.items() if isinstance(raw_connections, dict) else ()
-        )
-        if isinstance(value, (int, str)) and str(value).isdigit()
-    }
     collected = document.get("collected_at")
     try:
-        collected_at = datetime.fromisoformat(str(collected)) if collected else None
+        checked_at = datetime.fromisoformat(str(collected)) if collected else None
     except ValueError:
-        collected_at = None
-    return EdgeStats(
-        host=host.host,
-        collected_at=collected_at,
-        nginx_reachable=bool(document.get("nginx_reachable")),
-        connections=connections,
-        sites=tuple(
-            SiteCacheStats(site=name, outcomes=counts)
-            for name, counts in sorted(outcomes.items())
-        ),
-    )
+        checked_at = None
+    return EdgeOriginChecks(host=host.host, checked_at=checked_at, checks=tuple(checks))
+
+
+def _origin_row(row: dict[str, object]) -> dict[str, object]:
+    """Normalise one row of an edge's report into `OriginCheck` fields.
+
+    Jinja renders booleans and integers as strings on their way through
+    `set_fact`, and an absent status arrives as ``-1`` rather than missing, so
+    the crossing is undone here rather than by loosening the model — which
+    would loosen it for the controller's own probe too.
+    """
+    status = _as_int(row.get("status"))
+    tls = row.get("tls_verified")
+    detail = str(row.get("detail") or "").strip()
+    return {
+        "site": row.get("site"),
+        "origin": row.get("origin"),
+        "scheme": row.get("scheme"),
+        "sni": row.get("sni") or None,
+        "reachable": _as_bool(row.get("reachable")),
+        "tls_verified": None if tls in (None, "", "None") else _as_bool(tls),
+        "status": status if status and status > 0 else None,
+        "detail": detail or None,
+    }
+
+
+def _as_bool(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "yes", "1"}
+
+
+def _as_int(value: object) -> int | None:
+    try:
+        return int(str(value))
+    except (TypeError, ValueError):
+        return None

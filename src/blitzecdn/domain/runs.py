@@ -134,6 +134,19 @@ class AnsibleRun(BaseModel):
     started_at: datetime
     finished_at: datetime
     hosts: tuple[HostRun, ...] = ()
+    #: The edges this run was aimed at, resolved before it started.
+    #:
+    #: Recorded because ``hosts`` alone cannot answer "what about the rest of
+    #: the fleet". The edge play runs ``serial`` with ``any_errors_fatal``, so a
+    #: failure in one batch stops the play and every later batch is never
+    #: contacted — those hosts do not fail, they simply never appear, and the
+    #: result reads as though the fleet were smaller than it is. That is the
+    #: worst moment to be guessing: some edges are now on the new configuration
+    #: and some on the old, and which is which is exactly this difference.
+    #:
+    #: Empty for a run with no host expansion to record, such as
+    #: ``--syntax-check``.
+    targeted: tuple[str, ...] = ()
     #: Where the raw output was kept. Never parsed; shown to an operator, and
     #: named in errors so the next question has somewhere to go.
     log_path: str | None = None
@@ -167,6 +180,24 @@ class AnsibleRun(BaseModel):
         """Hosts that changed — or under check mode, that would change."""
         return tuple(host for host in self.hosts if host.changed and not host.failed)
 
+    @property
+    def unattempted(self) -> tuple[str, ...]:
+        """Edges this run was aimed at that never reported anything.
+
+        Not the same as unreachable. An unreachable host was contacted and
+        failed to answer, and Ansible says so; these were never reached at all,
+        because the play stopped before their batch. Both leave an edge on its
+        previous configuration, but only one of them is visible in ``hosts``.
+
+        Empty when nothing was reported at all — a run that died before any
+        host ran has not left part of the fleet behind, it has done nothing,
+        and ``reported`` is the right question there.
+        """
+        if not self.hosts:
+            return ()
+        reported = {host.host for host in self.hosts}
+        return tuple(name for name in self.targeted if name not in reported)
+
     def host(self, name: str) -> HostRun | None:
         return next((host for host in self.hosts if host.host == name), None)
 
@@ -180,7 +211,37 @@ class AnsibleRun(BaseModel):
         for host in self.failed_hosts:
             for failure in host.failures:
                 detail = (failure.message or failure.outcome.value).strip()
-                return f"{host.host}: {failure.task}: {detail}"
+                return f"{host.host}: {failure.task}: {detail}{self._remainder()}"
         if self.error:
             return self.error
-        return f"ansible-playbook exited {self.return_code}"
+        return f"ansible-playbook exited {self.return_code}{self._remainder()}"
+
+    def _remainder(self) -> str:
+        """Name the edges the play never got to, when there are any.
+
+        Appended to the failure rather than reported separately because the two
+        facts are only useful together: "edge-b failed" invites a fix on edge-b,
+        while "edge-b failed and edge-c, edge-d were never attempted" says the
+        fleet is now split across two configurations.
+        """
+        remaining = self.unattempted
+        if not remaining:
+            return ""
+        return (
+            f" {len(remaining)} edge(s) were never attempted and still have "
+            f"their previous configuration: {', '.join(remaining)}."
+        )
+
+    def unreported(self, what: str) -> str:
+        """Explain a run that produced no per-host result at all.
+
+        Every fleet operation that answers from ``hosts`` needs this, and the
+        honest answer is the same for each: nothing came back, here is what the
+        process said about itself, and here is where the output is. It belongs
+        on the run because it is only ever a reading of one — and because the
+        services that need it are no longer in the same module, which is how it
+        would otherwise have become several accounts of the same silence.
+        """
+        location = f" The full output is at {self.log_path}." if self.log_path else ""
+        detail = self.error or self.summary()
+        return f"no edge reported a {what} result. {detail}{location}"

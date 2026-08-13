@@ -91,6 +91,16 @@ class StatsRequest(BaseModel):
     )
 
 
+class OriginCheckRequest(BaseModel):
+    """Which edges should answer. All of them, unless narrowed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    host_limit: str | None = Field(
+        default=None, max_length=512, pattern=EDGE_LIMIT.pattern
+    )
+
+
 class RenewRequest(BaseModel):
     within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
     force: bool = False

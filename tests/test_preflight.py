@@ -30,12 +30,14 @@ class FakeOriginProbe:
     def __init__(self, *, ok: bool = True) -> None:
         self.ok = ok
 
+    def to_probe(self, site: CdnSite) -> dict[str, object]:
+        return {"name": site.name, "origin_host": site.origin_host}
+
     def check(self, site: CdnSite) -> OriginCheck:
         return OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:443",
             scheme=HttpScheme.HTTPS,
-            resolved=True,
             reachable=self.ok,
             detail=None if self.ok else "no answer within 5s",
         )

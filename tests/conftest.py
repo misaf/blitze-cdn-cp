@@ -64,6 +64,7 @@ def ansible_run(
     return_code: int | None = 0,
     log_path: str | None = "/var/log/blitzecdn/run.log",
     error: str | None = None,
+    targeted: tuple[str, ...] = (),
 ) -> AnsibleRun:
     """What the runner hands back: the callback's per-host results plus a status.
 
@@ -80,8 +81,45 @@ def ansible_run(
         started_at=now,
         finished_at=now,
         hosts=hosts,
+        targeted=targeted,
         log_path=log_path,
         error=error,
+    )
+
+
+def origin_report(
+    host: str,
+    *,
+    site: str = "cdn-example-com",
+    origin: str = "origin.example.com:443",
+    reachable: bool = True,
+    tls_verified: object = True,
+    detail: str = "",
+) -> HostRun:
+    """One edge's published origin report, as the callback delivers it.
+
+    Built as the role would render it — strings for the booleans, `-1` for a
+    status that never arrived — because that crossing is exactly what the
+    reader under test has to undo.
+    """
+    return host_run(
+        host,
+        report={
+            "host": host,
+            "collected_at": "2026-01-01T00:00:00Z",
+            "origins": [
+                {
+                    "site": site,
+                    "origin": origin,
+                    "scheme": "https",
+                    "sni": "origin.example.com",
+                    "reachable": str(reachable),
+                    "tls_verified": str(tls_verified),
+                    "status": "200" if reachable else "-1",
+                    "detail": detail,
+                }
+            ],
+        },
     )
 
 
@@ -96,6 +134,10 @@ class FakeRunner:
         self.purges: list[tuple[list[dict[str, str]], bool, str | None]] = []
         self.stats_runs: list[str | None] = []
         self.decommissions: list[str] = []
+        #: The sites each origin check was asked about, and the limit it ran
+        #: under — the check is answered by the edges now, so what the
+        #: controller *sent* is the part a test can hold it to.
+        self.origin_checks: list[tuple[list[dict[str, object]], str | None]] = []
 
     def lock(self) -> nullcontext[None]:
         return nullcontext()
@@ -125,6 +167,15 @@ class FakeRunner:
 
     def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
         self.stats_runs.append(host_limit)
+        return self.results.pop(0)
+
+    def run_origin_check(
+        self,
+        *,
+        sites: list[dict[str, object]],
+        host_limit: str | None = None,
+    ) -> AnsibleRun:
+        self.origin_checks.append((sites, host_limit))
         return self.results.pop(0)
 
 
@@ -269,6 +320,7 @@ def settings(tmp_path: Path) -> Settings:
         acme_challenge_playbook_path=ansible / "playbooks/acme-challenge.yml",
         cache_purge_playbook_path=ansible / "playbooks/cache-purge.yml",
         stats_playbook_path=ansible / "playbooks/stats.yml",
+        origin_check_playbook_path=ansible / "playbooks/origin-check.yml",
         decommission_playbook_path=ansible / "playbooks/decommission.yml",
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": "x" * 32},

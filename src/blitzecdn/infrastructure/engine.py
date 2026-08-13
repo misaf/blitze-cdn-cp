@@ -164,6 +164,29 @@ class Database:
         finally:
             _IMMEDIATE.reset(immediate)
 
+    def require_transaction(self, operation: str) -> None:
+        """Refuse an operation whose atomicity depends on an open Unit of Work.
+
+        A compare-and-swap — read the row, compare it to what the caller
+        expected, write — is only safe because :meth:`transaction` reserves the
+        SQLite writer with ``BEGIN IMMEDIATE`` *before* the read, so no other
+        writer can interleave between the comparison and the update. Outside
+        one, :meth:`session` opens a deferred transaction instead: the read
+        takes a snapshot and the write then tries to upgrade, which SQLite
+        answers with a snapshot-busy error that no ``busy_timeout`` will wait
+        out and that reaches the caller as something other than a conflict.
+
+        This was a sentence in a docstring and an obligation on every caller.
+        It is checked here because the failure it prevents is invisible in
+        review and rare enough in testing to reach production first.
+        """
+        if _SESSION.get() is None:
+            raise ValueError(
+                f"{operation} must run inside a Unit of Work: its "
+                "compare-and-swap is atomic only under the BEGIN IMMEDIATE "
+                "that transaction() emits"
+            )
+
     def current_session(self) -> Session | None:
         """The open Unit of Work, or ``None`` outside one.
 
@@ -203,18 +226,32 @@ class Database:
             self._require_current_schema(inspector, tables)
 
     def _require_current_schema(self, inspector: Inspector, tables: set[str]) -> None:
-        missing = sorted(
-            f"{table.name}.{column.name}"
-            for table in Base.metadata.sorted_tables
-            if table.name in tables
-            for column in table.columns
-            if column.name
-            not in {existing["name"] for existing in inspector.get_columns(table.name)}
-        )
+        """Refuse a database that does not carry everything the models declare.
+
+        Both halves of "missing" count. A database one migration behind may be
+        short a column on a table it already has, or short the whole table that
+        migration introduced — and only the first was checked here, so a
+        controller whose package had gained a table would start cleanly and then
+        fail on `no such table` at whichever query reached it first, mid-deploy.
+        An absent table is named on its own rather than through each of its
+        columns, so the message stays the size of the problem.
+        """
+        missing: list[str] = []
+        for table in Base.metadata.sorted_tables:
+            if table.name not in tables:
+                missing.append(table.name)
+                continue
+            present = {column["name"] for column in inspector.get_columns(table.name)}
+            missing.extend(
+                f"{table.name}.{column.name}"
+                for column in table.columns
+                if column.name not in present
+            )
         if missing:
             raise ConfigurationError(
                 f"{self._path} is on an older schema and is missing "
-                f"{', '.join(missing)}. Run `blitzecdn db upgrade` to migrate it. "
+                f"{', '.join(sorted(missing))}. Run `blitzecdn db upgrade` to "
+                "migrate it. "
                 "Take a copy of the file first; the migration rewrites tables."
             )
 

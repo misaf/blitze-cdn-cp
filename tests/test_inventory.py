@@ -17,9 +17,11 @@ model and then run the real `ansible-inventory` against it. That is what
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -27,6 +29,7 @@ from pathlib import Path
 import pytest
 
 from blitzecdn.domain.edges import EDGE_GROUP, Edge, firewall_sources
+from blitzecdn.domain.validation import RESERVED_ANSIBLE_SETTINGS
 from blitzecdn.infrastructure.database import Repository
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -172,6 +175,52 @@ def test_database_settings_override_shipped_group_vars(fleet):
 
     assert hostvars["edge-01"]["blitzecdn_firewall_enabled"] is True
     assert hostvars["edge-02"]["blitzecdn_firewall_enabled"] is True
+
+
+def test_the_plugin_refuses_to_publish_a_reserved_setting(fleet):
+    """The last line of defence on a variable that can strand the whole fleet.
+
+    The store refuses to write these names, so the row is inserted by hand here
+    — which is exactly how one would arrive in practice: a backup taken before
+    the rule existed, or a database edited directly. Published at host
+    precedence it would beat the port the plugin derives from the edge record,
+    the firewall would close the port the next converge arrives on, and no
+    later deploy could reach the host.
+    """
+    database, _ = fleet
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "INSERT INTO ansible_settings (name, value, updated_at) VALUES (?, ?, ?)",
+        ("blitzecdn_firewall_ssh_port", "2222", "2026-01-01T00:00:00+00:00"),
+    )
+    connection.commit()
+    connection.close()
+
+    hostvars = _ansible_inventory(database)["_meta"]["hostvars"]
+
+    assert hostvars["edge-01"]["blitzecdn_firewall_ssh_port"] == 7845
+    assert hostvars["edge-02"]["blitzecdn_firewall_ssh_port"] == 22
+
+
+def test_the_plugins_reserved_names_match_the_domains():
+    """Two copies of one list, in files that cannot import each other.
+
+    The plugin runs under whatever interpreter `ansible-playbook` is, with no
+    `blitzecdn` on its path, so it has to carry its own copy — the same reason
+    it carries its own `EDGE_GROUP` and `SUPPORTED_SCHEMA_VERSION`. Loaded by
+    path here, from where Ansible loads it, so a name added on one side and not
+    the other fails rather than silently publishing a variable that can close
+    the SSH port on every edge.
+    """
+    pytest.importorskip("ansible.plugins.inventory")
+    plugin = ANSIBLE_DIR / "plugins/inventory/blitzecdn.py"
+    spec = importlib.util.spec_from_file_location("blitzecdn_inventory", plugin)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    assert module.RESERVED_SETTINGS == RESERVED_ANSIBLE_SETTINGS
+    assert module.EDGE_GROUP == EDGE_GROUP
 
 
 def test_management_networks_reach_every_edge_and_outrank_group_vars(fleet):

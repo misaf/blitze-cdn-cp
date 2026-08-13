@@ -20,6 +20,10 @@
         state: present
         update_cache: true
         cache_valid_time: 3600
+      register: blitzecdn_firewall_apt
+      until: blitzecdn_firewall_apt is success
+      retries: 3
+      delay: 5
 
     # `proto|port|source`, the three fields it takes to delete a rule again.
     # Kept as flat strings rather than dicts so the registry on the host is a

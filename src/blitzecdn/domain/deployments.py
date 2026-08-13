@@ -115,6 +115,17 @@ class Deployment(BaseModel):
         return self.result.hosts if self.result else ()
 
     @property
+    def unattempted(self) -> tuple[str, ...]:
+        """Edges this deployment aimed at and never reached.
+
+        A failed fleet deploy stops at the batch that failed, so the edges after
+        it keep their previous configuration. That is the difference between
+        "the deploy failed" and "the fleet is now running two configurations",
+        and it is not visible anywhere in ``hosts``.
+        """
+        return self.result.unattempted if self.result else ()
+
+    @property
     def detail(self) -> str | None:
         """Why this deployment ended the way it did, in one line."""
         return self.result.summary() if self.result else None
@@ -141,6 +152,8 @@ class DriftReport(BaseModel):
     checked_at: datetime
     host_limit: str | None = None
     hosts: tuple[HostRun, ...] = ()
+    #: Edges the check never got to, and therefore learned nothing about.
+    unattempted: tuple[str, ...] = ()
 
     @classmethod
     def of(cls, deployment: Deployment) -> DriftReport:
@@ -149,12 +162,24 @@ class DriftReport(BaseModel):
             checked_at=deployment.finished_at or deployment.created_at,
             host_limit=deployment.host_limit,
             hosts=deployment.hosts,
+            unattempted=deployment.unattempted,
         )
 
     @property
     def in_sync(self) -> bool:
-        """True only if every host was reached and none of them would change."""
-        return bool(self.hosts) and all(host.in_sync for host in self.hosts)
+        """True only if every targeted host was reached and none would change.
+
+        An unattempted edge makes this false rather than being ignored. The
+        question is whether the fleet matches desired state, and an edge the
+        check never got to is one we have no answer for — reporting in sync on
+        the strength of the batch that did run would be answering a narrower
+        question than the one asked.
+        """
+        return (
+            bool(self.hosts)
+            and not self.unattempted
+            and all(host.in_sync for host in self.hosts)
+        )
 
     @property
     def drifted(self) -> tuple[HostRun, ...]:

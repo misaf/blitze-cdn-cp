@@ -8,27 +8,23 @@ import typer
 import yaml
 
 from blitzecdn.cli import common
+from blitzecdn.domain.validation import validate_setting_name
 
 config_app = typer.Typer(no_args_is_help=True, help="Manage global edge policy.")
 
-RESERVED_SETTINGS = {
-    "blitzecdn_firewall_ssh_port",
-    "blitzecdn_firewall_ssh_sources",
-    "blitzecdn_public_addresses",
-    "blitzecdn_nginx_sites",
-}
-
 
 def _name(value: str) -> str:
-    if not value.startswith("blitzecdn_"):
-        raise typer.BadParameter("setting names must start with 'blitzecdn_'")
-    if value in RESERVED_SETTINGS:
-        raise typer.BadParameter(
-            f"{value} is derived from edge or desired-state records"
-        )
-    if any(word in value.lower() for word in ("password", "secret", "token", "key")):
-        raise typer.BadParameter("secrets and keys belong in .env, not the database")
-    return value
+    """The domain rule, rendered as a Typer parameter error.
+
+    The rule itself lives in ``domain.validation`` and is enforced by the store,
+    because these rows are published to every host at inventory precedence and
+    the constraint therefore belongs to the setting rather than to this command.
+    This only translates the refusal into the message shape a CLI user expects.
+    """
+    try:
+        return validate_setting_name(value)
+    except ValueError as error:
+        raise typer.BadParameter(str(error)) from error
 
 
 @config_app.command("list")

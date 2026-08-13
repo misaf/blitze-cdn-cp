@@ -22,6 +22,11 @@ and compare domain models inside the transaction instead. That is not weaker:
 :meth:`Database.transaction` reserves the SQLite writer with ``BEGIN
 IMMEDIATE`` before the read, so no other writer can interleave between the
 comparison and the update.
+
+That guarantee is a property of the *caller's* transaction, not of these
+methods, so both now refuse an ``expected`` comparison outside one — see
+:meth:`Database.require_transaction`. Written down alone, it was an obligation
+every future caller had to know about and no test could notice being dropped.
 """
 
 from __future__ import annotations
@@ -45,7 +50,7 @@ from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.edges import EDGE_SCHEMA_VERSION, Edge
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import CdnSite
-from blitzecdn.domain.validation import STORED
+from blitzecdn.domain.validation import STORED, validate_setting_name
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.engine import Database
 from blitzecdn.infrastructure.models import (
@@ -110,6 +115,10 @@ class AnsibleSettingStore:
             return {row.name: row.value for row in rows}
 
     def set_setting(self, name: str, value: Any) -> None:
+        # Checked here rather than only at the entry point that happens to be
+        # the sole writer today. These rows are published to every host at
+        # inventory precedence, so the rule protects the fleet, not the CLI.
+        name = validate_setting_name(name)
         with self._db.session() as session:
             statement = sqlite_insert(AnsibleSettingRow).values(
                 name=name, value=value, updated_at=self._db.now()
@@ -125,6 +134,7 @@ class AnsibleSettingStore:
             )
 
     def delete_setting(self, name: str) -> None:
+        name = validate_setting_name(name)
         with self._db.session() as session:
             result = _rows_affected(
                 session.execute(
@@ -168,6 +178,8 @@ class EdgeStore:
         return edge
 
     def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge:
+        if expected is not None:
+            self._db.require_transaction("replace_edge(expected=...)")
         with self._db.session() as session:
             row = session.get(EdgeRow, edge.name)
             if row is None:
@@ -389,6 +401,8 @@ class ZoneStore:
     def replace_record(
         self, record: DnsRecord, *, expected: DnsRecord | None = None
     ) -> DnsRecord:
+        if expected is not None:
+            self._db.require_transaction("replace_record(expected=...)")
         key = (record.domain, record.name, record.type.value)
         with self._db.session() as session:
             row = session.get(DnsRecordRow, key)
@@ -493,20 +507,23 @@ class DeploymentStore:
     ) -> Deployment:
         deployment_id = uuid4().hex
         with self._db.session() as session:
-            session.add(
-                DeploymentRow(
-                    id=deployment_id,
-                    status=DeploymentStatus.QUEUED.value,
-                    operator=operator,
-                    check_mode=check_mode,
-                    rollback_of=rollback_of,
-                    created_at=self._db.now(),
-                    snapshot=snapshot or self._snapshot_source(),
-                    host_limit=host_limit,
-                )
+            row = DeploymentRow(
+                id=deployment_id,
+                status=DeploymentStatus.QUEUED.value,
+                operator=operator,
+                check_mode=check_mode,
+                rollback_of=rollback_of,
+                created_at=self._db.now(),
+                snapshot=snapshot or self._snapshot_source(),
+                host_limit=host_limit,
             )
+            session.add(row)
             session.flush()
-        return self.get_deployment(deployment_id)
+            # Built from the row this call wrote, inside the transaction that
+            # wrote it. Re-reading afterwards was a second transaction, so the
+            # object returned described whatever the table said by then rather
+            # than what was just created.
+            return self._deployment(row)
 
     def transition(
         self,
@@ -540,7 +557,10 @@ class DeploymentStore:
                     setattr(row, field, supplied)
             if result is not None:
                 row.result = result.model_dump(mode="json")
-        return self.get_deployment(deployment_id)
+            # Inside the transaction, for the same reason as above: a caller
+            # that just moved a deployment to RUNNING must be handed the
+            # deployment it moved, not the state of the row a moment later.
+            return self._deployment(row)
 
     def get_deployment(self, deployment_id: str) -> Deployment:
         with self._db.session() as session:

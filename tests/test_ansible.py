@@ -312,6 +312,18 @@ def test_a_limit_resolves_to_the_matching_edges(settings):
     assert runner._limit("edge-*") == "edge-a,edge-b"
 
 
+def test_a_run_records_the_edges_it_aimed_at(settings):
+    """`hosts` alone cannot say what a stopped play never got to.
+
+    A limit resolves to names here, from the same rows Ansible is handed, so
+    the run carries what it targeted rather than leaving the reader to
+    reconstruct it from an inventory that may have changed since.
+    """
+    runner = ansible.AnsibleRunner(settings, _with_edges("edge-a", "edge-b", "other"))
+    assert runner._targeted(None) == ("edge-a", "edge-b", "other")
+    assert runner._targeted("edge-*") == ("edge-a", "edge-b")
+
+
 def test_a_limit_cannot_reach_a_host_outside_the_edge_group(settings):
     """The whole point of resolving against the inventory rather than passing
     a pattern through: an unknown name is refused, not silently targeted."""

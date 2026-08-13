@@ -9,6 +9,7 @@ The dependency order between them is a DAG rather than a web::
 
     DnsService  →  DeploymentService  →  CertificateService
     EdgeOperationsService (independent)
+    CacheService (independent)
 
 A certificate is issued against a site the zone editor derived, and installing
 it needs a deployment; a rollback rewrites zones and asks the zone editor to
@@ -26,12 +27,14 @@ far it reaches.
 
 from __future__ import annotations
 
+from blitzecdn.application.cache import CacheService
 from blitzecdn.application.certificates import CertificateService
 from blitzecdn.application.deployments import DeploymentService
 from blitzecdn.application.dns import DnsService
 from blitzecdn.application.edges import EdgeOperationsService
 
 __all__ = [
+    "CacheService",
     "CertificateService",
     "DeploymentService",
     "DnsService",

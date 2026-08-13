@@ -189,9 +189,65 @@ def test_record_updates_detect_a_stale_expected_version(settings):
         DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
     )
     winner = original.model_copy(update={"value": "192.0.2.2"})
-    repository.zones.replace_record(winner, expected=original)
+    # Under a Unit of Work, as the services do it. The comparison is only
+    # atomic inside one, and the store now refuses it outside one.
+    with repository.transaction():
+        repository.zones.replace_record(winner, expected=original)
 
-    with pytest.raises(ConflictError, match="changed while it was being edited"):
+    with (
+        pytest.raises(ConflictError, match="changed while it was being edited"),
+        repository.transaction(),
+    ):
         repository.zones.replace_record(
             original.model_copy(update={"value": "192.0.2.3"}), expected=original
         )
+
+
+@pytest.mark.parametrize(
+    ("name", "message"),
+    [
+        ("ansible_port", "must start with"),
+        ("blitzecdn_firewall_ssh_port", "derived from edge"),
+        ("blitzecdn_api_token", "belong in .env"),
+    ],
+)
+def test_the_store_refuses_a_setting_name_the_fleet_should_not_carry(
+    settings, name, message
+):
+    """The rule belongs to the setting, not to the command that types it.
+
+    These rows are published to every host at inventory precedence, so an
+    unprefixed name could reach a connection variable and a reserved one could
+    override what the plugin derives per edge. Enforced here so the CLI is not
+    the only thing standing between a caller and the fleet.
+    """
+    repository = Repository(settings.database_path)
+
+    with pytest.raises(ValueError, match=message):
+        repository.ansible_settings.set_setting(name, "anything")
+
+    assert repository.ansible_settings.list_settings() == {}
+
+
+def test_a_compare_and_swap_outside_a_transaction_is_refused(settings):
+    """The obligation the comparison rests on, enforced rather than documented.
+
+    Outside a Unit of Work the surrounding transaction is deferred, so the read
+    and the write are not one atomic step and a lost update becomes possible in
+    the window between them. Refused up front, because the alternative failure
+    is a SQLite snapshot-busy error surfacing somewhere unrelated.
+    """
+    repository = Repository(settings.database_path)
+    repository.zones.create_domain(Domain(name="example.com"))
+    original = repository.zones.create_record(
+        DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
+    )
+
+    with pytest.raises(ValueError, match="must run inside a Unit of Work"):
+        repository.zones.replace_record(
+            original.model_copy(update={"value": "192.0.2.9"}), expected=original
+        )
+
+    # Without `expected` there is nothing to compare, so no transaction is
+    # required and an ordinary write still works.
+    repository.zones.replace_record(original.model_copy(update={"value": "192.0.2.9"}))

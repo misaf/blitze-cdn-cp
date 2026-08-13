@@ -29,6 +29,7 @@ _PROJECT_KEYS = {
     "acme_challenge_playbook_path",
     "cache_purge_playbook_path",
     "stats_playbook_path",
+    "origin_check_playbook_path",
     "decommission_playbook_path",
     "certbot",
     "acme_default_email",
@@ -64,6 +65,7 @@ class Settings(BaseModel):
     acme_challenge_playbook_path: Path
     cache_purge_playbook_path: Path
     stats_playbook_path: Path
+    origin_check_playbook_path: Path
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
     certbot: str = "certbot"
@@ -155,6 +157,7 @@ class Settings(BaseModel):
         "acme_challenge_playbook_path",
         "cache_purge_playbook_path",
         "stats_playbook_path",
+        "origin_check_playbook_path",
         "decommission_playbook_path",
         mode="before",
     )
@@ -293,6 +296,11 @@ class Settings(BaseModel):
                     "BLITZE_STATS_PLAYBOOK",
                     "stats_playbook_path",
                     root / "ansible/playbooks/stats.yml",
+                ),
+                origin_check_playbook_path=path_value(
+                    "BLITZE_ORIGIN_CHECK_PLAYBOOK",
+                    "origin_check_playbook_path",
+                    root / "ansible/playbooks/origin-check.yml",
                 ),
                 decommission_playbook_path=path_value(
                     "BLITZE_DECOMMISSION_PLAYBOOK",

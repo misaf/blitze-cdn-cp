@@ -89,6 +89,25 @@ SUPPORTED_SCHEMA_VERSION = 1
 #: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
+#: Mirrors ``blitzecdn.domain.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
+#: step by ``tests/test_inventory.py``.
+#:
+#: The control plane refuses to store a setting under one of these names, so a
+#: row carrying one should not exist. This refuses to *publish* it anyway,
+#: because settings are set at host precedence and would therefore beat the
+#: per-edge values derived below — and the damage is asymmetric. A stale row
+#: restored from a backup, or one written by an older release before the rule
+#: existed, would otherwise close the SSH port the next converge arrives on,
+#: for every edge at once, with no way back in.
+RESERVED_SETTINGS = frozenset(
+    (
+        "blitzecdn_firewall_ssh_port",
+        "blitzecdn_firewall_ssh_sources",
+        "blitzecdn_public_addresses",
+        "blitzecdn_nginx_sites",
+    )
+)
+
 
 class InventoryModule(BaseInventoryPlugin):
     NAME = "blitzecdn"
@@ -222,6 +241,13 @@ class InventoryModule(BaseInventoryPlugin):
             edges.append(edge)
         settings = {}
         for row in setting_rows:
+            if row["name"] in RESERVED_SETTINGS:
+                self.display.warning(
+                    "ignoring fleet setting %r: it is derived per edge and "
+                    "publishing it would override every edge at once"
+                    % (row["name"],)
+                )
+                continue
             try:
                 settings[row["name"]] = json.loads(row["value"])
             except ValueError as error:

@@ -28,6 +28,7 @@ from blitzecdn.api_models import (
     DeployRequest,
     DriftRequest,
     EdgeRemoval,
+    OriginCheckRequest,
     PurgeRequest,
     RenewRequest,
     RollbackRequest,
@@ -71,7 +72,7 @@ from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.operations import Workflow
-from blitzecdn.domain.origins import OriginCheck
+from blitzecdn.domain.origins import OriginReport
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.exceptions import (
     BlitzeError,
@@ -83,6 +84,14 @@ from blitzecdn.exceptions import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+#: How often a configured outbox integration is drained.
+#:
+#: A constant rather than a setting: the outbox only runs when a caller has
+#: passed handlers to `build_control_plane`, which is already code, and adding
+#: a documented setting for a cadence nobody can reach from a config file would
+#: widen the published surface without widening what an operator can do.
+_OUTBOX_DISPATCH_INTERVAL_SECONDS = 30.0
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -104,9 +113,31 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         control_plane.deployments.initialize()
         control_plane.recovery.reconcile_interrupted()
-        control_plane.outbox.dispatch()
         stop = threading.Event()
-        reconciler: threading.Thread | None = None
+        workers: list[threading.Thread] = []
+
+        # Only when an integration is configured. Without one nothing is
+        # enqueued, so a dispatch loop would wake forever to find an empty
+        # table — and dispatching once at startup, which is what this used to
+        # do, meant a controller that never restarted never delivered at all.
+        if control_plane.outbox.enabled:
+
+            def dispatch_forever() -> None:
+                control_plane.outbox.dispatch()
+                while not stop.wait(_OUTBOX_DISPATCH_INTERVAL_SECONDS):
+                    try:
+                        control_plane.outbox.dispatch()
+                    except Exception:
+                        _LOGGER.exception("outbox dispatch failed")
+
+            workers.append(
+                threading.Thread(
+                    target=dispatch_forever,
+                    name="blitzecdn-outbox-dispatcher",
+                    daemon=True,
+                )
+            )
+
         interval = resolved.certificate_reconcile_interval_seconds
         if interval:
 
@@ -121,18 +152,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                     except Exception:
                         _LOGGER.exception("scheduled certificate reconciliation failed")
 
-            reconciler = threading.Thread(
-                target=reconcile_forever,
-                name="blitzecdn-certificate-reconciler",
-                daemon=True,
+            workers.append(
+                threading.Thread(
+                    target=reconcile_forever,
+                    name="blitzecdn-certificate-reconciler",
+                    daemon=True,
+                )
             )
-            reconciler.start()
+        for worker in workers:
+            worker.start()
         try:
             yield
         finally:
             stop.set()
-            if reconciler is not None:
-                reconciler.join(timeout=1)
+            for worker in workers:
+                worker.join(timeout=1)
             # Not cancelling queued sweeps: one already inside certbot must be
             # allowed to finish, or the CA has issued a certificate this store
             # never recorded. Persistence therefore stays alive until every
@@ -399,14 +433,25 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
         return EdgeRemoval(name=name, decommissioned=True, hosts=hosts)
 
-    @application.get("/v1/origins/check", response_model=list[OriginCheck])
-    def check_origins(_operator: operator_dependency) -> list[OriginCheck]:
-        """Connect to every enabled site's origin the way the edge will.
+    @application.post("/v1/origins/check", response_model=OriginReport)
+    def check_origins(
+        request: OriginCheckRequest, operator: operator_dependency
+    ) -> OriginReport:
+        """Ask the edges to connect to the origins they proxy to.
 
-        Bounded by `origin_check_timeout_seconds` per origin and probed in
-        parallel, so this answers inline rather than needing a queued job.
+        A POST despite changing nothing, following the cache-statistics route:
+        it runs a playbook across the fleet, which is neither cacheable nor
+        safe to retry blindly the way GET promises. It was a GET while the
+        controller answered for itself; the edges answer now, because they are
+        the machines that carry the traffic and an origin that allow-lists them
+        refuses the controller while working perfectly.
+
+        Answers inline, bounded by `deployment_timeout_seconds`, so a caller
+        should use a client timeout to match.
         """
-        return CheckOriginsCommand().execute(control_plane, _operator)
+        return CheckOriginsCommand(host_limit=request.host_limit).execute(
+            control_plane, operator
+        )
 
     @application.post(
         "/v1/cache/purge",

@@ -14,6 +14,7 @@ from conftest import (
     RefusingBackgroundRunner,
     ansible_run,
     host_run,
+    origin_report,
 )
 
 from blitzecdn.control_plane import ControlPlane
@@ -21,9 +22,15 @@ from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.certificates import CertificateSource
 from blitzecdn.domain.deployments import DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.domain.runs import RunStatus
 from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
-from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
+from blitzecdn.exceptions import (
+    ConflictError,
+    DeploymentBusyError,
+    ExecutionError,
+    NotFoundError,
+)
 from blitzecdn.infrastructure.database import Repository
 
 
@@ -62,7 +69,15 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
 
 def test_dns_write_projection_and_audit_are_one_transaction(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    # Built with an integration so the outbox is wired: the property under test
+    # is that an enqueued event is part of the same transaction as the write
+    # that announced it, and there is nothing to enqueue without one.
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        integrations={"domain.event": lambda _event: None},
+    )
     control.dns.create_domain(Domain(name="example.com"), "alice")
 
     def refuse_event(_event):
@@ -90,6 +105,55 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings):
     assert [event.action for event in repository.audit_log.list_audit_events()] == [
         "domain.created"
     ]
+
+
+def test_no_integration_means_nothing_is_enqueued(settings):
+    """The outbox is a delivery queue, so an unread one is only a leak.
+
+    It used to be subscribed unconditionally against a handler that discarded
+    what it was given, and dispatched only when an API process started — so a
+    controller driven by the CLI and the timers wrote rows forever that nothing
+    would ever read. The audit trail, which is subscribed either way, is what
+    records that something happened.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+
+    assert control.outbox.enabled is False
+    assert repository.outbox.pending() == []
+    assert repository.outbox.undelivered() == 0
+    assert [event.action for event in repository.audit_log.list_audit_events()] == [
+        "domain.created"
+    ]
+
+
+def test_dispatch_delivers_then_bounds_the_receipts(settings):
+    """Delivered rows are receipts; something has to drop the oldest.
+
+    Pruned by the dispatcher rather than by a timer of its own, so retention
+    cannot silently stop being applied because a unit was never installed.
+    """
+    delivered: list[str] = []
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(),  # type: ignore[arg-type]
+        integrations={"domain.event": lambda event: delivered.append(event.event_key)},
+    )
+    for index in range(4):
+        control.dns.create_domain(Domain(name=f"example{index}.com"), "alice")
+
+    assert repository.outbox.undelivered() == 4
+    assert control.outbox.dispatch() == 4
+    assert len(delivered) == 4
+    assert repository.outbox.undelivered() == 0
+
+    # Retention applies to what has been delivered, never to what has not.
+    assert repository.outbox.prune_delivered(1) == 3
+    assert control.outbox.dispatch() == 0
 
 
 def test_projection_drift_is_detected_and_repairable(settings):
@@ -413,6 +477,155 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
     ]
 
 
+def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(
+    settings, site_payload
+):
+    """`serial` plus `any_errors_fatal` leaves the rest of the fleet untouched.
+
+    The play stops at the batch that failed, so later batches are never
+    contacted: they do not fail, they simply never appear in the result, and a
+    reader sees a smaller fleet rather than a split one. Half the edges are now
+    on the new configuration and half on the old, which is the fact an operator
+    most needs and the one `hosts` cannot carry.
+    """
+    repository = Repository(settings.database_path)
+    stopped = ansible_run(
+        host_run("edge-a", changed=3),
+        host_run("edge-b", failed=1, failure="nginx -t refused it"),
+        status=RunStatus.FAILED,
+        return_code=2,
+        targeted=("edge-a", "edge-b", "edge-c", "edge-d"),
+    )
+    control = ControlPlane(settings, repository, FakeRunner([stopped]))  # type: ignore[arg-type]
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    deployment = control.deployments.deploy("alice")
+
+    assert deployment.status is DeploymentStatus.FAILED
+    assert deployment.unattempted == ("edge-c", "edge-d")
+    # And it reaches the operator, rather than only being available to ask for.
+    assert "edge-c, edge-d" in (deployment.detail or "")
+    assert "never attempted" in (deployment.detail or "")
+
+
+def test_a_drift_check_that_stopped_early_is_not_in_sync(settings, site_payload):
+    """An edge the check never got to is one we have no answer for."""
+    repository = Repository(settings.database_path)
+    partial = ansible_run(
+        host_run("edge-a", changed=0),
+        targeted=("edge-a", "edge-b"),
+    )
+    control = ControlPlane(settings, repository, FakeRunner([partial]))  # type: ignore[arg-type]
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    report = control.deployments.check_drift("alice")
+
+    assert report.unattempted == ("edge-b",)
+    assert report.in_sync is False
+
+
+def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_payload):
+    """The check runs on the machines that carry the traffic.
+
+    The controller's routes, resolver and egress rules are not the fleet's: an
+    origin allow-listing the edges refuses the controller while working
+    perfectly, and one reachable only from the controller's subnet passed the
+    old check and then 502'd on every edge. What the controller still owns is
+    *describing* the origin — port and SNI — so the two probes cannot disagree
+    about what a site's origin is.
+    """
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
+    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    report = control.edges.check_origins("alice", host_limit="edge-*")
+
+    sent, limit = fake.origin_checks[0]
+    assert limit == "edge-*"
+    assert sent[0]["origin_port"] == 443
+    assert sent[0]["origin_scheme"] == "https"
+    assert report.healthy is True
+    assert [edge.host for edge in report.reporting] == ["edge-a", "edge-b"]
+
+
+def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
+    """The distinction a single vantage point could never have made."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(
+            [
+                ansible_run(
+                    origin_report("edge-a"),
+                    origin_report("edge-b", reachable=False, detail="timed out"),
+                )
+            ]
+        ),  # type: ignore[arg-type]
+    )
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    report = control.edges.check_origins("alice")
+
+    assert report.healthy is False
+    assert report.failing_sites == {"cdn-example-com": ("edge-b",)}
+    assert report.silent == ()
+
+
+def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
+    """An edge that said nothing has not confirmed anything."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
+    )  # type: ignore[arg-type]
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    report = control.edges.check_origins("alice")
+
+    assert [edge.host for edge in report.silent] == ["edge-b"]
+    assert report.silent[0].error == "the edge published no report"
+
+
+def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
+    """The case startup recovery exists for: nobody is deploying."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    stranded = repository.deployments.create_deployment("alice", check_mode=False)
+
+    assert control.deployments.initialize() == 1
+    assert (
+        repository.deployments.get_deployment(stranded.id).status
+        is DeploymentStatus.ABANDONED
+    )
+
+
+def test_startup_recovery_leaves_a_live_deployment_alone(settings):
+    """Restarting the API must not rewrite a run another process is doing.
+
+    Status alone cannot distinguish "orphaned by a process that died" from
+    "being converged right now", and the second is ordinary: an upgrade
+    restarts the API while a CLI deploy is minutes into a run. Abandoning it
+    would rewrite the record of a deployment still changing edges, and its own
+    final transition would then fail against the status recovery had written.
+    """
+    repository = Repository(settings.database_path)
+
+    class BusyRunner(FakeRunner):
+        def lock(self):
+            raise DeploymentBusyError("another deployment is already running")
+
+    control = ControlPlane(settings, repository, BusyRunner())  # type: ignore[arg-type]
+    live = repository.deployments.create_deployment("alice", check_mode=False)
+
+    assert control.deployments.initialize() == 0
+    assert (
+        repository.deployments.get_deployment(live.id).status is DeploymentStatus.QUEUED
+    )
+
+
 def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_payload):
     repository = Repository(settings.database_path)
     release = threading.Event()
@@ -430,6 +643,53 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_paylo
 
     release.set()
     assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
+
+
+def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
+    """The queued path is the one that most needs a durable trace.
+
+    It answers before the convergence happens, so the run outlives the call
+    that started it and a restart in between is exactly what the workflow
+    journal exists to make legible. The synchronous path recorded one and this
+    one did not, which had it backwards.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings, repository, FakeRunner())  # type: ignore[arg-type]
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    queued = control.deployments.submit_deployment("alice")
+    assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
+
+    assert _await_workflow(repository, queued.id) is WorkflowStatus.SUCCEEDED
+    workflows = repository.workflows.list_workflows(10)
+    assert [workflow.kind for workflow in workflows] == [WorkflowKind.DEPLOYMENT]
+    assert workflows[0].resource_id == queued.id
+    assert [step.name for step in workflows[0].steps] == ["converged"]
+
+
+def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
+    """A workflow that succeeded while its deployment failed would mislead."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings,
+        repository,
+        FakeRunner(
+            [
+                ansible_run(
+                    host_run("edge-a", failed=1, failure="nginx -t refused it"),
+                    status=RunStatus.FAILED,
+                    return_code=2,
+                )
+            ]
+        ),
+    )  # type: ignore[arg-type]
+    repository.sites.create_site(CdnSite.model_validate(site_payload))
+
+    queued = control.deployments.submit_deployment("alice")
+    assert _await_terminal(repository, queued.id) is DeploymentStatus.FAILED
+
+    assert _await_workflow(repository, queued.id) is WorkflowStatus.FAILED
+    assert repository.workflows.list_workflows(10)[0].error
 
 
 def test_submit_rollback_reports_conflicts_synchronously(settings):
@@ -580,6 +840,26 @@ def _await_terminal(
             return status
         time.sleep(0.01)
     raise AssertionError(f"deployment {deployment_id} never finished")
+
+
+def _await_workflow(
+    repository: Repository, resource_id: str, timeout: float = 5.0
+) -> WorkflowStatus:
+    """Wait for the workflow covering a queued run to close.
+
+    A separate wait from `_await_terminal`: the deployment reaches a terminal
+    status inside the convergence, and the workflow closes around it, so the
+    two finish in that order and asserting on the second right after the first
+    is a race.
+    """
+    deadline = time.monotonic() + timeout
+    pending = {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}
+    while time.monotonic() < deadline:
+        for workflow in repository.workflows.list_workflows(10):
+            if workflow.resource_id == resource_id and workflow.status not in pending:
+                return workflow.status
+        time.sleep(0.01)
+    raise AssertionError(f"no workflow for {resource_id} finished")
 
 
 def test_upload_and_request_certificate_activate_managed_tls(
@@ -1212,7 +1492,7 @@ def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository)
 
-    result = control.edges.purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -1233,7 +1513,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     _site(control, repository)
 
     with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
-        control.edges.purge_cache(
+        control.cache.purge_cache(
             "alice", entries=[PurgeEntry(host="other.example.com", uri="/x")]
         )
     assert fake.purges == []
@@ -1246,7 +1526,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
     _site(control, repository, server="*.assets.example.com")
 
-    result = control.edges.purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(
@@ -1270,7 +1550,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     _site(control, repository)
 
     with pytest.raises(ConflictError, match="scheme"):
-        control.edges.purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(
@@ -1300,7 +1580,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     )
 
     with pytest.raises(ConflictError, match="scheme"):
-        control.edges.purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(
@@ -1327,7 +1607,7 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
     )
 
     with pytest.raises(NotFoundError):
-        control.edges.purge_cache(
+        control.cache.purge_cache(
             "alice", entries=[PurgeEntry(host="off.example.com", uri="/x")]
         )
 
@@ -1338,7 +1618,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     _site(control, repository)
 
     with pytest.raises(ConflictError):
-        control.edges.purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
@@ -1350,7 +1630,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
 def test_a_purge_with_nothing_to_do_is_refused(settings):
     control = ControlPlane(settings, Repository(settings.database_path), FakeRunner())  # type: ignore[arg-type]
     with pytest.raises(ConflictError):
-        control.edges.purge_cache("alice")
+        control.cache.purge_cache("alice")
 
 
 def test_purging_everything_needs_no_site_to_exist(settings):
@@ -1358,7 +1638,7 @@ def test_purging_everything_needs_no_site_to_exist(settings):
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings, Repository(settings.database_path), fake)  # type: ignore[arg-type]
 
-    result = control.edges.purge_cache("alice", purge_all=True)
+    result = control.cache.purge_cache("alice", purge_all=True)
 
     assert result.complete is True
     assert fake.purges[0][1] is True
@@ -1373,7 +1653,7 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
     control = ControlPlane(settings, repository, FakeRunner([partial]))  # type: ignore[arg-type]
     _site(control, repository)
 
-    result = control.edges.purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -1395,7 +1675,7 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
     _site(control, repository)
 
     with pytest.raises(ExecutionError, match="no edge reported"):
-        control.edges.purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
@@ -1408,7 +1688,7 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
     control = ControlPlane(settings, repository, FakeRunner([_purge_run()]))  # type: ignore[arg-type]
     _site(control, repository)
 
-    control.edges.purge_cache(
+    control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -1466,7 +1746,7 @@ def test_statistics_are_aggregated_across_the_fleet(settings):
         ),
     )
 
-    report = control.edges.cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert report.hit_ratio == 0.85
     assert {edge.host for edge in report.reporting} == {"edge-a", "edge-b"}
@@ -1486,7 +1766,7 @@ def test_an_edge_that_published_nothing_is_silent_rather_than_missing(settings):
         host_run("edge-b", ok=5),
     )
 
-    report = control.edges.cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert [edge.host for edge in report.reporting] == ["edge-a"]
@@ -1499,7 +1779,7 @@ def test_an_unreachable_edge_is_reported_as_unreachable(settings):
         host_run("edge-b", ok=0, unreachable=1),
     )
 
-    report = control.edges.cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert [(e.host, e.error) for e in report.silent] == [("edge-b", "unreachable")]
 
@@ -1512,7 +1792,7 @@ def test_an_edge_whose_stats_role_failed_is_not_counted(settings):
         host_run("edge-b", failure="collect-cache-stats.sh returned 1"),
     )
 
-    report = control.edges.cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert report.requests == 1
@@ -1539,7 +1819,7 @@ def test_a_malformed_edge_report_degrades_instead_of_raising(settings):
         ),
     )
 
-    report = control.edges.cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert report.requests == 1
     edge_b = next(edge for edge in report.edges if edge.host == "edge-b")
@@ -1556,7 +1836,7 @@ def test_statistics_are_recorded_in_the_audit_trail(settings):
         _reporting("edge-b", [{"site": "a", "outcome": "MISS", "requests": 1}]),
     )
 
-    control.edges.cache_stats("alice")
+    control.cache.cache_stats("alice")
     event = Repository(settings.database_path).audit_log.list_audit_events()[0]
 
     assert event.action == "cache.stats_collected"
@@ -1762,7 +2042,7 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     seen: list[dict[str, object]] = []
 
-    def capture(command, *, timeout, playbook):
+    def capture(command, *, timeout, playbook, targeted=()):
         path = Path(next(arg for arg in command if arg.startswith("@"))[1:])
         seen.append(yaml.safe_load(path.read_text(encoding="utf-8")))
         return _purge_run()
@@ -1804,8 +2084,8 @@ def test_a_collection_reads_only_its_own_run(settings):
     )
     control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
 
-    first = control.edges.cache_stats("alice")
-    second = control.edges.cache_stats("alice")
+    first = control.cache.cache_stats("alice")
+    second = control.cache.cache_stats("alice")
 
     assert first.requests == 1
     assert [edge.host for edge in first.reporting] == ["edge-a"]

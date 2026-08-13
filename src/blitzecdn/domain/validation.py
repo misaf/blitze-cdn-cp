@@ -147,3 +147,48 @@ def validate_edge_limit(value: str | None) -> str | None:
             "deploy, never widen it."
         )
     return candidate
+
+
+#: Variables the fleet-wide settings table may never set.
+#:
+#: Each is derived per host from the edge record or from desired state, and the
+#: inventory plugin publishes settings at *host* precedence — so a row named
+#: like one of these would win over the derived value for every edge at once.
+#: ``blitzecdn_firewall_ssh_port`` is the dangerous one: the firewall would
+#: close the port the next converge arrives on, and no later deploy could reach
+#: the host to put it back.
+RESERVED_ANSIBLE_SETTINGS = frozenset(
+    {
+        "blitzecdn_firewall_ssh_port",
+        "blitzecdn_firewall_ssh_sources",
+        "blitzecdn_public_addresses",
+        "blitzecdn_nginx_sites",
+    }
+)
+
+#: Substrings that mark a name as carrying a credential rather than policy.
+_SECRET_WORDS = ("password", "secret", "token", "key")
+
+#: The prefix every role variable this control plane owns already carries.
+#: Requiring it is what keeps a setting from reaching `ansible_host`,
+#: `ansible_user` or any other connection variable the inventory derives.
+_SETTING_PREFIX = "blitzecdn_"
+
+
+def validate_setting_name(value: str) -> str:
+    """Normalise a fleet-wide Ansible setting name, or raise ``ValueError``.
+
+    These rules used to live in the Typer callback behind ``blitzecdn config
+    set``, which made them a property of one entry point rather than of the
+    setting. Everything downstream — the store, and the inventory plugin that
+    publishes these rows to every host — behaved as though they had been
+    applied, so any second writer would have bypassed them silently.
+    """
+    candidate = value.strip()
+    if not candidate.startswith(_SETTING_PREFIX):
+        raise ValueError(f"setting names must start with {_SETTING_PREFIX!r}")
+    if candidate in RESERVED_ANSIBLE_SETTINGS:
+        raise ValueError(f"{candidate} is derived from edge or desired-state records")
+    if any(word in candidate.lower() for word in _SECRET_WORDS):
+        raise ValueError("secrets and keys belong in .env, not the database")
+    return candidate
