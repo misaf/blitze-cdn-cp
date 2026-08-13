@@ -260,6 +260,11 @@ def test_runner_validates_required_paths(settings):
         )
 
 
+# Runner 2.4.3 (the latest release) still uses codecs.open internally. Keep the
+# exception on this integration boundary only so all first-party warnings fail.
+@pytest.mark.filterwarnings(
+    r"ignore:codecs\.open\(\) is deprecated\. Use open\(\) instead\.:DeprecationWarning"
+)
 def test_real_ansible_runner_executes_a_syntax_check(settings, tmp_path):
     """Exercise the installed Runner boundary, not only its unit-test double."""
     executable = shutil.which("ansible-playbook")

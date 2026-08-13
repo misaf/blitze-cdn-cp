@@ -891,6 +891,12 @@ def test_standalone_bootstraps_only_what_ansible_needs():
         assert moved not in standalone, f"{moved} still runs in the installer"
 
 
+def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
+    """Bootstrap precedes the database, and teardown must not depend on it."""
+    for helper in ("converge_control_plane", "converge_uninstall"):
+        assert "-i localhost," in _function(helper)
+
+
 def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
