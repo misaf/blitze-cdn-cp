@@ -20,7 +20,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from blitzecdn import __version__
 from blitzecdn.api_models import (
@@ -67,6 +67,8 @@ from blitzecdn.domain.certificates import (
     CertificateRequest,
     CertificateStatus,
     PreflightReport,
+    ReconciliationResult,
+    RenewalResult,
 )
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
@@ -92,6 +94,11 @@ _LOGGER = logging.getLogger(__name__)
 #: a documented setting for a cadence nobody can reach from a config file would
 #: widen the published surface without widening what an operator can do.
 _OUTBOX_DISPATCH_INTERVAL_SECONDS = 30.0
+
+#: How many recent deployments `/metrics` counts by status. Bounded because the
+#: gauge is meant to answer "is the fleet converging" rather than to replay
+#: history, which the deployments route already serves.
+_METRICS_WINDOW = 100
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -147,7 +154,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                         result = ReconcileCertificatesCommand().execute(
                             control_plane, "scheduler"
                         )
-                        if result["issued"] or result["failed"]:
+                        if result.issued or result.failed:
                             _LOGGER.info("certificate reconciliation: %s", result)
                     except Exception:
                         _LOGGER.exception("scheduled certificate reconciliation failed")
@@ -262,8 +269,72 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _error_response(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
 
     @application.get("/health")
-    def health() -> dict[str, str]:
+    def health(response: Response) -> dict[str, str]:
+        """Whether this controller can actually answer, not merely respond.
+
+        It used to return ok unconditionally, which made it a check on uvicorn
+        rather than on the control plane: a database that had gone unreadable,
+        or one on a schema this release refuses, still reported healthy to
+        whatever was probing it. The cheapest honest question is whether
+        persistence answers, so that is what this asks.
+
+        503 rather than an error body, because the caller is a probe: it reads
+        the status and nothing else.
+        """
+        try:
+            control_plane.workflow_history.list_workflows(1)
+        except Exception as exc:
+            _LOGGER.exception("health check failed")
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"status": "unavailable", "detail": type(exc).__name__}
         return {"status": "ok"}
+
+    @application.get("/metrics", response_class=PlainTextResponse)
+    def metrics(_operator: operator_dependency) -> str:
+        """Prometheus text format, built from state the control plane already has.
+
+        Deliberately not a metrics *library*: everything here is a gauge read
+        at scrape time out of SQLite, so there are no counters to keep in
+        memory, nothing to reset on restart, and no second source of truth
+        about what happened. Authenticated like every other data route — the
+        fleet size and which certificates are close to expiry are not public.
+        """
+        recent = control_plane.deployments.list_deployments(_METRICS_WINDOW)
+        expiring = control_plane.certificates.expiring_certificates()
+        unrenewable = len([status_ for status_ in expiring if not status_.renewable])
+        by_status: dict[str, int] = {}
+        for deployment in recent:
+            by_status[deployment.status.value] = (
+                by_status.get(deployment.status.value, 0) + 1
+            )
+        lines = [
+            "# HELP blitzecdn_edges Registered edge servers.",
+            "# TYPE blitzecdn_edges gauge",
+            f"blitzecdn_edges {len(control_plane.edges.list_edges())}",
+            "# HELP blitzecdn_sites Derived virtual hosts.",
+            "# TYPE blitzecdn_sites gauge",
+            f"blitzecdn_sites {len(control_plane.dns.list_sites())}",
+            "# HELP blitzecdn_certificates_expiring Managed certificates near expiry.",
+            "# TYPE blitzecdn_certificates_expiring gauge",
+            f"blitzecdn_certificates_expiring {len(expiring)}",
+            "# HELP blitzecdn_certificates_unrenewable Expiring but not reissuable.",
+            "# TYPE blitzecdn_certificates_unrenewable gauge",
+            f"blitzecdn_certificates_unrenewable {unrenewable}",
+            "# HELP blitzecdn_deployments Deployments in the recent window, by status.",
+            "# TYPE blitzecdn_deployments gauge",
+        ]
+        lines.extend(
+            f'blitzecdn_deployments{{status="{state}"}} {by_status[state]}'
+            for state in sorted(by_status)
+        )
+        lines.extend(
+            [
+                "# HELP blitzecdn_outbox_undelivered Domain events awaiting delivery.",
+                "# TYPE blitzecdn_outbox_undelivered gauge",
+                f"blitzecdn_outbox_undelivered {control_plane.outbox.undelivered()}",
+            ]
+        )
+        return "\n".join(lines) + "\n"
 
     # Sites are derived from DNS records and are therefore read-only here.
     # Create, change, or remove a record instead; the site follows.
@@ -517,10 +588,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return control_plane.certificates.certificate_statuses()
         return control_plane.certificates.expiring_certificates(expiring_in)
 
-    @application.post("/v1/certificates/renew")
+    @application.post("/v1/certificates/renew", response_model=RenewalResult)
     async def renew_certificates(
         request: RenewRequest, operator: operator_dependency
-    ) -> dict[str, list[str]]:
+    ) -> RenewalResult:
         """Reissue ACME certificates close to expiry.
 
         Answers inline, but off the server's own thread pool and under a
@@ -544,6 +615,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             renewal_pool,
             functools.partial(command.execute, control_plane, operator),
         )
+
+    @application.post("/v1/certificates/reconcile", response_model=ReconciliationResult)
+    def reconcile_certificates(operator: operator_dependency) -> ReconciliationResult:
+        """Issue first certificates for ready sites, then install them.
+
+        The same operation the scheduler runs on
+        `certificate_reconcile_interval_seconds`, exposed so it can also be
+        asked for. It was reachable from the CLI and from the timer but not
+        over HTTP, which left API-driven operators with no way to say "do it
+        now" after fixing whatever was blocking preflight.
+
+        Eligibility is re-checked under the deployment lock, so this is safe to
+        call while the scheduler is running: only one of them can still see a
+        site as unissued and contact the CA.
+        """
+        return ReconcileCertificatesCommand().execute(control_plane, operator)
 
     @application.post(
         "/v1/sites/{name}/certificate/upload", response_model=CertificateInfo
