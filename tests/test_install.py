@@ -149,6 +149,18 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
     bindir.mkdir(exist_ok=True)
     (bindir / "systemctl").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
     (bindir / "nginx").write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+    process_marker = sandbox / "processes-terminated"
+    (bindir / "pgrep").write_text(
+        "#!/usr/bin/env bash\n"
+        f'[[ -n "${{PROCESS_HOLDERS:-}}" && ! -e "{process_marker}" ]] || exit 1\n'
+        'echo "123 ssh"\n',
+        encoding="utf-8",
+    )
+    (bindir / "pkill").write_text(
+        "#!/usr/bin/env bash\n"
+        f'touch "{process_marker}"\n',
+        encoding="utf-8",
+    )
     # userdel and getent share a marker directory so the pair behaves like a
     # real account database: getent stops resolving an account once userdel has
     # removed it. A stub that always resolved both could not tell a successful
@@ -1026,6 +1038,22 @@ def test_uninstall_succeeds_when_the_accounts_are_actually_removed(tmp_path: Pat
     assert result.returncode == 0, result.stdout + result.stderr
     assert "BlitzeCDN has been removed" in result.stdout
     assert "was not fully removed" not in result.stderr
+
+
+def test_uninstall_terminates_account_processes_before_userdel(tmp_path: Path):
+    """Persistent loopback SSH processes must not make uninstall fail."""
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    _fake_installation(root)
+
+    result = _run_sandboxed(
+        script, "--uninstall", "--yes", env_extra={"PROCESS_HOLDERS": "1"}
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (sandbox / "processes-terminated").exists()
+    assert "BlitzeCDN has been removed" in result.stdout
 
 
 def test_fresh_refuses_to_rebuild_on_a_half_removed_host(tmp_path: Path):
