@@ -26,7 +26,7 @@ from blitzecdn.infrastructure.models import Base
 
 #: The migration this code expects the database to be at. Must equal the head
 #: revision in ``migrations/versions``; ``tests/test_migrations.py`` checks it.
-SCHEMA_REVISION = "0001"
+SCHEMA_REVISION = "0002"
 
 #: The ambient Unit of Work. A ContextVar rather than ``threading.local`` so a
 #: transaction is scoped to the logical operation: queued deployments finish on
@@ -180,7 +180,7 @@ class Database:
         It is checked here because the failure it prevents is invisible in
         review and rare enough in testing to reach production first.
         """
-        if _SESSION.get() is None:
+        if self.current_session() is None:
             raise ValueError(
                 f"{operation} must run inside a Unit of Work: its "
                 "compare-and-swap is atomic only under the BEGIN IMMEDIATE "
@@ -251,8 +251,9 @@ class Database:
             raise ConfigurationError(
                 f"{self._path} is on an older schema and is missing "
                 f"{', '.join(sorted(missing))}. Run `blitzecdn db upgrade` to "
-                "migrate it. "
-                "Take a copy of the file first; the migration rewrites tables."
+                "migrate it, after `blitzecdn db backup` — the migration "
+                "rewrites tables, and a copy taken with `cp` while the API is "
+                "serving is not a consistent one."
             )
 
     def _stamp(self, revision: str) -> None:

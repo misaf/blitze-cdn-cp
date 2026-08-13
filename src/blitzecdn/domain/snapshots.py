@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -32,6 +33,18 @@ def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
         },
         sort_keys=True,
     )
+
+
+def snapshot_digest(snapshot: str) -> str:
+    """A short stable identity for a snapshot, for comparing two of them.
+
+    A rollback records the canonical state it started from so it can refuse to
+    adopt over a change made while it was running. Storing the digest rather
+    than a second copy of the snapshot keeps the row the size it was:
+    ``encode_snapshot`` sorts its keys, so equal desired state always produces
+    equal bytes and therefore an equal digest.
+    """
+    return hashlib.sha256(snapshot.encode("utf-8")).hexdigest()
 
 
 def decode_snapshot(snapshot: str) -> list[CdnSite]:

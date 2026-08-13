@@ -31,9 +31,13 @@ from blitzecdn.domain.operations import (
     WorkflowKind,
 )
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
-from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
+from blitzecdn.domain.snapshots import (
+    decode_snapshot,
+    decode_snapshot_zones,
+    snapshot_digest,
+)
 from blitzecdn.domain.validation import validate_edge_limit
-from blitzecdn.exceptions import DeploymentBusyError, ExecutionError
+from blitzecdn.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 from blitzecdn.ports import (
     BackgroundRunner,
     DeploymentRunner,
@@ -360,6 +364,7 @@ class DeploymentService:
         snapshot: str | None = None,
         rollback_of: str | None = None,
         host_limit: str | None = None,
+        canonical_digest: str | None = None,
     ) -> Deployment:
         """Record a QUEUED deployment. Callers must hold the deployment lock."""
         # Normalised before it is stored, so the record shows what actually ran
@@ -373,7 +378,13 @@ class DeploymentService:
                 rollback_of=rollback_of,
                 snapshot=snapshot,
                 host_limit=limit,
+                canonical_digest=canonical_digest,
             )
+            # Applied by whatever already writes, for the same reason run-log
+            # retention lives in the runner: a policy enforced by a timer of
+            # its own is one that silently stops being enforced when the unit
+            # was never installed.
+            self.deployments.prune_history(self.settings.history_retention)
             self.bus.publish(
                 domain_event(
                     operator,
@@ -398,6 +409,12 @@ class DeploymentService:
             check=check,
             snapshot=self.deployments.deployment_snapshot(target.id),
             rollback_of=target.id,
+            # What canonical state looks like right now. Adoption compares
+            # against this and refuses if a record was written while the
+            # rollback was converging — the deployment lock does not exclude
+            # record writes, and restoring wholesale over one would delete it
+            # with no conflict and nothing left to say it existed.
+            canonical_digest=snapshot_digest(self.deployments.snapshot()),
         )
 
     def _submit(
@@ -470,6 +487,35 @@ class DeploymentService:
             raise
         return deployment
 
+    def _require_unchanged_canonical(self, deployment: Deployment) -> None:
+        """Refuse to restore wholesale over a change made while we converged.
+
+        ``replace_all_records`` deletes every zone and record and writes the
+        snapshot's back, so anything created since the rollback was queued is
+        gone — and record writes deliberately do not take the deployment lock,
+        which means an ordinary ``blitzecdn record create`` during a
+        minutes-long fleet rollback is enough. Nothing conflicted, nothing
+        failed, and the audit trail showed the record being created and never
+        being removed.
+
+        Read inside the adoption transaction, which is ``BEGIN IMMEDIATE``, so
+        no writer can slip between this comparison and the restore. Raising
+        here aborts that transaction and the run finalises as FAILED: the edges
+        are converged to the old snapshot but canonical state is untouched, so
+        an operator can retry the rollback deliberately once they have seen
+        what changed.
+        """
+        if deployment.canonical_digest is None:
+            return
+        current = snapshot_digest(self.deployments.snapshot())
+        if current != deployment.canonical_digest:
+            raise ConflictError(
+                "desired state changed while this rollback was converging, so "
+                "adopting the older snapshot would delete whatever was written. "
+                "The edges were converged to it; canonical records were left "
+                "alone. Review the change and roll back again if it should go."
+            )
+
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
         """Run Ansible for a queued deployment. Callers must hold the lock."""
         check = deployment.check_mode
@@ -494,6 +540,7 @@ class DeploymentService:
                     # Canonical adoption is part of rollback success. If it
                     # fails, this transaction rolls back and the RUNNING row is
                     # subsequently finalized as FAILED by the exception path.
+                    self._require_unchanged_canonical(deployment)
                     domains, records = decode_snapshot_zones(snapshot)
                     self.zones.replace_all_records(domains, records)
                     self.dns.sync_sites()

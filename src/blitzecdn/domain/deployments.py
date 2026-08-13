@@ -102,6 +102,10 @@ class Deployment(BaseModel):
     #: skips limited runs.
     host_limit: str | None = None
     rollback_of: str | None = None
+    #: For a rollback: the canonical desired state it started from, as a digest.
+    #: Adoption refuses if canonical state no longer matches, because restoring
+    #: wholesale over a concurrent record write would delete it silently.
+    canonical_digest: str | None = None
     created_at: datetime
     started_at: datetime | None = None
     finished_at: datetime | None = None
