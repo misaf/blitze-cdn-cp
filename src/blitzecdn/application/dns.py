@@ -25,7 +25,12 @@ class DnsService:
     """The zone editor. Every other service reads sites this one derives."""
 
     def __init__(
-        self, zones: ZoneStore, sites: SiteStore, bus: EventBus, uow: UnitOfWork
+        self,
+        *,
+        zones: ZoneStore,
+        sites: SiteStore,
+        bus: EventBus,
+        uow: UnitOfWork,
     ) -> None:
         self.zones = zones
         self.sites = sites

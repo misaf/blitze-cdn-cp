@@ -401,9 +401,9 @@ def seeded(settings):
 
         repository = Repository(settings.database_path)
         control = ControlPlane(
-            settings,
-            repository,
-            runner or FakeRunner(),
+            settings=settings,
+            repository=repository,
+            runner=runner or FakeRunner(),
             preflight=FakePreflight(),
         )
         control.dns.create_domain(Domain(name="example.com"), "tester")
