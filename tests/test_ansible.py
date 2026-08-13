@@ -281,6 +281,44 @@ def test_real_ansible_runner_executes_a_syntax_check(settings, tmp_path):
     assert run.log_path is not None and Path(run.log_path).is_file()
 
 
+@pytest.mark.filterwarnings(
+    r"ignore:codecs\.open\(\) is deprecated\. Use open\(\) instead\.:DeprecationWarning"
+)
+def test_real_ansible_runner_keeps_the_structured_callback(settings, tmp_path):
+    """Runner's event callback must not displace the domain-result callback."""
+    executable = shutil.which("ansible-playbook")
+    if executable is None:
+        pytest.skip("ansible-playbook is not installed")
+    callback_dir = PROJECT_SRC.parent / "ansible/plugins/callback"
+    (settings.ansible_dir / "ansible.cfg").write_text(
+        "[defaults]\n"
+        f"callback_plugins = {callback_dir}\n"
+        "callbacks_enabled = blitzecdn_result\n",
+        encoding="utf-8",
+    )
+    settings.inventory_path.write_text(
+        "all:\n  children:\n    blitzecdn_edges:\n      hosts:\n"
+        "        edge-local:\n          ansible_connection: local\n",
+        encoding="utf-8",
+    )
+    settings.playbook_path.write_text(
+        "- hosts: blitzecdn_edges\n"
+        "  gather_facts: false\n"
+        "  tasks:\n"
+        "    - ansible.builtin.debug:\n"
+        "        msg: callback integration\n",
+        encoding="utf-8",
+    )
+    settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.generated_vars_path.write_text("{}\n", encoding="utf-8")
+    configured = settings.model_copy(update={"ansible_playbook": executable})
+
+    run = ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
+
+    assert [host.host for host in run.hosts] == ["edge-local"]
+    assert run.hosts[0].succeeded is True
+
+
 def test_runner_builds_acme_challenge_command(settings, monkeypatch):
     settings.acme_challenge_playbook_path.write_text(
         "- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8"

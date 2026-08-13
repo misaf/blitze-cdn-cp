@@ -449,6 +449,10 @@ class AnsibleRunner:
         environment["ANSIBLE_LOCAL_TEMP"] = str(
             self._settings.state_dir / "ansible-local"
         )
+        # Runner configures its own callback plumbing. State our aggregate
+        # callback explicitly so it remains enabled alongside Runner's event
+        # callback instead of relying only on callbacks_enabled in ansible.cfg.
+        environment["ANSIBLE_CALLBACKS_ENABLED"] = "blitzecdn_result"
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
