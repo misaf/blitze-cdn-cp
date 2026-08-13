@@ -8,8 +8,11 @@
 # directory, and the environment file, for both the direct and the sudo path.
 set -euo pipefail
 
+allow_empty_sites_override=${BLITZE_ALLOW_EMPTY_SITES-}
+
 if [[ $(id -un) != {{ blitzecdn_controlplane_service_user }} ]]; then
-  exec sudo -u {{ blitzecdn_controlplane_service_user }} -- "$0" "$@"
+  exec sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES \
+    -u {{ blitzecdn_controlplane_service_user }} -- "$0" "$@"
 fi
 
 set -a
@@ -18,6 +21,10 @@ if [[ -r {{ blitzecdn_controlplane_config_dir }}/blitzecdn.env ]]; then
   source {{ blitzecdn_controlplane_config_dir }}/blitzecdn.env
 fi
 set +a
+
+if [[ -n ${allow_empty_sites_override} ]]; then
+  BLITZE_ALLOW_EMPTY_SITES=${allow_empty_sites_override}
+fi
 
 exec env \
   PATH={{ blitzecdn_controlplane_install_dir }}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
