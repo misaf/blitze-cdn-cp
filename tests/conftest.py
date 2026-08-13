@@ -5,11 +5,13 @@ from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+import dramatiq
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
+from dramatiq.brokers.stub import StubBroker
 
 from blitzecdn.config import Settings
 from blitzecdn.domain.edges import Edge
@@ -21,6 +23,31 @@ from blitzecdn.domain.runs import (
     TaskResult,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
+from blitzecdn.infrastructure.queue import (
+    check_drift,
+    reconcile_certificates,
+    renew_certificates,
+    run_deployment,
+)
+
+
+@pytest.fixture(autouse=True)
+def dramatiq_stub_broker():
+    """Keep unit and API tests independent of an external Redis process."""
+    broker = StubBroker()
+    previous_broker = dramatiq.get_broker()
+    actors = (run_deployment, reconcile_certificates, renew_certificates, check_drift)
+    previous_actor_brokers = [actor.broker for actor in actors]
+    dramatiq.set_broker(broker)
+    for actor in actors:
+        actor.broker = broker
+        broker.declare_actor(actor)
+    try:
+        yield broker
+    finally:
+        dramatiq.set_broker(previous_broker)
+        for actor, previous in zip(actors, previous_actor_brokers, strict=True):
+            actor.broker = previous
 
 
 def host_run(
