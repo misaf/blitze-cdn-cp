@@ -30,6 +30,12 @@ class ExitCode(IntEnum):
     #: an edge it could not reach. Distinct from DEPLOYMENT_FAILED so a
     #: scheduled check can tell "the fleet moved" from "the check itself broke".
     DRIFT_DETECTED = 6
+    #: The thing asked about does not exist. The CLI's 404.
+    NOT_FOUND = 7
+    #: A deployment is already running. The one failure here that clears on its
+    #: own, so the one a scheduled caller should retry rather than alert on —
+    #: which is why it is not folded into CONFLICT.
+    BUSY = 8
 
 
 def settings() -> Settings:
@@ -57,7 +63,7 @@ def emit(value: Any, *, json_output: bool) -> None:
         typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
 
 
-def describe_hosts(hosts: Sequence[HostRun], *, verb: str = "would change") -> str:
+def describe_hosts(hosts: Sequence[HostRun]) -> str:
     """Render per-host results the way an operator wants to read them.
 
     Replaces echoing Ansible's own output. That output was thousands of lines
@@ -80,7 +86,7 @@ def describe_hosts(hosts: Sequence[HostRun], *, verb: str = "would change") -> s
         if not host.changed:
             lines.append(f"  {host.host}: in sync")
             continue
-        lines.append(f"  {host.host}: {verb} {host.changed} task(s)")
+        lines.append(f"  {host.host}: would change {host.changed} task(s)")
         lines.extend(f"      {change.task}" for change in host.changes)
     return "\n".join(lines)
 

@@ -29,7 +29,14 @@ from blitzecdn.cli import (
 from blitzecdn.cli.app import app, main
 from blitzecdn.cli.common import ExitCode, control_plane, emit, settings
 from blitzecdn.config import Settings
-from blitzecdn.exceptions import BlitzeError
+from blitzecdn.exceptions import (
+    BlitzeError,
+    ConfigurationError,
+    ConflictError,
+    DeploymentBusyError,
+    ExecutionError,
+    NotFoundError,
+)
 
 app.add_typer(zones.site_app, name="site")
 app.add_typer(edges.edge_app, name="edge")
@@ -63,6 +70,35 @@ __all__ = [
 ]
 
 
+#: How a failure reaches a script, mirroring the API's status mapping.
+#:
+#: The HTTP layer separates these deliberately — a conflict is not a bad
+#: request, and a dependency that misbehaved is not a controller that is down —
+#: and a caller driving the CLI needs the same distinction for the same reason.
+#: Every one of these used to exit `2`, so a systemd timer could not tell "a
+#: deployment is already running, come back shortly" from "you typed the site
+#: name wrong", and both looked like a usage error.
+#:
+#: Walked most-specific first, because `DeploymentBusyError` is a
+#: `ConflictError` and would otherwise be matched by its parent.
+_EXIT_CODES: tuple[tuple[type[BlitzeError], ExitCode], ...] = (
+    (DeploymentBusyError, ExitCode.BUSY),
+    (ConflictError, ExitCode.CONFLICT),
+    (NotFoundError, ExitCode.NOT_FOUND),
+    (ExecutionError, ExitCode.DEPLOYMENT_FAILED),
+    (ConfigurationError, ExitCode.CONFIGURATION),
+)
+
+
+def _exit_code(error: BaseException) -> ExitCode:
+    for kind, code in _EXIT_CODES:
+        if isinstance(error, kind):
+            return code
+    # A `BlitzeError` with no mapping above, or a ValidationError/OSError:
+    # the input or the environment was wrong in a way no command anticipated.
+    return ExitCode.INVALID_INPUT
+
+
 def run() -> None:
     try:
         app()
@@ -71,4 +107,4 @@ def run() -> None:
         # SystemExit, not typer.Exit: we are outside Click's invocation by the
         # time app() has raised, so a typer.Exit here is nothing but an
         # unhandled exception and prints a traceback over the message above.
-        raise SystemExit(ExitCode.INVALID_INPUT) from exc
+        raise SystemExit(_exit_code(exc)) from exc
