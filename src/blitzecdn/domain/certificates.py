@@ -8,6 +8,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from blitzecdn.domain.deployments import Deployment
 from blitzecdn.domain.validation import hostname
 
 
@@ -174,3 +175,48 @@ class CertificateRequest(BaseModel):
             raise ValueError("email must be a valid address")
         hostname(domain)
         return candidate
+
+
+class RenewalResult(BaseModel):
+    """The outcome of one renewal sweep, per site.
+
+    Three buckets rather than two, because "not renewed" has two very different
+    causes and only one of them needs a person. ``failed`` is a site the CA or
+    preflight refused; ``skipped`` is a site this run did not get to — the
+    budget ran out, the deployment lock was held, or the certificate is one
+    BlitzeCDN cannot reissue. A skipped site is picked up by the next run, so a
+    sweep full of them is slower renewal rather than missed renewal.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    renewed: tuple[str, ...] = ()
+    skipped: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
+
+    @property
+    def ok(self) -> bool:
+        return not self.failed
+
+
+class ReconciliationResult(BaseModel):
+    """First certificates issued for sites that were ready, and the deploy.
+
+    ``deployment`` is ``None`` when nothing was issued: reconciliation only
+    converges the fleet after it has something new to install, so a run that
+    found no eligible site changes nothing at all.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    issued: tuple[str, ...] = ()
+    #: Site name to the reason it was passed over — a blocking preflight, most
+    #: often, which is a fact about DNS rather than an error.
+    skipped: dict[str, str] = Field(default_factory=dict)
+    #: Site name to the reason issuance failed.
+    failed: dict[str, str] = Field(default_factory=dict)
+    deployment: Deployment | None = None
+
+    @property
+    def ok(self) -> bool:
+        return not self.failed

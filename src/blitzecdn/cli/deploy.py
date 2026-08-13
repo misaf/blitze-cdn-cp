@@ -7,10 +7,9 @@ from typing import Annotated
 import typer
 
 from blitzecdn.application.commands import (
-    CertificatePreflightCommand,
     CheckDriftCommand,
     DeployCommand,
-    RequestCertificateCommand,
+    ReconcileCertificatesCommand,
     RollbackCommand,
     ValidateCommand,
 )
@@ -18,7 +17,6 @@ from blitzecdn.cli import common
 from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.domain.deployments import DeploymentStatus
-from blitzecdn.domain.sites import CertificateMode
 
 
 @app.command()
@@ -96,39 +94,27 @@ def deploy(
         common.emit(result, json_output=json_output)
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
-    issued: list[str] = []
-    skipped: dict[str, str] = {}
-    certificate_deployment = None
     if request_certificates:
-        for site in control.dns.list_sites():
-            if site.certificate_mode is not CertificateMode.DISABLED:
-                continue
-            report = CertificatePreflightCommand(site.name).execute(control, "cli")
-            if not report.ok:
-                skipped[site.name] = report.summary()
-                continue
-            RequestCertificateCommand(site.name).execute(control, "cli")
-            issued.append(site.name)
-        if issued:
-            certificate_deployment = DeployCommand().execute(control, "cli")
-            if certificate_deployment.status is not DeploymentStatus.SUCCEEDED:
-                common.emit(certificate_deployment, json_output=json_output)
-                raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
-
-    if request_certificates:
+        # The same reconciliation the scheduler and `blitzecdn cert reconcile`
+        # run, rather than a second copy of the loop. The copy that used to
+        # live here lacked both of the things that make the real one safe: it
+        # never re-checked eligibility under the deployment lock, so two
+        # reconcilers could each contact the CA for one site, and one failing
+        # site aborted the rest instead of being recorded and stepped over.
+        reconciliation = ReconcileCertificatesCommand().execute(control, "cli")
         common.emit(
             {
                 "deployment": result.model_dump(mode="json"),
-                "certificates_issued": issued,
-                "certificates_skipped": skipped,
-                "certificate_deployment": (
-                    certificate_deployment.model_dump(mode="json")
-                    if certificate_deployment is not None
-                    else None
-                ),
+                "certificates": reconciliation.model_dump(mode="json"),
             },
             json_output=json_output,
         )
+        certificate_deployment = reconciliation.deployment
+        if reconciliation.failed or (
+            certificate_deployment is not None
+            and certificate_deployment.status is not DeploymentStatus.SUCCEEDED
+        ):
+            raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
     else:
         common.emit(result, json_output=json_output)
     if not json_output and limit:

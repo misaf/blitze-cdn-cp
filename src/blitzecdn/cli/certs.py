@@ -15,7 +15,7 @@ from blitzecdn.application.commands import (
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.domain.certificates import CERTIFICATE_RENEWAL_DAYS
-from blitzecdn.domain.deployments import Deployment, DeploymentStatus
+from blitzecdn.domain.deployments import DeploymentStatus
 
 cert_app = typer.Typer(
     no_args_is_help=True, help="Inspect and renew managed TLS certificates."
@@ -126,31 +126,28 @@ def cert_renew(
         within_days=expiring_in, force=force, sites=site or None
     ).execute(common.control_plane(), "cli")
     deployment = None
-    if deploy_after and result["renewed"] and not result["failed"]:
+    if deploy_after and result.renewed and not result.failed:
         deployment = DeployCommand().execute(common.control_plane(), "cli")
-    output: dict[str, Any] = result
+    output: dict[str, Any] = result.model_dump(mode="json")
     if deploy_after:
-        output = {
-            **result,
-            "deployment": (
-                deployment.model_dump(mode="json") if deployment is not None else None
-            ),
-        }
+        output["deployment"] = (
+            deployment.model_dump(mode="json") if deployment is not None else None
+        )
     common.emit(output, json_output=json_output)
     # Only the prose summary is suppressed under --json. The exit code below
     # still has to fire: --json is the scheduled-run path, and that is exactly
     # the caller that has nothing but the exit code to alert on.
     if not json_output:
-        if result["renewed"] and not deploy_after:
+        if result.renewed and not deploy_after:
             typer.echo(
-                f"\nRenewed {len(result['renewed'])} certificate(s). Run "
+                f"\nRenewed {len(result.renewed)} certificate(s). Run "
                 "'blitzecdn deploy' to install them on the edges."
             )
-        for problem in result["skipped"]:
+        for problem in result.skipped:
             typer.echo(f"  - {problem}", err=True)
-        for problem in result["failed"]:
+        for problem in result.failed:
             typer.echo(f"  - renewal failed: {problem}", err=True)
-    if result["failed"] or (
+    if result.failed or (
         deployment is not None and deployment.status is not DeploymentStatus.SUCCEEDED
     ):
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -167,17 +164,9 @@ def cert_reconcile(
     least one new certificate was issued.
     """
     result = ReconcileCertificatesCommand().execute(common.control_plane(), "cli")
-    deployment = result["deployment"]
-    if deployment is not None and not isinstance(deployment, Deployment):
-        raise RuntimeError("certificate reconciliation returned an invalid deployment")
-    document = {
-        **result,
-        "deployment": (
-            deployment.model_dump(mode="json") if deployment is not None else None
-        ),
-    }
-    common.emit(document, json_output=json_output)
-    if result["failed"] or (
+    common.emit(result, json_output=json_output)
+    deployment = result.deployment
+    if result.failed or (
         deployment is not None and deployment.status is not DeploymentStatus.SUCCEEDED
     ):
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)

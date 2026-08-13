@@ -14,7 +14,11 @@ from typer.testing import CliRunner
 
 from blitzecdn import cli
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.certificates import PreflightCheck, PreflightSeverity
+from blitzecdn.domain.certificates import (
+    PreflightCheck,
+    PreflightSeverity,
+    RenewalResult,
+)
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.runs import RunStatus
 from blitzecdn.domain.sites import CdnSite
@@ -173,7 +177,10 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
     with pytest.raises(SystemExit) as exit_info:
         cli.run()
 
-    assert exit_info.value.code == cli.ExitCode.INVALID_INPUT
+    # NOT_FOUND rather than INVALID_INPUT: the API answers 404 here, and a
+    # caller driving the CLI needs the same distinction. Everything used to
+    # exit 2, so "no such zone" and "bad flag" were the same answer.
+    assert exit_info.value.code == cli.ExitCode.NOT_FOUND
     assert "does not exist" in capsys.readouterr().err
 
 
@@ -361,19 +368,24 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
     repository = Repository(settings.database_path)
     site = CdnSite.model_validate(site_payload)
     repository.sites.create_site(site)
-    fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings, repository, fake)  # type: ignore[arg-type]
+    configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
+    fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
+    control = ControlPlane(configured, repository, fake)  # type: ignore[arg-type]
     report = FakePreflight().check(site, deployed=True, record_ttl=300)
     requested: list[str] = []
     monkeypatch.setattr(
         control.certificates, "certificate_preflight", lambda _name: report
     )
+    # Patched below the reconciliation rather than at `request_certificate`,
+    # because the CLI no longer drives issuance itself: it runs the same
+    # reconciliation the scheduler does, and this is where that reaches the CA.
     monkeypatch.setattr(
         control.certificates,
-        "request_certificate",
-        lambda name, _operator, *_args, **_kwargs: requested.append(name),
+        "_issue_certificate_locked",
+        lambda target, *_args, **_kwargs: requested.append(target.name),
     )
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "settings", lambda: configured)
 
     result = runner.invoke(
         cli.app, ["deploy", "--yes", "--request-certificates", "--json"]
@@ -382,8 +394,8 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert requested == [site.name]
-    assert payload["certificates_issued"] == [site.name]
-    assert payload["certificate_deployment"]["status"] == "succeeded"
+    assert payload["certificates"]["issued"] == [site.name]
+    assert payload["certificates"]["deployment"]["status"] == "succeeded"
 
 
 def test_deploy_refuses_certificate_issuance_for_a_canary(settings, monkeypatch):
@@ -413,11 +425,11 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
         control.certificates, "certificate_preflight", lambda _name: report
     )
 
-    def _unexpected_request(_name, _operator):
+    def _unexpected_request(*_args, **_kwargs):
         raise AssertionError("the CA must not be contacted after a blocked preflight")
 
     monkeypatch.setattr(
-        control.certificates, "request_certificate", _unexpected_request
+        control.certificates, "_issue_certificate_locked", _unexpected_request
     )
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
@@ -427,9 +439,9 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["certificates_issued"] == []
-    assert "dns" in payload["certificates_skipped"][site.name]
-    assert payload["certificate_deployment"] is None
+    assert payload["certificates"]["issued"] == []
+    assert "dns" in payload["certificates"]["skipped"][site.name]
+    assert payload["certificates"]["deployment"] is None
 
 
 def test_interactive_deploy_validates_previews_and_applies(
@@ -663,11 +675,9 @@ def test_doctor_surfaces_certificates_close_to_expiry(
 
 def _renewal(*, renewed=(), skipped=(), failed=()):
     """Stand in for a real renewal run, which would reach a CA over the network."""
-    return {
-        "renewed": list(renewed),
-        "skipped": list(skipped),
-        "failed": list(failed),
-    }
+    return RenewalResult(
+        renewed=tuple(renewed), skipped=tuple(skipped), failed=tuple(failed)
+    )
 
 
 def test_cert_renew_points_at_the_deploy_that_installs_the_result(
@@ -1070,7 +1080,7 @@ def test_site_show_reports_an_unknown_site_without_a_traceback(settings, monkeyp
     with pytest.raises(SystemExit) as exit_info:
         cli.run()
 
-    assert exit_info.value.code == cli.ExitCode.INVALID_INPUT
+    assert exit_info.value.code == cli.ExitCode.NOT_FOUND
 
 
 def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
@@ -1230,7 +1240,7 @@ def test_cache_purge_reports_an_unserved_host_without_a_traceback(
     with pytest.raises(SystemExit) as exit_info:
         cli.run()
 
-    assert exit_info.value.code == cli.ExitCode.INVALID_INPUT
+    assert exit_info.value.code == cli.ExitCode.NOT_FOUND
 
 
 def _stats_runner(*hosts):
