@@ -6,49 +6,146 @@ import shlex
 import tomllib
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, Self
+from typing import Self
 
 from pydantic import Field, RedisDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from blitzecdn.exceptions import ConfigurationError
 
+_PATH_SETTINGS = (
+    ("ansible_dir", "BLITZE_ANSIBLE_DIR", "ansible_dir", "ansible"),
+    (
+        "inventory_path",
+        "BLITZE_INVENTORY",
+        "inventory_path",
+        "ansible/inventory/blitzecdn.yml",
+    ),
+    ("playbook_path", "BLITZE_PLAYBOOK", "playbook_path", "ansible/playbooks/edge.yml"),
+    (
+        "acme_challenge_playbook_path",
+        "BLITZE_ACME_CHALLENGE_PLAYBOOK",
+        "acme_challenge_playbook_path",
+        "ansible/playbooks/acme-challenge.yml",
+    ),
+    (
+        "cache_purge_playbook_path",
+        "BLITZE_CACHE_PURGE_PLAYBOOK",
+        "cache_purge_playbook_path",
+        "ansible/playbooks/cache-purge.yml",
+    ),
+    (
+        "stats_playbook_path",
+        "BLITZE_STATS_PLAYBOOK",
+        "stats_playbook_path",
+        "ansible/playbooks/stats.yml",
+    ),
+    (
+        "origin_check_playbook_path",
+        "BLITZE_ORIGIN_CHECK_PLAYBOOK",
+        "origin_check_playbook_path",
+        "ansible/playbooks/origin-check.yml",
+    ),
+    (
+        "decommission_playbook_path",
+        "BLITZE_DECOMMISSION_PLAYBOOK",
+        "decommission_playbook_path",
+        "ansible/playbooks/decommission.yml",
+    ),
+)
+
+_STATE_PATH_SETTINGS = (
+    ("database_path", "BLITZE_DATABASE_PATH", "database_path", "control-plane.db"),
+    (
+        "generated_vars_path",
+        "BLITZE_GENERATED_VARS",
+        "generated_vars_path",
+        "desired-state.yml",
+    ),
+    (
+        "deployment_lock_path",
+        "BLITZE_DEPLOYMENT_LOCK",
+        "deployment_lock_path",
+        "deployment.lock",
+    ),
+    ("certificate_dir", "BLITZE_CERTIFICATE_DIR", "certificate_dir", "certificates"),
+)
+
+_VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
+    (
+        "ansible_playbook",
+        "BLITZE_ANSIBLE_PLAYBOOK",
+        "ansible_playbook",
+        "ansible-playbook",
+    ),
+    ("certbot", "BLITZE_CERTBOT", "certbot", "certbot"),
+    (
+        "deployment_timeout_seconds",
+        "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
+        "deployment_timeout_seconds",
+        900,
+    ),
+    (
+        "output_limit_bytes",
+        "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
+        "output_limit_bytes",
+        1_048_576,
+    ),
+    ("run_log_retention", "BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500),
+    ("history_retention", "BLITZE_HISTORY_RETENTION", "history_retention", 1000),
+    (
+        "preflight_dns_timeout_seconds",
+        "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
+        "preflight_dns_timeout_seconds",
+        5,
+    ),
+    ("allow_empty_sites", "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites", False),
+    (
+        "origin_check_timeout_seconds",
+        "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
+        "origin_check_timeout_seconds",
+        5,
+    ),
+    (
+        "certificate_reconcile_interval_seconds",
+        "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
+        "certificate_reconcile_interval_seconds",
+        600,
+    ),
+    (
+        "certificate_renewal_interval_seconds",
+        "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS",
+        "certificate_renewal_interval_seconds",
+        43_200,
+    ),
+    (
+        "drift_check_interval_seconds",
+        "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
+        "drift_check_interval_seconds",
+        3600,
+    ),
+    ("redis_url", "BLITZE_REDIS_URL", "redis_url", "redis://127.0.0.1:6379/0"),
+    (
+        "certificate_renewal_budget_seconds",
+        "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS",
+        "certificate_renewal_budget_seconds",
+        300,
+    ),
+    (
+        "certificate_renewal_workers",
+        "BLITZE_CERTIFICATE_RENEWAL_WORKERS",
+        "certificate_renewal_workers",
+        2,
+    ),
+    ("maxmind_account_id", "BLITZE_MAXMIND_ACCOUNT_ID", "maxmind_account_id", ""),
+)
+
 _PROJECT_KEYS = {
+    *(spec[2] for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)),
     "state_dir",
-    "database_path",
-    "ansible_dir",
-    "inventory_path",
-    "playbook_path",
-    "generated_vars_path",
-    "deployment_lock_path",
-    "ansible_playbook",
-    "deployment_timeout_seconds",
-    "output_limit_bytes",
-    "run_log_retention",
-    "history_retention",
-    "allow_empty_sites",
-    "certificate_dir",
-    "acme_challenge_playbook_path",
-    "cache_purge_playbook_path",
-    "stats_playbook_path",
-    "origin_check_playbook_path",
-    "decommission_playbook_path",
-    "certbot",
     "acme_default_email",
     "acme_ca_domain",
-    "origin_check_timeout_seconds",
-    "preflight_dns_timeout_seconds",
     "preflight_dns_servers",
-    "certificate_reconcile_interval_seconds",
-    "certificate_renewal_interval_seconds",
-    "drift_check_interval_seconds",
-    "redis_url",
-    "certificate_renewal_budget_seconds",
-    "certificate_renewal_workers",
-    # The MaxMind account ID is an identifier and belongs here. Its license key
-    # deliberately does not: an unlisted key is rejected outright, so putting a
-    # credential in the committed TOML fails loudly rather than being ignored.
-    "maxmind_account_id",
 }
 
 
@@ -253,7 +350,22 @@ class Settings(BaseSettings):
             Path(env.get("BLITZE_CONFIG", root / "blitzecdn.toml"))
         )
 
-        def value(environment_name: str, config_name: str, default: object) -> Any:
+        try:
+            values = cls._configuration_values(env, project_config, root)
+            return cls.model_validate(values)
+        except (TypeError, ValueError) as exc:
+            raise ConfigurationError(f"invalid BlitzeCDN configuration: {exc}") from exc
+
+    @classmethod
+    def _configuration_values(
+        cls,
+        env: Mapping[str, str],
+        project_config: Mapping[str, object],
+        root: Path,
+    ) -> dict[str, object]:
+        """Resolve every supported source into one validated model payload."""
+
+        def value(environment_name: str, config_name: str, default: object) -> object:
             return env.get(environment_name, project_config.get(config_name, default))
 
         def path_value(environment_name: str, config_name: str, default: Path) -> Path:
@@ -261,166 +373,38 @@ class Settings(BaseSettings):
             return candidate if candidate.is_absolute() else root / candidate
 
         state = path_value("BLITZE_STATE_DIR", "state_dir", root / ".state")
-        keys = cls._read_api_keys(env)
-        try:
-            return cls(
-                project_dir=root,
-                state_dir=state,
-                database_path=path_value(
-                    "BLITZE_DATABASE_PATH",
-                    "database_path",
-                    state / "control-plane.db",
-                ),
-                ansible_dir=path_value(
-                    "BLITZE_ANSIBLE_DIR", "ansible_dir", root / "ansible"
-                ),
-                inventory_path=path_value(
-                    "BLITZE_INVENTORY",
-                    "inventory_path",
-                    root / "ansible/inventory/blitzecdn.yml",
-                ),
-                playbook_path=path_value(
-                    "BLITZE_PLAYBOOK",
-                    "playbook_path",
-                    root / "ansible/playbooks/edge.yml",
-                ),
-                generated_vars_path=path_value(
-                    "BLITZE_GENERATED_VARS",
-                    "generated_vars_path",
-                    state / "desired-state.yml",
-                ),
-                deployment_lock_path=path_value(
-                    "BLITZE_DEPLOYMENT_LOCK",
-                    "deployment_lock_path",
-                    state / "deployment.lock",
-                ),
-                certificate_dir=path_value(
-                    "BLITZE_CERTIFICATE_DIR",
-                    "certificate_dir",
-                    state / "certificates",
-                ),
-                acme_challenge_playbook_path=path_value(
-                    "BLITZE_ACME_CHALLENGE_PLAYBOOK",
-                    "acme_challenge_playbook_path",
-                    root / "ansible/playbooks/acme-challenge.yml",
-                ),
-                cache_purge_playbook_path=path_value(
-                    "BLITZE_CACHE_PURGE_PLAYBOOK",
-                    "cache_purge_playbook_path",
-                    root / "ansible/playbooks/cache-purge.yml",
-                ),
-                stats_playbook_path=path_value(
-                    "BLITZE_STATS_PLAYBOOK",
-                    "stats_playbook_path",
-                    root / "ansible/playbooks/stats.yml",
-                ),
-                origin_check_playbook_path=path_value(
-                    "BLITZE_ORIGIN_CHECK_PLAYBOOK",
-                    "origin_check_playbook_path",
-                    root / "ansible/playbooks/origin-check.yml",
-                ),
-                decommission_playbook_path=path_value(
-                    "BLITZE_DECOMMISSION_PLAYBOOK",
-                    "decommission_playbook_path",
-                    root / "ansible/playbooks/decommission.yml",
-                ),
-                ansible_playbook=str(
-                    value(
-                        "BLITZE_ANSIBLE_PLAYBOOK",
-                        "ansible_playbook",
-                        "ansible-playbook",
-                    )
-                ),
-                certbot=str(value("BLITZE_CERTBOT", "certbot", "certbot")),
-                acme_default_email=(
-                    str(raw_email).strip().lower()
-                    if (
-                        raw_email := value(
-                            "BLITZE_ACME_DEFAULT_EMAIL", "acme_default_email", ""
-                        )
-                    )
-                    else None
-                ),
-                deployment_timeout_seconds=value(
-                    "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
-                    "deployment_timeout_seconds",
-                    900,
-                ),
-                output_limit_bytes=value(
-                    "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
-                    "output_limit_bytes",
-                    1_048_576,
-                ),
-                run_log_retention=value(
-                    "BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500
-                ),
-                history_retention=value(
-                    "BLITZE_HISTORY_RETENTION", "history_retention", 1000
-                ),
-                acme_ca_domain=str(
-                    value("BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org")
-                )
-                .strip()
-                .lower()
-                .rstrip("."),
-                preflight_dns_timeout_seconds=value(
-                    "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
-                    "preflight_dns_timeout_seconds",
-                    5,
-                ),
-                preflight_dns_servers=cls._read_dns_servers(
-                    value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
-                ),
-                allow_empty_sites=value(
-                    "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites", False
-                ),
-                origin_check_timeout_seconds=value(
-                    "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
-                    "origin_check_timeout_seconds",
-                    5,
-                ),
-                certificate_reconcile_interval_seconds=value(
-                    "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
-                    "certificate_reconcile_interval_seconds",
-                    600,
-                ),
-                certificate_renewal_interval_seconds=value(
-                    "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS",
-                    "certificate_renewal_interval_seconds",
-                    43_200,
-                ),
-                drift_check_interval_seconds=value(
-                    "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
-                    "drift_check_interval_seconds",
-                    3600,
-                ),
-                redis_url=value(
-                    "BLITZE_REDIS_URL", "redis_url", "redis://127.0.0.1:6379/0"
-                ),
-                certificate_renewal_budget_seconds=value(
-                    "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS",
-                    "certificate_renewal_budget_seconds",
-                    300,
-                ),
-                certificate_renewal_workers=value(
-                    "BLITZE_CERTIFICATE_RENEWAL_WORKERS",
-                    "certificate_renewal_workers",
-                    2,
-                ),
-                maxmind_account_id=str(
-                    value("BLITZE_MAXMIND_ACCOUNT_ID", "maxmind_account_id", "")
-                ),
-                # Environment-only, like the API keys: a secret must not be a
-                # valid key in the committed blitzecdn.toml. The account ID
-                # above is an identifier, not a credential, so it may live
-                # there.
-                maxmind_license_key=SecretStr(
-                    env.get("BLITZE_MAXMIND_LICENSE_KEY", "")
-                ),
-                api_keys=keys,
+        values: dict[str, object] = {"project_dir": root, "state_dir": state}
+        for field, environment_name, config_name, relative_default in _PATH_SETTINGS:
+            values[field] = path_value(
+                environment_name, config_name, root / relative_default
             )
-        except (TypeError, ValueError) as exc:
-            raise ConfigurationError(f"invalid BlitzeCDN configuration: {exc}") from exc
+        for (
+            field,
+            environment_name,
+            config_name,
+            relative_default,
+        ) in _STATE_PATH_SETTINGS:
+            values[field] = path_value(
+                environment_name, config_name, state / relative_default
+            )
+        for field, environment_name, config_name, default in _VALUE_SETTINGS:
+            values[field] = value(environment_name, config_name, default)
+
+        raw_email = value("BLITZE_ACME_DEFAULT_EMAIL", "acme_default_email", "")
+        values.update(
+            acme_default_email=(str(raw_email).strip().lower() if raw_email else None),
+            acme_ca_domain=value(
+                "BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org"
+            ),
+            preflight_dns_servers=cls._read_dns_servers(
+                value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
+            ),
+            # Secrets are intentionally environment-only; committed TOML keys
+            # with either name remain rejected by `_read_project_config`.
+            maxmind_license_key=SecretStr(env.get("BLITZE_MAXMIND_LICENSE_KEY", "")),
+            api_keys=cls._read_api_keys(env),
+        )
+        return values
 
     @staticmethod
     def _with_local_environment(
