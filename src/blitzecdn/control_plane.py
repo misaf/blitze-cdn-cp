@@ -92,26 +92,56 @@ class ControlPlane:
             settings.database_path, pool_connections=pool_connections
         )
         self._owned_repository = store if repository is None else None
+        self._wire_adapters(
+            store=store,
+            runner=runner,
+            certificate_store=certificate_store,
+            issuer=issuer,
+            origin_probe=origin_probe,
+            preflight=preflight,
+            edges_store=edges_store,
+            background=background,
+            broker_ready=broker_ready,
+        )
+        self._wire_services(store)
+
+    def _wire_adapters(
+        self,
+        *,
+        store: Repository,
+        runner: DeploymentRunner | None,
+        certificate_store: CertificateStorePort | None,
+        issuer: Issuer | None,
+        origin_probe: OriginProbePort | None,
+        preflight: Preflight | None,
+        edges_store: EdgeStorePort | None,
+        background: BackgroundRunner | QueueBackgroundRunner | None,
+        broker_ready: Callable[[str], bool] | None,
+    ) -> None:
+        """Choose concrete outside-world capabilities and their test overrides."""
         # The fleet, and the rows the `blitzecdn` Ansible inventory plugin reads
         # for itself at the start of every run. Both the runner and preflight
         # take it so that "which edges exist" has exactly one answer, whoever is
         # asking and whichever process they are in.
         self.edges_store = edges_store or store.edges
         self.ansible_settings = store.ansible_settings
-        self.runner = runner or AnsibleRunner(settings, self.edges_store)
-        self.certificate_store = certificate_store or CertificateStore(settings)
-        self.issuer = issuer or CertbotIssuer(settings)
-        self.origin_probe = origin_probe or OriginProbe(settings)
+        self.runner = runner or AnsibleRunner(self.settings, self.edges_store)
+        self.certificate_store = certificate_store or CertificateStore(self.settings)
+        self.issuer = issuer or CertbotIssuer(self.settings)
+        self.origin_probe = origin_probe or OriginProbe(self.settings)
         self.preflight = preflight or CertificatePreflight(
-            settings, self.edges_store, origin_probe=self.origin_probe
+            self.settings, self.edges_store, origin_probe=self.origin_probe
         )
         self.background = background or DramatiqBackgroundRunner(
-            str(settings.redis_url)
+            str(self.settings.redis_url)
         )
         readiness_probe = broker_ready or redis_ready
         self._broker_ready: Callable[[], bool] = lambda: readiness_probe(
-            str(settings.redis_url)
+            str(self.settings.redis_url)
         )
+
+    def _wire_services(self, store: Repository) -> None:
+        """Build cross-cutting services, then feature-oriented services."""
 
         # The audit trail as a read-only port. It is written by the observer
         # below, never by a caller, so nothing here can record an event no
@@ -125,7 +155,7 @@ class ControlPlane:
         self.workflows = WorkflowCoordinator(
             journal=store.workflows,
             uow=store,
-            retention=settings.history_retention,
+            retention=self.settings.history_retention,
         )
         self.workflow_history = store.workflows
         self.deployment_requirements = store.deployment_requirements
@@ -139,13 +169,17 @@ class ControlPlane:
             bus=self.bus,
             uow=store,
         )
+        self._wire_feature_services(store)
+
+    def _wire_feature_services(self, store: Repository) -> None:
+        """Build deployment, certificate, edge, and cache capabilities."""
         renderer = DesiredStateRenderer(
-            settings=settings,
+            settings=self.settings,
             certificates=self.certificate_store,
             write_yaml=atomic_write_yaml,
         )
         self.deployments = DeploymentService(
-            settings=settings,
+            settings=self.settings,
             persistence=DeploymentPersistence(
                 deployments=store.deployments,
                 zones=store.zones,
@@ -165,7 +199,7 @@ class ControlPlane:
             drift=DriftInterpreter(),
         )
         self.certificates = CertificateService(
-            settings=settings,
+            settings=self.settings,
             persistence=CertificatePersistence(
                 sites=store.sites,
                 certificates=self.certificate_store,
