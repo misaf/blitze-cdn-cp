@@ -235,6 +235,16 @@ class DeploymentRow(Base):
     #: Opaque here on purpose — its shape is versioned by
     #: :mod:`blitzecdn.domain.snapshots`, not by this schema.
     snapshot: Mapped[str]
+    #: For a rollback: a digest of the canonical desired state as it stood when
+    #: this rollback was queued. Adoption compares it against canonical state
+    #: again and refuses if it moved, because ``replace_all_records`` restores
+    #: wholesale and would otherwise delete a record written while the rollback
+    #: was converging — silently, with nothing left to say it existed.
+    #:
+    #: A digest rather than a second snapshot: these rows already carry a full
+    #: copy of desired state, and all this needs to answer is "the same or not".
+    #: ``NULL`` on an ordinary deployment, which adopts nothing.
+    canonical_digest: Mapped[str | None]
 
 
 class AuditEventRow(Base):

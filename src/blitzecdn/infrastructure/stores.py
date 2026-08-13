@@ -504,6 +504,7 @@ class DeploymentStore:
         rollback_of: str | None = None,
         snapshot: str | None = None,
         host_limit: str | None = None,
+        canonical_digest: str | None = None,
     ) -> Deployment:
         deployment_id = uuid4().hex
         with self._db.session() as session:
@@ -516,6 +517,7 @@ class DeploymentStore:
                 created_at=self._db.now(),
                 snapshot=snapshot or self._snapshot_source(),
                 host_limit=host_limit,
+                canonical_digest=canonical_digest,
             )
             session.add(row)
             session.flush()
@@ -621,6 +623,38 @@ class DeploymentStore:
                 )
             )
 
+    def prune_history(self, keep: int) -> int:
+        """Drop the oldest check-mode deployments beyond the newest ``keep``.
+
+        Only check-mode rows. A real deployment is history an operator reads
+        after an incident and, more to the point, is what
+        :meth:`successful_rollback_target` chooses from — pruning one could
+        remove the snapshot the fleet needs to go back to. Check-mode runs can
+        never be that: rollback selection filters them out.
+
+        They are also the ones that accumulate. The drift timer fires hourly
+        and each firing writes a row carrying a *complete* copy of every zone
+        and record, so this table grows by a full desired state every hour
+        whether or not anything changed. Run-log retention exists for the same
+        reason on the same schedule; this is that policy applied to the rows.
+        """
+        with self._db.session() as session:
+            survivors = (
+                select(DeploymentRow.id)
+                .where(DeploymentRow.check_mode.is_(True))
+                .order_by(DeploymentRow.created_at.desc())
+                .limit(keep)
+                .scalar_subquery()
+            )
+            return _rows_affected(
+                session.execute(
+                    delete(DeploymentRow).where(
+                        DeploymentRow.check_mode.is_(True),
+                        DeploymentRow.id.not_in(survivors),
+                    )
+                )
+            )
+
     def successful_rollback_target(self, current_snapshot: str) -> Deployment:
         # `host_limit IS NULL` keeps canaries out of the automatic choice. A
         # limited run only proves one edge reached that snapshot, so rolling
@@ -652,6 +686,7 @@ class DeploymentStore:
                 "check_mode": row.check_mode,
                 "host_limit": row.host_limit,
                 "rollback_of": row.rollback_of,
+                "canonical_digest": row.canonical_digest,
                 "created_at": row.created_at,
                 "started_at": row.started_at,
                 "finished_at": row.finished_at,

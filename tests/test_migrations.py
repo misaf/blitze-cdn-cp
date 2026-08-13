@@ -89,6 +89,32 @@ def test_an_unmigrated_database_is_refused_rather_than_half_used(tmp_path):
     assert "edges.port" in str(error.value)
 
 
+def test_upgrading_from_the_first_revision_adds_the_rollback_guard(tmp_path):
+    """The upgrade path a running installation actually takes.
+
+    `create_all` builds the newest schema from the models, so it would pass
+    even if the migration script did nothing. This walks the revisions the way
+    an existing database does — stop at 0001, then step forward — which is the
+    only way to find out whether 0002 carries its own change.
+    """
+    path = tmp_path / "control-plane.db"
+    command.upgrade(_config(path), "0001")
+    connection = sqlite3.connect(path)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(deployments)")}
+    connection.close()
+    assert "canonical_digest" not in columns
+
+    command.upgrade(_config(path), "head")
+
+    connection = sqlite3.connect(path)
+    columns = {row[1] for row in connection.execute("PRAGMA table_info(deployments)")}
+    connection.close()
+    assert "canonical_digest" in columns
+    assert current_revision(path) == SCHEMA_REVISION
+    # And the upgraded file is usable rather than merely shaped right.
+    Repository(path).deployments.list_deployments()
+
+
 def test_a_database_missing_a_whole_table_is_refused_too(tmp_path):
     """The other half of "one migration behind", and the quieter one.
 
