@@ -4,18 +4,19 @@ Every application decision about a run — did it converge, which edges drifted,
 which host still serves a purged object, whether an edge is safe to forget — is
 made from these models and from nothing else.
 
-They are populated by the ``blitzecdn_result`` callback plugin, which is handed
-a path of its own for each invocation and writes a JSON document there. The raw
-Ansible output goes to a per-run log file that no application code reads: it
-exists for an operator, and for the one case structured output cannot cover —
-a process that died before Ansible could report anything.
+They are populated from Ansible Runner's structured event stream. The
+``blitzecdn_result`` callback also writes a per-invocation JSON document as a
+compatibility fallback. Raw Ansible output goes to a per-run log file that no
+application code reads: it exists for an operator, and for the one case
+structured output cannot cover — a process that died before Ansible could
+report anything.
 
 The reason for the split is that Ansible's human-facing output is not an
 interface. Reading the desired state back out of ``PLAY RECAP`` meant a run
 that failed *inside* a task and a run that failed to start looked similar; it
 could count how many tasks would change but never say which; and any release
 that reworded a line would have quietly changed what the control plane
-believed. A callback sees the task objects themselves.
+believed. Runner events expose the task objects themselves.
 """
 
 from __future__ import annotations

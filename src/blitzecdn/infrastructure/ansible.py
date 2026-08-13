@@ -1,9 +1,10 @@
 """Running Ansible, and turning what it reports into domain models.
 
-Every invocation produces two artefacts. The ``blitzecdn_result`` callback
-writes a JSON document to a path belonging to that run, which this module reads
-into an :class:`~blitzecdn.domain.runs.AnsibleRun` — that is the only thing the
-application layer sees. The raw terminal output goes to a log file under
+Every invocation produces two artefacts. An Ansible Runner event handler turns
+structured task and recap events into an
+:class:`~blitzecdn.domain.runs.AnsibleRun` — that is the only thing the
+application layer sees. The ``blitzecdn_result`` callback document remains a
+compatibility fallback. Raw terminal output goes to a log file under
 ``state_dir/logs`` that nothing here parses; it is kept so an operator has the
 full account of a run, and so a process that died before Ansible could report
 anything still leaves evidence behind.
@@ -562,8 +563,8 @@ class AnsibleRunner:
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
-        # Where blitzecdn_result writes this run's document. Per-run, so two
-        # unlocked runs cannot overwrite each other's results.
+        # Where the compatibility callback writes this run's document. Per-run,
+        # so two unlocked runs cannot overwrite each other's results.
         environment["BLITZE_RESULT_PATH"] = str(result_path)
         # Where the `blitzecdn` inventory plugin reads the fleet from. Absolute,
         # because Ansible runs with cwd set to `ansible_dir` and the configured
