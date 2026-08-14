@@ -13,6 +13,13 @@ def test_json_formatter_and_configuration():
     assert payload["level"] == "info"
     configure_logging(verbose=True, json_output=True)
     assert logging.getLogger().level == logging.DEBUG
+    assert logging.getLogger("alembic").level == logging.NOTSET
+
+
+def test_normal_logging_keeps_routine_migration_chatter_out_of_cli_output():
+    configure_logging()
+
+    assert logging.getLogger("alembic").level == logging.WARNING
 
 
 def test_context_attached_by_a_caller_survives_formatting():
