@@ -261,6 +261,20 @@
     - blitzecdn_controlplane_environment.stat.exists
     - blitzecdn_controlplane_acme_email | length > 0
 
+# The API and worker both open the repository during startup. Letting systemd
+# start them against an empty installation would make those two processes and
+# the installer's handoff race to run Alembic. Schema ownership remains in the
+# Python application; Ansible only establishes the ordering boundary.
+- name: Initialize the application schema before starting services
+  ansible.builtin.command:
+    argv:
+      - "{{ blitzecdn_controlplane_cli_wrapper }}"
+      - setup
+      - --schema-only
+  become: true
+  become_user: "{{ blitzecdn_controlplane_service_user }}"
+  changed_when: false
+
 # --- services ----------------------------------------------------------------
 
 - name: Install the systemd units

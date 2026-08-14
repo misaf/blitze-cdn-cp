@@ -155,8 +155,6 @@ ensure_uv() {
 
   local archive
   archive="$(mktemp)"
-  # shellcheck disable=SC2064 # expand the path now, while it is still in scope
-  trap "rm -f -- '${archive}'" RETURN
 
   # stderr, not stdout: this function returns the uv path on stdout, and a
   # progress line there ends up substituted into the caller's variable.
@@ -164,25 +162,32 @@ ensure_uv() {
   # --retry covers the 5xx and connection resets the release CDN serves now and
   # then; without it a single bad second fails a whole provisioning run. The
   # checksum below is what makes a retried download safe to trust.
-  curl -fsSL --proto '=https' --tlsv1.2 \
+  if ! curl -fsSL --proto '=https' --tlsv1.2 \
     --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
     -o "${archive}" \
-    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz" ||
+    "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-${target}.tar.gz"; then
+    rm -f -- "${archive}"
     die 1 "error: could not download uv ${UV_VERSION}"
+  fi
 
   local actual
   actual="$(sha256_of "${archive}")"
-  [[ "${actual}" == "${expected}" ]] ||
+  if [[ "${actual}" != "${expected}" ]]; then
+    rm -f -- "${archive}"
     die 1 \
       "error: the uv download does not match its pinned checksum" \
       "       expected ${expected}" \
       "       received ${actual}" \
       "       Refusing to run it. Retry, and if it persists, do not proceed."
+  fi
 
   mkdir -p .state/bin
-  tar -xzf "${archive}" -C .state/bin --strip-components=1 \
-    "uv-${target}/uv" ||
+  if ! tar -xzf "${archive}" -C .state/bin --strip-components=1 \
+    "uv-${target}/uv"; then
+    rm -f -- "${archive}"
     die 1 "error: could not unpack uv ${UV_VERSION}"
+  fi
+  rm -f -- "${archive}"
   chmod 0755 "${vendored}"
   printf '%s\n' "${PWD}/${vendored}"
 }
@@ -318,15 +323,16 @@ run_install_handoff() {
 # file, and the systemd units. The installer's remaining job is to make this
 # call possible — packages, virtualenv, collections — and then to hand over.
 converge_control_plane() {
-  local ansible_tmp
+  local ansible_tmp status=0
   ansible_tmp=$(mktemp -d)
   # Ansible's temporary files must not land in .state. This play runs as root
   # and gives .state to the service account, and a root-owned leftover there
   # would break the next command run as that account.
   ANSIBLE_CONFIG=ansible/ansible.cfg ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" \
-    -i localhost, ansible/playbooks/control-plane.yml "$@"
+    -i localhost, ansible/playbooks/control-plane.yml "$@" || status=$?
   rm -rf -- "${ansible_tmp}"
+  return "${status}"
 }
 
 # Ansible is the only implementation of system teardown. This must finish
@@ -341,11 +347,12 @@ converge_uninstall() {
     "error: cannot uninstall: playbook is missing at ${playbook}" \
     "Repair the installation first, then rerun --uninstall."
 
-  local ansible_tmp
+  local ansible_tmp status=0
   ansible_tmp=$(mktemp -d)
   ANSIBLE_CONFIG="${INSTALL_DIR}/ansible/ansible.cfg" ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
-    "${executable}" -i localhost, "${playbook}"
+    "${executable}" -i localhost, "${playbook}" || status=$?
   rm -rf -- "${ansible_tmp}"
+  return "${status}"
 }
 
 # The play above owns every system operation. Bash removes only the checkout
@@ -671,15 +678,38 @@ cmd_fresh() {
   fi
 
   confirm_destructive "${parsed_yes}" fresh
-  converge_uninstall
-  remove_installation_directory
 
+  # Fetch and verify the replacement before destroying the working controller.
+  # A network outage or missing ref must leave the current installation wholly
+  # usable, not turn `--fresh` into a successful uninstall followed by a failed
+  # clone. The staging directory shares /opt with the final checkout, so the
+  # handoff after teardown is a same-filesystem rename.
+  local staging
+  staging=$(mktemp -d "${INSTALL_DIR%/*}/.blitzecdn-fresh.XXXXXX")
   if [[ ${named_revision} -eq 1 ]]; then
-    git clone --branch "${revision}" "${remote_url}" "${INSTALL_DIR}"
+    if ! git clone --branch "${revision}" "${remote_url}" "${staging}"; then
+      rm -rf -- "${staging}"
+      die 1 "error: could not stage release ${revision}; the current installation was not changed"
+    fi
   else
-    git clone "${remote_url}" "${INSTALL_DIR}"
-    git -C "${INSTALL_DIR}" checkout --detach "${revision}"
+    if ! git clone "${remote_url}" "${staging}" ||
+      ! git -C "${staging}" checkout --detach "${revision}"; then
+      rm -rf -- "${staging}"
+      die 1 "error: could not stage commit ${revision}; the current installation was not changed"
+    fi
   fi
+  if [[ ! -x ${staging}/install.sh ]]; then
+    rm -rf -- "${staging}"
+    die 1 "error: staged release has no executable install.sh; the current installation was not changed"
+  fi
+
+  if ! converge_uninstall; then
+    rm -rf -- "${staging}"
+    die 1 "error: teardown failed; the current checkout remains, but inspect and repair any partially removed host state before retrying"
+  fi
+  remove_installation_directory
+  mv -- "${staging}" "${INSTALL_DIR}" ||
+    die 1 "error: teardown succeeded but the staged release remains at ${staging}; move it to ${INSTALL_DIR} and rerun standalone"
 
   echo
   echo "Reinstalling the running release from a clean state..."

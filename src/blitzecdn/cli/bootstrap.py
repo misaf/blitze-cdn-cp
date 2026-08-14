@@ -53,7 +53,16 @@ def init(
 
 
 @app.command()
-def setup() -> None:
+def setup(
+    schema_only: Annotated[
+        bool,
+        typer.Option(
+            "--schema-only",
+            hidden=True,
+            help="Initialize the database without scaffolding local files.",
+        ),
+    ] = False,
+) -> None:
     """Prepare the local configuration a controller needs to run.
 
     Safe to re-run: nothing that already exists is overwritten.
@@ -63,7 +72,10 @@ def setup() -> None:
     # does not exist — so on a fresh install every playbook failed to parse its
     # inventory until something happened to create one. `setup` is the command
     # whose whole job is that something.
-    common.control_plane()
+    control = common.control_plane()
+    control.close()
+    if schema_only:
+        return
     root = Path.cwd()
     environment_path = root / ".env"
     created: list[str] = []

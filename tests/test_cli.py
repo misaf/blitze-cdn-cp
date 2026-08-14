@@ -138,6 +138,21 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
     assert json.loads(runner.invoke(cli.app, ["edge", "list", "--json"]).stdout) == []
 
 
+def test_schema_only_setup_initializes_database_without_scaffolding(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
+
+    result = runner.invoke(cli.app, ["setup", "--schema-only"])
+
+    assert result.exit_code == 0
+    assert cli.Settings.from_environment(
+        {}, project_dir=tmp_path
+    ).database_path.exists()
+    assert not (tmp_path / ".env").exists()
+    assert result.stdout == ""
+
+
 def test_registering_an_edge_is_audited(tmp_path, monkeypatch):
     """Who added this host, and when.
 

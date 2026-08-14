@@ -57,9 +57,19 @@ done
   fail "systemd never came up in ${IMAGE} (last state: ${state:-unknown})"
 
 say "Copying the working tree to /opt/blitzecdn"
-# The working tree, not a clone: CI must test the commit under review. .venv is
-# excluded because it holds binaries built for the host architecture.
-tar --exclude=.venv --exclude=.state --exclude=.git \
+# The working tree, not a clone: CI must test the commit under review. Runtime
+# state, caches, local configuration and host metadata must not cross this
+# boundary. In particular, macOS tar otherwise emits AppleDouble `._*.py`
+# sidecars for extended attributes; Alembic treats those binary files as
+# revisions and a clean Linux installation fails with a null-byte SyntaxError.
+COPYFILE_DISABLE=1 tar \
+  --exclude=.venv --exclude='.venv.invalid.*' \
+  --exclude=.state --exclude=.git --exclude=.ansible --exclude=.cache \
+  --exclude=.env --exclude=blitzecdn.toml --exclude=.codex \
+  --exclude=dist --exclude='*.egg-info' \
+  --exclude=.mypy_cache --exclude=.pytest_cache --exclude=.ruff_cache \
+  --exclude=.hypothesis --exclude=.coverage --exclude=coverage.xml \
+  --exclude=htmlcov --exclude=.DS_Store --exclude='._*' \
   --exclude='*.pyc' --exclude=__pycache__ \
   -czf "${archive}" -C "${project_dir}" . 2>/dev/null
 in_container 'mkdir -p /opt/blitzecdn'
@@ -69,8 +79,16 @@ docker cp "${archive}" "${container}:/root/source.tgz" >/dev/null
 in_container 'tar -xzf /root/source.tgz -C /opt/blitzecdn' 2>/dev/null
 
 say "Installing"
-in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
+if ! in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}"; then
+  # Preserve the evidence before the EXIT trap removes the disposable host.
+  # This catches corrupt source/package copies that otherwise surface only as
+  # an opaque import error several layers inside the installer.
+  # The expansions belong to the container shell.
+  # shellcheck disable=SC2016
+  in_container 'for path in /opt/blitzecdn/src/blitzecdn/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py; do printf "%s bytes=" "$path"; wc -c < "$path"; done' || true
+  in_container 'sha256sum /opt/blitzecdn/src/blitzecdn/migrations/versions/0001_initial_schema.py /opt/blitzecdn/.venv/lib/python3.13/site-packages/blitzecdn/migrations/versions/0001_initial_schema.py' || true
   fail "install failed on ${IMAGE}"
+fi
 
 say "Checking what the installation produced"
 in_container 'getent passwd blitzecdn >/dev/null' || fail "no blitzecdn account"
