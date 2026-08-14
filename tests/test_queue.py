@@ -8,6 +8,7 @@ import dramatiq
 import pytest
 from dramatiq.brokers.stub import StubBroker
 
+from blitzecdn.exceptions import DeploymentBusyError
 from blitzecdn.infrastructure import queue
 from blitzecdn.infrastructure.queue import (
     check_drift,
@@ -100,3 +101,34 @@ def test_failed_scheduled_publish_releases_its_key(monkeypatch):
         queue.enqueue_scheduled_once("redis://test", "check-drift", ttl_seconds=60)
 
     assert FakeRedis.values == {}
+
+
+def test_deployment_actor_retries_only_a_busy_fleet_lock():
+    retry_when = run_deployment.options["retry_when"]
+
+    assert retry_when(0, DeploymentBusyError("busy"))
+    assert not retry_when(queue._DEPLOYMENT_LOCK_RETRIES, DeploymentBusyError("busy"))
+    assert not retry_when(0, RuntimeError("broken deployment"))
+
+
+def test_scheduled_redis_calls_have_finite_network_timeouts(monkeypatch):
+    options: list[dict[str, float]] = []
+
+    class RecordingRedis(FakeRedis):
+        @classmethod
+        def from_url(cls, _url: str, **kwargs):
+            options.append(kwargs)
+            return cls()
+
+    RecordingRedis.values.clear()
+    monkeypatch.setattr(queue, "Redis", RecordingRedis)
+    monkeypatch.setattr(queue.check_drift, "send", lambda _token: None)
+
+    queue.enqueue_scheduled_once("redis://test", "check-drift", ttl_seconds=60)
+
+    assert options == [
+        {
+            "socket_connect_timeout": queue._REDIS_OPERATION_TIMEOUT_SECONDS,
+            "socket_timeout": queue._REDIS_OPERATION_TIMEOUT_SECONDS,
+        }
+    ]
