@@ -56,3 +56,10 @@ def configure_logging(*, verbose: bool = False, json_output: bool = False) -> No
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO, handlers=[handler], force=True
     )
+    # Repository construction runs Alembic's upgrade and schema-drift check on
+    # every process start. Its routine INFO messages otherwise precede every
+    # CLI response, including machine-readable output, even when nothing was
+    # migrated. Keep warnings visible and restore the full stream for -v.
+    logging.getLogger("alembic").setLevel(
+        logging.NOTSET if verbose else logging.WARNING
+    )
