@@ -84,10 +84,9 @@ EDGE_GROUP = "blitzecdn_edges"
 #: The control plane refuses to store a setting under one of these names, so a
 #: row carrying one should not exist. This refuses to *publish* it anyway,
 #: because settings are set at host precedence and would therefore beat the
-#: per-edge values derived below — and the damage is asymmetric. A stale row
-#: restored from a backup, or one written by an older release before the rule
-#: existed, would otherwise close the SSH port the next converge arrives on,
-#: for every edge at once, with no way back in.
+#: per-edge values derived below — and the damage is asymmetric. A manually
+#: corrupted row would otherwise close the SSH port the next converge arrives
+#: on, for every edge at once, with no way back in.
 RESERVED_SETTINGS = frozenset(
     (
         "blitzecdn_firewall_ssh_port",
