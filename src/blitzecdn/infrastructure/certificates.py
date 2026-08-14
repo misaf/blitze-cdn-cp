@@ -6,10 +6,10 @@ import shlex
 import shutil
 import subprocess
 import sys
+from contextlib import suppress
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
-from typing import Protocol
 
 from cryptography import x509
 from cryptography.exceptions import InvalidSignature
@@ -25,10 +25,6 @@ from blitzecdn.infrastructure.process import terminate_process_group
 
 _MAX_CERTIFICATE_BYTES = 1_048_576
 _MAX_PRIVATE_KEY_BYTES = 262_144
-
-
-class Issuer(Protocol):
-    def issue(self, site: CdnSite, email: str) -> tuple[bytes, bytes]: ...
 
 
 class CertificateStore:
@@ -72,21 +68,28 @@ class CertificateStore:
         if leaf.not_valid_before_utc > now or leaf.not_valid_after_utc <= now:
             raise ConfigurationError("certificate is not currently valid")
         directory = self._directory(site.name)
-        atomic_write_bytes(directory / "fullchain.pem", certificate_pem)
-        atomic_write_bytes(directory / "privkey.pem", private_key_pem)
+        fingerprint = leaf.fingerprint(hashes.SHA256()).hex()
         info = CertificateInfo(
             site=site.name,
             source=source,
             domains=tuple(sorted(domains)),
             not_before=leaf.not_valid_before_utc,
             not_after=leaf.not_valid_after_utc,
-            fingerprint_sha256=leaf.fingerprint(hashes.SHA256()).hex(),
+            fingerprint_sha256=fingerprint,
             email=email,
         )
+        # The chain and key are one logical value. Fixed filenames made two
+        # otherwise-atomic replaces unsafe as a pair: a crash between them left
+        # a new chain beside the old key. Immutable fingerprinted files plus a
+        # metadata commit written last give readers either the complete old
+        # pair or the complete new pair.
+        atomic_write_bytes(directory / f"fullchain-{fingerprint}.pem", certificate_pem)
+        atomic_write_bytes(directory / f"privkey-{fingerprint}.pem", private_key_pem)
         atomic_write_bytes(
             directory / "metadata.json",
             info.model_dump_json(indent=2).encode("utf-8") + b"\n",
         )
+        self._discard_superseded_files(directory, fingerprint)
         return info
 
     def get(self, site_name: str) -> CertificateInfo:
@@ -120,13 +123,29 @@ class CertificateStore:
 
     def sources(self, site_name: str) -> tuple[Path, Path]:
         directory = self._directory(site_name)
-        certificate = directory / "fullchain.pem"
-        private_key = directory / "privkey.pem"
+        info = self.get(site_name)
+        certificate = directory / f"fullchain-{info.fingerprint_sha256}.pem"
+        private_key = directory / f"privkey-{info.fingerprint_sha256}.pem"
         if not certificate.is_file() or not private_key.is_file():
             raise ConfigurationError(
                 f"managed certificate files for {site_name!r} are missing"
             )
         return certificate, private_key
+
+    @staticmethod
+    def _discard_superseded_files(directory: Path, fingerprint: str) -> None:
+        current = {
+            f"fullchain-{fingerprint}.pem",
+            f"privkey-{fingerprint}.pem",
+        }
+        for pattern in ("fullchain-*.pem", "privkey-*.pem"):
+            for path in directory.glob(pattern):
+                if path.name not in current:
+                    # Cleanup is not part of the commit. Reporting a failed
+                    # install after metadata switched to the new complete pair
+                    # would invite an unnecessary and misleading retry.
+                    with suppress(OSError):
+                        path.unlink(missing_ok=True)
 
     def _directory(self, site_name: str) -> Path:
         return self._settings.certificate_dir / site_name

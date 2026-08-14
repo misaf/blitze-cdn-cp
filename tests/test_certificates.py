@@ -36,6 +36,39 @@ def test_store_validates_and_persists_managed_certificate(
     assert os.stat(key_path).st_mode & 0o777 == 0o600
 
 
+def test_store_commits_a_certificate_pair_only_after_both_files_exist(
+    settings, site_payload, certificate_pair, monkeypatch
+):
+    site = CdnSite.model_validate(site_payload)
+    store = CertificateStore(settings)
+    old_certificate, old_key = certificate_pair(days=40)
+    old_info = store.install(
+        site, old_certificate, old_key, source=CertificateSource.UPLOADED
+    )
+    old_sources = store.sources(site.name)
+    replacement_certificate, replacement_key = certificate_pair(days=80)
+    real_write = certificates_module.atomic_write_bytes
+
+    def interrupted_write(path, payload, *, mode=0o600):
+        if path.name.startswith("privkey-"):
+            raise OSError("simulated process interruption")
+        real_write(path, payload, mode=mode)
+
+    monkeypatch.setattr(certificates_module, "atomic_write_bytes", interrupted_write)
+    with pytest.raises(OSError, match="process interruption"):
+        store.install(
+            site,
+            replacement_certificate,
+            replacement_key,
+            source=CertificateSource.UPLOADED,
+        )
+
+    assert store.get(site.name) == old_info
+    assert store.sources(site.name) == old_sources
+    assert old_sources[0].read_bytes() == old_certificate
+    assert old_sources[1].read_bytes() == old_key
+
+
 def test_store_rejects_invalid_mismatched_expired_and_wrong_domain(
     settings, site_payload, certificate_pair
 ):

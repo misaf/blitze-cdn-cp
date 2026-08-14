@@ -42,9 +42,10 @@ class CertificateStatus(BaseModel):
     """A stored certificate seen against the clock.
 
     Separate from ``CertificateInfo`` because that is the record written to
-    ``metadata.json`` and read back under ``extra="forbid"`` — folding a
-    computed field into it would make every stored file fail to reload. This
-    is the derived view, built when someone asks.
+    ``metadata.json`` and read back under ``extra="forbid"``. That file is also
+    the atomic pointer to its fingerprinted chain/key bundle, so folding a
+    computed field into it would make every stored file fail to reload. This is
+    the derived view, built when someone asks.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)

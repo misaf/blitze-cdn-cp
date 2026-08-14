@@ -41,6 +41,18 @@ jinja2 = pytest.importorskip("jinja2")
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 FIXTURE = Path(__file__).resolve().parent / "fixtures/desired-state.yml"
 
+
+def test_ci_actions_are_pinned_to_immutable_commits():
+    for workflow in (PROJECT_DIR / ".github/workflows").glob("*.yml"):
+        for line in workflow.read_text(encoding="utf-8").splitlines():
+            if "uses:" not in line:
+                continue
+            reference = line.split("uses:", 1)[1].strip().split()[0]
+            assert re.fullmatch(r"[^@]+@[0-9a-f]{40}", reference), (
+                f"{workflow}: action is not pinned to a commit: {reference}"
+            )
+
+
 #: The roles ship with this control plane, so there is no install step to get
 #: wrong and no reason for these tests to skip. That matters: they used to read
 #: an installed collection and skipped silently when it was absent, which turned
@@ -139,13 +151,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
 
 
 def test_every_role_a_playbook_names_exists():
-    """The failure the collection pin used to catch, in its remaining form.
-
-    With the roles pinned by version, a playbook could name a role the pinned
-    release did not have. They ship together now, so the only way to get that
-    wrong is to rename or delete a role and miss a reference — which Ansible
-    would report at deploy time, on a real edge, halfway through a run.
-    """
+    """A role rename cannot leave a playbook pointing at a missing local role."""
     referenced: set[str] = set()
     for playbook in sorted((PROJECT_DIR / "ansible/playbooks").glob("*.yml")):
         document = yaml.safe_load(playbook.read_text(encoding="utf-8"))
@@ -245,10 +251,8 @@ def test_every_emitted_key_is_declared_by_the_role(desired_state):
     for site in desired_state["blitzecdn_nginx_sites"]:
         undeclared = set(site) - declared
         assert not undeclared, (
-            f"CdnSite emits {sorted(undeclared)}, which the pinned "
-            "blitzecdn.edge collection does not declare in "
-            "roles/blitzecdn_nginx/meta/argument_specs.yml. Add them in the "
-            "edge repository and release it."
+            f"CdnSite emits {sorted(undeclared)}, which the local "
+            "roles/blitzecdn_nginx/meta/argument_specs.yml does not declare."
         )
 
 
@@ -430,6 +434,11 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
     assert site.effective_origin_sni == "origin.example.com"
     rendered = _render(site.to_ansible())
     assert "proxy_ssl_name origin.example.com;" in rendered
+    assert "proxy_ssl_verify on;" in rendered
+    assert (
+        "proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;" in rendered
+    )
+    assert "proxy_ssl_verify_depth 5;" in rendered
 
 
 def test_committed_fixture_matches_generated_desired_state(desired_state):
@@ -611,6 +620,31 @@ def test_role_validation_tasks_actually_run(desired_state, tmp_path):
         "the role's validation tasks failed against real desired state:\n"
         f"{result.stdout}\n{result.stderr}"
     )
+
+
+def test_role_accepts_only_immutable_managed_certificate_destinations(
+    desired_state, tmp_path
+):
+    fingerprint = "ab" * 32
+    managed = dict(desired_state["blitzecdn_nginx_sites"][0]) | {
+        "certificate_mode": "uploaded",
+        "certificate_path": (
+            f"/etc/blitzecdn/tls/cdn-example-com/fullchain-{fingerprint}.pem"
+        ),
+        "certificate_key_path": (
+            f"/etc/blitzecdn/tls/cdn-example-com/privkey-{fingerprint}.pem"
+        ),
+        "certificate_source_path": "/controller/fullchain.pem",
+        "certificate_key_source_path": "/controller/privkey.pem",
+    }
+
+    accepted = _run_validation([managed], tmp_path)
+    assert accepted.returncode == 0, accepted.stdout
+
+    managed["certificate_path"] = "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem"
+    rejected = _run_validation([managed], tmp_path)
+    assert rejected.returncode != 0
+    assert "Invalid CDN site" in rejected.stdout
 
 
 def test_role_refuses_country_rules_without_geoip(desired_state, tmp_path):
