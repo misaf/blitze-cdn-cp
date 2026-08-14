@@ -152,4 +152,4 @@ serve port="8000":
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests -name __pycache__ -type d -prune -exec rm -rf {} +
+    find src tests ansible -name __pycache__ -type d -prune -exec rm -rf {} +
