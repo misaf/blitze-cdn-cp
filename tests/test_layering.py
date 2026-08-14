@@ -54,6 +54,7 @@ def _imports(path: Path) -> set[str]:
             found.add(node.module)
     return found
 
+
 def _violations(package: str, forbidden: tuple[str, ...]) -> list[str]:
     def banned(imported: str) -> bool:
         root = imported.split(".")[0]

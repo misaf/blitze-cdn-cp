@@ -9,8 +9,8 @@ from conftest import (
     FakeEdgeStore,
     FakePreflight,
     FakeRunner,
-    InlineBackgroundRunner,
-    RefusingBackgroundRunner,
+    RecordingBackgroundQueue,
+    RefusingBackgroundQueue,
     ansible_run,
     host_run,
     origin_report,
@@ -66,7 +66,7 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
     assert len(closed) == 1
 
 
-def test_dns_write_projection_and_audit_are_one_transaction(settings):
+def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatch):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings,
@@ -76,12 +76,12 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings):
     control.dns.create_domain(Domain(name="example.com"), "alice")
 
     def refuse_event(_event):
-        raise RuntimeError("audit subscriber failed")
+        raise RuntimeError("audit recorder failed")
 
-    # Registered after the real audit observer: both its audit insert and the
-    # record/site writes must still be rolled back when this subscriber fails.
-    control.bus.subscribe(refuse_event)
-    with pytest.raises(RuntimeError, match="audit subscriber failed"):
+    # Event recording participates in the same unit of work as the record and
+    # derived-site writes, so any recorder failure must roll everything back.
+    monkeypatch.setattr(repository.audit_log, "record", refuse_event)
+    with pytest.raises(RuntimeError, match="audit recorder failed"):
         control.dns.create_record(
             DnsRecord(
                 domain="example.com",
@@ -557,13 +557,18 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
 def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
     """The case startup recovery exists for: nobody is deploying."""
     repository = Repository(settings.database_path)
+    queue = RecordingBackgroundQueue()
     control = ControlPlane(
         settings=settings,
         repository=repository,
         runner=FakeRunner(),  # type: ignore[arg-type]
-        background=InlineBackgroundRunner(),
+        background=queue,
     )
-    stranded = repository.deployments.create_deployment("alice", check_mode=False)
+    with repository.transaction():
+        stranded = repository.deployments.create_deployment("alice", check_mode=False)
+        repository.deployments.transition(
+            stranded.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        )
 
     assert control.deployments.initialize() == 1
     assert (
@@ -835,15 +840,17 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
     one did not, which had it backwards.
     """
     repository = Repository(settings.database_path)
+    queue = RecordingBackgroundQueue()
     control = ControlPlane(
         settings=settings,
         repository=repository,
         runner=FakeRunner(),  # type: ignore[arg-type]
-        background=InlineBackgroundRunner(),
+        background=queue,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
+    control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
 
     assert _await_workflow(repository, queued.id) is WorkflowStatus.SUCCEEDED
@@ -856,6 +863,7 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
 def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
     """A workflow that succeeded while its deployment failed would mislead."""
     repository = Repository(settings.database_path)
+    queue = RecordingBackgroundQueue()
     control = ControlPlane(
         settings=settings,
         repository=repository,
@@ -868,11 +876,12 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
                 )
             ]
         ),
-        background=InlineBackgroundRunner(),
+        background=queue,
     )  # type: ignore[arg-type]
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
+    control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, queued.id) is DeploymentStatus.FAILED
 
     assert _await_workflow(repository, queued.id) is WorkflowStatus.FAILED
@@ -889,47 +898,43 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
         control.deployments.submit_rollback("alice")
 
 
-def test_submit_releases_the_lock_after_the_worker_finishes(settings, site_payload):
+def test_submit_releases_the_lock_after_queue_publication(settings, site_payload):
     repository = Repository(settings.database_path)
+    queue = RecordingBackgroundQueue()
     control = ControlPlane(
         settings=settings,
         repository=repository,
         runner=FakeRunner(),  # type: ignore[arg-type]
-        background=InlineBackgroundRunner(),
+        background=queue,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
+    control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, queued.id) is DeploymentStatus.SUCCEEDED
-    # A second submission proves the worker handed the lock back.
+    # A second submission proves the publisher handed the lock back.
     control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.deployments.submit_deployment("alice")
+    control.deployments.run_queued(queue.ids.pop())
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
-def test_a_queued_deployment_converges_whatever_carries_the_work(
+def test_a_queued_deployment_converges_when_its_identifier_is_delivered(
     settings, site_payload
 ):
-    """The queued path, observed without waiting on a thread.
-
-    ``submit_deployment`` answers before the run finishes, which used to mean a
-    test of it either polled or raced. The runner that carries the work is a
-    port, so supplying one that runs inline makes the whole queued path — lock,
-    QUEUED record, converge, release — a synchronous assertion, and what is left
-    untested is only the threading itself.
-    """
     repository = Repository(settings.database_path)
+    queue = RecordingBackgroundQueue()
     control = ControlPlane(
         settings=settings,
         repository=repository,
         runner=FakeRunner(),  # type: ignore[arg-type]
-        background=InlineBackgroundRunner(),
+        background=queue,
     )
     repository.sites.create_site(CdnSite.model_validate(site_payload))
 
     queued = control.deployments.submit_deployment("alice")
+    control.deployments.run_queued(queue.ids.pop())
 
-    # No _await_terminal: the work is already done by the time submit returns.
     assert repository.deployments.get_deployment(queued.id).status is (
         DeploymentStatus.SUCCEEDED
     )
@@ -944,13 +949,11 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payl
     issuance failed with DeploymentBusyError until someone restarted the
     process.
 
-    Driven through the port rather than by monkeypatching ``Thread.start``:
-    refusing to start is part of the ``BackgroundRunner`` contract, so a runner
-    that refuses is a legitimate implementation of it rather than a global the
-    test has to remember to undo.
+    Driven through the durable queue port rather than by monkeypatching
+    Dramatiq: publication failure is part of that adapter's contract.
     """
     repository = Repository(settings.database_path)
-    refusing = RefusingBackgroundRunner()
+    refusing = RefusingBackgroundQueue()
     control = ControlPlane(
         settings=settings,
         repository=repository,
@@ -972,6 +975,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payl
     refusing.refuse = False
     control.runner.results = [ansible_run(host_run("edge-a"))]
     again = control.deployments.submit_deployment("alice")
+    control.deployments.run_queued(refusing.ids.pop())
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
@@ -1116,6 +1120,10 @@ def test_upload_and_request_certificate_activate_managed_tls(
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "certificate_source_path" in desired
     assert "PRIVATE KEY" not in desired
+    document = yaml.safe_load(desired)["blitzecdn_nginx_sites"][0]
+    fingerprint = requested.fingerprint_sha256
+    assert document["certificate_path"].endswith(f"/fullchain-{fingerprint}.pem")
+    assert document["certificate_key_path"].endswith(f"/privkey-{fingerprint}.pem")
 
 
 def test_reconcile_issues_ready_first_certificate_and_deploys(

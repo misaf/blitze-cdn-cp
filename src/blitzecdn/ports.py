@@ -13,10 +13,9 @@ service documents its real reach into persistence.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol
 
 from blitzecdn.domain.audit import AuditEvent
 from blitzecdn.domain.certificates import (
@@ -141,10 +140,9 @@ class DeploymentStore(Protocol):
 class AuditTrail(Protocol):
     """The append-only operator log, as the entry layers need to read it.
 
-    Read-only on purpose. The trail is *written* by the subscriber the
-    composition root registers on the bus (see :class:`EventBus`), never by a
-    caller — so a port that offered an ``audit`` method would be an invitation
-    to record something no domain event ever announced.
+    Read-only on purpose. Application services write through
+    :class:`EventRecorder`; entry layers cannot manufacture audit rows for
+    actions no use case performed.
     """
 
     def get_audit_event(self, event_id: int) -> AuditEvent: ...
@@ -152,16 +150,10 @@ class AuditTrail(Protocol):
     def list_audit_events(self, limit: int = 100) -> list[AuditEvent]: ...
 
 
-class EventBus(Protocol):
-    """Where the application publishes that something happened.
+class EventRecorder(Protocol):
+    """Durably record one application event in the surrounding transaction."""
 
-    A service that changes state publishes a :class:`DomainEvent` here and
-    moves on; it never learns who is listening. Subscribers are wired by the
-    composition root, so adding one never touches the service that announced
-    the change.
-    """
-
-    def publish(self, event: DomainEvent) -> None: ...
+    def record(self, event: DomainEvent) -> None: ...
 
 
 class WorkflowJournal(Protocol):
@@ -246,25 +238,6 @@ class DeploymentGateway(Protocol):
 # ----------------------------------------------------------------------
 
 
-class BackgroundRunner(Protocol):
-    """Starts work that outlives the call that asked for it.
-
-    The queued deploy and rollback endpoints answer before the run finishes, so
-    something has to carry the run onwards. That something is a concrete
-    concurrency mechanism, which makes it an adapter — the application layer
-    injects it like every other, and a test can supply a runner that executes
-    inline and observe a whole queued deployment synchronously.
-
-    ``start`` must raise if the work will not be run. The caller owns the
-    deployment lock at that moment and releases it on failure; a runner that
-    swallowed the error would leave the lock held by a worker that does not
-    exist, and every later deploy would fail until the process restarted.
-    """
-
-    def start(self, work: Callable[[], None], *, name: str) -> None: ...
-
-
-@runtime_checkable
 class QueueBackgroundRunner(Protocol):
     """Enqueues a durable identifier for an out-of-process worker."""
 
@@ -411,13 +384,12 @@ class OriginProbe(Protocol):
 
 __all__ = [
     "AuditTrail",
-    "BackgroundRunner",
     "CertificateStore",
     "DeploymentGateway",
     "DeploymentRunner",
     "DeploymentStore",
     "EdgeStore",
-    "EventBus",
+    "EventRecorder",
     "Issuer",
     "LogReader",
     "OriginProbe",

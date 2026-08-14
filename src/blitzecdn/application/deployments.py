@@ -16,21 +16,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from blitzecdn.application.deployment_support import (
-    DesiredStateRenderer,
-    DriftInterpreter,
-    RollbackPlanner,
-)
+from blitzecdn.application.deployment_support import DesiredStateRenderer
 from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
 from blitzecdn.domain.events import domain_event
-from blitzecdn.domain.operations import (
-    DeploymentMode,
-    DeployRequest,
-    FleetTarget,
-    WorkflowKind,
-)
+from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.snapshots import (
     decode_snapshot,
@@ -40,11 +31,10 @@ from blitzecdn.domain.snapshots import (
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 from blitzecdn.ports import (
-    BackgroundRunner,
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
-    EventBus,
+    EventRecorder,
     LogReader,
     QueueBackgroundRunner,
     UnitOfWork,
@@ -75,7 +65,7 @@ class DeploymentExecution:
     """Collaborators that render, launch, and observe deployment work."""
 
     runner: DeploymentRunner
-    background: BackgroundRunner | QueueBackgroundRunner
+    background: QueueBackgroundRunner
     read_log: LogReader
     renderer: DesiredStateRenderer
 
@@ -89,31 +79,17 @@ class DeploymentService:
         settings: Settings,
         persistence: DeploymentPersistence,
         execution: DeploymentExecution,
-        bus: EventBus,
+        events: EventRecorder,
         dns: ZoneEditor,
         workflows: WorkflowCoordinator,
-        rollbacks: RollbackPlanner,
-        drift: DriftInterpreter,
     ) -> None:
         self.settings = settings
         self.persistence = persistence
         self.execution = execution
-        self.bus = bus
+        self.events = events
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
-        #: Carries a queued run onwards after this call has answered. A port,
-        #: so "the deployment happens in a worker" is an adapter decision and a
-        #: test can make it happen inline instead.
-        #: Quotes a run log into a message for an operator. Never branched on:
-        #: `validate` is the one caller, and only because `--syntax-check` runs
-        #: no play and so emits no host events.
         self.workflows = workflows
-        #: Turns a snapshot into the desired-state document Ansible reads. It
-        #: holds the atomic writer, injected rather than imported so this layer
-        #: never reaches for the filesystem adapter directly; the composition
-        #: root supplies it and a test can supply anything with the same shape.
-        self.rollbacks = rollbacks
-        self.drift = drift
 
     def initialize(self) -> int:
         """Close out deployments a previous controller process left in flight.
@@ -134,11 +110,12 @@ class DeploymentService:
         """
         try:
             with self.execution.runner.lock():
-                if isinstance(self.execution.background, QueueBackgroundRunner):
-                    for deployment in self.persistence.deployments.queued_deployments():
-                        self.execution.background.enqueue(deployment.id)
-                    return 0
-                return self.persistence.deployments.abandon_running(include_queued=True)
+                recovered = self.persistence.deployments.abandon_running(
+                    include_queued=False
+                )
+                for deployment in self.persistence.deployments.queued_deployments():
+                    self.execution.background.enqueue(deployment.id)
+                return recovered
         except DeploymentBusyError:
             _LOGGER.info(
                 "another process holds the deployment lock; leaving in-flight "
@@ -204,24 +181,14 @@ class DeploymentService:
         snapshot became reality on the named edges only, and the rest are
         still serving whatever they had.
         """
-        return self.execute_deployment(
-            DeployRequest(
-                mode=DeploymentMode.CHECK if check else DeploymentMode.APPLY,
-                target=FleetTarget(host_limit=host_limit),
-            ),
-            operator,
-        )
-
-    def execute_deployment(self, request: DeployRequest, operator: str) -> Deployment:
-        """Execute an intention-revealing deployment request."""
 
         def converge_under_lock() -> Deployment:
             with self.execution.runner.lock():
                 return self.converge(
                     self._queue(
                         operator,
-                        check=request.mode is DeploymentMode.CHECK,
-                        host_limit=request.target.host_limit,
+                        check=check,
+                        host_limit=host_limit,
                     ),
                     operator,
                 )
@@ -265,8 +232,6 @@ class DeploymentService:
         return self._submit(
             lambda: self._queue(operator, check=check, host_limit=host_limit),
             operator,
-            WorkflowKind.DEPLOYMENT,
-            "converged",
         )
 
     def rollback(
@@ -302,8 +267,6 @@ class DeploymentService:
         return self._submit(
             lambda: self._queue_rollback(operator, deployment_id, check=check),
             operator,
-            WorkflowKind.ROLLBACK,
-            "converged_and_adopted",
         )
 
     def run_queued(self, deployment_id: str) -> Deployment:
@@ -342,7 +305,7 @@ class DeploymentService:
         """
         deployment = self.deploy(operator, check=True, host_limit=host_limit)
         report = self.drift_report(deployment.id)
-        self.bus.publish(
+        self.events.record(
             domain_event(
                 operator,
                 "drift.checked",
@@ -367,7 +330,13 @@ class DeploymentService:
         produced rather than re-deriving anything.
         """
         deployment = self.persistence.deployments.get_deployment(deployment_id)
-        return self.drift.report(deployment)
+        if not deployment.check_mode:
+            raise ConflictError(
+                f"deployment {deployment.id} applied changes rather than "
+                "previewing them, so its result describes what it did, not "
+                "what had drifted. Run 'blitzecdn drift' instead."
+            )
+        return DriftReport.of(deployment)
 
     # -- History -------------------------------------------------------
 
@@ -431,7 +400,7 @@ class DeploymentService:
             # its own is one that silently stops being enforced when the unit
             # was never installed.
             self.persistence.deployments.prune_history(self.settings.history_retention)
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "deployment.queued",
@@ -449,7 +418,17 @@ class DeploymentService:
     def _queue_rollback(
         self, operator: str, deployment_id: str | None, *, check: bool
     ) -> Deployment:
-        target = self.rollbacks.target(deployment_id)
+        target = (
+            self.persistence.deployments.get_deployment(deployment_id)
+            if deployment_id
+            else self.persistence.deployments.successful_rollback_target(
+                self.persistence.deployments.snapshot()
+            )
+        )
+        if target.check_mode or target.status is not DeploymentStatus.SUCCEEDED:
+            raise ConflictError(
+                "rollback target must be a successful applied deployment"
+            )
         return self._queue(
             operator,
             check=check,
@@ -467,18 +446,8 @@ class DeploymentService:
         self,
         queue: Callable[[], Deployment],
         operator: str,
-        kind: WorkflowKind,
-        checkpoint: str,
     ) -> Deployment:
-        """Take the deployment lock now, hand it to a worker, return the record.
-
-        The lock is an fcntl lock on an open file, so releasing it from the
-        worker process is equivalent to releasing it here.
-
-        The workflow belongs to the worker rather than to this call: it should
-        cover the convergence, and the convergence is what happens after this
-        has already answered.
-        """
+        """Record durable intent, publish its ID, and return the queued record."""
         lock = self.execution.runner.lock()
         lock.__enter__()
         try:
@@ -487,37 +456,8 @@ class DeploymentService:
             lock.__exit__(None, None, None)
             raise
 
-        def worker() -> None:
-            try:
-                self._journalled(
-                    kind,
-                    operator,
-                    deployment.id,
-                    checkpoint,
-                    lambda: self.converge(deployment, operator),
-                )
-            except Exception:
-                _LOGGER.exception("deployment %s failed", deployment.id)
-            finally:
-                lock.__exit__(None, None, None)
-
-        # The lock is released by whoever ends up owning the deployment, and
-        # until the worker is actually running that is still this call. Work
-        # that cannot be started would otherwise leave the lock held by a
-        # worker that does not exist, and every later deploy, rollback,
-        # upload and issuance would fail with DeploymentBusyError until the
-        # process was restarted — a permanent outage from a transient failure.
         try:
-            if isinstance(self.execution.background, QueueBackgroundRunner):
-                # A Dramatiq worker reconstructs the control plane and owns its
-                # own cross-process deployment lock. The API cannot transfer
-                # an open fcntl lock through Redis.
-                self.execution.background.enqueue(deployment.id)
-                lock.__exit__(None, None, None)
-            else:
-                self.execution.background.start(
-                    worker, name=f"blitzecdn-deploy-{deployment.id}"
-                )
+            self.execution.background.enqueue(deployment.id)
         except BaseException as exc:
             try:
                 with self.persistence.uow.transaction():
@@ -528,7 +468,7 @@ class DeploymentService:
                         finished_at=datetime.now(UTC),
                         result=self._aborted_run(exc, interrupted=False),
                     )
-                    self.bus.publish(
+                    self.events.record(
                         domain_event(
                             operator,
                             "deployment.failed",
@@ -540,6 +480,7 @@ class DeploymentService:
             finally:
                 lock.__exit__(None, None, None)
             raise
+        lock.__exit__(None, None, None)
         return deployment
 
     def _require_unchanged_canonical(self, deployment: Deployment) -> None:
@@ -629,7 +570,7 @@ class DeploymentService:
             )
             if target_status is DeploymentStatus.SUCCEEDED and not check:
                 self.persistence.requirements.clear("certificates")
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     f"deployment.{deployment.status}",
@@ -643,7 +584,7 @@ class DeploymentService:
                 )
             )
             if adopts_rollback:
-                self.bus.publish(
+                self.events.record(
                     domain_event(
                         operator,
                         "rollback.applied",
@@ -668,7 +609,7 @@ class DeploymentService:
                 finished_at=datetime.now(UTC),
                 result=self._aborted_run(exc, interrupted=interrupted),
             )
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "deployment.abandoned" if interrupted else "deployment.failed",

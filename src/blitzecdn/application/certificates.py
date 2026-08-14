@@ -26,11 +26,7 @@ from blitzecdn.domain.certificates import (
     RenewalResult,
 )
 from blitzecdn.domain.events import domain_event
-from blitzecdn.domain.operations import (
-    CertificateRequest,
-    PreflightPolicy,
-    WorkflowKind,
-)
+from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.domain.sites import CdnSite, CertificateMode
 from blitzecdn.exceptions import (
     BlitzeError,
@@ -43,7 +39,7 @@ from blitzecdn.ports import (
     DeploymentGateway,
     DeploymentRequirements,
     DeploymentRunner,
-    EventBus,
+    EventRecorder,
     Issuer,
     Preflight,
     SiteStore,
@@ -82,7 +78,7 @@ class CertificateService:
         settings: Settings,
         persistence: CertificatePersistence,
         execution: CertificateExecution,
-        bus: EventBus,
+        events: EventRecorder,
         dns: ZoneEditor,
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
@@ -90,7 +86,7 @@ class CertificateService:
         self.settings = settings
         self.persistence = persistence
         self.execution = execution
-        self.bus = bus
+        self.events = events
         self.dns = dns
         self.deployments = deployments
         self.workflows = workflows
@@ -119,7 +115,7 @@ class CertificateService:
             with self.persistence.uow.transaction():
                 self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
                 self.persistence.requirements.require("certificates")
-                self.bus.publish(
+                self.events.record(
                     domain_event(
                         operator,
                         "certificate.uploaded",
@@ -180,7 +176,7 @@ class CertificateService:
                 f"certificate preflight failed for {site.name}: {report.summary()}. "
                 "Fix the above, or pass skip_preflight to issue anyway."
             )
-        self.bus.publish(
+        self.events.record(
             domain_event(
                 operator,
                 f"{action}.preflight_overridden",
@@ -211,42 +207,22 @@ class CertificateService:
         *,
         skip_preflight: bool = False,
     ) -> CertificateInfo:
-        return self.execute_certificate_request(
-            CertificateRequest(
-                site=name,
-                registration_email=email,
-                preflight=(
-                    PreflightPolicy.OVERRIDE
-                    if skip_preflight
-                    else PreflightPolicy.ENFORCE
-                ),
-            ),
-            operator,
-        )
-
-    def execute_certificate_request(
-        self, request: CertificateRequest, operator: str
-    ) -> CertificateInfo:
-        registration_email = (
-            request.registration_email or self.settings.acme_default_email
-        )
+        registration_email = email or self.settings.acme_default_email
         if not registration_email:
             raise ConflictError(
                 "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
             )
-        with self.workflows.run(
-            WorkflowKind.CERTIFICATE, operator, request.site
-        ) as progress:
+        with self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress:
             with self.execution.runner.lock():
-                site = self.persistence.sites.get_site(request.site)
+                site = self.persistence.sites.get_site(name)
                 info = self._issue_certificate_locked(
                     site,
                     operator,
                     registration_email,
-                    skip_preflight=request.preflight is PreflightPolicy.OVERRIDE,
+                    skip_preflight=skip_preflight,
                     progress=progress,
                 )
-                progress.checkpoint("activated", {"site": request.site})
+                progress.checkpoint("activated", {"site": name})
             return info
 
     def _issue_certificate_locked(
@@ -293,7 +269,7 @@ class CertificateService:
         with self.persistence.uow.transaction():
             self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
             self.persistence.requirements.require("certificates")
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "certificate.requested",
@@ -463,7 +439,7 @@ class CertificateService:
                     skipped.append(message)
                 case "failed":
                     failed.append(message)
-        self.bus.publish(
+        self.events.record(
             domain_event(
                 operator,
                 "certificates.renewed",

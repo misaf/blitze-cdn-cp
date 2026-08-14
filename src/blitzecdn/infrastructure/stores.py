@@ -54,9 +54,10 @@ from blitzecdn.domain.deployments import (
 )
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.edges import Edge
+from blitzecdn.domain.events import DomainEvent
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.sites import CdnSite
-from blitzecdn.domain.validation import STORED, validate_setting_name
+from blitzecdn.domain.validation import validate_setting_name
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.engine import Database
 from blitzecdn.infrastructure.models import (
@@ -248,8 +249,7 @@ class EdgeStore:
                 "private_key_file": row.private_key_file,
                 "public_addresses": tuple(row.public_addresses),
                 "ssh_sources": tuple(row.ssh_sources),
-            },
-            context=STORED,
+            }
         )
 
 
@@ -344,8 +344,7 @@ class SiteStore:
                 "name": row.name,
                 "server_names": tuple(row.server_names),
                 "origin_host": row.origin_host,
-            },
-            context=STORED,
+            }
         )
 
 
@@ -492,8 +491,7 @@ class ZoneStore:
                 "value": row.value,
                 "ttl": row.ttl,
                 "proxied": row.proxied,
-            },
-            context=STORED,
+            }
         )
 
 
@@ -729,6 +727,16 @@ class AuditLog:
 
     def __init__(self, database: Database) -> None:
         self._db = database
+
+    def record(self, event: DomainEvent) -> None:
+        """Persist the event emitted by a completed application action."""
+        self.audit(
+            operator=event.operator,
+            action=event.action,
+            resource_type=event.resource_type,
+            resource_id=event.resource_id,
+            details=event.details,
+        )
 
     def audit(
         self,

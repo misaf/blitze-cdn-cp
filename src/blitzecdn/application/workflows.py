@@ -1,4 +1,4 @@
-"""Durable workflow progress, recovery, and post-commit event delivery."""
+"""Durable workflow progress and recovery for external work."""
 
 from __future__ import annotations
 
@@ -92,15 +92,8 @@ class WorkflowCoordinator:
                 )
                 self.journal.prune_finished(self.retention)
 
-
-class RecoveryService:
-    """Turns ambiguous work from a previous process into operator-visible state."""
-
-    def __init__(self, *, journal: WorkflowJournal, uow: UnitOfWork) -> None:
-        self.journal = journal
-        self.uow = uow
-
     def reconcile_interrupted(self) -> list[Workflow]:
+        """Turn work interrupted by a restart into operator-visible state."""
         with self.uow.transaction():
             recovered = [
                 self.journal.advance(

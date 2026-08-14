@@ -43,7 +43,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         application.state.control_plane = control
         application.state.renewal_pool = renewal_pool
         control.deployments.initialize()
-        control.recovery.reconcile_interrupted()
+        control.workflows.reconcile_interrupted()
         scheduler = build_scheduler(resolved)
         if scheduler is not None:
             scheduler.start()
