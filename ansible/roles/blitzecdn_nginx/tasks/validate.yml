@@ -55,12 +55,18 @@
         item.certificate_key_path is not defined or
         item.certificate_key_path is match(blitzecdn_nginx_certificate_path_pattern)
       # Certificates we install ourselves land in our own directory only.
+      # The fingerprinted names make a bundle immutable: the site config is
+      # the single atomic pointer that switches chain and key together.
       - >-
         item.certificate_mode | default('disabled') not in ['uploaded', 'requested'] or
-        item.certificate_path == '/etc/blitzecdn/tls/' ~ item.name ~ '/fullchain.pem'
+        item.certificate_path is match(
+          '^/etc/blitzecdn/tls/' ~ item.name ~ '/fullchain-[0-9a-f]{64}\\.pem$'
+        )
       - >-
         item.certificate_mode | default('disabled') not in ['uploaded', 'requested'] or
-        item.certificate_key_path == '/etc/blitzecdn/tls/' ~ item.name ~ '/privkey.pem'
+        item.certificate_key_path is match(
+          '^/etc/blitzecdn/tls/' ~ item.name ~ '/privkey-[0-9a-f]{64}\\.pem$'
+        )
     fail_msg: "Invalid CDN site: {{ item.name | default('unnamed') }}"
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:

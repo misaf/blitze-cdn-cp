@@ -307,20 +307,6 @@
       the control plane, or explicitly set BLITZE_ALLOW_EMPTY_SITES=true to
       approve removing every managed site and its managed TLS material.
 
-- name: Remove stale enabled links
-  ansible.builtin.file:
-    path: "/etc/nginx/sites-enabled/{{ item }}.conf"
-    state: absent
-  loop: "{{ blitzecdn_nginx_stale_names }}"
-  notify: Validate and reload Nginx
-
-- name: Remove stale configurations
-  ansible.builtin.file:
-    path: "/etc/nginx/sites-available/{{ item }}.conf"
-    state: absent
-  loop: "{{ blitzecdn_nginx_stale_names }}"
-  notify: Validate and reload Nginx
-
 # Only names shaped like a site name are allowed to select a directory for
 # recursive removal as root. The registry is ours, but it is a plain file on a
 # host an operator can edit, and a line containing '..' or '/' would otherwise
@@ -329,19 +315,6 @@
   ansible.builtin.set_fact:
     blitzecdn_nginx_stale_tls_names: >-
       {{ blitzecdn_nginx_stale_names | select('match', '^[a-z][a-z0-9-]{0,62}$') | list }}
-
-# Runs after the configurations that reference them are gone, so no surviving
-# vhost can point at a certificate this removes. Managed certificates always
-# live at /etc/blitzecdn/tls/<site name>/ — the assertions above refuse to
-# converge a site whose certificate_path is anywhere else — so a directory
-# named for a site the controller no longer emits is ours and is dead. An
-# unmanaged site's certificate is under /etc/ssl or /etc/letsencrypt and is
-# never named for a site, so it cannot be selected here.
-- name: Remove stale managed TLS material
-  ansible.builtin.file:
-    path: "/etc/blitzecdn/tls/{{ item }}"
-    state: absent
-  loop: "{{ blitzecdn_nginx_stale_tls_names }}"
 
 # Everything that writes into the live config tree runs under one rescue.
 #
@@ -442,17 +415,6 @@
       changed_when: false
       when: not ansible_check_mode
 
-    # Written last, and only past validation: the registry drives stale-site
-    # removal on the next run, so recording names for a configuration that was
-    # rolled back would strand the real files as unmanaged.
-    - name: Record managed site names
-      ansible.builtin.copy:
-        content: "{{ blitzecdn_nginx_desired_names | sort | join('\n') }}\n"
-        dest: "{{ blitzecdn_nginx_managed_sites_file }}"
-        owner: root
-        group: root
-        mode: "0644"
-
   rescue:
     - name: Restore sites that had a previous configuration
       ansible.builtin.copy:
@@ -513,6 +475,73 @@
           so it was rolled back and nothing was reloaded. The edge is still
           serving its previous configuration. Re-run with -vv to see which site
           failed `nginx -t`.
+
+# Stale files stay in place until the replacement tree has passed `nginx -t`.
+# Removing an enabled link before its target means an interruption can only
+# leave an extra disabled file, never a dangling include that stops Nginx from
+# starting. A failed deletion is safe and retryable: the registry is committed
+# only after every owned artifact has been withdrawn.
+- name: Remove stale enabled links
+  ansible.builtin.file:
+    path: "/etc/nginx/sites-enabled/{{ item }}.conf"
+    state: absent
+  loop: "{{ blitzecdn_nginx_stale_names }}"
+  notify: Validate and reload Nginx
+
+- name: Remove stale configurations
+  ansible.builtin.file:
+    path: "/etc/nginx/sites-available/{{ item }}.conf"
+    state: absent
+  loop: "{{ blitzecdn_nginx_stale_names }}"
+  notify: Validate and reload Nginx
+
+# Runs after the configurations that reference them are gone, so no surviving
+# vhost can point at a certificate this removes. Managed certificates always
+# live at /etc/blitzecdn/tls/<site name>/ — the assertions above refuse to
+# converge a site whose certificate_path is anywhere else — so a directory
+# named for a site the controller no longer emits is ours and is dead. An
+# unmanaged site's certificate is under /etc/ssl or /etc/letsencrypt and is
+# never named for a site, so it cannot be selected here.
+- name: Remove stale managed TLS material
+  ansible.builtin.file:
+    path: "/etc/blitzecdn/tls/{{ item }}"
+    state: absent
+  loop: "{{ blitzecdn_nginx_stale_tls_names }}"
+
+- name: Record managed site names
+  ansible.builtin.copy:
+    content: "{{ blitzecdn_nginx_desired_names | sort | join('\n') }}\n"
+    dest: "{{ blitzecdn_nginx_managed_sites_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+
+# A managed certificate is copied under its fingerprint, then the validated
+# site configuration atomically starts referring to that complete pair. Only
+# after that commit can older files be removed. An interrupted copy therefore
+# leaves an unused file, never a live chain paired with the wrong private key.
+- name: Find managed TLS bundle files
+  ansible.builtin.find:
+    paths: "{{ item.certificate_path | dirname }}"
+    patterns: "*.pem"
+    file_type: file
+    recurse: false
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.certificate_mode | default('disabled') in ['uploaded', 'requested']
+  register: blitzecdn_nginx_tls_files
+
+- name: Remove superseded managed TLS bundle files
+  ansible.builtin.file:
+    path: "{{ item.1.path }}"
+    state: absent
+  loop: "{{ blitzecdn_nginx_tls_files.results | subelements('files', skip_missing=True) }}"
+  loop_control:
+    label: "{{ item.1.path }}"
+  when:
+    - item.1.path != item.0.item.certificate_path
+    - item.1.path != item.0.item.certificate_key_path
 
 # Skipped under --check for the same reason as `nginx -t`: on a host that does
 # not have Nginx yet the package install was only simulated, so the unit does

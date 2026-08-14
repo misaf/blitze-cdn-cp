@@ -119,10 +119,9 @@ class OriginProbe:
     ) -> OriginCheck:
         """Complete the TLS handshake the edge would, verifying as it does.
 
-        Verification is not optional here even though nginx's `proxy_ssl_verify`
-        defaults to off. Reporting an unverified handshake as a pass would make
-        this check agree with a deploy that later serves a certificate error to
-        somebody, and the point of the check is to disagree first.
+        Verification is not optional here. The generated Nginx configuration
+        enables it explicitly; keeping this probe on the same policy makes a
+        successful preflight meaningful for the traffic the edge will carry.
         """
         context = ssl.create_default_context()
         connection.settimeout(timeout)
