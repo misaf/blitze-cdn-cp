@@ -52,7 +52,6 @@ DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
         {
             DeploymentStatus.RUNNING,
             DeploymentStatus.FAILED,
-            DeploymentStatus.ABANDONED,
         }
     ),
     DeploymentStatus.RUNNING: frozenset(
