@@ -29,6 +29,7 @@ dist/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
+.hypothesis/
 
 .coverage
 coverage.xml
