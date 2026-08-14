@@ -618,7 +618,7 @@ class DeploymentStore:
             ).all()
             return [self._deployment(row) for row in rows]
 
-    def abandon_running(self, *, include_queued: bool = True) -> int:
+    def abandon_running(self) -> int:
         """Close out deployments the last controller process left in flight.
 
         They are given a result of their own rather than only a status: every
@@ -634,14 +634,11 @@ class DeploymentStore:
             finished_at=datetime.now(UTC),
             error="the controller restarted before this deployment completed",
         ).model_dump(mode="json")
-        statuses = [DeploymentStatus.RUNNING.value]
-        if include_queued:
-            statuses.append(DeploymentStatus.QUEUED.value)
         with self._db.session() as session:
             return _rows_affected(
                 session.execute(
                     update(DeploymentRow)
-                    .where(DeploymentRow.status.in_(statuses))
+                    .where(DeploymentRow.status == DeploymentStatus.RUNNING)
                     .values(
                         status=DeploymentStatus.ABANDONED.value,
                         finished_at=now,

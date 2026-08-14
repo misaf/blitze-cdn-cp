@@ -569,12 +569,17 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
         repository.deployments.transition(
             stranded.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
         )
+        workflow = repository.workflows.create(
+            "interrupted", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+        )
+        repository.workflows.advance(workflow.id, WorkflowStatus.RUNNING)
 
     assert control.deployments.initialize() == 1
     assert (
         repository.deployments.get_deployment(stranded.id).status
         is DeploymentStatus.ABANDONED
     )
+    assert repository.workflows.get(workflow.id).status is WorkflowStatus.NEEDS_REVIEW
 
 
 def test_startup_recovery_leaves_a_live_deployment_alone(settings):
@@ -596,11 +601,43 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
         settings=settings, repository=repository, runner=BusyRunner()
     )  # type: ignore[arg-type]
     live = repository.deployments.create_deployment("alice", check_mode=False)
+    workflow = repository.workflows.create(
+        "live", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+    )
+    repository.workflows.advance(workflow.id, WorkflowStatus.RUNNING)
 
     assert control.deployments.initialize() == 0
     assert (
         repository.deployments.get_deployment(live.id).status is DeploymentStatus.QUEUED
     )
+    assert repository.workflows.get(workflow.id).status is WorkflowStatus.RUNNING
+
+
+def test_busy_external_work_does_not_create_a_false_workflow(settings):
+    """A workflow starts only after this process owns the external-work lock.
+
+    Otherwise an API restart can see the journal entry, fail to acquire the
+    lock held by the real worker, and report the refused attempt as interrupted
+    work even though that attempt never touched an edge or a CA.
+    """
+    repository = Repository(settings.database_path)
+
+    class BusyRunner(FakeRunner):
+        def lock(self):
+            raise DeploymentBusyError("another deployment is already running")
+
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=BusyRunner()
+    )  # type: ignore[arg-type]
+
+    with pytest.raises(DeploymentBusyError):
+        control.deployments.deploy("alice")
+    with pytest.raises(DeploymentBusyError):
+        control.certificates.request_certificate(
+            "cdn-example-com", "alice", email="ops@example.com"
+        )
+
+    assert repository.workflows.list_workflows(10) == []
 
 
 def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(

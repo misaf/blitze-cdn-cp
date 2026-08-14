@@ -92,7 +92,7 @@ class DeploymentService:
         self.workflows = workflows
 
     def initialize(self) -> int:
-        """Close out deployments a previous controller process left in flight.
+        """Recover durable work a previous controller process left in flight.
 
         Only ever under the deployment lock, and this is not a formality. The
         rows this abandons are identified by status alone, so a controller that
@@ -110,9 +110,8 @@ class DeploymentService:
         """
         try:
             with self.execution.runner.lock():
-                recovered = self.persistence.deployments.abandon_running(
-                    include_queued=False
-                )
+                recovered = self.persistence.deployments.abandon_running()
+                self.workflows.reconcile_interrupted()
                 for deployment in self.persistence.deployments.queued_deployments():
                     self.execution.background.enqueue(deployment.id)
                 return recovered
@@ -182,20 +181,21 @@ class DeploymentService:
         still serving whatever they had.
         """
 
-        def converge_under_lock() -> Deployment:
-            with self.execution.runner.lock():
-                return self.converge(
+        with self.execution.runner.lock():
+            return self._journalled(
+                WorkflowKind.DEPLOYMENT,
+                operator,
+                None,
+                "converged",
+                lambda: self.converge(
                     self._queue(
                         operator,
                         check=check,
                         host_limit=host_limit,
                     ),
                     operator,
-                )
-
-        return self._journalled(
-            WorkflowKind.DEPLOYMENT, operator, None, "converged", converge_under_lock
-        )
+                ),
+            )
 
     def _journalled(
         self,
@@ -245,20 +245,17 @@ class DeploymentService:
         never been given — the precise disagreement rollback exists to end.
         """
 
-        def converge_under_lock() -> Deployment:
-            with self.execution.runner.lock():
-                return self.converge(
+        with self.execution.runner.lock():
+            return self._journalled(
+                WorkflowKind.ROLLBACK,
+                operator,
+                deployment_id,
+                "converged_and_adopted",
+                lambda: self.converge(
                     self._queue_rollback(operator, deployment_id, check=check),
                     operator,
-                )
-
-        return self._journalled(
-            WorkflowKind.ROLLBACK,
-            operator,
-            deployment_id,
-            "converged_and_adopted",
-            converge_under_lock,
-        )
+                ),
+            )
 
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
@@ -448,18 +445,11 @@ class DeploymentService:
         operator: str,
     ) -> Deployment:
         """Record durable intent, publish its ID, and return the queued record."""
-        lock = self.execution.runner.lock()
-        lock.__enter__()
-        try:
+        with self.execution.runner.lock():
             deployment = queue()
-        except BaseException:
-            lock.__exit__(None, None, None)
-            raise
-
-        try:
-            self.execution.background.enqueue(deployment.id)
-        except BaseException as exc:
             try:
+                self.execution.background.enqueue(deployment.id)
+            except BaseException as exc:
                 with self.persistence.uow.transaction():
                     self.persistence.deployments.transition(
                         deployment.id,
@@ -477,10 +467,7 @@ class DeploymentService:
                             {"error_type": type(exc).__name__},
                         )
                     )
-            finally:
-                lock.__exit__(None, None, None)
-            raise
-        lock.__exit__(None, None, None)
+                raise
         return deployment
 
     def _require_unchanged_canonical(self, deployment: Deployment) -> None:

@@ -101,8 +101,8 @@ class CertificateService:
         operator: str,
     ) -> CertificateInfo:
         with (
-            self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress,
             self.execution.runner.lock(),
+            self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress,
         ):
             site = self.persistence.sites.get_site(name)
             info = self.persistence.certificates.install(
@@ -212,8 +212,10 @@ class CertificateService:
             raise ConflictError(
                 "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
             )
-        with self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress:
-            with self.execution.runner.lock():
+        with self.execution.runner.lock():
+            with self.workflows.run(
+                WorkflowKind.CERTIFICATE, operator, name
+            ) as progress:
                 site = self.persistence.sites.get_site(name)
                 info = self._issue_certificate_locked(
                     site,
@@ -306,10 +308,10 @@ class CertificateService:
                 # interruption here is the most likely to be discovered later
                 # and the least likely to have anyone watching when it happens.
                 with (
+                    self.execution.runner.lock(),
                     self.workflows.run(
                         WorkflowKind.CERTIFICATE, operator, candidate.name
                     ) as progress,
-                    self.execution.runner.lock(),
                 ):
                     site = self.persistence.sites.get_site(candidate.name)
                     if site.certificate_mode is not CertificateMode.DISABLED:

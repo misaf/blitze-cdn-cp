@@ -423,7 +423,6 @@ def test_every_deployment_status_is_in_a_transition_row_or_terminal():
     [
         (DeploymentStatus.QUEUED, DeploymentStatus.RUNNING),
         (DeploymentStatus.QUEUED, DeploymentStatus.FAILED),
-        (DeploymentStatus.QUEUED, DeploymentStatus.ABANDONED),
         (DeploymentStatus.RUNNING, DeploymentStatus.SUCCEEDED),
         (DeploymentStatus.RUNNING, DeploymentStatus.FAILED),
         (DeploymentStatus.RUNNING, DeploymentStatus.TIMED_OUT),
@@ -439,6 +438,7 @@ def test_the_lifecycle_allows_these_transitions(current, target):
     [
         (DeploymentStatus.QUEUED, DeploymentStatus.SUCCEEDED),
         (DeploymentStatus.QUEUED, DeploymentStatus.TIMED_OUT),
+        (DeploymentStatus.QUEUED, DeploymentStatus.ABANDONED),
         (DeploymentStatus.RUNNING, DeploymentStatus.QUEUED),
         (DeploymentStatus.SUCCEEDED, DeploymentStatus.RUNNING),
         (DeploymentStatus.SUCCEEDED, DeploymentStatus.SUCCEEDED),
