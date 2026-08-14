@@ -28,7 +28,7 @@ from blitzecdn.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.ports import (
     DeploymentRunner,
     EdgeStore,
-    EventBus,
+    EventRecorder,
     OriginProbe,
     SiteStore,
     UnitOfWork,
@@ -42,14 +42,14 @@ class EdgeOperationsService:
         self,
         *,
         sites: SiteStore,
-        bus: EventBus,
+        events: EventRecorder,
         runner: DeploymentRunner,
         origin_probe: OriginProbe,
         edges: EdgeStore,
         uow: UnitOfWork,
     ) -> None:
         self.sites = sites
-        self.bus = bus
+        self.events = events
         self.runner = runner
         self.origin_probe = origin_probe
         self.edges = edges
@@ -75,7 +75,7 @@ class EdgeOperationsService:
         """
         with self.uow.transaction():
             created = self.edges.create_edge(edge)
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "edge.added",
@@ -105,7 +105,7 @@ class EdgeOperationsService:
         )
         with self.uow.transaction():
             saved = self.edges.replace_edge(updated, expected=current)
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "edge.updated",
@@ -127,7 +127,7 @@ class EdgeOperationsService:
         """
         with self.uow.transaction():
             self.edges.delete_edge(name)
-            self.bus.publish(domain_event(operator, "edge.removed", "edge", name))
+            self.events.record(domain_event(operator, "edge.removed", "edge", name))
 
     # -- Origins -------------------------------------------------------
 
@@ -166,7 +166,7 @@ class EdgeOperationsService:
             host_limit=host_limit,
             edges=tuple(_edge_origins(host) for host in run.hosts),
         )
-        self.bus.publish(
+        self.events.record(
             domain_event(
                 operator,
                 "origins.checked",
@@ -229,7 +229,7 @@ class EdgeOperationsService:
                 failure = run.summary()
 
         if failure is not None and not force:
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "edge.decommission_failed",
@@ -250,7 +250,7 @@ class EdgeOperationsService:
             )
         with self.uow.transaction():
             self.edges.delete_edge(name)
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     (

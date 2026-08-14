@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import threading
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -256,34 +255,27 @@ def edge(name: str = "edge1", **overrides) -> Edge:
     )
 
 
-class InlineBackgroundRunner:
-    """Runs queued work on the calling thread, before ``start`` returns.
-
-    A ``BackgroundRunner`` that removes the concurrency from the queued deploy
-    and rollback paths, so a test can assert on the finished deployment rather
-    than polling for it. The lock is released by the work itself either way,
-    which is exactly why running it here rather than on a thread is safe.
-    """
-
-    def start(self, work, *, name):
-        work()
-
-
-class RefusingBackgroundRunner:
-    """A ``BackgroundRunner`` that will not start the work it is given.
-
-    Stands in for the real failure — a process that cannot spawn another thread
-    — which is otherwise only reachable by monkeypatching ``threading``. Flip
-    ``refuse`` to let later work through and prove the deployment lock came back.
-    """
+class RecordingBackgroundQueue:
+    """Records durable deployment identifiers without requiring Redis."""
 
     def __init__(self) -> None:
+        self.ids: list[str] = []
+
+    def enqueue(self, deployment_id: str) -> None:
+        self.ids.append(deployment_id)
+
+
+class RefusingBackgroundQueue(RecordingBackgroundQueue):
+    """A durable queue adapter that can fail publication."""
+
+    def __init__(self) -> None:
+        super().__init__()
         self.refuse = True
 
-    def start(self, work, *, name):
+    def enqueue(self, deployment_id: str) -> None:
         if self.refuse:
-            raise RuntimeError("can't start new thread")
-        threading.Thread(target=work, name=name, daemon=True).start()
+            raise RuntimeError("can't publish to queue")
+        super().enqueue(deployment_id)
 
 
 class FakePreflight:

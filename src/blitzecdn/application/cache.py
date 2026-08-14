@@ -29,7 +29,7 @@ from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.runs import HostRun
 from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
 from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
-from blitzecdn.ports import DeploymentRunner, EventBus, SiteStore
+from blitzecdn.ports import DeploymentRunner, EventRecorder, SiteStore
 
 
 class CacheService:
@@ -39,13 +39,13 @@ class CacheService:
         self,
         *,
         sites: SiteStore,
-        bus: EventBus,
+        events: EventRecorder,
         runner: DeploymentRunner,
     ) -> None:
         #: Read to decide which hostnames may be purged. This service never
         #: writes a site; purging is not a change to desired state.
         self.sites = sites
-        self.bus = bus
+        self.events = events
         self.runner = runner
 
     def purge_cache(
@@ -91,7 +91,7 @@ class CacheService:
             host_limit=host_limit,
             hosts=run.hosts,
         )
-        self.bus.publish(
+        self.events.record(
             domain_event(
                 operator,
                 "cache.purged",
@@ -195,7 +195,7 @@ class CacheService:
             host_limit=host_limit,
             edges=tuple(_edge_stats(host) for host in run.hosts),
         )
-        self.bus.publish(
+        self.events.record(
             domain_event(
                 operator,
                 "cache.stats_collected",

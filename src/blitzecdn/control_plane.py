@@ -34,17 +34,12 @@ from blitzecdn.application import (
     DnsService,
     EdgeOperationsService,
 )
-from blitzecdn.application.deployment_support import (
-    DesiredStateRenderer,
-    DriftInterpreter,
-    RollbackPlanner,
-)
-from blitzecdn.application.workflows import RecoveryService, WorkflowCoordinator
+from blitzecdn.application.deployment_support import DesiredStateRenderer
+from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
-from blitzecdn.infrastructure.events import AuditObserver, InProcessEventBus
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
@@ -52,7 +47,6 @@ from blitzecdn.infrastructure.process import DramatiqBackgroundRunner
 from blitzecdn.infrastructure.queue import redis_ready
 from blitzecdn.ports import (
     AuditTrail,
-    BackgroundRunner,
     DeploymentRunner,
     Issuer,
     Preflight,
@@ -83,7 +77,7 @@ class ControlPlane:
         origin_probe: OriginProbePort | None = None,
         preflight: Preflight | None = None,
         edges_store: EdgeStorePort | None = None,
-        background: BackgroundRunner | QueueBackgroundRunner | None = None,
+        background: QueueBackgroundRunner | None = None,
         broker_ready: Callable[[str], bool] | None = None,
         pool_connections: bool = False,
     ) -> None:
@@ -115,7 +109,7 @@ class ControlPlane:
         origin_probe: OriginProbePort | None,
         preflight: Preflight | None,
         edges_store: EdgeStorePort | None,
-        background: BackgroundRunner | QueueBackgroundRunner | None,
+        background: QueueBackgroundRunner | None,
         broker_ready: Callable[[str], bool] | None,
     ) -> None:
         """Choose concrete outside-world capabilities and their test overrides."""
@@ -143,15 +137,14 @@ class ControlPlane:
     def _wire_services(self, store: Repository) -> None:
         """Build cross-cutting services, then feature-oriented services."""
 
-        # The audit trail as a read-only port. It is written by the observer
-        # below, never by a caller, so nothing here can record an event no
-        # service actually announced.
+        # Entry layers receive only the read side of the audit trail, so they
+        # cannot manufacture an event for an action no service performed.
         self.audit: AuditTrail = store.audit_log
 
-        # The one subscriber the audit trail needs is registered here, so the
-        # services can publish "something happened" without knowing who listens.
-        self.bus = InProcessEventBus()
-        self.bus.subscribe(AuditObserver(store.audit_log))
+        # The same audit adapter is exposed read-only to entry layers and as an
+        # event recorder to services. There is one durable consumer, so a
+        # generic observer registry would only disguise this ownership.
+        self.events = store.audit_log
         self.workflows = WorkflowCoordinator(
             journal=store.workflows,
             uow=store,
@@ -159,14 +152,13 @@ class ControlPlane:
         )
         self.workflow_history = store.workflows
         self.deployment_requirements = store.deployment_requirements
-        self.recovery = RecoveryService(journal=store.workflows, uow=store)
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
         self.dns = DnsService(
             zones=store.zones,
             sites=store.sites,
-            bus=self.bus,
+            events=self.events,
             uow=store,
         )
         self._wire_feature_services(store)
@@ -192,11 +184,9 @@ class ControlPlane:
                 read_log=read_log_tail,
                 renderer=renderer,
             ),
-            bus=self.bus,
+            events=self.events,
             dns=self.dns,
             workflows=self.workflows,
-            rollbacks=RollbackPlanner(deployments=store.deployments),
-            drift=DriftInterpreter(),
         )
         self.certificates = CertificateService(
             settings=self.settings,
@@ -211,14 +201,14 @@ class ControlPlane:
                 issuer=self.issuer,
                 preflight=self.preflight,
             ),
-            bus=self.bus,
+            events=self.events,
             dns=self.dns,
             deployments=self.deployments,
             workflows=self.workflows,
         )
         self.edges = EdgeOperationsService(
             sites=store.sites,
-            bus=self.bus,
+            events=self.events,
             runner=self.runner,
             origin_probe=self.origin_probe,
             edges=self.edges_store,
@@ -229,7 +219,7 @@ class ControlPlane:
         # change to desired state and must not be able to become one.
         self.cache = CacheService(
             sites=store.sites,
-            bus=self.bus,
+            events=self.events,
             runner=self.runner,
         )
 

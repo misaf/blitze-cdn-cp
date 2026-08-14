@@ -18,7 +18,7 @@ from blitzecdn.domain.sites import (
     managed_certificate_paths,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.ports import EventBus, SiteStore, UnitOfWork, ZoneStore
+from blitzecdn.ports import EventRecorder, SiteStore, UnitOfWork, ZoneStore
 
 
 class DnsService:
@@ -29,12 +29,12 @@ class DnsService:
         *,
         zones: ZoneStore,
         sites: SiteStore,
-        bus: EventBus,
+        events: EventRecorder,
         uow: UnitOfWork,
     ) -> None:
         self.zones = zones
         self.sites = sites
-        self.bus = bus
+        self.events = events
         self.uow = uow
 
     # -- Sites ---------------------------------------------------------
@@ -60,7 +60,7 @@ class DnsService:
     def create_domain(self, domain: Domain, operator: str) -> Domain:
         with self.uow.transaction():
             created = self.zones.create_domain(domain)
-            self.bus.publish(
+            self.events.record(
                 domain_event(operator, "domain.created", "domain", domain.name)
             )
         return created
@@ -74,7 +74,7 @@ class DnsService:
         with self.uow.transaction():
             self.zones.delete_domain(name)
             self.sync_sites()
-            self.bus.publish(domain_event(operator, "domain.deleted", "domain", name))
+            self.events.record(domain_event(operator, "domain.deleted", "domain", name))
 
     # -- Records -------------------------------------------------------
 
@@ -92,7 +92,7 @@ class DnsService:
         with self.uow.transaction():
             created = self.zones.create_record(record)
             self.sync_sites()
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "record.created",
@@ -119,7 +119,7 @@ class DnsService:
         with self.uow.transaction():
             saved = self.zones.replace_record(updated, expected=current)
             self.sync_sites()
-            self.bus.publish(
+            self.events.record(
                 domain_event(
                     operator,
                     "record.updated",
@@ -152,7 +152,7 @@ class DnsService:
         with self.uow.transaction():
             self.zones.delete_record(domain, name, type_)
             self.sync_sites()
-            self.bus.publish(
+            self.events.record(
                 domain_event(operator, "record.deleted", "record", record.fqdn)
             )
 
