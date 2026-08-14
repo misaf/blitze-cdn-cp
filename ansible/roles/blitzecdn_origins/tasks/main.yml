@@ -96,9 +96,9 @@
       status: "{{ item.status | default(-1) | int }}"
       detail: "{{ item.msg | default('') | string }}"
 
-# `blitzecdn_report` is the channel a role returns a payload on: the control
-# plane's callback collects this fact and delivers it in the run's structured
-# result. Same mechanism the statistics role uses, and for the same reason —
+# `blitzecdn_report` is the channel a role returns a payload on: the runner
+# collects this fact from its event stream and delivers it in the run's
+# structured result. Same mechanism the statistics role uses, and for the same reason —
 # there is no controller-side file to write, collide over, or read a previous
 # run's document out of.
 - name: Publish this edge's origin report  # noqa: var-naming[no-role-prefix]

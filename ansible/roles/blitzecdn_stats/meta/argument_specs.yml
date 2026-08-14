@@ -6,8 +6,8 @@ argument_specs:
       - >-
         Reads the access log and stub_status endpoint that blitzecdn_nginx
         configures and publishes the result as the C(blitzecdn_report) fact,
-        which the control plane's callback plugin collects as part of the run's
-        structured result.
+        which the control plane collects from Ansible Runner's event stream as
+        part of the run's structured result.
       - >-
         Read-only. It changes nothing on the edge, so it is safe to schedule
         and safe to run during a deployment.
