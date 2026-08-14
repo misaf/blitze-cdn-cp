@@ -35,8 +35,8 @@
 # otherwise.
 #
 # `blitzecdn_report` is the channel a role returns a payload to the control
-# plane on: its callback plugin collects this fact and delivers it as part of
-# the run's structured result. This role used to render the same document to
+# plane on: the runner collects this fact from its event stream and delivers it
+# as part of the run's structured result. This role used to render the same document to
 # JSON and copy it into a directory on the controller, which meant the control
 # plane had to supply a controller-side path, had to empty that directory
 # between runs, and still could not tell "this edge reported nothing" from "the
@@ -45,9 +45,9 @@
 # the recap too.
 #
 # The name is unprefixed on purpose, which is why the role-prefix rule is muted
-# here: it is a protocol between every role and the control plane's callback,
-# not a variable belonging to this role. Prefixing it would mean the callback
-# had to guess at role names to find a report.
+# here: it is a protocol between every reporting role and the control plane's
+# runner adapter, not a variable belonging to this role. Prefixing it would
+# mean the adapter had to guess at role names to find a report.
 - name: Publish this edge's report to the control plane  # noqa: var-naming[no-role-prefix]
   ansible.builtin.set_fact:
     blitzecdn_report:

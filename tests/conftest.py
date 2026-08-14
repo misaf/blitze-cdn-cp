@@ -63,9 +63,9 @@ def host_run(
 ) -> HostRun:
     """One host's part in a fake run.
 
-    `changes` and `failure` build the task lists the callback would have
-    produced, so a test can assert on what a report *says happened* rather than
-    only on a count.
+    `changes` and `failure` build the task lists the runner adapter produces,
+    so a test can assert on what a report *says happened* rather than only on a
+    count.
     """
     return HostRun(
         host=name,
@@ -93,7 +93,7 @@ def ansible_run(
     error: str | None = None,
     targeted: tuple[str, ...] = (),
 ) -> AnsibleRun:
-    """What the runner hands back: the callback's per-host results plus a status.
+    """What the runner hands back: per-host structured results plus a status.
 
     Tests build these directly rather than faking Ansible output, because the
     structured result *is* the contract now — there is no text for a double to
@@ -123,7 +123,7 @@ def origin_report(
     tls_verified: object = True,
     detail: str = "",
 ) -> HostRun:
-    """One edge's published origin report, as the callback delivers it.
+    """One edge's published origin report, as the runner adapter delivers it.
 
     Built as the role would render it — strings for the booleans, `-1` for a
     status that never arrived — because that crossing is exactly what the
