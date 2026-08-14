@@ -6,7 +6,6 @@ from typing import Any
 
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import CdnSite
-from blitzecdn.domain.validation import STORED
 
 
 def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
@@ -42,8 +41,7 @@ def decode_snapshot(snapshot: str) -> list[CdnSite]:
     document = _document(snapshot)
     sites: dict[str, CdnSite] = {}
     for record in (
-        DnsRecord.model_validate(item, context=STORED)
-        for item in document.get("records", [])
+        DnsRecord.model_validate(item) for item in document.get("records", [])
     ):
         site = record.to_site()
         if site is not None:
@@ -56,10 +54,7 @@ def decode_snapshot_zones(snapshot: str) -> tuple[list[Domain], list[DnsRecord]]
     data = _document(snapshot)
     return (
         [Domain.model_validate(item) for item in data.get("domains", [])],
-        [
-            DnsRecord.model_validate(item, context=STORED)
-            for item in data.get("records", [])
-        ],
+        [DnsRecord.model_validate(item) for item in data.get("records", [])],
     )
 
 
@@ -67,4 +62,11 @@ def _document(snapshot: str) -> dict[str, Any]:
     data = json.loads(snapshot)
     if not isinstance(data, dict):
         raise ValueError("deployment snapshot is not an object")
+    expected = {"domains", "records"}
+    if set(data) != expected:
+        raise ValueError(
+            "deployment snapshot must contain exactly 'domains' and 'records'"
+        )
+    if not isinstance(data["domains"], list) or not isinstance(data["records"], list):
+        raise ValueError("deployment snapshot domains and records must be lists")
     return data

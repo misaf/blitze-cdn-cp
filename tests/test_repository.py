@@ -9,7 +9,6 @@ from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.snapshots import decode_snapshot
-from blitzecdn.domain.validation import STORED
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.database import Repository
 
@@ -69,9 +68,7 @@ def test_deployment_transitions_snapshots_and_recovery(
     # A snapshot carries records, not the sites derived from them, so the
     # fixture has to create the canonical thing.
     repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.zones.create_record(
-        DnsRecord.model_validate(record_payload, context=STORED)
-    )
+    repository.zones.create_record(DnsRecord.model_validate(record_payload))
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     assert (
         decode_snapshot(repository.deployments.deployment_snapshot(deployment.id))[
@@ -106,9 +103,7 @@ def test_rollback_target_requires_different_success(
 ):
     repository = Repository(settings.database_path)
     repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.zones.create_record(
-        DnsRecord.model_validate(record_payload, context=STORED)
-    )
+    repository.zones.create_record(DnsRecord.model_validate(record_payload))
     current = repository.snapshot()
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     repository.deployments.transition(
@@ -145,6 +140,19 @@ def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
 
     assert len(connections) == 2
     assert len(set(connections)) == 1
+
+
+def test_transactions_never_leak_between_repository_instances(settings):
+    """An ambient session is scoped to its database, not merely its context."""
+    first = Repository(settings.database_path)
+    second = Repository(settings.database_path.with_name("other-control-plane.db"))
+
+    with first.transaction():
+        first.zones.create_domain(Domain(name="first.example"))
+        second.zones.create_domain(Domain(name="second.example"))
+
+    assert [domain.name for domain in first.zones.list_domains()] == ["first.example"]
+    assert [domain.name for domain in second.zones.list_domains()] == ["second.example"]
 
 
 def test_workflow_progress_is_durable(settings):
