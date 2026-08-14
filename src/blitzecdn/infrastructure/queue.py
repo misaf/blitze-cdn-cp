@@ -11,10 +11,13 @@ from dramatiq.brokers.redis import RedisBroker
 from redis import Redis
 
 from blitzecdn.config import Settings
+from blitzecdn.exceptions import DeploymentBusyError
 
 _LOGGER = logging.getLogger(__name__)
 _broker_url: str | None = None
 _SCHEDULE_KEY_PREFIX = "blitzecdn:scheduled:"
+_REDIS_OPERATION_TIMEOUT_SECONDS = 5.0
+_DEPLOYMENT_LOCK_RETRIES = 260
 _RELEASE_IF_OWNER = """
 if redis.call('get', KEYS[1]) == ARGV[1] then
   return redis.call('del', KEYS[1])
@@ -34,7 +37,11 @@ def redis_ready(redis_url: str) -> bool:
 
 def enqueue_scheduled_once(redis_url: str, operation: str, *, ttl_seconds: int) -> bool:
     """Atomically publish at most one queued/running copy of an operation."""
-    client = Redis.from_url(redis_url)
+    client = Redis.from_url(
+        redis_url,
+        socket_connect_timeout=_REDIS_OPERATION_TIMEOUT_SECONDS,
+        socket_timeout=_REDIS_OPERATION_TIMEOUT_SECONDS,
+    )
     key = f"{_SCHEDULE_KEY_PREFIX}{operation}"
     token = uuid4().hex
     try:
@@ -52,7 +59,11 @@ def enqueue_scheduled_once(redis_url: str, operation: str, *, ttl_seconds: int) 
 
 def _release_schedule_key(operation: str, token: str) -> None:
     settings = Settings.from_environment()
-    client = Redis.from_url(str(settings.redis_url))
+    client = Redis.from_url(
+        str(settings.redis_url),
+        socket_connect_timeout=_REDIS_OPERATION_TIMEOUT_SECONDS,
+        socket_timeout=_REDIS_OPERATION_TIMEOUT_SECONDS,
+    )
     try:
         client.eval(
             _RELEASE_IF_OWNER,
@@ -91,7 +102,19 @@ def configure_broker(redis_url: str) -> None:
 configure_broker(os.environ.get("BLITZE_REDIS_URL", "redis://127.0.0.1:6379/0"))
 
 
-@dramatiq.actor(max_retries=0, queue_name="deployments")
+def _retry_locked_deployment(retries: int, exception: BaseException) -> bool:
+    """Retry only the publish-to-worker lock handoff race."""
+    return retries < _DEPLOYMENT_LOCK_RETRIES and isinstance(
+        exception, DeploymentBusyError
+    )
+
+
+@dramatiq.actor(
+    queue_name="deployments",
+    retry_when=_retry_locked_deployment,
+    min_backoff=1_000,
+    max_backoff=30_000,
+)
 def run_deployment(deployment_id: str) -> None:
     """Converge one already-recorded queued deployment."""
     from blitzecdn.control_plane import build_control_plane
