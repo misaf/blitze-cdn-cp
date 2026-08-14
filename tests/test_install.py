@@ -55,7 +55,7 @@ def _section(name: str) -> str:
 
     Assertions about what a subcommand must never do have to be scoped to it:
     the three installers share a file now, and `standalone` legitimately runs a
-    deployment that `update` must never run.
+    deployment that destructive lifecycle commands must never run.
     """
     remainder = _script()[_script().index(f"cmd_{name}() {{") :]
     banner = re.search(r"\n# -{10,}", remainder)
@@ -211,6 +211,7 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         '  *"rev-parse HEAD"*)\n'
         '    echo "0123456789abcdef0123456789abcdef01234567"; exit 0 ;;\n'
         "  clone*)\n"
+        '    [[ -z "${FRESH_GIT_CLONE_FAIL:-}" ]] || exit 1\n'
         '    if [[ -n "${FRESH_GIT_CLONE_MARKER:-}" ]]; then\n'
         '      printf "%s\\n" "$*" > "${FRESH_GIT_CLONE_MARKER}"\n'
         "    fi\n"
@@ -238,7 +239,9 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "opt/blitzecdn/install.sh",
         root / "opt/blitzecdn/.state/control-plane.db",
         root / "opt/blitzecdn/.state/desired-state.yml",
-        root / "opt/blitzecdn/.state/certificates/example-cdn/fullchain.pem",
+        root
+        / "opt/blitzecdn/.state/certificates/example-cdn"
+        / "fullchain-deadbeef.pem",
         root
         / "opt/blitzecdn/.state/collections/ansible_collections/blitzecdn"
         / "edge/MANIFEST.json",
@@ -312,6 +315,7 @@ def _fake_unrelated(root: Path) -> list[Path]:
         root / "usr/local/bin/other-tool",
         root / "etc/unrelated.conf",
         root / "home/other-user/notes.txt",
+        root / "var/backups/blitzecdn/operator-backup.db",
     ]
     for path in unrelated:
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -663,7 +667,7 @@ def test_fresh_preserves_the_running_source_line_like_a_new_server():
     assert '[[ ${revision} != "2.x" ]]' in fresh
     assert 'git clone --branch "${revision}"' in fresh
     assert "git clone --depth 1" not in fresh
-    assert 'git -C "${INSTALL_DIR}" checkout --detach "${revision}"' in fresh
+    assert 'git -C "${staging}" checkout --detach "${revision}"' in fresh
     assert '"${INSTALL_DIR}/install.sh" standalone ' in fresh
     assert '${parsed_forward_args[@]+"${parsed_forward_args[@]}"}' in fresh
 
@@ -797,6 +801,24 @@ def test_fresh_refuses_to_rebuild_without_a_git_checkout(tmp_path: Path):
     assert "is not a Git checkout" in result.stderr
 
 
+def test_fresh_clone_failure_preserves_the_running_installation(tmp_path: Path):
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    owned = _fake_installation(root)
+
+    result = _run_sandboxed(
+        script,
+        "--fresh",
+        "--yes",
+        env_extra={"FRESH_GIT_CLONE_FAIL": "1"},
+    )
+
+    assert result.returncode == 1
+    assert "current installation was not changed" in result.stderr
+    assert all(path.exists() for path in owned)
+
+
 def test_the_default_install_ends_by_installing_the_wrapper():
     """Otherwise the CLI is only reachable from inside the checkout."""
     install = _section("install")
@@ -879,6 +901,19 @@ def test_controlplane_role_services_are_managed_as_units():
         assert service in defaults["blitzecdn_controlplane_units"]
 
 
+def test_controlplane_initializes_schema_before_starting_services():
+    tasks = _role_tasks()
+    schema = _role_task("Initialize the application schema before starting services")
+    services = _role_task("Enable and start the control-plane services")
+
+    assert tasks.index(schema) < tasks.index(services)
+    assert schema["become_user"] == "{{ blitzecdn_controlplane_service_user }}"
+    assert schema["ansible.builtin.command"]["argv"][-2:] == [
+        "setup",
+        "--schema-only",
+    ]
+
+
 def test_standalone_bootstraps_only_what_ansible_needs():
     """Everything else is the role's job; this list is the bootstrap contract."""
     standalone = _section("standalone")
@@ -889,6 +924,14 @@ def test_standalone_bootstraps_only_what_ansible_needs():
     # Accounts, sudo, SSH trust and units must not be done twice.
     for moved in ("useradd", "visudo", "ssh-keygen", "ssh-keyscan", "openssl rand"):
         assert moved not in standalone, f"{moved} still runs in the installer"
+
+
+def test_container_source_copy_excludes_local_state_and_macos_sidecars():
+    script = (PROJECT_DIR / "tests/container-install.sh").read_text(encoding="utf-8")
+
+    assert "COPYFILE_DISABLE=1 tar" in script
+    for excluded in (".env", "blitzecdn.toml", ".state", "._*", ".DS_Store"):
+        assert f"--exclude={excluded}" in script or f"--exclude='{excluded}'" in script
 
 
 def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
