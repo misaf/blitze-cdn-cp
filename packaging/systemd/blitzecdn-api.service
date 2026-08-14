@@ -1,5 +1,5 @@
 [Unit]
-Description=BlitzeCDN control-plane API and certificate reconciler
+Description=BlitzeCDN control-plane API and scheduler
 After=network-online.target redis-server.service
 Wants=network-online.target redis-server.service
 

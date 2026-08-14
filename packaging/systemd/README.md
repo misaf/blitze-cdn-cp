@@ -24,15 +24,17 @@ sudo systemctl enable --now blitzecdn-api.service
 sudo systemctl enable --now blitzecdn-worker.service
 ```
 
-Verify the service and inspect scheduled activity in its journal:
+Verify both services and inspect scheduling and worker execution separately:
 
 ```bash
 journalctl -u blitzecdn-api.service -n 100
+journalctl -u blitzecdn-worker.service -n 100
 ```
 
 Set an interval to `0` to disable its job. Renewal defaults to 12 hours, drift
-to one hour, and first-certificate reconciliation to ten minutes. Drift and job
-failures are written to the API service journal.
+to one hour, and first-certificate reconciliation to ten minutes. Scheduler
+publication failures are written to the API journal; Dramatiq execution and
+job failures are written to the worker journal.
 
 ## What is deliberately not scheduled
 

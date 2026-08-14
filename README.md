@@ -263,9 +263,10 @@ does.
 blitzecdn serve --host 127.0.0.1 --port 8000
 ```
 
-For production, install `packaging/systemd/blitzecdn-api.service`. It supplies
-the virtualenv `PATH`, keeps the API and certificate reconciler running, and
-loads secrets from `/etc/blitzecdn/blitzecdn.env` when present. Put an
+For production, install both units in `packaging/systemd/`: the API unit runs
+FastAPI and the lightweight scheduler, while the worker unit executes Dramatiq
+deployments and scheduled certificate/drift work. Both supply the virtualenv
+`PATH` and load secrets from `/etc/blitzecdn/blitzecdn.env` when present. Put an
 authenticated TLS reverse proxy in front of the loopback listener.
 
 Unlike the CLI, the API does not block on a convergence. A run can take
@@ -274,10 +275,11 @@ Unlike the CLI, the API does not block on a convergence. A run can take
 `POST /v1/deployments` and `POST /v1/rollbacks` return `202 Accepted` with a
 `queued` record and converge in the Dramatiq worker. Poll
 `GET /v1/deployments/{id}` for the outcome. The record is committed to SQLite
-before the worker starts, and startup marks orphaned `queued`/`running` records
-`abandoned`, so a controller crash is visible rather than silent. Rejections
-that can be determined up front — no rollback target, a deployment already
-running — still fail synchronously with 4xx.
+before the worker starts. Startup republishes `queued` records and marks only
+orphaned `running` records `abandoned`, after acquiring the deployment lock so
+it cannot rewrite work a live CLI or worker still owns. Rejections that can be
+determined up front — no rollback target, a deployment already running — still
+fail synchronously with 4xx.
 
 Only `GET /health` is public. Control routes live under `/v1` and require
 `X-API-Key`. Ten failed authentications from one client address within a minute
@@ -396,7 +398,8 @@ static addresses and you do not want a resolver in the request path.
 - A filesystem lock permits one deployment at a time.
 - Each run uses an immutable desired-state snapshot and bounded logs.
 - Timeout and failed runs remain recorded and never become canonical rollbacks.
-- Startup marks orphaned queued/running records `abandoned`.
+- Startup republishes queued records and marks orphaned running records
+  `abandoned` only while holding the deployment lock.
 - Rollback first converges the selected snapshot; canonical desired state changes
   only after Ansible succeeds.
 - An invalid Nginx configuration fails `nginx -t` before reload, leaving the
