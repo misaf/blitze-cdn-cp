@@ -76,11 +76,9 @@ class UtcDateTime(TypeDecorator[datetime]):
         if value is None:
             return None
         parsed = datetime.fromisoformat(value)
-        # Everything this writes carries an offset. A row without one was
-        # edited by hand, and UTC is the only thing it can have meant — worth
-        # reading rather than raising, since the alternative is a controller
-        # that will not start over one hand-fixed timestamp.
-        return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+        if parsed.tzinfo is None:
+            raise ValueError("stored timestamps must include a UTC offset")
+        return parsed
 
 
 def utcnow() -> datetime:

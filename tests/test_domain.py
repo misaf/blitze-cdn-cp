@@ -25,8 +25,8 @@ from blitzecdn.domain.deployments import (
 )
 from blitzecdn.domain.dns import DnsRecord, RecordPatch
 from blitzecdn.domain.runs import HostRun
-from blitzecdn.domain.sites import CdnSite, SiteFirewall, SitePolicy
-from blitzecdn.domain.validation import STORED
+from blitzecdn.domain.sites import CdnSite, SitePolicy
+from blitzecdn.domain.snapshots import decode_snapshot
 
 
 def test_site_normalizes_safe_hostnames(site_payload):
@@ -35,6 +35,19 @@ def test_site_normalizes_safe_hostnames(site_payload):
     site = CdnSite.model_validate(site_payload)
     assert site.server_names == ("cdn.example.com", "*.assets.example.com")
     assert site.origin_host == "origin.example.com"
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        "{}",
+        '{"domains": [], "records": [], "unknown": []}',
+        '{"domains": {}, "records": []}',
+    ],
+)
+def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
+    with pytest.raises(ValueError, match="deployment snapshot"):
+        decode_snapshot(snapshot)
 
 
 @pytest.mark.parametrize(
@@ -388,51 +401,6 @@ def test_by_site_sums_a_site_across_every_edge_serving_it():
     assert merged["a.example.com"].outcomes == {"HIT": 4, "MISS": 4}
     assert merged["a.example.com"].hit_ratio == 0.5
     assert merged["b.example.com"].hit_ratio == 1.0
-
-
-def test_stored_context_keeps_a_tightened_validator_from_stranding_a_row():
-    """Input is strict; storage is lenient, so a bad row stays correctable.
-
-    Adding the assigned-country-code check made a stored 'UK' unreadable, and
-    because every repository read revalidates, the record could no longer be
-    listed, patched, or even deleted — the only remaining fix was editing
-    SQLite by hand. Loading under STORED must succeed where input fails.
-    """
-    document = {"allowed_countries": ["UK"]}
-
-    with pytest.raises(ValidationError):
-        SiteFirewall.model_validate(document)
-
-    assert SiteFirewall.model_validate(document, context=STORED).allowed_countries == (
-        "UK",
-    )
-
-
-def test_stored_context_does_not_relax_the_shape_check():
-    """Leniency covers "an operator cannot have meant this", not safety.
-
-    The value is interpolated into an nginx directive, so anything that is not
-    two letters is refused however it arrived.
-    """
-    for value in ("G B", "G;B", "GBR", ""):
-        with pytest.raises(ValidationError):
-            SiteFirewall.model_validate({"allowed_countries": [value]}, context=STORED)
-
-
-def test_a_stored_bad_country_can_be_cleared_but_never_resaved():
-    """Re-saving still goes through strict validation.
-
-    A record loaded leniently must not be quietly written back with the bad
-    value still in it — the operator has to clear or correct it.
-    """
-    loaded = SiteFirewall.model_validate({"denied_countries": ["UK"]}, context=STORED)
-
-    with pytest.raises(ValidationError):
-        SiteFirewall.model_validate(loaded.model_dump())
-
-    assert SiteFirewall.model_validate(
-        loaded.model_dump() | {"denied_countries": ["GB"]}
-    ).denied_countries == ("GB",)
 
 
 # ----------------------------------------------------------------------

@@ -28,22 +28,8 @@ from sqlmodel import Session, create_engine
 
 from blitzecdn.exceptions import ConfigurationError
 
-#: The ambient Unit of Work. A ContextVar rather than ``threading.local`` so a
-#: transaction is scoped to the logical operation: queued deployments finish on
-#: a worker thread, and FastAPI may run a sync endpoint on a threadpool thread
-#: that is not the one that started the request.
-_SESSION: ContextVar[Session | None] = ContextVar("blitzecdn_session", default=None)
 
-#: Whether the transaction about to begin should reserve the writer.
-#:
-#: Only a Unit of Work does. A standalone read must not: escalating every
-#: ``SELECT`` to a write lock would serialise readers against each other, which
-#: WAL exists to avoid. Consulted by the ``begin`` handler below, which cannot
-#: otherwise tell the two apart.
-_IMMEDIATE: ContextVar[bool] = ContextVar("blitzecdn_begin_immediate", default=False)
-
-
-def _configure_sqlite(engine: Engine) -> None:
+def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
     """Make pysqlite behave the way this control plane needs it to.
 
     Three separate corrections, none of them optional:
@@ -78,7 +64,7 @@ def _configure_sqlite(engine: Engine) -> None:
 
     @event.listens_for(engine, "begin")
     def _on_begin(connection: Any) -> None:
-        connection.exec_driver_sql("BEGIN IMMEDIATE" if _IMMEDIATE.get() else "BEGIN")
+        connection.exec_driver_sql("BEGIN IMMEDIATE" if immediate.get() else "BEGIN")
 
 
 class Database:
@@ -86,6 +72,15 @@ class Database:
 
     def __init__(self, path: Path, *, pool_connections: bool = False) -> None:
         self._path = path
+        # Ambient state belongs to this database instance. A module-global
+        # session lets repository B accidentally join repository A's
+        # transaction when two control planes share one process.
+        self._session: ContextVar[Session | None] = ContextVar(
+            f"blitzecdn_session_{id(self)}", default=None
+        )
+        self._immediate: ContextVar[bool] = ContextVar(
+            f"blitzecdn_begin_immediate_{id(self)}", default=False
+        )
         # Kept from the sqlite3 implementation. SQLite admits one writer, and
         # serialising them here means a concurrent use case waits on a lock
         # instead of racing to `BEGIN IMMEDIATE` and failing on a busy
@@ -114,7 +109,7 @@ class Database:
             future=True,
             **pool_options,
         )
-        _configure_sqlite(self.engine)
+        _configure_sqlite(self.engine, self._immediate)
         try:
             self._initialize()
         except BaseException:
@@ -133,7 +128,7 @@ class Database:
         commit; outside it, a single-statement store call is its own
         transaction, exactly as it was.
         """
-        ambient = _SESSION.get()
+        ambient = self._session.get()
         if ambient is not None:
             yield ambient
             return
@@ -148,10 +143,10 @@ class Database:
         portion of their caller's work early — the reason this yields nothing
         and stores reach for :meth:`session` instead of being handed one.
         """
-        if _SESSION.get() is not None:
+        if self._session.get() is not None:
             yield
             return
-        immediate = _IMMEDIATE.set(True)
+        immediate = self._immediate.set(True)
         try:
             with self.lock, self._new_session() as session, session.begin():
                 # `session.begin()` is lazy: without this the transaction —
@@ -160,13 +155,13 @@ class Database:
                 # IMMEDIATE exists to avoid. Asking for the connection is what
                 # makes the boundary the boundary.
                 session.connection()
-                token = _SESSION.set(session)
+                token = self._session.set(session)
                 try:
                     yield
                 finally:
-                    _SESSION.reset(token)
+                    self._session.reset(token)
         finally:
-            _IMMEDIATE.reset(immediate)
+            self._immediate.reset(immediate)
 
     def require_transaction(self, operation: str) -> None:
         """Refuse an operation whose atomicity depends on an open Unit of Work.
@@ -198,7 +193,7 @@ class Database:
         than committing its way through several. Stores do not need it — they
         call :meth:`session` and get the right answer either way.
         """
-        return _SESSION.get()
+        return self._session.get()
 
     def close(self) -> None:
         """Release engine-owned resources during application shutdown."""

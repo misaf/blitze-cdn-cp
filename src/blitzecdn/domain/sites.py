@@ -22,7 +22,6 @@ from blitzecdn.domain.validation import (
     ISO_3166_1_ALPHA_2,
     SITE_NAME,
     hostname,
-    is_stored,
     unique,
 )
 
@@ -122,16 +121,12 @@ class SiteFirewall(BaseModel):
 
     @field_validator("allowed_countries", "denied_countries")
     @classmethod
-    def validate_countries(cls, values: tuple[str, ...], info: Any) -> tuple[str, ...]:
-        """Reject codes ISO does not assign — unless they are already stored.
+    def validate_countries(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject codes ISO does not assign.
 
-        The membership check catches an operator typo, which is the only thing
-        it can catch: an unassigned code renders happily and then matches
-        nobody. It is relaxed under ``STORED`` so that a record written before
-        this check existed stays readable and can be corrected or deleted. The
-        shape check is not relaxed; the value reaches an nginx directive.
+        An unassigned code renders happily and then matches nobody, so shape
+        validation alone is not enough.
         """
-        stored = is_stored(info)
         normalized = []
         for item in values:
             candidate = item.strip().upper()
@@ -139,12 +134,12 @@ class SiteFirewall(BaseModel):
                 raise ValueError(
                     f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
                 )
-            if not stored and candidate in COUNTRY_ALIASES:
+            if candidate in COUNTRY_ALIASES:
                 raise ValueError(
                     f"{item!r} is not an ISO 3166-1 alpha-2 country code; "
                     f"use {COUNTRY_ALIASES[candidate]!r}"
                 )
-            if not stored and candidate not in ISO_3166_1_ALPHA_2:
+            if candidate not in ISO_3166_1_ALPHA_2:
                 raise ValueError(
                     f"{item!r} is not an ISO 3166-1 alpha-2 country code such as 'DE'"
                 )

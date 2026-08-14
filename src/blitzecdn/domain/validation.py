@@ -1,16 +1,14 @@
 """Validation primitives the rest of the domain is built from.
 
 Everything here is shared by two or more of the sibling modules — hostnames by
-sites, DNS and certificates; the stored-record escape hatch by anything read
-back out of persistence. Nothing here knows what a site or a record is, which
-is what keeps this module free of imports from its own package.
+sites, DNS and certificates. Nothing here knows what a site or a record is,
+which is what keeps this module free of imports from its own package.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import re
-from typing import Any
 
 #: One label of a DNS name: no leading or trailing hyphen, 63 bytes at most.
 DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
@@ -59,27 +57,6 @@ ISO_3166_1_ALPHA_2 = frozenset((
 
 #: Codes people reach for that ISO does not assign, and what to use instead.
 COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
-
-#: Passed as validation context when a model is read back out of storage.
-#:
-#: Tightening a validator must never strand a row that an earlier release
-#: accepted. It did once: adding the assigned-country-code check made a stored
-#: ``UK`` unreadable, and because every repository read revalidates, the record
-#: could no longer be listed, patched, *or deleted* — the operator was left with
-#: no way to correct it short of editing SQLite by hand.
-#:
-#: So input is strict and storage is lenient. A validator that rejects a value
-#: purely because an operator would not have meant it must relax under this
-#: context; one that guards a downstream injection or a privilege boundary must
-#: not, because those apply to the value regardless of how it arrived.
-#: Re-saving still goes through strict validation, so a loaded-but-invalid
-#: record can be fixed or removed and never silently rewritten.
-STORED = {"stored": True}
-
-
-def is_stored(info: Any) -> bool:
-    """True when a validator is running against a record read from storage."""
-    return bool(getattr(info, "context", None) and info.context.get("stored"))
 
 
 def hostname(value: str, *, wildcard: bool = False) -> str:

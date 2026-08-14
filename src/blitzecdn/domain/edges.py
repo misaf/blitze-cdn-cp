@@ -22,16 +22,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.domain.validation import hostname, is_stored, unique
-
-#: The version of the ``edges`` row shape the inventory plugin reads.
-#:
-#: Bump it when ``Edge`` changes in a way an older plugin could not honour — a
-#: renamed field, or new semantics for an existing one. Adding a field the
-#: plugin can ignore does not need a bump. The plugin refuses a version above
-#: the one it knows, so an upgraded control plane and a stale checkout of the
-#: Ansible tree fail loudly at the start of a run instead of converging a fleet
-#: the plugin only half understood.
+from blitzecdn.domain.validation import hostname, unique
 
 #: The Ansible group every managed edge belongs to. The playbooks target it by
 #: name, so it is part of the contract with the roles rather than a label.
@@ -142,9 +133,7 @@ class Edge(BaseModel):
 
     @field_validator("ssh_sources")
     @classmethod
-    def validate_ssh_sources(
-        cls, values: tuple[str, ...], info: Any
-    ) -> tuple[str, ...]:
+    def validate_ssh_sources(cls, values: tuple[str, ...]) -> tuple[str, ...]:
         """Normalise to CIDR.
 
         ``strict=False`` here, unlike the site firewall's source rules, because
@@ -160,9 +149,6 @@ class Edge(BaseModel):
             try:
                 normalized.append(str(ipaddress.ip_network(candidate, strict=False)))
             except ValueError as error:
-                if is_stored(info):
-                    normalized.append(candidate)
-                    continue
                 raise ValueError(
                     f"{item!r} is not a management CIDR such as '203.0.113.0/24': "
                     f"{error}"
