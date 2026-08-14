@@ -241,6 +241,28 @@ def test_runner_translates_os_errors(settings, monkeypatch):
     with pytest.raises(ExecutionError, match="unable to execute"):
         ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
+    logs = list(settings.log_dir.glob("*.log"))
+    assert len(logs) == 1
+    assert logs[0].read_bytes() == b""
+    assert list((settings.state_dir / "ansible-runner").iterdir()) == []
+
+
+def test_runner_preserves_output_and_removes_artifacts_when_launch_fails(
+    settings, monkeypatch
+):
+    def fail(**kwargs):
+        _runner_result(kwargs, output=b"runner failed after creating output\n")
+        raise OSError("missing")
+
+    monkeypatch.setattr(ansible.ansible_runner, "run", fail)
+    with pytest.raises(ExecutionError):
+        ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
+
+    logs = list(settings.log_dir.glob("*.log"))
+    assert len(logs) == 1
+    assert logs[0].read_bytes() == b"runner failed after creating output\n"
+    assert list((settings.state_dir / "ansible-runner").iterdir()) == []
+
 
 def test_runner_validates_required_paths(settings):
     broken = settings.model_copy(

@@ -447,21 +447,30 @@ class AnsibleRunner:
         artifact_root = self._settings.state_dir / "ansible-runner"
         control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         artifact_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with tempfile.TemporaryDirectory(dir=control_root) as control_path:
-            environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
-            result = self._run_ansible(
-                run_id=run_id,
-                artifact_root=artifact_root,
-                playbook=playbook,
-                variables=variables,
-                host_limit=host_limit,
-                environment=environment,
-                timeout=timeout,
-                check=check,
-                syntax_check=syntax_check,
-                event_handler=events,
-            )
         artifact_path = artifact_root / run_id
+        try:
+            with tempfile.TemporaryDirectory(dir=control_root) as control_path:
+                environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
+                result = self._run_ansible(
+                    run_id=run_id,
+                    artifact_root=artifact_root,
+                    playbook=playbook,
+                    variables=variables,
+                    host_limit=host_limit,
+                    environment=environment,
+                    timeout=timeout,
+                    check=check,
+                    syntax_check=syntax_check,
+                    event_handler=events,
+                )
+        except BaseException:
+            # Runner can create its artifact tree before failing to launch or
+            # before returning a result. Preserve its output, but never leave
+            # the potentially large event spool behind on an exception path.
+            self._keep_runner_output(artifact_path, log_path)
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            self._prune_logs()
+            raise
         self._keep_runner_output(artifact_path, log_path)
         shutil.rmtree(artifact_path, ignore_errors=True)
 

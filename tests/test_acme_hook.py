@@ -8,6 +8,12 @@ from blitzecdn import acme_hook
 def test_acme_hook_validates_and_runs(monkeypatch, settings):
     calls = []
 
+    original_close = acme_hook.Repository.close
+
+    def close(repository):
+        calls.append({"repository": "closed"})
+        original_close(repository)
+
     class Runner:
         def __init__(self, _settings, edges):
             # The hook opens the same database the inventory plugin will read,
@@ -22,6 +28,7 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
 
     monkeypatch.setattr(acme_hook.Settings, "from_environment", lambda: settings)
     monkeypatch.setattr(acme_hook, "AnsibleRunner", Runner)
+    monkeypatch.setattr(acme_hook.Repository, "close", close)
     monkeypatch.setattr(acme_hook.sys, "argv", ["acme-hook", "present"])
     monkeypatch.setattr(
         acme_hook,
@@ -37,6 +44,7 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
     assert acme_hook.main() == 0
     assert calls[0] == {"edges": "EdgeStore"}
     assert calls[1]["action"] == "present"
+    assert calls[2] == {"repository": "closed"}
 
 
 def test_acme_hook_fails_closed(monkeypatch):
