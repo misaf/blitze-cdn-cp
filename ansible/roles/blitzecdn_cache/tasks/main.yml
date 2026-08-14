@@ -79,43 +79,42 @@
 # taken from the request — so there is nothing for xargs to split on and no
 # quoting question. `rm -f` because an entry that was never cached is the
 # ordinary case, not an error.
-- name: Stage the list of cache files to remove
-  ansible.builtin.tempfile:
-    state: file
-    prefix: blitzecdn-purge-
-  register: blitzecdn_cache_purge_manifest
-  changed_when: false
+- name: Purge named cached responses with a private per-run manifest
   when: not blitzecdn_cache_purge_all
+  block:
+    - name: Stage the list of cache files to remove
+      ansible.builtin.tempfile:
+        state: file
+        prefix: blitzecdn-purge-
+      register: blitzecdn_cache_purge_manifest
+      changed_when: false
 
-- name: Write the list of cache files to remove
-  ansible.builtin.copy:
-    content: "{{ blitzecdn_cache_purge_files | join('\n') }}\n"
-    dest: "{{ blitzecdn_cache_purge_manifest.path }}"
-    owner: root
-    group: root
-    mode: "0600"
-  changed_when: false
-  when: not blitzecdn_cache_purge_all
+    - name: Write the list of cache files to remove
+      ansible.builtin.copy:
+        content: "{{ blitzecdn_cache_purge_files | join('\n') }}\n"
+        dest: "{{ blitzecdn_cache_purge_manifest.path }}"
+        owner: root
+        group: root
+        mode: "0600"
+      changed_when: false
 
-- name: Remove the cached responses
-  ansible.builtin.command:
-    cmd: xargs -r -a {{ blitzecdn_cache_purge_manifest.path | quote }} rm -f --
-  register: blitzecdn_cache_purged
-  # `rm -f` cannot report which entries were present, and nginx open source
-  # cannot be asked. Reporting the pass as changed matches what the control
-  # plane already documents a successful purge to mean: the object is not being
-  # served from cache any more, not that it was there.
-  changed_when: blitzecdn_cache_purged.rc == 0
-  when: not blitzecdn_cache_purge_all
+    - name: Remove the cached responses
+      ansible.builtin.command:
+        cmd: xargs -r -a {{ blitzecdn_cache_purge_manifest.path | quote }} rm -f --
+      register: blitzecdn_cache_purged
+      # `rm -f` cannot report which entries were present, and nginx open source
+      # cannot be asked. Reporting the pass as changed matches what the control
+      # plane already documents a successful purge to mean: the object is not
+      # being served from cache any more, not that it was there.
+      changed_when: blitzecdn_cache_purged.rc == 0
 
-- name: Remove the staged list
-  ansible.builtin.file:
-    path: "{{ blitzecdn_cache_purge_manifest.path }}"
-    state: absent
-  changed_when: false
-  when:
-    - not blitzecdn_cache_purge_all
-    - blitzecdn_cache_purge_manifest.path is defined
+  always:
+    - name: Remove the staged list
+      ansible.builtin.file:
+        path: "{{ blitzecdn_cache_purge_manifest.path }}"
+        state: absent
+      changed_when: false
+      when: blitzecdn_cache_purge_manifest.path is defined
 
 # Deleting files rather than the tree: the level directories are created by
 # nginx at startup and removing them makes every subsequent store fail until a
