@@ -84,7 +84,11 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
 def test_health_is_public_and_controls_require_auth(settings):
     with TestClient(create_app(settings)) as client:
         assert client.get("/health").json() == {"status": "ok"}
+        assert client.get("/metrics").status_code == 401
         assert client.get("/v1/sites").status_code == 401
+        wrong = client.get("/v1/sites", headers={"X-API-Key": "wrong"})
+        assert wrong.status_code == 401
+        assert wrong.headers["WWW-Authenticate"] == "ApiKey"
         assert (
             client.get("/v1/sites", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
@@ -130,6 +134,39 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
         assert "/v1/sites/{name}/certificate/request" in paths
         assert "/v1/sites/{name}/certificate/upload" in paths
         assert "/v1/workflows" in paths
+
+
+def test_openapi_declares_the_api_key_as_a_security_scheme(settings):
+    """The key is authentication, not a header to be typed into every request.
+
+    Clients that generate from the schema (Swagger UI, Postman) only offer a
+    collection-level credential when the operations reference a security
+    scheme, so a regression back to `Header(...)` has to fail here.
+    """
+    with TestClient(create_app(settings)) as client:
+        schema = client.get("/openapi.json").json()
+
+    schemes = schema["components"]["securitySchemes"]
+    assert schemes["ApiKeyAuth"]["type"] == "apiKey"
+    assert schemes["ApiKeyAuth"]["in"] == "header"
+    assert schemes["ApiKeyAuth"]["name"] == "x-api-key"
+
+    # No deployment-specific base URL, and no key value, belongs in the schema.
+    assert "servers" not in schema
+    assert "x" * 32 not in client.get("/openapi.json").text
+
+    public = {("/health", "get")}
+    for path, operations in schema["paths"].items():
+        for method, operation in operations.items():
+            parameters = {
+                parameter["name"].lower()
+                for parameter in operation.get("parameters", ())
+            }
+            assert "x-api-key" not in parameters, f"{method} {path}"
+            if (path, method) in public:
+                assert "security" not in operation
+                continue
+            assert operation["security"] == [{"ApiKeyAuth": []}], f"{method} {path}"
 
 
 def test_interrupted_workflows_are_recovered_and_visible(settings):
