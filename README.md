@@ -290,6 +290,15 @@ Interactive Swagger documentation is available at `/docs`, ReDoc at `/redoc`,
 and the OpenAPI schema at `/openapi.json`. These documentation routes describe
 the API but do not bypass authentication on control operations.
 
+The key is published as an OpenAPI security scheme — `ApiKeyAuth`, `type:
+apiKey`, `in: header`, `name: x-api-key` — and every protected operation
+references it, so Swagger UI's *Authorize* button and an imported Postman
+collection both carry the credential at collection level instead of asking for
+a header on each request. The schema deliberately contains no `servers` block
+and no key value: paths are relative, so the base URL and the key are supplied
+by whatever runs the requests (a Postman environment, `$API_KEY` in the curl
+examples below).
+
 ## Control plane / edge contract
 
 `tests/test_contract.py` enforces the boundary: it renders desired state from
