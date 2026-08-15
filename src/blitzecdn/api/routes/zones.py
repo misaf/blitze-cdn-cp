@@ -1,18 +1,20 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, OperatorDependency
+from blitzecdn.api.dependencies import (
+    ControlPlaneDependency,
+    OperatorDependency,
+    require_operator,
+)
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.exceptions import ConflictError
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/domains", response_model=list[Domain])
-def list_domains(
-    _operator: OperatorDependency, control: ControlPlaneDependency
-) -> list[Domain]:
+def list_domains(control: ControlPlaneDependency) -> list[Domain]:
     return control.dns.list_domains()
 
 
@@ -31,9 +33,7 @@ def delete_domain(
 
 
 @router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
-def list_records(
-    domain: str, _operator: OperatorDependency, control: ControlPlaneDependency
-) -> list[DnsRecord]:
+def list_records(domain: str, control: ControlPlaneDependency) -> list[DnsRecord]:
     return control.dns.list_records(domain)
 
 
@@ -82,7 +82,5 @@ def delete_record(
 
 
 @router.get("/v1/dns/export")
-def dns_export(
-    _operator: OperatorDependency, control: ControlPlaneDependency
-) -> list[dict[str, object]]:
+def dns_export(control: ControlPlaneDependency) -> list[dict[str, object]]:
     return control.dns.dns_export()

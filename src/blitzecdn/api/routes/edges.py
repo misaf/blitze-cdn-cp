@@ -1,25 +1,25 @@
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, OperatorDependency
+from blitzecdn.api.dependencies import (
+    ControlPlaneDependency,
+    OperatorDependency,
+    require_operator,
+)
 from blitzecdn.api_models import EdgeRemoval, OriginCheckRequest
 from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.origins import OriginReport
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/edges", response_model=list[Edge])
-def list_edges(
-    _operator: OperatorDependency, control: ControlPlaneDependency
-) -> list[Edge]:
+def list_edges(control: ControlPlaneDependency) -> list[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
     return control.edges.list_edges()
 
 
 @router.get("/v1/edges/{name}", response_model=Edge)
-def get_edge(
-    name: str, _operator: OperatorDependency, control: ControlPlaneDependency
-) -> Edge:
+def get_edge(name: str, control: ControlPlaneDependency) -> Edge:
     return control.edges.get_edge(name)
 
 

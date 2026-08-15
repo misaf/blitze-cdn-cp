@@ -1,9 +1,9 @@
 import logging
 
-from fastapi import APIRouter, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import PlainTextResponse
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, OperatorDependency
+from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
 from blitzecdn.domain.audit import AuditEvent
 
 router = APIRouter()
@@ -25,8 +25,12 @@ def health(response: Response, control: ControlPlaneDependency) -> dict[str, str
     return {"status": "ok"}
 
 
-@router.get("/metrics", response_class=PlainTextResponse)
-def metrics(_operator: OperatorDependency, control: ControlPlaneDependency) -> str:
+@router.get(
+    "/metrics",
+    response_class=PlainTextResponse,
+    dependencies=[Depends(require_operator)],
+)
+def metrics(control: ControlPlaneDependency) -> str:
     """Prometheus gauges derived from persisted control-plane state."""
     recent = control.deployments.list_deployments(_METRICS_WINDOW)
     expiring = control.certificates.expiring_certificates()
@@ -59,9 +63,12 @@ def metrics(_operator: OperatorDependency, control: ControlPlaneDependency) -> s
     return "\n".join(lines) + "\n"
 
 
-@router.get("/v1/audit-events", response_model=list[AuditEvent])
+@router.get(
+    "/v1/audit-events",
+    response_model=list[AuditEvent],
+    dependencies=[Depends(require_operator)],
+)
 def audit_events(
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
     limit: int = Query(100, ge=1, le=500),
 ) -> list[AuditEvent]:

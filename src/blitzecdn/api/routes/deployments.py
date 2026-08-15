@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, OperatorDependency
+from blitzecdn.api.dependencies import (
+    ControlPlaneDependency,
+    OperatorDependency,
+    require_operator,
+)
 from blitzecdn.api_models import DeployRequest, DriftRequest, RollbackRequest
 from blitzecdn.domain.deployments import Deployment, DriftReport
 from blitzecdn.domain.operations import Workflow
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.post(
@@ -26,7 +30,6 @@ def deploy(
 
 @router.get("/v1/deployments", response_model=list[Deployment])
 def deployments(
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
     limit: int = Query(20, ge=1, le=100),
 ) -> list[Deployment]:
@@ -35,7 +38,6 @@ def deployments(
 
 @router.get("/v1/workflows", response_model=list[Workflow])
 def list_workflows(
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> list[Workflow]:
@@ -46,7 +48,6 @@ def list_workflows(
 @router.get("/v1/workflows/{workflow_id}", response_model=Workflow)
 def get_workflow(
     workflow_id: str,
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> Workflow:
     return control.workflow_history.get(workflow_id)
@@ -55,7 +56,6 @@ def get_workflow(
 @router.get("/v1/deployments/{deployment_id}", response_model=Deployment)
 def deployment(
     deployment_id: str,
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> Deployment:
     return control.deployments.get_deployment(deployment_id)
@@ -77,7 +77,6 @@ def check_drift(
 @router.get("/v1/deployments/{deployment_id}/drift", response_model=DriftReport)
 def drift_report(
     deployment_id: str,
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> DriftReport:
     return control.deployments.drift_report(deployment_id)

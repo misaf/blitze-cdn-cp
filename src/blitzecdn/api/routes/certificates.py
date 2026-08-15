@@ -2,13 +2,14 @@ import asyncio
 import functools
 from typing import Annotated
 
-from fastapi import APIRouter, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from blitzecdn.api.dependencies import (
     ControlPlaneDependency,
     OperatorDependency,
     RenewalPoolDependency,
     SettingsDependency,
+    require_operator,
 )
 from blitzecdn.api_models import RenewRequest
 from blitzecdn.domain.certificates import (
@@ -20,19 +21,16 @@ from blitzecdn.domain.certificates import (
     RenewalResult,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
-def certificate(
-    name: str, _operator: OperatorDependency, control: ControlPlaneDependency
-) -> CertificateInfo:
+def certificate(name: str, control: ControlPlaneDependency) -> CertificateInfo:
     return control.certificates.certificate(name)
 
 
 @router.get("/v1/certificates", response_model=list[CertificateStatus])
 def list_certificates(
-    _operator: OperatorDependency,
     control: ControlPlaneDependency,
     expiring_in: int | None = Query(None, ge=0, le=3650),
 ) -> list[CertificateStatus]:
@@ -105,7 +103,7 @@ def request_certificate(
 
 @router.get("/v1/sites/{name}/certificate/preflight", response_model=PreflightReport)
 def certificate_preflight(
-    name: str, _operator: OperatorDependency, control: ControlPlaneDependency
+    name: str, control: ControlPlaneDependency
 ) -> PreflightReport:
     """Whether HTTP-01 could validate this site right now."""
     return control.certificates.certificate_preflight(name)
