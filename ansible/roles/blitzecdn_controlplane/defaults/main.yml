@@ -24,8 +24,10 @@ blitzecdn_controlplane_certificate_renewal_seconds: 43200
 blitzecdn_controlplane_drift_check_seconds: 3600
 blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
 
-# Kept in step with SYSTEMD_UNITS and SERVICES in install.sh, which needs the
-# same lists to uninstall a host whose collections may already be gone.
+# Kept in step with CONTROL_PLANE_SERVICES in install.sh, which needs the same
+# list to stop the services an update replaces. tests/test_install.py compares
+# the two, because a unit added here and missed there would survive an update
+# still running the release it was supposed to replace.
 blitzecdn_controlplane_units:
   - blitzecdn-api.service
   - blitzecdn-worker.service

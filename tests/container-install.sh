@@ -166,6 +166,20 @@ credential_after=$(in_container 'sha256sum /etc/blitzecdn/blitzecdn.env')
 [[ ${credential_before} == "${credential_after}" ]] ||
   fail "re-running the installer rewrote the API credential"
 
+say "Checking the updater refuses a checkout it cannot verify"
+# The working tree is copied in here rather than cloned, so this host has no
+# .git and `update` must refuse rather than run against an unknown source. The
+# happy path needs a real clone and a network fetch, which would test origin
+# rather than the commit under review; what this pins is that the refusal is
+# clean — a host that was serving before a refused update is still serving
+# after it, because nothing was stopped on the way to the refusal.
+in_container 'cd /opt/blitzecdn && ./install.sh update --yes' &&
+  fail "update ran against a checkout with no origin"
+in_container 'systemctl is-active --quiet blitzecdn-api.service' ||
+  fail "a refused update stopped the API"
+in_container 'systemctl is-active --quiet blitzecdn-worker.service' ||
+  fail "a refused update stopped the worker"
+
 say "Uninstalling"
 in_container 'cd /opt/blitzecdn && ./install.sh --uninstall --yes' ||
   fail "uninstall failed on ${IMAGE}"

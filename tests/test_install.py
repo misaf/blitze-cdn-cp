@@ -7,12 +7,17 @@ the validators the script shells out to Python for. Those run directly against
 the source extracted from the script, so the assertions describe behavior
 rather than the text that happens to implement it.
 
-The destructive paths (``--uninstall`` and ``--fresh``) are exercised for real
-in a sandbox: the script is copied with every path it touches redirected under
-a temp directory and the root check neutralised, and the privileged commands
-(systemctl, userdel, getent, nginx, git) are stubbed on ``PATH``. That lets a
-test verify what is actually removed and that the reinstall takes the same
-path as a brand-new server, without touching the host.
+The lifecycle paths (``--uninstall``, ``--fresh`` and ``update``) are exercised
+for real in a sandbox: the script is copied with every path it touches
+redirected under a temp directory and the root check neutralised, and the
+privileged commands (systemctl, userdel, getent, nginx, git) are stubbed on
+``PATH``. That lets a test verify what is actually removed and that the
+reinstall takes the same path as a brand-new server, without touching the host.
+
+``update`` is sandboxed only as far as its point of no return: past that it
+rebuilds the virtualenv, which downloads uv and resolves a lockfile. Each of
+its tests drives the run into a documented refusal and asserts the host was
+left serving.
 
 A handful of structural assertions remain at the bottom. Each one guards a
 property of the script's *shape* that no sandboxed run can reach, and each says
@@ -328,9 +333,13 @@ def _run_sandboxed(
     *arguments: str,
     input: str | None = None,  # noqa: A002 - mirrors subprocess.run
     env_extra: dict[str, str] | None = None,
+    bin_dir: Path | None = None,
 ) -> subprocess.CompletedProcess[str]:
+    # `update` refuses to run from anywhere but the installation directory, so
+    # its copy of the script sits there rather than beside the stubs.
     environment = os.environ.copy()
-    environment["PATH"] = f"{script.parent / 'bin'}:{environment['PATH']}"
+    stubs = bin_dir if bin_dir is not None else script.parent / "bin"
+    environment["PATH"] = f"{stubs}:{environment['PATH']}"
     if env_extra:
         environment.update(env_extra)
     return subprocess.run(  # noqa: S603 - fixed executable and sandboxed script
@@ -385,6 +394,7 @@ def test_root_help_lists_every_subcommand():
     result = _run("--help")
     assert result.returncode == 0
     assert "standalone" in result.stdout
+    assert "update" in result.stdout
     assert "--fresh" in result.stdout
     assert "--uninstall" in result.stdout
     assert "BLITZECDN_WRAPPER_DIR" in result.stdout
@@ -395,7 +405,7 @@ def test_every_help_form_exits_zero(form: str):
     assert _run(form).returncode == 0
 
 
-@pytest.mark.parametrize("subcommand", ["standalone"])
+@pytest.mark.parametrize("subcommand", ["standalone", "update"])
 def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
     result = _run(subcommand)
     assert result.returncode == 1
@@ -412,6 +422,7 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--admin-cidr"),
         ("standalone", "--email"),
         ("standalone", "--public-address"),
+        ("update", "--ref"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
@@ -420,7 +431,7 @@ def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option:
     assert "needs a value" in result.stderr
 
 
-@pytest.mark.parametrize("subcommand", ["standalone"])
+@pytest.mark.parametrize("subcommand", ["standalone", "update"])
 def test_unknown_options_are_rejected_with_usage(subcommand: str):
     result = _run(subcommand, "--not-an-option")
     assert result.returncode == 2
@@ -432,6 +443,7 @@ def test_unknown_options_are_rejected_with_usage(subcommand: str):
     ("subcommand", "expected"),
     [
         ("standalone", ["--admin-cidr CIDR", "--email ADDRESS", "--deploy"]),
+        ("update", ["--ref REF", "--yes", "--no-backup"]),
     ],
 )
 def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[str]):
@@ -645,7 +657,12 @@ def test_destructive_commands_require_confirmation():
         assert "confirm_destructive" in section
         assert 'confirm_destructive "${parsed_yes}"' in section
     parser = _function("parse_options")
-    assert "--yes|--deploy|--allow-empty-sites)" in parser
+    # The flag is handled once, in the shared parser, rather than by each
+    # command reading its own arguments. Matched loosely: the case label grows
+    # a branch whenever a command gains a flag, and that is not what this
+    # guards.
+    assert re.search(r"^      --yes\|.*\)$", parser, re.MULTILINE)
+    assert "[[ ${option} == --yes ]] && parsed_yes=1" in parser
     confirm = _function("confirm_destructive")
     assert "read -r -p" in confirm
     assert "Cancelled." in confirm
@@ -819,6 +836,336 @@ def test_fresh_clone_failure_preserves_the_running_installation(tmp_path: Path):
     assert all(path.exists() for path in owned)
 
 
+# --- update: structural guarantees -------------------------------------------
+
+
+def test_update_preserves_state_rather_than_removing_it():
+    """The whole point of the command: --fresh destroys, update does not."""
+    update = _section("update")
+    for destructive in (
+        "converge_uninstall",
+        "remove_installation_directory",
+        "reexec_from_private_copy",
+        "userdel",
+    ):
+        assert destructive not in update, f"update must never {destructive}"
+
+
+def test_update_takes_a_backup_before_it_changes_anything():
+    update = _section("update")
+    assert "db backup" in update
+    # Ordering is the guarantee. A backup taken after the checkout, or after the
+    # migration, is a backup of the thing it was supposed to protect against.
+    assert update.index("db backup") < update.index("stop_control_plane_services")
+    assert update.index("db backup") < update.index("bootstrap_runtime")
+
+
+def test_update_stops_the_services_before_migrating_the_schema():
+    """The converge runs `blitzecdn setup --schema-only` against a live host."""
+    update = _section("update")
+    assert update.index("stop_control_plane_services") < update.index(
+        "converge_control_plane"
+    )
+    assert update.index("bootstrap_runtime") < update.index("converge_control_plane")
+
+
+def test_update_refuses_anything_but_a_fast_forward_of_the_tracked_branch():
+    """A merge or a rewrite on a server is never what an operator meant."""
+    update = _section("update")
+    assert 'repo_git merge --ff-only "${target}"' in update
+    assert "git pull" not in update
+    assert "--force" not in update
+    assert "reset --hard" not in update
+
+
+def test_update_verifies_the_code_it_is_about_to_run_as_root():
+    update = _section("update")
+    assert "require_upstream_origin" in update
+    assert "status --porcelain" in update
+    assert "${INSTALL_DIR} is not a Git checkout" in update
+
+
+def test_update_stops_exactly_the_services_the_role_starts():
+    """A unit added to the role and missed here survives on the old release."""
+    defaults = yaml.safe_load(
+        (ROLE / "defaults/main.yml").read_text(encoding="utf-8"),
+    )
+    declared = re.search(
+        r"readonly CONTROL_PLANE_SERVICES=\((.*?)\)", _script(), re.DOTALL
+    )
+    assert declared is not None, "install.sh no longer declares CONTROL_PLANE_SERVICES"
+    assert declared.group(1).split() == defaults["blitzecdn_controlplane_services"]
+
+
+# --- update: sandboxed behaviour ---------------------------------------------
+#
+# Everything up to the point of no return runs for real here. Past it the
+# command rebuilds the virtualenv, which downloads uv and resolves a lockfile —
+# too heavy for a unit test and covered instead by the container lifecycle.
+# So each test below drives the run into a documented refusal and asserts the
+# host was left alone.
+
+
+def _stub_update_git(sandbox: Path) -> None:
+    """Answer the questions cmd_update asks, driven by environment variables.
+
+    Written over the fresh-rebuild stub because the two commands ask disjoint
+    questions and a single stub answering both would be harder to read than
+    either.
+    """
+    (sandbox / "bin" / "git").write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$*" in\n'
+        '  *"status --porcelain"*)\n'
+        '    printf "%s" "${UPDATE_GIT_DIRTY:-}"; exit 0 ;;\n'
+        '  *"remote get-url origin"*)\n'
+        '    echo "https://github.com/misaf/blitze-cdn-cp.git"; exit 0 ;;\n'
+        "  *fetch*)\n"
+        '    exit "${UPDATE_GIT_FETCH_STATUS:-0}" ;;\n'
+        '  *"symbolic-ref"*)\n'
+        '    [[ -n "${UPDATE_GIT_BRANCH-2.x}" ]] || exit 1\n'
+        '    echo "${UPDATE_GIT_BRANCH-2.x}"; exit 0 ;;\n'
+        '  *"rev-parse --verify"*)\n'
+        '    exit "${UPDATE_GIT_REF_STATUS:-0}" ;;\n'
+        '  *"describe --tags --always HEAD"*)\n'
+        '    echo "${UPDATE_GIT_CURRENT:-v2.0.1}"; exit 0 ;;\n'
+        '  *"describe --tags --always"*)\n'
+        '    echo "${UPDATE_GIT_TARGET:-v2.1.0}"; exit 0 ;;\n'
+        '  *"rev-list --count"*)\n'
+        '    echo "${UPDATE_GIT_COMMITS:-4}"; exit 0 ;;\n'
+        '  *"rev-parse HEAD"*)\n'
+        f'    echo "${{UPDATE_GIT_HEAD_SHA:-{"1" * 40}}}"\n'
+        "    exit 0 ;;\n"
+        "  *rev-parse*)\n"
+        f'    echo "${{UPDATE_GIT_TARGET_SHA:-{"2" * 40}}}"\n'
+        "    exit 0 ;;\n"
+        '  *"merge --ff-only"*|*checkout*)\n'
+        '    if [[ -n "${UPDATE_GIT_CHECKOUT_FAILS:-}" ]]; then exit 1; fi\n'
+        '    printf "%s\\n" "checkout" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
+        "    exit 0 ;;\n"
+        "  *) exit 0 ;;\n"
+        "esac\n",
+        encoding="utf-8",
+    )
+    (sandbox / "bin" / "git").chmod(0o700)
+
+
+def _stub_update_services(sandbox: Path, root: Path) -> None:
+    """systemctl and the CLI wrapper, both recording into the order log."""
+    (sandbox / "bin" / "systemctl").write_text(
+        "#!/usr/bin/env bash\n"
+        'case "$1" in\n'
+        "  list-unit-files) echo 'blitzecdn-api.service enabled'; exit 0 ;;\n"
+        '  stop) printf "%s\\n" "stop $2" >> "${UPDATE_ORDER_LOG:-/dev/null}" ;;\n'
+        "esac\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    (sandbox / "bin" / "systemctl").chmod(0o700)
+    wrapper = root / "usr/local/bin/blitzecdn"
+    wrapper.parent.mkdir(parents=True, exist_ok=True)
+    wrapper.write_text(
+        "#!/usr/bin/env bash\n"
+        'printf "%s\\n" "backup" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
+        'exit "${UPDATE_BACKUP_STATUS:-0}"\n',
+        encoding="utf-8",
+    )
+    wrapper.chmod(0o700)
+
+
+def _update_sandbox(
+    tmp_path: Path, *, with_git: bool = True
+) -> tuple[Path, Path, Path]:
+    """Build an installation whose install.sh *is* the instrumented script.
+
+    `update` requires that: it refuses to run from anywhere but the
+    installation directory, because the checkout it updates is the one it is
+    running from. Returns the script to run, the stub directory, and the root.
+    """
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    _stub_update_git(sandbox)
+    _fake_installation(root, with_git=with_git)
+    _stub_update_services(sandbox, root)
+    installed = root / "opt/blitzecdn/install.sh"
+    shutil.copyfile(script, installed)
+    installed.chmod(0o700)
+    return installed, sandbox / "bin", root
+
+
+def test_update_refuses_a_checkout_with_local_modifications(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={"UPDATE_GIT_DIRTY": " M install.sh\n"},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "local modifications" in result.stderr
+
+
+def test_update_refuses_without_a_git_checkout(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path, with_git=False)
+
+    result = _run_sandboxed(script, "update", "--yes", bin_dir=stubs)
+
+    assert result.returncode == 1
+    assert "is not a Git checkout" in result.stderr
+
+
+def test_update_leaves_the_host_alone_when_the_fetch_fails(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={"UPDATE_GIT_FETCH_STATUS": "1", "UPDATE_ORDER_LOG": str(log)},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "could not fetch" in result.stderr
+    assert not log.exists(), "a failed fetch stopped no services and took no backup"
+
+
+def test_update_requires_an_explicit_ref_on_a_detached_checkout(tmp_path: Path):
+    """A release install is detached at its tag; there is no next release to infer."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={"UPDATE_GIT_BRANCH": ""},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "--ref" in result.stderr
+
+
+def test_update_refuses_a_ref_that_does_not_exist(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        "--ref",
+        "v9.9.9",
+        env_extra={"UPDATE_GIT_REF_STATUS": "1"},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "does not exist" in result.stderr
+    assert "nothing was changed" in result.stderr
+
+
+def test_update_is_a_no_op_when_already_on_the_target(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+    same = "3333333333333333333333333333333333333333"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={
+            "UPDATE_GIT_COMMITS": "0",
+            "UPDATE_GIT_HEAD_SHA": same,
+            "UPDATE_GIT_TARGET_SHA": same,
+            "UPDATE_ORDER_LOG": str(log),
+        },
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 0
+    assert "nothing to update" in result.stdout
+    assert not log.exists(), "an up-to-date host was still taken down"
+
+
+def test_update_asks_for_confirmation_and_can_be_cancelled(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        input="n\n",
+        env_extra={"UPDATE_ORDER_LOG": str(log)},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 0
+    assert "Cancelled" in result.stdout
+    assert "v2.0.1" in result.stderr, "the prompt must name the release it leaves"
+    assert "v2.1.0" in result.stderr, "and the one it moves to"
+    assert not log.exists()
+
+
+def test_update_stops_nothing_when_the_backup_fails(tmp_path: Path):
+    """A failed backup must abort while the controller is still serving."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={"UPDATE_BACKUP_STATUS": "1", "UPDATE_ORDER_LOG": str(log)},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "backup failed" in result.stderr
+    assert log.read_text(encoding="utf-8").split() == ["backup"]
+
+
+def test_update_backs_up_and_stops_services_in_that_order(tmp_path: Path):
+    """Driven into the checkout failure so it stops before the heavy rebuild."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={"UPDATE_GIT_CHECKOUT_FAILS": "1", "UPDATE_ORDER_LOG": str(log)},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    recorded = log.read_text(encoding="utf-8").splitlines()
+    assert recorded[0] == "backup"
+    assert "stop blitzecdn-api.service" in recorded
+    assert "checkout" not in recorded
+
+
+def test_update_can_skip_the_backup_but_says_so(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        "--no-backup",
+        env_extra={"UPDATE_GIT_CHECKOUT_FAILS": "1", "UPDATE_ORDER_LOG": str(log)},
+        bin_dir=stubs,
+    )
+
+    assert "Skipping the database backup" in result.stdout
+    assert "backup" not in log.read_text(encoding="utf-8").splitlines()
+
+
 def test_the_default_install_ends_by_installing_the_wrapper():
     """Otherwise the CLI is only reachable from inside the checkout."""
     install = _section("install")
@@ -828,7 +1175,7 @@ def test_the_default_install_ends_by_installing_the_wrapper():
 def test_every_command_uses_the_shared_option_parser():
     script = _script()
     assert script.count("while [[ $# -gt 0 ]]") == 1
-    for command in ("install", "standalone", "uninstall", "fresh"):
+    for command in ("install", "standalone", "uninstall", "fresh", "update"):
         assert f") parse_options {command} " in script
 
 
