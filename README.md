@@ -50,6 +50,23 @@ ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 Every standalone server has its own desired state and credentials. It does not
 replicate changes to another standalone server.
 
+Move the server onto a newer release, keeping everything it holds:
+
+```bash
+sudo /opt/blitzecdn/install.sh update [--ref REF] [--yes] [--no-backup]
+```
+
+`update` fetches from origin, backs up the database, stops the services,
+fast-forwards the checkout, rebuilds the virtualenv from the new lockfile, and
+converges the host — which installs any new units, migrates the schema, and
+starts the services again on the new release. Without `--ref` it follows the
+branch the checkout tracks; a release installation is detached at its tag and
+must name what to move to, as in `--ref v2.1.0`. The database, certificates,
+inventory, and the API credentials in `/etc/blitzecdn` all survive. It refuses
+a checkout with local modifications, one that cannot fast-forward, and one
+whose origin is not upstream; each refusal happens before anything stops, so a
+refused update leaves a serving host serving.
+
 Rebuild the running release as if on a brand-new server, or remove every
 artifact the installer owns, without touching packages or unrelated files:
 
@@ -61,7 +78,9 @@ sudo /opt/blitzecdn/install.sh --uninstall [--yes]
 `--fresh` preserves the current source line: it reclones an exact release tag,
 keeps a `2.x` installation attached to that branch, or pins any other
 development checkout to its exact commit. It removes every BlitzeCDN artifact
-first, then runs the standalone installer with the options you pass. The
+first — including the database, the certificates, and the API credentials — then
+runs the standalone installer with the options you pass. It rebuilds a host; it
+does not upgrade one, which is what `update` above is for. The
 checkout must be a Git clone of the upstream repository. `--uninstall` only
 removes. Both operations require the checkout's Ansible runtime because Ansible
 is the single implementation of system teardown. Standalone uninstall invokes

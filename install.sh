@@ -1,16 +1,25 @@
 #!/usr/bin/env bash
 # BlitzeCDN installer.
 #
-# Three jobs live here behind subcommands:
+# Four jobs live here behind subcommands:
 #
 #   (no arguments)  build the virtualenv and install the pinned collections
 #   standalone      provision this whole server as control plane and edge
+#   update          move an installed host onto a newer release
 #
 # The no-argument form installs the current checkout for controller-only use.
 set -Eeuo pipefail
 
 readonly INSTALL_DIR=/opt/blitzecdn
 readonly CONFIG_DIR=/etc/blitzecdn
+readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
+
+# The units `update` stops and expects the control-plane role to bring back.
+# The comment in the role's defaults promises these stay in step with that
+# role's `blitzecdn_controlplane_services`; tests/test_install.py enforces it,
+# because a unit added there and missed here would survive an update running
+# the old code with nothing to say so.
+readonly CONTROL_PLANE_SERVICES=(blitzecdn-api.service blitzecdn-worker.service)
 
 # Captured before dispatch strips the subcommand so destructive modes can
 # re-exec a private copy after deleting the checkout that contained this file.
@@ -26,6 +35,7 @@ Install BlitzeCDN.
 Subcommands:
   (none)      Build .venv and install the pinned Ansible collections
   standalone  Provision this server as an independent control plane and edge
+  update      Move an installed server onto a newer release, keeping its state
   help        Show this message
 
 Whole-host operations:
@@ -206,6 +216,8 @@ parsed_admin_cidr=''
 parsed_email=''
 parsed_deploy=0
 parsed_allow_empty_sites=0
+parsed_no_backup=0
+parsed_ref=''
 parsed_public_addresses=()
 parsed_forward_args=()
 
@@ -215,7 +227,8 @@ option_allowed() {
     standalone:--admin-cidr|standalone:--email|standalone:--deploy|\
     standalone:--allow-empty-sites|standalone:--public-address|\
     fresh:--admin-cidr|fresh:--email|fresh:--deploy|fresh:--allow-empty-sites|\
-    fresh:--public-address|fresh:--yes|uninstall:--yes) return 0 ;;
+    fresh:--public-address|fresh:--yes|uninstall:--yes|\
+    update:--ref|update:--yes|update:--no-backup) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -242,21 +255,23 @@ parse_options() {
         "${usage}"
         exit 0
         ;;
-      --yes|--deploy|--allow-empty-sites)
+      --yes|--deploy|--allow-empty-sites|--no-backup)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
         [[ ${option} == --yes ]] && parsed_yes=1
         [[ ${option} == --deploy ]] && parsed_deploy=1
         [[ ${option} == --allow-empty-sites ]] && parsed_allow_empty_sites=1
+        [[ ${option} == --no-backup ]] && parsed_no_backup=1
         [[ ${command} == fresh && ${option} != --yes ]] &&
           parsed_forward_args+=("${option}")
         shift
         ;;
-      --admin-cidr|--email|--public-address)
+      --admin-cidr|--email|--public-address|--ref)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
         [[ $# -ge 2 ]] || die 2 "error: ${option} needs a value"
         case "${option}" in
           --admin-cidr) parsed_admin_cidr=$2 ;;
           --email) parsed_email=$2 ;;
+          --ref) parsed_ref=$2 ;;
           --public-address) parsed_public_addresses+=("$2") ;;
         esac
         [[ ${command} == fresh ]] && parsed_forward_args+=("${option}" "$2")
@@ -553,6 +568,186 @@ PY
 }
 
 # ---------------------------------------------------------------------------
+# update — move an installed host onto a newer release
+# ---------------------------------------------------------------------------
+
+usage_update() {
+  cat <<'EOF'
+Usage: sudo ./install.sh update [OPTIONS]
+
+Move this installation onto a newer release and leave its state intact: fetch
+the code, rebuild the virtualenv from the lockfile, converge the host, and
+bring the services back up on the new release.
+
+Nothing is rewritten that an operator owns. The database, the certificates, the
+inventory, and the API credentials in /etc/blitzecdn all survive — this is the
+non-destructive counterpart to --fresh, which destroys all four.
+
+Options:
+  --ref REF    Tag or branch to update to (default: the tracked branch)
+  --yes        Do not ask for confirmation
+  --no-backup  Skip the database backup taken before anything changes
+  -h, --help   Show this help
+
+The checkout must be /opt/blitzecdn, must have the upstream origin, and must
+have no local modifications. The services are stopped for the duration of the
+update: a schema migration must not run underneath the code it migrates away
+from.
+EOF
+}
+
+# Stop the units that exist. An update crossing the release that split the API
+# and the worker finds only one of them installed, and `systemctl stop` on a
+# unit this host has never had is an error rather than a no-op.
+stop_control_plane_services() {
+  local service
+  for service in "${CONTROL_PLANE_SERVICES[@]}"; do
+    if systemctl list-unit-files "${service}" >/dev/null 2>&1 &&
+      [[ -n $(systemctl list-unit-files --no-legend "${service}" 2>/dev/null) ]]; then
+      echo "Stopping ${service}..."
+      systemctl stop "${service}" || true
+    fi
+  done
+}
+
+# Report what is running once the role has started it again. The role uses
+# `state: started`, so a unit that fails on the new code leaves the play green
+# and the service down; this is what makes that visible at the end of a run.
+report_control_plane_services() {
+  local service status=0
+  for service in "${CONTROL_PLANE_SERVICES[@]}"; do
+    if systemctl is-active --quiet "${service}"; then
+      echo "  ${service}: active"
+    else
+      echo "  ${service}: NOT RUNNING — inspect 'journalctl -u ${service}'" >&2
+      status=1
+    fi
+  done
+  return "${status}"
+}
+
+confirm_update() {
+  local assume_yes="$1" current="$2" target="$3" commits="$4"
+  cat >&2 <<EOF
+
+Updating the BlitzeCDN control plane on this host:
+
+  from  ${current}
+  to    ${target}  (${commits} commit(s) ahead)
+
+The services are stopped, the schema is migrated, and they are started again on
+the new release. State is preserved; a migration is not reversible.
+EOF
+  [[ ${assume_yes} == 1 ]] && return 0
+  local answer
+  read -r -p "Continue? [y/N]: " answer
+  [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
+}
+
+cmd_update() {
+  require_root updater
+
+  [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
+    die 1 "error: run the updater from the installation at ${INSTALL_DIR}"
+  [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
+    "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to update from" \
+    "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
+  cd -- "${script_dir}"
+
+  # An update fetches code and then runs it as root, exactly as --fresh does,
+  # so it accepts only the upstream repository.
+  require_upstream_origin >/dev/null
+
+  # Local edits would be silently destroyed by the checkout below, and an
+  # operator who has patched a server is the one person who most needs to be
+  # told before that happens.
+  [[ -z $(repo_git status --porcelain) ]] || die 1 \
+    "error: ${INSTALL_DIR} has local modifications; the update would discard them" \
+    "Commit or discard them, or use --fresh to rebuild from origin."
+
+  echo "Fetching from origin..."
+  repo_git fetch --tags --prune origin ||
+    die 1 "error: could not fetch from origin; nothing was changed"
+
+  # An explicit ref wins. Without one the tracked branch is the only safe
+  # default: a checkout pinned to a tag has no "next" release to infer, and
+  # guessing the newest tag would upgrade a host across a major line.
+  local target
+  if [[ -n ${parsed_ref} ]]; then
+    target=${parsed_ref}
+  else
+    local branch
+    branch=$(repo_git symbolic-ref --quiet --short HEAD 2>/dev/null) || die 1 \
+      "error: ${INSTALL_DIR} is not on a branch, so there is no tracked release to follow" \
+      "Pass --ref TAG or --ref BRANCH to say what to update to."
+    target="origin/${branch}"
+  fi
+
+  repo_git rev-parse --verify --quiet "${target}^{commit}" >/dev/null ||
+    die 1 "error: ${target} does not exist in the fetched repository; nothing was changed"
+
+  local current_description target_description commits
+  current_description=$(repo_git describe --tags --always HEAD)
+  target_description=$(repo_git describe --tags --always "${target}")
+  commits=$(repo_git rev-list --count "HEAD..${target}")
+
+  if [[ ${commits} -eq 0 ]] &&
+    [[ $(repo_git rev-parse HEAD) == $(repo_git rev-parse "${target}^{commit}") ]]; then
+    echo "Already on ${target_description}; nothing to update."
+    return 0
+  fi
+
+  confirm_update "${parsed_yes}" \
+    "${current_description}" "${target_description}" "${commits}"
+
+  # Before anything is touched, and through the wrapper so it runs as the
+  # service account against the service environment. `db backup` uses VACUUM
+  # INTO, so this is safe against a controller that is still serving.
+  if [[ ${parsed_no_backup} -eq 1 ]]; then
+    echo "Skipping the database backup (--no-backup)."
+  elif [[ -x ${CLI_WRAPPER} ]]; then
+    echo "Backing up the database..."
+    "${CLI_WRAPPER}" db backup ||
+      die 1 "error: the database backup failed; nothing was changed" \
+        "Fix the failure, or rerun with --no-backup if the data is expendable."
+  else
+    echo "warning: ${CLI_WRAPPER} is missing; skipping the database backup" >&2
+  fi
+
+  # Downtime starts here. Stopping first is what keeps the schema migration in
+  # the converge below from running underneath processes still executing the
+  # release it is migrating away from.
+  stop_control_plane_services
+
+  echo "Checking out ${target_description}..."
+  if [[ -n ${parsed_ref} ]]; then
+    # A tag checks out detached, which is what a release installation looks
+    # like and what --fresh reads back to reinstall the same release.
+    repo_git checkout --quiet "${parsed_ref}" ||
+      die 1 "error: could not check out ${parsed_ref}; the services are stopped — " \
+        "restore with 'git -C ${INSTALL_DIR} checkout ${current_description}' and rerun"
+  else
+    # Fast-forward only: an update must never quietly merge or rewrite history
+    # on a server, and a branch that cannot fast-forward means the checkout has
+    # commits origin does not, which --fresh is the tool for.
+    repo_git merge --ff-only "${target}" ||
+      die 1 "error: ${INSTALL_DIR} cannot fast-forward to ${target}" \
+        "The checkout has commits origin does not. Use --fresh to rebuild from origin."
+  fi
+
+  # Same two steps a standalone install runs, in the same order and through the
+  # same functions: the virtualenv from the new lockfile, then the role, which
+  # owns the units, the schema migration, and starting the services again.
+  bootstrap_runtime
+  converge_control_plane
+
+  echo
+  echo "Updated to ${target_description}."
+  echo "Services:"
+  report_control_plane_services
+}
+
+# ---------------------------------------------------------------------------
 # uninstall / fresh — remove every artifact, or wipe and rebuild clean
 # ---------------------------------------------------------------------------
 
@@ -726,7 +921,7 @@ cmd_fresh() {
 subcommand=install
 if [[ $# -gt 0 ]]; then
   case "$1" in
-    standalone)
+    standalone|update)
       subcommand=$1
       shift
       ;;
@@ -752,6 +947,7 @@ fi
 case "${subcommand}" in
   install) parse_options install usage_root "$@" ;;
   standalone) parse_options standalone usage_standalone "$@" ;;
+  update) parse_options update usage_update "$@" ;;
   uninstall) parse_options uninstall usage_uninstall "$@" ;;
   fresh) parse_options fresh usage_fresh "$@" ;;
 esac
