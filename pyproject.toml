@@ -1,5 +1,5 @@
 [build-system]
-requires = ["hatchling>=1.31.0"]
+requires = ["hatchling>=1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
@@ -23,7 +23,7 @@ dependencies = [
   # validation authority, so nothing in domain/ or application/ imports these.
   "alembic>=1.16,<2",
   "typer>=0.16,<1",
-  "uvicorn[standard]>=0.52.1,<1",
+  "uvicorn[standard]>=0.52.3,<1",
   # Runtime dependencies, not development tools. Ansible exclusively owns
   # remote Linux state. Ansible Runner provides the stable Python execution
   # boundary, while ansible-core supplies the playbook engine and plugins.
@@ -36,7 +36,7 @@ dependencies = [
   "pydantic-settings>=2.12,<3",
   "apscheduler>=3.11,<4",
   "sqlmodel>=0.0.31,<0.1",
-  "dramatiq[redis]>=2.0,<3",
+  "dramatiq[redis]>=2.2.0,<3",
   "ansible-runner>=2.4,<3",
 ]
 
@@ -53,13 +53,13 @@ dev = [
   # Used directly by tests/test_contract.py to render the role templates.
   "Jinja2>=3.1,<4",
   # Exercise validation and serialization invariants over generated inputs.
-  "hypothesis>=6,<7",
+  "hypothesis>=6.165.6,<7",
   "mypy>=2.3,<3",
   "pip-audit>=2.9,<3",
   "pre-commit>=4.2,<5",
   "pytest>=9.0.3,<10",
   "pytest-cov>=7.1,<8",
-  "ruff>=0.12,<1",
+  "ruff>=0.16.3,<1",
   # install.sh runs as root and can stop services, so it is linted like the
   # Python. The wheel bundles the real ShellCheck binary, which keeps it a venv
   # tool alongside ruff and mypy instead of a machine-level install.
