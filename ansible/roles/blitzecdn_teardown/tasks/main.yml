@@ -12,9 +12,8 @@
   register: blitzecdn_teardown_found
 
 # Matching on the marker rather than on the managed-sites registry finds
-# configurations the registry never learned about — anything written by a run
-# that failed `nginx -t` and was rolled back, or that predates the registry.
-# Those are exactly the files a registry-driven cleanup leaves behind forever.
+# configurations a failed run wrote before `nginx -t` rolled it back. Those are
+# exactly the files a registry-driven cleanup leaves behind forever.
 - name: Select managed configurations and their enabled links
   ansible.builtin.set_fact:
     blitzecdn_teardown_configs: "{{ blitzecdn_teardown_found.files | map(attribute='path') | list }}"

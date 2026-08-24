@@ -22,6 +22,5 @@
 plugin: blitzecdn
 # database: /var/lib/blitzecdn/control-plane.db
 
-# Group-wide settings still live in group_vars/blitzecdn_edges/ beside this
-# file. They are loaded for the group this plugin creates exactly as they were
-# for the group the old static inventory declared.
+# Shipped role defaults live in group_vars/blitzecdn_edges/ beside this file.
+# The plugin-created group loads them through Ansible's normal inventory rules.
