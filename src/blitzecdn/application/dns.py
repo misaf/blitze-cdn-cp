@@ -15,6 +15,8 @@ from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
+    HttpScheme,
+    SslMode,
     managed_certificate_paths,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
@@ -112,9 +114,16 @@ class DnsService:
         operator: str,
     ) -> DnsRecord:
         current = self.zones.get_record(domain, name, type_)
-        updated = DnsRecord.model_validate(
-            {**current.model_dump(), **patch.model_dump(exclude_unset=True)}
-        )
+        changes = patch.model_dump(exclude_unset=True)
+        legacy_scheme = changes.pop("origin_scheme", None)
+        if legacy_scheme is not None:
+            if current.certificate_mode is CertificateMode.DISABLED:
+                changes["ssl_mode"] = SslMode.OFF
+            elif legacy_scheme is HttpScheme.HTTP:
+                changes["ssl_mode"] = SslMode.FLEXIBLE
+            else:
+                changes["ssl_mode"] = SslMode.FULL_STRICT
+        updated = DnsRecord.model_validate({**current.model_dump(), **changes})
         self._reject_derived_name_collision(updated)
         with self.uow.transaction():
             saved = self.zones.replace_record(updated, expected=current)
@@ -125,7 +134,7 @@ class DnsService:
                     "record.updated",
                     "record",
                     saved.fqdn,
-                    {"fields": sorted(patch.model_fields_set)},
+                    {"fields": sorted(changes)},
                 )
             )
         return saved
@@ -247,6 +256,11 @@ class DnsService:
                         "certificate_mode": mode,
                         "certificate_path": certificate_path,
                         "certificate_key_path": certificate_key_path,
+                        "ssl_mode": (
+                            SslMode.FLEXIBLE
+                            if record.ssl_mode is SslMode.OFF
+                            else record.ssl_mode
+                        ),
                     }
                 ),
                 expected=record,

@@ -435,7 +435,40 @@ def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payl
         assert response.status_code == 200
         assert response.json()["name"] == name
         # The derived defaults, which the record never carried.
-        assert response.json()["origin_scheme"] == "https"
+        assert response.json()["ssl_mode"] == "off"
+        assert "origin_scheme" not in response.json()
+
+
+def test_legacy_origin_scheme_is_accepted_but_never_emitted(
+    settings, domain_payload, record_payload
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        response = client.post(
+            "/v1/domains/example.com/records",
+            json={**record_payload, "origin_scheme": "https"},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 201
+        assert response.json()["ssl_mode"] == "off"
+        assert "origin_scheme" not in response.json()
+
+
+def test_api_rejects_new_and_legacy_ssl_fields_together(
+    settings, domain_payload, record_payload
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        response = client.post(
+            "/v1/domains/example.com/records",
+            json={
+                **record_payload,
+                "ssl_mode": "off",
+                "origin_scheme": "http",
+            },
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
 
 
 def test_an_unknown_site_is_a_404(settings):

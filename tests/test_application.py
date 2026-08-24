@@ -508,8 +508,9 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
 
     sent, limit = fake.origin_checks[0]
     assert limit == "edge-*"
-    assert sent[0]["origin_port"] == 443
-    assert sent[0]["origin_scheme"] == "https"
+    assert sent[0]["origin_port"] == 80
+    assert sent[0]["ssl_mode"] == "off"
+    assert sent[0]["origin_scheme"] == "http"
     assert report.healthy is True
     assert [edge.host for edge in report.reporting] == ["edge-a", "edge-b"]
 
@@ -1144,6 +1145,15 @@ def test_upload_and_request_certificate_activate_managed_tls(
     )
     assert uploaded.source == "uploaded"
     assert repository.sites.get_site("cdn-example-com").certificate_mode == "uploaded"
+    assert repository.sites.get_site("cdn-example-com").ssl_mode == "flexible"
+
+    control.dns.update_record(
+        "example.com",
+        "cdn",
+        RecordType.A,
+        RecordPatch(ssl_mode="full"),
+        "alice",
+    )
 
     requested = control.certificates.request_certificate(
         "cdn-example-com", "alice", "owner@example.com"
@@ -1151,6 +1161,7 @@ def test_upload_and_request_certificate_activate_managed_tls(
     assert requested.source == "acme"
     assert control.certificates.certificate("cdn-example-com") == requested
     assert repository.sites.get_site("cdn-example-com").certificate_mode == "requested"
+    assert repository.sites.get_site("cdn-example-com").ssl_mode == "full"
 
     result = control.deployments.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -1189,6 +1200,7 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     assert result.failed == {}
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
     assert repository.sites.get_site(site_name).certificate_mode == "requested"
+    assert repository.sites.get_site(site_name).ssl_mode == "flexible"
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):
@@ -1841,6 +1853,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
                 "name": "tls-example-com",
                 "server_names": ["tls.example.com"],
                 "origin_host": "o.example.com",
+                "ssl_mode": "flexible",
                 "certificate_mode": "existing",
                 "certificate_path": "/etc/ssl/certs/tls.pem",
                 "certificate_key_path": "/etc/ssl/private/tls.key",
