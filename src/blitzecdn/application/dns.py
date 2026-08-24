@@ -15,7 +15,6 @@ from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
-    HttpScheme,
     SslMode,
     managed_certificate_paths,
 )
@@ -115,14 +114,6 @@ class DnsService:
     ) -> DnsRecord:
         current = self.zones.get_record(domain, name, type_)
         changes = patch.model_dump(exclude_unset=True)
-        legacy_scheme = changes.pop("origin_scheme", None)
-        if legacy_scheme is not None:
-            if current.certificate_mode is CertificateMode.DISABLED:
-                changes["ssl_mode"] = SslMode.OFF
-            elif legacy_scheme is HttpScheme.HTTP:
-                changes["ssl_mode"] = SslMode.FLEXIBLE
-            else:
-                changes["ssl_mode"] = SslMode.FULL_STRICT
         updated = DnsRecord.model_validate({**current.model_dump(), **changes})
         self._reject_derived_name_collision(updated)
         with self.uow.transaction():

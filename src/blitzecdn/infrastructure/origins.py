@@ -54,7 +54,6 @@ class OriginProbe:
             "origin_port": site.origin_port
             or _DEFAULT_PORTS[site.ssl_mode.origin_scheme],
             "ssl_mode": site.ssl_mode.value,
-            "origin_scheme": site.ssl_mode.origin_scheme.value,
             "origin_tls_verify": site.ssl_mode.verifies_origin,
             "origin_sni": site.effective_origin_sni,
         }

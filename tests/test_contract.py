@@ -266,6 +266,12 @@ def test_required_keys_are_always_emitted(desired_state):
         )
 
 
+def test_nginx_role_accepts_only_the_current_ssl_policy():
+    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
+    assert options["ssl_mode"]["required"] is True
+    assert "origin_scheme" not in options
+
+
 @pytest.mark.parametrize(
     ("field", "enum"),
     [("ssl_mode", SslMode), ("certificate_mode", CertificateMode)],

@@ -12,9 +12,7 @@ argument_specs:
           server_names: {type: list, elements: str, required: true}
           origin_host: {type: str, required: true}
           origin_port: {type: int}
-          ssl_mode: {type: str, choices: ['off', flexible, full, full_strict], default: 'off'}
-          # Deprecated direct-role compatibility; canonical desired state uses ssl_mode.
-          origin_scheme: {type: str, choices: [http, https]}
+          ssl_mode: {type: str, choices: ['off', flexible, full, full_strict], required: true}
           origin_request_host: {type: str}
           origin_sni: {type: str}
           enabled: {type: bool, default: true}

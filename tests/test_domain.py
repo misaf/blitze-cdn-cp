@@ -128,34 +128,11 @@ def test_off_keeps_an_installed_certificate_available(site_payload):
     assert site.serves_tls is False
 
 
-@pytest.mark.parametrize(
-    ("scheme", "certificate_mode", "expected"),
-    [
-        ("http", "disabled", SslMode.OFF),
-        ("https", "disabled", SslMode.OFF),
-        ("http", "existing", SslMode.FLEXIBLE),
-        ("https", "existing", SslMode.FULL_STRICT),
-    ],
-)
-def test_legacy_origin_scheme_maps_to_ssl_mode(
-    site_payload, scheme, certificate_mode, expected
-):
-    site_payload["origin_scheme"] = scheme
-    if certificate_mode == "existing":
-        site_payload |= {
-            "certificate_mode": certificate_mode,
-            "certificate_path": "/etc/ssl/certs/edge.pem",
-            "certificate_key_path": "/etc/ssl/private/edge.key",
-        }
-    site = CdnSite.model_validate(site_payload)
-    assert site.ssl_mode is expected
-    assert "origin_scheme" not in site.model_dump()
-
-
-def test_new_and_legacy_ssl_fields_cannot_be_combined(site_payload):
-    site_payload |= {"ssl_mode": "off", "origin_scheme": "http"}
-    with pytest.raises(ValidationError, match="cannot be combined"):
+def test_removed_origin_scheme_is_rejected(site_payload):
+    site_payload["origin_scheme"] = "http"
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         CdnSite.model_validate(site_payload)
+    assert "origin_scheme" not in RecordPatch.model_fields
 
 
 @pytest.mark.parametrize(

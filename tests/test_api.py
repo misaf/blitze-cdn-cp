@@ -439,7 +439,7 @@ def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payl
         assert "origin_scheme" not in response.json()
 
 
-def test_legacy_origin_scheme_is_accepted_but_never_emitted(
+def test_removed_origin_scheme_is_rejected_on_create(
     settings, domain_payload, record_payload
 ):
     with TestClient(create_app(settings)) as client:
@@ -449,23 +449,23 @@ def test_legacy_origin_scheme_is_accepted_but_never_emitted(
             json={**record_payload, "origin_scheme": "https"},
             headers=_HEADERS,
         )
-        assert response.status_code == 201
-        assert response.json()["ssl_mode"] == "off"
-        assert "origin_scheme" not in response.json()
+        assert response.status_code == 422
 
 
-def test_api_rejects_new_and_legacy_ssl_fields_together(
+def test_removed_origin_scheme_is_rejected_on_patch(
     settings, domain_payload, record_payload
 ):
     with TestClient(create_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
-        response = client.post(
+        client.post(
             "/v1/domains/example.com/records",
-            json={
-                **record_payload,
-                "ssl_mode": "off",
-                "origin_scheme": "http",
-            },
+            json=record_payload,
+            headers=_HEADERS,
+        )
+        response = client.patch(
+            "/v1/domains/example.com/records/cdn",
+            params={"type": "A"},
+            json={"origin_scheme": "http"},
             headers=_HEADERS,
         )
         assert response.status_code == 422

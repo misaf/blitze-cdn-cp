@@ -510,7 +510,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     assert limit == "edge-*"
     assert sent[0]["origin_port"] == 80
     assert sent[0]["ssl_mode"] == "off"
-    assert sent[0]["origin_scheme"] == "http"
+    assert "origin_scheme" not in sent[0]
     assert report.healthy is True
     assert [edge.host for edge in report.reporting] == ["edge-a", "edge-b"]
 

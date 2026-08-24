@@ -17,9 +17,8 @@ four is exactly the situation worth surfacing.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict
 
 from blitzecdn.domain.sites import HttpScheme, SslMode
 
@@ -52,19 +51,6 @@ class OriginCheck(BaseModel):
     #: The HTTP status the origin answered with, or ``None`` if it did not.
     status: int | None = None
     detail: str | None = None
-
-    @model_validator(mode="before")
-    @classmethod
-    def accept_legacy_report(cls, value: Any) -> Any:
-        if not isinstance(value, dict) or "ssl_mode" in value:
-            return value
-        document = dict(value)
-        document["ssl_mode"] = (
-            SslMode.FULL_STRICT
-            if HttpScheme(document["scheme"]) is HttpScheme.HTTPS
-            else SslMode.OFF
-        )
-        return document
 
     @property
     def ok(self) -> bool:

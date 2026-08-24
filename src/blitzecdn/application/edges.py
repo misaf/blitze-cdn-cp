@@ -322,6 +322,7 @@ def _origin_row(row: dict[str, object]) -> dict[str, object]:
         "site": row.get("site"),
         "origin": row.get("origin"),
         "scheme": row.get("scheme"),
+        "ssl_mode": row.get("ssl_mode"),
         "sni": row.get("sni") or None,
         "reachable": _as_bool(row.get("reachable")),
         "tls_verified": None if tls in (None, "", "None") else _as_bool(tls),
