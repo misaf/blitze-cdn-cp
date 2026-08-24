@@ -259,7 +259,7 @@ The full command surface:
 | Diagnostics | `doctor`, `audit`, `stats` |
 | Setup | `init`, `setup`, `serve` |
 | Edges | `edge list/add/update/remove`, `origin check` |
-| Zones | `domain add/list/remove`, `record add/list/proxy/firewall/remove`, `dns export`, `site list/show` |
+| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/firewall/remove`, `dns export`, `site list/show` |
 | Certificates | `cert list`, `cert preflight`, `cert renew`, `cert reconcile` |
 | Cache | `cache purge` |
 
@@ -338,7 +338,7 @@ skips.
 
 ## Certificates
 
-There are three TLS modes:
+There are three certificate sources:
 
 - `existing` references certificate files already present on every edge.
   Deployments write certificate destinations as root, so `certificate_path` and
@@ -410,6 +410,37 @@ protect the API with authenticated TLS before accepting uploads over a network.
 `uploaded` and `requested` are set by the upload and request endpoints, which
 own the on-edge paths (`/etc/blitzecdn/tls/<site>/`). Setting either mode — or
 redirecting those paths — through `POST`/`PATCH /v1/sites` is rejected.
+
+## SSL modes
+
+Each proxied record has one Cloudflare-style `ssl_mode` controlling both sides
+of the edge connection:
+
+| Mode | Visitor to edge | Edge to origin | Origin certificate |
+| --- | --- | --- | --- |
+| `off` | HTTP only | HTTP | Not applicable |
+| `flexible` | HTTPS | HTTP | Not applicable |
+| `full` | HTTPS | HTTPS | Not verified |
+| `full_strict` | HTTPS | HTTPS | Verified against the system trust store and origin SNI |
+
+New records start Off. Uploading or issuing their first certificate changes
+them to Flexible; select Full or Full (strict) after the origin is ready:
+
+```bash
+blitzecdn record ssl example.com cdn --mode full_strict
+blitzecdn deploy
+```
+
+Flexible, Full and Full (strict) require an active edge certificate. Changing a
+site back to Off stops its HTTPS listener but retains the installed certificate
+and renewal state, so a secure mode can be re-enabled without another issuance.
+Full is intended only for origins whose TLS certificate cannot be validated;
+it still requires a successful TLS handshake. No mode falls back automatically
+when an origin is unavailable or fails TLS.
+
+`origin_scheme` is accepted only as a legacy API and snapshot input when
+`ssl_mode` is absent. Responses and newly persisted policies always use
+`ssl_mode`.
 
 ## Origin DNS
 
