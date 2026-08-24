@@ -147,8 +147,10 @@
 {% endif %}
 {% endmacro %}
 server {
-    listen 80;
-    listen [::]:80;
+{% for port in blitzecdn_nginx_http_ports %}
+    listen {{ port }};
+    listen [::]:{{ port }};
+{% endfor %}
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
@@ -170,8 +172,10 @@ server {
 }
 {% if tls %}
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
+{% for port in blitzecdn_nginx_https_ports %}
+    listen {{ port }} ssl;
+    listen [::]:{{ port }} ssl;
+{% endfor %}
     http2 on;
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}

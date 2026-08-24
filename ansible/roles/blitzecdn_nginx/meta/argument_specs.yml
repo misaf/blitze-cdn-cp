@@ -83,6 +83,8 @@ argument_specs:
       blitzecdn_nginx_proxy_connect_timeout: {type: str, required: true}
       blitzecdn_nginx_proxy_read_timeout: {type: str, required: true}
       blitzecdn_nginx_managed_sites_file: {type: path, required: true}
+      blitzecdn_nginx_http_ports: {type: list, elements: int, required: true}
+      blitzecdn_nginx_https_ports: {type: list, elements: int, required: true}
       blitzecdn_nginx_acme_root: {type: path, required: true}
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
