@@ -37,6 +37,9 @@
         item.cache_valid_not_found | default('1m')
         is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
       - >-
+        item.ssl_mode | default('off') == 'off' or
+        item.certificate_mode | default('disabled') != 'disabled'
+      - >-
         item.certificate_mode | default('disabled') == 'disabled' or
         item.certificate_path is defined
       - >-

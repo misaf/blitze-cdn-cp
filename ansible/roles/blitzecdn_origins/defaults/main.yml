@@ -1,6 +1,7 @@
 ---
 # The origins to probe, supplied by the control plane as extra-vars. Each entry
-# is one site: name, origin_host, origin_port, origin_scheme, origin_sni.
+# is one site: name, origin_host, origin_port, ssl_mode, derived origin_scheme,
+# origin_tls_verify, and origin_sni.
 # Empty by default so the role is a no-op if it is ever run without them.
 blitzecdn_origins_sites: []
 

@@ -2,7 +2,7 @@
 blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_sites:
   - origin_port: 8443
-    origin_scheme: https
+    ssl_mode: 'off'
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
     enabled: true
@@ -14,7 +14,7 @@ blitzecdn_nginx_sites:
     server_names:
       - cdn.example.com
     origin_host: 198.51.100.20
-  - origin_scheme: http
+  - ssl_mode: flexible
     enabled: false
     certificate_mode: existing
     certificate_path: /etc/ssl/plain/fullchain.pem

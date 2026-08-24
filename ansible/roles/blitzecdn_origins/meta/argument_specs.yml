@@ -11,7 +11,7 @@ argument_specs:
         description:
           - The sites to probe, as rendered by the control plane.
           - Each entry carries C(name), C(origin_host), C(origin_port),
-            C(origin_scheme) and C(origin_sni).
+            C(ssl_mode), C(origin_scheme), C(origin_tls_verify) and C(origin_sni).
         type: list
         elements: dict
         default: []

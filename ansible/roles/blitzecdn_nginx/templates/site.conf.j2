@@ -1,8 +1,18 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
-{% set tls = item.certificate_mode | default('disabled') != 'disabled' %}
+{% if item.ssl_mode is defined %}
+{% set ssl_mode = item.ssl_mode %}
+{% elif item.certificate_mode | default('disabled') == 'disabled' %}
+{% set ssl_mode = 'off' %}
+{% elif item.origin_scheme | default('https') == 'http' %}
+{% set ssl_mode = 'flexible' %}
+{% else %}
+{% set ssl_mode = 'full_strict' %}
+{% endif %}
+{% set tls = ssl_mode != 'off' %}
+{% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
-{% set upstream = item.origin_scheme | default('https') ~ '://' ~ origin_host ~ (':' ~ item.origin_port if item.origin_port is defined else '') %}
+{% set upstream = origin_scheme ~ '://' ~ origin_host ~ (':' ~ item.origin_port if item.origin_port is defined else '') %}
 {# Per-site request filtering. An untouched policy is omitted, so defaults are explicit. #}
 {% set fw = item.firewall | default({}, true) or {} %}
 {% set fw_allow = fw.allow_sources | default([], true) %}
@@ -86,7 +96,7 @@
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
-{% if item.origin_scheme | default('https') == 'https' %}
+{% if origin_scheme == 'https' %}
         proxy_ssl_server_name on;
         {#
           SNI falls back to the origin hostname, never to a server_name: those
@@ -96,9 +106,11 @@
           the result — the two must not drift.
         #}
         proxy_ssl_name {{ item.origin_sni | default(item.origin_request_host | default(item.origin_host)) }};
-        proxy_ssl_verify on;
+        proxy_ssl_verify {{ 'on' if ssl_mode == 'full_strict' else 'off' }};
+{% if ssl_mode == 'full_strict' %}
         proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
         proxy_ssl_verify_depth 5;
+{% endif %}
 {% endif %}
         proxy_connect_timeout {{ blitzecdn_nginx_proxy_connect_timeout }};
         proxy_read_timeout {{ blitzecdn_nginx_proxy_read_timeout }};
