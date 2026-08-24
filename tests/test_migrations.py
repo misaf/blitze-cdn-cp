@@ -11,7 +11,6 @@ failure mode worth catching.
 
 from __future__ import annotations
 
-import json
 import sqlite3
 from pathlib import Path
 
@@ -117,53 +116,6 @@ def test_the_revision_reported_is_the_one_stamped(tmp_path):
     assert _revision(path) == stamped
 
 
-def test_ssl_mode_migration_normalizes_record_and_site_policies(tmp_path):
-    path = tmp_path / "legacy.db"
-    command.upgrade(_config(path), "0001")
-    connection = sqlite3.connect(path)
-    timestamp = "2026-08-24T00:00:00+00:00"
-    connection.execute(
-        "INSERT INTO domains (name, updated_at) VALUES (?, ?)",
-        ("example.com", timestamp),
-    )
-    policies = {
-        "disabled-https": {"origin_scheme": "https", "certificate_mode": "disabled"},
-        "active-http": {"origin_scheme": "http", "certificate_mode": "existing"},
-        "active-https": {"origin_scheme": "https", "certificate_mode": "existing"},
-    }
-    for name, policy in policies.items():
-        connection.execute(
-            """INSERT INTO dns_records
-               (domain, name, type, value, ttl, proxied, policy, updated_at)
-               VALUES (?, ?, 'A', '192.0.2.1', 300, 1, ?, ?)""",
-            ("example.com", name, json.dumps(policy), timestamp),
-        )
-    connection.execute(
-        """INSERT INTO sites
-           (name, server_names, origin_host, policy, updated_at)
-           VALUES ('active-http', '[\"active.example.com\"]', '192.0.2.1', ?, ?)""",
-        (json.dumps(policies["active-http"]), timestamp),
-    )
-    connection.commit()
-    connection.close()
-
-    command.upgrade(_config(path), "head")
-
-    connection = sqlite3.connect(path)
-    rows = dict(connection.execute("SELECT name, policy FROM dns_records"))
-    site_policy = connection.execute(
-        "SELECT policy FROM sites WHERE name = 'active-http'"
-    ).fetchone()[0]
-    connection.close()
-    assert json.loads(rows["disabled-https"])["ssl_mode"] == "off"
-    assert json.loads(rows["active-http"])["ssl_mode"] == "flexible"
-    assert json.loads(rows["active-https"])["ssl_mode"] == "full_strict"
-    assert json.loads(site_policy)["ssl_mode"] == "flexible"
-    assert all("origin_scheme" not in json.loads(policy) for policy in rows.values())
-
-    command.downgrade(_config(path), "0001")
-    connection = sqlite3.connect(path)
-    downgraded = dict(connection.execute("SELECT name, policy FROM dns_records"))
-    connection.close()
-    assert json.loads(downgraded["active-http"])["origin_scheme"] == "http"
-    assert json.loads(downgraded["active-https"])["origin_scheme"] == "https"
+def test_the_current_schema_has_no_upgrade_chain(tmp_path):
+    revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
+    assert [revision.revision for revision in revisions.walk_revisions()] == ["0001"]
