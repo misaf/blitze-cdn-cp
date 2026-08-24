@@ -15,8 +15,9 @@ from contextlib import contextmanager
 import pytest
 from pydantic import ValidationError
 
+import blitzecdn.infrastructure.origins as origins_module
 from blitzecdn.domain.origins import OriginCheck
-from blitzecdn.domain.sites import CdnSite, SslMode
+from blitzecdn.domain.sites import CdnSite, HttpScheme, SslMode
 from blitzecdn.infrastructure.origins import OriginProbe
 
 
@@ -78,23 +79,25 @@ def _listener(*, tls_context: ssl.SSLContext | None = None):
         thread.join(timeout=2)
 
 
-def test_a_listening_http_origin_is_reachable(settings):
+def test_a_listening_http_origin_is_reachable(settings, monkeypatch):
     with _listener() as port:
-        result = OriginProbe(settings).check(_site(origin_port=port))
+        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTP, port)
+        result = OriginProbe(settings).check(_site())
 
     assert result.reachable is True
     assert result.tls_verified is None, "TLS is not a question for an http origin"
     assert result.ok is True
 
 
-def test_a_closed_port_is_not_reachable(settings):
+def test_a_closed_port_is_not_reachable(settings, monkeypatch):
     # Bind and close so the port is almost certainly free and refuses.
     probe = socket.socket()
     probe.bind(("127.0.0.1", 0))
     port = probe.getsockname()[1]
     probe.close()
 
-    result = OriginProbe(settings).check(_site(origin_port=port))
+    monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTP, port)
+    result = OriginProbe(settings).check(_site())
 
     assert result.reachable is False
     assert result.ok is False
@@ -102,16 +105,14 @@ def test_a_closed_port_is_not_reachable(settings):
 
 
 def test_an_origin_that_does_not_resolve_says_so(settings):
-    result = OriginProbe(settings).check(
-        _site(origin_host="origin.invalid", origin_port=443)
-    )
+    result = OriginProbe(settings).check(_site(origin_host="origin.invalid"))
 
     assert result.reachable is False
     assert result.detail and "does not resolve" in result.detail
 
 
 def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
-    settings, tmp_path, certificate_pair
+    settings, tmp_path, certificate_pair, monkeypatch
 ):
     """A self-signed origin certificate is exactly the case worth catching."""
     certificate, key = certificate_pair(("origin.example.com",))
@@ -121,10 +122,10 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
     context.load_cert_chain(certificate_file)
 
     with _listener(tls_context=context) as port:
+        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTPS, port)
         result = OriginProbe(settings).check(
             _site(
                 ssl_mode=SslMode.FULL_STRICT,
-                origin_port=port,
                 origin_sni="origin.example.com",
             )
         )
@@ -136,7 +137,7 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
 
 
 def test_full_accepts_an_unverifiable_origin_certificate(
-    settings, tmp_path, certificate_pair
+    settings, tmp_path, certificate_pair, monkeypatch
 ):
     certificate, key = certificate_pair(("origin.example.com",))
     certificate_file = tmp_path / "origin-full.pem"
@@ -145,10 +146,10 @@ def test_full_accepts_an_unverifiable_origin_certificate(
     context.load_cert_chain(certificate_file)
 
     with _listener(tls_context=context) as port:
+        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTPS, port)
         result = OriginProbe(settings).check(
             _site(
                 ssl_mode=SslMode.FULL,
-                origin_port=port,
                 origin_sni="origin.example.com",
             )
         )
@@ -158,11 +159,12 @@ def test_full_accepts_an_unverifiable_origin_certificate(
     assert result.ok is True
 
 
-def test_the_probe_uses_the_same_sni_the_edge_template_would(settings):
+def test_the_probe_uses_the_same_sni_the_edge_template_would(settings, monkeypatch):
     """site.conf.j2 falls back origin_sni -> origin_request_host -> origin_host."""
     probe = OriginProbe(settings)
     with _listener() as port:
-        base = {"ssl_mode": SslMode.FULL, "origin_port": port}
+        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTPS, port)
+        base = {"ssl_mode": SslMode.FULL}
         assert probe.check(_site(**base, origin_sni="a.example.com")).sni == (
             "a.example.com"
         )

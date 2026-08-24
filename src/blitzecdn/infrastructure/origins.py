@@ -51,8 +51,7 @@ class OriginProbe:
         return {
             "name": site.name,
             "origin_host": site.origin_host,
-            "origin_port": site.origin_port
-            or _DEFAULT_PORTS[site.ssl_mode.origin_scheme],
+            "origin_port": _DEFAULT_PORTS[site.ssl_mode.origin_scheme],
             "ssl_mode": site.ssl_mode.value,
             "origin_tls_verify": site.ssl_mode.verifies_origin,
             "origin_sni": site.effective_origin_sni,
@@ -60,7 +59,7 @@ class OriginProbe:
 
     def check(self, site: CdnSite) -> OriginCheck:
         scheme = site.ssl_mode.origin_scheme
-        port = site.origin_port or _DEFAULT_PORTS[scheme]
+        port = _DEFAULT_PORTS[scheme]
         # The name the edge will put in the TLS handshake; probing with a
         # different one would verify a certificate the edge never asks for.
         sni = site.effective_origin_sni

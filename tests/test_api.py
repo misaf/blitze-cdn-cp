@@ -485,6 +485,38 @@ def test_removed_origin_scheme_is_rejected_on_patch(
         assert response.status_code == 422
 
 
+def test_removed_origin_port_is_rejected_on_create(
+    settings, domain_payload, record_payload
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        response = client.post(
+            "/v1/domains/example.com/records",
+            json={**record_payload, "origin_port": 8080},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
+
+
+def test_removed_origin_port_is_rejected_on_patch(
+    settings, domain_payload, record_payload
+):
+    with TestClient(create_app(settings)) as client:
+        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        client.post(
+            "/v1/domains/example.com/records",
+            json=record_payload,
+            headers=_HEADERS,
+        )
+        response = client.patch(
+            "/v1/domains/example.com/records/cdn",
+            params={"type": "A"},
+            json={"origin_port": 8080},
+            headers=_HEADERS,
+        )
+        assert response.status_code == 422
+
+
 def test_an_unknown_site_is_a_404(settings):
     with TestClient(create_app(settings)) as client:
         assert client.get("/v1/sites/absent", headers=_HEADERS).status_code == 404

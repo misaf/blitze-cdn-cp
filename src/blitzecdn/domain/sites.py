@@ -248,7 +248,6 @@ class SitePolicy(BaseModel):
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
-    origin_port: int | None = Field(default=None, ge=1, le=65535)
     ssl_mode: SslMode = SslMode.OFF
     #: Redirect visitor HTTP requests to the same URI over HTTPS when this site
     #: serves TLS. Kept independent from ``ssl_mode`` so a site can offer both

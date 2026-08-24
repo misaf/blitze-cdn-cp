@@ -4,7 +4,6 @@
 {% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
-{% set upstream = origin_scheme ~ '://' ~ origin_host ~ (':' ~ item.origin_port if item.origin_port is defined else '') %}
 {# Per-site request filtering. An untouched policy is omitted, so defaults are explicit. #}
 {% set fw = item.firewall | default({}, true) or {} %}
 {% set fw_allow = fw.allow_sources | default([], true) %}
@@ -73,7 +72,8 @@
   replaces the whole inherited set, so the X-Cache-Status line below would
   silently drop a server-level Strict-Transport-Security on every cached site.
 #}
-{% macro proxy(secure=false) %}
+{% macro proxy(origin_port, secure=false) %}
+{% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ origin_port %}
 {% if blitzecdn_nginx_resolvers %}
         # A variable upstream defers resolution to request time so origin DNS
         # changes take effect. nginx does not append the URI in this form.
@@ -117,9 +117,9 @@
         # The encoding belongs in the key. Without it a gzipped response and an
         # identity response share one entry, and whichever arrives first is
         # served to every subsequent client regardless of what it can decode.
-        proxy_cache_key "$scheme$request_method$host$request_uri$blitzecdn_accept_encoding";
+        proxy_cache_key "$scheme$server_port$request_method$host$request_uri$blitzecdn_accept_encoding";
 {% else %}
-        proxy_cache_key "$scheme$request_method$host$request_uri";
+        proxy_cache_key "$scheme$server_port$request_method$host$request_uri";
 {% endif %}
         proxy_cache_valid 200 301 302 {{ item.cache_valid_success | default('10m') }};
         proxy_cache_valid 404 {{ item.cache_valid_not_found | default('1m') }};
@@ -138,11 +138,10 @@
         add_header Strict-Transport-Security "max-age={{ blitzecdn_nginx_hsts_max_age }}" always;
 {% endif %}
 {% endmacro %}
-server {
 {% for port in blitzecdn_nginx_http_ports %}
+server {
     listen {{ port }};
     listen [::]:{{ port }};
-{% endfor %}
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
@@ -158,16 +157,16 @@ server {
 {% if tls and (item.always_use_https | default(false)) %}
         return 308 https://$host$request_uri;
 {% else %}
-{{ proxy() }}
+{{ proxy(port) }}
 {% endif %}
     }
 }
+{% endfor %}
 {% if tls %}
-server {
 {% for port in blitzecdn_nginx_https_ports %}
+server {
     listen {{ port }} ssl;
     listen [::]:{{ port }} ssl;
-{% endfor %}
     http2 on;
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}
@@ -207,7 +206,8 @@ server {
 {{ denied_paths() }}
     location / {
 {{ access() }}
-{{ proxy(secure=true) }}
+{{ proxy(port, secure=true) }}
     }
 }
+{% endfor %}
 {% endif %}

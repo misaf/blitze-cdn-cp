@@ -47,31 +47,39 @@
 # purge possible without the commercial proxy_cache_purge directive. MD5 is
 # nginx's choice of layout, not a security decision.
 #
-# One template render rather than one task per variant. A purge of 500 URLs is
-# 500 x 2 methods x 3 encodings = 3000 keys, and accumulating them with a
-# looped set_fact rebuilt the whole list on every iteration — quadratic, in
-# Ansible task dispatch, per edge. The loop below runs inside Jinja instead, so
-# the cost is one render regardless of how many entries were asked for.
+# One template render rather than one task per variant. A purge of 500 HTTP
+# URLs is 500 x 2 methods x 7 ports x 3 encodings = 21000 keys, and
+# accumulating them with a looped set_fact rebuilt the whole list on every
+# iteration — quadratic, in Ansible task dispatch, per edge. The loops below
+# run inside Jinja instead, so the cost is one render regardless of how many
+# entries were asked for.
 - name: Compute the cache files backing the requested entries
   ansible.builtin.set_fact:
     blitzecdn_cache_purge_files: >-
       {% set files = [] %}
-      {%- for entry, method, encoding in blitzecdn_cache_purge_entries
-            | product(blitzecdn_cache_purge_methods)
-            | product(blitzecdn_cache_key_encodings)
-            | map('flatten') -%}
+      {%- for entry in blitzecdn_cache_purge_entries -%}
+        {%- set ports = blitzecdn_cache_purge_http_ports
+              if (entry.scheme | default('https')) == 'http'
+              else blitzecdn_cache_purge_https_ports -%}
+        {%- for method in blitzecdn_cache_purge_methods -%}
+          {%- for port in ports -%}
+            {%- for encoding in blitzecdn_cache_key_encodings -%}
         {%- set digest = (
-              (entry.scheme | default('https')) ~ method ~ entry.host ~ entry.uri ~ encoding
+              (entry.scheme | default('https')) ~ port ~ method
+              ~ entry.host ~ entry.uri ~ encoding
             ) | trim | hash('md5') -%}
         {%- set _ = files.append(
               blitzecdn_cache_path ~ '/' ~ digest[-1] ~ '/' ~ digest[-3:-1] ~ '/' ~ digest
             ) -%}
+            {%- endfor -%}
+          {%- endfor -%}
+        {%- endfor -%}
       {%- endfor -%}
       {{ files | unique | list }}
   when: not blitzecdn_cache_purge_all
 
 # The list goes to the edge as a file and is consumed in one pass, rather than
-# becoming one `file:` task per entry. Same reason as above: 3000 module
+# becoming one `file:` task per entry. Same reason as above: thousands of module
 # invocations per edge is minutes of round trips for an operation whose whole
 # justification is that it happens under time pressure.
 #

@@ -239,9 +239,7 @@ def test_every_patchable_policy_field_is_optional():
 def test_a_site_derived_from_a_record_carries_every_policy_field():
     """`to_site()` copies the policy by name; prove nothing is lost in transit."""
     record = DnsRecord.model_validate(
-        _managed_record(
-            origin_port=8443, cache_valid_success="30m", origin_sni="o.test"
-        )
+        _managed_record(cache_valid_success="30m", origin_sni="o.test")
     )
     site = record.to_site()
     for name in SitePolicy.model_fields:
