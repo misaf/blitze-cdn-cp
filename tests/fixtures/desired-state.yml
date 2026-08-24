@@ -1,8 +1,7 @@
 ---
 blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_sites:
-  - origin_port: 8443
-    ssl_mode: 'off'
+  - ssl_mode: 'off'
     always_use_https: false
     origin_request_host: origin.example.com
     origin_sni: origin.example.com

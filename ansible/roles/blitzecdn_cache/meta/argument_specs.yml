@@ -42,6 +42,14 @@ argument_specs:
         type: list
         elements: str
         required: true
+      blitzecdn_cache_purge_http_ports:
+        type: list
+        elements: int
+        required: true
+      blitzecdn_cache_purge_https_ports:
+        type: list
+        elements: int
+        required: true
       blitzecdn_cache_purge_encodings:
         type: list
         elements: str

@@ -16,6 +16,7 @@ When one of these fails, change the model and the role together in one commit.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -32,6 +33,7 @@ from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
     SiteFirewall,
+    SitePolicy,
     SslMode,
 )
 from blitzecdn.infrastructure.database import Repository
@@ -108,7 +110,6 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
                 # travels in origin_request_host and origin_sni instead.
                 "value": "198.51.100.20",
                 "proxied": True,
-                "origin_port": 8443,
                 "ssl_mode": SslMode.OFF,
                 "origin_request_host": "origin.example.com",
                 "origin_sni": "origin.example.com",
@@ -510,12 +511,24 @@ def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls
     for port in _role_defaults()["blitzecdn_nginx_http_ports"]:
         assert f"listen {port};" in rendered
         assert f"listen [::]:{port};" in rendered
+        assert (
+            f"set $blitzecdn_upstream {upstream}origin.example.com:{port};" in rendered
+        )
     for port in _role_defaults()["blitzecdn_nginx_https_ports"]:
         assert (f"listen {port} ssl;" in rendered) is serves_tls
         assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
+        assert (
+            f"set $blitzecdn_upstream {upstream}origin.example.com:{port};" in rendered
+        ) is serves_tls
     assert "return 308 https://$host$request_uri;" not in rendered
     if verify is not None:
         assert f"proxy_ssl_verify {verify};" in rendered
+
+
+def test_origin_port_is_not_part_of_the_edge_site_contract():
+    options = _role_spec()["blitzecdn_nginx_sites"]["options"]
+    assert "origin_port" not in SitePolicy.model_fields
+    assert "origin_port" not in options
 
 
 def test_always_use_https_redirects_http_when_enabled():
@@ -627,6 +640,8 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
             "blitzecdn_cache_normalize_accept_encoding",
             "blitzecdn_nginx_normalize_accept_encoding",
         ),
+        ("blitzecdn_cache_purge_http_ports", "blitzecdn_nginx_http_ports"),
+        ("blitzecdn_cache_purge_https_ports", "blitzecdn_nginx_https_ports"),
     ],
 )
 def test_purge_role_agrees_with_the_nginx_role(cache_key, nginx_key):
@@ -670,12 +685,13 @@ def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
 def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     """One URL is several entries, and leaving one behind still serves it.
 
-    The site template puts the request method and the normalized encoding in
-    the key, so the purge role has to sweep both dimensions. nginx caches GET
-    and HEAD by default and the template does not narrow proxy_cache_methods.
+    The site template puts the listener port, request method and normalized
+    encoding in the key, so the purge role has to sweep all three dimensions.
+    nginx caches GET and HEAD by default and the template does not narrow
+    proxy_cache_methods.
     """
     site_template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
-    assert "$scheme$request_method$host$request_uri" in site_template
+    assert "$scheme$server_port$request_method$host$request_uri" in site_template
     assert "proxy_cache_methods" not in site_template
 
     defaults = _defaults_of(CACHE_ROLE_DIR)
@@ -688,6 +704,70 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
         "$blitzecdn_accept_encoding map can produce; the unlisted variant "
         "would survive a purge and keep being served"
     )
+
+
+def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
+    """Execute the role's key calculation, including its Jinja loops."""
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+
+    cache_path = tmp_path / "cache"
+    key = "http80GETexample.com/asset"
+    digest = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
+    cached = cache_path / digest[-1] / digest[-3:-1] / digest
+    computed = tmp_path / "computed.json"
+
+    variables = _defaults_of(CACHE_ROLE_DIR) | {
+        "blitzecdn_cache_path": str(cache_path),
+        "blitzecdn_cache_purge_entries": [
+            {"host": "example.com", "uri": "/asset", "scheme": "http"}
+        ],
+        "blitzecdn_cache_purge_all": False,
+    }
+    role_tasks = yaml.safe_load(
+        (CACHE_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    )
+    playbook = tmp_path / "purge-key.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "vars": variables,
+                    # Run through "Compute the cache files". The remaining
+                    # tasks chown a manifest to root, which a unit test neither
+                    # needs nor has permission to do.
+                    "tasks": [
+                        *role_tasks[:5],
+                        {
+                            "copy": {
+                                "content": (
+                                    "{{ blitzecdn_cache_purge_files | to_json }}"
+                                ),
+                                "dest": str(computed),
+                                "mode": "0600",
+                            }
+                        },
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(  # noqa: S603 - fixed argv built in this test
+        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        check=False,
+    )
+
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+    assert str(cached) in yaml.safe_load(computed.read_text(encoding="utf-8"))
 
 
 # ----------------------------------------------------------------------

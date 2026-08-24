@@ -438,6 +438,12 @@ Full is intended only for origins whose TLS certificate cannot be validated;
 it still requires a successful TLS handshake. No mode falls back automatically
 when an origin is unavailable or fails TLS.
 
+The edge preserves the listener port when connecting to the origin. A request
+received on port 80 reaches origin port 80, one received on 8443 reaches origin
+port 8443, and the same rule applies to every supported proxy port. The SSL mode
+selects HTTP or HTTPS for that connection; records do not configure a separate
+origin port.
+
 TLS-enabled sites serve both HTTP and HTTPS by default. Enable Always Use HTTPS
 to redirect visitor HTTP requests while leaving the selected origin encryption
 mode unchanged:
