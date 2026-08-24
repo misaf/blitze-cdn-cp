@@ -250,6 +250,10 @@ class SitePolicy(BaseModel):
 
     origin_port: int | None = Field(default=None, ge=1, le=65535)
     ssl_mode: SslMode = SslMode.OFF
+    #: Redirect visitor HTTP requests to the same URI over HTTPS when this site
+    #: serves TLS. Kept independent from ``ssl_mode`` so a site can offer both
+    #: schemes while retaining its edge and origin encryption policy.
+    always_use_https: bool = False
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool = True
@@ -391,9 +395,9 @@ class CdnSite(SitePolicy):
     def serves_tls(self) -> bool:
         """Whether this site answers on 443.
 
-        Also decides which scheme its cached entries are keyed under: nginx
-        redirects port 80 to 443 for a TLS site, so it caches nothing over
-        plain HTTP, and a site without TLS never sees an HTTPS request.
+        Cached entries include the request scheme in their key. When
+        ``always_use_https`` is disabled, a TLS site can therefore cache its
+        HTTP and HTTPS responses independently.
         """
         return self.ssl_mode.serves_tls
 

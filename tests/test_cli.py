@@ -237,6 +237,49 @@ def test_cli_proxy_toggle_drives_the_derived_site(settings, monkeypatch):
     assert json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout) == []
 
 
+def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypatch):
+    control = ControlPlane(
+        settings=settings,
+        repository=Repository(settings.database_path),
+        runner=FakeRunner(),
+    )  # type: ignore[arg-type]
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    runner.invoke(cli.app, ["domain", "add", "example.com"])
+    runner.invoke(
+        cli.app,
+        [
+            "record",
+            "add",
+            "example.com",
+            "api",
+            "--value",
+            "198.51.100.20",
+            "--proxied",
+        ],
+    )
+
+    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    assert sites[0]["always_use_https"] is False
+
+    enabled = runner.invoke(
+        cli.app,
+        ["record", "always-use-https", "example.com", "api", "--on", "--json"],
+    )
+
+    assert enabled.exit_code == 0
+    assert json.loads(enabled.stdout)["always_use_https"] is True
+    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    assert sites[0]["always_use_https"] is True
+
+    disabled = runner.invoke(
+        cli.app,
+        ["record", "always-use-https", "example.com", "api", "--off"],
+    )
+    assert disabled.exit_code == 0
+    assert "now disabled" in disabled.stdout
+    assert control.dns.get_site("api-example-com").always_use_https is False
+
+
 def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     """Merge semantics, and the derived site carries the result.
 

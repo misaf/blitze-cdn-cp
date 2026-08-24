@@ -221,7 +221,21 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert mismatched.status_code == 409
 
         # Proxying a record is what creates the edge virtual host.
-        assert len(client.get("/v1/sites", headers=headers).json()) == 1
+        sites = client.get("/v1/sites", headers=headers).json()
+        assert len(sites) == 1
+        assert sites[0]["always_use_https"] is False
+
+        redirect = client.patch(
+            "/v1/domains/example.com/records/cdn",
+            json={"always_use_https": True},
+            headers=headers,
+        )
+        assert redirect.status_code == 200
+        assert redirect.json()["always_use_https"] is True
+        assert (
+            client.get("/v1/sites", headers=headers).json()[0]["always_use_https"]
+            is True
+        )
 
         toggled = client.patch(
             "/v1/domains/example.com/records/cdn",
