@@ -558,6 +558,30 @@ def test_always_use_https_can_be_disabled_without_disabling_tls():
     assert "listen 443 ssl;" in rendered
 
 
+def test_missing_always_use_https_preserves_pre_upgrade_behavior():
+    """A running older control plane may deploy through an updated role."""
+    site = CdnSite.model_validate(
+        {
+            "name": "pre-upgrade",
+            "server_names": ["pre-upgrade.example.com"],
+            "origin_host": "origin.example.com",
+            "ssl_mode": "flexible",
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    ).to_ansible()
+    del site["always_use_https"]
+
+    option = _role_spec()["blitzecdn_nginx_sites"]["options"]["always_use_https"]
+    assert option["default"] is False
+    assert option.get("required", False) is False
+
+    rendered = _render(site)
+    assert "return 308 https://$host$request_uri;" not in rendered
+    assert rendered.count("proxy_pass") >= 2
+
+
 def test_committed_fixture_matches_generated_desired_state(desired_state):
     """CI feeds this fixture to a real playbook; keep it honest.
 

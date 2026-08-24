@@ -155,7 +155,7 @@ server {
 {{ denied_paths() }}
     location / {
 {{ access() }}
-{% if tls and item.always_use_https %}
+{% if tls and (item.always_use_https | default(false)) %}
         return 308 https://$host$request_uri;
 {% else %}
 {{ proxy() }}

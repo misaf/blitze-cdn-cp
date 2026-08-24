@@ -15,7 +15,7 @@ argument_specs:
           ssl_mode: {type: str, choices: ['off', flexible, full, full_strict], required: true}
           always_use_https:
             type: bool
-            required: true
+            default: false
             description: Redirect visitor HTTP requests to HTTPS when TLS is active.
           origin_request_host: {type: str}
           origin_sni: {type: str}
