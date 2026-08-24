@@ -25,7 +25,7 @@ from blitzecdn.domain.deployments import (
 )
 from blitzecdn.domain.dns import DnsRecord, RecordPatch
 from blitzecdn.domain.runs import HostRun
-from blitzecdn.domain.sites import CdnSite, SitePolicy
+from blitzecdn.domain.sites import CdnSite, SitePolicy, SslMode
 from blitzecdn.domain.snapshots import decode_snapshot
 
 
@@ -99,6 +99,62 @@ def test_existing_certificate_requires_complete_pair(site_payload):
     site_payload["certificate_mode"] = "existing"
     site_payload["certificate_path"] = "/etc/ssl/example/fullchain.pem"
     with pytest.raises(ValidationError, match="both certificate paths"):
+        CdnSite.model_validate(site_payload)
+
+
+def test_new_sites_default_to_ssl_off(site_payload):
+    site = CdnSite.model_validate(site_payload)
+    assert site.ssl_mode is SslMode.OFF
+    assert site.serves_tls is False
+    assert site.ssl_mode.origin_scheme == "http"
+
+
+@pytest.mark.parametrize("mode", ["flexible", "full", "full_strict"])
+def test_secure_ssl_modes_require_an_edge_certificate(site_payload, mode):
+    site_payload["ssl_mode"] = mode
+    with pytest.raises(ValidationError, match="active edge certificate"):
+        CdnSite.model_validate(site_payload)
+
+
+def test_off_keeps_an_installed_certificate_available(site_payload):
+    site_payload |= {
+        "ssl_mode": "off",
+        "certificate_mode": "existing",
+        "certificate_path": "/etc/ssl/certs/edge.pem",
+        "certificate_key_path": "/etc/ssl/private/edge.key",
+    }
+    site = CdnSite.model_validate(site_payload)
+    assert site.certificate_mode == "existing"
+    assert site.serves_tls is False
+
+
+@pytest.mark.parametrize(
+    ("scheme", "certificate_mode", "expected"),
+    [
+        ("http", "disabled", SslMode.OFF),
+        ("https", "disabled", SslMode.OFF),
+        ("http", "existing", SslMode.FLEXIBLE),
+        ("https", "existing", SslMode.FULL_STRICT),
+    ],
+)
+def test_legacy_origin_scheme_maps_to_ssl_mode(
+    site_payload, scheme, certificate_mode, expected
+):
+    site_payload["origin_scheme"] = scheme
+    if certificate_mode == "existing":
+        site_payload |= {
+            "certificate_mode": certificate_mode,
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    site = CdnSite.model_validate(site_payload)
+    assert site.ssl_mode is expected
+    assert "origin_scheme" not in site.model_dump()
+
+
+def test_new_and_legacy_ssl_fields_cannot_be_combined(site_payload):
+    site_payload |= {"ssl_mode": "off", "origin_scheme": "http"}
+    with pytest.raises(ValidationError, match="cannot be combined"):
         CdnSite.model_validate(site_payload)
 
 

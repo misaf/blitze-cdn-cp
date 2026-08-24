@@ -46,6 +46,29 @@ class HttpScheme(StrEnum):
     HTTPS = "https"
 
 
+class SslMode(StrEnum):
+    """How TLS is used on both sides of an edge connection."""
+
+    OFF = "off"
+    FLEXIBLE = "flexible"
+    FULL = "full"
+    FULL_STRICT = "full_strict"
+
+    @property
+    def serves_tls(self) -> bool:
+        return self is not SslMode.OFF
+
+    @property
+    def origin_scheme(self) -> HttpScheme:
+        if self in {SslMode.FULL, SslMode.FULL_STRICT}:
+            return HttpScheme.HTTPS
+        return HttpScheme.HTTP
+
+    @property
+    def verifies_origin(self) -> bool:
+        return self is SslMode.FULL_STRICT
+
+
 class CertificateMode(StrEnum):
     DISABLED = "disabled"
     EXISTING = "existing"
@@ -226,7 +249,7 @@ class SitePolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     origin_port: int | None = Field(default=None, ge=1, le=65535)
-    origin_scheme: HttpScheme = HttpScheme.HTTPS
+    ssl_mode: SslMode = SslMode.OFF
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool = True
@@ -240,6 +263,33 @@ class SitePolicy(BaseModel):
     #: touches the firewall replaces the whole block. Merging partial rule
     #: lists would make "remove the last deny" impossible to express.
     firewall: SiteFirewall = SiteFirewall()
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_origin_scheme(cls, value: Any) -> Any:
+        """Read old API, snapshot and database policy documents.
+
+        ``ssl_mode`` is the only emitted field.  A legacy site without an edge
+        certificate becomes Off even when it formerly contacted its origin
+        with HTTPS; the combined mode cannot represent HTTP at the edge and
+        HTTPS behind it.
+        """
+        if not isinstance(value, dict) or "origin_scheme" not in value:
+            return value
+        if "ssl_mode" in value:
+            raise ValueError("ssl_mode and legacy origin_scheme cannot be combined")
+        document = dict(value)
+        scheme = HttpScheme(document.pop("origin_scheme"))
+        certificate_mode = CertificateMode(
+            document.get("certificate_mode", CertificateMode.DISABLED)
+        )
+        if certificate_mode is CertificateMode.DISABLED:
+            document["ssl_mode"] = SslMode.OFF
+        elif scheme is HttpScheme.HTTP:
+            document["ssl_mode"] = SslMode.FLEXIBLE
+        else:
+            document["ssl_mode"] = SslMode.FULL_STRICT
+        return document
 
     @field_validator("origin_request_host", "origin_sni")
     @classmethod
@@ -335,6 +385,13 @@ class CdnSite(SitePolicy):
                 "certificate upload and request endpoints, which own the paths "
                 f"under {MANAGED_TLS_ROOT}/<site>/"
             )
+        if (
+            self.ssl_mode.serves_tls
+            and self.certificate_mode is CertificateMode.DISABLED
+        ):
+            raise ValueError(
+                f"ssl_mode={self.ssl_mode.value!r} requires an active edge certificate"
+            )
         return self
 
     @property
@@ -365,7 +422,7 @@ class CdnSite(SitePolicy):
         redirects port 80 to 443 for a TLS site, so it caches nothing over
         plain HTTP, and a site without TLS never sees an HTTPS request.
         """
-        return self.certificate_mode is not CertificateMode.DISABLED
+        return self.ssl_mode.serves_tls
 
     def to_ansible(self) -> dict[str, Any]:
         document = self.model_dump(mode="json", exclude_none=True)
