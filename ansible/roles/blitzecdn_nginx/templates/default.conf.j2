@@ -6,8 +6,10 @@
 # answering for a hostname it was never configured for, and it makes an edge IP
 # enumerable by host-header probing. This block claims that position instead.
 server {
-    listen 80 default_server;
-    listen [::]:80 default_server;
+{% for port in blitzecdn_nginx_http_ports %}
+    listen {{ port }} default_server;
+    listen [::]:{{ port }} default_server;
+{% endfor %}
     server_name _;
 
     # Still served for unknown hosts on purpose: a domain being onboarded needs
@@ -28,8 +30,10 @@ server {
 }
 
 server {
-    listen 443 ssl default_server;
-    listen [::]:443 ssl default_server;
+{% for port in blitzecdn_nginx_https_ports %}
+    listen {{ port }} ssl default_server;
+    listen [::]:{{ port }} ssl default_server;
+{% endfor %}
     server_name _;
 
     # Rejects the handshake outright for unrecognised SNI, so no managed site's

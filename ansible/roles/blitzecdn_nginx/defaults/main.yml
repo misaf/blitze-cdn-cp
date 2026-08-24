@@ -13,6 +13,11 @@ blitzecdn_nginx_cache_inactive: 60m
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
 blitzecdn_nginx_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
+# Cloudflare-compatible public proxy ports. Keeping HTTP and HTTPS separate is
+# important: every HTTPS listener must carry Nginx's ssl parameter, while the
+# HTTP listeners either proxy directly or redirect a TLS-enabled site.
+blitzecdn_nginx_http_ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
+blitzecdn_nginx_https_ports: [443, 2053, 2083, 2087, 2096, 8443]
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so

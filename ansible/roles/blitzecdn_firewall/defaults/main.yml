@@ -2,7 +2,20 @@
 blitzecdn_firewall_enabled: true
 blitzecdn_firewall_ssh_port: 22
 blitzecdn_firewall_ssh_sources: []
-blitzecdn_firewall_http_ports: [80, 443]
+blitzecdn_firewall_http_ports:
+  - 80
+  - 8080
+  - 8880
+  - 2052
+  - 2082
+  - 2086
+  - 2095
+  - 443
+  - 2053
+  - 2083
+  - 2087
+  - 2096
+  - 8443
 
 # The rules this role installed on its last successful run, one per line as
 # `proto|port|source`. Without it the role can only add: ufw keeps every rule
