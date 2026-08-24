@@ -17,10 +17,11 @@ four is exactly the situation worth surfacing.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
-from blitzecdn.domain.sites import HttpScheme
+from blitzecdn.domain.sites import HttpScheme, SslMode
 
 
 class OriginCheck(BaseModel):
@@ -32,7 +33,7 @@ class OriginCheck(BaseModel):
     answered but presented a certificate that is not valid for the SNI this
     edge sends, which is the site's ``origin_sni`` or the origin's certificate,
     and nothing to do with the network. ``tls_verified`` is ``None`` for an HTTP
-    origin, where the question does not arise.
+    origin or Full mode, where verification is deliberately not attempted.
 
     ``status`` is whatever the origin answered a ``HEAD /`` with, and is not
     judged: a 404 or a 403 still proves the origin is up and talking, which is
@@ -44,12 +45,26 @@ class OriginCheck(BaseModel):
     site: str
     origin: str
     scheme: HttpScheme
+    ssl_mode: SslMode
     sni: str | None = None
     reachable: bool = False
     tls_verified: bool | None = None
     #: The HTTP status the origin answered with, or ``None`` if it did not.
     status: int | None = None
     detail: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def accept_legacy_report(cls, value: Any) -> Any:
+        if not isinstance(value, dict) or "ssl_mode" in value:
+            return value
+        document = dict(value)
+        document["ssl_mode"] = (
+            SslMode.FULL_STRICT
+            if HttpScheme(document["scheme"]) is HttpScheme.HTTPS
+            else SslMode.OFF
+        )
+        return document
 
     @property
     def ok(self) -> bool:
