@@ -193,6 +193,36 @@ def record_ssl(
         )
 
 
+@record_app.command("always-use-https")
+def record_always_use_https(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    on: Annotated[
+        bool,
+        typer.Option(
+            "--on/--off",
+            help="Redirect all visitor HTTP requests to HTTPS, or serve both schemes.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Enable or disable the HTTP-to-HTTPS redirect for one hostname.
+
+    The setting takes effect only while the SSL mode serves HTTPS. Disabling it
+    leaves HTTPS available and serves HTTP requests through to the origin.
+    """
+    record = common.control_plane().dns.update_record(
+        domain, name, type_, RecordPatch(always_use_https=on), "cli"
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for "
+            f"{record.fqdn}. Run 'blitzecdn deploy' to apply."
+        )
+
+
 @record_app.command("firewall")
 def record_firewall(
     domain: Annotated[str, typer.Argument()],

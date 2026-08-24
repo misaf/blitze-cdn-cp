@@ -513,9 +513,49 @@ def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls
     for port in _role_defaults()["blitzecdn_nginx_https_ports"]:
         assert (f"listen {port} ssl;" in rendered) is serves_tls
         assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
-    assert ("return 308 https://$host$request_uri;" in rendered) is serves_tls
+    assert "return 308 https://$host$request_uri;" not in rendered
     if verify is not None:
         assert f"proxy_ssl_verify {verify};" in rendered
+
+
+def test_always_use_https_redirects_http_when_enabled():
+    site = CdnSite.model_validate(
+        {
+            "name": "redirect",
+            "server_names": ["redirect.example.com"],
+            "origin_host": "origin.example.com",
+            "ssl_mode": "flexible",
+            "always_use_https": True,
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    )
+
+    rendered = _render(site.to_ansible())
+
+    assert "return 308 https://$host$request_uri;" in rendered
+
+
+def test_always_use_https_can_be_disabled_without_disabling_tls():
+    site = CdnSite.model_validate(
+        {
+            "name": "both-schemes",
+            "server_names": ["both.example.com"],
+            "origin_host": "origin.example.com",
+            "ssl_mode": "flexible",
+            "always_use_https": False,
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    )
+
+    rendered = _render(site.to_ansible())
+
+    assert "return 308 https://$host$request_uri;" not in rendered
+    assert rendered.count("proxy_pass") >= 2
+    assert "listen 443 ssl;" in rendered
 
 
 def test_committed_fixture_matches_generated_desired_state(desired_state):

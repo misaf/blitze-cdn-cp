@@ -259,7 +259,7 @@ The full command surface:
 | Diagnostics | `doctor`, `audit`, `stats` |
 | Setup | `init`, `setup`, `serve` |
 | Edges | `edge list/add/update/remove`, `origin check` |
-| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/firewall/remove`, `dns export`, `site list/show` |
+| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/always-use-https/firewall/remove`, `dns export`, `site list/show` |
 | Certificates | `cert list`, `cert preflight`, `cert renew`, `cert reconcile` |
 | Cache | `cache purge` |
 
@@ -437,6 +437,20 @@ and renewal state, so a secure mode can be re-enabled without another issuance.
 Full is intended only for origins whose TLS certificate cannot be validated;
 it still requires a successful TLS handshake. No mode falls back automatically
 when an origin is unavailable or fails TLS.
+
+TLS-enabled sites serve both HTTP and HTTPS by default. Enable Always Use HTTPS
+to redirect visitor HTTP requests while leaving the selected origin encryption
+mode unchanged:
+
+```bash
+blitzecdn record always-use-https example.com cdn --on
+blitzecdn deploy
+```
+
+Use `--off` to serve both schemes again. The equivalent API update is `PATCH
+/v1/domains/{domain}/records/{name}?type=A` with
+`{"always_use_https": true}` or `false`. The ACME challenge path remains
+available over HTTP in either mode.
 
 ## Origin DNS
 

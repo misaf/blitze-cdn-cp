@@ -199,6 +199,7 @@ class RecordPatch(BaseModel):
     proxied: bool | None = None
     origin_port: int | None = Field(default=None, ge=1, le=65535)
     ssl_mode: SslMode | None = None
+    always_use_https: bool | None = None
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool | None = None
