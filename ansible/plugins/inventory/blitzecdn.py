@@ -20,6 +20,7 @@ take a write lock — let alone hold one while Ansible resolves a few hundred
 hosts.
 """
 
+import ipaddress
 import json
 import os
 import sqlite3
@@ -145,7 +146,7 @@ class InventoryModule(BaseInventoryPlugin):
             {
                 source
                 for edge in edges
-                for source in edge.get("ssh_sources") or []
+                for source in edge["ssh_sources"]
             },
             key=_source_order,
         )
@@ -233,9 +234,11 @@ class InventoryModule(BaseInventoryPlugin):
 
 
 def _json_list(value, edge_name, column):
-    """One JSON list column, or an empty list when it was never set."""
+    """Decode one required JSON list column."""
     if value is None:
-        return []
+        raise AnsibleParserError(
+            f"edge {edge_name!r} has a null {column}; the current schema requires a list"
+        )
     try:
         decoded = json.loads(value)
     except ValueError as error:
@@ -283,10 +286,10 @@ def _host_variables(edge):
     SSH an empty identity file instead of letting it resolve a key the usual
     way.
     """
-    port = int(edge.get("port") or 22)
+    port = int(edge["port"])
     variables = {
-        "ansible_host": edge.get("host") or edge["name"],
-        "ansible_user": edge.get("user") or "deploy",
+        "ansible_host": edge["host"],
+        "ansible_user": edge["user"],
         "ansible_port": port,
         # The same port the firewall must leave open, published from the one
         # place that knows it. These were two independently edited settings —
@@ -296,10 +299,10 @@ def _host_variables(edge):
         # deploy can reach it to put things back.
         "blitzecdn_firewall_ssh_port": port,
     }
-    private_key_file = edge.get("private_key_file")
+    private_key_file = edge["private_key_file"]
     if private_key_file:
         variables["ansible_ssh_private_key_file"] = private_key_file
-    public_addresses = edge.get("public_addresses")
+    public_addresses = edge["public_addresses"]
     if public_addresses:
         variables["blitzecdn_public_addresses"] = list(public_addresses)
     return variables
@@ -309,16 +312,16 @@ def _source_order(source):
     """IPv4 before IPv6, numeric within each — not lexical.
 
     Text order puts 203.0.113.0/24 ahead of 94.183.119.90/32, which reads as a
-    mistake in a rendered firewall rule and in a check-mode diff. Falls back to
-    text for anything unparseable so a stored value written by an older release
-    can still be published and then corrected.
+    mistake in a rendered firewall rule and in a check-mode diff. Invalid
+    networks are rejected by the current edge model and must not be published
+    if a database has been edited outside it.
     """
     try:
-        import ipaddress
-
         network = ipaddress.ip_network(_text(source), strict=False)
-    except (ImportError, ValueError):
-        return (9, source)
+    except ValueError as error:
+        raise AnsibleParserError(
+            f"management source {source!r} is not a CIDR network: {error}"
+        ) from error
     return (network.version, network.network_address.packed, network.prefixlen)
 
 

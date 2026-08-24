@@ -64,11 +64,10 @@ ansible-inventory -i inventory/blitzecdn.yml --list
 ```
 
 The plugin finds the database from `BLITZE_DATABASE_PATH`, which the control
-plane exports for every run it starts, and otherwise falls back to
+plane exports for every run it starts, and otherwise uses
 `../.state/control-plane.db` — so the command above works as written on a
-default install. A database that predates this layout has no `edges` table and
-the plugin says so; `blitzecdn setup` creates it and imports any existing
-`inventory/hosts.yml`, renaming that file to `hosts.yml.migrated` once it has.
+default install. The plugin requires the current `edges` table and refuses a
+missing or incompatible schema; `blitzecdn setup` creates a clean database.
 
 Use a non-root `--user`, an external SSH key or agent, verified `known_hosts`,
 and at least one `--ssh-source` management CIDR — the firewall role refuses to
