@@ -438,10 +438,6 @@ Full is intended only for origins whose TLS certificate cannot be validated;
 it still requires a successful TLS handshake. No mode falls back automatically
 when an origin is unavailable or fails TLS.
 
-`origin_scheme` is accepted only as a legacy API and snapshot input when
-`ssl_mode` is absent. Responses and newly persisted policies always use
-`ssl_mode`.
-
 ## Origin DNS
 
 By default each edge re-resolves origin hostnames every

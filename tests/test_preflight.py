@@ -17,7 +17,7 @@ from conftest import FakeEdgeStore
 from blitzecdn.domain.certificates import PreflightSeverity
 from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.origins import OriginCheck
-from blitzecdn.domain.sites import CdnSite, HttpScheme
+from blitzecdn.domain.sites import CdnSite
 from blitzecdn.infrastructure import preflight as preflight_module
 from blitzecdn.infrastructure.preflight import (
     CertificatePreflight,
@@ -37,7 +37,8 @@ class FakeOriginProbe:
         return OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:443",
-            scheme=HttpScheme.HTTPS,
+            scheme=site.ssl_mode.origin_scheme,
+            ssl_mode=site.ssl_mode,
             reachable=self.ok,
             detail=None if self.ok else "no answer within 5s",
         )

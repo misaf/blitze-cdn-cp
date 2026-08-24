@@ -264,33 +264,6 @@ class SitePolicy(BaseModel):
     #: lists would make "remove the last deny" impossible to express.
     firewall: SiteFirewall = SiteFirewall()
 
-    @model_validator(mode="before")
-    @classmethod
-    def accept_legacy_origin_scheme(cls, value: Any) -> Any:
-        """Read old API, snapshot and database policy documents.
-
-        ``ssl_mode`` is the only emitted field.  A legacy site without an edge
-        certificate becomes Off even when it formerly contacted its origin
-        with HTTPS; the combined mode cannot represent HTTP at the edge and
-        HTTPS behind it.
-        """
-        if not isinstance(value, dict) or "origin_scheme" not in value:
-            return value
-        if "ssl_mode" in value:
-            raise ValueError("ssl_mode and legacy origin_scheme cannot be combined")
-        document = dict(value)
-        scheme = HttpScheme(document.pop("origin_scheme"))
-        certificate_mode = CertificateMode(
-            document.get("certificate_mode", CertificateMode.DISABLED)
-        )
-        if certificate_mode is CertificateMode.DISABLED:
-            document["ssl_mode"] = SslMode.OFF
-        elif scheme is HttpScheme.HTTP:
-            document["ssl_mode"] = SslMode.FLEXIBLE
-        else:
-            document["ssl_mode"] = SslMode.FULL_STRICT
-        return document
-
     @field_validator("origin_request_host", "origin_sni")
     @classmethod
     def validate_optional_host(cls, value: str | None) -> str | None:

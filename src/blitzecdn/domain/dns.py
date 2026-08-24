@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
-    HttpScheme,
     SiteFirewall,
     SitePolicy,
     SslMode,
@@ -200,9 +199,6 @@ class RecordPatch(BaseModel):
     proxied: bool | None = None
     origin_port: int | None = Field(default=None, ge=1, le=65535)
     ssl_mode: SslMode | None = None
-    # Deprecated compatibility input. DnsService translates it against the
-    # record's current certificate state and never persists or emits it.
-    origin_scheme: HttpScheme | None = None
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool | None = None
@@ -215,12 +211,6 @@ class RecordPatch(BaseModel):
     # Replaces the block wholesale; see the note on SitePolicy.firewall. Send
     # {"firewall": {}} to clear every rule.
     firewall: SiteFirewall | None = None
-
-    @model_validator(mode="after")
-    def reject_both_ssl_shapes(self) -> Self:
-        if self.ssl_mode is not None and self.origin_scheme is not None:
-            raise ValueError("ssl_mode and legacy origin_scheme cannot be combined")
-        return self
 
 
 def _without_none(annotation: object) -> object:

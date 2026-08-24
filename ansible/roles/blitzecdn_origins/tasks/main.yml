@@ -14,7 +14,7 @@
 # stop before telling anyone about the rest.
 - name: Probe each origin as this edge would reach it
   ansible.builtin.uri:
-    url: "{{ item.origin_scheme }}://{{ item.origin_host }}:{{ item.origin_port }}/"
+    url: "{{ blitzecdn_origins_scheme }}://{{ item.origin_host }}:{{ item.origin_port }}/"
     method: HEAD
     # The name this edge puts in the TLS handshake and the Host header.
     # Probing with a different one would verify a certificate the edge never
@@ -31,6 +31,9 @@
   loop_control:
     label: "{{ item.name }}"
   register: blitzecdn_origins_verified
+  vars:
+    blitzecdn_origins_scheme: >-
+      {{ 'https' if item.ssl_mode in ['full', 'full_strict'] else 'http' }}
   failed_when: false
   changed_when: false
   check_mode: false
@@ -83,12 +86,12 @@
       }}
     _verified: "{{ (item.status | default(-1) | int) > 0 }}"
     _unverified: "{{ (_retry.status | default(-1) | int) > 0 }}"
-    _https: "{{ item.item.origin_scheme == 'https' }}"
+    _https: "{{ item.item.ssl_mode in ['full', 'full_strict'] }}"
     _verify: "{{ item.item.origin_tls_verify | bool }}"
     row:
       site: "{{ item.item.name }}"
       origin: "{{ item.item.origin_host }}:{{ item.item.origin_port }}"
-      scheme: "{{ item.item.origin_scheme }}"
+      scheme: "{{ 'https' if _https else 'http' }}"
       ssl_mode: "{{ item.item.ssl_mode }}"
       sni: "{{ item.item.origin_sni if _https else None }}"
       # Reachable covers both passes: an origin that answered only without

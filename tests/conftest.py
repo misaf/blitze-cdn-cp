@@ -139,6 +139,7 @@ def origin_report(
                     "site": site,
                     "origin": origin,
                     "scheme": "https",
+                    "ssl_mode": "full_strict",
                     "sni": "origin.example.com",
                     "reachable": str(reachable),
                     "tls_verified": str(tls_verified),

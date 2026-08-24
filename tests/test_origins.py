@@ -13,7 +13,9 @@ import threading
 from contextlib import contextmanager
 
 import pytest
+from pydantic import ValidationError
 
+from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.sites import CdnSite, SslMode
 from blitzecdn.infrastructure.origins import OriginProbe
 
@@ -32,6 +34,17 @@ def _site(**overrides) -> CdnSite:
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
     return CdnSite.model_validate(payload)
+
+
+def test_origin_reports_require_the_current_ssl_mode():
+    with pytest.raises(ValidationError, match="ssl_mode"):
+        OriginCheck.model_validate(
+            {
+                "site": "cdn-example-com",
+                "origin": "origin.example.com:443",
+                "scheme": "https",
+            }
+        )
 
 
 @contextmanager
@@ -190,7 +203,6 @@ def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
         "origin_host": "origin.example.com",
         "origin_port": 443,
         "ssl_mode": "full_strict",
-        "origin_scheme": "https",
         "origin_tls_verify": True,
         "origin_sni": site.effective_origin_sni,
     }
