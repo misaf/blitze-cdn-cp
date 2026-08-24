@@ -307,6 +307,39 @@ def test_geoip_is_off_until_an_operator_turns_it_on():
     assert _role_defaults()["blitzecdn_nginx_geoip_enabled"] is False
 
 
+def test_public_ports_match_cloudflare_and_the_firewall():
+    """A listener without a firewall rule is unreachable, and the reverse
+    exposes a port that can never serve traffic. Keep both role defaults in
+    lockstep with the Cloudflare-compatible proxy port sets.
+    """
+    nginx = _role_defaults()
+    http_ports = [80, 8080, 8880, 2052, 2082, 2086, 2095]
+    https_ports = [443, 2053, 2083, 2087, 2096, 8443]
+    firewall = _defaults_of(_role("blitzecdn_firewall"))
+
+    assert nginx["blitzecdn_nginx_http_ports"] == http_ports
+    assert nginx["blitzecdn_nginx_https_ports"] == https_ports
+    assert firewall["blitzecdn_firewall_http_ports"] == http_ports + https_ports
+
+
+def test_default_server_claims_every_public_listener():
+    """Unknown hostnames must not fall through to a customer site on any port."""
+    environment = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    defaults = _role_defaults()
+    rendered = environment.get_template("default.conf.j2").render(**defaults)
+
+    for port in defaults["blitzecdn_nginx_http_ports"]:
+        assert f"listen {port} default_server;" in rendered
+        assert f"listen [::]:{port} default_server;" in rendered
+    for port in defaults["blitzecdn_nginx_https_ports"]:
+        assert f"listen {port} ssl default_server;" in rendered
+        assert f"listen [::]:{port} ssl default_server;" in rendered
+
+
 def _render(site: dict[str, Any], **overrides: Any) -> str:
     environment = jinja2.Environment(
         loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
@@ -468,7 +501,12 @@ def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls
         }
     rendered = _render(CdnSite.model_validate(payload).to_ansible())
     assert upstream in rendered
-    assert ("listen 443 ssl;" in rendered) is serves_tls
+    for port in _role_defaults()["blitzecdn_nginx_http_ports"]:
+        assert f"listen {port};" in rendered
+        assert f"listen [::]:{port};" in rendered
+    for port in _role_defaults()["blitzecdn_nginx_https_ports"]:
+        assert (f"listen {port} ssl;" in rendered) is serves_tls
+        assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
     assert ("return 308 https://$host$request_uri;" in rendered) is serves_tls
     if verify is not None:
         assert f"proxy_ssl_verify {verify};" in rendered
