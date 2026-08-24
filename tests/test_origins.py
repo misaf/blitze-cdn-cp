@@ -14,20 +14,24 @@ from contextlib import contextmanager
 
 import pytest
 
-from blitzecdn.domain.sites import CdnSite, HttpScheme
+from blitzecdn.domain.sites import CdnSite, SslMode
 from blitzecdn.infrastructure.origins import OriginProbe
 
 
 def _site(**overrides) -> CdnSite:
-    return CdnSite.model_validate(
-        {
-            "name": "cdn-example-com",
-            "server_names": ["cdn.example.com"],
-            "origin_host": "127.0.0.1",
-            "origin_scheme": HttpScheme.HTTP,
-            **overrides,
+    payload = {
+        "name": "cdn-example-com",
+        "server_names": ["cdn.example.com"],
+        "origin_host": "127.0.0.1",
+        **overrides,
+    }
+    if payload.get("ssl_mode", SslMode.OFF) != SslMode.OFF:
+        payload |= {
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
         }
-    )
+    return CdnSite.model_validate(payload)
 
 
 @contextmanager
@@ -106,7 +110,7 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
     with _listener(tls_context=context) as port:
         result = OriginProbe(settings).check(
             _site(
-                origin_scheme=HttpScheme.HTTPS,
+                ssl_mode=SslMode.FULL_STRICT,
                 origin_port=port,
                 origin_sni="origin.example.com",
             )
@@ -118,11 +122,34 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
     assert result.sni == "origin.example.com"
 
 
+def test_full_accepts_an_unverifiable_origin_certificate(
+    settings, tmp_path, certificate_pair
+):
+    certificate, key = certificate_pair(("origin.example.com",))
+    certificate_file = tmp_path / "origin-full.pem"
+    certificate_file.write_bytes(certificate + key)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(certificate_file)
+
+    with _listener(tls_context=context) as port:
+        result = OriginProbe(settings).check(
+            _site(
+                ssl_mode=SslMode.FULL,
+                origin_port=port,
+                origin_sni="origin.example.com",
+            )
+        )
+
+    assert result.reachable is True
+    assert result.tls_verified is None
+    assert result.ok is True
+
+
 def test_the_probe_uses_the_same_sni_the_edge_template_would(settings):
     """site.conf.j2 falls back origin_sni -> origin_request_host -> origin_host."""
     probe = OriginProbe(settings)
     with _listener() as port:
-        base = {"origin_scheme": HttpScheme.HTTPS, "origin_port": port}
+        base = {"ssl_mode": SslMode.FULL, "origin_port": port}
         assert probe.check(_site(**base, origin_sni="a.example.com")).sni == (
             "a.example.com"
         )
@@ -143,7 +170,7 @@ def test_a_wildcard_server_name_is_never_sent_as_sni(settings):
     site = _site(
         server_names=["*.example.com", "example.com"],
         origin_host="origin.example.com",
-        origin_scheme=HttpScheme.HTTPS,
+        ssl_mode=SslMode.FULL_STRICT,
     )
     assert site.effective_origin_sni == "origin.example.com"
     assert OriginProbe(settings).check(site).sni == "origin.example.com"
@@ -155,26 +182,28 @@ def test_an_origin_is_rendered_once_for_whoever_connects_to_it(settings):
     The port and the SNI are decided in one place so the fleet's probe and the
     controller's advisory one cannot disagree about what a site's origin is.
     """
-    site = _site(origin_host="origin.example.com", origin_scheme=HttpScheme.HTTPS)
+    site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FULL_STRICT)
     rendered = OriginProbe(settings).to_probe(site)
 
     assert rendered == {
         "name": site.name,
         "origin_host": "origin.example.com",
         "origin_port": 443,
+        "ssl_mode": "full_strict",
         "origin_scheme": "https",
+        "origin_tls_verify": True,
         "origin_sni": site.effective_origin_sni,
     }
 
 
 @pytest.mark.parametrize(
-    ("scheme", "expected_port"),
-    [(HttpScheme.HTTP, "80"), (HttpScheme.HTTPS, "443")],
+    ("mode", "expected_port"),
+    [(SslMode.OFF, "80"), (SslMode.FULL_STRICT, "443")],
 )
 def test_an_origin_without_a_port_uses_the_scheme_default(
-    settings, scheme, expected_port
+    settings, mode, expected_port
 ):
     result = OriginProbe(settings).check(
-        _site(origin_host="origin.invalid", origin_scheme=scheme)
+        _site(origin_host="origin.invalid", ssl_mode=mode)
     )
     assert result.origin.endswith(f":{expected_port}")

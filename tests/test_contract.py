@@ -31,8 +31,8 @@ from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
-    HttpScheme,
     SiteFirewall,
+    SslMode,
 )
 from blitzecdn.infrastructure.database import Repository
 
@@ -109,7 +109,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
                 "value": "198.51.100.20",
                 "proxied": True,
                 "origin_port": 8443,
-                "origin_scheme": HttpScheme.HTTPS,
+                "ssl_mode": SslMode.OFF,
                 "origin_request_host": "origin.example.com",
                 "origin_sni": "origin.example.com",
                 "cache_enabled": True,
@@ -125,7 +125,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
                 "name": "static",
                 "value": "192.0.2.10",
                 "proxied": True,
-                "origin_scheme": HttpScheme.HTTP,
+                "ssl_mode": SslMode.FLEXIBLE,
                 "enabled": False,
                 "cache_enabled": False,
                 "certificate_mode": CertificateMode.EXISTING,
@@ -268,7 +268,7 @@ def test_required_keys_are_always_emitted(desired_state):
 
 @pytest.mark.parametrize(
     ("field", "enum"),
-    [("origin_scheme", HttpScheme), ("certificate_mode", CertificateMode)],
+    [("ssl_mode", SslMode), ("certificate_mode", CertificateMode)],
 )
 def test_role_choices_cover_every_domain_value(field, enum):
     """A new enum member must not reach a role that rejects it."""
@@ -428,7 +428,10 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
             "name": "wildcard",
             "server_names": ["*.example.com", "example.com"],
             "origin_host": "origin.example.com",
-            "origin_scheme": HttpScheme.HTTPS,
+            "ssl_mode": SslMode.FULL_STRICT,
+            "certificate_mode": CertificateMode.EXISTING,
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
         }
     )
     assert site.effective_origin_sni == "origin.example.com"
@@ -439,6 +442,36 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
         "proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;" in rendered
     )
     assert "proxy_ssl_verify_depth 5;" in rendered
+
+
+@pytest.mark.parametrize(
+    ("mode", "upstream", "verify", "serves_tls"),
+    [
+        (SslMode.OFF, "http://", None, False),
+        (SslMode.FLEXIBLE, "http://", None, True),
+        (SslMode.FULL, "https://", "off", True),
+        (SslMode.FULL_STRICT, "https://", "on", True),
+    ],
+)
+def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls):
+    payload = {
+        "name": "mode",
+        "server_names": ["mode.example.com"],
+        "origin_host": "origin.example.com",
+        "ssl_mode": mode,
+    }
+    if serves_tls:
+        payload |= {
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    rendered = _render(CdnSite.model_validate(payload).to_ansible())
+    assert upstream in rendered
+    assert ("listen 443 ssl;" in rendered) is serves_tls
+    assert ("return 308 https://$host$request_uri;" in rendered) is serves_tls
+    if verify is not None:
+        assert f"proxy_ssl_verify {verify};" in rendered
 
 
 def test_committed_fixture_matches_generated_desired_state(desired_state):

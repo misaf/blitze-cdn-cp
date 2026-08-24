@@ -51,13 +51,17 @@ class OriginProbe:
         return {
             "name": site.name,
             "origin_host": site.origin_host,
-            "origin_port": site.origin_port or _DEFAULT_PORTS[site.origin_scheme],
-            "origin_scheme": site.origin_scheme.value,
+            "origin_port": site.origin_port
+            or _DEFAULT_PORTS[site.ssl_mode.origin_scheme],
+            "ssl_mode": site.ssl_mode.value,
+            "origin_scheme": site.ssl_mode.origin_scheme.value,
+            "origin_tls_verify": site.ssl_mode.verifies_origin,
             "origin_sni": site.effective_origin_sni,
         }
 
     def check(self, site: CdnSite) -> OriginCheck:
-        port = site.origin_port or _DEFAULT_PORTS[site.origin_scheme]
+        scheme = site.ssl_mode.origin_scheme
+        port = site.origin_port or _DEFAULT_PORTS[scheme]
         # The name the edge will put in the TLS handshake; probing with a
         # different one would verify a certificate the edge never asks for.
         sni = site.effective_origin_sni
@@ -65,8 +69,9 @@ class OriginProbe:
         result = OriginCheck(
             site=site.name,
             origin=f"{site.origin_host}:{port}",
-            scheme=site.origin_scheme,
-            sni=sni if site.origin_scheme is HttpScheme.HTTPS else None,
+            scheme=scheme,
+            ssl_mode=site.ssl_mode,
+            sni=sni if scheme is HttpScheme.HTTPS else None,
         )
 
         try:
@@ -106,24 +111,33 @@ class OriginProbe:
             )
 
         try:
-            if site.origin_scheme is HttpScheme.HTTP:
+            if scheme is HttpScheme.HTTP:
                 return result.model_copy(update={"reachable": True})
-            return self._handshake(result, connection, sni, timeout)
+            return self._handshake(
+                result,
+                connection,
+                sni,
+                timeout,
+                verify=site.ssl_mode.verifies_origin,
+            )
         finally:
             with suppress(OSError):
                 connection.close()
 
     @staticmethod
     def _handshake(
-        result: OriginCheck, connection: socket.socket, sni: str, timeout: float
+        result: OriginCheck,
+        connection: socket.socket,
+        sni: str,
+        timeout: float,
+        *,
+        verify: bool,
     ) -> OriginCheck:
-        """Complete the TLS handshake the edge would, verifying as it does.
-
-        Verification is not optional here. The generated Nginx configuration
-        enables it explicitly; keeping this probe on the same policy makes a
-        successful preflight meaningful for the traffic the edge will carry.
-        """
+        """Complete the same verified or unverified handshake as the edge."""
         context = ssl.create_default_context()
+        if not verify:
+            context.check_hostname = False
+            context.verify_mode = ssl.CERT_NONE
         connection.settimeout(timeout)
         try:
             with context.wrap_socket(connection, server_hostname=sni) as tls:
@@ -151,8 +165,8 @@ class OriginProbe:
         return result.model_copy(
             update={
                 "reachable": True,
-                "tls_verified": True,
-                "detail": _expiry_note(peer),
+                "tls_verified": True if verify else None,
+                "detail": _expiry_note(peer) if verify else "TLS verification disabled",
             }
         )
 

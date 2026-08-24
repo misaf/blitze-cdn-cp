@@ -21,7 +21,7 @@
     # asks for.
     headers:
       Host: "{{ item.origin_sni }}"
-    validate_certs: "{{ item.origin_scheme == 'https' }}"
+    validate_certs: "{{ item.origin_tls_verify | bool }}"
     follow_redirects: none
     # Any answer at all proves the origin is reachable. Which status it chose
     # for a HEAD at / is the origin's business, not this check's.
@@ -58,7 +58,7 @@
   loop_control:
     label: "{{ item.item.name }}"
   when:
-    - item.item.origin_scheme == 'https'
+    - item.item.origin_tls_verify | bool
     - (item.status | default(-1) | int) <= 0
   register: blitzecdn_origins_unverified
   failed_when: false
@@ -84,15 +84,17 @@
     _verified: "{{ (item.status | default(-1) | int) > 0 }}"
     _unverified: "{{ (_retry.status | default(-1) | int) > 0 }}"
     _https: "{{ item.item.origin_scheme == 'https' }}"
+    _verify: "{{ item.item.origin_tls_verify | bool }}"
     row:
       site: "{{ item.item.name }}"
       origin: "{{ item.item.origin_host }}:{{ item.item.origin_port }}"
       scheme: "{{ item.item.origin_scheme }}"
+      ssl_mode: "{{ item.item.ssl_mode }}"
       sni: "{{ item.item.origin_sni if _https else None }}"
       # Reachable covers both passes: an origin that answered only without
       # verification is reachable, and its certificate is the problem.
       reachable: "{{ _verified or _unverified }}"
-      tls_verified: "{{ _verified if _https else None }}"
+      tls_verified: "{{ _verified if (_https and _verify) else None }}"
       status: "{{ item.status | default(-1) | int }}"
       detail: "{{ item.msg | default('') | string }}"
 
