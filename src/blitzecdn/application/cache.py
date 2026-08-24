@@ -27,7 +27,7 @@ from blitzecdn.domain.cache import (
 )
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.runs import HostRun
-from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
+from blitzecdn.domain.sites import CdnSite, HttpScheme
 from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.ports import DeploymentRunner, EventRecorder, SiteStore
 
@@ -152,11 +152,7 @@ class CacheService:
             if owner is None:
                 unknown.add(entry.host)
                 continue
-            served = (
-                HttpScheme.HTTP
-                if owner.certificate_mode is CertificateMode.DISABLED
-                else HttpScheme.HTTPS
-            )
+            served = HttpScheme.HTTPS if owner.serves_tls else HttpScheme.HTTP
             if entry.scheme is not served:
                 mismatched.add(
                     f"{entry.scheme.value}://{entry.host}{entry.uri} "

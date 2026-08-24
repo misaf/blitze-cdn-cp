@@ -19,7 +19,7 @@ from blitzecdn.domain.certificates import (
     PreflightSeverity,
     RenewalResult,
 )
-from blitzecdn.domain.dns import DnsRecord, Domain
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.runs import RunStatus
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.infrastructure.database import Repository
@@ -1112,7 +1112,8 @@ def test_site_show_reveals_defaults_a_record_never_mentioned(settings, monkeypat
     assert site["server_names"] == ["cdn.example.com"]
     assert site["origin_host"] == "198.51.100.10"
     # Never set on the record; only the derived site shows them.
-    assert site["origin_scheme"] == "https"
+    assert site["ssl_mode"] == "off"
+    assert "origin_scheme" not in site
     assert site["cache_valid_success"] == "10m"
 
 
@@ -1124,6 +1125,38 @@ def test_site_show_reports_an_unknown_site_without_a_traceback(settings, monkeyp
         cli.run()
 
     assert exit_info.value.code == cli.ExitCode.NOT_FOUND
+
+
+def test_record_ssl_changes_the_combined_mode(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord.model_validate(
+            {
+                "domain": "example.com",
+                "name": "cdn",
+                "value": "198.51.100.10",
+                "proxied": True,
+                "ssl_mode": "flexible",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+            }
+        ),
+        "cli",
+    )
+
+    result = runner.invoke(
+        cli.app,
+        ["record", "ssl", "example.com", "cdn", "--mode", "full_strict"],
+    )
+
+    assert result.exit_code == 0
+    assert (
+        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
+        == "full_strict"
+    )
+    assert "Run 'blitzecdn deploy'" in result.stdout
 
 
 def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
@@ -1181,6 +1214,7 @@ def _purgeable_site(settings):
                 "name": "cdn-example-com",
                 "server_names": ["cdn.example.com"],
                 "origin_host": "o.example.com",
+                "ssl_mode": "flexible",
                 "certificate_mode": "existing",
                 "certificate_path": "/etc/ssl/certs/cdn.pem",
                 "certificate_key_path": "/etc/ssl/private/cdn.key",

@@ -12,7 +12,7 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.domain.sites import SiteFirewall
+from blitzecdn.domain.sites import SiteFirewall, SslMode
 
 site_app = typer.Typer(
     no_args_is_help=True,
@@ -158,6 +158,38 @@ def record_proxy(
             f"{'proxied through the CDN' if on else 'bypassing the CDN'}. "
             "Run 'blitzecdn deploy' to apply, and make sure DNS points at "
             f"{'an edge' if on else record.value}."
+        )
+
+
+@record_app.command("ssl")
+def record_ssl(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    mode: Annotated[
+        SslMode,
+        typer.Option(
+            "--mode",
+            help="Off, Flexible, Full, or Full (strict) edge/origin TLS policy.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Set visitor and origin encryption for one hostname.
+
+    Flexible encrypts visitors but uses HTTP to the origin. Full uses HTTPS to
+    the origin without verifying its certificate. Full (strict) verifies the
+    origin certificate and hostname. Every mode except Off requires an active
+    edge certificate.
+    """
+    record = common.control_plane().dns.update_record(
+        domain, name, type_, RecordPatch(ssl_mode=mode), "cli"
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"{record.fqdn} now uses SSL mode {record.ssl_mode.value!r}. "
+            "Run 'blitzecdn deploy' to apply."
         )
 
 
