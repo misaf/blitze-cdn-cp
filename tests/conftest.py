@@ -24,6 +24,7 @@ from blitzecdn.domain.runs import (
 from blitzecdn.exceptions import ConflictError, NotFoundError
 from blitzecdn.infrastructure.queue import (
     check_drift,
+    reconcile_automatic_ssl,
     reconcile_certificates,
     renew_certificates,
     run_deployment,
@@ -36,7 +37,13 @@ def dramatiq_stub_broker(monkeypatch):
     broker = StubBroker()
     monkeypatch.setattr("blitzecdn.control_plane.redis_ready", lambda _url: True)
     previous_broker = dramatiq.get_broker()
-    actors = (run_deployment, reconcile_certificates, renew_certificates, check_drift)
+    actors = (
+        run_deployment,
+        reconcile_certificates,
+        reconcile_automatic_ssl,
+        renew_certificates,
+        check_drift,
+    )
     previous_actor_brokers = [actor.broker for actor in actors]
     dramatiq.set_broker(broker)
     for actor in actors:

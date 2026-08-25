@@ -35,7 +35,7 @@ from blitzecdn.domain.operations import (
 )
 from blitzecdn.domain.origins import OriginCheck
 from blitzecdn.domain.runs import AnsibleRun
-from blitzecdn.domain.sites import CdnSite, CertificateMode
+from blitzecdn.domain.sites import CdnSite, CertificateMode, SslMode
 
 # ----------------------------------------------------------------------
 # Persistence
@@ -216,6 +216,10 @@ class ZoneEditor(Protocol):
     def activate_managed_certificate(
         self, site: CdnSite, mode: CertificateMode
     ) -> CdnSite: ...
+
+    def apply_automatic_ssl_upgrade(
+        self, site_name: str, target: SslMode, operator: str
+    ) -> CdnSite | None: ...
 
 
 class DeploymentGateway(Protocol):

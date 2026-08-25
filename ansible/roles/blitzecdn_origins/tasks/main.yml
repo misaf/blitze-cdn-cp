@@ -5,9 +5,9 @@
 # question that actually breaks sites: whether the origin's certificate is
 # valid for the SNI this edge will send.
 #
-# HEAD rather than GET: the point is to complete the exchange, not to transfer
-# a body, and an origin that refuses HEAD still answers with a status — which
-# is proof of reachability either way.
+# Ordinary operator checks use HEAD: the point is to complete the exchange,
+# not transfer a body. Automatic SSL/TLS scans request content so the HTTP and
+# HTTPS representations can be compared before changing the origin scheme.
 #
 # `failed_when: false` throughout. A failing origin is the finding, not an
 # error: a fleet-wide check that aborted on the first unreachable origin would
@@ -15,7 +15,8 @@
 - name: Probe each origin as this edge would reach it
   ansible.builtin.uri:
     url: "{{ blitzecdn_origins_scheme }}://{{ item.origin_host }}:{{ item.origin_port }}/"
-    method: HEAD
+    method: "{{ 'GET' if item.compare_content | default(false) | bool else 'HEAD' }}"
+    return_content: "{{ item.compare_content | default(false) | bool }}"
     # The name this edge puts in the TLS handshake and the Host header.
     # Probing with a different one would verify a certificate the edge never
     # asks for.
@@ -50,7 +51,8 @@
 - name: Re-probe unreachable HTTPS origins without verification
   ansible.builtin.uri:
     url: "https://{{ item.item.origin_host }}:{{ item.item.origin_port }}/"
-    method: HEAD
+    method: "{{ 'GET' if item.item.compare_content | default(false) | bool else 'HEAD' }}"
+    return_content: "{{ item.item.compare_content | default(false) | bool }}"
     headers:
       Host: "{{ item.item.origin_sni }}"
     validate_certs: false
@@ -88,6 +90,12 @@
     _unverified: "{{ (_retry.status | default(-1) | int) > 0 }}"
     _https: "{{ item.item.ssl_mode in ['full', 'full_strict'] }}"
     _verify: "{{ item.item.origin_tls_verify | bool }}"
+    _content: >-
+      {{
+        (item.content | default(''))
+        if _verified
+        else (_retry.content | default(''))
+      }}
     row:
       site: "{{ item.item.name }}"
       origin: "{{ item.item.origin_host }}:{{ item.item.origin_port }}"
@@ -98,7 +106,19 @@
       # verification is reachable, and its certificate is the problem.
       reachable: "{{ _verified or _unverified }}"
       tls_verified: "{{ _verified if (_https and _verify) else None }}"
-      status: "{{ item.status | default(-1) | int }}"
+      status: >-
+        {{
+          (item.status | default(-1) | int)
+          if _verified
+          else (_retry.status | default(-1) | int)
+        }}
+      content_sha256: >-
+        {{
+          (_content | hash('sha256'))
+          if (item.item.compare_content | default(false) | bool)
+          and (_verified or _unverified)
+          else None
+        }}
       detail: "{{ item.msg | default('') | string }}"
 
 # `blitzecdn_report` is the channel a role returns a payload on: the runner

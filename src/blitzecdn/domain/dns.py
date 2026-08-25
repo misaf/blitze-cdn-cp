@@ -16,10 +16,13 @@ from typing import Self, Union, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.domain.sites import (
+    CacheQueryStringMode,
     CdnSite,
     CertificateMode,
+    MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
+    SslAutomaticMode,
     SslMode,
 )
 from blitzecdn.domain.validation import DNS_LABEL, hostname
@@ -198,6 +201,8 @@ class RecordPatch(BaseModel):
     ttl: int | None = Field(default=None, ge=1, le=604800)
     proxied: bool | None = None
     ssl_mode: SslMode | None = None
+    ssl_automatic_mode: SslAutomaticMode | None = None
+    minimum_tls_version: MinimumTlsVersion | None = None
     always_use_https: bool | None = None
     origin_request_host: str | None = None
     origin_sni: str | None = None
@@ -206,6 +211,7 @@ class RecordPatch(BaseModel):
     certificate_path: str | None = None
     certificate_key_path: str | None = None
     cache_enabled: bool | None = None
+    cache_query_string_mode: CacheQueryStringMode | None = None
     cache_valid_success: str | None = None
     cache_valid_not_found: str | None = None
     # Replaces the block wholesale; see the note on SitePolicy.firewall. Send

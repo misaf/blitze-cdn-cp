@@ -259,7 +259,7 @@ The full command surface:
 | Diagnostics | `doctor`, `audit`, `stats` |
 | Setup | `init`, `setup`, `serve` |
 | Edges | `edge list/add/update/remove`, `origin check` |
-| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/always-use-https/firewall/remove`, `dns export`, `site list/show` |
+| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/ssl-automatic/minimum-tls/always-use-https/cache-query-string/firewall/remove`, `dns export`, `site list/show` |
 | Certificates | `cert list`, `cert preflight`, `cert renew`, `cert reconcile` |
 | Cache | `cache purge` |
 
@@ -423,12 +423,40 @@ of the edge connection:
 | `full` | HTTPS | HTTPS | Not verified |
 | `full_strict` | HTTPS | HTTPS | Verified against the system trust store and origin SNI |
 
-New records start Off. Uploading or issuing their first certificate changes
-them to Flexible; select Full or Full (strict) after the origin is ready:
+New records start Off and are enrolled in Cloudflare-compatible Automatic
+SSL/TLS (`ssl_automatic_mode: auto`). Uploading or issuing a certificate does
+not itself change their SSL mode. The automatic scanner runs approximately
+monthly, probes both the current transport and HTTPS from every edge, compares
+their responses, and may upgrade the record to the strongest compatible mode.
+It never downgrades a record. Missing edges, 5xx responses, failed TLS, or
+different HTTP/HTTPS content abort the upgrade.
+
+Select a mode directly when needed:
 
 ```bash
 blitzecdn record ssl example.com cdn --mode full_strict
 blitzecdn deploy
+```
+
+As with Cloudflare, switch Automatic SSL/TLS to Custom when the mode must stay
+entirely under operator control:
+
+```bash
+blitzecdn record ssl-automatic example.com cdn --mode custom
+blitzecdn record ssl example.com cdn --mode off
+blitzecdn deploy
+```
+
+The equivalent record API field accepts only `auto` or `custom`. A manual scan
+uses the same workflow as the scheduler and deploys once if it upgrades any
+records:
+
+```bash
+blitzecdn ssl reconcile
+
+curl --fail-with-body -X POST \
+  -H "X-API-Key: $API_KEY" \
+  http://127.0.0.1:8000/v1/ssl/automatic/reconcile
 ```
 
 Flexible, Full and Full (strict) require an active edge certificate. Changing a
@@ -457,6 +485,40 @@ Use `--off` to serve both schemes again. The equivalent API update is `PATCH
 /v1/domains/{domain}/records/{name}?type=A` with
 `{"always_use_https": true}` or `false`. The ACME challenge path remains
 available over HTTP in either mode.
+
+The minimum visitor protocol defaults to TLS 1.2. A hostname that only serves
+modern clients can require TLS 1.3 independently of its origin SSL mode:
+
+```bash
+blitzecdn record minimum-tls example.com cdn --version 1.3
+blitzecdn deploy
+```
+
+Use `--version 1.2` to restore TLS 1.2 and 1.3 compatibility. The equivalent
+record API field is `minimum_tls_version`, accepting `"1.2"` or `"1.3"`.
+
+## WebSockets and cache query strings
+
+WebSocket proxying is automatic for every proxied hostname. The edge forwards
+the HTTP Upgrade handshake and bypasses the response cache for upgraded
+connections; no per-record switch is needed. Long-lived applications should
+send heartbeat traffic within the configured Nginx proxy read timeout.
+
+Cache keys include the full query string by default, so `/asset?v=1` and
+`/asset?v=2` are different objects. For content whose query parameters never
+change the response, collapse every query variant onto the same raw path:
+
+```bash
+blitzecdn record cache-query-string example.com cdn --mode ignore
+blitzecdn deploy
+```
+
+Use `--mode include` to restore the safe default. Ignore mode changes only the
+cache key: the full original query still reaches the origin on a MISS, and a
+named purge automatically removes the path-only cache entry. Do not use ignore
+mode when query parameters select content, authentication, language, or user
+state. The equivalent API field is `cache_query_string_mode`, accepting
+`"include"` or `"ignore"`.
 
 ## Origin DNS
 

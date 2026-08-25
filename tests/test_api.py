@@ -122,6 +122,29 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
         assert called.wait(2)
 
 
+def test_api_service_runs_automatic_ssl_scans_on_their_interval(settings, monkeypatch):
+    called = threading.Event()
+    configured = settings.model_copy(
+        update={
+            "certificate_reconcile_interval_seconds": 0,
+            "certificate_renewal_interval_seconds": 0,
+            "drift_check_interval_seconds": 0,
+            "ssl_automatic_scan_interval_seconds": 1,
+        }
+    )
+
+    def enqueue(_url, operation, *, ttl_seconds):
+        assert operation == "reconcile-automatic-ssl"
+        assert ttl_seconds >= 2
+        called.set()
+        return True
+
+    monkeypatch.setattr("blitzecdn.scheduler.enqueue_scheduled_once", enqueue)
+
+    with TestClient(create_app(configured)):
+        assert called.wait(2)
+
+
 def test_openapi_documents_control_and_certificate_workflows(settings):
     with TestClient(create_app(settings)) as client:
         assert client.get("/docs").status_code == 200
@@ -224,6 +247,8 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         sites = client.get("/v1/sites", headers=headers).json()
         assert len(sites) == 1
         assert sites[0]["always_use_https"] is False
+        assert sites[0]["minimum_tls_version"] == "1.2"
+        assert sites[0]["cache_query_string_mode"] == "include"
 
         redirect = client.patch(
             "/v1/domains/example.com/records/cdn",
@@ -236,6 +261,18 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
             client.get("/v1/sites", headers=headers).json()[0]["always_use_https"]
             is True
         )
+
+        policy = client.patch(
+            "/v1/domains/example.com/records/cdn",
+            json={
+                "minimum_tls_version": "1.3",
+                "cache_query_string_mode": "ignore",
+            },
+            headers=headers,
+        )
+        assert policy.status_code == 200
+        assert policy.json()["minimum_tls_version"] == "1.3"
+        assert policy.json()["cache_query_string_mode"] == "ignore"
 
         toggled = client.patch(
             "/v1/domains/example.com/records/cdn",
@@ -450,7 +487,24 @@ def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payl
         assert response.json()["name"] == name
         # The derived defaults, which the record never carried.
         assert response.json()["ssl_mode"] == "off"
+        assert response.json()["ssl_automatic_mode"] == "auto"
         assert "origin_scheme" not in response.json()
+
+
+def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
+    with TestClient(create_app(settings)) as client:
+        response = client.post(
+            "/v1/ssl/automatic/reconcile",
+            headers=_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "scanned": [],
+        "upgraded": {},
+        "skipped": {},
+        "deployment": None,
+    }
 
 
 def test_removed_origin_scheme_is_rejected_on_create(

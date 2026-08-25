@@ -119,6 +119,12 @@ _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
         43_200,
     ),
     (
+        "ssl_automatic_scan_interval_seconds",
+        "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS",
+        "ssl_automatic_scan_interval_seconds",
+        2_592_000,
+    ),
+    (
         "drift_check_interval_seconds",
         "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
         "drift_check_interval_seconds",
@@ -244,6 +250,9 @@ class Settings(BaseSettings):
     history_retention: int = Field(default=1000, ge=50, le=100_000)
     certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
     certificate_renewal_interval_seconds: int = Field(default=43_200, ge=0, le=604_800)
+    ssl_automatic_scan_interval_seconds: int = Field(
+        default=2_592_000, ge=0, le=31_536_000
+    )
     drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
     redis_url: RedisDsn = RedisDsn("redis://127.0.0.1:6379/0")
     #: Wall-clock budget for one renewal sweep served over HTTP.

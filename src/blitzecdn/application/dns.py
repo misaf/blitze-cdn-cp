@@ -15,6 +15,7 @@ from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import (
     CdnSite,
     CertificateMode,
+    SslAutomaticMode,
     SslMode,
     managed_certificate_paths,
 )
@@ -247,17 +248,45 @@ class DnsService:
                         "certificate_mode": mode,
                         "certificate_path": certificate_path,
                         "certificate_key_path": certificate_key_path,
-                        "ssl_mode": (
-                            SslMode.FLEXIBLE
-                            if record.ssl_mode is SslMode.OFF
-                            else record.ssl_mode
-                        ),
                     }
                 ),
                 expected=record,
             )
             self.sync_sites()
             return self.sites.get_site(site.name)
+
+    def apply_automatic_ssl_upgrade(
+        self, site_name: str, target: SslMode, operator: str
+    ) -> CdnSite | None:
+        """Persist an upgrade only while the record remains enrolled in Auto.
+
+        The checks happen outside this service, but the decision is re-checked
+        against canonical record state at write time. An operator opting out or
+        choosing an equal/stronger mode while a scan is running therefore wins.
+        """
+        record = self.record_for_site(site_name)
+        if record.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
+            return None
+        if target.security_rank <= record.ssl_mode.security_rank:
+            return None
+        updated = DnsRecord.model_validate({**record.model_dump(), "ssl_mode": target})
+        with self.uow.transaction():
+            self.zones.replace_record(updated, expected=record)
+            self.sync_sites()
+            self.events.record(
+                domain_event(
+                    operator,
+                    "ssl.automatic.upgraded",
+                    "record",
+                    updated.fqdn,
+                    {
+                        "from": record.ssl_mode.value,
+                        "to": target.value,
+                        "site": site_name,
+                    },
+                )
+            )
+        return self.sites.get_site(site_name)
 
     # -- Reporting -----------------------------------------------------
 

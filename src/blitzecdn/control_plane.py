@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from blitzecdn.application import (
+    AutomaticSslService,
     CacheService,
     CertificateExecution,
     CertificatePersistence,
@@ -213,6 +214,13 @@ class ControlPlane:
             origin_probe=self.origin_probe,
             edges=self.edges_store,
             uow=store,
+        )
+        self.automatic_ssl = AutomaticSslService(
+            sites=store.sites,
+            runner=self.runner,
+            origin_probe=self.origin_probe,
+            dns=self.dns,
+            deployments=self.deployments,
         )
         # Reads sites to decide what may be purged and never writes one, so it
         # is handed the store rather than the zone editor: purging is not a

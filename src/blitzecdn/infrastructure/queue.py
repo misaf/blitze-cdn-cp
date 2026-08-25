@@ -88,6 +88,7 @@ def configure_broker(redis_url: str) -> None:
     for name in (
         "run_deployment",
         "reconcile_certificates",
+        "reconcile_automatic_ssl",
         "renew_certificates",
         "check_drift",
     ):
@@ -138,6 +139,8 @@ def _run_control_plane(operation: str, token: str) -> None:
     try:
         if operation == "reconcile-certificates":
             control.certificates.reconcile_certificates("scheduler")
+        elif operation == "reconcile-automatic-ssl":
+            control.automatic_ssl.reconcile("scheduler")
         elif operation == "renew-certificates":
             control.certificates.renew_certificates(
                 "scheduler",
@@ -159,6 +162,11 @@ def _run_control_plane(operation: str, token: str) -> None:
 @dramatiq.actor(max_retries=0, queue_name="scheduled")
 def reconcile_certificates(token: str) -> None:
     _run_control_plane("reconcile-certificates", token)
+
+
+@dramatiq.actor(max_retries=0, queue_name="scheduled")
+def reconcile_automatic_ssl(token: str) -> None:
+    _run_control_plane("reconcile-automatic-ssl", token)
 
 
 @dramatiq.actor(max_retries=0, queue_name="scheduled")

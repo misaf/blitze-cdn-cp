@@ -27,7 +27,7 @@ from blitzecdn.domain.cache import (
 )
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.runs import HostRun
-from blitzecdn.domain.sites import CdnSite, HttpScheme
+from blitzecdn.domain.sites import CacheQueryStringMode, CdnSite, HttpScheme
 from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.ports import DeploymentRunner, EventRecorder, SiteStore
 
@@ -77,16 +77,15 @@ class CacheService:
             raise ConflictError(
                 "nothing to purge: give at least one entry or purge all"
             )
-        if entries:
-            self._reject_unpurgeable(entries)
+        resolved_entries = self._resolve_purge_entries(entries) if entries else ()
         run = self.runner.run_cache_purge(
-            entries=[entry.to_ansible() for entry in entries],
+            entries=[entry.to_ansible() for entry in resolved_entries],
             purge_all=purge_all,
             host_limit=host_limit,
         )
         report = PurgeResult(
             purged_at=datetime.now(UTC),
-            entries=tuple(entries),
+            entries=resolved_entries,
             purge_all=purge_all,
             host_limit=host_limit,
             hosts=run.hosts,
@@ -99,7 +98,7 @@ class CacheService:
                 None,
                 {
                     "purge_all": purge_all,
-                    "entries": [entry.to_ansible() for entry in entries],
+                    "entries": [entry.to_ansible() for entry in resolved_entries],
                     "host_limit": host_limit,
                     "complete": report.complete,
                     "failed": [host.host for host in report.failed],
@@ -110,8 +109,10 @@ class CacheService:
             raise ExecutionError(run.unreported("purge"))
         return report
 
-    def _reject_unpurgeable(self, entries: Sequence[PurgeEntry]) -> None:
-        """Refuse an entry no enabled site could have cached.
+    def _resolve_purge_entries(
+        self, entries: Sequence[PurgeEntry]
+    ) -> tuple[PurgeEntry, ...]:
+        """Refuse impossible entries and reproduce each owning site's cache URI.
 
         Two ways that happens, and either would otherwise report a successful
         purge of nothing.
@@ -126,6 +127,9 @@ class CacheService:
         without TLS never sees an ``https`` request at all. Purging the wrong one
         computes a different MD5, deletes a file that was never written, and
         reports every edge as purged.
+        A site whose query-string mode is ``ignore`` caches the raw path without
+        its query. Strip it here too; otherwise the purge role hashes a key
+        nginx never wrote and reports success while leaving the object live.
         """
         exact: dict[str, CdnSite] = {}
         wildcards: list[tuple[str, CdnSite]] = []
@@ -140,6 +144,7 @@ class CacheService:
 
         unknown: set[str] = set()
         mismatched: set[str] = set()
+        resolved: list[PurgeEntry] = []
         for entry in entries:
             owner = exact.get(entry.host) or next(
                 (
@@ -158,6 +163,11 @@ class CacheService:
                     f"{entry.scheme.value}://{entry.host}{entry.uri} "
                     f"({owner.name} serves {served.value})"
                 )
+                continue
+            uri = entry.uri
+            if owner.cache_query_string_mode is CacheQueryStringMode.IGNORE:
+                uri = uri.partition("?")[0]
+            resolved.append(PurgeEntry(host=entry.host, uri=uri, scheme=entry.scheme))
         if unknown:
             raise NotFoundError(
                 "no enabled site serves: "
@@ -172,6 +182,7 @@ class CacheService:
                 + ". The cache key starts with the scheme, so purging the other "
                 "one would report success having removed nothing."
             )
+        return tuple(resolved)
 
     def cache_stats(
         self, operator: str, *, host_limit: str | None = None

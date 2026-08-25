@@ -164,7 +164,7 @@ class EdgeOperationsService:
         report = OriginReport(
             checked_at=datetime.now(UTC),
             host_limit=host_limit,
-            edges=tuple(_edge_origins(host) for host in run.hosts),
+            edges=tuple(edge_origins(host) for host in run.hosts),
         )
         self.events.record(
             domain_event(
@@ -270,7 +270,7 @@ class EdgeOperationsService:
         return hosts
 
 
-def _edge_origins(host: HostRun) -> EdgeOriginChecks:
+def edge_origins(host: HostRun) -> EdgeOriginChecks:
     """Read one edge's published origin report defensively.
 
     The shape is ours — `blitzecdn_origins` builds it — but it crossed a
@@ -327,6 +327,7 @@ def _origin_row(row: dict[str, object]) -> dict[str, object]:
         "reachable": _as_bool(row.get("reachable")),
         "tls_verified": None if tls in (None, "", "None") else _as_bool(tls),
         "status": status if status and status > 0 else None,
+        "content_sha256": row.get("content_sha256") or None,
         "detail": detail or None,
     }
 

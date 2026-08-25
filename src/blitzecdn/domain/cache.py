@@ -39,10 +39,10 @@ class PurgeEntry(BaseModel):
     def validate_uri(cls, value: str) -> str:
         """Accept the request target nginx would have logged, and nothing else.
 
-        No normalization beyond stripping: the cache key is the raw
-        ``$request_uri``, so ``/a/./b`` and ``/a/b`` are genuinely different
-        entries and "helpfully" collapsing them here would purge a key that was
-        never stored while leaving the real one in place.
+        No path normalization beyond stripping: cache keys preserve the raw
+        path, so ``/a/./b`` and ``/a/b`` are genuinely different entries.
+        ``CacheService`` removes only the query when the owning site explicitly
+        uses ignore-query mode.
         """
         candidate = value.strip()
         if not candidate.startswith("/"):

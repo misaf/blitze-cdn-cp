@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 
 from blitzecdn import __version__
 from blitzecdn.api.routes import (
+    automatic_ssl,
     cache,
     certificates,
     deployments,
@@ -75,6 +76,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         edges.router,
         cache.router,
         certificates.router,
+        automatic_ssl.router,
         deployments.router,
     ):
         application.include_router(router)

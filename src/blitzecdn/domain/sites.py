@@ -68,6 +68,37 @@ class SslMode(StrEnum):
     def verifies_origin(self) -> bool:
         return self is SslMode.FULL_STRICT
 
+    @property
+    def security_rank(self) -> int:
+        """Monotonic order used by Automatic SSL/TLS upgrades."""
+        return {
+            SslMode.OFF: 0,
+            SslMode.FLEXIBLE: 1,
+            SslMode.FULL: 2,
+            SslMode.FULL_STRICT: 3,
+        }[self]
+
+
+class SslAutomaticMode(StrEnum):
+    """Whether the control plane may upgrade the selected SSL mode."""
+
+    AUTO = "auto"
+    CUSTOM = "custom"
+
+
+class MinimumTlsVersion(StrEnum):
+    """Oldest TLS protocol a visitor may use at the edge."""
+
+    TLS_1_2 = "1.2"
+    TLS_1_3 = "1.3"
+
+
+class CacheQueryStringMode(StrEnum):
+    """Whether request query strings distinguish cached responses."""
+
+    INCLUDE = "include"
+    IGNORE = "ignore"
+
 
 class CertificateMode(StrEnum):
     DISABLED = "disabled"
@@ -249,6 +280,13 @@ class SitePolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     ssl_mode: SslMode = SslMode.OFF
+    #: Cloudflare-compatible enrollment in Automatic SSL/TLS. Automatic scans
+    #: may only move ``ssl_mode`` toward stronger encryption; Custom leaves the
+    #: value entirely under operator control.
+    ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
+    #: Cloudflare-compatible edge minimum. TLS 1.2 preserves the existing
+    #: browser compatibility; 1.3 can be selected per hostname.
+    minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
     #: Redirect visitor HTTP requests to the same URI over HTTPS when this site
     #: serves TLS. Kept independent from ``ssl_mode`` so a site can offer both
     #: schemes while retaining its edge and origin encryption policy.
@@ -260,6 +298,10 @@ class SitePolicy(BaseModel):
     certificate_path: str | None = None
     certificate_key_path: str | None = None
     cache_enabled: bool = True
+    #: Include is the safe default: query parameters often select genuinely
+    #: different content. Ignore deliberately collapses every query variant of
+    #: the same raw path onto one cached object.
+    cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
     cache_valid_success: str = "10m"
     cache_valid_not_found: str = "1m"
     #: Nested rather than flattened into six more fields, so a PATCH that

@@ -87,8 +87,8 @@ def _purge_entry(value: str) -> PurgeEntry:
         raise typer.BadParameter(f"{value!r} has no hostname")
     if parsed.scheme not in set(HttpScheme):
         raise typer.BadParameter(f"{value!r} must be http or https")
-    # The query string is part of $request_uri and therefore part of the cache
-    # key, so it is kept: purging '/a' must not silently purge '/a?v=2'.
+    # Keep the caller's full request target here. CacheService knows the owning
+    # site's policy and removes the query only when that site keys by path.
     uri = parsed.path or "/"
     if parsed.query:
         uri = f"{uri}?{parsed.query}"

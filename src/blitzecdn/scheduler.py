@@ -33,6 +33,12 @@ def build_scheduler(settings: Settings) -> BackgroundScheduler | None:
             min(3600, settings.certificate_renewal_interval_seconds // 10),
         ),
         (
+            "automatic-ssl-scan",
+            settings.ssl_automatic_scan_interval_seconds,
+            "reconcile-automatic-ssl",
+            min(86_400, settings.ssl_automatic_scan_interval_seconds // 30),
+        ),
+        (
             "drift-check",
             settings.drift_check_interval_seconds,
             "check-drift",
