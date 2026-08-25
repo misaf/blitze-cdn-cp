@@ -8,6 +8,7 @@ supplied by the composition root in :mod:`blitzecdn.control_plane`.
 The dependency order between them is a DAG rather than a web::
 
     DnsService  →  DeploymentService  →  CertificateService
+                              └───────→  AutomaticSslService
     EdgeOperationsService (independent)
     CacheService (independent)
 
@@ -27,6 +28,7 @@ far it reaches.
 
 from __future__ import annotations
 
+from blitzecdn.application.automatic_ssl import AutomaticSslService
 from blitzecdn.application.cache import CacheService
 from blitzecdn.application.certificates import (
     CertificateExecution,
@@ -42,6 +44,7 @@ from blitzecdn.application.dns import DnsService
 from blitzecdn.application.edges import EdgeOperationsService
 
 __all__ = [
+    "AutomaticSslService",
     "CacheService",
     "CertificateExecution",
     "CertificatePersistence",

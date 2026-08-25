@@ -22,8 +22,14 @@ from blitzecdn.domain.certificates import CertificateSource
 from blitzecdn.domain.deployments import DeploymentStatus
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus
-from blitzecdn.domain.runs import RunStatus
-from blitzecdn.domain.sites import CdnSite, CertificateMode, HttpScheme
+from blitzecdn.domain.runs import HostRun, RunStatus
+from blitzecdn.domain.sites import (
+    CdnSite,
+    CertificateMode,
+    HttpScheme,
+    SslAutomaticMode,
+    SslMode,
+)
 from blitzecdn.exceptions import (
     ConflictError,
     DeploymentBusyError,
@@ -44,6 +50,64 @@ def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
     return control.dns.create_record(
         DnsRecord(
             domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "alice",
+    )
+
+
+def _automatic_origin_report(
+    mode: SslMode,
+    *,
+    reachable: bool = True,
+    tls_verified: bool | None = None,
+    status: int = 200,
+) -> HostRun:
+    scheme = "https" if mode in {SslMode.FULL, SslMode.FULL_STRICT} else "http"
+    return host_run(
+        "edge-a",
+        report={
+            "host": "edge-a",
+            "collected_at": "2026-01-01T00:00:00Z",
+            "origins": [
+                {
+                    "site": "cdn-example-com",
+                    "origin": f"198.51.100.10:{443 if scheme == 'https' else 80}",
+                    "scheme": scheme,
+                    "ssl_mode": mode.value,
+                    "sni": "198.51.100.10" if scheme == "https" else None,
+                    "reachable": str(reachable),
+                    "tls_verified": (
+                        "None" if tls_verified is None else str(tls_verified)
+                    ),
+                    "status": str(status) if reachable else "-1",
+                    "content_sha256": "a" * 64 if reachable else None,
+                    "detail": "",
+                }
+            ],
+        },
+    )
+
+
+def _seed_automatic_ssl_record(
+    control: ControlPlane,
+    *,
+    mode: SslMode = SslMode.OFF,
+    automatic: SslAutomaticMode = SslAutomaticMode.AUTO,
+) -> None:
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
+        DnsRecord.model_validate(
+            {
+                "domain": "example.com",
+                "name": "cdn",
+                "value": "198.51.100.10",
+                "proxied": True,
+                "ssl_mode": mode,
+                "ssl_automatic_mode": automatic,
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+            }
         ),
         "alice",
     )
@@ -1120,7 +1184,7 @@ def _await_workflow(
     raise AssertionError(f"no workflow for {resource_id} finished")
 
 
-def test_upload_and_request_certificate_activate_managed_tls(
+def test_upload_and_request_certificate_preserve_ssl_mode(
     settings, site_payload, certificate_pair
 ):
     class FakeIssuer:
@@ -1145,7 +1209,7 @@ def test_upload_and_request_certificate_activate_managed_tls(
     )
     assert uploaded.source == "uploaded"
     assert repository.sites.get_site("cdn-example-com").certificate_mode == "uploaded"
-    assert repository.sites.get_site("cdn-example-com").ssl_mode == "flexible"
+    assert repository.sites.get_site("cdn-example-com").ssl_mode == "off"
 
     control.dns.update_record(
         "example.com",
@@ -1174,6 +1238,122 @@ def test_upload_and_request_certificate_activate_managed_tls(
     assert document["certificate_key_path"].endswith(f"/privkey-{fingerprint}.pem")
 
 
+@pytest.mark.parametrize(
+    ("tls_verified", "expected"),
+    [(True, SslMode.FULL_STRICT), (False, SslMode.FULL)],
+)
+def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
+    settings, tls_verified, expected
+):
+    runner = FakeRunner(
+        [
+            ansible_run(_automatic_origin_report(SslMode.OFF)),
+            ansible_run(
+                _automatic_origin_report(
+                    SslMode.FULL_STRICT,
+                    tls_verified=tls_verified,
+                )
+            ),
+            ansible_run(host_run("edge-a")),
+        ]
+    )
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    _seed_automatic_ssl_record(control)
+
+    result = control.automatic_ssl.reconcile("scheduler")
+
+    assert result.upgraded == {"cdn-example-com": expected}
+    assert result.skipped == {}
+    assert result.deployment is not None
+    assert result.deployment.status is DeploymentStatus.SUCCEEDED
+    record = control.dns.get_record("example.com", "cdn", RecordType.A)
+    assert record.ssl_mode is expected
+    assert record.ssl_automatic_mode is SslAutomaticMode.AUTO
+    event = next(
+        event
+        for event in repository.audit_log.list_audit_events(20)
+        if event.action == "ssl.automatic.upgraded"
+    )
+    assert event.action == "ssl.automatic.upgraded"
+    assert event.details["to"] == expected.value
+
+
+def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
+    runner = FakeRunner(
+        [
+            ansible_run(_automatic_origin_report(SslMode.OFF)),
+            ansible_run(
+                _automatic_origin_report(
+                    SslMode.FULL_STRICT,
+                    reachable=False,
+                )
+            ),
+            ansible_run(host_run("edge-a")),
+        ]
+    )
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    _seed_automatic_ssl_record(control)
+
+    result = control.automatic_ssl.reconcile("scheduler")
+
+    assert result.upgraded == {"cdn-example-com": SslMode.FLEXIBLE}
+    assert (
+        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
+        is SslMode.FLEXIBLE
+    )
+
+
+def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
+    runner = FakeRunner()
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    _seed_automatic_ssl_record(control, automatic=SslAutomaticMode.CUSTOM)
+
+    result = control.automatic_ssl.reconcile("scheduler")
+
+    assert result.scanned == ()
+    assert result.upgraded == {}
+    assert runner.origin_checks == []
+    assert (
+        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
+        is SslMode.OFF
+    )
+
+
+def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
+    runner = FakeRunner(
+        [
+            ansible_run(
+                _automatic_origin_report(
+                    SslMode.FULL,
+                    reachable=True,
+                )
+            ),
+            ansible_run(
+                _automatic_origin_report(
+                    SslMode.FULL_STRICT,
+                    reachable=False,
+                )
+            ),
+        ]
+    )
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    _seed_automatic_ssl_record(control, mode=SslMode.FULL)
+
+    result = control.automatic_ssl.reconcile("scheduler")
+
+    assert result.upgraded == {}
+    assert "cdn-example-com" in result.skipped
+    assert result.deployment is None
+    assert (
+        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
+        is SslMode.FULL
+    )
+
+
 def test_reconcile_issues_ready_first_certificate_and_deploys(
     settings, certificate_pair
 ):
@@ -1200,7 +1380,7 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     assert result.failed == {}
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
     assert repository.sites.get_site(site_name).certificate_mode == "requested"
-    assert repository.sites.get_site(site_name).ssl_mode == "flexible"
+    assert repository.sites.get_site(site_name).ssl_mode == "off"
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):
@@ -1759,10 +1939,21 @@ def _purge_run():
     return ansible_run(host_run("edge-a", changed=1))
 
 
-def _site(control, repository, name="cdn-example-com", server="cdn.example.com"):
+def _site(
+    control,
+    repository,
+    name="cdn-example-com",
+    server="cdn.example.com",
+    **policy,
+):
     repository.sites.create_site(
         CdnSite.model_validate(
-            {"name": name, "server_names": [server], "origin_host": "o.example.com"}
+            {
+                "name": name,
+                "server_names": [server],
+                "origin_host": "o.example.com",
+                **policy,
+            }
         )
     )
 
@@ -1816,6 +2007,26 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
         ],
     )
     assert result.complete is True
+
+
+def test_a_purge_drops_the_query_when_the_site_ignores_it(settings):
+    repository = Repository(settings.database_path)
+    fake = FakeRunner([_purge_run()])
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    _site(control, repository, cache_query_string_mode="ignore")
+
+    result = control.cache.purge_cache(
+        "alice",
+        entries=[
+            PurgeEntry(
+                host="cdn.example.com", uri="/app.js?v=2", scheme=HttpScheme.HTTP
+            )
+        ],
+    )
+
+    entries, _, _ = fake.purges[0]
+    assert entries == [{"host": "cdn.example.com", "uri": "/app.js", "scheme": "http"}]
+    assert result.entries[0].uri == "/app.js"
 
 
 def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):

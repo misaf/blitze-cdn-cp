@@ -2,12 +2,15 @@
 blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_sites:
   - ssl_mode: 'off'
+    ssl_automatic_mode: auto
+    minimum_tls_version: '1.2'
     always_use_https: false
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
     enabled: true
     certificate_mode: disabled
     cache_enabled: true
+    cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
     name: cdn-example-com
@@ -15,12 +18,15 @@ blitzecdn_nginx_sites:
       - cdn.example.com
     origin_host: 198.51.100.20
   - ssl_mode: flexible
+    ssl_automatic_mode: auto
+    minimum_tls_version: '1.2'
     always_use_https: false
     enabled: false
     certificate_mode: existing
     certificate_path: /etc/ssl/plain/fullchain.pem
     certificate_key_path: /etc/ssl/plain/privkey.pem
     cache_enabled: false
+    cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
     firewall:

@@ -29,6 +29,7 @@ argument_specs:
             the address is left alone unless a value is supplied here, in which
             case the account is repointed.
       blitzecdn_controlplane_certificate_reconcile_seconds: {type: int, required: true}
+      blitzecdn_controlplane_ssl_automatic_scan_seconds: {type: int, required: true}
       blitzecdn_controlplane_certificate_renewal_seconds: {type: int, required: true}
       blitzecdn_controlplane_drift_check_seconds: {type: int, required: true}
       blitzecdn_controlplane_units: {type: list, elements: str, required: true}

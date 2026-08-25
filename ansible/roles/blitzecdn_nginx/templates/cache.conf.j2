@@ -5,6 +5,20 @@ proxy_cache_path {{ blitzecdn_nginx_cache_path }}
     max_size={{ blitzecdn_nginx_cache_max_size }}
     inactive={{ blitzecdn_nginx_cache_inactive }}
     use_temp_path=off;
+
+# WebSocket handshakes carry Upgrade. An empty Connection header keeps normal
+# HTTP upstream connections reusable; an upgrade request receives the two hop-
+# by-hop headers nginx otherwise strips.
+map $http_upgrade $blitzecdn_connection_upgrade {
+    default upgrade;
+    ''      '';
+}
+
+# Unlike $uri, this preserves the raw request path byte-for-byte and removes
+# only the query string. Named cache purges can therefore reproduce the key.
+map $request_uri $blitzecdn_uri_without_query {
+    ~^([^?]*) $1;
+}
 {% if blitzecdn_nginx_resolvers %}
 
 # Without a resolver, nginx resolves each origin hostname once at config load

@@ -12,6 +12,7 @@ from blitzecdn.exceptions import DeploymentBusyError
 from blitzecdn.infrastructure import queue
 from blitzecdn.infrastructure.queue import (
     check_drift,
+    reconcile_automatic_ssl,
     reconcile_certificates,
     renew_certificates,
     run_deployment,
@@ -44,7 +45,13 @@ class FakeRedis:
 def test_actors_publish_to_the_expected_queues():
     broker = StubBroker()
     dramatiq.set_broker(broker)
-    actors = (run_deployment, reconcile_certificates, renew_certificates, check_drift)
+    actors = (
+        run_deployment,
+        reconcile_certificates,
+        reconcile_automatic_ssl,
+        renew_certificates,
+        check_drift,
+    )
     previous = [actor.broker for actor in actors]
     try:
         for actor in actors:
@@ -52,22 +59,25 @@ def test_actors_publish_to_the_expected_queues():
             broker.declare_actor(actor)
         run_deployment.send("deployment-id")
         reconcile_certificates.send("reconcile-token")
+        reconcile_automatic_ssl.send("automatic-ssl-token")
         renew_certificates.send("renew-token")
         check_drift.send("drift-token")
 
         deployment = dramatiq.Message.decode(broker.queues["deployments"].get_nowait())
         scheduled = [
             dramatiq.Message.decode(broker.queues["scheduled"].get_nowait())
-            for _ in range(3)
+            for _ in range(4)
         ]
         assert deployment.args == ("deployment-id",)
         assert {message.actor_name for message in scheduled} == {
             "reconcile_certificates",
+            "reconcile_automatic_ssl",
             "renew_certificates",
             "check_drift",
         }
         assert {message.args for message in scheduled} == {
             ("reconcile-token",),
+            ("automatic-ssl-token",),
             ("renew-token",),
             ("drift-token",),
         }

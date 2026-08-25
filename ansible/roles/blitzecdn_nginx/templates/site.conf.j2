@@ -2,6 +2,8 @@
 {% set ssl_mode = item.ssl_mode %}
 {% set tls = ssl_mode != 'off' %}
 {% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
+{% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
+{% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
 {# Per-site request filtering. An untouched policy is omitted, so defaults are explicit. #}
@@ -87,7 +89,8 @@
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header Connection "";
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $blitzecdn_connection_upgrade;
 {% if origin_scheme == 'https' %}
         proxy_ssl_server_name on;
         {#
@@ -113,13 +116,17 @@
 {% endif %}
 {% if item.cache_enabled | default(true) %}
         proxy_cache {{ blitzecdn_nginx_cache_zone }};
+        # An upgraded connection is a byte stream, not an HTTP response object.
+        # Never read a WebSocket handshake from cache or store one there.
+        proxy_cache_bypass $http_upgrade;
+        proxy_no_cache $http_upgrade;
 {% if blitzecdn_nginx_normalize_accept_encoding %}
         # The encoding belongs in the key. Without it a gzipped response and an
         # identity response share one entry, and whichever arrives first is
         # served to every subsequent client regardless of what it can decode.
-        proxy_cache_key "$scheme$server_port$request_method$host$request_uri$blitzecdn_accept_encoding";
+        proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}$blitzecdn_accept_encoding";
 {% else %}
-        proxy_cache_key "$scheme$server_port$request_method$host$request_uri";
+        proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}";
 {% endif %}
         proxy_cache_valid 200 301 302 {{ item.cache_valid_success | default('10m') }};
         proxy_cache_valid 404 {{ item.cache_valid_not_found | default('1m') }};
@@ -174,7 +181,11 @@ server {
 {% endif %}
     ssl_certificate {{ item.certificate_path }};
     ssl_certificate_key {{ item.certificate_key_path }};
+{% if item.minimum_tls_version | default('1.2') == '1.3' %}
+    ssl_protocols TLSv1.3;
+{% else %}
     ssl_protocols TLSv1.2 TLSv1.3;
+{% endif %}
     ssl_ciphers {{ blitzecdn_nginx_ssl_ciphers }};
     # TLS 1.3 fixes its own cipher order and 1.2 clients here are already
     # restricted to AEAD suites, so the client's preference is the better signal

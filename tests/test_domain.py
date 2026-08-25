@@ -25,7 +25,14 @@ from blitzecdn.domain.deployments import (
 )
 from blitzecdn.domain.dns import DnsRecord, RecordPatch
 from blitzecdn.domain.runs import HostRun
-from blitzecdn.domain.sites import CdnSite, SitePolicy, SslMode
+from blitzecdn.domain.sites import (
+    CacheQueryStringMode,
+    CdnSite,
+    MinimumTlsVersion,
+    SitePolicy,
+    SslAutomaticMode,
+    SslMode,
+)
 from blitzecdn.domain.snapshots import decode_snapshot
 
 
@@ -105,6 +112,9 @@ def test_existing_certificate_requires_complete_pair(site_payload):
 def test_new_sites_default_to_ssl_off(site_payload):
     site = CdnSite.model_validate(site_payload)
     assert site.ssl_mode is SslMode.OFF
+    assert site.ssl_automatic_mode is SslAutomaticMode.AUTO
+    assert site.minimum_tls_version is MinimumTlsVersion.TLS_1_2
+    assert site.cache_query_string_mode is CacheQueryStringMode.INCLUDE
     assert site.serves_tls is False
     assert site.ssl_mode.origin_scheme == "http"
 

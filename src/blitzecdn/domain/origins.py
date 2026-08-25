@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.domain.sites import HttpScheme, SslMode
 
@@ -50,6 +50,9 @@ class OriginCheck(BaseModel):
     tls_verified: bool | None = None
     #: The HTTP status the origin answered with, or ``None`` if it did not.
     status: int | None = None
+    #: Present only for Automatic SSL/TLS scans, which compare the response
+    #: reached over the current transport with the same response over HTTPS.
+    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
     detail: str | None = None
 
     @property

@@ -24,6 +24,7 @@ from blitzecdn.cli import (
     deploy,
     diagnostics,
     edges,
+    tls,
     zones,
 )
 from blitzecdn.cli.app import app, main
@@ -46,6 +47,7 @@ app.add_typer(zones.dns_app, name="dns")
 app.add_typer(certs.cert_app, name="cert")
 app.add_typer(edges.origin_app, name="origin")
 app.add_typer(cache.cache_app, name="cache")
+app.add_typer(tls.ssl_app, name="ssl")
 app.add_typer(configuration.config_app, name="config")
 app.add_typer(database.database_app, name="db")
 
@@ -66,6 +68,7 @@ __all__ = [
     "main",
     "run",
     "settings",
+    "tls",
     "zones",
 ]
 

@@ -12,7 +12,13 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.domain.sites import SiteFirewall, SslMode
+from blitzecdn.domain.sites import (
+    CacheQueryStringMode,
+    MinimumTlsVersion,
+    SiteFirewall,
+    SslAutomaticMode,
+    SslMode,
+)
 
 site_app = typer.Typer(
     no_args_is_help=True,
@@ -193,6 +199,66 @@ def record_ssl(
         )
 
 
+@record_app.command("ssl-automatic")
+def record_ssl_automatic(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    mode: Annotated[
+        SslAutomaticMode,
+        typer.Option(
+            "--mode",
+            help="Auto upgrades after origin scans; Custom preserves ssl_mode.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Enroll a hostname in Automatic SSL/TLS or opt it into Custom mode."""
+    record = common.control_plane().dns.update_record(
+        domain,
+        name,
+        type_,
+        RecordPatch(ssl_automatic_mode=mode),
+        "cli",
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"{record.fqdn} now uses SSL automatic mode "
+            f"{record.ssl_automatic_mode.value!r}."
+        )
+
+
+@record_app.command("minimum-tls")
+def record_minimum_tls(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    version: Annotated[
+        MinimumTlsVersion,
+        typer.Option(
+            "--version",
+            help="Oldest visitor TLS version accepted at the edge: 1.2 or 1.3.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Set the minimum visitor TLS version for one hostname."""
+    record = common.control_plane().dns.update_record(
+        domain,
+        name,
+        type_,
+        RecordPatch(minimum_tls_version=version),
+        "cli",
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"{record.fqdn} now requires TLS {record.minimum_tls_version.value} "
+            "or newer. Run 'blitzecdn deploy' to apply."
+        )
+
+
 @record_app.command("always-use-https")
 def record_always_use_https(
     domain: Annotated[str, typer.Argument()],
@@ -220,6 +286,37 @@ def record_always_use_https(
         typer.echo(
             f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for "
             f"{record.fqdn}. Run 'blitzecdn deploy' to apply."
+        )
+
+
+@record_app.command("cache-query-string")
+def record_cache_query_string(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    mode: Annotated[
+        CacheQueryStringMode,
+        typer.Option(
+            "--mode",
+            help="Include query strings in cache keys, or ignore them.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Choose whether query strings distinguish cached responses."""
+    record = common.control_plane().dns.update_record(
+        domain,
+        name,
+        type_,
+        RecordPatch(cache_query_string_mode=mode),
+        "cli",
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"{record.fqdn} cache query-string mode is now "
+            f"{record.cache_query_string_mode.value!r}. "
+            "Run 'blitzecdn deploy' to apply."
         )
 
 

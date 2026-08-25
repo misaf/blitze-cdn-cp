@@ -30,10 +30,13 @@ import yaml
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import (
+    CacheQueryStringMode,
     CdnSite,
     CertificateMode,
+    MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
+    SslAutomaticMode,
     SslMode,
 )
 from blitzecdn.infrastructure.database import Repository
@@ -275,7 +278,13 @@ def test_nginx_role_accepts_only_the_current_ssl_policy():
 
 @pytest.mark.parametrize(
     ("field", "enum"),
-    [("ssl_mode", SslMode), ("certificate_mode", CertificateMode)],
+    [
+        ("ssl_mode", SslMode),
+        ("ssl_automatic_mode", SslAutomaticMode),
+        ("minimum_tls_version", MinimumTlsVersion),
+        ("certificate_mode", CertificateMode),
+        ("cache_query_string_mode", CacheQueryStringMode),
+    ],
 )
 def test_role_choices_cover_every_domain_value(field, enum):
     """A new enum member must not reach a role that rejects it."""
@@ -571,6 +580,74 @@ def test_always_use_https_can_be_disabled_without_disabling_tls():
     assert "listen 443 ssl;" in rendered
 
 
+def test_websocket_upgrade_is_forwarded_and_never_cached():
+    site = CdnSite.model_validate(
+        {
+            "name": "socket",
+            "server_names": ["socket.example.com"],
+            "origin_host": "origin.example.com",
+        }
+    )
+    rendered = _render(site.to_ansible())
+    cache_template = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
+
+    assert "map $http_upgrade $blitzecdn_connection_upgrade" in cache_template
+    assert "proxy_set_header Upgrade $http_upgrade;" in rendered
+    assert "proxy_set_header Connection $blitzecdn_connection_upgrade;" in rendered
+    assert "proxy_cache_bypass $http_upgrade;" in rendered
+    assert "proxy_no_cache $http_upgrade;" in rendered
+
+
+@pytest.mark.parametrize(
+    ("minimum", "protocols"),
+    [
+        (MinimumTlsVersion.TLS_1_2, "TLSv1.2 TLSv1.3"),
+        (MinimumTlsVersion.TLS_1_3, "TLSv1.3"),
+    ],
+)
+def test_minimum_tls_version_renders_per_hostname(minimum, protocols):
+    site = CdnSite.model_validate(
+        {
+            "name": "tls-minimum",
+            "server_names": ["tls.example.com"],
+            "origin_host": "origin.example.com",
+            "ssl_mode": "flexible",
+            "minimum_tls_version": minimum,
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    )
+
+    assert f"ssl_protocols {protocols};" in _render(site.to_ansible())
+
+
+@pytest.mark.parametrize(
+    ("mode", "key_uri"),
+    [
+        (CacheQueryStringMode.INCLUDE, "$request_uri"),
+        (CacheQueryStringMode.IGNORE, "$blitzecdn_uri_without_query"),
+    ],
+)
+def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
+    site = CdnSite.model_validate(
+        {
+            "name": "query-mode",
+            "server_names": ["query.example.com"],
+            "origin_host": "origin.example.com",
+            "cache_query_string_mode": mode,
+        }
+    )
+
+    rendered = _render(site.to_ansible())
+
+    assert (
+        f'proxy_cache_key "$scheme$server_port$request_method$host{key_uri}' in rendered
+    )
+    # Ignore affects identity in the cache, not what the origin receives.
+    assert "proxy_pass $blitzecdn_upstream$request_uri;" in rendered
+
+
 def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     """A running older control plane may deploy through an updated role."""
     site = CdnSite.model_validate(
@@ -691,7 +768,7 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     proxy_cache_methods.
     """
     site_template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
-    assert "$scheme$server_port$request_method$host$request_uri" in site_template
+    assert "$scheme$server_port$request_method$host{{ cache_uri }}" in site_template
     assert "proxy_cache_methods" not in site_template
 
     defaults = _defaults_of(CACHE_ROLE_DIR)

@@ -1156,6 +1156,9 @@ def test_site_show_reveals_defaults_a_record_never_mentioned(settings, monkeypat
     assert site["origin_host"] == "198.51.100.10"
     # Never set on the record; only the derived site shows them.
     assert site["ssl_mode"] == "off"
+    assert site["ssl_automatic_mode"] == "auto"
+    assert site["minimum_tls_version"] == "1.2"
+    assert site["cache_query_string_mode"] == "include"
     assert "origin_scheme" not in site
     assert site["cache_valid_success"] == "10m"
 
@@ -1200,6 +1203,83 @@ def test_record_ssl_changes_the_combined_mode(settings, monkeypatch):
         == "full_strict"
     )
     assert "Run 'blitzecdn deploy'" in result.stdout
+
+
+def test_record_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "cli",
+    )
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "ssl-automatic",
+            "example.com",
+            "cdn",
+            "--mode",
+            "custom",
+        ],
+    )
+
+    assert result.exit_code == 0
+    record = control.dns.get_record("example.com", "cdn", RecordType.A)
+    assert record.ssl_automatic_mode == "custom"
+
+
+def test_record_minimum_tls_and_cache_query_string_commands(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "cli",
+    )
+
+    tls = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "minimum-tls",
+            "example.com",
+            "cdn",
+            "--version",
+            "1.3",
+            "--json",
+        ],
+    )
+    query = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "cache-query-string",
+            "example.com",
+            "cdn",
+            "--mode",
+            "ignore",
+            "--json",
+        ],
+    )
+
+    assert tls.exit_code == 0
+    assert json.loads(tls.stdout)["minimum_tls_version"] == "1.3"
+    assert query.exit_code == 0
+    assert json.loads(query.stdout)["cache_query_string_mode"] == "ignore"
+    site = control.dns.get_site("cdn-example-com")
+    assert site.minimum_tls_version == "1.3"
+    assert site.cache_query_string_mode == "ignore"
 
 
 def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
