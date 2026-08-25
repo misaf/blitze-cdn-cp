@@ -138,7 +138,14 @@ def _run_control_plane(operation: str, token: str) -> None:
     control = build_control_plane(Settings.from_environment())
     try:
         if operation == "reconcile-certificates":
-            control.certificates.reconcile_certificates("scheduler")
+            result = control.certificates.reconcile_certificates("scheduler")
+            # A first certificate makes visitor-facing HTTPS possible, but the
+            # safest origin transport is still unknown. Resolve that in the
+            # same unattended workflow instead of leaving a new hostname in
+            # SSL Off until the less frequent automatic-SSL scan runs. The
+            # scanner only upgrades, so it cannot weaken an operator choice.
+            if result.issued:
+                control.automatic_ssl.reconcile("scheduler")
         elif operation == "reconcile-automatic-ssl":
             control.automatic_ssl.reconcile("scheduler")
         elif operation == "renew-certificates":
