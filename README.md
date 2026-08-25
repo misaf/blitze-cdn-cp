@@ -425,9 +425,11 @@ of the edge connection:
 
 New records start Off and are enrolled in Cloudflare-compatible Automatic
 SSL/TLS (`ssl_automatic_mode: auto`). Uploading or issuing a certificate does
-not itself change their SSL mode. The automatic scanner runs approximately
-monthly, probes both the current transport and HTTPS from every edge, compares
-their responses, and may upgrade the record to the strongest compatible mode.
+not itself change their SSL mode. After unattended first-certificate issuance,
+the reconciler immediately runs the automatic scanner; it also runs
+approximately monthly. The scanner probes both the current transport and HTTPS
+from every edge, compares their responses, and may upgrade the record to the
+strongest compatible mode.
 It never downgrades a record. Missing edges, 5xx responses, failed TLS, or
 different HTTP/HTTPS content abort the upgrade.
 

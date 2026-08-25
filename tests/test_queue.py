@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import ClassVar
 
 import dramatiq
@@ -141,4 +142,35 @@ def test_scheduled_redis_calls_have_finite_network_timeouts(monkeypatch):
             "socket_connect_timeout": queue._REDIS_OPERATION_TIMEOUT_SECONDS,
             "socket_timeout": queue._REDIS_OPERATION_TIMEOUT_SECONDS,
         }
+    ]
+
+
+def test_first_certificate_reconciliation_immediately_scans_automatic_ssl(
+    monkeypatch,
+):
+    calls: list[tuple[str, str]] = []
+    control = SimpleNamespace(
+        certificates=SimpleNamespace(
+            reconcile_certificates=lambda operator: (
+                calls.append(("certificates", operator))
+                or SimpleNamespace(issued=("cdn-example-com",))
+            )
+        ),
+        automatic_ssl=SimpleNamespace(
+            reconcile=lambda operator: calls.append(("automatic-ssl", operator))
+        ),
+        deployment_requirements=SimpleNamespace(pending=lambda _kind: False),
+        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
+        close=lambda: None,
+    )
+    monkeypatch.setattr(
+        "blitzecdn.control_plane.build_control_plane", lambda _settings: control
+    )
+    monkeypatch.setattr(queue, "_release_schedule_key", lambda *_args: None)
+
+    queue._run_control_plane("reconcile-certificates", "token")
+
+    assert calls == [
+        ("certificates", "scheduler"),
+        ("automatic-ssl", "scheduler"),
     ]
