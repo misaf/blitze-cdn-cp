@@ -1,4 +1,4 @@
-"""Stable HTTP v1 representations and their domain mappings."""
+"""Version 2 control-plane representations and their domain mappings."""
 
 from __future__ import annotations
 
@@ -25,11 +25,11 @@ from blitzecdn.domain.sites import (
 )
 
 
-class V1Model(BaseModel):
+class V2Model(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_mode_override="validation")
 
 
-class Domain(V1Model):
+class Domain(V2Model):
     name: str
 
     @model_validator(mode="after")
@@ -49,7 +49,7 @@ class RecordType(StrEnum):
         return DomainRecordType(self.value)
 
 
-class SiteFirewall(V1Model):
+class SiteFirewall(V2Model):
     allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
     deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
     allowed_countries: tuple[str, ...] = Field(default=(), max_length=250)
@@ -58,7 +58,7 @@ class SiteFirewall(V1Model):
     denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
 
 
-class SitePolicyV1(V1Model):
+class SitePolicyV2(V2Model):
     ssl_mode: SslMode = SslMode.OFF
     ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
@@ -76,7 +76,7 @@ class SitePolicyV1(V1Model):
     firewall: SiteFirewall = Field(default_factory=SiteFirewall)
 
 
-class DnsRecord(SitePolicyV1):
+class DnsRecord(SitePolicyV2):
     domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
@@ -97,7 +97,7 @@ class DnsRecord(SitePolicyV1):
         return cls.model_validate(value.model_dump(mode="json"))
 
 
-class RecordPatch(V1Model):
+class RecordPatch(V2Model):
     value: str | None = None
     ttl: int | None = Field(default=None, ge=1, le=604800)
     proxied: bool | None = None
@@ -121,7 +121,7 @@ class RecordPatch(V1Model):
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-class CdnSite(SitePolicyV1):
+class CdnSite(SitePolicyV2):
     name: str
     server_names: tuple[str, ...]
     origin_host: str
@@ -131,7 +131,7 @@ class CdnSite(SitePolicyV1):
         return cls.model_validate(value.model_dump(mode="json"))
 
 
-class Edge(V1Model):
+class Edge(V2Model):
     name: str
     host: str
     user: str = "deploy"
@@ -153,7 +153,7 @@ class Edge(V1Model):
         return cls.model_validate(value.model_dump(mode="json"))
 
 
-class EdgePatch(V1Model):
+class EdgePatch(V2Model):
     host: str | None = None
     user: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)
