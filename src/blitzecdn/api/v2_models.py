@@ -76,7 +76,14 @@ class SitePolicyV2(V2Model):
     firewall: SiteFirewall = Field(default_factory=SiteFirewall)
 
 
-class DnsRecord(SitePolicyV2):
+#: Version 2 diverges from version 1 here, so these three carry the version in
+#: their class name. FastAPI derives a component's published name from the
+#: class, and two identically named models across versions stay one component
+#: only while they are structurally identical — the first field v2 gains would
+#: otherwise make pydantic disambiguate *both* into module-qualified names,
+#: renaming v1's published schema as a side effect of a change to v2. Naming
+#: these explicitly is what keeps `CdnSite` meaning what it meant in v1.
+class DnsRecordV2(SitePolicyV2):
     domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
@@ -97,7 +104,7 @@ class DnsRecord(SitePolicyV2):
         return cls.model_validate(value.model_dump(mode="json"))
 
 
-class RecordPatch(V2Model):
+class RecordPatchV2(V2Model):
     value: str | None = None
     ttl: int | None = Field(default=None, ge=1, le=604800)
     proxied: bool | None = None
@@ -121,7 +128,7 @@ class RecordPatch(V2Model):
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-class CdnSite(SitePolicyV2):
+class CdnSiteV2(SitePolicyV2):
     name: str
     server_names: tuple[str, ...]
     origin_host: str
