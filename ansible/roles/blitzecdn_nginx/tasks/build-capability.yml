@@ -1,0 +1,53 @@
+---
+- name: Read the installed Nginx version
+  ansible.builtin.command:
+    argv: [nginx, -v]
+  register: blitzecdn_nginx_version_output
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require the managed Nginx binary
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_version_output.rc == 0
+      - >-
+        ((blitzecdn_nginx_version_output.stdout | default('')) ~ ' ' ~
+         (blitzecdn_nginx_version_output.stderr | default(''))) is
+        regex('.*nginx/[0-9]+\.[0-9]+\.[0-9]+.*')
+    fail_msg: >-
+      The managed nginx package did not install a working nginx binary.
+      BlitzeCDN requires the Ubuntu 26.04 package stack.
+
+- name: Extract the installed Nginx version
+  ansible.builtin.set_fact:
+    blitzecdn_nginx_installed_version: >-
+      {{ (((blitzecdn_nginx_version_output.stdout | default('')) ~ ' ' ~
+           (blitzecdn_nginx_version_output.stderr | default(''))) |
+          regex_findall('nginx/([0-9]+\.[0-9]+\.[0-9]+)') | first) }}
+
+- name: Inspect the installed Nginx build
+  ansible.builtin.command:
+    argv: [nginx, -V]
+  register: blitzecdn_nginx_build_output
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Require the HTTP/3-capable Ubuntu Nginx build
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_build_output.rc == 0
+      - blitzecdn_nginx_installed_version is version('1.25.0', '>=')
+      - >-
+        '--with-http_v3_module' in
+        ((blitzecdn_nginx_build_output.stdout | default('')) ~ ' ' ~
+         (blitzecdn_nginx_build_output.stderr | default('')))
+      - >-
+        '--build=Ubuntu' in
+        ((blitzecdn_nginx_build_output.stdout | default('')) ~ ' ' ~
+         (blitzecdn_nginx_build_output.stderr | default('')))
+    fail_msg: >-
+      The installed Nginx stack is not a supported BlitzeCDN edge build.
+      Ubuntu 26.04 Nginx 1.25.0+ with --with-http_v3_module is required;
+      HTTP/3 will not be silently disabled.

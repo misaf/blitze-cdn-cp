@@ -1,14 +1,12 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
 {% set ssl_mode = item.ssl_mode %}
 {% set tls = ssl_mode != 'off' %}
+{% set http3 = item.http3_enabled | default(false) %}
 {% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
 {% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
 {% set compression = item.compression | default('brotli') %}
-{# Wanting Brotli and having it are different questions: the module is opt-in
-   per edge, and a site that asks for it where it is absent serves gzip rather
-   than failing the converge. See the note on the CompressionMode enum. #}
-{% set brotli = compression == 'brotli' and blitzecdn_nginx_brotli_enabled %}
+{% set brotli = compression == 'brotli' %}
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
 {# Per-site request filtering. An untouched policy is omitted, so defaults are explicit. #}
@@ -87,9 +85,8 @@
   `gzip off` has to be explicit. Debian and Ubuntu ship `gzip on` in the http
   context of the stock nginx.conf, so a site configured for no compression
   would inherit it and quietly keep compressing. `brotli off` is emitted for
-  the same reason but only where the module is installed — the directive does
-  not exist otherwise, and naming it would fail `nginx -t` for every site on
-  the edge.
+  the same reason. The managed Ubuntu package stack always supplies that
+  directive; its absence fails the capability invariant before rendering.
 
   What is *not* here is any change to what the origin is asked for. The
   Accept-Encoding the proxy macro forwards, and the cache key that carries it,
@@ -121,7 +118,7 @@
 {% else %}
     gzip off;
 {% endif %}
-{% if blitzecdn_nginx_brotli_enabled and not brotli %}
+{% if not brotli %}
     brotli off;
 {% endif %}
 {% endmacro %}
@@ -220,6 +217,12 @@
 {% if secure and blitzecdn_nginx_hsts_enabled %}
         add_header Strict-Transport-Security "max-age={{ blitzecdn_nginx_hsts_max_age }}" always;
 {% endif %}
+{% if secure and http3 and origin_port == 443 %}
+        # Kept in the location-level response header set: add_header directives
+        # here replace inherited server headers, so a server-level Alt-Svc
+        # would disappear whenever cache status or HSTS is emitted.
+        add_header Alt-Svc 'h3=":443"; ma=86400' always;
+{% endif %}
 {% endmacro %}
 {% for port in blitzecdn_nginx_http_ports %}
 server {
@@ -251,6 +254,10 @@ server {
 server {
     listen {{ port }} ssl;
     listen [::]:{{ port }} ssl;
+{% if http3 and port == 443 %}
+    listen 443 quic{% if not blitzecdn_nginx_default_server and item.name == blitzecdn_nginx_http3_listener_owner %} reuseport{% endif %};
+    listen [::]:443 quic{% if not blitzecdn_nginx_default_server and item.name == blitzecdn_nginx_http3_listener_owner %} reuseport{% endif %};
+{% endif %}
     http2 on;
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}

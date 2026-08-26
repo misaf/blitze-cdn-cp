@@ -456,8 +456,8 @@ def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[s
 @pytest.mark.parametrize(
     ("distribution", "version", "accepted"),
     [
-        # Debian 12 is a supported edge platform but not a supported
-        # controller: it ships Python 3.11 and the control plane needs 3.12+.
+        # Debian 12 is not a supported controller: it ships Python 3.11 and the
+        # control plane needs 3.12+.
         ("Debian", "12", False),
         ("Debian", "13", True),
         ("Debian", "14", True),
@@ -1278,22 +1278,16 @@ def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
     assert "BlitzeCDN has been removed" in result.stdout
 
 
-def test_the_controller_floor_is_higher_than_the_edge_floor():
-    """One host is both under `standalone`, and they do not have the same needs.
-
-    The edge playbook accepts Debian 12; the control-plane role must not, because
-    Debian 12 ships Python 3.11. Sharing one gate would either lock working edges
-    out or let an unusable controller through.
-    """
+def test_edge_platform_is_pinned_to_ubuntu_26_04():
     edge = yaml.safe_load(
         (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
     )
-    edge_gate = edge[0]["pre_tasks"][0]["ansible.builtin.assert"]["that"][0]
-    assert ">= 12" in edge_gate, "edges must keep accepting Debian 12"
-
-    controller_gate = _role_task("Validate supported operating system")
-    expression = controller_gate["ansible.builtin.assert"]["that"][0]
-    assert ">= 13" in expression, "the controller needs a Python 3.12+ platform"
+    edge_gate = edge[0]["pre_tasks"][0]["ansible.builtin.assert"]
+    assert edge_gate["that"] == [
+        "ansible_facts.distribution == 'Ubuntu'",
+        "ansible_facts.distribution_version == '26.04'",
+    ]
+    assert "Ubuntu 26.04 LTS" in edge_gate["fail_msg"]
 
 
 def test_no_upper_bound_on_the_python_version():

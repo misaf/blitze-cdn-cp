@@ -2,48 +2,9 @@
 - name: Validate the desired state before changing anything
   ansible.builtin.import_tasks: validate.yml
 
-- name: Install Nginx
-  ansible.builtin.apt:
-    name: nginx
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
-  register: blitzecdn_nginx_apt
-  until: blitzecdn_nginx_apt is success
-  retries: 3
-  delay: 5
-
-# Debian's and Ubuntu's module packages install their own load_module snippet
-# under /etc/nginx/modules-enabled, so installing the package is all it takes
-# for brotli_* to become valid directives. Nothing withdraws it when the flag
-# goes back to false: the template stops emitting the directives on the same
-# converge, and removing the package would be a second way to break a config
-# that had already stopped referring to it.
-- name: Install the Brotli Nginx module
-  ansible.builtin.apt:
-    name: "{{ blitzecdn_nginx_brotli_package }}"
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
-  register: blitzecdn_nginx_brotli_apt
-  until: blitzecdn_nginx_brotli_apt is success
-  retries: 3
-  delay: 5
-  when: blitzecdn_nginx_brotli_enabled
-  notify: Validate and reload Nginx
-
-- name: Install the GeoIP2 Nginx module
-  ansible.builtin.apt:
-    name: "{{ blitzecdn_nginx_geoip_package }}"
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
-  register: blitzecdn_nginx_geoip_apt
-  until: blitzecdn_nginx_geoip_apt is success
-  retries: 3
-  delay: 5
-  when: blitzecdn_nginx_geoip_enabled
-  notify: Validate and reload Nginx
+- name: Install and verify the managed Nginx stack
+  ansible.builtin.import_tasks: install.yml
+  when: not (blitzecdn_nginx_stack_ready | default(false) | bool)
 
 # GeoLite2 is free but not anonymous: downloads are authenticated. With
 # credentials the role fetches and schedules refreshes; without them it assumes

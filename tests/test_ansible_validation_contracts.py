@@ -17,6 +17,7 @@ from contract_support import *
 # ----------------------------------------------------------------------
 
 VALIDATE_TASKS = ROLE_DIR / "tasks/validate.yml"
+NGINX_BUILD_CAPABILITY_TASKS = ROLE_DIR / "tasks/build-capability.yml"
 
 
 def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: Any):
@@ -63,6 +64,73 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
         | {"ANSIBLE_LOCALHOST_WARNING": "False"},
         check=False,
     )
+
+
+def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    ansible_local = tmp_path / "ansible-local"
+    ansible_local.mkdir()
+    nginx = fake_bin / "nginx"
+    nginx.write_text(
+        "#!/bin/sh\n"
+        "echo 'nginx version: nginx/1.27.0' >&2\n"
+        f"echo 'configure arguments: {configure_arguments}' >&2\n",
+        encoding="utf-8",
+    )
+    nginx.chmod(0o755)
+    playbook = tmp_path / "nginx-build-capability.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "tasks": [{"import_tasks": str(NGINX_BUILD_CAPABILITY_TASKS)}],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [
+            shutil.which("ansible-playbook")
+            or str(PROJECT_DIR / ".venv/bin/ansible-playbook"),
+            "-i",
+            "localhost,",
+            "-c",
+            "local",
+            str(playbook),
+        ],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("COV_CORE", "COVERAGE"))
+        }
+        | {
+            "ANSIBLE_LOCALHOST_WARNING": "False",
+            "ANSIBLE_LOCAL_TEMP": str(ansible_local),
+            "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
+        },
+        check=False,
+    )
+
+
+def test_nginx_invariant_accepts_a_capable_build(tmp_path):
+    result = _run_nginx_build_capability(
+        tmp_path, "--with-http_v3_module --with-http_ssl_module --build=Ubuntu"
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_nginx_invariant_rejects_an_unsupported_build_clearly(tmp_path):
+    result = _run_nginx_build_capability(tmp_path, "--with-http_ssl_module")
+    assert result.returncode != 0
+    assert "--with-http_v3_module is required" in result.stdout
+    assert "will not be silently disabled" in result.stdout
 
 
 def test_role_validation_tasks_actually_run(desired_state, tmp_path):

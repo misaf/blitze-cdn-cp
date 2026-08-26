@@ -1,9 +1,13 @@
 ---
+blitzecdn_firewall_http3_enabled: false
 blitzecdn_nginx_allow_empty_sites: false
+blitzecdn_nginx_http3_enabled: false
+blitzecdn_nginx_http3_listener_owner: ''
 blitzecdn_nginx_sites:
   - ssl_mode: 'off'
     ssl_automatic_mode: auto
     minimum_tls_version: '1.2'
+    http3_enabled: false
     always_use_https: false
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
@@ -24,6 +28,7 @@ blitzecdn_nginx_sites:
   - ssl_mode: flexible
     ssl_automatic_mode: auto
     minimum_tls_version: '1.2'
+    http3_enabled: false
     always_use_https: false
     enabled: false
     certificate_mode: existing

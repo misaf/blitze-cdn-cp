@@ -1,0 +1,85 @@
+---
+- name: Provision a clean BlitzeCDN HTTP/3 edge
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    blitzecdn_firewall_enabled: true
+    blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
+    blitzecdn_firewall_http3_enabled: true
+    blitzecdn_nginx_allow_empty_sites: false
+    blitzecdn_nginx_http3_enabled: true
+    blitzecdn_nginx_http3_listener_owner: site-one-test
+    blitzecdn_nginx_geoip_enabled: true
+    blitzecdn_nginx_geoip_update_enabled: false
+    blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoIP2-Country-Test.mmdb
+    blitzecdn_nginx_resolvers: []
+    blitzecdn_nginx_status_enabled: false
+    blitzecdn_nginx_sites:
+      - name: site-one-test
+        server_names: [site-one.test]
+        origin_host: blitzecdn-http3-origin
+        origin_request_host: site-one.test
+        origin_sni: site-one.test
+        ssl_mode: flexible
+        ssl_automatic_mode: auto
+        minimum_tls_version: '1.2'
+        http3_enabled: true
+        always_use_https: false
+        enabled: true
+        certificate_mode: existing
+        certificate_path: /etc/ssl/certs/blitzecdn-http3-test.pem
+        certificate_key_path: /etc/ssl/private/blitzecdn-http3-test.key
+        cache_enabled: false
+        cache_query_string_mode: include
+        cache_valid_success: 10m
+        cache_valid_not_found: 1m
+        compression: brotli
+        firewall:
+          allow_sources: []
+          deny_sources: []
+          allowed_countries: []
+          denied_countries: []
+          denied_methods: []
+          denied_paths: []
+        visitor_headers:
+          connecting_ip: true
+          ip_country: true
+      - name: site-two-test
+        server_names: [site-two.test]
+        origin_host: blitzecdn-http3-origin
+        origin_request_host: site-two.test
+        origin_sni: site-two.test
+        ssl_mode: flexible
+        ssl_automatic_mode: auto
+        minimum_tls_version: '1.2'
+        http3_enabled: true
+        always_use_https: false
+        enabled: true
+        certificate_mode: existing
+        certificate_path: /etc/ssl/certs/blitzecdn-http3-test.pem
+        certificate_key_path: /etc/ssl/private/blitzecdn-http3-test.key
+        cache_enabled: false
+        cache_query_string_mode: include
+        cache_valid_success: 10m
+        cache_valid_not_found: 1m
+        compression: brotli
+        firewall:
+          allow_sources: []
+          deny_sources: []
+          allowed_countries: []
+          denied_countries: []
+          denied_methods: []
+          denied_paths: []
+        visitor_headers:
+          connecting_ip: true
+          ip_country: true
+  pre_tasks:
+    - name: Install and verify Nginx before opening firewall ports
+      ansible.builtin.import_role:
+        name: blitzecdn_nginx
+        tasks_from: install.yml
+  roles:
+    - role: blitzecdn_firewall
+    - role: blitzecdn_nginx

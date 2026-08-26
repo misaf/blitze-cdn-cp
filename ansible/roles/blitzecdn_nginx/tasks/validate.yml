@@ -40,6 +40,12 @@
         item.ssl_mode == 'off' or
         item.certificate_mode | default('disabled') != 'disabled'
       - >-
+        not (item.http3_enabled | default(false)) or item.ssl_mode != 'off'
+      - >-
+        not (item.enabled | default(true)) or
+        not (item.http3_enabled | default(false)) or
+        blitzecdn_nginx_http3_enabled
+      - >-
         item.certificate_mode | default('disabled') == 'disabled' or
         item.certificate_path is defined
       - >-
@@ -74,6 +80,32 @@
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name | default('unnamed') }}"
+
+- name: Validate shared HTTP/3 listener ownership
+  ansible.builtin.assert:
+    that:
+      - >-
+        not blitzecdn_nginx_http3_enabled or
+        blitzecdn_nginx_sites
+        | selectattr('enabled', 'undefined')
+        | selectattr('http3_enabled', 'defined')
+        | selectattr('http3_enabled')
+        | list | length > 0 or
+        blitzecdn_nginx_sites
+        | selectattr('enabled', 'defined')
+        | selectattr('enabled')
+        | selectattr('http3_enabled', 'defined')
+        | selectattr('http3_enabled')
+        | list | length > 0
+      - >-
+        blitzecdn_nginx_default_server or
+        not blitzecdn_nginx_http3_enabled or
+        blitzecdn_nginx_http3_listener_owner in
+        (blitzecdn_nginx_sites | map(attribute='name') | list)
+    fail_msg: >-
+      HTTP/3 shared listener state is inconsistent. Derive
+      blitzecdn_nginx_http3_enabled and blitzecdn_nginx_http3_listener_owner
+      from the enabled HTTP/3 sites instead of editing them independently.
 
 # Defensive only — the control plane validates all of this before a site is
 # ever stored. It is repeated because these values are interpolated into a

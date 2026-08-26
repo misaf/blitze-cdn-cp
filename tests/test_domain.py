@@ -123,9 +123,30 @@ def test_new_sites_default_to_ssl_off(site_payload):
     assert site.ssl_mode is SslMode.OFF
     assert site.ssl_automatic_mode is SslAutomaticMode.AUTO
     assert site.minimum_tls_version is MinimumTlsVersion.TLS_1_2
+    assert site.http3_enabled is False
     assert site.cache_query_string_mode is CacheQueryStringMode.INCLUDE
     assert site.serves_tls is False
     assert site.ssl_mode.origin_scheme == "http"
+
+
+def test_http3_requires_edge_tls(site_payload):
+    site_payload["http3_enabled"] = True
+    with pytest.raises(ValidationError, match="http3_enabled=True requires ssl_mode"):
+        CdnSite.model_validate(site_payload)
+
+
+def test_http3_accepts_tls_with_a_tls_1_2_tcp_minimum(site_payload):
+    site_payload |= {
+        "ssl_mode": "flexible",
+        "http3_enabled": True,
+        "minimum_tls_version": "1.2",
+        "certificate_mode": "existing",
+        "certificate_path": "/etc/ssl/certs/edge.pem",
+        "certificate_key_path": "/etc/ssl/private/edge.key",
+    }
+    site = CdnSite.model_validate(site_payload)
+    assert site.http3_enabled is True
+    assert site.minimum_tls_version is MinimumTlsVersion.TLS_1_2
 
 
 @pytest.mark.parametrize("mode", ["flexible", "full", "full_strict"])
@@ -355,6 +376,25 @@ def test_visitor_headers_survive_a_snapshot_round_trip():
     assert site.requires_geoip is True
 
 
+def test_http3_survives_a_snapshot_round_trip():
+    record = DnsRecord.model_validate(
+        _managed_record(ssl_mode="flexible", http3_enabled=True)
+    )
+    (site,) = decode_snapshot(encode_snapshot([], [record]))
+    assert site.http3_enabled is True
+
+
+def test_http3_changes_snapshot_identity_only_when_the_value_changes():
+    disabled = DnsRecord.model_validate(
+        _managed_record(ssl_mode="flexible", http3_enabled=False)
+    )
+    enabled = disabled.model_copy(update={"http3_enabled": True})
+
+    baseline = encode_snapshot([], [disabled])
+    assert encode_snapshot([], [disabled]) == baseline
+    assert encode_snapshot([], [enabled]) != baseline
+
+
 def test_a_snapshot_written_before_visitor_headers_still_decodes():
     """Successful deployments are rollback targets forever.
 
@@ -381,6 +421,7 @@ def test_a_snapshot_written_before_visitor_headers_still_decodes():
     (site,) = decode_snapshot(legacy)
 
     assert site.visitor_headers == SiteVisitorHeaders()
+    assert site.http3_enabled is False
 
 
 def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():

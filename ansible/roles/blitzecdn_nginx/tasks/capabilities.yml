@@ -1,0 +1,57 @@
+---
+- name: Verify the managed Nginx binary and HTTP/3 build
+  ansible.builtin.import_tasks: build-capability.yml
+
+- name: Create a temporary Nginx module probe
+  ansible.builtin.tempfile:
+    state: file
+    suffix: .conf
+  register: blitzecdn_nginx_module_probe
+  check_mode: false
+  changed_when: false
+
+- name: Validate the managed dynamic modules
+  block:
+    - name: Write the Nginx module probe
+      ansible.builtin.copy:
+        dest: "{{ blitzecdn_nginx_module_probe.path }}"
+        owner: root
+        group: root
+        mode: "0600"
+        content: |
+          load_module /usr/lib/nginx/modules/ngx_http_geoip2_module.so;
+          load_module /usr/lib/nginx/modules/ngx_http_brotli_filter_module.so;
+          pid /run/blitzecdn-nginx-probe.pid;
+          events {}
+          http {
+              brotli off;
+          }
+      changed_when: false
+
+    - name: Test the Nginx module probe
+      ansible.builtin.command:
+        argv:
+          - nginx
+          - -t
+          - -c
+          - "{{ blitzecdn_nginx_module_probe.path }}"
+      register: blitzecdn_nginx_module_probe_result
+      changed_when: false
+      check_mode: false
+
+  rescue:
+    - name: Fail for an incompatible managed Nginx module stack
+      ansible.builtin.fail:
+        msg: >-
+          The Ubuntu Nginx dynamic modules are not loadable by the installed
+          binary, or the Brotli filter directives are unavailable. Reinstall
+          the managed Ubuntu 26.04 nginx, GeoIP2, and Brotli filter packages as
+          one ABI-matched stack. No edge configuration was applied.
+
+  always:
+    - name: Remove the temporary Nginx module probe
+      ansible.builtin.file:
+        path: "{{ blitzecdn_nginx_module_probe.path }}"
+        state: absent
+      check_mode: false
+      changed_when: false

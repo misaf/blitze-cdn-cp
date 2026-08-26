@@ -1,0 +1,34 @@
+---
+# BlitzeCDN owns this stack as one Ubuntu ABI unit. Installing the binary and
+# dynamic modules in a single transaction prevents an nginx.org binary from
+# being combined with Ubuntu modules built for a different nginx ABI.
+- name: Require the supported fresh-edge operating system
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ansible_facts.distribution_version == '26.04'
+      - >-
+        blitzecdn_nginx_packages ==
+        ['nginx', 'libnginx-mod-http-geoip2',
+         'libnginx-mod-http-brotli-filter']
+    fail_msg: >-
+      The managed BlitzeCDN Nginx stack requires a fresh Ubuntu 26.04 LTS edge
+      and the exact Ubuntu nginx, GeoIP2, and Brotli filter package set.
+
+- name: Install the managed Nginx stack
+  ansible.builtin.apt:
+    name: "{{ blitzecdn_nginx_packages }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: blitzecdn_nginx_stack_apt
+  until: blitzecdn_nginx_stack_apt is success
+  retries: 3
+  delay: 5
+
+- name: Verify the managed Nginx stack
+  ansible.builtin.import_tasks: capabilities.yml
+
+- name: Record that the managed Nginx stack is ready
+  ansible.builtin.set_fact:
+    blitzecdn_nginx_stack_ready: true

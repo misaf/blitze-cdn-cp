@@ -155,9 +155,8 @@ jobs:
   # runs them with the privileged commands stubbed, and neither can catch a
   # platform that cannot host the control plane at all.
   #
-  # The matrix is the supported-platform claim, executable: the oldest supported
-  # release of each distribution and the newest. Debian 12 is deliberately absent
-  # — it is a supported edge but ships Python 3.11, so it cannot be a controller.
+  # A standalone host is also an edge, so it uses the release's one supported
+  # fresh-edge platform rather than the control-plane-only compatibility range.
   install:
     name: Install on ${{ matrix.image }}
     runs-on: ubuntu-latest
@@ -165,8 +164,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        image: [debian:13, ubuntu:24.04, ubuntu:26.04]
+        image: [ubuntu:26.04]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install, re-install, and uninstall
         run: bash tests/container-install.sh ${{ matrix.image }}
+
+  http3-integration:
+    name: Ubuntu 26.04 HTTP/3 edge
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Provision and test HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, and Brotli
+        run: bash tests/http3-edge-integration.sh
