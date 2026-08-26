@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
-from blitzecdn.api.v2_models import CdnSite
+from blitzecdn.api.v2_models import CdnSiteV2 as CdnSite
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
