@@ -574,6 +574,62 @@ Cache correctness needs no attention here: edges already collapse client
 `Accept-Encoding` into `""`, `"gzip"` or `"br"` and make it part of the cache
 key, so a compressed and an identity response cannot share one entry.
 
+## Visitor request headers
+
+An origin behind the CDN sees an edge address on every connection. These
+headers are how it learns about the visitor instead. They are written by
+BlitzeCDN on the request to the origin, in a namespace BlitzeCDN owns:
+
+| Header             | Contains                                                          |
+| ------------------ | ----------------------------------------------------------------- |
+| `BZ-Connecting-IP` | The original visitor IP address, IPv4 or IPv6.                    |
+| `BZ-IPCountry`     | The ISO 3166-1 alpha-2 country code derived at the BlitzeCDN edge — `DE`, `IR`, `US`. |
+
+```bash
+blitzecdn record visitor-headers example.com cdn --ip-country
+blitzecdn deploy
+```
+
+`--connecting-ip/--no-connecting-ip` and `--ip-country/--no-ip-country` each
+set one switch and leave the other alone. The API field is `visitor_headers` on
+**v2 only** — v1 is frozen and neither reports nor accepts it — and a PATCH
+replaces the whole block:
+
+```json
+{ "visitor_headers": { "connecting_ip": true, "ip_country": true } }
+```
+
+`connecting_ip` is on by default and `ip_country` is off, because the country
+lookup needs a database the edge role does not install unless asked.
+
+Three things worth knowing before trusting them at the origin:
+
+- **`BZ-*` headers are generated and overwritten by BlitzeCDN.** The value
+  comes from `$remote_addr` — the peer address of the connection nginx
+  accepted, which no request header can influence — and from the GeoIP2 lookup
+  on that same address. A visitor who sends their own `BZ-Connecting-IP` has it
+  replaced; a header whose switch is off is *cleared* rather than passed
+  through, so nothing in the `BZ-` namespace ever reaches an origin carrying
+  client input. Incoming `X-Forwarded-For`, `X-Real-IP`, `True-Client-IP` and
+  `CF-Connecting-IP` are never consulted as a source.
+- **Origins should only trust them when origin access is restricted to trusted
+  BlitzeCDN edges.** A `BZ-Connecting-IP` arriving on a connection that did not
+  come from an edge means exactly as much as an `X-Forwarded-For` does —
+  nothing. Firewall the origin to the edge addresses (`blitzecdn edge list`
+  reports them) before reading these headers for rate limiting, geo-gating, or
+  audit logs.
+- **`BZ-IPCountry` requires GeoIP2/MaxMind support.** It reads the same
+  `$blitzecdn_country` as the firewall's country rules, so it needs
+  `blitzecdn_nginx_geoip_enabled: true` and a MaxMind country database on the
+  edge. A site that asks for it without them **fails the deploy** rather than
+  converging — unlike Brotli, which degrades, because an origin cannot tell a
+  header that was never sent from a visitor whose country is unknown. Nothing
+  is changed on the host when this fires.
+
+`X-Real-IP` and `X-Forwarded-For` are unchanged and still sent. Neither header
+affects the cache key: two visitors from different addresses or countries share
+one cached object.
+
 ## Origin DNS
 
 By default each edge re-resolves origin hostnames every

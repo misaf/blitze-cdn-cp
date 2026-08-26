@@ -14,6 +14,9 @@ blitzecdn_nginx_sites:
     cache_valid_success: 10m
     cache_valid_not_found: 1m
     compression: brotli
+    visitor_headers:
+      connecting_ip: true
+      ip_country: false
     name: cdn-example-com
     server_names:
       - cdn.example.com
@@ -45,6 +48,9 @@ blitzecdn_nginx_sites:
       denied_paths:
         - /admin
         - /.git
+    visitor_headers:
+      connecting_ip: true
+      ip_country: false
     name: static-example-com
     server_names:
       - static.example.com

@@ -115,13 +115,16 @@
   # alone evaluates to the dict.
   when: item.firewall | default({}, true) | length > 0
 
-# Country rules are the one part of the firewall this role cannot honour
-# unaided. Rendering them anyway against an undefined $blitzecdn_country would
-# fail `nginx -t` and roll the whole edge back; skipping them silently would
-# report a converged site that admits every country it was told to block.
-# Neither is acceptable for a control the operator believes is enforced, so
-# stop here and name the variable that turns it on.
-- name: Refuse country rules on an edge without GeoIP
+# Two settings resolve the client address to a country, and neither can be
+# honoured unaided: firewall country rules, and the BZ-IPCountry visitor
+# header. Rendering either against an undefined $blitzecdn_country would fail
+# `nginx -t` and roll the whole edge back; skipping them silently would report
+# a converged site that admits every country it was told to block, or an
+# origin reading an absent header as "country unknown". Neither is acceptable
+# for something the operator believes is in force, so stop here and name the
+# variable that turns it on. The control plane composes the same question in
+# SitePolicy.requires_geoip; a third consumer belongs in both places.
+- name: Refuse GeoIP-dependent settings on an edge without GeoIP
   ansible.builtin.assert:
     that:
       - >-
@@ -140,9 +143,18 @@
         | selectattr('denied_countries', 'defined')
         | selectattr('denied_countries')
         | list | length == 0
+      - >-
+        blitzecdn_nginx_geoip_enabled
+        or blitzecdn_nginx_sites
+        | selectattr('visitor_headers', 'defined')
+        | map(attribute='visitor_headers')
+        | selectattr('ip_country', 'defined')
+        | selectattr('ip_country')
+        | list | length == 0
     fail_msg: >-
-      A site asks for country-based filtering but
-      blitzecdn_nginx_geoip_enabled is false on {{ inventory_hostname }}.
-      Install a MaxMind country database at
+      A site asks for country-based filtering or the BZ-IPCountry visitor
+      header, but blitzecdn_nginx_geoip_enabled is false on
+      {{ inventory_hostname }}. Install a MaxMind country database at
       {{ blitzecdn_nginx_geoip_database }}, set the variable, and deploy again
-      — or remove the country rules. Nothing was changed on this host.
+      — or turn the country rules and visitor_headers.ip_country off. Nothing
+      was changed on this host.

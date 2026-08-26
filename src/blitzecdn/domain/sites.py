@@ -138,6 +138,45 @@ class CertificateMode(StrEnum):
     REQUESTED = "requested"
 
 
+class SiteVisitorHeaders(BaseModel):
+    """The ``BZ-*`` request headers the edge adds on the way to the origin.
+
+    These are edge-owned metadata, not a relay of what the visitor sent. Every
+    header named here is written by nginx from a value only the edge can know —
+    the connection's own peer address, and the country the GeoIP2 database
+    resolves it to — and a visitor-supplied header of the same name is replaced
+    on the way through. A disabled header is not merely unset: the template
+    clears it, so the ``BZ-`` namespace never carries anything a client wrote.
+
+    That is the whole security model, and it depends on one thing being true at
+    the origin: the origin must accept traffic only from BlitzeCDN edges. A
+    ``BZ-Connecting-IP`` arriving on a connection that did not come from an edge
+    means nothing, exactly as ``X-Forwarded-For`` does.
+
+    ``ip_country`` needs ngx_http_geoip2 and a MaxMind database. Unlike Brotli,
+    which degrades, a site that asks for it on an edge without GeoIP fails the
+    converge: the alternative is an origin reading an absent header as "country
+    unknown" and taking a decision on it. The role refuses rather than omit the
+    header — see ``requires_geoip`` and the role's validation tasks.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    #: ``BZ-Connecting-IP``: the visitor address, IPv4 or IPv6, as nginx saw it
+    #: on the connection. On by default — an origin behind the CDN sees an edge
+    #: address on every connection and has no other way to learn the visitor's.
+    connecting_ip: bool = True
+    #: ``BZ-IPCountry``: the ISO 3166-1 alpha-2 code for the visitor address.
+    #: Off by default, because it cannot be honoured without GeoIP and the edge
+    #: role has GeoIP off until an operator turns it on; defaulting it on would
+    #: fail the next converge of every existing site.
+    ip_country: bool = False
+
+    @property
+    def requires_geoip(self) -> bool:
+        return self.ip_country
+
+
 class SiteFirewall(BaseModel):
     """Per-hostname request filtering applied at the edge.
 
@@ -345,6 +384,21 @@ class SitePolicy(BaseModel):
     #: touches the firewall replaces the whole block. Merging partial rule
     #: lists would make "remove the last deny" impossible to express.
     firewall: SiteFirewall = SiteFirewall()
+    #: Nested for the same reason, and because the two switches are one
+    #: subject: what the edge tells the origin about the visitor.
+    visitor_headers: SiteVisitorHeaders = SiteVisitorHeaders()
+
+    @property
+    def requires_geoip(self) -> bool:
+        """Whether serving this site needs ``$blitzecdn_country`` to exist.
+
+        The single question the edge role's validation asks. Country firewall
+        rules were the first thing to need the GeoIP2 lookup and
+        ``BZ-IPCountry`` is the second, so the answer is composed here rather
+        than asked twice — a third consumer must extend this property, not add
+        a parallel condition to the role.
+        """
+        return self.firewall.requires_geoip or self.visitor_headers.requires_geoip
 
     @field_validator("origin_request_host", "origin_sni")
     @classmethod

@@ -86,6 +86,31 @@ argument_specs:
                 elements: str
                 default: []
                 description: URI prefixes answered with 403.
+          visitor_headers:
+            type: dict
+            description: >-
+              The BZ-* request headers this edge writes on the way to the
+              origin. Every one of them is generated here and overwrites what
+              the visitor sent under the same name; a header turned off is
+              cleared rather than forwarded, so the BZ- namespace never
+              carries client input. Absent means the defaults below.
+            options:
+              connecting_ip:
+                type: bool
+                default: true
+                description: >-
+                  Send BZ-Connecting-IP, the visitor address from $remote_addr
+                  — the peer of the connection nginx accepted, IPv4 or IPv6.
+                  Never derived from X-Forwarded-For or any other request
+                  header.
+              ip_country:
+                type: bool
+                default: false
+                description: >-
+                  Send BZ-IPCountry, the ISO 3166-1 alpha-2 code from
+                  $blitzecdn_country. Requires blitzecdn_nginx_geoip_enabled;
+                  a site asking for it without GeoIP fails validation rather
+                  than omitting the header.
       blitzecdn_nginx_allow_empty_sites:
         type: bool
         required: true

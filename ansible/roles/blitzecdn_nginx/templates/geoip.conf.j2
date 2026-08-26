@@ -1,7 +1,8 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
 #
 # Resolves the client address to a country once, in the http context, so every
-# managed site tests the same variable. The module itself is loaded by
+# managed site reads the same variable — firewall country rules, and the
+# BZ-IPCountry header sent to the origin. The module itself is loaded by
 # /etc/nginx/modules-enabled/, which the distribution package installs.
 #
 # $blitzecdn_country is the ISO 3166-1 alpha-2 code, or "" for an address the

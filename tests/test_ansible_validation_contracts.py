@@ -113,6 +113,41 @@ def test_role_refuses_country_rules_without_geoip(desired_state, tmp_path):
     assert allowed.returncode == 0, allowed.stdout
 
 
+def test_role_refuses_the_country_header_without_geoip(desired_state, tmp_path):
+    """`ip_country` must fail the deploy, not be quietly dropped.
+
+    An origin cannot tell a header that was never sent from a visitor whose
+    country the database could not place, so omitting BZ-IPCountry would hand
+    it a wrong answer rather than no answer. Country firewall rules already
+    stop the deploy for the same reason; this shares their assertion.
+    """
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {
+        "visitor_headers": {"connecting_ip": True, "ip_country": True}
+    }
+
+    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
+
+    assert result.returncode != 0
+    assert "blitzecdn_nginx_geoip_enabled" in result.stdout
+    assert "BZ-IPCountry" in result.stdout
+
+    allowed = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=True)
+    assert allowed.returncode == 0, allowed.stdout
+
+
+def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_path):
+    """It reads the connection, not the database; GeoIP is irrelevant to it."""
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {
+        "visitor_headers": {"connecting_ip": True, "ip_country": False}
+    }
+
+    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
+
+    assert result.returncode == 0, result.stdout
+
+
 def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp_path):
     """Defence in depth: the role holds even if the control plane regresses."""
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
