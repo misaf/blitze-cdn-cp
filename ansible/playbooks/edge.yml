@@ -13,13 +13,24 @@
     - name: Validate supported operating system
       ansible.builtin.assert:
         that:
-          - >-
-            (ansible_facts.distribution == 'Debian' and
-             ansible_facts.distribution_major_version | int >= 12) or
-            (ansible_facts.distribution == 'Ubuntu' and
-             ansible_facts.distribution_major_version | int >= 24)
-        fail_msg: BlitzeCDN supports Debian 12+ and Ubuntu 24.04+.
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version == '26.04'
+        fail_msg: BlitzeCDN edges for this release require Ubuntu 26.04 LTS.
       tags: [always]
+    - name: Validate requested HTTP/3 capability before changing the edge
+      ansible.builtin.assert:
+        that:
+          - blitzecdn_firewall_http3_enabled == blitzecdn_nginx_http3_enabled
+        fail_msg: >-
+          HTTP/3 firewall and Nginx desired state disagree. Regenerate the
+          desired-state document; UDP/443 and the QUIC listener must converge
+          together.
+      tags: [always, firewall, nginx]
+    - name: Install and verify the managed Nginx stack before firewall changes
+      ansible.builtin.import_role:
+        name: blitzecdn_nginx
+        tasks_from: install.yml
+      tags: [always, nginx]
   roles:
     - role: blitzecdn_base
       tags: [base]

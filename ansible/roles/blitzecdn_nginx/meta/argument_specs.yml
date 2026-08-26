@@ -14,6 +14,10 @@ argument_specs:
           ssl_mode: {type: str, choices: ['off', flexible, full, full_strict], required: true}
           ssl_automatic_mode: {type: str, choices: [auto, custom], default: auto}
           minimum_tls_version: {type: str, choices: ['1.2', '1.3'], default: '1.2'}
+          http3_enabled:
+            type: bool
+            default: false
+            description: Offer visitor HTTP/3 over QUIC on UDP/443.
           always_use_https:
             type: bool
             default: false
@@ -36,10 +40,9 @@ argument_specs:
             default: brotli
             description: >-
               Encodings this edge produces itself. brotli offers Brotli to
-              clients that accept it and gzip to the rest, degrading to gzip
-              where blitzecdn_nginx_brotli_enabled is false. off stops the edge
-              compressing; a body the origin already encoded is passed through
-              under every mode.
+              clients that accept it and gzip to the rest. The managed edge
+              stack always supplies the Brotli filter. off stops the edge
+              compressing; origin-encoded bodies pass through every mode.
           firewall:
             type: dict
             description: >-
@@ -124,6 +127,13 @@ argument_specs:
       blitzecdn_nginx_managed_sites_file: {type: path, required: true}
       blitzecdn_nginx_http_ports: {type: list, elements: int, required: true}
       blitzecdn_nginx_https_ports: {type: list, elements: int, required: true}
+      blitzecdn_nginx_http3_enabled: {type: bool, required: true}
+      blitzecdn_nginx_http3_listener_owner: {type: str, required: true}
+      blitzecdn_nginx_packages:
+        type: list
+        elements: str
+        required: true
+        description: Ubuntu ABI-matched Nginx, GeoIP2, and Brotli filter stack.
       blitzecdn_nginx_acme_root: {type: path, required: true}
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
@@ -132,13 +142,6 @@ argument_specs:
       blitzecdn_nginx_default_server: {type: bool, required: true}
       blitzecdn_nginx_default_site_file: {type: path, required: true}
       blitzecdn_nginx_normalize_accept_encoding: {type: bool, required: true}
-      blitzecdn_nginx_brotli_enabled:
-        type: bool
-        required: true
-        description: >-
-          Install the Brotli Nginx module, without which a site asking for
-          compression=brotli is served gzip instead. Not packaged on Debian 12.
-      blitzecdn_nginx_brotli_package: {type: str, required: true}
       blitzecdn_nginx_gzip_comp_level: {type: int, required: true}
       blitzecdn_nginx_brotli_comp_level: {type: int, required: true}
       blitzecdn_nginx_compression_min_length: {type: int, required: true}
@@ -157,9 +160,8 @@ argument_specs:
         type: bool
         required: true
         description: >-
-          Install ngx_http_geoip2 and define $blitzecdn_country, without which
-          per-site country rules cannot be honoured.
-      blitzecdn_nginx_geoip_package: {type: str, required: true}
+          Define $blitzecdn_country from the managed GeoIP2 module and database,
+          without which per-site country rules cannot be honoured.
       blitzecdn_nginx_geoip_database: {type: path, required: true}
       blitzecdn_nginx_geoip_reload: {type: str, required: true}
       blitzecdn_nginx_geoip_file: {type: path, required: true}

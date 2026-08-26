@@ -205,6 +205,7 @@ class RecordPatch(BaseModel):
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None
+    http3_enabled: bool | None = None
     always_use_https: bool | None = None
     origin_request_host: str | None = None
     origin_sni: str | None = None

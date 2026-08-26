@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 
 import blitzecdn.api.routes.v1.automatic_ssl as v1_automatic_ssl
 import blitzecdn.api.routes.v1.cache as v1_cache
@@ -100,6 +101,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 def _register_exception_handlers(application: FastAPI) -> None:
+    @application.exception_handler(ValidationError)
+    async def validation_error_handler(
+        _request: object, exc: ValidationError
+    ) -> JSONResponse:
+        # PATCH merges with current state inside the application service, so
+        # some cross-field failures are discovered after request parsing. They
+        # are still client validation errors rather than internal failures.
+        return _error_response(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
+
     @application.exception_handler(NotFoundError)
     async def not_found_handler(_request: object, exc: NotFoundError) -> JSONResponse:
         return _error_response(status.HTTP_404_NOT_FOUND, str(exc))

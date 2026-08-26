@@ -16,6 +16,7 @@ blitzecdn_firewall_http_ports:
   - 2087
   - 2096
   - 8443
+blitzecdn_firewall_http3_enabled: false
 
 # The rules this role installed on its last successful run, one per line as
 # `proto|port|source`. Without it the role can only add: ufw keeps every rule

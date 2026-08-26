@@ -34,11 +34,17 @@ server {
     listen {{ port }} ssl default_server;
     listen [::]:{{ port }} ssl default_server;
 {% endfor %}
+{% if blitzecdn_nginx_http3_enabled %}
+    # This catch-all owns the shared UDP sockets and their one-time reuseport
+    # option. Enabled HTTP/3 sites join the sockets without redeclaring it.
+    listen 443 quic reuseport default_server;
+    listen [::]:443 quic reuseport default_server;
+{% endif %}
     server_name _;
 
     # Rejects the handshake outright for unrecognised SNI, so no managed site's
     # certificate is ever presented for a hostname it does not cover. Requires
-    # nginx 1.19.4+ — Debian 12 ships 1.22, Ubuntu 24.04 ships 1.24 — and needs
-    # no certificate of its own, which is why it beats a self-signed placeholder.
+    # ssl_reject_handshake needs no certificate of its own, which is why it
+    # beats a self-signed placeholder on an unknown hostname.
     ssl_reject_handshake on;
 }

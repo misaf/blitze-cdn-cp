@@ -261,6 +261,36 @@ def record_minimum_tls(
         )
 
 
+@record_app.command("http3")
+def record_http3(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    on: Annotated[
+        bool,
+        typer.Option(
+            "--on/--off",
+            help="Offer HTTP/3 over QUIC on UDP/443, or withdraw it.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Enable or disable visitor HTTP/3 for one TLS-enabled hostname.
+
+    HTTP/2 and HTTP/1.1 remain available over TCP. This setting never changes
+    the protocol used from the edge to the origin.
+    """
+    record = common.control_plane().dns.update_record(
+        domain, name, type_, RecordPatch(http3_enabled=on), "cli"
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"HTTP/3 is now {'enabled' if on else 'disabled'} for "
+            f"{record.fqdn}. Run 'blitzecdn deploy' to apply."
+        )
+
+
 @record_app.command("always-use-https")
 def record_always_use_https(
     domain: Annotated[str, typer.Argument()],

@@ -42,6 +42,8 @@
               | map('string')
               | map('regex_replace', '^(.+)$', 'tcp|\1|any')
               | list
+            ) + (
+              ['udp|443|any'] if blitzecdn_firewall_http3_enabled else []
             )
           }}
 
@@ -89,6 +91,15 @@
         port: "{{ item }}"
         comment: BlitzeCDN public traffic
       loop: "{{ blitzecdn_firewall_http_ports }}"
+
+    - name: Allow HTTP/3 visitor traffic
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: udp
+        port: '443'
+        comment: BlitzeCDN HTTP/3 visitor traffic
+      when: blitzecdn_firewall_http3_enabled
 
     # Strictly after every rule above has been installed. Withdrawing first
     # would open a window with no SSH rule at all, and on a run that widens one

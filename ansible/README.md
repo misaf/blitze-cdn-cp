@@ -90,3 +90,24 @@ exactly as it was for the group the old static file declared.
 
 Check mode cannot prove service behaviour or package availability. Always run
 `blitzecdn validate`, then `blitzecdn plan`, before an applied deployment.
+
+## Managed Ubuntu 26.04 edge stack
+
+The supported fresh-edge platform for this release is Ubuntu 26.04 LTS.
+BlitzeCDN installs these Ubuntu archive packages as one ABI-matched unit:
+
+- `nginx`
+- `libnginx-mod-http-geoip2`
+- `libnginx-mod-http-brotli-filter`
+
+The role verifies Nginx 1.25.0+, `--with-http_v3_module`, both loadable dynamic
+modules, and an executable Brotli directive probe before firewall changes. Do
+not install nginx.org Nginx, manually replace the binary, or combine modules
+from another package source. Brotli static is not installed because the current
+configuration does not use it.
+
+Per-site HTTP/3 serves visitor traffic over QUIC on UDP/443 only. TCP/443 keeps
+HTTP/2 and HTTP/1.1 fallback, alternate HTTPS ports stay TCP-only, and origin
+proxying remains HTTP/1.1. The firewall owns UDP/443 only while at least one
+enabled site requests HTTP/3. Run `just test-integration-http3` from the project
+root for the clean Ubuntu package, module, multi-site, and real protocol proof.

@@ -1147,6 +1147,7 @@ def test_site_show_reveals_defaults_a_record_never_mentioned(settings, monkeypat
     assert site["ssl_mode"] == "off"
     assert site["ssl_automatic_mode"] == "auto"
     assert site["minimum_tls_version"] == "1.2"
+    assert site["http3_enabled"] is False
     assert site["cache_query_string_mode"] == "include"
     assert "origin_scheme" not in site
     assert site["cache_valid_success"] == "10m"
@@ -1192,6 +1193,34 @@ def test_record_ssl_changes_the_combined_mode(settings, monkeypatch):
         == "full_strict"
     )
     assert "Run 'blitzecdn deploy'" in result.stdout
+
+
+def test_record_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord.model_validate(
+            {
+                "domain": "example.com",
+                "name": "cdn",
+                "value": "198.51.100.10",
+                "proxied": True,
+                "ssl_mode": "flexible",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+            }
+        ),
+        "cli",
+    )
+
+    result = runner.invoke(
+        cli.app, ["record", "http3", "example.com", "cdn", "--on", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["http3_enabled"] is True
+    assert control.dns.get_site("cdn-example-com").http3_enabled is True
 
 
 def test_record_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):

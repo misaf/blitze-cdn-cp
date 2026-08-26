@@ -28,3 +28,59 @@ def test_no_cloudflare_header_name_is_published_by_the_api(settings):
 
     for foreign in ("CF-Connecting-IP", "cf_connecting_ip", "True-Client-IP"):
         assert foreign not in document
+
+
+def test_http3_create_read_patch_and_validation(settings):
+    headers = {"X-API-Key": "x" * 32}
+    record = {
+        "domain": "example.com",
+        "name": "cdn",
+        "value": "198.51.100.10",
+        "proxied": True,
+        "ssl_mode": "flexible",
+        "http3_enabled": True,
+        "certificate_mode": "existing",
+        "certificate_path": "/etc/ssl/certs/edge.pem",
+        "certificate_key_path": "/etc/ssl/private/edge.key",
+    }
+    with TestClient(create_app(settings)) as client:
+        created_domain = client.post(
+            "/v2/domains", json={"name": "example.com"}, headers=headers
+        )
+        assert created_domain.status_code == 201
+        created = client.post(
+            "/v2/domains/example.com/records", json=record, headers=headers
+        )
+        assert created.status_code == 201
+        assert created.json()["http3_enabled"] is True
+        assert (
+            client.get("/v2/sites", headers=headers).json()[0]["http3_enabled"] is True
+        )
+
+        unchanged = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"http3_enabled": True},
+            headers=headers,
+        )
+        assert unchanged.status_code == 200
+        assert unchanged.json()["http3_enabled"] is True
+
+        disabled = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"http3_enabled": False},
+            headers=headers,
+        )
+        assert disabled.status_code == 200
+        assert disabled.json()["http3_enabled"] is False
+
+        rejected = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"ssl_mode": "off", "http3_enabled": True},
+            headers=headers,
+        )
+        assert rejected.status_code == 422
+        assert "requires ssl_mode" in rejected.text
+
+        events = client.get("/v2/audit-events", headers=headers).json()
+        updates = [event for event in events if event["action"] == "record.updated"]
+        assert any("http3_enabled" in event["details"]["fields"] for event in updates)

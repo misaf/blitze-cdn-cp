@@ -37,10 +37,20 @@ class DesiredStateRenderer:
                 document["certificate_path"] = str(destination / certificate.name)
                 document["certificate_key_path"] = str(destination / private_key.name)
             documents.append(document)
+        http3_sites = sorted(
+            str(document["name"])
+            for document in documents
+            if document.get("enabled", True) and document.get("http3_enabled", False)
+        )
         self.write_yaml(
             path,
             {
+                "blitzecdn_firewall_http3_enabled": bool(http3_sites),
                 "blitzecdn_nginx_allow_empty_sites": self.allow_empty_sites,
+                "blitzecdn_nginx_http3_enabled": bool(http3_sites),
+                "blitzecdn_nginx_http3_listener_owner": (
+                    http3_sites[0] if http3_sites else ""
+                ),
                 "blitzecdn_nginx_sites": documents,
             },
         )

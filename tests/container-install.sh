@@ -8,9 +8,7 @@
 # with the privileged commands stubbed, because provisioning needs root and a
 # real init. Here it gets both: systemd as PID 1, a real apt, real accounts.
 #
-# It is also the only place the supported-platform claim is checked against a
-# platform. Debian 12 is a supported edge but cannot run the control plane — it
-# ships Python 3.11 — and that kind of gap is invisible to every other test.
+# It also checks the supported fresh-edge platform contract against a real OS.
 #
 # Requires Docker and about five minutes per image.
 set -Eeuo pipefail

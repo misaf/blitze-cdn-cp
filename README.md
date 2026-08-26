@@ -5,7 +5,7 @@ edge servers. Python owns validation, desired state, deployment history,
 planning, rollback, audit records, and process execution. Ansible exclusively
 owns remote Linux state.
 
-The project is intentionally opinionated: Debian 12+ and Ubuntu 24.04+ edges,
+The project is intentionally opinionated: freshly installed Ubuntu 26.04 LTS edges,
 OpenSSH host-key verification, public-key-only SSH, non-root SSH users with
 explicit sudo, UFW,
 Fail2Ban, centrally coordinated ACME HTTP-01 issuance, managed certificate
@@ -19,9 +19,9 @@ Certbot must also be installed on the controller for ACME requests.
 
 ### Standalone server
 
-To run an independent control plane and edge on the same Debian 13+ or Ubuntu
-24.04+ server, clone the release into the production path and run the standalone
-installer:
+To run an independent control plane and edge on one host, start with a fresh
+Ubuntu 26.04 LTS server, clone the release into the production path, and run the
+standalone installer:
 
 ```bash
 sudo git clone --branch 2.x \
@@ -514,6 +514,54 @@ blitzecdn deploy
 Use `--version 1.2` to restore TLS 1.2 and 1.3 compatibility. The equivalent
 record API field is `minimum_tls_version`, accepting `"1.2"` or `"1.3"`.
 
+## HTTP/3 (QUIC)
+
+HTTP/3 is an opt-in per-record visitor protocol. It applies only from visitors
+to a BlitzeCDN edge; proxying from the edge to the origin remains HTTP/1.1 over
+the transport selected by `ssl_mode`. Enable it for a TLS-enabled record with:
+
+```bash
+blitzecdn record http3 example.com cdn --on
+blitzecdn deploy
+```
+
+The v2 API field is the boolean `http3_enabled`. Its migration-safe default is
+`false`, and setting it while `ssl_mode` is `off` is rejected. QUIC always uses
+TLS 1.3 internally, but `minimum_tls_version: "1.2"` remains valid and preserves
+TLS 1.2 support for TCP clients.
+
+The initial implementation listens for QUIC only on UDP/443. Alternate HTTPS
+ports (2053, 2083, 2087, 2096, and 8443) remain TCP-only. HTTP/2 and HTTP/1.1
+stay available on TCP/443 as fallbacks. Enabled sites advertise
+`Alt-Svc: h3=":443"; ma=86400`; disabling the setting removes both that header
+and the managed UDP/443 firewall rule when no enabled site still needs it.
+
+UDP/443 must be reachable end to end. BlitzeCDN owns the edge Nginx stack and
+installs Ubuntu's `nginx`, `libnginx-mod-http-geoip2`, and
+`libnginx-mod-http-brotli-filter` packages together. The role then requires
+Nginx 1.25.0+, `--with-http_v3_module`, loadable ABI-matched dynamic modules,
+and accepted Brotli directives before firewall or live configuration changes.
+It fails instead of silently dropping a capability. The static Brotli module
+is not installed because BlitzeCDN emits no `brotli_static` directive.
+
+Do not replace the managed binary or mix nginx.org packages with Ubuntu dynamic
+modules. For an existing fleet, provision fresh Ubuntu 26.04 edges, validate a
+small batch, then shift traffic and enable HTTP/3 per site.
+
+The complete clean-machine proof is intentionally separate from fast tests:
+
+```bash
+just test-integration-http3
+```
+
+It provisions `ubuntu:26.04`, tests two QUIC sites with `nginx -t`, and makes
+real HTTP/1.1, HTTP/2, HTTP/3-only, GeoIP2, and Brotli requests. To verify a
+deployed edge manually, use an HTTP/3-capable client:
+
+```bash
+curl --http3-only -I https://cdn.example.com/
+```
+
 ## WebSockets and cache query strings
 
 WebSocket proxying is automatic for every proxied hostname. The edge forwards
@@ -553,13 +601,10 @@ reading the record sees the same shape it always did.
 
 Three things worth knowing before changing it:
 
-- **Brotli needs a module the distribution may not have.** Set
-  `blitzecdn_nginx_brotli_enabled: true` to install
-  `libnginx-mod-http-brotli` (packaged on Debian 13 and Ubuntu 24.04+, not on
-  Debian 12). A site set to `brotli` on an edge without it serves gzip rather
-  than failing the deploy — unlike a firewall country rule without GeoIP,
-  which does fail, because gzip is a correct answer and an unfiltered site is
-  not.
+- **Brotli is part of the managed edge stack.** Ubuntu 26.04 splits its dynamic
+  modules, so BlitzeCDN installs `libnginx-mod-http-brotli-filter` for the exact
+  Nginx ABI. If it is missing or unloadable, provisioning fails; Brotli policy
+  is never silently changed to gzip. The static module is not needed.
 - **`off` means this edge does not compress, not that responses arrive
   uncompressed.** A body the origin already encoded is passed through under
   every mode; nginx will not decode and re-encode one to strip it.
@@ -621,10 +666,9 @@ Three things worth knowing before trusting them at the origin:
 - **`BZ-IPCountry` requires GeoIP2/MaxMind support.** It reads the same
   `$blitzecdn_country` as the firewall's country rules, so it needs
   `blitzecdn_nginx_geoip_enabled: true` and a MaxMind country database on the
-  edge. A site that asks for it without them **fails the deploy** rather than
-  converging — unlike Brotli, which degrades, because an origin cannot tell a
-  header that was never sent from a visitor whose country is unknown. Nothing
-  is changed on the host when this fires.
+  edge. A site that asks for it without them **fails the deploy**, because an
+  origin cannot tell a header that was never sent from a visitor whose country
+  is unknown. Nothing is changed on the host when this fires.
 
 `X-Real-IP` and `X-Forwarded-For` are unchanged and still sent. Neither header
 affects the cache key: two visitors from different addresses or countries share

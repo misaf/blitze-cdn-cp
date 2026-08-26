@@ -1,6 +1,22 @@
 # ruff: noqa: F403,F405
 from contract_support import *
 
+
+def test_http3_uses_the_firewall_registry_for_udp_443():
+    role = _role("blitzecdn_firewall")
+    tasks = (role / "tasks/main.yml").read_text(encoding="utf-8")
+    play = (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+
+    assert "['udp|443|any'] if blitzecdn_firewall_http3_enabled else []" in tasks
+    assert "proto: udp" in tasks
+    assert "when: blitzecdn_firewall_http3_enabled" in tasks
+    assert "^(tcp|udp)\\|" in tasks
+    assert "difference(blitzecdn_firewall_desired_rules)" in tasks
+    assert play.index("tasks_from: install.yml") < play.index(
+        "role: blitzecdn_firewall"
+    )
+
+
 # ----------------------------------------------------------------------
 # Cross-role agreements
 #

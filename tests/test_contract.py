@@ -341,6 +341,7 @@ def test_public_ports_match_cloudflare_and_the_firewall():
     assert nginx["blitzecdn_nginx_http_ports"] == http_ports
     assert nginx["blitzecdn_nginx_https_ports"] == https_ports
     assert firewall["blitzecdn_firewall_http_ports"] == http_ports + https_ports
+    assert firewall["blitzecdn_firewall_http3_enabled"] is False
 
 
 def test_default_server_claims_every_public_listener():
@@ -370,6 +371,112 @@ def _render(site: dict[str, Any], **overrides: Any) -> str:
     return environment.get_template("site.conf.j2").render(
         **(_role_defaults() | overrides), item=site
     )
+
+
+def _http3_site(name: str = "quic") -> dict[str, Any]:
+    return site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": name,
+                "server_names": [f"{name}.example.com"],
+                "origin_host": "origin.example.com",
+                "ssl_mode": "flexible",
+                "http3_enabled": True,
+                "minimum_tls_version": "1.2",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+            }
+        )
+    )
+
+
+def test_http3_is_additive_and_limited_to_udp_443():
+    rendered = _render(_http3_site())
+
+    assert "listen 443 ssl;" in rendered
+    assert "http2 on;" in rendered
+    assert "listen 443 quic;" in rendered
+    assert "listen [::]:443 quic;" in rendered
+    assert "ssl_protocols TLSv1.2 TLSv1.3;" in rendered
+    for port in (2053, 2083, 2087, 2096, 8443):
+        assert f"listen {port} quic" not in rendered
+        assert f"listen [::]:{port} quic" not in rendered
+
+
+def test_http3_alt_svc_is_in_the_proxy_location_header_set():
+    rendered = _render(_http3_site())
+    assert rendered.count("add_header Alt-Svc") == 1
+    assert "add_header Alt-Svc 'h3=\":443\"; ma=86400' always;" in rendered
+    location = rendered[rendered.index("location / {") :]
+    assert "add_header Alt-Svc" in location
+
+
+def test_http3_disabled_emits_neither_quic_nor_alt_svc():
+    site = _http3_site()
+    site["http3_enabled"] = False
+    rendered = _render(site)
+    assert "listen 443 quic" not in rendered
+    assert "Alt-Svc" not in rendered
+
+
+def test_default_server_owns_reuseport_once_for_many_http3_sites():
+    defaults = _role_defaults() | {"blitzecdn_nginx_http3_enabled": True}
+    environment = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    catch_all = environment.get_template("default.conf.j2").render(**defaults)
+    sites = "".join(_render(_http3_site(name)) for name in ("alpha", "bravo"))
+
+    assert catch_all.count("quic reuseport default_server") == 2
+    assert "reuseport" not in sites
+    assert sites.count("listen 443 quic;") == 2
+    assert "ssl_reject_handshake on;" in catch_all
+
+
+def test_first_http3_site_owns_reuseport_without_a_catch_all():
+    overrides = {
+        "blitzecdn_nginx_default_server": False,
+        "blitzecdn_nginx_http3_listener_owner": "alpha",
+    }
+    alpha = _render(_http3_site("alpha"), **overrides)
+    bravo = _render(_http3_site("bravo"), **overrides)
+
+    assert alpha.count("quic reuseport;") == 2
+    assert "reuseport" not in bravo
+
+
+def test_desired_state_derives_http3_firewall_and_listener_ownership(
+    settings, tmp_path
+):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings=settings, repository=repository)
+    repository.zones.create_domain(Domain(name="example.com"))
+    for name in ("zeta", "alpha"):
+        repository.zones.create_record(
+            DnsRecord.model_validate(
+                {
+                    "domain": "example.com",
+                    "name": name,
+                    "value": "198.51.100.20",
+                    "proxied": True,
+                    "ssl_mode": "flexible",
+                    "http3_enabled": True,
+                    "certificate_mode": "existing",
+                    "certificate_path": "/etc/ssl/certs/edge.pem",
+                    "certificate_key_path": "/etc/ssl/private/edge.key",
+                }
+            )
+        )
+    output = tmp_path / "http3.yml"
+    control.deployments.write_desired_state(repository.snapshot(), output)
+    document = yaml.safe_load(output.read_text(encoding="utf-8"))
+
+    assert document["blitzecdn_firewall_http3_enabled"] is True
+    assert document["blitzecdn_nginx_http3_enabled"] is True
+    assert document["blitzecdn_nginx_http3_listener_owner"] == "alpha-example-com"
 
 
 def test_firewall_rules_reach_the_generated_configuration(desired_state):
@@ -852,28 +959,12 @@ def _compressed(mode: CompressionMode) -> dict[str, Any]:
     )
 
 
-def test_brotli_is_offered_only_where_the_module_is_installed():
-    """Wanting Brotli and having it are separate; the gap degrades to gzip.
-
-    The directives do not exist without the module, so emitting them on an edge
-    that lacks it would fail `nginx -t` for every site on that edge, not just
-    this one. The site still gets gzip, which is what the client that could not
-    take Brotli was going to receive anyway.
-    """
+def test_brotli_uses_the_managed_filter_and_keeps_gzip_fallback():
     site = _compressed(CompressionMode.BROTLI)
-
-    without = _render(site, blitzecdn_nginx_brotli_enabled=False)
-    assert "brotli on;" not in without
-    assert "brotli off;" not in without, (
-        "the directive is undefined without the module; naming it to turn it "
-        "off breaks the whole edge"
-    )
-    assert "gzip on;" in without
-
-    with_module = _render(site, blitzecdn_nginx_brotli_enabled=True)
-    assert "brotli on;" in with_module
-    assert "brotli_comp_level 5;" in with_module
-    assert "gzip on;" in with_module, "Brotli never replaces the gzip fallback"
+    rendered = _render(site)
+    assert "brotli on;" in rendered
+    assert "brotli_comp_level 5;" in rendered
+    assert "gzip on;" in rendered, "Brotli never replaces the gzip fallback"
 
 
 def test_compression_off_says_so_rather_than_staying_silent():
@@ -887,10 +978,8 @@ def test_compression_off_says_so_rather_than_staying_silent():
     assert "gzip on;" not in rendered
 
 
-def test_gzip_only_turns_brotli_off_where_the_module_is_present():
-    rendered = _render(
-        _compressed(CompressionMode.GZIP), blitzecdn_nginx_brotli_enabled=True
-    )
+def test_gzip_only_turns_the_managed_brotli_filter_off():
+    rendered = _render(_compressed(CompressionMode.GZIP))
 
     assert "gzip on;" in rendered
     assert "brotli off;" in rendered
@@ -918,9 +1007,7 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
     the key does not distinguish, and a client would be handed a body it cannot
     decode — the exact failure the Accept-Encoding map exists to prevent.
     """
-    rendered = _render(
-        _compressed(CompressionMode.BROTLI), blitzecdn_nginx_brotli_enabled=True
-    )
+    rendered = _render(_compressed(CompressionMode.BROTLI))
 
     assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
     assert (
@@ -933,9 +1020,12 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
     assert "gzip_proxied any;" in rendered
 
 
-def test_brotli_is_off_until_an_operator_turns_it_on():
-    """It is a third-party module Debian 12 does not package."""
-    assert _role_defaults()["blitzecdn_nginx_brotli_enabled"] is False
+def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
+    assert _role_defaults()["blitzecdn_nginx_packages"] == [
+        "nginx",
+        "libnginx-mod-http-geoip2",
+        "libnginx-mod-http-brotli-filter",
+    ]
 
 
 def test_missing_compression_preserves_pre_upgrade_behavior():

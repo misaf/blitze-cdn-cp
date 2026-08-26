@@ -109,16 +109,11 @@ class CompressionMode(StrEnum):
     "gzip only after Brotli" state to express — the two are advertised
     independently by every client that supports either.
 
-    Two things this does not mean.
+    The ABI-matched Brotli filter is an invariant of BlitzeCDN's managed edge
+    stack. A missing module fails provisioning instead of silently changing
+    this policy to gzip.
 
-    It is not a promise that Brotli is available. The module is opt-in per
-    edge (``blitzecdn_nginx_brotli_enabled``), and a site asking for it where
-    it is absent is served gzip rather than failing the converge — the
-    opposite of how a firewall country rule treats a missing GeoIP database,
-    deliberately: an unfiltered site is a security failure, while gzip instead
-    of Brotli is a correct response that is merely larger.
-
-    And it governs what *this edge* compresses, not what a client receives. A
+    This governs what *this edge* compresses, not what a client receives. A
     response the origin already encoded arrives with ``Content-Encoding`` set
     and is passed through untouched under every mode including ``OFF``; nginx
     never re-compresses an encoded body, and stripping one to honour ``OFF``
@@ -357,6 +352,10 @@ class SitePolicy(BaseModel):
     #: Cloudflare-compatible edge minimum. TLS 1.2 preserves the existing
     #: browser compatibility; 1.3 can be selected per hostname.
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
+    #: Offer HTTP/3 over QUIC to visitors on UDP/443. QUIC always negotiates
+    #: TLS 1.3 itself; this does not raise the minimum used by the parallel TCP
+    #: HTTPS listeners, which may continue accepting TLS 1.2.
+    http3_enabled: bool = False
     #: Redirect visitor HTTP requests to the same URI over HTTPS when this site
     #: serves TLS. Kept independent from ``ssl_mode`` so a site can offer both
     #: schemes while retaining its edge and origin encryption policy.
@@ -387,6 +386,12 @@ class SitePolicy(BaseModel):
     #: Nested for the same reason, and because the two switches are one
     #: subject: what the edge tells the origin about the visitor.
     visitor_headers: SiteVisitorHeaders = SiteVisitorHeaders()
+
+    @model_validator(mode="after")
+    def validate_http3_requires_edge_tls(self) -> Self:
+        if self.http3_enabled and not self.ssl_mode.serves_tls:
+            raise ValueError("http3_enabled=True requires ssl_mode to serve edge TLS")
+        return self
 
     @property
     def requires_geoip(self) -> bool:

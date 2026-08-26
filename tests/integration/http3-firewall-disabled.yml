@@ -1,0 +1,12 @@
+---
+- name: Withdraw HTTP/3 firewall state
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  vars:
+    blitzecdn_firewall_enabled: true
+    blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
+    blitzecdn_firewall_http3_enabled: false
+  roles:
+    - role: blitzecdn_firewall

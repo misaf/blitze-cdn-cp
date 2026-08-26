@@ -18,14 +18,25 @@ blitzecdn_nginx_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
 # HTTP listeners either proxy directly or redirect a TLS-enabled site.
 blitzecdn_nginx_http_ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
 blitzecdn_nginx_https_ports: [443, 2053, 2083, 2087, 2096, 8443]
+# Derived by the control plane from enabled sites. HTTP/3 is intentionally
+# fixed to UDP/443; the alternate HTTPS ports remain TCP-only.
+blitzecdn_nginx_http3_enabled: false
+blitzecdn_nginx_http3_listener_owner: ''
+# Ubuntu 26.04 supplies all three from one archive and pins the dynamic modules
+# to nginx-abi-1.28.3-1. Brotli static is intentionally absent: BlitzeCDN only
+# compresses responses dynamically and emits no brotli_static directive.
+blitzecdn_nginx_packages:
+  - nginx
+  - libnginx-mod-http-geoip2
+  - libnginx-mod-http-brotli-filter
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
 # the backslashes are literal rather than Jinja string escapes.
 blitzecdn_nginx_certificate_path_pattern: '^/(?!.*(?:^|/)\.\.(?:/|$))etc/(?:blitzecdn/tls|ssl|letsencrypt)/[^;{}]+$'
 blitzecdn_nginx_acme_root: /var/lib/blitzecdn/acme
-# Defaults to the systemd-resolved stub listener, present on Debian 12 and
-# Ubuntu 24.04. Set to [] to pin origin IPs at config-load time instead.
+# Defaults to Ubuntu 26.04's systemd-resolved stub listener. Set to [] to pin
+# origin IPs at config-load time instead.
 blitzecdn_nginx_resolvers: [127.0.0.53]
 blitzecdn_nginx_resolver_valid: 30s
 blitzecdn_nginx_resolver_timeout: 5s
@@ -43,23 +54,8 @@ blitzecdn_nginx_default_site_file: /etc/nginx/sites-available/blitzecdn-default.
 # be served a body it cannot decode.
 blitzecdn_nginx_normalize_accept_encoding: true
 
-# Response compression (the `compression` setting on a site).
-#
-# gzip needs nothing: it is built into every nginx Debian and Ubuntu ship.
-# Brotli is a third-party module and is not, so it is opt-in per deployment in
-# the same way GeoIP is — but the failure mode is not the same and neither is
-# the handling. A site asking for country rules on an edge without the GeoIP
-# database fails the converge, because the alternative is a filter that admits
-# everyone. A site asking for Brotli on an edge without this simply serves
-# gzip: a correct response that is merely larger, to a client that asked for
-# gzip too. Failing a deploy over that would be the worse trade.
-#
-# Turn it on only where `blitzecdn_nginx_brotli_package` actually exists — the
-# module is packaged on Debian 13 and Ubuntu 24.04+, and not on Debian 12. The
-# package drops its own load_module snippet into /etc/nginx/modules-enabled,
-# so nothing else is needed to make the directives available.
-blitzecdn_nginx_brotli_enabled: false
-blitzecdn_nginx_brotli_package: libnginx-mod-http-brotli
+# Response compression (the `compression` setting on a site). gzip is built in;
+# the ABI-matched Brotli filter is an invariant of the managed package stack.
 
 # Compressing on the fly costs CPU on every response, including cache hits —
 # the cache stores what the origin sent, and the compression filter runs on the
@@ -124,7 +120,6 @@ blitzecdn_nginx_hsts_max_age: 31536000
 # $blitzecdn_country and fails the same assertion — an origin cannot tell a
 # header that was never sent from a visitor whose country is unknown.
 blitzecdn_nginx_geoip_enabled: false
-blitzecdn_nginx_geoip_package: libnginx-mod-http-geoip2
 blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
 blitzecdn_nginx_geoip_reload: 5m
 blitzecdn_nginx_geoip_file: /etc/nginx/conf.d/blitzecdn-geoip.conf
