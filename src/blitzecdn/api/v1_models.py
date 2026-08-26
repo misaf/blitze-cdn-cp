@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Literal, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -27,6 +27,25 @@ from blitzecdn.domain.sites import (
 
 class V1Model(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_mode_override="validation")
+
+    @classmethod
+    def _project(cls, value: BaseModel) -> dict[str, Any]:
+        """Keep only the fields this version declares.
+
+        Version 1 is frozen, and these models forbid extras, so a policy knob
+        added to the domain after v1 shipped would otherwise make every v1 read
+        of that resource raise — the version would break precisely because it
+        was not changed. Projecting here is what makes "add a field" a v2-only
+        edit instead of a v1 outage.
+
+        A v1 client that writes a whole record still gets the domain default
+        for anything v1 cannot name; only PATCH, which sends
+        ``exclude_unset``, leaves such a field untouched. That is the honest
+        reading of a frozen representation: it cannot express what it does not
+        have a word for.
+        """
+        document = value.model_dump(mode="json")
+        return {name: document[name] for name in cls.model_fields if name in document}
 
 
 class Domain(V1Model):
@@ -94,7 +113,7 @@ class DnsRecord(SitePolicyV1):
 
     @classmethod
     def from_domain(cls, value: DomainDnsRecord) -> Self:
-        return cls.model_validate(value.model_dump(mode="json"))
+        return cls.model_validate(cls._project(value))
 
 
 class RecordPatch(V1Model):
@@ -128,7 +147,7 @@ class CdnSite(SitePolicyV1):
 
     @classmethod
     def from_domain(cls, value: DomainCdnSite) -> Self:
-        return cls.model_validate(value.model_dump(mode="json"))
+        return cls.model_validate(cls._project(value))
 
 
 class Edge(V1Model):
@@ -150,7 +169,7 @@ class Edge(V1Model):
 
     @classmethod
     def from_domain(cls, value: DomainEdge) -> Self:
-        return cls.model_validate(value.model_dump(mode="json"))
+        return cls.model_validate(cls._project(value))
 
 
 class EdgePatch(V1Model):
