@@ -38,8 +38,9 @@ A hexagonal layering that is **enforced by tests, not by convention** — `tests
 - `cli/`, `api/` — entry points, split along matching feature boundaries. They call services on `ControlPlane`.
 
 Adapter document shapes do not belong on domain models. Keep Ansible and
-inventory mappings in `infrastructure/ansible_mapping.py`, and keep HTTP v1
-representations in `api/v2_models.py` and `api/v2_operations.py`. Persisted deployment snapshots are a
+inventory mappings in `infrastructure/ansible_mapping.py`. Keep the frozen HTTP
+v1 representations in `api/v1_models.py` and `api/v1_operations.py`, and evolve
+v2 independently in `api/v2_models.py` and `api/v2_operations.py`. Persisted deployment snapshots are a
 versioned compatibility contract; add an upcaster and a legacy fixture before
 changing their shape. Application code receives the policies in
 `application/configuration.py`, not the global `Settings` model.

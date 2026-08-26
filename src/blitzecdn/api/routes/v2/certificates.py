@@ -20,17 +20,17 @@ from blitzecdn.api.v2_operations import (
     RenewalResult,
     as_v2,
 )
-from blitzecdn.api_models import RenewRequest
+from blitzecdn.api.v2_requests import RenewRequest
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
-@router.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
+@router.get("/v2/sites/{name}/certificate", response_model=CertificateInfo)
 def certificate(name: str, control: ControlPlaneDependency) -> CertificateInfo:
     return as_v2(control.certificates.certificate(name), CertificateInfo)
 
 
-@router.get("/v1/certificates", response_model=list[CertificateStatus])
+@router.get("/v2/certificates", response_model=list[CertificateStatus])
 def list_certificates(
     control: ControlPlaneDependency,
     expiring_in: int | None = Query(None, ge=0, le=3650),
@@ -43,7 +43,7 @@ def list_certificates(
     return [as_v2(item, CertificateStatus) for item in statuses]
 
 
-@router.post("/v1/certificates/renew", response_model=RenewalResult)
+@router.post("/v2/certificates/renew", response_model=RenewalResult)
 async def renew_certificates(
     request: RenewRequest,
     operator: OperatorDependency,
@@ -66,7 +66,7 @@ async def renew_certificates(
     return as_v2(result, RenewalResult)
 
 
-@router.post("/v1/certificates/reconcile", response_model=ReconciliationResult)
+@router.post("/v2/certificates/reconcile", response_model=ReconciliationResult)
 def reconcile_certificates(
     operator: OperatorDependency, control: ControlPlaneDependency
 ) -> ReconciliationResult:
@@ -76,7 +76,7 @@ def reconcile_certificates(
     )
 
 
-@router.post("/v1/sites/{name}/certificate/upload", response_model=CertificateInfo)
+@router.post("/v2/sites/{name}/certificate/upload", response_model=CertificateInfo)
 async def upload_certificate(
     name: str,
     operator: OperatorDependency,
@@ -95,7 +95,7 @@ async def upload_certificate(
     )
 
 
-@router.post("/v1/sites/{name}/certificate/request", response_model=CertificateInfo)
+@router.post("/v2/sites/{name}/certificate/request", response_model=CertificateInfo)
 def request_certificate(
     name: str,
     request: CertificateRequest,
@@ -113,7 +113,7 @@ def request_certificate(
     )
 
 
-@router.get("/v1/sites/{name}/certificate/preflight", response_model=PreflightReport)
+@router.get("/v2/sites/{name}/certificate/preflight", response_model=PreflightReport)
 def certificate_preflight(
     name: str, control: ControlPlaneDependency
 ) -> PreflightReport:

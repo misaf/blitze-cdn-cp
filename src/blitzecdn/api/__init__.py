@@ -7,17 +7,24 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 
+import blitzecdn.api.routes.v1.automatic_ssl as v1_automatic_ssl
+import blitzecdn.api.routes.v1.cache as v1_cache
+import blitzecdn.api.routes.v1.certificates as v1_certificates
+import blitzecdn.api.routes.v1.deployments as v1_deployments
+import blitzecdn.api.routes.v1.diagnostics as v1_diagnostics
+import blitzecdn.api.routes.v1.edges as v1_edges
+import blitzecdn.api.routes.v1.sites as v1_sites
+import blitzecdn.api.routes.v1.zones as v1_zones
+import blitzecdn.api.routes.v2.automatic_ssl as v2_automatic_ssl
+import blitzecdn.api.routes.v2.cache as v2_cache
+import blitzecdn.api.routes.v2.certificates as v2_certificates
+import blitzecdn.api.routes.v2.deployments as v2_deployments
+import blitzecdn.api.routes.v2.diagnostics as v2_diagnostics
+import blitzecdn.api.routes.v2.edges as v2_edges
+import blitzecdn.api.routes.v2.sites as v2_sites
+import blitzecdn.api.routes.v2.zones as v2_zones
 from blitzecdn import __version__
-from blitzecdn.api.routes import (
-    automatic_ssl,
-    cache,
-    certificates,
-    deployments,
-    diagnostics,
-    edges,
-    sites,
-    zones,
-)
+from blitzecdn.api.routes import diagnostics
 from blitzecdn.config import Settings
 from blitzecdn.control_plane import build_control_plane
 from blitzecdn.exceptions import (
@@ -71,13 +78,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     _register_exception_handlers(application)
     for router in (
         diagnostics.router,
-        sites.router,
-        zones.router,
-        edges.router,
-        cache.router,
-        certificates.router,
-        automatic_ssl.router,
-        deployments.router,
+        v1_diagnostics.router,
+        v1_sites.router,
+        v1_zones.router,
+        v1_edges.router,
+        v1_cache.router,
+        v1_certificates.router,
+        v1_automatic_ssl.router,
+        v1_deployments.router,
+        v2_diagnostics.router,
+        v2_sites.router,
+        v2_zones.router,
+        v2_edges.router,
+        v2_cache.router,
+        v2_certificates.router,
+        v2_automatic_ssl.router,
+        v2_deployments.router,
     ):
         application.include_router(router)
     return application
