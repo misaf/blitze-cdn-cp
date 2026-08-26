@@ -11,14 +11,14 @@ from blitzecdn.api.dependencies import (
     SettingsDependency,
     require_operator,
 )
-from blitzecdn.api.v1_operations import (
+from blitzecdn.api.v2_operations import (
     CertificateInfo,
     CertificateRequest,
     CertificateStatus,
     PreflightReport,
     ReconciliationResult,
     RenewalResult,
-    as_v1,
+    as_v2,
 )
 from blitzecdn.api_models import RenewRequest
 
@@ -27,7 +27,7 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 
 @router.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
 def certificate(name: str, control: ControlPlaneDependency) -> CertificateInfo:
-    return as_v1(control.certificates.certificate(name), CertificateInfo)
+    return as_v2(control.certificates.certificate(name), CertificateInfo)
 
 
 @router.get("/v1/certificates", response_model=list[CertificateStatus])
@@ -40,7 +40,7 @@ def list_certificates(
         statuses = control.certificates.certificate_statuses()
     else:
         statuses = control.certificates.expiring_certificates(expiring_in)
-    return [as_v1(item, CertificateStatus) for item in statuses]
+    return [as_v2(item, CertificateStatus) for item in statuses]
 
 
 @router.post("/v1/certificates/renew", response_model=RenewalResult)
@@ -63,7 +63,7 @@ async def renew_certificates(
             budget_seconds=settings.certificate_renewal_budget_seconds,
         ),
     )
-    return as_v1(result, RenewalResult)
+    return as_v2(result, RenewalResult)
 
 
 @router.post("/v1/certificates/reconcile", response_model=ReconciliationResult)
@@ -71,7 +71,7 @@ def reconcile_certificates(
     operator: OperatorDependency, control: ControlPlaneDependency
 ) -> ReconciliationResult:
     """Issue first certificates for ready sites, then install them."""
-    return as_v1(
+    return as_v2(
         control.certificates.reconcile_certificates(operator), ReconciliationResult
     )
 
@@ -84,7 +84,7 @@ async def upload_certificate(
     certificate: Annotated[UploadFile, File()],
     private_key: Annotated[UploadFile, File()],
 ) -> CertificateInfo:
-    return as_v1(
+    return as_v2(
         control.certificates.upload_certificate(
             name,
             await certificate.read(1_048_577),
@@ -102,7 +102,7 @@ def request_certificate(
     operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> CertificateInfo:
-    return as_v1(
+    return as_v2(
         control.certificates.request_certificate(
             name,
             operator,
@@ -118,4 +118,4 @@ def certificate_preflight(
     name: str, control: ControlPlaneDependency
 ) -> PreflightReport:
     """Whether HTTP-01 could validate this site right now."""
-    return as_v1(control.certificates.certificate_preflight(name), PreflightReport)
+    return as_v2(control.certificates.certificate_preflight(name), PreflightReport)

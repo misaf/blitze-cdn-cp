@@ -204,7 +204,7 @@ and the API keep a single object to call.
 Long-lived deployment snapshots carry an explicit schema version and retain a
 decoder for the legacy unversioned format, so an upgrade cannot silently make a
 successful deployment unusable as a rollback target. HTTP v1 request and core
-resource response models live in `api/v1_models.py` and `api/v1_operations.py`; domain models therefore do
+resource response models live in `api/v2_models.py` and `api/v2_operations.py`; domain models therefore do
 not define the public transport contract. Ansible and inventory documents are
 rendered by `infrastructure/ansible_mapping.py`, never by domain methods.
 

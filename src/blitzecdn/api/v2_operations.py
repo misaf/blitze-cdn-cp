@@ -1,4 +1,4 @@
-"""Stable HTTP v1 representations for operational resources."""
+"""Version 2 control-plane representations for operational resources."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from pydantic import Field, field_validator
 
-from blitzecdn.api.v1_models import V1Model
+from blitzecdn.api.v2_models import V2Model
 from blitzecdn.domain.cache import PurgeEntry as DomainPurgeEntry
 from blitzecdn.domain.certificates import CertificateRequest as DomainCertificateRequest
 from blitzecdn.domain.certificates import (
@@ -20,7 +20,7 @@ from blitzecdn.domain.runs import RunStatus, TaskOutcome
 from blitzecdn.domain.sites import HttpScheme, SslMode
 
 
-class TaskResult(V1Model):
+class TaskResult(V2Model):
     task: str
     action: str = ""
     outcome: TaskOutcome
@@ -28,7 +28,7 @@ class TaskResult(V1Model):
     role: str | None = None
 
 
-class HostRun(V1Model):
+class HostRun(V2Model):
     host: str
     ok: int = 0
     changed: int = 0
@@ -42,7 +42,7 @@ class HostRun(V1Model):
     report: dict[str, object] | None = None
 
 
-class AnsibleRun(V1Model):
+class AnsibleRun(V2Model):
     id: str
     playbook: str
     status: RunStatus
@@ -55,7 +55,7 @@ class AnsibleRun(V1Model):
     error: str | None = None
 
 
-class Deployment(V1Model):
+class Deployment(V2Model):
     id: str
     status: DeploymentStatus
     operator: str
@@ -69,7 +69,7 @@ class Deployment(V1Model):
     result: AnsibleRun | None = None
 
 
-class DriftReport(V1Model):
+class DriftReport(V2Model):
     deployment_id: str
     checked_at: datetime
     host_limit: str | None = None
@@ -77,13 +77,13 @@ class DriftReport(V1Model):
     unattempted: tuple[str, ...] = ()
 
 
-class WorkflowStep(V1Model):
+class WorkflowStep(V2Model):
     name: str
     completed_at: datetime
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class Workflow(V1Model):
+class Workflow(V2Model):
     id: str
     kind: WorkflowKind
     resource_id: str | None = None
@@ -95,7 +95,7 @@ class Workflow(V1Model):
     error: str | None = None
 
 
-class CertificateInfo(V1Model):
+class CertificateInfo(V2Model):
     site: str
     source: CertificateSource
     domains: tuple[str, ...]
@@ -105,7 +105,7 @@ class CertificateInfo(V1Model):
     email: str | None = None
 
 
-class CertificateStatus(V1Model):
+class CertificateStatus(V2Model):
     site: str
     source: CertificateSource
     domains: tuple[str, ...]
@@ -116,19 +116,19 @@ class CertificateStatus(V1Model):
     fingerprint_sha256: str
 
 
-class PreflightCheck(V1Model):
+class PreflightCheck(V2Model):
     name: str
     passed: bool
     severity: PreflightSeverity
     detail: str
 
 
-class PreflightReport(V1Model):
+class PreflightReport(V2Model):
     site: str
     checks: tuple[PreflightCheck, ...]
 
 
-class CertificateRequest(V1Model):
+class CertificateRequest(V2Model):
     email: str | None = Field(default=None, max_length=254)
     skip_preflight: bool = False
 
@@ -138,20 +138,20 @@ class CertificateRequest(V1Model):
         return DomainCertificateRequest(email=value).email
 
 
-class RenewalResult(V1Model):
+class RenewalResult(V2Model):
     renewed: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
 
 
-class ReconciliationResult(V1Model):
+class ReconciliationResult(V2Model):
     issued: tuple[str, ...] = ()
     skipped: dict[str, str] = Field(default_factory=dict)
     failed: dict[str, str] = Field(default_factory=dict)
     deployment: Deployment | None = None
 
 
-class PurgeEntry(V1Model):
+class PurgeEntry(V2Model):
     host: str
     uri: str
     scheme: HttpScheme = HttpScheme.HTTPS
@@ -168,7 +168,7 @@ class PurgeEntry(V1Model):
         return DomainPurgeEntry.model_validate(self.model_dump())
 
 
-class PurgeResult(V1Model):
+class PurgeResult(V2Model):
     purged_at: datetime
     entries: tuple[PurgeEntry, ...] = ()
     purge_all: bool = False
@@ -178,12 +178,12 @@ class PurgeResult(V1Model):
     failed_hosts: tuple[str, ...]
 
 
-class SiteCacheStats(V1Model):
+class SiteCacheStats(V2Model):
     site: str
     outcomes: dict[str, int] = Field(default_factory=dict)
 
 
-class EdgeStats(V1Model):
+class EdgeStats(V2Model):
     host: str
     collected_at: datetime | None = None
     nginx_reachable: bool = False
@@ -192,13 +192,13 @@ class EdgeStats(V1Model):
     error: str | None = None
 
 
-class CacheStatsReport(V1Model):
+class CacheStatsReport(V2Model):
     collected_at: datetime
     host_limit: str | None = None
     edges: tuple[EdgeStats, ...] = ()
 
 
-class OriginCheck(V1Model):
+class OriginCheck(V2Model):
     site: str
     origin: str
     scheme: HttpScheme
@@ -211,20 +211,20 @@ class OriginCheck(V1Model):
     detail: str | None = None
 
 
-class EdgeOriginChecks(V1Model):
+class EdgeOriginChecks(V2Model):
     host: str
     checked_at: datetime | None = None
     checks: tuple[OriginCheck, ...] = ()
     error: str | None = None
 
 
-class OriginReport(V1Model):
+class OriginReport(V2Model):
     checked_at: datetime
     host_limit: str | None = None
     edges: tuple[EdgeOriginChecks, ...] = ()
 
 
-class AuditEvent(V1Model):
+class AuditEvent(V2Model):
     id: int
     created_at: datetime
     operator: str
@@ -234,20 +234,20 @@ class AuditEvent(V1Model):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class SslAutomaticReconciliation(V1Model):
+class SslAutomaticReconciliation(V2Model):
     scanned: tuple[str, ...] = ()
     upgraded: dict[str, SslMode] = Field(default_factory=dict)
     skipped: dict[str, str] = Field(default_factory=dict)
     deployment: Deployment | None = None
 
 
-class EdgeRemoval(V1Model):
+class EdgeRemoval(V2Model):
     name: str
     decommissioned: bool
     hosts: tuple[HostRun, ...] = ()
 
 
-def as_v1[T: V1Model](model: object, target: type[T]) -> T:
+def as_v2[T: V2Model](model: object, target: type[T]) -> T:
     """Map a domain model to its explicit HTTP representation."""
     if hasattr(model, "model_dump"):
         return target.model_validate(model.model_dump(mode="json"))
@@ -272,5 +272,5 @@ __all__ = [
     "RenewalResult",
     "SslAutomaticReconciliation",
     "Workflow",
-    "as_v1",
+    "as_v2",
 ]

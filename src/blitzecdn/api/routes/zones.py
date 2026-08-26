@@ -7,7 +7,7 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.v1_models import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.api.v2_models import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.exceptions import ConflictError
 
 router = APIRouter(dependencies=[Depends(require_operator)])
