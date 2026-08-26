@@ -204,8 +204,10 @@ and the API keep a single object to call.
 Long-lived deployment snapshots carry an explicit schema version and retain a
 decoder for the legacy unversioned format, so an upgrade cannot silently make a
 successful deployment unusable as a rollback target. HTTP v1 request and core
-resource response models live in `api/v2_models.py` and `api/v2_operations.py`; domain models therefore do
-not define the public transport contract. Ansible and inventory documents are
+resource response models live in versioned `api/v1_*` and `api/v2_*` modules;
+domain models therefore do not define the public transport contract. The v1
+contract remains available for existing clients while v2 evolves independently.
+Ansible and inventory documents are
 rendered by `infrastructure/ansible_mapping.py`, never by domain methods.
 
 Application services receive small feature policies rather than the global
@@ -303,16 +305,17 @@ authenticated TLS reverse proxy in front of the loopback listener.
 Unlike the CLI, the API does not block on a convergence. A run can take
 `deployment_timeout_seconds`
 (default 900), far longer than any HTTP client or reverse proxy will wait, so
-`POST /v1/deployments` and `POST /v1/rollbacks` return `202 Accepted` with a
+`POST /v2/deployments` and `POST /v2/rollbacks` return `202 Accepted` with a
 `queued` record and converge in the Dramatiq worker. Poll
-`GET /v1/deployments/{id}` for the outcome. The record is committed to SQLite
+`GET /v2/deployments/{id}` for the outcome. The record is committed to SQLite
 before the worker starts. Startup republishes `queued` records and marks only
 orphaned `running` records `abandoned`, after acquiring the deployment lock so
 it cannot rewrite work a live CLI or worker still owns. Rejections that can be
 determined up front — no rollback target, a deployment already running — still
 fail synchronously with 4xx.
 
-Only `GET /health` is public. Control routes live under `/v1` and require
+Only `GET /health` is public. New integrations should use `/v2`; the frozen
+`/v1` routes remain available for existing clients. Both versions require
 `X-API-Key`. Ten failed authentications from one client address within a minute
 return `429`; behind a reverse proxy every request appears to come from the
 proxy, so this is a coarse backstop and real per-client limiting belongs in the
@@ -390,7 +393,7 @@ curl --fail-with-body -X POST \
   -H "X-API-Key: $API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"email":"client@example.com"}' \
-  http://127.0.0.1:8000/v1/sites/example-cdn/certificate/request
+  http://127.0.0.1:8000/v2/sites/example-cdn/certificate/request
 
 blitzecdn deploy --yes
 ```
@@ -412,7 +415,7 @@ curl --fail-with-body -X POST \
   -H "X-API-Key: $API_KEY" \
   -F certificate=@fullchain.pem \
   -F private_key=@privkey.pem \
-  http://127.0.0.1:8000/v1/sites/example-cdn/certificate/upload
+  http://127.0.0.1:8000/v2/sites/example-cdn/certificate/upload
 ```
 
 The API returns certificate metadata but never returns private-key material.
@@ -421,7 +424,7 @@ protect the API with authenticated TLS before accepting uploads over a network.
 
 `uploaded` and `requested` are set by the upload and request endpoints, which
 own the on-edge paths (`/etc/blitzecdn/tls/<site>/`). Setting either mode — or
-redirecting those paths — through `POST`/`PATCH /v1/sites` is rejected.
+redirecting those paths — through `POST`/`PATCH /v2/sites` is rejected.
 
 ## SSL modes
 
@@ -470,7 +473,7 @@ blitzecdn ssl reconcile
 
 curl --fail-with-body -X POST \
   -H "X-API-Key: $API_KEY" \
-  http://127.0.0.1:8000/v1/ssl/automatic/reconcile
+  http://127.0.0.1:8000/v2/ssl/automatic/reconcile
 ```
 
 Flexible, Full and Full (strict) require an active edge certificate. Changing a
@@ -496,7 +499,7 @@ blitzecdn deploy
 ```
 
 Use `--off` to serve both schemes again. The equivalent API update is `PATCH
-/v1/domains/{domain}/records/{name}?type=A` with
+/v2/domains/{domain}/records/{name}?type=A` with
 `{"always_use_https": true}` or `false`. The ACME challenge path remains
 available over HTTP in either mode.
 

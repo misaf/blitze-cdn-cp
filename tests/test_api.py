@@ -8,14 +8,48 @@ from fastapi.testclient import TestClient
 from blitzecdn import __version__
 from blitzecdn.api import create_app
 from blitzecdn.api.dependencies import get_control_plane
-from blitzecdn.api.routes import (
-    cache,
-    certificates,
-    deployments,
-    diagnostics,
-    edges,
-    sites,
-    zones,
+from blitzecdn.api.routes import diagnostics
+from blitzecdn.api.routes.v1 import (
+    cache as v1_cache,
+)
+from blitzecdn.api.routes.v1 import (
+    certificates as v1_certificates,
+)
+from blitzecdn.api.routes.v1 import (
+    deployments as v1_deployments,
+)
+from blitzecdn.api.routes.v1 import (
+    diagnostics as v1_diagnostics,
+)
+from blitzecdn.api.routes.v1 import (
+    edges as v1_edges,
+)
+from blitzecdn.api.routes.v1 import (
+    sites as v1_sites,
+)
+from blitzecdn.api.routes.v1 import (
+    zones as v1_zones,
+)
+from blitzecdn.api.routes.v2 import (
+    cache as v2_cache,
+)
+from blitzecdn.api.routes.v2 import (
+    certificates as v2_certificates,
+)
+from blitzecdn.api.routes.v2 import (
+    deployments as v2_deployments,
+)
+from blitzecdn.api.routes.v2 import (
+    diagnostics as v2_diagnostics,
+)
+from blitzecdn.api.routes.v2 import (
+    edges as v2_edges,
+)
+from blitzecdn.api.routes.v2 import (
+    sites as v2_sites,
+)
+from blitzecdn.api.routes.v2 import (
+    zones as v2_zones,
 )
 from blitzecdn.application import (
     CertificateService,
@@ -45,7 +79,23 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
 
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
-    routers = (diagnostics, sites, zones, edges, cache, certificates, deployments)
+    routers = (
+        diagnostics,
+        v1_sites,
+        v1_zones,
+        v1_edges,
+        v1_cache,
+        v1_certificates,
+        v1_deployments,
+        v1_diagnostics,
+        v2_sites,
+        v2_zones,
+        v2_edges,
+        v2_cache,
+        v2_certificates,
+        v2_deployments,
+        v2_diagnostics,
+    )
     routes = [
         route
         for module in routers
@@ -55,16 +105,25 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
     modules = {
         route.endpoint.__module__
         for route in routes
-        if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/")
+        if route.path in {"/health", "/metrics"}
+        or route.path.startswith(("/v1/", "/v2/"))
     }
     assert modules == {
-        "blitzecdn.api.routes.cache",
-        "blitzecdn.api.routes.certificates",
-        "blitzecdn.api.routes.deployments",
         "blitzecdn.api.routes.diagnostics",
-        "blitzecdn.api.routes.edges",
-        "blitzecdn.api.routes.sites",
-        "blitzecdn.api.routes.zones",
+        "blitzecdn.api.routes.v1.cache",
+        "blitzecdn.api.routes.v1.certificates",
+        "blitzecdn.api.routes.v1.deployments",
+        "blitzecdn.api.routes.v1.diagnostics",
+        "blitzecdn.api.routes.v1.edges",
+        "blitzecdn.api.routes.v1.sites",
+        "blitzecdn.api.routes.v1.zones",
+        "blitzecdn.api.routes.v2.cache",
+        "blitzecdn.api.routes.v2.certificates",
+        "blitzecdn.api.routes.v2.deployments",
+        "blitzecdn.api.routes.v2.diagnostics",
+        "blitzecdn.api.routes.v2.edges",
+        "blitzecdn.api.routes.v2.sites",
+        "blitzecdn.api.routes.v2.zones",
     }
 
     def dependency_calls(route: APIRoute) -> set[object]:
@@ -77,7 +136,9 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
         return calls
 
     for route in routes:
-        if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/"):
+        if route.path in {"/health", "/metrics"} or route.path.startswith(
+            ("/v1/", "/v2/")
+        ):
             assert get_control_plane in dependency_calls(route), route.path
 
 
@@ -86,6 +147,7 @@ def test_health_is_public_and_controls_require_auth(settings):
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/metrics").status_code == 401
         assert client.get("/v1/sites").status_code == 401
+        assert client.get("/v2/sites").status_code == 401
         wrong = client.get("/v1/sites", headers={"X-API-Key": "wrong"})
         assert wrong.status_code == 401
         assert wrong.headers["WWW-Authenticate"] == "ApiKey"
@@ -157,6 +219,22 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
         assert "/v1/sites/{name}/certificate/request" in paths
         assert "/v1/sites/{name}/certificate/upload" in paths
         assert "/v1/workflows" in paths
+        assert "/v2/sites" in paths
+        assert "/v2/deployments" in paths
+        assert "/v2/sites/{name}/certificate/request" in paths
+        assert "/v2/sites/{name}/certificate/upload" in paths
+        assert "/v2/workflows" in paths
+
+
+def test_v1_is_preserved_while_v2_is_available(settings):
+    headers = {"X-API-Key": "x" * 32}
+    with TestClient(create_app(settings)) as client:
+        v1 = client.get("/v1/sites", headers=headers)
+        v2 = client.get("/v2/sites", headers=headers)
+
+    assert v1.status_code == 200
+    assert v2.status_code == 200
+    assert v1.json() == v2.json() == []
 
 
 def test_openapi_declares_the_api_key_as_a_security_scheme(settings):

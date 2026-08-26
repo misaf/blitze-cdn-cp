@@ -1,10 +1,9 @@
 import logging
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import PlainTextResponse
 
 from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
-from blitzecdn.api.v2_operations import AuditEvent, as_v2
 
 router = APIRouter()
 _LOGGER = logging.getLogger(__name__)
@@ -61,15 +60,3 @@ def metrics(control: ControlPlaneDependency) -> str:
         for state in sorted(by_status)
     )
     return "\n".join(lines) + "\n"
-
-
-@router.get(
-    "/v1/audit-events",
-    response_model=list[AuditEvent],
-    dependencies=[Depends(require_operator)],
-)
-def audit_events(
-    control: ControlPlaneDependency,
-    limit: int = Query(100, ge=1, le=500),
-) -> list[AuditEvent]:
-    return [as_v2(item, AuditEvent) for item in control.audit.list_audit_events(limit)]

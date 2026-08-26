@@ -6,13 +6,13 @@ from blitzecdn.api.dependencies import (
     require_operator,
 )
 from blitzecdn.api.v2_operations import CacheStatsReport, PurgeResult, as_v2
-from blitzecdn.api_models import PurgeRequest, StatsRequest
+from blitzecdn.api.v2_requests import PurgeRequest, StatsRequest
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.post(
-    "/v1/cache/purge",
+    "/v2/cache/purge",
     response_model=PurgeResult,
     responses={
         status.HTTP_409_CONFLICT: {
@@ -43,7 +43,7 @@ def purge_cache(
     return as_v2(result, PurgeResult)
 
 
-@router.post("/v1/cache/stats", response_model=CacheStatsReport)
+@router.post("/v2/cache/stats", response_model=CacheStatsReport)
 def cache_stats(
     request: StatsRequest,
     operator: OperatorDependency,
