@@ -23,6 +23,7 @@ from blitzecdn.domain.sites import (
     MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
+    SiteVisitorHeaders,
     SslAutomaticMode,
     SslMode,
 )
@@ -219,6 +220,9 @@ class RecordPatch(BaseModel):
     # Replaces the block wholesale; see the note on SitePolicy.firewall. Send
     # {"firewall": {}} to clear every rule.
     firewall: SiteFirewall | None = None
+    # Replaced wholesale as well. Sending {"visitor_headers": {}} restores the
+    # defaults rather than leaving the current switches in place.
+    visitor_headers: SiteVisitorHeaders | None = None
 
 
 def _without_none(annotation: object) -> object:

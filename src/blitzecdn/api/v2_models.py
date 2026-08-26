@@ -59,6 +59,17 @@ class SiteFirewall(V2Model):
     denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
 
 
+class SiteVisitorHeaders(V2Model):
+    """The ``BZ-*`` headers the edge writes on the request to the origin.
+
+    New in version 2. Version 1 is frozen and projects it away, so a v1 client
+    neither reports nor can set it; the domain defaults apply either way.
+    """
+
+    connecting_ip: bool = True
+    ip_country: bool = False
+
+
 class SitePolicyV2(V2Model):
     ssl_mode: SslMode = SslMode.OFF
     ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
@@ -76,6 +87,7 @@ class SitePolicyV2(V2Model):
     cache_valid_not_found: str = "1m"
     compression: CompressionMode = CompressionMode.BROTLI
     firewall: SiteFirewall = Field(default_factory=SiteFirewall)
+    visitor_headers: SiteVisitorHeaders = Field(default_factory=SiteVisitorHeaders)
 
 
 #: Version 2 diverges from version 1 here, so these three carry the version in
@@ -126,6 +138,7 @@ class RecordPatchV2(V2Model):
     cache_valid_not_found: str | None = None
     compression: CompressionMode | None = None
     firewall: SiteFirewall | None = None
+    visitor_headers: SiteVisitorHeaders | None = None
 
     def to_domain(self) -> DomainRecordPatch:
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))

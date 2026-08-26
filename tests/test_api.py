@@ -303,10 +303,13 @@ def test_v1_survives_a_domain_field_it_has_never_heard_of():
 
     representation = V1DnsRecord.from_domain(record)
 
-    assert "compression" not in representation.model_dump()
+    for field in ("compression", "visitor_headers"):
+        assert field not in representation.model_dump()
     site = record.to_site()
     assert site is not None
-    assert "compression" not in V1CdnSite.from_domain(site).model_dump()
+    projected = V1CdnSite.from_domain(site).model_dump()
+    for field in ("compression", "visitor_headers"):
+        assert field not in projected
 
 
 def test_v2_carries_every_policy_field_the_domain_has():
@@ -372,6 +375,87 @@ def test_v2_exposes_compression_and_v1_does_not(settings):
         assert (
             client.get("/v2/sites", headers=headers).json()[0]["compression"] == "off"
         )
+
+
+def test_v2_exposes_visitor_headers_and_v1_does_not(settings):
+    headers = {"X-API-Key": "x" * 32}
+    payload = {
+        "domain": "example.com",
+        "name": "cdn",
+        "value": "203.0.113.10",
+        "proxied": True,
+    }
+
+    with TestClient(create_app(settings)) as client:
+        client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
+        created = client.post(
+            "/v2/domains/example.com/records", json=payload, headers=headers
+        )
+        assert created.status_code == 201
+        assert created.json()["visitor_headers"] == {
+            "connecting_ip": True,
+            "ip_country": False,
+        }
+
+        # The frozen version keeps serving the same record without the block.
+        assert (
+            "visitor_headers" not in client.get("/v1/sites", headers=headers).json()[0]
+        )
+
+        patched = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"visitor_headers": {"connecting_ip": False, "ip_country": True}},
+            headers=headers,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["visitor_headers"] == {
+            "connecting_ip": False,
+            "ip_country": True,
+        }
+        site = client.get("/v2/sites", headers=headers).json()[0]
+        assert site["visitor_headers"] == {"connecting_ip": False, "ip_country": True}
+
+        # A partial block replaces the whole thing rather than merging, so the
+        # unnamed switch comes back at its default.
+        replaced = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"visitor_headers": {"ip_country": True}},
+            headers=headers,
+        )
+        assert replaced.json()["visitor_headers"] == {
+            "connecting_ip": True,
+            "ip_country": True,
+        }
+
+        # No aliases, and no Cloudflare spelling smuggled in as an extra.
+        for unknown in ({"cf_connecting_ip": True}, {"true_client_ip": True}):
+            rejected = client.patch(
+                "/v2/domains/example.com/records/cdn",
+                json={"visitor_headers": unknown},
+                headers=headers,
+            )
+            assert rejected.status_code == 422
+
+        # A v1 PATCH cannot name the block, so it leaves it alone rather than
+        # resetting it to the domain default.
+        client.patch(
+            "/v1/domains/example.com/records/cdn",
+            json={"cache_enabled": False},
+            headers=headers,
+        )
+        assert client.get("/v2/sites", headers=headers).json()[0][
+            "visitor_headers"
+        ] == {"connecting_ip": True, "ip_country": True}
+
+
+def test_no_cloudflare_header_name_is_published_by_the_api(settings):
+    """The BZ- namespace is the whole surface; CF- and True-Client-IP are not
+    ours to define and must not appear as fields, defaults, or descriptions."""
+    with TestClient(create_app(settings)) as client:
+        document = client.get("/openapi.json").text
+
+    for foreign in ("CF-Connecting-IP", "cf_connecting_ip", "True-Client-IP"):
+        assert foreign not in document
 
 
 def test_openapi_schema_names_are_stable_across_versions(settings):

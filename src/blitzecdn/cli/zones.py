@@ -17,6 +17,7 @@ from blitzecdn.domain.sites import (
     CompressionMode,
     MinimumTlsVersion,
     SiteFirewall,
+    SiteVisitorHeaders,
     SslAutomaticMode,
     SslMode,
 )
@@ -355,6 +356,79 @@ def record_compression(
             f"{record.fqdn} edge compression is now "
             f"{record.compression.value!r}. "
             "Run 'blitzecdn deploy' to apply."
+        )
+
+
+@record_app.command("visitor-headers")
+def record_visitor_headers(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    connecting_ip: Annotated[
+        bool | None,
+        typer.Option(
+            "--connecting-ip/--no-connecting-ip",
+            help="Send BZ-Connecting-IP, the visitor address the edge saw.",
+        ),
+    ] = None,
+    ip_country: Annotated[
+        bool | None,
+        typer.Option(
+            "--ip-country/--no-ip-country",
+            help="Send BZ-IPCountry, the visitor's ISO 3166-1 alpha-2 code. "
+            "Needs GeoIP on the edge.",
+        ),
+    ] = None,
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Choose what the edge tells the origin about the visitor.
+
+    BZ-Connecting-IP carries the visitor address, IPv4 or IPv6, as nginx saw it
+    on the connection; it is on by default, because an origin behind the CDN
+    sees an edge address on every connection. BZ-IPCountry carries the country
+    the GeoIP2 database resolves that address to, and is off by default.
+
+    Both are written by BlitzeCDN and overwrite whatever the visitor sent under
+    the same name; a header turned off here is cleared rather than forwarded,
+    so the BZ- namespace never carries client input. Trust them at the origin
+    only where the origin accepts traffic from BlitzeCDN edges alone.
+
+    BZ-IPCountry needs blitzecdn_nginx_geoip_enabled and a MaxMind database on
+    the edge. A deploy refuses rather than send an origin a header that is
+    silently absent.
+
+    Options you do not name are left as they are. Nothing changes on the edge
+    until the next 'blitzecdn deploy'.
+    """
+    control = common.control_plane()
+    supplied = {"connecting_ip": connecting_ip, "ip_country": ip_country}
+    named = {field: value for field, value in supplied.items() if value is not None}
+    if not named:
+        raise typer.BadParameter(
+            "give at least one of --connecting-ip/--no-connecting-ip or "
+            "--ip-country/--no-ip-country"
+        )
+    current = control.dns.get_record(domain, name, type_).visitor_headers
+    headers = SiteVisitorHeaders.model_validate(current.model_dump() | named)
+    record = control.dns.update_record(
+        domain, name, type_, RecordPatch(visitor_headers=headers), "cli"
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        sent = [
+            header
+            for header, on in (
+                ("BZ-Connecting-IP", record.visitor_headers.connecting_ip),
+                ("BZ-IPCountry", record.visitor_headers.ip_country),
+            )
+            if on
+        ]
+        typer.echo(
+            f"{record.fqdn} now sends {', '.join(sent)} to the origin. "
+            "Run 'blitzecdn deploy' to apply."
+            if sent
+            else f"{record.fqdn} now sends no BZ-* visitor headers to the "
+            "origin. Run 'blitzecdn deploy' to apply."
         )
 
 

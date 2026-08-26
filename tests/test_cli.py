@@ -1303,6 +1303,103 @@ def test_record_compression_command(settings, monkeypatch):
     assert control.dns.get_site("cdn-example-com").compression == "gzip"
 
 
+def test_record_visitor_headers_command(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "cli",
+    )
+    site = control.dns.get_site("cdn-example-com")
+    assert site.visitor_headers.connecting_ip is True
+    assert site.visitor_headers.ip_country is False
+
+    result = runner.invoke(
+        cli.app,
+        ["record", "visitor-headers", "example.com", "cdn", "--ip-country", "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["visitor_headers"] == {
+        "connecting_ip": True,
+        "ip_country": True,
+    }
+    assert control.dns.get_site("cdn-example-com").visitor_headers.ip_country is True
+
+    # An option that is not named keeps its value rather than resetting it.
+    narrowed = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "visitor-headers",
+            "example.com",
+            "cdn",
+            "--no-connecting-ip",
+            "--json",
+        ],
+    )
+
+    assert narrowed.exit_code == 0
+    assert json.loads(narrowed.stdout)["visitor_headers"] == {
+        "connecting_ip": False,
+        "ip_country": True,
+    }
+
+
+def test_record_visitor_headers_requires_a_switch(settings, monkeypatch):
+    """With no option the command would silently rewrite the block as-is."""
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "cli",
+    )
+
+    result = runner.invoke(cli.app, ["record", "visitor-headers", "example.com", "cdn"])
+
+    assert result.exit_code != 0
+
+
+def test_record_visitor_headers_reports_what_the_origin_will_see(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+        ),
+        "cli",
+    )
+
+    enabled = runner.invoke(
+        cli.app,
+        ["record", "visitor-headers", "example.com", "cdn", "--ip-country"],
+    )
+    assert "BZ-Connecting-IP, BZ-IPCountry" in enabled.stdout
+
+    off = runner.invoke(
+        cli.app,
+        [
+            "record",
+            "visitor-headers",
+            "example.com",
+            "cdn",
+            "--no-connecting-ip",
+            "--no-ip-country",
+        ],
+    )
+    assert "no BZ-* visitor headers" in off.stdout
+    assert (
+        control.dns.get_site("cdn-example-com").visitor_headers.connecting_ip is False
+    )
+
+
 def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
     """Retrying one failure must not send every subscription back to the CA."""
     control = _control(settings, monkeypatch)

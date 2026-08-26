@@ -19,6 +19,12 @@
 {% set fw_deny_countries = fw.denied_countries | default([], true) %}
 {% set fw_deny_methods = fw.denied_methods | default([], true) %}
 {% set fw_deny_paths = fw.denied_paths | default([], true) %}
+{# Visitor metadata the edge writes on the request to the origin. Defaults
+   match the control plane's, so an edge upgraded ahead of its controller
+   behaves as it will once both have moved. #}
+{% set vh = item.visitor_headers | default({}, true) or {} %}
+{% set vh_connecting_ip = vh.connecting_ip | default(true) %}
+{% set vh_ip_country = vh.ip_country | default(false) %}
 {#
   Emitted inside `location /` rather than at server level, so that the ACME
   challenge location above is never subject to it. A site that filtered its own
@@ -140,6 +146,25 @@
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        {#
+          BZ-* is edge-owned metadata, so every header in the namespace is
+          written here from a value only the edge has — never read back from
+          what the visitor sent. $remote_addr is the peer address of the
+          connection nginx accepted, IPv4 or IPv6; it cannot be influenced by
+          a request header, which is exactly why it and not X-Forwarded-For is
+          the source.
+
+          A disabled header is set to the empty string rather than left
+          alone. nginx drops an empty proxy_set_header instead of sending it,
+          and — the part that matters — a header a client supplied under that
+          name is dropped with it. Omitting the directive would forward the
+          client's own BZ-Connecting-IP to the origin verbatim.
+
+          None of this touches proxy_cache_key: two visitors from different
+          addresses or countries still share one cached object.
+        #}
+        proxy_set_header BZ-Connecting-IP {{ '$remote_addr' if vh_connecting_ip else '""' }};
+        proxy_set_header BZ-IPCountry {{ '$blitzecdn_country' if vh_ip_country else '""' }};
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $blitzecdn_connection_upgrade;
 {% if origin_scheme == 'https' %}

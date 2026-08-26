@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy.pool import NullPool, QueuePool
 
 from blitzecdn.domain.deployments import DeploymentStatus
-from blitzecdn.domain.dns import DnsRecord, Domain
+from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.domain.snapshots import decode_snapshot
@@ -59,6 +59,35 @@ def test_site_crud_and_audit(settings, site_payload):
     repository.sites.delete_site(site.name)
     with pytest.raises(NotFoundError):
         repository.sites.get_site(site.name)
+
+
+def test_visitor_headers_survive_persistence_and_derivation(
+    settings, domain_payload, record_payload
+):
+    """The block lives in the `policy` JSON column, not in a column of its own.
+
+    Nothing queries inside it, so the only way it can be lost is a round trip
+    that drops what it does not recognise. This is that round trip: record in,
+    record out, and the derived site the deployment actually converges.
+    """
+    repository = Repository(settings.database_path)
+    repository.zones.create_domain(Domain.model_validate(domain_payload))
+    repository.zones.create_record(
+        DnsRecord.model_validate(
+            record_payload
+            | {"visitor_headers": {"connecting_ip": False, "ip_country": True}}
+        )
+    )
+
+    stored = repository.zones.get_record(
+        record_payload["domain"], record_payload["name"], RecordType.A
+    )
+    assert stored.visitor_headers.connecting_ip is False
+    assert stored.visitor_headers.ip_country is True
+
+    (site,) = decode_snapshot(repository.snapshot())
+    assert site.visitor_headers == stored.visitor_headers
+    assert site.requires_geoip is True
 
 
 def test_deployment_transitions_snapshots_and_recovery(

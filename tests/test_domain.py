@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -29,11 +30,13 @@ from blitzecdn.domain.sites import (
     CacheQueryStringMode,
     CdnSite,
     MinimumTlsVersion,
+    SiteFirewall,
     SitePolicy,
+    SiteVisitorHeaders,
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.domain.snapshots import decode_snapshot
+from blitzecdn.domain.snapshots import decode_snapshot, encode_snapshot
 
 
 def test_site_normalizes_safe_hostnames(site_payload):
@@ -262,6 +265,128 @@ def test_a_site_derived_from_a_record_carries_every_policy_field():
         assert getattr(site, name) == getattr(record, name), (
             f"{name} did not survive DnsRecord.to_site()"
         )
+
+
+def test_visitor_headers_default_to_the_address_and_not_the_country(site_payload):
+    """The default has to be deployable on an edge with GeoIP off.
+
+    `connecting_ip` costs nothing and answers a question the origin cannot
+    answer for itself, so it is on. `ip_country` needs a database the edge role
+    does not install by default, and defaulting it on would fail the next
+    converge of every existing site.
+    """
+    site = CdnSite.model_validate(site_payload)
+
+    assert site.visitor_headers == SiteVisitorHeaders()
+    assert site.visitor_headers.connecting_ip is True
+    assert site.visitor_headers.ip_country is False
+    assert site.requires_geoip is False
+
+
+def test_visitor_headers_reject_a_field_they_do_not_declare(site_payload):
+    """No aliases, and nothing that looks like one — `extra="forbid"`."""
+    for unknown in ("cf_connecting_ip", "true_client_ip", "connectingip"):
+        with pytest.raises(ValidationError):
+            CdnSite.model_validate(site_payload | {"visitor_headers": {unknown: True}})
+
+
+def test_ip_country_requires_geoip_on_its_own(site_payload):
+    """The header needs $blitzecdn_country whether or not a rule also does.
+
+    Composed in one property rather than asked twice: the edge role's
+    validation mirrors exactly this question, and a third consumer that added
+    its own condition there would leave this one silently incomplete.
+    """
+    site = CdnSite.model_validate(
+        site_payload | {"visitor_headers": {"ip_country": True}}
+    )
+    assert site.visitor_headers.requires_geoip is True
+    assert site.firewall.requires_geoip is False
+    assert site.requires_geoip is True
+
+
+def test_country_firewall_rules_still_require_geoip_by_themselves(site_payload):
+    """The original consumer must not have been displaced by the new one."""
+    for rules in ({"denied_countries": ["RU"]}, {"allowed_countries": ["DE"]}):
+        site = CdnSite.model_validate(site_payload | {"firewall": rules})
+        assert site.firewall.requires_geoip is True
+        assert site.visitor_headers.requires_geoip is False
+        assert site.requires_geoip is True
+
+
+def test_a_patch_replaces_the_whole_visitor_header_block():
+    """Like the firewall, and for the same reason: partial merges cannot
+    express turning the last switch off."""
+    record = DnsRecord.model_validate(
+        {
+            "domain": "example.com",
+            "name": "cdn",
+            "value": "203.0.113.10",
+            "proxied": True,
+            "visitor_headers": {"connecting_ip": True, "ip_country": True},
+        }
+    )
+    patch = RecordPatch(visitor_headers=SiteVisitorHeaders())
+    updated = DnsRecord.model_validate(
+        {**record.model_dump(), **patch.model_dump(exclude_unset=True)}
+    )
+
+    assert updated.visitor_headers.connecting_ip is True
+    assert updated.visitor_headers.ip_country is False
+
+
+def test_visitor_headers_survive_a_snapshot_round_trip():
+    """Desired state is JSON on the way to a run and back from a rollback."""
+    record = DnsRecord.model_validate(
+        {
+            "domain": "example.com",
+            "name": "cdn",
+            "value": "203.0.113.10",
+            "proxied": True,
+            "visitor_headers": {"connecting_ip": False, "ip_country": True},
+        }
+    )
+    snapshot = encode_snapshot([], [record])
+
+    (site,) = decode_snapshot(snapshot)
+
+    assert site.visitor_headers.connecting_ip is False
+    assert site.visitor_headers.ip_country is True
+    assert site.requires_geoip is True
+
+
+def test_a_snapshot_written_before_visitor_headers_still_decodes():
+    """Successful deployments are rollback targets forever.
+
+    Nothing in the repository persists a record without the block, so this is
+    the only place the shape can be proven readable: the defaults apply, and a
+    rollback to a pre-feature snapshot converges the pre-feature behaviour.
+    """
+    legacy = json.dumps(
+        {
+            "domains": [{"name": "example.com"}],
+            "records": [
+                {
+                    "domain": "example.com",
+                    "name": "cdn",
+                    "type": "A",
+                    "value": "203.0.113.10",
+                    "ttl": 300,
+                    "proxied": True,
+                }
+            ],
+        }
+    )
+
+    (site,) = decode_snapshot(legacy)
+
+    assert site.visitor_headers == SiteVisitorHeaders()
+
+
+def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():
+    """One canonical home each; neither absorbed the other's fields."""
+    assert set(SiteFirewall.model_fields).isdisjoint(SiteVisitorHeaders.model_fields)
+    assert SitePolicy.model_fields["visitor_headers"].annotation is SiteVisitorHeaders
 
 
 def _info(days: int, source: CertificateSource) -> CertificateInfo:

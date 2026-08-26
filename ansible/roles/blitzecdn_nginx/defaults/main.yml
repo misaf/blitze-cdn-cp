@@ -116,8 +116,13 @@ blitzecdn_nginx_hsts_max_age: 31536000
 # available. Country rules do not: they need ngx_http_geoip2 and a MaxMind
 # country database on the host, neither of which this role can conjure, so they
 # are opt-in per deployment. A site that asks for country rules on an edge
-# where this is false fails the assertion in tasks/main.yml rather than
+# where this is false fails the assertion in tasks/validate.yml rather than
 # rendering a configuration that quietly admits every country.
+#
+# The same switch governs the BZ-IPCountry visitor header
+# (`visitor_headers.ip_country` on a site), which reads the same
+# $blitzecdn_country and fails the same assertion — an origin cannot tell a
+# header that was never sent from a visitor whose country is unknown.
 blitzecdn_nginx_geoip_enabled: false
 blitzecdn_nginx_geoip_package: libnginx-mod-http-geoip2
 blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
