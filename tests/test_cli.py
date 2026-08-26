@@ -1271,6 +1271,38 @@ def test_record_minimum_tls_and_cache_query_string_commands(settings, monkeypatc
     assert site.cache_query_string_mode == "ignore"
 
 
+def test_record_compression_command(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "cli",
+    )
+    assert control.dns.get_site("cdn-example-com").compression == "brotli"
+
+    result = runner.invoke(
+        cli.app,
+        ["record", "compression", "example.com", "cdn", "--mode", "gzip", "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["compression"] == "gzip"
+    assert control.dns.get_site("cdn-example-com").compression == "gzip"
+
+    rejected = runner.invoke(
+        cli.app,
+        ["record", "compression", "example.com", "cdn", "--mode", "deflate"],
+    )
+
+    assert rejected.exit_code != 0
+    assert control.dns.get_site("cdn-example-com").compression == "gzip"
+
+
 def test_cert_renew_site_option_narrows_the_run(settings, monkeypatch):
     """Retrying one failure must not send every subscription back to the CA."""
     control = _control(settings, monkeypatch)

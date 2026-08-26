@@ -16,6 +16,7 @@ from blitzecdn.domain.edges import EdgePatch as DomainEdgePatch
 from blitzecdn.domain.sites import (
     CacheQueryStringMode,
     CertificateMode,
+    CompressionMode,
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,
@@ -73,6 +74,7 @@ class SitePolicyV2(V2Model):
     cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
     cache_valid_success: str = "10m"
     cache_valid_not_found: str = "1m"
+    compression: CompressionMode = CompressionMode.BROTLI
     firewall: SiteFirewall = Field(default_factory=SiteFirewall)
 
 
@@ -122,6 +124,7 @@ class RecordPatchV2(V2Model):
     cache_query_string_mode: CacheQueryStringMode | None = None
     cache_valid_success: str | None = None
     cache_valid_not_found: str | None = None
+    compression: CompressionMode | None = None
     firewall: SiteFirewall | None = None
 
     def to_domain(self) -> DomainRecordPatch:

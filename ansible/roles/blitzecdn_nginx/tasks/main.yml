@@ -13,6 +13,25 @@
   retries: 3
   delay: 5
 
+# Debian's and Ubuntu's module packages install their own load_module snippet
+# under /etc/nginx/modules-enabled, so installing the package is all it takes
+# for brotli_* to become valid directives. Nothing withdraws it when the flag
+# goes back to false: the template stops emitting the directives on the same
+# converge, and removing the package would be a second way to break a config
+# that had already stopped referring to it.
+- name: Install the Brotli Nginx module
+  ansible.builtin.apt:
+    name: "{{ blitzecdn_nginx_brotli_package }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  register: blitzecdn_nginx_brotli_apt
+  until: blitzecdn_nginx_brotli_apt is success
+  retries: 3
+  delay: 5
+  when: blitzecdn_nginx_brotli_enabled
+  notify: Validate and reload Nginx
+
 - name: Install the GeoIP2 Nginx module
   ansible.builtin.apt:
     name: "{{ blitzecdn_nginx_geoip_package }}"

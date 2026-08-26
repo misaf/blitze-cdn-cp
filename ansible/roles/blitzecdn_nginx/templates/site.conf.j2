@@ -4,6 +4,11 @@
 {% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
 {% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
+{% set compression = item.compression | default('brotli') %}
+{# Wanting Brotli and having it are different questions: the module is opt-in
+   per edge, and a site that asks for it where it is absent serves gzip rather
+   than failing the converge. See the note on the CompressionMode enum. #}
+{% set brotli = compression == 'brotli' and blitzecdn_nginx_brotli_enabled %}
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
 {# Per-site request filtering. An untouched policy is omitted, so defaults are explicit. #}
@@ -67,6 +72,52 @@
         return 403;
     }
 {% endfor %}
+{% endmacro %}
+{#
+  Emitted at server level rather than in the proxy macro: these are response
+  filters, not proxy settings, and at server level they also cover the ACME
+  challenge location and the 308 redirect without being written three times.
+
+  `gzip off` has to be explicit. Debian and Ubuntu ship `gzip on` in the http
+  context of the stock nginx.conf, so a site configured for no compression
+  would inherit it and quietly keep compressing. `brotli off` is emitted for
+  the same reason but only where the module is installed — the directive does
+  not exist otherwise, and naming it would fail `nginx -t` for every site on
+  the edge.
+
+  What is *not* here is any change to what the origin is asked for. The
+  Accept-Encoding the proxy macro forwards, and the cache key that carries it,
+  are unchanged: the cache still stores whatever the origin sent, and these
+  filters run on the way out, on hits as well as misses. An origin that
+  compresses for itself keeps winning — nginx will not re-encode a body that
+  already has a Content-Encoding.
+#}
+{% macro compression_filters() %}
+{% if compression != 'off' %}
+    gzip on;
+    gzip_comp_level {{ blitzecdn_nginx_gzip_comp_level }};
+    gzip_min_length {{ blitzecdn_nginx_compression_min_length }};
+    # Every response here is proxied and carries headers — Expires,
+    # Cache-Control, Via — that switch gzip off under the default `gzip_proxied
+    # off`. Without this the filter is on and never fires.
+    gzip_proxied any;
+    # Correct for any shared cache downstream of this edge. Ours already keys
+    # on the normalised encoding, but a corporate proxy between us and the
+    # client does not know that.
+    gzip_vary on;
+    gzip_types {{ blitzecdn_nginx_compression_types | join(' ') }};
+{% if brotli %}
+    brotli on;
+    brotli_comp_level {{ blitzecdn_nginx_brotli_comp_level }};
+    brotli_min_length {{ blitzecdn_nginx_compression_min_length }};
+    brotli_types {{ blitzecdn_nginx_compression_types | join(' ') }};
+{% endif %}
+{% else %}
+    gzip off;
+{% endif %}
+{% if blitzecdn_nginx_brotli_enabled and not brotli %}
+    brotli off;
+{% endif %}
 {% endmacro %}
 {#
   `secure` controls whether this location emits HSTS. It has to be emitted here
@@ -153,6 +204,7 @@ server {
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
+{{ compression_filters() }}
     location ^~ /.well-known/acme-challenge/ {
         root {{ blitzecdn_nginx_acme_root }};
         default_type text/plain;
@@ -179,6 +231,7 @@ server {
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
+{{ compression_filters() }}
     ssl_certificate {{ item.certificate_path }};
     ssl_certificate_key {{ item.certificate_key_path }};
 {% if item.minimum_tls_version | default('1.2') == '1.3' %}

@@ -51,12 +51,20 @@ from blitzecdn.api.routes.v2 import (
 from blitzecdn.api.routes.v2 import (
     zones as v2_zones,
 )
+from blitzecdn.api.v1_models import CdnSite as V1CdnSite
+from blitzecdn.api.v1_models import DnsRecord as V1DnsRecord
+from blitzecdn.api.v1_models import RecordPatch as V1RecordPatch
+from blitzecdn.api.v1_models import SitePolicyV1
+from blitzecdn.api.v2_models import RecordPatchV2 as V2RecordPatch
+from blitzecdn.api.v2_models import SitePolicyV2
 from blitzecdn.application import (
     CertificateService,
     DeploymentService,
     EdgeOperationsService,
 )
+from blitzecdn.domain.dns import DnsRecord as DomainDnsRecord
 from blitzecdn.domain.operations import WorkflowKind
+from blitzecdn.domain.sites import SitePolicy
 from blitzecdn.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
@@ -235,6 +243,171 @@ def test_v1_is_preserved_while_v2_is_available(settings):
     assert v1.status_code == 200
     assert v2.status_code == 200
     assert v1.json() == v2.json() == []
+
+
+#: Exactly the policy fields version 1 shipped with. This is a frozen list, not
+#: a derived one: the whole point is that it stops tracking `SitePolicy`.
+V1_SITE_POLICY_FIELDS = {
+    "ssl_mode",
+    "ssl_automatic_mode",
+    "minimum_tls_version",
+    "always_use_https",
+    "origin_request_host",
+    "origin_sni",
+    "enabled",
+    "certificate_mode",
+    "certificate_path",
+    "certificate_key_path",
+    "cache_enabled",
+    "cache_query_string_mode",
+    "cache_valid_success",
+    "cache_valid_not_found",
+    "firewall",
+}
+
+
+def test_v1_policy_representation_is_frozen():
+    """v1 is a promise to clients written against it, so it cannot grow.
+
+    A field added to `SitePolicy` belongs to v2. Adding one here instead
+    changes a response shape that shipped, which is the thing versioning the
+    API was supposed to make impossible.
+    """
+    assert set(SitePolicyV1.model_fields) == V1_SITE_POLICY_FIELDS
+    assert set(V1RecordPatch.model_fields) == V1_SITE_POLICY_FIELDS | {
+        "value",
+        "ttl",
+        "proxied",
+    }
+
+
+def test_v1_survives_a_domain_field_it_has_never_heard_of():
+    """The frozen version must not break *because* it was left alone.
+
+    These models forbid extras, so without the projection in `V1Model` every
+    v1 read of a record would start raising the moment a policy knob landed in
+    the domain — a version breaking by standing still.
+    """
+    assert set(SitePolicy.model_fields) - V1_SITE_POLICY_FIELDS, (
+        "this test is only meaningful while the domain is ahead of v1"
+    )
+
+    record = DomainDnsRecord.model_validate(
+        {
+            "domain": "example.com",
+            "name": "cdn",
+            "value": "203.0.113.10",
+            "proxied": True,
+        }
+    )
+
+    representation = V1DnsRecord.from_domain(record)
+
+    assert "compression" not in representation.model_dump()
+    site = record.to_site()
+    assert site is not None
+    assert "compression" not in V1CdnSite.from_domain(site).model_dump()
+
+
+def test_v2_carries_every_policy_field_the_domain_has():
+    """The live version is the one that must not silently omit a setting.
+
+    v1 is projected on the way out, so a missing field there is deliberate. v2
+    is not, and a knob an operator can set but never see would fail nowhere
+    else.
+    """
+    missing = set(SitePolicy.model_fields) - set(SitePolicyV2.model_fields)
+    assert not missing, f"v2 does not expose {sorted(missing)}"
+
+    unpatchable = set(SitePolicy.model_fields) - set(V2RecordPatch.model_fields)
+    assert not unpatchable, f"v2 cannot PATCH {sorted(unpatchable)}"
+
+
+def test_v2_exposes_compression_and_v1_does_not(settings):
+    headers = {"X-API-Key": "x" * 32}
+    payload = {
+        "domain": "example.com",
+        "name": "cdn",
+        "value": "203.0.113.10",
+        "proxied": True,
+    }
+
+    with TestClient(create_app(settings)) as client:
+        client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
+        created = client.post(
+            "/v2/domains/example.com/records", json=payload, headers=headers
+        )
+        assert created.status_code == 201
+        assert created.json()["compression"] == "brotli"
+
+        # The frozen version keeps serving the same record without the field.
+        v1 = client.get("/v1/sites", headers=headers).json()
+        assert "compression" not in v1[0]
+
+        patched = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"compression": "off"},
+            headers=headers,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["compression"] == "off"
+        assert (
+            client.get("/v2/sites", headers=headers).json()[0]["compression"] == "off"
+        )
+
+        rejected = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"compression": "deflate"},
+            headers=headers,
+        )
+        assert rejected.status_code == 422
+
+        # A v1 PATCH cannot name the field, so it leaves it alone rather than
+        # resetting it to the domain default.
+        client.patch(
+            "/v1/domains/example.com/records/cdn",
+            json={"cache_enabled": False},
+            headers=headers,
+        )
+        assert (
+            client.get("/v2/sites", headers=headers).json()[0]["compression"] == "off"
+        )
+
+
+def test_openapi_schema_names_are_stable_across_versions(settings):
+    """A published component name is part of the contract, not an artefact.
+
+    FastAPI names a component after the class, and pydantic disambiguates a
+    collision by qualifying *both* sides with their module path. Two versions
+    of one model therefore share a component only while they are structurally
+    identical, and the first field v2 gains renames v1's schema too —
+    `CdnSite` would become `blitzecdn__api__v1_models__CdnSite`, breaking every
+    generated v1 client over a change v1 never made.
+
+    So a v2 representation that diverges takes a version-qualified class name.
+    This fails when the next one does not.
+
+    Scoped to the representation models on purpose: several of the operational
+    schemas in `*_operations.py` are already published module-qualified, which
+    is its own cleanup and not one to fold into an unrelated change.
+    """
+    with TestClient(create_app(settings)) as client:
+        schemas = client.get("/openapi.json").json()["components"]["schemas"]
+
+    mangled = sorted(
+        name
+        for name in schemas
+        if "api__v1_models__" in name or "api__v2_models__" in name
+    )
+    assert not mangled, (
+        f"{mangled} leak Python module paths into the published API. Give the "
+        "diverged v2 class a V2 suffix rather than letting pydantic "
+        "disambiguate it — doing that also renames the v1 schema."
+    )
+    # The names v1 published must still mean v1.
+    for name in ("CdnSite", "DnsRecord", "RecordPatch"):
+        assert name in schemas, f"v1 lost its published {name} schema"
+        assert f"{name}V2" in schemas
 
 
 def test_openapi_declares_the_api_key_as_a_security_scheme(settings):

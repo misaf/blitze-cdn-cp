@@ -43,6 +43,57 @@ blitzecdn_nginx_default_site_file: /etc/nginx/sites-available/blitzecdn-default.
 # be served a body it cannot decode.
 blitzecdn_nginx_normalize_accept_encoding: true
 
+# Response compression (the `compression` setting on a site).
+#
+# gzip needs nothing: it is built into every nginx Debian and Ubuntu ship.
+# Brotli is a third-party module and is not, so it is opt-in per deployment in
+# the same way GeoIP is — but the failure mode is not the same and neither is
+# the handling. A site asking for country rules on an edge without the GeoIP
+# database fails the converge, because the alternative is a filter that admits
+# everyone. A site asking for Brotli on an edge without this simply serves
+# gzip: a correct response that is merely larger, to a client that asked for
+# gzip too. Failing a deploy over that would be the worse trade.
+#
+# Turn it on only where `blitzecdn_nginx_brotli_package` actually exists — the
+# module is packaged on Debian 13 and Ubuntu 24.04+, and not on Debian 12. The
+# package drops its own load_module snippet into /etc/nginx/modules-enabled,
+# so nothing else is needed to make the directives available.
+blitzecdn_nginx_brotli_enabled: false
+blitzecdn_nginx_brotli_package: libnginx-mod-http-brotli
+
+# Compressing on the fly costs CPU on every response, including cache hits —
+# the cache stores what the origin sent, and the compression filter runs on the
+# way out. 5 is the knee of both curves: near the ratio of the maximum at a
+# fraction of the cost. gzip's maximum is 9 and Brotli's is 11, and Brotli 11
+# is a static-asset setting that has no business in a request path.
+blitzecdn_nginx_gzip_comp_level: 5
+blitzecdn_nginx_brotli_comp_level: 5
+# Below this, framing and header overhead eat the saving and a small response
+# can come out larger than it went in.
+blitzecdn_nginx_compression_min_length: 256
+# text/html is deliberately absent: both modules always compress it, and gzip
+# warns about a duplicate MIME type on every config test if it is listed.
+# Nothing already compressed belongs here either — recompressing a JPEG, a
+# woff2 or a zip spends CPU to add bytes.
+blitzecdn_nginx_compression_types:
+  - text/plain
+  - text/css
+  - text/xml
+  - text/javascript
+  - text/markdown
+  - application/javascript
+  - application/json
+  - application/ld+json
+  - application/manifest+json
+  - application/xml
+  - application/rss+xml
+  - application/atom+xml
+  - application/vnd.api+json
+  - application/wasm
+  - image/svg+xml
+  - font/ttf
+  - font/otf
+
 # Mozilla "intermediate" suites, TLS 1.2 only — TLS 1.3 picks its own and
 # ignores this. All AEAD, all forward-secret.
 blitzecdn_nginx_ssl_ciphers: >-

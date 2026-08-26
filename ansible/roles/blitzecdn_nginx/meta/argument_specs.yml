@@ -30,6 +30,16 @@ argument_specs:
           cache_query_string_mode: {type: str, choices: [include, ignore], default: include}
           cache_valid_success: {type: str, default: 10m}
           cache_valid_not_found: {type: str, default: 1m}
+          compression:
+            type: str
+            choices: ['off', gzip, brotli]
+            default: brotli
+            description: >-
+              Encodings this edge produces itself. brotli offers Brotli to
+              clients that accept it and gzip to the rest, degrading to gzip
+              where blitzecdn_nginx_brotli_enabled is false. off stops the edge
+              compressing; a body the origin already encoded is passed through
+              under every mode.
           firewall:
             type: dict
             description: >-
@@ -97,6 +107,23 @@ argument_specs:
       blitzecdn_nginx_default_server: {type: bool, required: true}
       blitzecdn_nginx_default_site_file: {type: path, required: true}
       blitzecdn_nginx_normalize_accept_encoding: {type: bool, required: true}
+      blitzecdn_nginx_brotli_enabled:
+        type: bool
+        required: true
+        description: >-
+          Install the Brotli Nginx module, without which a site asking for
+          compression=brotli is served gzip instead. Not packaged on Debian 12.
+      blitzecdn_nginx_brotli_package: {type: str, required: true}
+      blitzecdn_nginx_gzip_comp_level: {type: int, required: true}
+      blitzecdn_nginx_brotli_comp_level: {type: int, required: true}
+      blitzecdn_nginx_compression_min_length: {type: int, required: true}
+      blitzecdn_nginx_compression_types:
+        type: list
+        elements: str
+        required: true
+        description: >-
+          MIME types compressed on the way out. text/html must not appear:
+          both modules always compress it and gzip warns about the duplicate.
       blitzecdn_nginx_ssl_ciphers: {type: str, required: true}
       blitzecdn_nginx_ssl_stapling: {type: bool, required: true}
       blitzecdn_nginx_hsts_enabled: {type: bool, required: true}

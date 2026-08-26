@@ -19,6 +19,7 @@ from blitzecdn.domain.sites import (
     CacheQueryStringMode,
     CdnSite,
     CertificateMode,
+    CompressionMode,
     MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
@@ -214,6 +215,7 @@ class RecordPatch(BaseModel):
     cache_query_string_mode: CacheQueryStringMode | None = None
     cache_valid_success: str | None = None
     cache_valid_not_found: str | None = None
+    compression: CompressionMode | None = None
     # Replaces the block wholesale; see the note on SitePolicy.firewall. Send
     # {"firewall": {}} to clear every rule.
     firewall: SiteFirewall | None = None
