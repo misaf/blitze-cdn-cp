@@ -5,8 +5,8 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.api.v1_operations import CacheStatsReport, PurgeResult, as_v1
 from blitzecdn.api_models import PurgeRequest, StatsRequest
-from blitzecdn.domain.cache import CacheStatsReport, PurgeResult
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -34,13 +34,13 @@ def purge_cache(
     """Remove cached responses from the edges and report partial failure."""
     result = control.cache.purge_cache(
         operator,
-        entries=request.entries,
+        entries=[entry.to_domain() for entry in request.entries],
         purge_all=request.purge_all,
         host_limit=request.host_limit,
     )
     if not result.complete:
         response.status_code = status.HTTP_409_CONFLICT
-    return result
+    return as_v1(result, PurgeResult)
 
 
 @router.post("/v1/cache/stats", response_model=CacheStatsReport)
@@ -50,4 +50,7 @@ def cache_stats(
     control: ControlPlaneDependency,
 ) -> CacheStatsReport:
     """Collect cache effectiveness from the edges."""
-    return control.cache.cache_stats(operator, host_limit=request.host_limit)
+    return as_v1(
+        control.cache.cache_stats(operator, host_limit=request.host_limit),
+        CacheStatsReport,
+    )

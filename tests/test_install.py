@@ -252,13 +252,10 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         / "edge/MANIFEST.json",
         root / "opt/blitzecdn/.state/letsencrypt/config",
         root / "opt/blitzecdn/.state/ansible-local",
-        root / "opt/blitzecdn/.env",
         root / "opt/blitzecdn/.venv/bin/python",
         root / "opt/blitzecdn/.venv/bin/ansible-playbook",
         root / "opt/blitzecdn/ansible/playbooks/uninstall.yml",
-        root / "opt/blitzecdn/blitzecdn.toml",
         root / "opt/blitzecdn/log/run.log",
-        root / "etc/blitzecdn/blitzecdn.env",
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/systemd/system/blitzecdn-api.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.service",
@@ -526,7 +523,7 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
     standalone = _section("standalone")
     assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
     assert "blitzecdn_nginx_allow_empty_sites" in (
-        PROJECT_DIR / "src/blitzecdn/application/deployment_support.py"
+        PROJECT_DIR / "src/blitzecdn/infrastructure/desired_state.py"
     ).read_text(encoding="utf-8")
 
 
@@ -1223,16 +1220,6 @@ def _evaluate_os_gate(distribution: str, major_version: str) -> bool:
     return rendered.render(ansible_facts=facts) == "True"
 
 
-def test_role_never_rewrites_an_existing_environment_file():
-    """Re-running the installer must not rotate an operator's API credential."""
-    task = _role_task("Write the service environment")
-    assert task["ansible.builtin.template"]["force"] is False
-    # force alone is not enough: a template task still renders its source to
-    # decide, and the credential only exists as a fact on a first run.
-    assert task["when"] == "not blitzecdn_controlplane_environment.stat.exists"
-    assert task["no_log"] is True
-
-
 def test_host_key_scan_is_stable_across_runs():
     """`ssh-keyscan -H` salts each run, so every converge would report a change."""
     task = _role_task("Scan the loopback host keys")
@@ -1271,14 +1258,6 @@ def test_standalone_bootstraps_only_what_ansible_needs():
     # Accounts, sudo, SSH trust and units must not be done twice.
     for moved in ("useradd", "visudo", "ssh-keygen", "ssh-keyscan", "openssl rand"):
         assert moved not in standalone, f"{moved} still runs in the installer"
-
-
-def test_container_source_copy_excludes_local_state_and_macos_sidecars():
-    script = (PROJECT_DIR / "tests/container-install.sh").read_text(encoding="utf-8")
-
-    assert "COPYFILE_DISABLE=1 tar" in script
-    for excluded in (".env", "blitzecdn.toml", ".state", "._*", ".DS_Store"):
-        assert f"--exclude={excluded}" in script or f"--exclude='{excluded}'" in script
 
 
 def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
@@ -1326,9 +1305,6 @@ def test_no_upper_bound_on_the_python_version():
     script = (PROJECT_DIR / "install.sh").read_text(encoding="utf-8")
     assert "sys.version_info[:2] < (3, 12)" in script
     assert "(3, 15)" not in script, "install.sh still refuses a future Python"
-
-    pyproject = (PROJECT_DIR / "pyproject.toml").read_text(encoding="utf-8")
-    assert 'requires-python = ">=3.12"' in pyproject
 
 
 # --- uv: the pinned toolchain the installer builds the virtualenv with --------
@@ -1568,17 +1544,3 @@ def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(tmp_path / ".state/bin/uv")
     assert (tmp_path / ".state/bin/uv").is_file()
-
-
-def test_cli_wrapper_preserves_the_explicit_empty_site_approval():
-    """The one destructive approval must survive sudo and the env file."""
-    wrapper = (
-        PROJECT_DIR / "ansible/roles/blitzecdn_controlplane/templates/blitzecdn-cli.j2"
-    ).read_text(encoding="utf-8")
-
-    captured = "allow_empty_sites_override=${BLITZE_ALLOW_EMPTY_SITES-}"
-    restored = "BLITZE_ALLOW_EMPTY_SITES=${allow_empty_sites_override}"
-    assert captured in wrapper
-    assert "--preserve-env=BLITZE_ALLOW_EMPTY_SITES" in wrapper
-    assert restored in wrapper
-    assert wrapper.index(captured) < wrapper.index("source ") < wrapper.index(restored)

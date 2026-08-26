@@ -57,6 +57,12 @@ def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
         decode_snapshot(snapshot)
 
 
+def test_snapshots_fail_closed_on_unknown_schema_versions():
+    snapshot = '{"schema_version":999,"domains":[],"records":[]}'
+    with pytest.raises(ValueError, match="unsupported deployment snapshot"):
+        decode_snapshot(snapshot)
+
+
 @pytest.mark.parametrize(
     "value", ["*.192.0.2.1", "*.203.0.113.0", "*.::1", "*.2001:db8::1"]
 )

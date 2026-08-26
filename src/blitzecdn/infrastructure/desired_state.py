@@ -1,33 +1,31 @@
-"""Focused collaborators used by deployment lifecycle orchestration."""
+"""Publish immutable snapshots in the format consumed by Ansible."""
 
 from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from blitzecdn.config import Settings
 from blitzecdn.domain.sites import MANAGED_TLS_ROOT, CertificateMode
 from blitzecdn.domain.snapshots import decode_snapshot
+from blitzecdn.infrastructure.ansible_mapping import site_to_ansible
 from blitzecdn.ports import CertificateStore, YamlWriter
 
 
 class DesiredStateRenderer:
-    """Transforms immutable canonical snapshots into Ansible input."""
-
     def __init__(
         self,
         *,
-        settings: Settings,
+        allow_empty_sites: bool,
         certificates: CertificateStore,
         write_yaml: YamlWriter,
     ) -> None:
-        self.settings = settings
+        self.allow_empty_sites = allow_empty_sites
         self.certificates = certificates
         self.write_yaml = write_yaml
 
     def render(self, snapshot: str, path: Path) -> None:
         documents: list[dict[str, object]] = []
         for site in decode_snapshot(snapshot):
-            document = site.to_ansible()
+            document = site_to_ansible(site)
             if site.certificate_mode in {
                 CertificateMode.UPLOADED,
                 CertificateMode.REQUESTED,
@@ -42,7 +40,7 @@ class DesiredStateRenderer:
         self.write_yaml(
             path,
             {
-                "blitzecdn_nginx_allow_empty_sites": self.settings.allow_empty_sites,
+                "blitzecdn_nginx_allow_empty_sites": self.allow_empty_sites,
                 "blitzecdn_nginx_sites": documents,
             },
         )

@@ -20,6 +20,13 @@ class WorkflowKind(StrEnum):
     CERTIFICATE = "certificate"
 
 
+class MaintenanceOperation(StrEnum):
+    RECONCILE_CERTIFICATES = "reconcile-certificates"
+    RECONCILE_AUTOMATIC_SSL = "reconcile-automatic-ssl"
+    RENEW_CERTIFICATES = "renew-certificates"
+    CHECK_DRIFT = "check-drift"
+
+
 class WorkflowStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"

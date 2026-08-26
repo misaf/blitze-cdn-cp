@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.domain.cache import PurgeEntry
+from blitzecdn.api.v1_operations import PurgeEntry
 from blitzecdn.domain.certificates import CERTIFICATE_RENEWAL_DAYS
-from blitzecdn.domain.runs import HostRun
 from blitzecdn.domain.validation import EDGE_LIMIT
 
 
@@ -59,15 +58,3 @@ class RenewRequest(_RequestModel):
 class RollbackRequest(_RequestModel):
     deployment_id: str | None = Field(default=None, min_length=32, max_length=32)
     check: bool = False
-
-
-class EdgeRemoval(BaseModel):
-    """Report the remote and local halves of deleting an edge."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    name: str
-    #: False when `?decommission=false` skipped the teardown entirely, leaving
-    #: BlitzeCDN's configuration and TLS private keys on the host.
-    decommissioned: bool
-    hosts: tuple[HostRun, ...] = ()

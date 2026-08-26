@@ -53,9 +53,6 @@ class PurgeEntry(BaseModel):
             raise ValueError("uri cannot contain whitespace")
         return candidate
 
-    def to_ansible(self) -> dict[str, str]:
-        return {"host": self.host, "uri": self.uri, "scheme": self.scheme.value}
-
 
 class PurgeResult(BaseModel):
     """Which edges carried out a purge, and which did not.

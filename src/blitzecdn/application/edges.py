@@ -20,19 +20,16 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from blitzecdn.application.ports.common import UnitOfWork
+from blitzecdn.application.ports.deployments import DeploymentRunner
+from blitzecdn.application.ports.dns import SiteStore
+from blitzecdn.application.ports.edges import EdgeStore, OriginProbe
+from blitzecdn.application.ports.operations import EventRecorder
 from blitzecdn.domain.edges import Edge, EdgePatch
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.origins import EdgeOriginChecks, OriginCheck, OriginReport
 from blitzecdn.domain.runs import HostRun
 from blitzecdn.exceptions import ConfigurationError, ExecutionError
-from blitzecdn.ports import (
-    DeploymentRunner,
-    EdgeStore,
-    EventRecorder,
-    OriginProbe,
-    SiteStore,
-    UnitOfWork,
-)
 
 
 class EdgeOperationsService:

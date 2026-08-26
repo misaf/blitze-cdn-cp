@@ -13,72 +13,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from blitzecdn.exceptions import ConfigurationError
 
-_PATH_SETTINGS = (
-    ("ansible_dir", "BLITZE_ANSIBLE_DIR", "ansible_dir", "ansible"),
-    (
-        "inventory_path",
-        "BLITZE_INVENTORY",
-        "inventory_path",
-        "ansible/inventory/blitzecdn.yml",
-    ),
-    ("playbook_path", "BLITZE_PLAYBOOK", "playbook_path", "ansible/playbooks/edge.yml"),
-    (
-        "acme_challenge_playbook_path",
-        "BLITZE_ACME_CHALLENGE_PLAYBOOK",
-        "acme_challenge_playbook_path",
-        "ansible/playbooks/acme-challenge.yml",
-    ),
-    (
-        "cache_purge_playbook_path",
-        "BLITZE_CACHE_PURGE_PLAYBOOK",
-        "cache_purge_playbook_path",
-        "ansible/playbooks/cache-purge.yml",
-    ),
-    (
-        "stats_playbook_path",
-        "BLITZE_STATS_PLAYBOOK",
-        "stats_playbook_path",
-        "ansible/playbooks/stats.yml",
-    ),
-    (
-        "origin_check_playbook_path",
-        "BLITZE_ORIGIN_CHECK_PLAYBOOK",
-        "origin_check_playbook_path",
-        "ansible/playbooks/origin-check.yml",
-    ),
-    (
-        "decommission_playbook_path",
-        "BLITZE_DECOMMISSION_PLAYBOOK",
-        "decommission_playbook_path",
-        "ansible/playbooks/decommission.yml",
-    ),
-)
+_PATH_SETTINGS: tuple[tuple[str, str, str, str], ...] = ()
 
 _STATE_PATH_SETTINGS = (
     ("database_path", "BLITZE_DATABASE_PATH", "database_path", "control-plane.db"),
-    (
-        "generated_vars_path",
-        "BLITZE_GENERATED_VARS",
-        "generated_vars_path",
-        "desired-state.yml",
-    ),
-    (
-        "deployment_lock_path",
-        "BLITZE_DEPLOYMENT_LOCK",
-        "deployment_lock_path",
-        "deployment.lock",
-    ),
-    ("certificate_dir", "BLITZE_CERTIFICATE_DIR", "certificate_dir", "certificates"),
 )
 
 _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
-    (
-        "ansible_playbook",
-        "BLITZE_ANSIBLE_PLAYBOOK",
-        "ansible_playbook",
-        "ansible-playbook",
-    ),
-    ("certbot", "BLITZE_CERTBOT", "certbot", "certbot"),
     (
         "deployment_timeout_seconds",
         "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
@@ -143,14 +84,11 @@ _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
         "certificate_renewal_workers",
         2,
     ),
-    ("maxmind_account_id", "BLITZE_MAXMIND_ACCOUNT_ID", "maxmind_account_id", ""),
 )
 
 _PROJECT_KEYS = {
     *(spec[2] for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)),
-    "state_dir",
     "acme_default_email",
-    "acme_ca_domain",
     "preflight_dns_servers",
 }
 
@@ -381,8 +319,23 @@ class Settings(BaseSettings):
             candidate = Path(str(value(environment_name, config_name, default)))
             return candidate if candidate.is_absolute() else root / candidate
 
-        state = path_value("BLITZE_STATE_DIR", "state_dir", root / ".state")
-        values: dict[str, object] = {"project_dir": root, "state_dir": state}
+        state = root / ".state"
+        values: dict[str, object] = {
+            "project_dir": root,
+            "state_dir": state,
+            "ansible_dir": root / "ansible",
+            "inventory_path": root / "ansible/inventory/blitzecdn.yml",
+            "playbook_path": root / "ansible/playbooks/edge.yml",
+            "cache_purge_playbook_path": root / "ansible/playbooks/cache-purge.yml",
+            "stats_playbook_path": root / "ansible/playbooks/stats.yml",
+            "origin_check_playbook_path": root / "ansible/playbooks/origin-check.yml",
+            "decommission_playbook_path": root / "ansible/playbooks/decommission.yml",
+            "acme_challenge_playbook_path": root
+            / "ansible/playbooks/acme-challenge.yml",
+            "generated_vars_path": state / "desired-state.yml",
+            "deployment_lock_path": state / "deployment.lock",
+            "certificate_dir": state / "certificates",
+        }
         for field, environment_name, config_name, relative_default in _PATH_SETTINGS:
             values[field] = path_value(
                 environment_name, config_name, root / relative_default
@@ -402,14 +355,12 @@ class Settings(BaseSettings):
         raw_email = value("BLITZE_ACME_DEFAULT_EMAIL", "acme_default_email", "")
         values.update(
             acme_default_email=(str(raw_email).strip().lower() if raw_email else None),
-            acme_ca_domain=value(
-                "BLITZE_ACME_CA_DOMAIN", "acme_ca_domain", "letsencrypt.org"
-            ),
             preflight_dns_servers=cls._read_dns_servers(
                 value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
             ),
             # Secrets are intentionally environment-only; committed TOML keys
             # with either name remain rejected by `_read_project_config`.
+            maxmind_account_id=env.get("BLITZE_MAXMIND_ACCOUNT_ID", ""),
             maxmind_license_key=SecretStr(env.get("BLITZE_MAXMIND_LICENSE_KEY", "")),
             api_keys=cls._read_api_keys(env),
         )

@@ -18,6 +18,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, datetime
 
+from blitzecdn.application.ports.deployments import DeploymentRunner
+from blitzecdn.application.ports.dns import SiteStore
+from blitzecdn.application.ports.operations import EventRecorder
 from blitzecdn.domain.cache import (
     CacheStatsReport,
     EdgeStats,
@@ -29,7 +32,6 @@ from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.runs import HostRun
 from blitzecdn.domain.sites import CacheQueryStringMode, CdnSite, HttpScheme
 from blitzecdn.exceptions import ConflictError, ExecutionError, NotFoundError
-from blitzecdn.ports import DeploymentRunner, EventRecorder, SiteStore
 
 
 class CacheService:
@@ -79,7 +81,7 @@ class CacheService:
             )
         resolved_entries = self._resolve_purge_entries(entries) if entries else ()
         run = self.runner.run_cache_purge(
-            entries=[entry.to_ansible() for entry in resolved_entries],
+            entries=resolved_entries,
             purge_all=purge_all,
             host_limit=host_limit,
         )
@@ -98,7 +100,9 @@ class CacheService:
                 None,
                 {
                     "purge_all": purge_all,
-                    "entries": [entry.to_ansible() for entry in resolved_entries],
+                    "entries": [
+                        entry.model_dump(mode="json") for entry in resolved_entries
+                    ],
                     "host_limit": host_limit,
                     "complete": report.complete,
                     "failed": [host.host for host in report.failed],

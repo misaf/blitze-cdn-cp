@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import os
 from uuid import uuid4
 
 import dramatiq
@@ -11,6 +10,7 @@ from dramatiq.brokers.redis import RedisBroker
 from redis import Redis
 
 from blitzecdn.config import Settings
+from blitzecdn.domain.operations import MaintenanceOperation
 from blitzecdn.exceptions import DeploymentBusyError
 
 _LOGGER = logging.getLogger(__name__)
@@ -24,6 +24,16 @@ if redis.call('get', KEYS[1]) == ARGV[1] then
 end
 return 0
 """
+
+
+class DramatiqBackgroundRunner:
+    """Queues deployment identifiers for this worker entry point."""
+
+    def __init__(self, redis_url: str) -> None:
+        configure_broker(redis_url)
+
+    def enqueue(self, deployment_id: str) -> None:
+        run_deployment.send(deployment_id)
 
 
 def redis_ready(redis_url: str) -> bool:
@@ -98,9 +108,10 @@ def configure_broker(redis_url: str) -> None:
     _broker_url = redis_url
 
 
-# The worker imports this module before accepting messages. systemd supplies
-# the same environment file as the API, while tests configure explicitly.
-configure_broker(os.environ.get("BLITZE_REDIS_URL", "redis://127.0.0.1:6379/0"))
+# The worker imports this module before accepting messages. Resolve through the
+# same settings pipeline as the API so a Redis URL in blitzecdn.toml is honored;
+# environment overrides still win through Settings.from_environment().
+configure_broker(str(Settings.from_environment().redis_url))
 
 
 def _retry_locked_deployment(retries: int, exception: BaseException) -> bool:
@@ -137,28 +148,7 @@ def _run_control_plane(operation: str, token: str) -> None:
 
     control = build_control_plane(Settings.from_environment())
     try:
-        if operation == "reconcile-certificates":
-            result = control.certificates.reconcile_certificates("scheduler")
-            # A first certificate makes visitor-facing HTTPS possible, but the
-            # safest origin transport is still unknown. Resolve that in the
-            # same unattended workflow instead of leaving a new hostname in
-            # SSL Off until the less frequent automatic-SSL scan runs. The
-            # scanner only upgrades, so it cannot weaken an operator choice.
-            if result.issued:
-                control.automatic_ssl.reconcile("scheduler")
-        elif operation == "reconcile-automatic-ssl":
-            control.automatic_ssl.reconcile("scheduler")
-        elif operation == "renew-certificates":
-            control.certificates.renew_certificates(
-                "scheduler",
-                budget_seconds=control.settings.certificate_renewal_budget_seconds,
-            )
-        elif operation == "check-drift":
-            control.deployments.check_drift("scheduler")
-        else:  # pragma: no cover - actors below provide the closed set
-            raise ValueError(f"unknown scheduled operation: {operation}")
-        if control.deployment_requirements.pending("certificates"):
-            control.deployments.submit_deployment("scheduler")
+        control.maintenance.run(MaintenanceOperation(operation))
     finally:
         try:
             control.close()

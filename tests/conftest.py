@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -13,6 +14,7 @@ from cryptography.x509.oid import NameOID
 from dramatiq.brokers.stub import StubBroker
 
 from blitzecdn.config import Settings
+from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.edges import Edge
 from blitzecdn.domain.runs import (
     AnsibleRun,
@@ -22,7 +24,7 @@ from blitzecdn.domain.runs import (
     TaskResult,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.infrastructure.queue import (
+from blitzecdn.worker import (
     check_drift,
     reconcile_automatic_ssl,
     reconcile_certificates,
@@ -166,7 +168,7 @@ class FakeRunner:
         #: The scratch path each `validate` was handed, so a test can assert it
         #: was not the shared desired-state file.
         self.validated: list[Path] = []
-        self.purges: list[tuple[list[dict[str, str]], bool, str | None]] = []
+        self.purges: list[tuple[Sequence[PurgeEntry], bool, str | None]] = []
         self.stats_runs: list[str | None] = []
         self.decommissions: list[str] = []
         #: The sites each origin check was asked about, and the limit it ran
@@ -189,7 +191,7 @@ class FakeRunner:
     def run_cache_purge(
         self,
         *,
-        entries: list[dict[str, str]],
+        entries: Sequence[PurgeEntry],
         purge_all: bool,
         host_limit: str | None = None,
     ) -> AnsibleRun:

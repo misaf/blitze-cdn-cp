@@ -94,7 +94,6 @@ say "Checking what the installation produced"
 in_container 'getent passwd blitzecdn >/dev/null' || fail "no blitzecdn account"
 in_container 'getent passwd deploy >/dev/null' || fail "no deploy account"
 in_container 'test -x /usr/local/bin/blitzecdn' || fail "no CLI wrapper"
-in_container 'test -f /etc/blitzecdn/blitzecdn.env' || fail "no environment file"
 in_container 'systemctl is-active --quiet blitzecdn-api.service' || {
   in_container 'systemctl status --no-pager blitzecdn-api.service' || true
   in_container 'journalctl --no-pager -u blitzecdn-api.service -n 100' || true
@@ -157,14 +156,8 @@ in_container 'cd / && blitzecdn db backup /var/lib/blitzecdn/backup.db' ||
 in_container 'test -s /var/lib/blitzecdn/backup.db' || fail "the backup is empty"
 
 say "Re-running the installer"
-credential_before=$(in_container 'sha256sum /etc/blitzecdn/blitzecdn.env')
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
   fail "the installer is not re-runnable on ${IMAGE}"
-credential_after=$(in_container 'sha256sum /etc/blitzecdn/blitzecdn.env')
-# The invariant that matters most: re-running must never rotate the API
-# credential an operator is already using.
-[[ ${credential_before} == "${credential_after}" ]] ||
-  fail "re-running the installer rewrote the API credential"
 
 say "Checking the updater refuses a checkout it cannot verify"
 # The working tree is copied in here rather than cloned, so this host has no

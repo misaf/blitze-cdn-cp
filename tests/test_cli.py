@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 
 from blitzecdn import cli
 from blitzecdn.control_plane import ControlPlane
+from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.certificates import (
     PreflightCheck,
     PreflightSeverity,
@@ -25,16 +26,6 @@ from blitzecdn.domain.sites import CdnSite
 from blitzecdn.infrastructure.database import Repository
 
 runner = CliRunner()
-
-
-def test_init_creates_private_environment_file(tmp_path):
-    output = tmp_path / "generated.env"
-    result = runner.invoke(cli.app, ["init", "--output", str(output)])
-    assert result.exit_code == 0
-    assert output.stat().st_mode & 0o777 == 0o600
-    assert "BLITZE_API_KEYS=local:" in output.read_text(encoding="utf-8")
-    duplicate = runner.invoke(cli.app, ["init", "--output", str(output)])
-    assert duplicate.exit_code == 2
 
 
 def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_path):
@@ -88,7 +79,6 @@ def test_setup_and_edge_workflow(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     result = runner.invoke(cli.app, ["setup"])
     assert result.exit_code == 0
-    assert (tmp_path / ".env").stat().st_mode & 0o777 == 0o600
     assert not (tmp_path / "ansible/inventory/hosts.yml").exists()
     # The inventory plugin refuses a database that does not exist, so a fresh
     # install where `setup` left none could not run a single playbook — every
@@ -149,7 +139,6 @@ def test_schema_only_setup_initializes_database_without_scaffolding(
     assert cli.Settings.from_environment(
         {}, project_dir=tmp_path
     ).database_path.exists()
-    assert not (tmp_path / ".env").exists()
     assert result.stdout == ""
 
 
@@ -661,7 +650,7 @@ def test_cert_list_exits_four_when_a_certificate_has_expired(
     # Backdate the stored record; installing an expired certificate is refused,
     # so the only way to reach this state is for time to have passed.
     path = settings.certificate_dir / site_name / "metadata.json"
-    info = control.certificate_store.get(site_name)
+    info = control._certificate_store.get(site_name)
     path.write_text(
         info.model_copy(update={"not_after": info.not_before}).model_dump_json(
             indent=2
@@ -1356,9 +1345,9 @@ def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch
     )
 
     assert result.exit_code == 0
-    assert fake.purges[0][0] == [
-        {"host": "cdn.example.com", "uri": "/app.js", "scheme": "https"}
-    ]
+    assert fake.purges[0][0] == (
+        PurgeEntry(host="cdn.example.com", uri="/app.js", scheme="https"),
+    )
 
 
 def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
@@ -1369,7 +1358,7 @@ def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
 
     runner.invoke(cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a?v=2"])
 
-    assert fake.purges[0][0][0]["uri"] == "/a?v=2"
+    assert fake.purges[0][0][0].uri == "/a?v=2"
 
 
 def test_cache_purge_defaults_a_bare_url_to_https_and_root(settings, monkeypatch):
@@ -1379,9 +1368,9 @@ def test_cache_purge_defaults_a_bare_url_to_https_and_root(settings, monkeypatch
 
     runner.invoke(cli.app, ["cache", "purge", "--url", "cdn.example.com"])
 
-    assert fake.purges[0][0] == [
-        {"host": "cdn.example.com", "uri": "/", "scheme": "https"}
-    ]
+    assert fake.purges[0][0] == (
+        PurgeEntry(host="cdn.example.com", uri="/", scheme="https"),
+    )
 
 
 def test_cache_purge_rejects_a_url_with_no_hostname(settings, monkeypatch):

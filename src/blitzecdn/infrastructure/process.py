@@ -10,20 +10,6 @@ from typing import Any
 _LOOKUP_ERRORS = (ProcessLookupError, PermissionError)
 
 
-class DramatiqBackgroundRunner:
-    """Queues deployment identifiers for a separate Dramatiq worker."""
-
-    def __init__(self, redis_url: str) -> None:
-        from blitzecdn.infrastructure.queue import configure_broker
-
-        configure_broker(redis_url)
-
-    def enqueue(self, deployment_id: str) -> None:
-        from blitzecdn.infrastructure.queue import run_deployment
-
-        run_deployment.send(deployment_id)
-
-
 def terminate_process_group(
     process: subprocess.Popen[Any],
     drain: Callable[..., Any],

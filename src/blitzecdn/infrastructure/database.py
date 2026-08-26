@@ -1,4 +1,4 @@
-"""One SQLite database, exposed as four focused stores.
+"""One SQLite database, exposed as focused feature stores.
 
 ``Repository`` opens the database and hands out the four stores that sit on it.
 It is a bundle, not a layer: each store already satisfies its port in
@@ -17,7 +17,7 @@ from pathlib import Path
 
 from blitzecdn.domain.snapshots import encode_snapshot
 from blitzecdn.infrastructure.engine import Database
-from blitzecdn.infrastructure.stores import (
+from blitzecdn.infrastructure.persistence import (
     AnsibleSettingStore,
     AuditLog,
     DeploymentRequirementStore,
@@ -42,7 +42,7 @@ __all__ = [
 class Repository:
     """SQLite persistence with explicit transactions and immutable snapshots.
 
-    A composition of the stores in :mod:`blitzecdn.infrastructure.stores`, and
+    A composition of the stores in :mod:`blitzecdn.infrastructure.persistence`, and
     nothing more. Reach through it for the store you want —
     ``repository.zones.list_records()`` — rather than expecting a method here;
     forwarding every store method onto this class only made ``Repository`` look

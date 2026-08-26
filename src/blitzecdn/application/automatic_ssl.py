@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from blitzecdn.application.edges import edge_origins
+from blitzecdn.application.ports.deployments import DeploymentGateway, DeploymentRunner
+from blitzecdn.application.ports.dns import SiteStore, ZoneEditor
+from blitzecdn.application.ports.edges import OriginProbe
 from blitzecdn.domain.automatic_ssl import SslAutomaticReconciliation
 from blitzecdn.domain.origins import OriginCheck, OriginReport
 from blitzecdn.domain.sites import (
@@ -12,13 +15,6 @@ from blitzecdn.domain.sites import (
     CertificateMode,
     SslAutomaticMode,
     SslMode,
-)
-from blitzecdn.ports import (
-    DeploymentGateway,
-    DeploymentRunner,
-    OriginProbe,
-    SiteStore,
-    ZoneEditor,
 )
 
 

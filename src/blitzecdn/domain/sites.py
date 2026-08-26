@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import ipaddress
 from enum import StrEnum
-from typing import Any, Self
+from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -441,13 +441,3 @@ class CdnSite(SitePolicy):
         HTTP and HTTPS responses independently.
         """
         return self.ssl_mode.serves_tls
-
-    def to_ansible(self) -> dict[str, Any]:
-        document = self.model_dump(mode="json", exclude_none=True)
-        # An untouched firewall is dropped rather than sent as six empty lists.
-        # The desired state is read by operators during an incident, and a
-        # block that appears on every site says nothing about the one site that
-        # actually filters. The role defaults the key back to empty.
-        if self.firewall.empty:
-            del document["firewall"]
-        return document

@@ -38,3 +38,16 @@ def test_zone_snapshot_round_trip(label: str, address: object) -> None:
 
     assert restored_domains == domains
     assert restored_records == records
+
+
+def test_legacy_unversioned_snapshot_remains_readable() -> None:
+    snapshot = (
+        '{"domains":[{"name":"example.com"}],"records":['
+        '{"domain":"example.com","name":"cdn","type":"A",'
+        '"value":"192.0.2.1","ttl":300,"proxied":true}]}'
+    )
+
+    domains, records = decode_snapshot_zones(snapshot)
+
+    assert domains == [Domain(name="example.com")]
+    assert records[0].fqdn == "cdn.example.com"
