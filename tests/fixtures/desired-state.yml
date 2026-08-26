@@ -13,6 +13,7 @@ blitzecdn_nginx_sites:
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
+    compression: brotli
     name: cdn-example-com
     server_names:
       - cdn.example.com
@@ -29,6 +30,7 @@ blitzecdn_nginx_sites:
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
+    compression: brotli
     firewall:
       allow_sources:
         - 203.0.113.9/32

@@ -537,6 +537,43 @@ mode when query parameters select content, authentication, language, or user
 state. The equivalent API field is `cache_query_string_mode`, accepting
 `"include"` or `"ignore"`.
 
+## Response compression
+
+Every proxied hostname is compressed at the edge. `brotli` is the default: it
+offers Brotli to clients that accept it and gzip to the rest.
+
+```bash
+blitzecdn record compression example.com cdn --mode gzip
+blitzecdn deploy
+```
+
+`--mode` takes `brotli`, `gzip`, or `off`. The API field is `compression` on
+**v2 only** — v1 is frozen and neither reports nor accepts it, so a v1 client
+reading the record sees the same shape it always did.
+
+Three things worth knowing before changing it:
+
+- **Brotli needs a module the distribution may not have.** Set
+  `blitzecdn_nginx_brotli_enabled: true` to install
+  `libnginx-mod-http-brotli` (packaged on Debian 13 and Ubuntu 24.04+, not on
+  Debian 12). A site set to `brotli` on an edge without it serves gzip rather
+  than failing the deploy — unlike a firewall country rule without GeoIP,
+  which does fail, because gzip is a correct answer and an unfiltered site is
+  not.
+- **`off` means this edge does not compress, not that responses arrive
+  uncompressed.** A body the origin already encoded is passed through under
+  every mode; nginx will not decode and re-encode one to strip it.
+- **Compression runs on cache hits too.** The cache stores what the origin
+  sent and the filter runs on the way out, so `blitzecdn_nginx_gzip_comp_level`
+  and `blitzecdn_nginx_brotli_comp_level` (both 5) are per-response costs, not
+  per-MISS costs. `blitzecdn_nginx_compression_types` and
+  `blitzecdn_nginx_compression_min_length` (256 bytes) bound what is worth
+  spending them on.
+
+Cache correctness needs no attention here: edges already collapse client
+`Accept-Encoding` into `""`, `"gzip"` or `"br"` and make it part of the cache
+key, so a compressed and an identity response cannot share one entry.
+
 ## Origin DNS
 
 By default each edge re-resolves origin hostnames every

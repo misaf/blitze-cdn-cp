@@ -100,6 +100,37 @@ class CacheQueryStringMode(StrEnum):
     IGNORE = "ignore"
 
 
+class CompressionMode(StrEnum):
+    """Which encodings the edge is willing to produce for itself.
+
+    Ordered by what a client can be offered, not by preference: ``BROTLI``
+    means Brotli *and* gzip, because a client that cannot decode ``br`` still
+    sends ``gzip`` and would otherwise be handed an identity body. There is no
+    "gzip only after Brotli" state to express — the two are advertised
+    independently by every client that supports either.
+
+    Two things this does not mean.
+
+    It is not a promise that Brotli is available. The module is opt-in per
+    edge (``blitzecdn_nginx_brotli_enabled``), and a site asking for it where
+    it is absent is served gzip rather than failing the converge — the
+    opposite of how a firewall country rule treats a missing GeoIP database,
+    deliberately: an unfiltered site is a security failure, while gzip instead
+    of Brotli is a correct response that is merely larger.
+
+    And it governs what *this edge* compresses, not what a client receives. A
+    response the origin already encoded arrives with ``Content-Encoding`` set
+    and is passed through untouched under every mode including ``OFF``; nginx
+    never re-compresses an encoded body, and stripping one to honour ``OFF``
+    would mean decoding and re-encoding every hit to serve fewer bytes of
+    nothing.
+    """
+
+    OFF = "off"
+    GZIP = "gzip"
+    BROTLI = "brotli"
+
+
 class CertificateMode(StrEnum):
     DISABLED = "disabled"
     EXISTING = "existing"
@@ -304,6 +335,12 @@ class SitePolicy(BaseModel):
     cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
     cache_valid_success: str = "10m"
     cache_valid_not_found: str = "1m"
+    #: Brotli by default, matching the Cloudflare-compatible posture: it is the
+    #: better encoding where both ends have it, and it degrades to gzip on an
+    #: edge that does not. Edges already key the cache by normalised
+    #: ``Accept-Encoding``, so compressing here cannot serve a body a client
+    #: cannot decode.
+    compression: CompressionMode = CompressionMode.BROTLI
     #: Nested rather than flattened into six more fields, so a PATCH that
     #: touches the firewall replaces the whole block. Merging partial rule
     #: lists would make "remove the last deny" impossible to express.

@@ -30,6 +30,7 @@ from blitzecdn.domain.sites import (
     CacheQueryStringMode,
     CdnSite,
     CertificateMode,
+    CompressionMode,
     MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
@@ -286,6 +287,7 @@ def test_nginx_role_accepts_only_the_current_ssl_policy():
         ("minimum_tls_version", MinimumTlsVersion),
         ("certificate_mode", CertificateMode),
         ("cache_query_string_mode", CacheQueryStringMode),
+        ("compression", CompressionMode),
     ],
 )
 def test_role_choices_cover_every_domain_value(field, enum):
@@ -652,6 +654,122 @@ def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
     )
     # Ignore affects identity in the cache, not what the origin receives.
     assert "proxy_pass $blitzecdn_upstream$request_uri;" in rendered
+
+
+def _compressed(mode: CompressionMode) -> dict[str, Any]:
+    return site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": "compressed",
+                "server_names": ["compressed.example.com"],
+                "origin_host": "origin.example.com",
+                "compression": mode,
+            }
+        )
+    )
+
+
+def test_brotli_is_offered_only_where_the_module_is_installed():
+    """Wanting Brotli and having it are separate; the gap degrades to gzip.
+
+    The directives do not exist without the module, so emitting them on an edge
+    that lacks it would fail `nginx -t` for every site on that edge, not just
+    this one. The site still gets gzip, which is what the client that could not
+    take Brotli was going to receive anyway.
+    """
+    site = _compressed(CompressionMode.BROTLI)
+
+    without = _render(site, blitzecdn_nginx_brotli_enabled=False)
+    assert "brotli on;" not in without
+    assert "brotli off;" not in without, (
+        "the directive is undefined without the module; naming it to turn it "
+        "off breaks the whole edge"
+    )
+    assert "gzip on;" in without
+
+    with_module = _render(site, blitzecdn_nginx_brotli_enabled=True)
+    assert "brotli on;" in with_module
+    assert "brotli_comp_level 5;" in with_module
+    assert "gzip on;" in with_module, "Brotli never replaces the gzip fallback"
+
+
+def test_compression_off_says_so_rather_than_staying_silent():
+    """Debian's nginx.conf carries `gzip on` in the http context.
+
+    Omitting the directive therefore does not mean off — it means inherited.
+    """
+    rendered = _render(_compressed(CompressionMode.OFF))
+
+    assert "gzip off;" in rendered
+    assert "gzip on;" not in rendered
+
+
+def test_gzip_only_turns_brotli_off_where_the_module_is_present():
+    rendered = _render(
+        _compressed(CompressionMode.GZIP), blitzecdn_nginx_brotli_enabled=True
+    )
+
+    assert "gzip on;" in rendered
+    assert "brotli off;" in rendered
+    assert "brotli on;" not in rendered
+
+
+def test_compression_never_lists_text_html():
+    """Both modules always compress it, and gzip warns about the duplicate.
+
+    A warning on every `nginx -t` is how operators learn to read a noisy config
+    test as normal, which is the failure this prevents rather than the
+    duplicate itself.
+    """
+    types = _role_defaults()["blitzecdn_nginx_compression_types"]
+
+    assert "text/html" not in types
+    # Nothing already compressed: re-encoding one of these adds bytes and CPU.
+    assert not {"image/jpeg", "image/png", "font/woff2", "application/zip"} & set(types)
+
+
+def test_compression_leaves_the_cache_key_and_origin_request_alone():
+    """The edge compresses on egress; the cache still stores what the origin sent.
+
+    If this ever stopped holding, a cache entry would carry an encoding that
+    the key does not distinguish, and a client would be handed a body it cannot
+    decode — the exact failure the Accept-Encoding map exists to prevent.
+    """
+    rendered = _render(
+        _compressed(CompressionMode.BROTLI), blitzecdn_nginx_brotli_enabled=True
+    )
+
+    assert "proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;" in rendered
+    assert (
+        'proxy_cache_key "$scheme$server_port$request_method$host$request_uri'
+        '$blitzecdn_accept_encoding"' in rendered
+    )
+    # gzip_vary is for shared caches downstream of us, which do not know our key.
+    assert "gzip_vary on;" in rendered
+    # Proxied responses carry headers that disable gzip under the default.
+    assert "gzip_proxied any;" in rendered
+
+
+def test_brotli_is_off_until_an_operator_turns_it_on():
+    """It is a third-party module Debian 12 does not package."""
+    assert _role_defaults()["blitzecdn_nginx_brotli_enabled"] is False
+
+
+def test_missing_compression_preserves_pre_upgrade_behavior():
+    """A running older control plane may deploy through an updated role.
+
+    Unlike always_use_https, the safe default here is on: the role's default
+    and the domain's agree on brotli, so an edge upgraded ahead of its
+    controller compresses exactly as it will once both have moved.
+    """
+    site = _compressed(CompressionMode.BROTLI)
+    del site["compression"]
+
+    option = _role_spec()["blitzecdn_nginx_sites"]["options"]["compression"]
+    assert option["default"] == "brotli"
+    assert option.get("required", False) is False
+
+    assert "gzip on;" in _render(site)
 
 
 def test_missing_always_use_https_preserves_pre_upgrade_behavior():

@@ -14,6 +14,7 @@ from blitzecdn.cli import common
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.sites import (
     CacheQueryStringMode,
+    CompressionMode,
     MinimumTlsVersion,
     SiteFirewall,
     SslAutomaticMode,
@@ -316,6 +317,43 @@ def record_cache_query_string(
         typer.echo(
             f"{record.fqdn} cache query-string mode is now "
             f"{record.cache_query_string_mode.value!r}. "
+            "Run 'blitzecdn deploy' to apply."
+        )
+
+
+@record_app.command("compression")
+def record_compression(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    mode: Annotated[
+        CompressionMode,
+        typer.Option(
+            "--mode",
+            help="Compress at the edge with Brotli and gzip, gzip only, or not at all.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Choose which encodings the edge produces for this hostname.
+
+    'brotli' offers Brotli to clients that accept it and gzip to the rest, and
+    falls back to gzip on an edge without the Brotli module. 'off' stops the
+    edge compressing; a response the origin already compressed is still passed
+    through, because nginx never re-encodes an encoded body.
+    """
+    record = common.control_plane().dns.update_record(
+        domain,
+        name,
+        type_,
+        RecordPatch(compression=mode),
+        "cli",
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"{record.fqdn} edge compression is now "
+            f"{record.compression.value!r}. "
             "Run 'blitzecdn deploy' to apply."
         )
 
