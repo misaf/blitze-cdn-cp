@@ -10,7 +10,7 @@ Group=blitzecdn
 WorkingDirectory=/opt/blitzecdn
 Environment="PATH=/opt/blitzecdn/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 EnvironmentFile=-/etc/blitzecdn/blitzecdn.env
-ExecStart=/opt/blitzecdn/.venv/bin/dramatiq blitzecdn.infrastructure.queue --queues deployments scheduled --processes 1 --threads 2
+ExecStart=/opt/blitzecdn/.venv/bin/dramatiq blitzecdn.worker --queues deployments scheduled --processes 1 --threads 2
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

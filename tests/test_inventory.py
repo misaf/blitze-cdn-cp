@@ -8,7 +8,8 @@ What is left to check is the seam the plugin sits on, and it is a real seam:
 the plugin ships in `ansible/plugins/inventory/`, runs inside `ansible-playbook`
 under whatever interpreter that is, and cannot import `blitzecdn` to validate
 what it reads. Two independent pieces of code therefore know the shape of an
-edge — `domain.edges.Edge.to_inventory` and the plugin's `_host_variables` —
+edge — `infrastructure.ansible_mapping.edge_to_inventory` and the plugin's
+`_host_variables` —
 and the only honest way to check they agree is to write a database with the
 model and then run the real `ansible-inventory` against it. That is what
 `test_the_plugin_publishes_what_the_model_renders` does.
@@ -30,6 +31,7 @@ import pytest
 
 from blitzecdn.domain.edges import EDGE_GROUP, Edge, firewall_sources
 from blitzecdn.domain.validation import RESERVED_ANSIBLE_SETTINGS
+from blitzecdn.infrastructure.ansible_mapping import edge_to_inventory
 from blitzecdn.infrastructure.database import Repository
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -132,7 +134,7 @@ def fleet(tmp_path: Path) -> tuple[Path, list[Edge]]:
 def test_the_plugin_publishes_what_the_model_renders(fleet):
     """The seam: two implementations of "an edge, as Ansible sees it".
 
-    `Edge.to_inventory` is what the control plane believes it is publishing;
+    `edge_to_inventory` is what the control plane believes it is publishing;
     the plugin's `_host_variables` is what Ansible is actually given. They
     cannot share code — one imports pydantic, the other must import nothing —
     so this asserts they agree on real output rather than trusting that whoever
@@ -145,7 +147,7 @@ def test_the_plugin_publishes_what_the_model_renders(fleet):
     assert document[EDGE_GROUP]["hosts"] == ["edge-01", "edge-02"]
     for edge in edges:
         published = document["_meta"]["hostvars"][edge.name]
-        for key, expected in edge.to_inventory().items():
+        for key, expected in edge_to_inventory(edge).items():
             assert published[key] == expected, f"{edge.name}.{key}"
 
 

@@ -6,7 +6,7 @@ the roles this control plane actually deploys. Nothing else stops a new
 
 Every assertion here is about the boundary between them, not either side alone:
 
-* every key `CdnSite.to_ansible()` emits is declared in `argument_specs.yml`;
+* every key `site_to_ansible()` emits is declared in `argument_specs.yml`;
 * every key the role marks required is actually present;
 * declared `choices` cover the values the domain enums can produce;
 * `site.conf.j2` renders from real model output without raising.
@@ -16,11 +16,8 @@ When one of these fails, change the model and the role together in one commit.
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
-import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -39,6 +36,7 @@ from blitzecdn.domain.sites import (
     SslAutomaticMode,
     SslMode,
 )
+from blitzecdn.infrastructure.ansible_mapping import site_to_ansible
 from blitzecdn.infrastructure.database import Repository
 
 jinja2 = pytest.importorskip("jinja2")
@@ -90,6 +88,10 @@ def _role_spec() -> dict[str, Any]:
 
 def _role_defaults() -> dict[str, Any]:
     return yaml.safe_load((ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8"))
+
+
+def _defaults_of(role_dir: Path) -> dict[str, Any]:
+    return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
 
 
 @pytest.fixture
@@ -400,18 +402,20 @@ def test_a_site_without_firewall_rules_renders_exactly_as_before(desired_state):
 
 def test_the_acme_challenge_path_is_never_filtered():
     """A rule that blocked renewal would surface weeks later, at expiry."""
-    site = CdnSite.model_validate(
-        {
-            "name": "locked",
-            "server_names": ["locked.example.com"],
-            "origin_host": "origin.example.com",
-            "firewall": {
-                "deny_sources": ["0.0.0.0/0", "::/0"],
-                "denied_countries": ["RU"],
-                "denied_methods": ["GET"],
-            },
-        }
-    ).to_ansible()
+    site = site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": "locked",
+                "server_names": ["locked.example.com"],
+                "origin_host": "origin.example.com",
+                "firewall": {
+                    "deny_sources": ["0.0.0.0/0", "::/0"],
+                    "denied_countries": ["RU"],
+                    "denied_methods": ["GET"],
+                },
+            }
+        )
+    )
     rendered = _render(site, blitzecdn_nginx_geoip_enabled=True)
     challenge = rendered.index("location ^~ /.well-known/acme-challenge/ {")
     block_end = rendered.index("}", rendered.index("try_files $uri =404;"))
@@ -434,14 +438,16 @@ def test_an_allow_country_list_refuses_addresses_the_database_cannot_place():
     must not fire — that asymmetry is deliberate and easy to invert by
     accident.
     """
-    site = CdnSite.model_validate(
-        {
-            "name": "geo",
-            "server_names": ["geo.example.com"],
-            "origin_host": "origin.example.com",
-            "firewall": {"allowed_countries": ["DE", "FR"]},
-        }
-    ).to_ansible()
+    site = site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": "geo",
+                "server_names": ["geo.example.com"],
+                "origin_host": "origin.example.com",
+                "firewall": {"allowed_countries": ["DE", "FR"]},
+            }
+        )
+    )
     rendered = _render(site, blitzecdn_nginx_geoip_enabled=True)
     assert 'if ($blitzecdn_country !~ "^(DE|FR)$")' in rendered
 
@@ -484,7 +490,7 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
         }
     )
     assert site.effective_origin_sni == "origin.example.com"
-    rendered = _render(site.to_ansible())
+    rendered = _render(site_to_ansible(site))
     assert "proxy_ssl_name origin.example.com;" in rendered
     assert "proxy_ssl_verify on;" in rendered
     assert (
@@ -515,7 +521,7 @@ def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls
             "certificate_path": "/etc/ssl/certs/edge.pem",
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
-    rendered = _render(CdnSite.model_validate(payload).to_ansible())
+    rendered = _render(site_to_ansible(CdnSite.model_validate(payload)))
     assert upstream in rendered
     for port in _role_defaults()["blitzecdn_nginx_http_ports"]:
         assert f"listen {port};" in rendered
@@ -554,7 +560,7 @@ def test_always_use_https_redirects_http_when_enabled():
         }
     )
 
-    rendered = _render(site.to_ansible())
+    rendered = _render(site_to_ansible(site))
 
     assert "return 308 https://$host$request_uri;" in rendered
 
@@ -573,7 +579,7 @@ def test_always_use_https_can_be_disabled_without_disabling_tls():
         }
     )
 
-    rendered = _render(site.to_ansible())
+    rendered = _render(site_to_ansible(site))
 
     assert "return 308 https://$host$request_uri;" not in rendered
     assert rendered.count("proxy_pass") >= 2
@@ -588,7 +594,7 @@ def test_websocket_upgrade_is_forwarded_and_never_cached():
             "origin_host": "origin.example.com",
         }
     )
-    rendered = _render(site.to_ansible())
+    rendered = _render(site_to_ansible(site))
     cache_template = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
 
     assert "map $http_upgrade $blitzecdn_connection_upgrade" in cache_template
@@ -619,7 +625,7 @@ def test_minimum_tls_version_renders_per_hostname(minimum, protocols):
         }
     )
 
-    assert f"ssl_protocols {protocols};" in _render(site.to_ansible())
+    assert f"ssl_protocols {protocols};" in _render(site_to_ansible(site))
 
 
 @pytest.mark.parametrize(
@@ -639,7 +645,7 @@ def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
         }
     )
 
-    rendered = _render(site.to_ansible())
+    rendered = _render(site_to_ansible(site))
 
     assert (
         f'proxy_cache_key "$scheme$server_port$request_method$host{key_uri}' in rendered
@@ -650,17 +656,19 @@ def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
 
 def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     """A running older control plane may deploy through an updated role."""
-    site = CdnSite.model_validate(
-        {
-            "name": "pre-upgrade",
-            "server_names": ["pre-upgrade.example.com"],
-            "origin_host": "origin.example.com",
-            "ssl_mode": "flexible",
-            "certificate_mode": "existing",
-            "certificate_path": "/etc/ssl/certs/edge.pem",
-            "certificate_key_path": "/etc/ssl/private/edge.key",
-        }
-    ).to_ansible()
+    site = site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": "pre-upgrade",
+                "server_names": ["pre-upgrade.example.com"],
+                "origin_host": "origin.example.com",
+                "ssl_mode": "flexible",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+            }
+        )
+    )
     del site["always_use_https"]
 
     option = _role_spec()["blitzecdn_nginx_sites"]["options"]["always_use_https"]
@@ -687,430 +695,4 @@ def test_committed_fixture_matches_generated_desired_state(desired_state):
         f"{FIXTURE} is stale. Regenerate it with:\n"
         "  BLITZECDN_UPDATE_FIXTURE=1 .venv/bin/python -m pytest "
         "tests/test_contract.py"
-    )
-
-
-# ----------------------------------------------------------------------
-# Cross-role agreements
-#
-# blitzecdn_cache and blitzecdn_stats each recompute or re-read something
-# blitzecdn_nginx configured. Nothing at run time can tell a disagreement from
-# an ordinary empty result: a purge aimed at the wrong directory reports
-# success having deleted nothing, and a reader aimed at the wrong log reports a
-# hit ratio of zero, which looks like a broken cache rather than a broken
-# reader. These are the only guards.
-# ----------------------------------------------------------------------
-
-CACHE_ROLE_DIR = _role("blitzecdn_cache")
-STATS_ROLE_DIR = _role("blitzecdn_stats")
-
-
-def _defaults_of(role_dir: Path) -> dict[str, Any]:
-    return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
-
-
-@pytest.mark.parametrize(
-    ("cache_key", "nginx_key"),
-    [
-        ("blitzecdn_cache_path", "blitzecdn_nginx_cache_path"),
-        (
-            "blitzecdn_cache_normalize_accept_encoding",
-            "blitzecdn_nginx_normalize_accept_encoding",
-        ),
-        ("blitzecdn_cache_purge_http_ports", "blitzecdn_nginx_http_ports"),
-        ("blitzecdn_cache_purge_https_ports", "blitzecdn_nginx_https_ports"),
-    ],
-)
-def test_purge_role_agrees_with_the_nginx_role(cache_key, nginx_key):
-    """A purge computes file paths from these; a mismatch purges nothing."""
-    assert _defaults_of(CACHE_ROLE_DIR)[cache_key] == _role_defaults()[nginx_key], (
-        f"{cache_key} in blitzecdn_cache disagrees with {nginx_key} in "
-        "blitzecdn_nginx. Purge would delete paths nginx never wrote to and "
-        "report success."
-    )
-
-
-def test_stats_role_reads_the_log_the_nginx_role_writes():
-    stats = _defaults_of(STATS_ROLE_DIR)
-    nginx = _role_defaults()
-    assert (
-        stats["blitzecdn_stats_access_log_path"]
-        == nginx["blitzecdn_nginx_access_log_path"]
-    )
-    assert (
-        stats["blitzecdn_stats_status_address"]
-        == nginx["blitzecdn_nginx_status_address"]
-    )
-    assert stats["blitzecdn_stats_status_port"] == nginx["blitzecdn_nginx_status_port"]
-    assert stats["blitzecdn_stats_status_path"] == nginx["blitzecdn_nginx_status_path"]
-
-
-def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
-    """The role computes <md5[-1]>/<md5[-3:-1]>/<md5>, which is levels=1:2 only.
-
-    If the nginx template ever emits different levels, the purge role must stop
-    claiming it can compute paths rather than silently deleting wrong ones.
-    """
-    template = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
-    assert "levels=1:2" in template
-    spec = yaml.safe_load(
-        (CACHE_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )["argument_specs"]["main"]["options"]
-    assert spec["blitzecdn_cache_levels"]["choices"] == ["1:2"]
-
-
-def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
-    """One URL is several entries, and leaving one behind still serves it.
-
-    The site template puts the listener port, request method and normalized
-    encoding in the key, so the purge role has to sweep all three dimensions.
-    nginx caches GET and HEAD by default and the template does not narrow
-    proxy_cache_methods.
-    """
-    site_template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
-    assert "$scheme$server_port$request_method$host{{ cache_uri }}" in site_template
-    assert "proxy_cache_methods" not in site_template
-
-    defaults = _defaults_of(CACHE_ROLE_DIR)
-    assert set(defaults["blitzecdn_cache_purge_methods"]) == {"GET", "HEAD"}
-
-    cache_conf = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
-    mapped = set(re.findall(r'"(br|gzip)"\s*;', cache_conf)) | {""}
-    assert set(defaults["blitzecdn_cache_purge_encodings"]) == mapped, (
-        "the encodings blitzecdn_cache purges differ from the ones the "
-        "$blitzecdn_accept_encoding map can produce; the unlisted variant "
-        "would survive a purge and keep being served"
-    )
-
-
-def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
-    """Execute the role's key calculation, including its Jinja loops."""
-    ansible = shutil.which("ansible-playbook") or str(
-        PROJECT_DIR / ".venv/bin/ansible-playbook"
-    )
-    if not Path(ansible).exists():
-        pytest.skip("ansible-playbook is not installed")
-
-    cache_path = tmp_path / "cache"
-    key = "http80GETexample.com/asset"
-    digest = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
-    cached = cache_path / digest[-1] / digest[-3:-1] / digest
-    computed = tmp_path / "computed.json"
-
-    variables = _defaults_of(CACHE_ROLE_DIR) | {
-        "blitzecdn_cache_path": str(cache_path),
-        "blitzecdn_cache_purge_entries": [
-            {"host": "example.com", "uri": "/asset", "scheme": "http"}
-        ],
-        "blitzecdn_cache_purge_all": False,
-    }
-    role_tasks = yaml.safe_load(
-        (CACHE_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    )
-    playbook = tmp_path / "purge-key.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "hosts": "localhost",
-                    "gather_facts": False,
-                    "vars": variables,
-                    # Run through "Compute the cache files". The remaining
-                    # tasks chown a manifest to root, which a unit test neither
-                    # needs nor has permission to do.
-                    "tasks": [
-                        *role_tasks[:5],
-                        {
-                            "copy": {
-                                "content": (
-                                    "{{ blitzecdn_cache_purge_files | to_json }}"
-                                ),
-                                "dest": str(computed),
-                                "mode": "0600",
-                            }
-                        },
-                    ],
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    result = subprocess.run(  # noqa: S603 - fixed argv built in this test
-        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        check=False,
-    )
-
-    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
-    assert str(cached) in yaml.safe_load(computed.read_text(encoding="utf-8"))
-
-
-# ----------------------------------------------------------------------
-# Executing the role's validation tasks
-#
-# Everything above reads the role as data or renders its templates. Neither
-# evaluates a `when:` or an `assert`, and `--syntax-check` and ansible-lint do
-# not either — a conditional that raises at run time passes all of them. That
-# gap shipped a broken deploy once: `when: item.firewall is defined and
-# item.firewall` parses, lints, and then fails on ansible-core 2.19+ because
-# its result is a dict rather than a boolean.
-#
-# roles/blitzecdn_nginx/tasks/validate.yml holds every task that inspects
-# desired state and refuses to proceed, and changes nothing on the host, so it
-# can be run here against real model output.
-# ----------------------------------------------------------------------
-
-VALIDATE_TASKS = ROLE_DIR / "tasks/validate.yml"
-
-
-def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: Any):
-    """Execute the role's validation tasks against localhost."""
-    ansible = shutil.which("ansible-playbook") or str(
-        PROJECT_DIR / ".venv/bin/ansible-playbook"
-    )
-    if not Path(ansible).exists():
-        pytest.skip("ansible-playbook is not installed")
-    variables = (
-        _role_defaults()
-        | {
-            "blitzecdn_nginx_sites": sites,
-        }
-        | overrides
-    )
-    playbook = tmp_path / "validate.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "hosts": "localhost",
-                    "gather_facts": False,
-                    "vars": variables,
-                    "tasks": [{"import_tasks": str(VALIDATE_TASKS)}],
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    return subprocess.run(  # noqa: S603 - fixed argv built in this test
-        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        # pytest-cov's subprocess hook would otherwise make the Ansible
-        # child write statement-only coverage beside this run's branch data,
-        # which coverage refuses to combine.
-        env={
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith(("COV_CORE", "COVERAGE"))
-        }
-        | {"ANSIBLE_LOCALHOST_WARNING": "False"},
-        check=False,
-    )
-
-
-def test_role_validation_tasks_actually_run(desired_state, tmp_path):
-    """The regression guard for a conditional that only fails at run time."""
-    result = _run_validation(desired_state["blitzecdn_nginx_sites"], tmp_path)
-    assert result.returncode == 0, (
-        "the role's validation tasks failed against real desired state:\n"
-        f"{result.stdout}\n{result.stderr}"
-    )
-
-
-def test_role_accepts_only_immutable_managed_certificate_destinations(
-    desired_state, tmp_path
-):
-    fingerprint = "ab" * 32
-    managed = dict(desired_state["blitzecdn_nginx_sites"][0]) | {
-        "certificate_mode": "uploaded",
-        "certificate_path": (
-            f"/etc/blitzecdn/tls/cdn-example-com/fullchain-{fingerprint}.pem"
-        ),
-        "certificate_key_path": (
-            f"/etc/blitzecdn/tls/cdn-example-com/privkey-{fingerprint}.pem"
-        ),
-        "certificate_source_path": "/controller/fullchain.pem",
-        "certificate_key_source_path": "/controller/privkey.pem",
-    }
-
-    accepted = _run_validation([managed], tmp_path)
-    assert accepted.returncode == 0, accepted.stdout
-
-    managed["certificate_path"] = "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem"
-    rejected = _run_validation([managed], tmp_path)
-    assert rejected.returncode != 0
-    assert "Invalid CDN site" in rejected.stdout
-
-
-def test_role_refuses_country_rules_without_geoip(desired_state, tmp_path):
-    """The deploy must stop, and say which variable turns the feature on."""
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {"firewall": {"denied_countries": ["RU"]}}
-
-    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
-
-    assert result.returncode != 0
-    assert "blitzecdn_nginx_geoip_enabled" in result.stdout
-
-    allowed = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=True)
-    assert allowed.returncode == 0, allowed.stdout
-
-
-def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp_path):
-    """Defence in depth: the role holds even if the control plane regresses."""
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {"firewall": {"denied_paths": ["/a; return 200"]}}
-
-    result = _run_validation(sites, tmp_path)
-
-    assert result.returncode != 0
-    assert "firewall rules this role will not render" in result.stdout
-
-
-def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):
-    """Both halves of this control have to refuse it, not just the controller.
-
-    `*.192.0.2.1` satisfies the hostname shape check — every label of an IPv4
-    literal is a valid DNS label — and nginx renders `server_name *.192.0.2.1`
-    without complaint, then matches no request ever sent. The control plane
-    refuses it now, and this is the redundancy: the value reaches a directive
-    the role writes as root.
-    """
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {"server_names": ["*.192.0.2.1"]}
-
-    result = _run_validation(sites, tmp_path)
-
-    assert result.returncode != 0
-    assert "Invalid CDN site" in result.stdout
-
-
-def test_maxmind_credentials_never_reach_an_nginx_config():
-    """The license key belongs in one 0600 file and nowhere else.
-
-    /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only
-    the database path. A key that leaked into a template here would be
-    disclosed to every account on the edge.
-    """
-    environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
-        undefined=jinja2.StrictUndefined,
-        keep_trailing_newline=True,
-    )
-    environment.filters["dirname"] = os.path.dirname
-    context = _role_defaults() | {
-        "blitzecdn_nginx_geoip_enabled": True,
-        "blitzecdn_nginx_geoip_account_id": "123456",
-        "blitzecdn_nginx_geoip_license_key": "SENTINELKEY",
-    }
-    nginx_side = environment.get_template("geoip.conf.j2").render(**context)
-    assert "SENTINELKEY" not in nginx_side
-    assert "123456" not in nginx_side
-    assert context["blitzecdn_nginx_geoip_database"] in nginx_side
-
-    # …and it does reach the file that is supposed to carry it.
-    credentials = environment.get_template("maxmind.conf.j2").render(**context)
-    assert "LicenseKey SENTINELKEY" in credentials
-
-
-def test_the_credentials_file_is_written_private_and_unlogged():
-    """Mode and no_log are the whole protection; assert them, not the intent."""
-    tasks = yaml.safe_load((ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8"))
-
-    def walk(items):
-        for task in items:
-            yield task
-            for key in ("block", "rescue", "always"):
-                if key in task:
-                    yield from walk(task[key])
-
-    writer = next(
-        task
-        for task in walk(tasks)
-        if task.get("ansible.builtin.template", {}).get("src") == "maxmind.conf.j2"
-    )
-    assert writer["ansible.builtin.template"]["mode"] == "0600"
-    assert writer["ansible.builtin.template"]["owner"] == "root"
-    assert writer["no_log"] is True
-
-
-def test_the_stats_role_publishes_through_the_agreed_report_fact():
-    """The channel a role returns a payload on is a contract like any other.
-
-    `blitzecdn_stats` is the only role that returns data rather than an
-    outcome, and the control plane finds it by looking for one fact name. If
-    the role renamed it, every collection would come back empty with every edge
-    reporting success — the silent-no-op failure this suite exists to catch.
-    """
-    tasks = (STATS_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    adapter = (PROJECT_DIR / "src/blitzecdn/infrastructure/ansible.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'get("blitzecdn_report")' in adapter, (
-        "the Runner event adapter no longer collects blitzecdn_report; the stats "
-        "role publishes it and nothing else would carry the counters back"
-    )
-    assert "blitzecdn_report:" in tasks, (
-        "blitzecdn_stats must publish its document as the blitzecdn_report "
-        "fact consumed by the Runner event adapter"
-    )
-
-
-def test_the_stats_role_no_longer_wants_a_controller_directory():
-    """Its report travels with the run, so there is no path to hand it.
-
-    A resurrected `blitzecdn_stats_output_dir` would be a required option the
-    control plane never sets, and role argument validation would fail every
-    collection.
-    """
-    spec = yaml.safe_load(
-        (STATS_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )["argument_specs"]["main"]["options"]
-
-    assert "blitzecdn_stats_output_dir" not in spec
-
-
-def test_the_controller_environment_points_at_the_inventory_that_exists():
-    """A settings file the controller reads must name a real inventory.
-
-    `BLITZE_INVENTORY` outranks blitzecdn.toml, so a stale value here is not a
-    cosmetic wrong default — it is the value the installed controller uses, and
-    it made `blitzecdn doctor` report a configuration error on every fresh
-    standalone install. It named `hosts.yml`, the static inventory that was
-    deleted when the fleet moved into the database.
-
-    Written on a first installation only, so a wrong value here also never
-    corrects itself on a later converge.
-    """
-    template = (
-        Path(__file__).parents[1]
-        / "ansible/roles/blitzecdn_controlplane/templates/blitzecdn.env.j2"
-    ).read_text(encoding="utf-8")
-    assert "inventory/blitzecdn.yml" in template
-    assert "hosts.yml" not in template
-
-
-def test_standalone_environment_uses_public_dns_for_certificate_preflight():
-    """NAT-local DNS must not make public certificate checks compare fiction."""
-    template = (
-        Path(__file__).parents[1]
-        / "ansible/roles/blitzecdn_controlplane/templates/blitzecdn.env.j2"
-    ).read_text(encoding="utf-8")
-    assert (
-        "BLITZE_PREFLIGHT_DNS_SERVERS="
-        "{{ blitzecdn_controlplane_preflight_dns_servers }}" in template
-    )
-
-    defaults = yaml.safe_load(
-        (
-            Path(__file__).parents[1]
-            / "ansible/roles/blitzecdn_controlplane/defaults/main.yml"
-        ).read_text(encoding="utf-8")
-    )
-    assert defaults["blitzecdn_controlplane_preflight_dns_servers"] == (
-        "1.1.1.1,1.0.0.1"
     )

@@ -7,6 +7,8 @@ from typing import Any
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import CdnSite
 
+SNAPSHOT_SCHEMA_VERSION = 1
+
 
 def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
     """Serialise the desired state a deployment converges and can roll back to.
@@ -17,6 +19,7 @@ def encode_snapshot(domains: list[Domain], records: list[DnsRecord]) -> str:
     """
     return json.dumps(
         {
+            "schema_version": SNAPSHOT_SCHEMA_VERSION,
             "domains": [domain.model_dump(mode="json") for domain in domains],
             "records": [record.model_dump(mode="json") for record in records],
         },
@@ -62,11 +65,22 @@ def _document(snapshot: str) -> dict[str, Any]:
     data = json.loads(snapshot)
     if not isinstance(data, dict):
         raise ValueError("deployment snapshot is not an object")
-    expected = {"domains", "records"}
-    if set(data) != expected:
+    legacy = {"domains", "records"}
+    current = {"schema_version", *legacy}
+    if set(data) == legacy:
+        # Version 0 was shipped without an explicit discriminator. Keep it
+        # readable forever: successful deployments are rollback targets.
+        data = {"schema_version": 0, **data}
+    elif set(data) != current:
         raise ValueError(
-            "deployment snapshot must contain exactly 'domains' and 'records'"
+            "deployment snapshot must contain a supported schema version, "
+            "'domains', and 'records'"
         )
+    version = data["schema_version"]
+    if not isinstance(version, int) or isinstance(version, bool):
+        raise ValueError("deployment snapshot schema version must be an integer")
+    if version not in {0, SNAPSHOT_SCHEMA_VERSION}:
+        raise ValueError(f"unsupported deployment snapshot schema version: {version}")
     if not isinstance(data["domains"], list) or not isinstance(data["records"], list):
         raise ValueError("deployment snapshot domains and records must be lists")
     return data

@@ -14,8 +14,21 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Literal
 
+from blitzecdn.application.certificate_queries import CertificateQueries
+from blitzecdn.application.configuration import CertificatePolicy
+from blitzecdn.application.ports.certificates import (
+    CertificateStore,
+    DeploymentGateway,
+    DeploymentRequirements,
+    DeploymentRunner,
+    EventRecorder,
+    Issuer,
+    Preflight,
+    SiteStore,
+    UnitOfWork,
+    ZoneEditor,
+)
 from blitzecdn.application.workflows import WorkflowCoordinator, WorkflowProgress
-from blitzecdn.config import Settings
 from blitzecdn.domain.certificates import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateInfo,
@@ -33,18 +46,6 @@ from blitzecdn.exceptions import (
     ConflictError,
     DeploymentBusyError,
     NotFoundError,
-)
-from blitzecdn.ports import (
-    CertificateStore,
-    DeploymentGateway,
-    DeploymentRequirements,
-    DeploymentRunner,
-    EventRecorder,
-    Issuer,
-    Preflight,
-    SiteStore,
-    UnitOfWork,
-    ZoneEditor,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -75,7 +76,7 @@ class CertificateService:
     def __init__(
         self,
         *,
-        settings: Settings,
+        policy: CertificatePolicy,
         persistence: CertificatePersistence,
         execution: CertificateExecution,
         events: EventRecorder,
@@ -83,13 +84,16 @@ class CertificateService:
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
     ) -> None:
-        self.settings = settings
+        self.policy = policy
         self.persistence = persistence
         self.execution = execution
         self.events = events
         self.dns = dns
         self.deployments = deployments
         self.workflows = workflows
+        self.queries = CertificateQueries(
+            sites=persistence.sites, certificates=persistence.certificates
+        )
 
     # -- Installing ----------------------------------------------------
 
@@ -207,7 +211,7 @@ class CertificateService:
         *,
         skip_preflight: bool = False,
     ) -> CertificateInfo:
-        registration_email = email or self.settings.acme_default_email
+        registration_email = email or self.policy.default_email
         if not registration_email:
             raise ConflictError(
                 "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
@@ -316,7 +320,7 @@ class CertificateService:
                     site = self.persistence.sites.get_site(candidate.name)
                     if site.certificate_mode is not CertificateMode.DISABLED:
                         continue
-                    registration_email = self.settings.acme_default_email
+                    registration_email = self.policy.default_email
                     if not registration_email:
                         raise ConflictError(
                             "configure BLITZE_ACME_DEFAULT_EMAIL for unattended "
@@ -345,16 +349,11 @@ class CertificateService:
     # -- Reporting -----------------------------------------------------
 
     def certificate(self, name: str) -> CertificateInfo:
-        self.persistence.sites.get_site(name)
-        return self.persistence.certificates.get(name)
+        return self.queries.get(name)
 
     def certificate_statuses(self) -> list[CertificateStatus]:
         """Every managed certificate against the clock, soonest expiry first."""
-        now = datetime.now(UTC)
-        return [
-            CertificateStatus.of(info, now=now)
-            for info in self.persistence.certificates.list_all()
-        ]
+        return self.queries.statuses()
 
     def expiring_certificates(
         self, within_days: int = CERTIFICATE_RENEWAL_DAYS
@@ -365,11 +364,7 @@ class CertificateService:
         are precisely the ones worth surfacing early — someone has to be asked
         for a replacement, and that takes longer than an ACME round trip.
         """
-        return [
-            status
-            for status in self.certificate_statuses()
-            if status.days_remaining <= within_days
-        ]
+        return self.queries.expiring(within_days)
 
     # -- Renewal -------------------------------------------------------
 

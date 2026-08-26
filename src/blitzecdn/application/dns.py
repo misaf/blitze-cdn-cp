@@ -10,6 +10,12 @@ from __future__ import annotations
 
 import hashlib
 
+from blitzecdn.application.ports.dns import (
+    EventRecorder,
+    SiteStore,
+    UnitOfWork,
+    ZoneStore,
+)
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.sites import (
@@ -20,7 +26,6 @@ from blitzecdn.domain.sites import (
     managed_certificate_paths,
 )
 from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.ports import EventRecorder, SiteStore, UnitOfWork, ZoneStore
 
 
 class DnsService:

@@ -185,7 +185,7 @@ The package is layered, and the layering is checked rather than trusted:
 | Layer | Module | Rule |
 | --- | --- | --- |
 | Domain | `domain/` | Knows only itself. No I/O, no adapter imports. |
-| Ports | `ports.py` | `Protocol` interfaces over the outside world. May see the domain. |
+| Ports | `application/ports/` | Feature-owned `Protocol` interfaces over the outside world. `ports.py` is a compatibility facade. |
 | Application | `application/` | Orchestrates the domain through those ports. Never names a concrete adapter. |
 | Infrastructure | `infrastructure/` | SQLite, Ansible, Certbot, filesystem, inventory, DNS. Matched to ports structurally — it never imports them. |
 | Composition root | `control_plane.py` | The one module that knows both halves. Builds the adapters and injects them into the services. |
@@ -200,6 +200,18 @@ until someone tries to test a service without a database.
 `ControlPlane` owns no logic. Every method delegates to the service that does,
 so each service declares only the narrow ports it actually uses while the CLI
 and the API keep a single object to call.
+
+Long-lived deployment snapshots carry an explicit schema version and retain a
+decoder for the legacy unversioned format, so an upgrade cannot silently make a
+successful deployment unusable as a rollback target. HTTP v1 request and core
+resource response models live in `api/v1_models.py` and `api/v1_operations.py`; domain models therefore do
+not define the public transport contract. Ansible and inventory documents are
+rendered by `infrastructure/ansible_mapping.py`, never by domain methods.
+
+Application services receive small feature policies rather than the global
+settings object. Scheduled cross-feature behavior is owned by
+`application/maintenance.py`; Dramatiq actors only select and invoke a typed
+maintenance operation.
 
 ## Configuration
 
@@ -320,7 +332,7 @@ examples below).
 
 ## Control plane / edge contract
 
-`tests/test_contract.py` enforces the boundary: it renders desired state from
+The `tests/test_contract.py` and `tests/test_ansible_*_contracts.py` suites enforce the boundary: they render desired state from
 real models and checks it against the role's `argument_specs.yml`, then renders
 `site.conf.j2`. Run it after any change to `CdnSite` or the Nginx role.
 

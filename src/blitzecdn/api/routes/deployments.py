@@ -5,9 +5,8 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.api.v1_operations import Deployment, DriftReport, Workflow, as_v1
 from blitzecdn.api_models import DeployRequest, DriftRequest, RollbackRequest
-from blitzecdn.domain.deployments import Deployment, DriftReport
-from blitzecdn.domain.operations import Workflow
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -23,8 +22,11 @@ def deploy(
     control: ControlPlaneDependency,
 ) -> Deployment:
     """Queue a convergence; poll GET /v1/deployments/{id} for the outcome."""
-    return control.deployments.submit_deployment(
-        operator, check=request.check, host_limit=request.host_limit
+    return as_v1(
+        control.deployments.submit_deployment(
+            operator, check=request.check, host_limit=request.host_limit
+        ),
+        Deployment,
     )
 
 
@@ -33,7 +35,9 @@ def deployments(
     control: ControlPlaneDependency,
     limit: int = Query(20, ge=1, le=100),
 ) -> list[Deployment]:
-    return control.deployments.list_deployments(limit)
+    return [
+        as_v1(item, Deployment) for item in control.deployments.list_deployments(limit)
+    ]
 
 
 @router.get("/v1/workflows", response_model=list[Workflow])
@@ -42,7 +46,9 @@ def list_workflows(
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> list[Workflow]:
     """Durable progress for operations that crossed external systems."""
-    return control.workflow_history.list_workflows(limit)
+    return [
+        as_v1(item, Workflow) for item in control.workflow_history.list_workflows(limit)
+    ]
 
 
 @router.get("/v1/workflows/{workflow_id}", response_model=Workflow)
@@ -50,7 +56,7 @@ def get_workflow(
     workflow_id: str,
     control: ControlPlaneDependency,
 ) -> Workflow:
-    return control.workflow_history.get(workflow_id)
+    return as_v1(control.workflow_history.get(workflow_id), Workflow)
 
 
 @router.get("/v1/deployments/{deployment_id}", response_model=Deployment)
@@ -58,7 +64,7 @@ def deployment(
     deployment_id: str,
     control: ControlPlaneDependency,
 ) -> Deployment:
-    return control.deployments.get_deployment(deployment_id)
+    return as_v1(control.deployments.get_deployment(deployment_id), Deployment)
 
 
 @router.post(
@@ -69,8 +75,11 @@ def check_drift(
     operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> Deployment:
-    return control.deployments.submit_deployment(
-        operator, check=True, host_limit=request.host_limit
+    return as_v1(
+        control.deployments.submit_deployment(
+            operator, check=True, host_limit=request.host_limit
+        ),
+        Deployment,
     )
 
 
@@ -79,7 +88,7 @@ def drift_report(
     deployment_id: str,
     control: ControlPlaneDependency,
 ) -> DriftReport:
-    return control.deployments.drift_report(deployment_id)
+    return as_v1(control.deployments.drift_report(deployment_id), DriftReport)
 
 
 @router.post(
@@ -92,6 +101,9 @@ def rollback(
     operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> Deployment:
-    return control.deployments.submit_rollback(
-        operator, request.deployment_id, check=request.check
+    return as_v1(
+        control.deployments.submit_rollback(
+            operator, request.deployment_id, check=request.check
+        ),
+        Deployment,
     )

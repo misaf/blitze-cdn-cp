@@ -5,9 +5,9 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api_models import EdgeRemoval, OriginCheckRequest
-from blitzecdn.domain.edges import Edge, EdgePatch
-from blitzecdn.domain.origins import OriginReport
+from blitzecdn.api.v1_models import Edge, EdgePatch
+from blitzecdn.api.v1_operations import EdgeRemoval, HostRun, OriginReport, as_v1
+from blitzecdn.api_models import OriginCheckRequest
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -15,12 +15,12 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 @router.get("/v1/edges", response_model=list[Edge])
 def list_edges(control: ControlPlaneDependency) -> list[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
-    return control.edges.list_edges()
+    return [Edge.from_domain(item) for item in control.edges.list_edges()]
 
 
 @router.get("/v1/edges/{name}", response_model=Edge)
 def get_edge(name: str, control: ControlPlaneDependency) -> Edge:
-    return control.edges.get_edge(name)
+    return Edge.from_domain(control.edges.get_edge(name))
 
 
 @router.post("/v1/edges", response_model=Edge, status_code=status.HTTP_201_CREATED)
@@ -28,7 +28,7 @@ def add_edge(
     edge: Edge, operator: OperatorDependency, control: ControlPlaneDependency
 ) -> Edge:
     """Register an edge without converging or contacting it."""
-    return control.edges.add_edge(edge, operator)
+    return Edge.from_domain(control.edges.add_edge(edge.to_domain(), operator))
 
 
 @router.patch("/v1/edges/{name}", response_model=Edge)
@@ -38,7 +38,9 @@ def update_edge(
     operator: OperatorDependency,
     control: ControlPlaneDependency,
 ) -> Edge:
-    return control.edges.update_edge(name, patch, operator)
+    return Edge.from_domain(
+        control.edges.update_edge(name, patch.to_domain(), operator)
+    )
 
 
 @router.delete("/v1/edges/{name}", response_model=EdgeRemoval)
@@ -67,7 +69,11 @@ def remove_edge(
         control.edges.remove_edge(name, operator)
         return EdgeRemoval(name=name, decommissioned=False)
     hosts = control.edges.decommission_edge(name, operator, force=force)
-    return EdgeRemoval(name=name, decommissioned=True, hosts=hosts)
+    return EdgeRemoval(
+        name=name,
+        decommissioned=True,
+        hosts=tuple(as_v1(host, HostRun) for host in hosts),
+    )
 
 
 @router.post("/v1/origins/check", response_model=OriginReport)
@@ -77,4 +83,7 @@ def check_origins(
     control: ControlPlaneDependency,
 ) -> OriginReport:
     """Ask the edges to connect to the origins they proxy to."""
-    return control.edges.check_origins(operator, host_limit=request.host_limit)
+    return as_v1(
+        control.edges.check_origins(operator, host_limit=request.host_limit),
+        OriginReport,
+    )

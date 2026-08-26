@@ -59,7 +59,8 @@ def _violations(package: str, forbidden: tuple[str, ...]) -> list[str]:
     def banned(imported: str) -> bool:
         root = imported.split(".")[0]
         return any(
-            root == name or imported.startswith(f"{name}.") for name in forbidden
+            root == name or imported == name or imported.startswith(f"{name}.")
+            for name in forbidden
         )
 
     return [
@@ -90,16 +91,33 @@ def test_domain_imports_nothing_but_itself():
     )
 
 
-def test_ports_only_face_the_domain():
-    """Ports describe the outside world; they must not import an implementation."""
+def test_compatibility_ports_only_reexport_canonical_ports():
+    """The legacy module remains a facade, never a second port registry."""
     assert (
         _violations(
             "ports",
             (
                 *_ADAPTERS,
                 "blitzecdn.infrastructure",
-                "blitzecdn.application",
                 "blitzecdn.control_plane",
+            ),
+        )
+        == []
+    )
+    assert len((_SOURCE / "ports.py").read_text(encoding="utf-8").splitlines()) < 50
+
+
+def test_canonical_ports_only_face_the_domain_and_other_ports():
+    assert (
+        _violations(
+            "application/ports",
+            (
+                *_ADAPTERS,
+                "blitzecdn.infrastructure",
+                "blitzecdn.control_plane",
+                "blitzecdn.api",
+                "blitzecdn.cli",
+                "blitzecdn.config",
             ),
         )
         == []
@@ -117,6 +135,7 @@ def test_application_never_touches_a_concrete_adapter():
                 "blitzecdn.control_plane",
                 "blitzecdn.api",
                 "blitzecdn.cli",
+                "blitzecdn.config",
             ),
         )
         == []
@@ -148,6 +167,11 @@ def test_the_wiring_modules_do_wire(module):
     assert any(name.startswith("blitzecdn.infrastructure") for name in imports)
 
 
+def test_worker_is_an_explicit_control_plane_entry_point():
+    imports = _imports(_SOURCE / "worker.py")
+    assert "blitzecdn.control_plane" in imports
+
+
 def test_the_api_reaches_infrastructure_only_through_the_control_plane():
     """The HTTP layer builds nothing itself.
 
@@ -158,6 +182,19 @@ def test_the_api_reaches_infrastructure_only_through_the_control_plane():
     assert _violations("api", ("blitzecdn.infrastructure",)) == []
 
 
+def test_api_routes_expose_only_api_owned_models():
+    """Domain models may be mapped by DTOs but never published by a route."""
+    assert _violations("api/routes", ("blitzecdn.domain",)) == []
+
+
+def test_persistence_is_physically_split_by_feature():
+    facade = _SOURCE / "infrastructure/stores.py"
+    assert len(facade.read_text(encoding="utf-8").splitlines()) < 50
+    assert {
+        path.stem for path in (_SOURCE / "infrastructure/persistence").glob("*.py")
+    } >= {"audit", "configuration", "deployments", "dns", "edges", "sites"}
+
+
 def test_removed_subsystems_do_not_return():
     """The fresh schema has one queue and no dormant integration machinery."""
     offenders = [
@@ -165,6 +202,39 @@ def test_removed_subsystems_do_not_return():
         for path in _SOURCE.rglob("*.py")
         if "outbox" in path.read_text(encoding="utf-8").lower()
         or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []
+
+
+def test_domain_models_do_not_render_adapter_documents():
+    """Import purity is not enough if adapter field names live in methods."""
+    forbidden = {"to_ansible", "to_inventory", "to_api", "to_http"}
+    offenders = [
+        f"{path.name}:{node.lineno} defines {node.name}"
+        for path in _modules("domain")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in forbidden
+    ]
+    assert offenders == []
+
+
+def test_entry_layers_cannot_reach_private_control_plane_adapters():
+    forbidden = {
+        "_runner",
+        "_issuer",
+        "_preflight",
+        "_background",
+        "_certificate_store",
+        "_origin_probe",
+        "_edges_store",
+    }
+    offenders = [
+        f"{path.name}:{node.lineno} reads .{node.attr}"
+        for layer in ("api", "cli")
+        for path in _modules(layer)
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Attribute) and node.attr in forbidden
     ]
     assert offenders == []
 

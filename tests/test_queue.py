@@ -9,9 +9,10 @@ import dramatiq
 import pytest
 from dramatiq.brokers.stub import StubBroker
 
+from blitzecdn import worker as queue
+from blitzecdn.application.maintenance import MaintenanceService
 from blitzecdn.exceptions import DeploymentBusyError
-from blitzecdn.infrastructure import queue
-from blitzecdn.infrastructure.queue import (
+from blitzecdn.worker import (
     check_drift,
     reconcile_automatic_ssl,
     reconcile_certificates,
@@ -149,18 +150,28 @@ def test_first_certificate_reconciliation_immediately_scans_automatic_ssl(
     monkeypatch,
 ):
     calls: list[tuple[str, str]] = []
+    certificates = SimpleNamespace(
+        reconcile_certificates=lambda operator: (
+            calls.append(("certificates", operator))
+            or SimpleNamespace(issued=("cdn-example-com",))
+        ),
+        renew_certificates=lambda _operator, **_kwargs: None,
+    )
+    automatic_ssl = SimpleNamespace(
+        reconcile=lambda operator: calls.append(("automatic-ssl", operator))
+    )
+    deployments = SimpleNamespace(
+        submit_deployment=lambda _operator: None,
+        check_drift=lambda _operator: None,
+    )
     control = SimpleNamespace(
-        certificates=SimpleNamespace(
-            reconcile_certificates=lambda operator: (
-                calls.append(("certificates", operator))
-                or SimpleNamespace(issued=("cdn-example-com",))
-            )
+        maintenance=MaintenanceService(
+            certificates=certificates,
+            automatic_ssl=automatic_ssl,
+            deployments=deployments,
+            requirements=SimpleNamespace(pending=lambda _kind: False),
+            renewal_budget_seconds=300,
         ),
-        automatic_ssl=SimpleNamespace(
-            reconcile=lambda operator: calls.append(("automatic-ssl", operator))
-        ),
-        deployment_requirements=SimpleNamespace(pending=lambda _kind: False),
-        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
         close=lambda: None,
     )
     monkeypatch.setattr(

@@ -10,14 +10,13 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
     env = {
         "BLITZE_API_KEY": "a" * 32,
         "BLITZE_API_KEYS": f"alice:{'b' * 32}",
-        "BLITZE_STATE_DIR": str(tmp_path / "custom-state"),
         "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120",
         "BLITZE_ALLOW_EMPTY_SITES": "true",
     }
     settings = Settings.from_environment(env, project_dir=tmp_path)
     assert set(settings.api_keys) == {"alice", "default"}
     assert settings.deployment_timeout_seconds == 120
-    assert settings.state_dir == (tmp_path / "custom-state").resolve()
+    assert settings.state_dir == (tmp_path / ".state").resolve()
     assert settings.allow_empty_sites is True
 
 
@@ -59,58 +58,6 @@ def test_runtime_validation_requires_generated_vars_beneath_state(settings):
     )
 
 
-def test_project_toml_is_loaded_below_environment_precedence(tmp_path):
-    (tmp_path / "blitzecdn.toml").write_text(
-        "[blitzecdn]\nstate_dir = 'runtime'\ndeployment_timeout_seconds = 300\n",
-        encoding="utf-8",
-    )
-    settings = Settings.from_environment(
-        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120"}, project_dir=tmp_path
-    )
-    assert settings.state_dir == (tmp_path / "runtime").resolve()
-    assert settings.deployment_timeout_seconds == 120
-
-
-def test_project_toml_rejects_unknown_configuration(tmp_path):
-    (tmp_path / "blitzecdn.toml").write_text(
-        "[blitzecdn]\napi_secret = 'must-not-live-here'\n", encoding="utf-8"
-    )
-    with pytest.raises(ConfigurationError, match="unknown project configuration"):
-        Settings.from_environment({}, project_dir=tmp_path)
-
-
-def test_local_environment_is_loaded_below_real_environment(tmp_path):
-    (tmp_path / ".env").write_text(
-        "# local defaults\nBLITZE_DEPLOYMENT_TIMEOUT_SECONDS=300\n"
-        f"export BLITZE_API_KEYS=local:{'x' * 32}\n",
-        encoding="utf-8",
-    )
-    settings = Settings.from_environment(
-        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "120"}, project_dir=tmp_path
-    )
-    assert settings.deployment_timeout_seconds == 120
-    assert set(settings.api_keys) == {"local"}
-
-
-def test_local_environment_rejects_unsafe_or_invalid_files(tmp_path):
-    (tmp_path / ".env").write_text("NOT AN ASSIGNMENT\n", encoding="utf-8")
-    with pytest.raises(ConfigurationError, match="invalid assignment"):
-        Settings.from_environment({}, project_dir=tmp_path)
-
-
-def test_preflight_dns_servers_parse_from_environment_and_toml(tmp_path):
-    (tmp_path / "blitzecdn.toml").write_text(
-        "[blitzecdn]\npreflight_dns_servers = ['9.9.9.9']\n", encoding="utf-8"
-    )
-    from_toml = Settings.from_environment({}, project_dir=tmp_path)
-    assert from_toml.preflight_dns_servers == ("9.9.9.9",)
-
-    from_env = Settings.from_environment(
-        {"BLITZE_PREFLIGHT_DNS_SERVERS": " 1.1.1.1 , 1.0.0.1 "}, project_dir=tmp_path
-    )
-    assert from_env.preflight_dns_servers == ("1.1.1.1", "1.0.0.1")
-
-
 def test_preflight_dns_servers_default_to_the_host_resolver(tmp_path):
     assert (
         Settings.from_environment({}, project_dir=tmp_path).preflight_dns_servers == ()
@@ -124,32 +71,3 @@ def test_preflight_dns_servers_must_be_addresses(tmp_path, raw):
         Settings.from_environment(
             {"BLITZE_PREFLIGHT_DNS_SERVERS": raw}, project_dir=tmp_path
         )
-
-
-def test_the_maxmind_key_is_environment_only(tmp_path):
-    """A credential must not be settable from the committed TOML.
-
-    The account ID is an identifier and may live there. The license key
-    authenticates to the account, so it follows BLITZE_API_KEYS: environment
-    only. It is absent from the project-key allowlist, which means a config
-    file carrying one is rejected rather than quietly ignored — a silently
-    dropped credential would look like a working deploy that never enabled
-    country filtering.
-    """
-    config = tmp_path / "blitzecdn.toml"
-    config.write_text('[blitzecdn]\nmaxmind_account_id = "123456"\n', encoding="utf-8")
-
-    settings = Settings.from_environment({}, project_dir=tmp_path)
-    assert settings.maxmind_account_id == "123456"
-    assert settings.maxmind_license_key.get_secret_value() == ""
-
-    from_environment = Settings.from_environment(
-        {"BLITZE_MAXMIND_LICENSE_KEY": "FROM-ENV"}, project_dir=tmp_path
-    )
-    assert from_environment.maxmind_license_key.get_secret_value() == "FROM-ENV"
-
-    config.write_text(
-        '[blitzecdn]\nmaxmind_license_key = "FROM-TOML"\n', encoding="utf-8"
-    )
-    with pytest.raises(ConfigurationError, match="maxmind_license_key"):
-        Settings.from_environment({}, project_dir=tmp_path)

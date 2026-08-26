@@ -9,9 +9,8 @@ it is that there is nowhere else a host can be declared — nothing to edit
 underneath the control plane, and no file left holding an edge the database has
 already decommissioned.
 
-Everything here is provider-independent and does no I/O. ``to_inventory``
-renders the host the way the plugin publishes it, and is the whole of the
-mapping between this model and Ansible's connection variables.
+Everything here is provider-independent and does no I/O. The infrastructure
+layer maps this model to Ansible's connection variables.
 """
 
 from __future__ import annotations
@@ -177,33 +176,6 @@ class Edge(BaseModel):
         neither has to know the empty tuple means "same as host".
         """
         return self.public_addresses or (self.host,)
-
-    def to_inventory(self) -> dict[str, Any]:
-        """The Ansible host variables the inventory plugin publishes.
-
-        The whole mapping between this model and Ansible lives here, so the
-        plugin stays a thin reader: it selects rows, builds these dictionaries,
-        and adds them to the group. Nothing is emitted that is unset, because a
-        ``None`` connection variable is not the same as an absent one — Ansible
-        would hand SSH an empty identity file rather than letting it resolve a
-        key the usual way.
-        """
-        variables: dict[str, Any] = {
-            "ansible_host": self.host,
-            "ansible_user": self.user,
-            "ansible_port": self.port,
-            # Published from here so the firewall cannot disagree with the port
-            # Ansible actually connects on. Two independent settings would
-            # strand the host on any mismatch: the
-            # firewall closes the port the next converge arrives on, and no
-            # later deploy can reach it to undo that.
-            "blitzecdn_firewall_ssh_port": self.port,
-        }
-        if self.private_key_file is not None:
-            variables["ansible_ssh_private_key_file"] = self.private_key_file
-        if self.public_addresses:
-            variables["blitzecdn_public_addresses"] = list(self.public_addresses)
-        return variables
 
 
 class EdgePatch(BaseModel):

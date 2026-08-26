@@ -214,14 +214,69 @@
     path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
   register: blitzecdn_controlplane_environment
 
+- name: Inspect the service configuration
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
+  register: blitzecdn_controlplane_configuration
+
+- name: Read the existing environment for migration
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+  register: blitzecdn_controlplane_existing_environment
+  when: blitzecdn_controlplane_environment.stat.exists
+  no_log: true
+
+- name: Read the existing service configuration
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
+  register: blitzecdn_controlplane_existing_configuration
+  when: blitzecdn_controlplane_configuration.stat.exists
+
+- name: Resolve the ACME address without losing an existing installation value
+  ansible.builtin.set_fact:
+    blitzecdn_controlplane_effective_acme_email: >-
+      {{
+        blitzecdn_controlplane_acme_email
+        if blitzecdn_controlplane_acme_email | length > 0
+        else (
+          (
+            blitzecdn_controlplane_existing_environment.content
+            | default('')
+            | b64decode
+            | regex_findall('(?m)^BLITZE_ACME_DEFAULT_EMAIL=(.*)$')
+            | first
+          )
+          | default(
+              (
+                blitzecdn_controlplane_existing_configuration.content
+                | default('')
+                | b64decode
+                | regex_findall('(?m)^acme_default_email\\s*=\\s*"([^"]*)"')
+                | first
+              )
+              | default('', true),
+              true
+            )
+        )
+      }}
+  no_log: true
+
 - name: Require an ACME address for a first installation
   ansible.builtin.assert:
     that:
-      - blitzecdn_controlplane_acme_email | length > 0
+      - blitzecdn_controlplane_effective_acme_email | length > 0
     fail_msg: >-
       No environment file exists yet and no ACME account address was given.
       Run the installer with --email ADDRESS.
   when: not blitzecdn_controlplane_environment.stat.exists
+
+- name: Write the non-secret service configuration
+  ansible.builtin.template:
+    src: blitzecdn.toml.j2
+    dest: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
+    owner: root
+    group: "{{ blitzecdn_controlplane_service_user }}"
+    mode: "0640"
 
 - name: Generate the API credential for a first installation
   ansible.builtin.set_fact:
@@ -252,14 +307,21 @@
     group: "{{ blitzecdn_controlplane_service_user }}"
     mode: "0640"
 
-- name: Point an existing installation at the requested ACME address
+- name: Remove migrated non-secret settings from the service environment
   ansible.builtin.lineinfile:
     path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    regexp: ^BLITZE_ACME_DEFAULT_EMAIL=
-    line: BLITZE_ACME_DEFAULT_EMAIL={{ blitzecdn_controlplane_acme_email }}
-  when:
-    - blitzecdn_controlplane_environment.stat.exists
-    - blitzecdn_controlplane_acme_email | length > 0
+    regexp: "^{{ item }}="
+    state: absent
+  loop:
+    - BLITZE_ACME_DEFAULT_EMAIL
+    - BLITZE_INVENTORY
+    - BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS
+    - BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS
+    - BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS
+    - BLITZE_DRIFT_CHECK_INTERVAL_SECONDS
+    - BLITZE_PREFLIGHT_DNS_SERVERS
+    - BLITZE_REDIS_URL
+  no_log: true
 
 # The API and worker both open the repository during startup. Letting systemd
 # start them against an empty installation would make those two processes and

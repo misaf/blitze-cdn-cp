@@ -533,15 +533,7 @@ def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypa
 def test_maxmind_credentials_reach_ansible_through_the_environment(
     settings, monkeypatch
 ):
-    """`.env` has to survive the hop into the Ansible subprocess.
-
-    Settings parses `.env` into its own mapping, not into os.environ, and the
-    runner builds the child environment from os.environ — so a credential set
-    in `.env` reaches Ansible only because the runner forwards it explicitly.
-    group_vars reads it with `lookup('env', ...)`, which yields an empty string
-    if this regresses, leaving country filtering silently unconfigured instead
-    of failing.
-    """
+    """Resolved credentials must reach the Ansible subprocess explicitly."""
     configured = settings.model_copy(
         update={
             "maxmind_account_id": "123456",
@@ -588,9 +580,8 @@ def test_the_credential_environment_is_set_even_when_unconfigured(
 ):
     """The runner forwards resolved settings, not whatever is in the ambient env.
 
-    `Settings` resolves the credential once, letting a real environment
-    variable win over `.env`. After that the runner must overwrite the child's
-    value unconditionally: inheriting os.environ and only setting the key when
+    `Settings` resolves the credential once. The runner must then overwrite the
+    child's value unconditionally: inheriting os.environ and only setting it when
     non-empty would let a stale export from the deploying shell reach Ansible,
     so the same desired state would converge differently depending on who ran
     it.

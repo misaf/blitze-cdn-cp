@@ -16,24 +16,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from blitzecdn.application.deployment_support import DesiredStateRenderer
-from blitzecdn.application.workflows import WorkflowCoordinator
-from blitzecdn.config import Settings
-from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
-from blitzecdn.domain.events import domain_event
-from blitzecdn.domain.operations import WorkflowKind
-from blitzecdn.domain.runs import AnsibleRun, RunStatus
-from blitzecdn.domain.snapshots import (
-    decode_snapshot,
-    decode_snapshot_zones,
-    snapshot_digest,
-)
-from blitzecdn.domain.validation import validate_edge_limit
-from blitzecdn.exceptions import ConflictError, DeploymentBusyError, ExecutionError
-from blitzecdn.ports import (
+from blitzecdn.application.configuration import DeploymentPolicy
+from blitzecdn.application.deployment_queries import DeploymentQueries
+from blitzecdn.application.ports.deployments import (
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
+    DesiredStateRenderer,
     EventRecorder,
     LogReader,
     QueueBackgroundRunner,
@@ -41,13 +30,19 @@ from blitzecdn.ports import (
     ZoneEditor,
     ZoneStore,
 )
+from blitzecdn.application.workflows import WorkflowCoordinator
+from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
+from blitzecdn.domain.events import domain_event
+from blitzecdn.domain.operations import WorkflowKind
+from blitzecdn.domain.runs import AnsibleRun, RunStatus
+from blitzecdn.domain.snapshots import (
+    decode_snapshot_zones,
+    snapshot_digest,
+)
+from blitzecdn.domain.validation import validate_edge_limit
+from blitzecdn.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 
 _LOGGER = logging.getLogger(__name__)
-
-#: How far back to look for the deployment that last carried a site. Only the
-#: newest successful run is used; the window exists so a burst of failed
-#: attempts cannot hide it.
-_DEPLOYMENT_LOOKBACK = 50
 
 
 @dataclass(frozen=True)
@@ -76,20 +71,21 @@ class DeploymentService:
     def __init__(
         self,
         *,
-        settings: Settings,
+        policy: DeploymentPolicy,
         persistence: DeploymentPersistence,
         execution: DeploymentExecution,
         events: EventRecorder,
         dns: ZoneEditor,
         workflows: WorkflowCoordinator,
     ) -> None:
-        self.settings = settings
+        self.policy = policy
         self.persistence = persistence
         self.execution = execution
         self.events = events
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
         self.workflows = workflows
+        self.queries = DeploymentQueries(persistence.deployments)
 
     def initialize(self) -> int:
         """Recover durable work a previous controller process left in flight.
@@ -136,7 +132,7 @@ class DeploymentService:
         old snapshot's zones, leaving the control plane and the edges disagreeing
         in exactly the way rollback exists to end.
         """
-        errors = self.settings.validate_runtime()
+        errors = self.policy.runtime_errors()
         errors.extend(self.dns.validation_errors())
         if not errors:
             with self._scratch_desired_state(
@@ -150,7 +146,7 @@ class DeploymentService:
                 # so the operator does not have to go and find it.
                 errors.append(
                     self.execution.read_log(
-                        run.log_path, limit=self.settings.output_limit_bytes
+                        run.log_path, limit=self.policy.output_limit_bytes
                     )
                     or run.summary()
                 )
@@ -159,7 +155,7 @@ class DeploymentService:
     @contextmanager
     def _scratch_desired_state(self, snapshot: str) -> Iterator[Path]:
         """Render a snapshot somewhere only this call can see, then drop it."""
-        directory = self.settings.run_dir
+        directory = self.policy.run_dir
         directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = directory / f"validate-{uuid4().hex}.yml"
         try:
@@ -326,24 +322,17 @@ class DeploymentService:
         result is the structured one, so this reads the same object a live run
         produced rather than re-deriving anything.
         """
-        deployment = self.persistence.deployments.get_deployment(deployment_id)
-        if not deployment.check_mode:
-            raise ConflictError(
-                f"deployment {deployment.id} applied changes rather than "
-                "previewing them, so its result describes what it did, not "
-                "what had drifted. Run 'blitzecdn drift' instead."
-            )
-        return DriftReport.of(deployment)
+        return self.queries.drift_report(deployment_id)
 
     # -- History -------------------------------------------------------
 
     def get_deployment(self, deployment_id: str) -> Deployment:
         """One deployment, for an operator or a client polling a queued run."""
-        return self.persistence.deployments.get_deployment(deployment_id)
+        return self.queries.get(deployment_id)
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         """Recent deployments, newest first."""
-        return self.persistence.deployments.list_deployments(limit)
+        return self.queries.list(limit)
 
     def site_is_deployed(self, site_name: str) -> bool:
         """Whether the most recent real deployment carried this site.
@@ -355,16 +344,7 @@ class DeploymentService:
         canaries. Only the newest successful run is consulted; an older one
         listing the site says nothing about whether it is still deployed.
         """
-        for deployment in self.persistence.deployments.list_deployments(
-            limit=_DEPLOYMENT_LOOKBACK
-        ):
-            if deployment.status is not DeploymentStatus.SUCCEEDED:
-                continue
-            if deployment.check_mode:
-                continue
-            snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
-            return any(site.name == site_name for site in decode_snapshot(snapshot))
-        return False
+        return self.queries.site_is_deployed(site_name)
 
     # -- Internals -----------------------------------------------------
 
@@ -396,7 +376,7 @@ class DeploymentService:
             # retention lives in the runner: a policy enforced by a timer of
             # its own is one that silently stops being enforced when the unit
             # was never installed.
-            self.persistence.deployments.prune_history(self.settings.history_retention)
+            self.persistence.deployments.prune_history(self.policy.history_retention)
             self.events.record(
                 domain_event(
                     operator,
@@ -510,7 +490,7 @@ class DeploymentService:
         )
         try:
             snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
-            self.write_desired_state(snapshot, self.settings.generated_vars_path)
+            self.write_desired_state(snapshot, self.policy.generated_vars_path)
             run = self.execution.runner.run(
                 check=check, host_limit=deployment.host_limit
             )

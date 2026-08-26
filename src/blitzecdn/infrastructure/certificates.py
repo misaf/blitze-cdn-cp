@@ -221,8 +221,7 @@ class CertbotIssuer:
             available = shutil.which(executable) is not None
         if not available:
             raise ConfigurationError(
-                f"certbot is not available: {executable}; "
-                "install it or set BLITZE_CERTBOT"
+                f"certbot is not available: {executable}; install certbot on PATH"
             )
         config_dir = self._settings.state_dir / "letsencrypt/config"
         work_dir = self._settings.state_dir / "letsencrypt/work"

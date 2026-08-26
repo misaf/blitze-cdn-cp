@@ -16,7 +16,7 @@ import os
 import shlex
 import shutil
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager, suppress
 from datetime import UTC, datetime
 from fnmatch import fnmatch
@@ -31,6 +31,7 @@ from ansible_runner import (
 )
 
 from blitzecdn.config import Settings
+from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.edges import EDGE_GROUP
 from blitzecdn.domain.runs import (
     AnsibleRun,
@@ -41,6 +42,7 @@ from blitzecdn.domain.runs import (
 )
 from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
+from blitzecdn.infrastructure.ansible_mapping import purge_entry_to_ansible
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml
 from blitzecdn.ports import EdgeStore
 
@@ -254,7 +256,7 @@ class AnsibleRunner:
     def run_cache_purge(
         self,
         *,
-        entries: list[dict[str, str]],
+        entries: Sequence[PurgeEntry],
         purge_all: bool,
         host_limit: str | None = None,
     ) -> AnsibleRun:
@@ -268,7 +270,9 @@ class AnsibleRunner:
         with self._run_vars(
             "cache-purge",
             {
-                "blitzecdn_cache_purge_entries": entries,
+                "blitzecdn_cache_purge_entries": [
+                    purge_entry_to_ansible(entry) for entry in entries
+                ],
                 "blitzecdn_cache_purge_all": purge_all,
             },
         ) as variables:

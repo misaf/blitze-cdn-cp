@@ -1,0 +1,22 @@
+# Managed by BlitzeCDN (blitzecdn_controlplane). Non-secret service configuration.
+[blitzecdn]
+
+database_path = ".state/control-plane.db"
+acme_default_email = {{ blitzecdn_controlplane_effective_acme_email | to_json }}
+
+deployment_timeout_seconds = 900
+preflight_dns_timeout_seconds = 5
+origin_check_timeout_seconds = 5
+ssl_automatic_scan_interval_seconds = {{ blitzecdn_controlplane_ssl_automatic_scan_seconds }}
+certificate_reconcile_interval_seconds = {{ blitzecdn_controlplane_certificate_reconcile_seconds }}
+certificate_renewal_interval_seconds = {{ blitzecdn_controlplane_certificate_renewal_seconds }}
+certificate_renewal_budget_seconds = 300
+certificate_renewal_workers = 2
+drift_check_interval_seconds = {{ blitzecdn_controlplane_drift_check_seconds }}
+
+output_limit_bytes = 1048576
+run_log_retention = 500
+history_retention = 1000
+redis_url = "redis://127.0.0.1:6379/0"
+allow_empty_sites = false
+preflight_dns_servers = {{ blitzecdn_controlplane_preflight_dns_servers.split(',') | map('trim') | list | to_json }}

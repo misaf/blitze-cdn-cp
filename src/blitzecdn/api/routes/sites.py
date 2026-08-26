@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
-from blitzecdn.domain.sites import CdnSite
+from blitzecdn.api.v1_models import CdnSite
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -10,10 +10,10 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 # change, or remove a record instead; the site follows.
 @router.get("/v1/sites", response_model=list[CdnSite])
 def list_sites(control: ControlPlaneDependency) -> list[CdnSite]:
-    return control.dns.list_sites()
+    return [CdnSite.from_domain(item) for item in control.dns.list_sites()]
 
 
 @router.get("/v1/sites/{name}", response_model=CdnSite)
 def get_site(name: str, control: ControlPlaneDependency) -> CdnSite:
     """The fully resolved policy for one site, as handed to the edges."""
-    return control.dns.get_site(name)
+    return CdnSite.from_domain(control.dns.get_site(name))

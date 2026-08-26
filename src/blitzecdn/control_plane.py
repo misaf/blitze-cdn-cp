@@ -35,17 +35,17 @@ from blitzecdn.application import (
     DnsService,
     EdgeOperationsService,
 )
-from blitzecdn.application.deployment_support import DesiredStateRenderer
+from blitzecdn.application.configuration import CertificatePolicy, DeploymentPolicy
+from blitzecdn.application.maintenance import MaintenanceService
 from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
+from blitzecdn.infrastructure.desired_state import DesiredStateRenderer
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
-from blitzecdn.infrastructure.process import DramatiqBackgroundRunner
-from blitzecdn.infrastructure.queue import redis_ready
 from blitzecdn.ports import (
     AuditTrail,
     DeploymentRunner,
@@ -62,6 +62,7 @@ from blitzecdn.ports import (
 from blitzecdn.ports import (
     OriginProbe as OriginProbePort,
 )
+from blitzecdn.worker import DramatiqBackgroundRunner, redis_ready
 
 
 class ControlPlane:
@@ -118,16 +119,16 @@ class ControlPlane:
         # for itself at the start of every run. Both the runner and preflight
         # take it so that "which edges exist" has exactly one answer, whoever is
         # asking and whichever process they are in.
-        self.edges_store = edges_store or store.edges
+        self._edges_store = edges_store or store.edges
         self.ansible_settings = store.ansible_settings
-        self.runner = runner or AnsibleRunner(self.settings, self.edges_store)
-        self.certificate_store = certificate_store or CertificateStore(self.settings)
-        self.issuer = issuer or CertbotIssuer(self.settings)
-        self.origin_probe = origin_probe or OriginProbe(self.settings)
-        self.preflight = preflight or CertificatePreflight(
-            self.settings, self.edges_store, origin_probe=self.origin_probe
+        self._runner = runner or AnsibleRunner(self.settings, self._edges_store)
+        self._certificate_store = certificate_store or CertificateStore(self.settings)
+        self._issuer = issuer or CertbotIssuer(self.settings)
+        self._origin_probe = origin_probe or OriginProbe(self.settings)
+        self._preflight = preflight or CertificatePreflight(
+            self.settings, self._edges_store, origin_probe=self._origin_probe
         )
-        self.background = background or DramatiqBackgroundRunner(
+        self._background = background or DramatiqBackgroundRunner(
             str(self.settings.redis_url)
         )
         readiness_probe = broker_ready or redis_ready
@@ -152,7 +153,6 @@ class ControlPlane:
             retention=self.settings.history_retention,
         )
         self.workflow_history = store.workflows
-        self.deployment_requirements = store.deployment_requirements
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
@@ -167,12 +167,18 @@ class ControlPlane:
     def _wire_feature_services(self, store: Repository) -> None:
         """Build deployment, certificate, edge, and cache capabilities."""
         renderer = DesiredStateRenderer(
-            settings=self.settings,
-            certificates=self.certificate_store,
+            allow_empty_sites=self.settings.allow_empty_sites,
+            certificates=self._certificate_store,
             write_yaml=atomic_write_yaml,
         )
         self.deployments = DeploymentService(
-            settings=self.settings,
+            policy=DeploymentPolicy(
+                run_dir=self.settings.run_dir,
+                generated_vars_path=self.settings.generated_vars_path,
+                output_limit_bytes=self.settings.output_limit_bytes,
+                history_retention=self.settings.history_retention,
+                runtime_errors=self.settings.validate_runtime,
+            ),
             persistence=DeploymentPersistence(
                 deployments=store.deployments,
                 zones=store.zones,
@@ -180,8 +186,8 @@ class ControlPlane:
                 requirements=store.deployment_requirements,
             ),
             execution=DeploymentExecution(
-                runner=self.runner,
-                background=self.background,
+                runner=self._runner,
+                background=self._background,
                 read_log=read_log_tail,
                 renderer=renderer,
             ),
@@ -190,17 +196,17 @@ class ControlPlane:
             workflows=self.workflows,
         )
         self.certificates = CertificateService(
-            settings=self.settings,
+            policy=CertificatePolicy(default_email=self.settings.acme_default_email),
             persistence=CertificatePersistence(
                 sites=store.sites,
-                certificates=self.certificate_store,
+                certificates=self._certificate_store,
                 uow=store,
                 requirements=store.deployment_requirements,
             ),
             execution=CertificateExecution(
-                runner=self.runner,
-                issuer=self.issuer,
-                preflight=self.preflight,
+                runner=self._runner,
+                issuer=self._issuer,
+                preflight=self._preflight,
             ),
             events=self.events,
             dns=self.dns,
@@ -210,15 +216,15 @@ class ControlPlane:
         self.edges = EdgeOperationsService(
             sites=store.sites,
             events=self.events,
-            runner=self.runner,
-            origin_probe=self.origin_probe,
-            edges=self.edges_store,
+            runner=self._runner,
+            origin_probe=self._origin_probe,
+            edges=self._edges_store,
             uow=store,
         )
         self.automatic_ssl = AutomaticSslService(
             sites=store.sites,
-            runner=self.runner,
-            origin_probe=self.origin_probe,
+            runner=self._runner,
+            origin_probe=self._origin_probe,
             dns=self.dns,
             deployments=self.deployments,
         )
@@ -228,7 +234,14 @@ class ControlPlane:
         self.cache = CacheService(
             sites=store.sites,
             events=self.events,
-            runner=self.runner,
+            runner=self._runner,
+        )
+        self.maintenance = MaintenanceService(
+            certificates=self.certificates,
+            automatic_ssl=self.automatic_ssl,
+            deployments=self.deployments,
+            requirements=store.deployment_requirements,
+            renewal_budget_seconds=self.settings.certificate_renewal_budget_seconds,
         )
 
     def broker_ready(self) -> bool:

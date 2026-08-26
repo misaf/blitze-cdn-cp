@@ -1,27 +1,121 @@
 [blitzecdn]
-state_dir = ".state"
-ansible_dir = "ansible"
-inventory_path = "ansible/inventory/blitzecdn.yml"
-playbook_path = "ansible/playbooks/edge.yml"
-generated_vars_path = ".state/desired-state.yml"
-deployment_lock_path = ".state/deployment.lock"
-certificate_dir = ".state/certificates"
-acme_challenge_playbook_path = "ansible/playbooks/acme-challenge.yml"
-ansible_playbook = "ansible-playbook"
-certbot = "certbot"
+
+# |--------------------------------------------------------------------------
+# | Runtime Paths
+# |--------------------------------------------------------------------------
+#
+# Relative paths are resolved from the project directory. Environment
+# variables use the same name with a BLITZE_ prefix and take precedence over
+# values defined in this file.
+#
+
+# SQLite database containing desired state, deployments, and audit metadata.
+# Relative values are resolved from the project directory.
+database_path = ".state/control-plane.db"
+
+# Registration and expiry-notification email used when an ACME request does not
+# provide its own email address.
 acme_default_email = "admin@example.com"
+
+# |--------------------------------------------------------------------------
+# | Operation Timeouts and Scheduled Maintenance
+# |--------------------------------------------------------------------------
+#
+# These values are expressed in seconds. Timeouts limit a single operation,
+# while intervals determine how often background jobs run. Set an interval to
+# zero to disable its scheduled job. Environment variables take precedence.
+#
+
+# Hard limit for one deployment or ACME request.
+# Default: 900 seconds (15 minutes). Allowed: 30 seconds to 2 hours.
 deployment_timeout_seconds = 900
-# How much of a run log to quote back when a run fails. The log itself is
-# never truncated.
+
+# Wait limit for each DNS or CAA lookup during certificate preflight.
+# Default: 5 seconds per lookup. Allowed: 1 to 60 seconds.
+preflight_dns_timeout_seconds = 5
+
+# Wait limit for each origin TCP connection or TLS handshake. This applies per
+# check, so checking multiple origins and edges may take longer in total.
+# Default: 5 seconds per check. Allowed: 1 to 60 seconds.
+origin_check_timeout_seconds = 5
+
+# Frequency of Automatic SSL/TLS origin scans and safe mode upgrades.
+# Default: 2592000 seconds (30 days). Set to 0 to disable automatic scans.
+ssl_automatic_scan_interval_seconds = 2592000
+
+# Frequency of repairing incomplete or interrupted certificate state.
+# Default: 600 seconds (10 minutes). Set to 0 to disable reconciliation.
+certificate_reconcile_interval_seconds = 600
+
+# Frequency of checking managed certificates for renewal eligibility.
+# Default: 43200 seconds (12 hours). Set to 0 to disable renewal checks.
+certificate_renewal_interval_seconds = 43200
+
+# Maximum wall-clock budget for one HTTP-triggered renewal sweep. The sweep
+# stops between certificates when exhausted. Default: 300 seconds (5 minutes).
+certificate_renewal_budget_seconds = 300
+
+# Maximum simultaneous HTTP renewal sweeps. Keep this small because certificate
+# issuance ultimately serializes on the deployment lock. Default: 2.
+certificate_renewal_workers = 2
+
+# Frequency of checking deployed edges for configuration drift.
+# Default: 3600 seconds (1 hour). Set to 0 to disable scheduled drift checks.
+drift_check_interval_seconds = 3600
+
+# |--------------------------------------------------------------------------
+# | Logs and Retention
+# |--------------------------------------------------------------------------
+#
+# These options control how much diagnostic output is returned and how much
+# historical execution data is retained by the control plane.
+#
+
+# Maximum log bytes included in an error response. The stored log remains full.
+# Default: 1048576 bytes (1 MiB). Allowed: 4 KiB to 10 MiB.
 output_limit_bytes = 1048576
-# How many per-run Ansible logs to keep under .state/logs. One is written per
-# invocation — every deploy, every scheduled drift check, every purge — so
-# something has to bound them. The structured result a deployment reasons from
-# lives in the database and is not affected.
+
+# Number of newest Ansible run logs retained under state_dir/logs. Deployment
+# history stored in the database is unaffected. Default: 500. Minimum: 10.
 run_log_retention = 500
-# Refuse to remove the final managed sites unless explicitly changed to true.
+
+# Number of finished workflows and check-mode deployment snapshots retained in
+# the database. Real deploy snapshots remain available for rollback. Default: 1000.
+history_retention = 1000
+
+# |--------------------------------------------------------------------------
+# | Services and Optional Integrations
+# |--------------------------------------------------------------------------
+#
+# Configure services used by the control plane and its background workers.
+# Secrets should be supplied through environment variables instead of TOML.
+#
+
+# Redis broker used by background workers. Keep credentials out of TOML; set
+# BLITZE_REDIS_URL in .env when the production URL contains a password.
+redis_url = "redis://127.0.0.1:6379/0"
+
+# |--------------------------------------------------------------------------
+# | Deployment Safety
+# |--------------------------------------------------------------------------
+#
+# This option guards against accidentally removing every managed site from all
+# CDN edges during a deployment.
+#
+
+# false prevents a deployment from removing every managed site from all edges.
+# Set true only when intentionally deploying an empty CDN configuration.
 allow_empty_sites = false
-# Resolvers for certificate preflight, as IP addresses. Unset uses the host
-# resolver, which is the wrong view wherever this host resolves differently from
-# the public internet (split-horizon zone, internal forwarder, transparent proxy).
-# preflight_dns_servers = ["1.1.1.1", "1.0.0.1"]
+
+# |--------------------------------------------------------------------------
+# | Certificate Preflight DNS
+# |--------------------------------------------------------------------------
+#
+# These resolvers are used during certificate preflight checks for edge DNS
+# records and CAA authorization. Leave the list empty to use the host resolver.
+#
+
+# DNS resolver IPs used to verify that hostnames point to CDN edges and that CAA
+# permits issuance. An empty list uses the host resolver. Use public resolver IPs
+# when split-horizon DNS or internal forwarding gives a different view.
+preflight_dns_servers = []
