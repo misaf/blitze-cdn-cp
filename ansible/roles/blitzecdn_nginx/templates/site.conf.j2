@@ -4,6 +4,15 @@
 {% set http3 = item.http3_enabled | default(false) %}
 {% set under_attack = item.under_attack_mode | default(false) %}
 {% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
+{#
+  The origin endpoint is a property of the origin, never of the listener
+  the visitor arrived on. Deriving it from the edge port is how a flexible
+  site — visitor HTTPS, origin HTTP — ended up proxying to http://origin:443.
+  The scheme defaults here are the same rule as the control plane's
+  OriginProbe._DEFAULT_PORTS, which is what the preflight probe connects to;
+  the two must not drift.
+#}
+{% set origin_port = 443 if origin_scheme == 'https' else 80 %}
 {% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
 {% set compression = item.compression | default('brotli') %}
@@ -129,7 +138,7 @@
   replaces the whole inherited set, so the X-Cache-Status line below would
   silently drop a server-level Strict-Transport-Security on every cached site.
 #}
-{% macro proxy(origin_port, secure=false) %}
+{% macro proxy(listener_port, secure=false) %}
 {% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ origin_port %}
 {% if blitzecdn_nginx_resolvers %}
         # A variable upstream defers resolution to request time so origin DNS
@@ -218,7 +227,7 @@
 {% if secure and blitzecdn_nginx_hsts_enabled %}
         add_header Strict-Transport-Security "max-age={{ blitzecdn_nginx_hsts_max_age }}" always;
 {% endif %}
-{% if secure and http3 and origin_port == 443 %}
+{% if secure and http3 and listener_port == 443 %}
         # Kept in the location-level response header set: add_header directives
         # here replace inherited server headers, so a server-level Alt-Svc
         # would disappear whenever cache status or HSTS is emitted.
@@ -277,7 +286,7 @@
   This makes firewall -> mitigation ordering independent of access-module
   registration order.
 #}
-{% macro protected(origin_port, secure=false, redirect_https=false) %}
+{% macro protected(listener_port, secure=false, redirect_https=false) %}
     location / {
 {{ access() }}
         root {{ blitzecdn_nginx_under_attack_empty_root }};
@@ -291,7 +300,7 @@
         root {{ blitzecdn_nginx_under_attack_empty_root }};
         try_files /__blitzecdn_https_dispatch__ @blitzecdn_under_attack_https_redirect;
 {% else %}
-{{ proxy(origin_port, secure=secure) }}
+{{ proxy(listener_port, secure=secure) }}
 {% endif %}
     }
 {% if redirect_https %}
