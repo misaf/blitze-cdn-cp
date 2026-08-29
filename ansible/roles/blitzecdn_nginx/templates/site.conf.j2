@@ -3,16 +3,45 @@
 {% set tls = ssl_mode != 'off' %}
 {% set http3 = item.http3_enabled | default(false) %}
 {% set under_attack = item.under_attack_mode | default(false) %}
-{% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
 {#
-  The origin endpoint is a property of the origin, never of the listener
-  the visitor arrived on. Deriving it from the edge port is how a flexible
-  site — visitor HTTPS, origin HTTP — ended up proxying to http://origin:443.
-  The scheme defaults here are the same rule as the control plane's
-  OriginProbe._DEFAULT_PORTS, which is what the preflight probe connects to;
-  the two must not drift.
+  Origin routing, in one place. Both halves of the upstream are decided per
+  listener, inside the proxy macro, because both depend on the request:
+
+    origin port   = the listener port the visitor arrived on, unchanged. A
+                    request to :8080 reaches the origin's 8080 and one to :8443
+                    reaches its 8443, across all thirteen supported public proxy
+                    ports. Sites do not configure an origin port.
+
+    origin scheme = ssl_mode applied to the visitor's scheme *and* its port.
+                    every mode, http listener -> http
+                    off                       -> http
+                    flexible on 443           -> http
+                    flexible on 2053/2083/2087/2096/8443
+                                              -> https, Full-like, unverified
+                    full, full_strict         -> mirror the visitor
+                    full_strict               -> and verify the origin certificate
+
+  So full on an HTTP listener proxies over HTTP: neither Full mode promises to
+  re-originate a plaintext request as TLS, and doing so breaks every origin that
+  answers only one of the two.
+
+  Flexible is the reason the port is in this decision. Cloudflare supports
+  Flexible only for HTTPS on 443; an HTTPS request on one of the five alternate
+  HTTPS proxy ports falls back to Full-like transport. Only the transport falls
+  back — proxy_ssl_verify stays off, because the fallback is Full and not Full
+  (strict).
+
+  The control plane computes the identical rule in SslMode.origin_scheme_for();
+  test_contract.py renders this template against it for every mode and every
+  listener, so the two cannot drift.
+
+  The control plane's preflight probe checks one endpoint out of the thirteen —
+  CdnSite.canonical_origin_scheme on that scheme's default port — rather than
+  requiring an origin to answer on every alternate port. So a Flexible site
+  passes preflight against http://origin:80 and can still 502 for a visitor on
+  2053, whose leg is https://origin:2053. That is an alternate-port failure of
+  one request, not of the deployment. See OriginProbe.
 #}
-{% set origin_port = 443 if origin_scheme == 'https' else 80 %}
 {% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
 {% set compression = item.compression | default('brotli') %}
@@ -90,7 +119,7 @@
 {#
   Emitted at server level rather than in the proxy macro: these are response
   filters, not proxy settings, and at server level they also cover the ACME
-  challenge location and the 308 redirect without being written three times.
+  challenge location and the 301 redirect without being written three times.
 
   `gzip off` has to be explicit. Debian and Ubuntu ship `gzip on` in the http
   context of the stock nginx.conf, so a site configured for no compression
@@ -133,13 +162,19 @@
 {% endif %}
 {% endmacro %}
 {#
-  `secure` controls whether this location emits HSTS. It has to be emitted here
+  `visitor_scheme` is the scheme of the listener this location belongs to. It
+  picks the origin scheme (see the routing note above) and, as `secure`, decides
+  whether this location emits HSTS. HSTS has to be emitted here
   rather than once at server level: an add_header anywhere in a location
   replaces the whole inherited set, so the X-Cache-Status line below would
   silently drop a server-level Strict-Transport-Security on every cached site.
 #}
-{% macro proxy(listener_port, secure=false) %}
-{% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ origin_port %}
+{% macro proxy(listener_port, visitor_scheme='http') %}
+{# See the origin routing note at the top of this file. #}
+{% set secure = visitor_scheme == 'https' %}
+{% set origin_tls = secure and (ssl_mode in ['full', 'full_strict'] or (ssl_mode == 'flexible' and listener_port != 443)) %}
+{% set origin_scheme = 'https' if origin_tls else 'http' %}
+{% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ listener_port %}
 {% if blitzecdn_nginx_resolvers %}
         # A variable upstream defers resolution to request time so origin DNS
         # changes take effect. nginx does not append the URI in this form.
@@ -241,7 +276,7 @@
 {% if move_to_https %}
         add_header X-BlitzeCDN-Mitigation challenge always;
         add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
-        return 308 https://$host$request_uri;
+        return 301 https://$host$request_uri;
 {% else %}
         js_content blitzecdn_under_attack.challenge;
 {% endif %}
@@ -250,7 +285,7 @@
 {% if move_to_https %}
         add_header X-BlitzeCDN-Mitigation challenge always;
         add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
-        return 308 https://$host$request_uri;
+        return 301 https://$host$request_uri;
 {% else %}
         client_max_body_size 2k;
         client_body_buffer_size 2k;
@@ -286,7 +321,7 @@
   This makes firewall -> mitigation ordering independent of access-module
   registration order.
 #}
-{% macro protected(listener_port, secure=false, redirect_https=false) %}
+{% macro protected(listener_port, visitor_scheme='http', redirect_https=false) %}
     location / {
 {{ access() }}
         root {{ blitzecdn_nginx_under_attack_empty_root }};
@@ -300,13 +335,13 @@
         root {{ blitzecdn_nginx_under_attack_empty_root }};
         try_files /__blitzecdn_https_dispatch__ @blitzecdn_under_attack_https_redirect;
 {% else %}
-{{ proxy(listener_port, secure=secure) }}
+{{ proxy(listener_port, visitor_scheme=visitor_scheme) }}
 {% endif %}
     }
 {% if redirect_https %}
     location @blitzecdn_under_attack_https_redirect {
         internal;
-        return 308 https://$host$request_uri;
+        return 301 https://$host$request_uri;
     }
 {% endif %}
 {% endmacro %}
@@ -327,14 +362,14 @@ server {
 {{ reserved_locations(move_to_https=(tls and (item.always_use_https | default(false)))) }}
 {{ denied_paths() }}
 {% if under_attack %}
-{{ protected(port, redirect_https=(tls and (item.always_use_https | default(false)))) }}
+{{ protected(port, visitor_scheme='http', redirect_https=(tls and (item.always_use_https | default(false)))) }}
 {% else %}
     location / {
 {{ access() }}
 {% if tls and (item.always_use_https | default(false)) %}
-        return 308 https://$host$request_uri;
+        return 301 https://$host$request_uri;
 {% else %}
-{{ proxy(port) }}
+{{ proxy(port, visitor_scheme='http') }}
 {% endif %}
     }
 {% endif %}
@@ -398,11 +433,11 @@ server {
 {{ reserved_locations() }}
 {{ denied_paths() }}
 {% if under_attack %}
-{{ protected(port, secure=true) }}
+{{ protected(port, visitor_scheme='https') }}
 {% else %}
     location / {
 {{ access() }}
-{{ proxy(port, secure=true) }}
+{{ proxy(port, visitor_scheme='https') }}
     }
 {% endif %}
 }

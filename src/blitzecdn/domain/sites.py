@@ -46,6 +46,23 @@ class HttpScheme(StrEnum):
     HTTPS = "https"
 
 
+#: The Cloudflare-compatible public proxy ports, which are the edge's listeners.
+#: They are two independent sets and not pairs: 8080 is an HTTP port and 8443 an
+#: HTTPS one, and neither is the other's counterpart. Nothing here maps one onto
+#: the other, and ``always_use_https`` deliberately does not either.
+#:
+#: These are the same lists as ``blitzecdn_nginx_http_ports`` and
+#: ``blitzecdn_nginx_https_ports`` in the Nginx role; ``test_contract.py`` holds
+#: the two copies together.
+HTTP_PROXY_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
+HTTPS_PROXY_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
+
+#: The default port of each scheme. The canonical endpoint of a site is its
+#: canonical scheme on this port, and it is the only one anything outside the
+#: edge addresses — see :class:`blitzecdn.infrastructure.origins.OriginProbe`.
+DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
+
+
 class SslMode(StrEnum):
     """How TLS is used on both sides of an edge connection."""
 
@@ -58,11 +75,48 @@ class SslMode(StrEnum):
     def serves_tls(self) -> bool:
         return self is not SslMode.OFF
 
-    @property
-    def origin_scheme(self) -> HttpScheme:
-        if self in {SslMode.FULL, SslMode.FULL_STRICT}:
-            return HttpScheme.HTTPS
-        return HttpScheme.HTTP
+    def origin_scheme_for(
+        self, visitor_scheme: HttpScheme, visitor_port: int
+    ) -> HttpScheme:
+        """The scheme the edge uses toward the origin for one visitor request.
+
+        The mode alone does not decide this, which is why it is a method and
+        not a property: the answer depends on how the visitor arrived, both on
+        which scheme and — for Flexible — on which port.
+
+        ``full`` and ``full_strict`` mean *mirror the visitor*: a site in Full
+        serves plain HTTP on its HTTP listeners exactly as it always did, and
+        encrypts the origin leg only for the visitors who arrived encrypted.
+        Terminating an HTTP request and re-originating it as HTTPS is not what
+        either mode promises, and it breaks every origin that answers only one
+        of the two.
+
+        ``flexible`` is the Cloudflare-compatible exception, and the reason
+        ``visitor_port`` is a parameter. Cloudflare supports Flexible only for
+        HTTPS on 443; an HTTPS request on one of the five alternate HTTPS proxy
+        ports falls back to Full-like transport and is proxied over HTTPS on
+        that same port. Only the transport falls back — ``verifies_origin``
+        stays false, so the fallback leg is Full and never Full (strict).
+
+        ``off`` never encrypts anything, whichever scheme or port the request
+        arrived on. (It serves no HTTPS listener at all, so its HTTPS rows
+        cannot arise in practice; the method still answers for them.)
+
+        The *port* is never chosen here — see the module note in
+        ``site.conf.j2``. The visitor's destination port is preserved toward the
+        origin, so it comes from the listener rather than from this decision.
+        """
+        if visitor_scheme is HttpScheme.HTTP:
+            return HttpScheme.HTTP
+        if self is SslMode.OFF:
+            return HttpScheme.HTTP
+        if self is SslMode.FLEXIBLE:
+            return (
+                HttpScheme.HTTP
+                if visitor_port == DEFAULT_PORTS[HttpScheme.HTTPS]
+                else HttpScheme.HTTPS
+            )
+        return HttpScheme.HTTPS
 
     @property
     def verifies_origin(self) -> bool:
@@ -541,3 +595,51 @@ class CdnSite(SitePolicy):
         HTTP and HTTPS responses independently.
         """
         return self.ssl_mode.serves_tls
+
+    @property
+    def canonical_visitor_scheme(self) -> HttpScheme:
+        """The strongest scheme a visitor can reach this site on.
+
+        HTTPS for every mode that serves TLS, HTTP for Off. This is the entry
+        the site is *for*: an HTTP listener on a TLS site either redirects
+        (``always_use_https``) or serves the same content unencrypted.
+        """
+        return HttpScheme.HTTPS if self.serves_tls else HttpScheme.HTTP
+
+    @property
+    def canonical_origin_scheme(self) -> HttpScheme:
+        """The origin scheme for a canonical visitor — what preflight probes.
+
+        The edge preserves the visitor's port toward the origin, so a site has
+        one origin endpoint per public proxy port rather than one overall.
+        Preflight deliberately checks only this one; see
+        :class:`blitzecdn.infrastructure.origins.OriginProbe` for why, and for
+        what it means for a site whose origin serves only 80 and 443.
+
+        Under Flexible this is the HTTP origin, because the canonical HTTPS
+        listener is 443 and Flexible on 443 does not encrypt the origin leg.
+        The same site's alternate HTTPS listeners fall back to an HTTPS origin
+        leg, which this endpoint says nothing about — again, see ``OriginProbe``.
+        """
+        scheme = self.canonical_visitor_scheme
+        return self.ssl_mode.origin_scheme_for(scheme, DEFAULT_PORTS[scheme])
+
+    @property
+    def redirects_http_to_https(self) -> bool:
+        """Whether the HTTP listeners redirect instead of proxying.
+
+        ``always_use_https`` is inert unless the site actually serves TLS, and
+        that is the whole of BlitzeCDN's answer to the ``ssl_mode=off`` case.
+        Cloudflare removes the Always Use HTTPS control from the dashboard while
+        the encryption mode is Off — the stored preference survives and takes
+        effect again when a secure mode is selected, but nothing redirects in
+        the meantime. Off serves no HTTPS listener, so honouring the flag there
+        would send every visitor to a port the edge does not answer on.
+
+        Modelling it here rather than rejecting the combination keeps the record
+        API unchanged and lets an operator set the two in either order.
+        ``site.conf.j2`` gates its redirect on the identical condition, and
+        ``test_contract.py`` renders the template against this property so the
+        two cannot drift.
+        """
+        return self.serves_tls and self.always_use_https

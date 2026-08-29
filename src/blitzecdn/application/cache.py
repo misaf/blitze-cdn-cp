@@ -127,7 +127,7 @@ class CacheService:
 
         Or the scheme may be one the site never serves. The cache key begins
         with ``$scheme``, so the two are different entries: a site with TLS
-        answers port 80 with a 308 and caches nothing under ``http``, and a site
+        answers port 80 with a 301 and caches nothing under ``http``, and a site
         without TLS never sees an ``https`` request at all. Purging the wrong one
         computes a different MD5, deletes a file that was never written, and
         reports every edge as purged.

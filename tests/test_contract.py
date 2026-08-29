@@ -27,10 +27,13 @@ import yaml
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import (
+    HTTP_PROXY_PORTS,
+    HTTPS_PROXY_PORTS,
     CacheQueryStringMode,
     CdnSite,
     CertificateMode,
     CompressionMode,
+    HttpScheme,
     MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
@@ -340,6 +343,10 @@ def test_public_ports_match_cloudflare_and_the_firewall():
 
     assert nginx["blitzecdn_nginx_http_ports"] == http_ports
     assert nginx["blitzecdn_nginx_https_ports"] == https_ports
+    # The domain holds the third copy, because Flexible's origin scheme now
+    # depends on which set a listener belongs to.
+    assert list(HTTP_PROXY_PORTS) == http_ports
+    assert list(HTTPS_PROXY_PORTS) == https_ports
     assert firewall["blitzecdn_firewall_http_ports"] == http_ports + https_ports
     assert firewall["blitzecdn_firewall_http3_enabled"] is False
 
@@ -791,6 +798,36 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
     assert "proxy_ssl_verify_depth 5;" in rendered
 
 
+def _server_blocks(
+    rendered: str, defaults: dict[str, Any]
+) -> tuple[list[str], list[str]]:
+    """Split a rendered site into its HTTP and HTTPS ``server`` blocks.
+
+    Directives have to be attributed to the listener they belong to: "somewhere
+    in the file" is exactly the assertion that let an origin TLS directive sit
+    in a plaintext location unnoticed.
+    """
+    blocks = ["server {" + part for part in rendered.split("server {")[1:]]
+    http = [
+        block
+        for block in blocks
+        if any(
+            f"listen {port};" in block
+            for port in defaults["blitzecdn_nginx_http_ports"]
+        )
+    ]
+    https = [
+        block
+        for block in blocks
+        if any(
+            f"listen {port} ssl;" in block
+            for port in defaults["blitzecdn_nginx_https_ports"]
+        )
+    ]
+    assert len(http) + len(https) == len(blocks), "a server block matched neither set"
+    return http, https
+
+
 def _mode_site(mode: SslMode, serves_tls: bool, **extra: Any) -> CdnSite:
     payload: dict[str, Any] = {
         "name": "mode",
@@ -807,69 +844,342 @@ def _mode_site(mode: SslMode, serves_tls: bool, **extra: Any) -> CdnSite:
     return CdnSite.model_validate(payload | extra)
 
 
-#: The origin endpoint each mode proxies to. The port comes from the origin
-#: scheme and from nothing else — in particular not from the listener the
-#: visitor arrived on, which is what a flexible site's :443 edge server once
-#: passed through to the origin.
-_MODE_ORIGINS = [
-    (SslMode.OFF, "http://origin.example.com:80", None, False),
-    (SslMode.FLEXIBLE, "http://origin.example.com:80", None, True),
-    (SslMode.FULL, "https://origin.example.com:443", "off", True),
-    (SslMode.FULL_STRICT, "https://origin.example.com:443", "on", True),
+#: (mode, serves_tls, origin scheme on an HTTP listener, origin scheme on the
+#: canonical HTTPS listener :443, origin scheme on an alternate HTTPS listener).
+#:
+#: The origin *port* is not in here on purpose: it is always the listener's own,
+#: for every mode and every one of the thirteen public proxy ports. The scheme
+#: varies with the visitor — Full and Full (strict) mirror the visitor rather
+#: than forcing HTTPS, so an HTTP request under Full still reaches an HTTP
+#: origin — and, for Flexible alone, with the listener port: Flexible is
+#: Flexible on 443 and falls back to Full-like transport on 2053/2083/2087/
+#: 2096/8443.
+_MODE_SCHEMES = [
+    (SslMode.OFF, False, "http", None, None),
+    (SslMode.FLEXIBLE, True, "http", "http", "https"),
+    (SslMode.FULL, True, "http", "https", "https"),
+    (SslMode.FULL_STRICT, True, "http", "https", "https"),
 ]
 
 
-@pytest.mark.parametrize(("mode", "origin", "verify", "serves_tls"), _MODE_ORIGINS)
-def test_every_ssl_mode_renders_its_transport(mode, origin, verify, serves_tls):
+def _expected_upstreams(
+    defaults: dict[str, Any],
+    serves_tls: bool,
+    http_origin: str,
+    canonical_origin: str | None,
+    alternate_origin: str | None,
+    host: str = "origin.example.com",
+) -> set[str]:
+    """Every upstream a site in one mode must emit, keyed by listener."""
+    expected = {
+        f"{http_origin}://{host}:{port}"
+        for port in defaults["blitzecdn_nginx_http_ports"]
+    }
+    if serves_tls:
+        for port in defaults["blitzecdn_nginx_https_ports"]:
+            scheme = canonical_origin if port == 443 else alternate_origin
+            expected.add(f"{scheme}://{host}:{port}")
+    return expected
+
+
+def _upstreams(rendered: str) -> set[str]:
+    return set(re.findall(r"set \$blitzecdn_upstream (\S+);", rendered))
+
+
+@pytest.mark.parametrize(
+    ("mode", "serves_tls", "http_origin", "canonical_origin", "alternate_origin"),
+    _MODE_SCHEMES,
+)
+def test_every_ssl_mode_renders_its_transport(
+    mode, serves_tls, http_origin, canonical_origin, alternate_origin
+):
+    """Every listener proxies to its own port, over the mode's scheme for it."""
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
-    assert origin in rendered
-    for port in _role_defaults()["blitzecdn_nginx_http_ports"]:
+    defaults = _role_defaults()
+
+    for port in defaults["blitzecdn_nginx_http_ports"]:
         assert f"listen {port};" in rendered
         assert f"listen [::]:{port};" in rendered
-    for port in _role_defaults()["blitzecdn_nginx_https_ports"]:
+    for port in defaults["blitzecdn_nginx_https_ports"]:
         assert (f"listen {port} ssl;" in rendered) is serves_tls
         assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
-    # One upstream for the whole site: every listener, HTTP and HTTPS alike,
-    # proxies to the same origin endpoint.
-    assert set(re.findall(r"set \$blitzecdn_upstream (\S+);", rendered)) == {origin}
-    assert "return 308 https://$host$request_uri;" not in rendered
-    if verify is not None:
-        assert f"proxy_ssl_verify {verify};" in rendered
+
+    assert _upstreams(rendered) == _expected_upstreams(
+        defaults, serves_tls, http_origin, canonical_origin, alternate_origin
+    )
+    assert "return 301 https://$host$request_uri;" not in rendered
 
 
-@pytest.mark.parametrize(("mode", "origin", "verify", "serves_tls"), _MODE_ORIGINS)
-def test_edge_listener_port_never_reaches_the_origin(mode, origin, verify, serves_tls):
-    """The listener port is the visitor's side of the proxy, not the origin's.
+@pytest.mark.parametrize(
+    ("mode", "serves_tls", "http_origin", "canonical_origin", "alternate_origin"),
+    _MODE_SCHEMES,
+)
+def test_the_visitor_port_is_preserved_toward_the_origin(
+    mode, serves_tls, http_origin, canonical_origin, alternate_origin
+):
+    """The whole feature, stated once: origin port == listener port.
 
-    Flexible on a :443 listener must not become ``http://origin:443``, and full
-    on the :80 listener must not become ``https://origin:80`` — both were the
-    same bug, the edge port being handed to the upstream macro.
+    A request to :8080 must reach the origin's 8080, not its 80 — the bug this
+    replaces sent every alternate port to the scheme's default.
     """
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
-    listeners = (
-        _role_defaults()["blitzecdn_nginx_http_ports"]
-        + _role_defaults()["blitzecdn_nginx_https_ports"]
-    )
-    scheme, _, host_port = origin.partition("://")
-    origin_port = int(host_port.rsplit(":", 1)[1])
-    for port in listeners:
-        if port == origin_port:
+    defaults = _role_defaults()
+    ports = {int(upstream.rsplit(":", 1)[1]) for upstream in _upstreams(rendered)}
+    listeners = set(defaults["blitzecdn_nginx_http_ports"])
+    if serves_tls:
+        listeners |= set(defaults["blitzecdn_nginx_https_ports"])
+    assert ports == listeners
+
+
+#: Representative alternate ports plus the canonical pair. One case per row of
+#: the SSL-mode matrix, spelled out as the literal upstream the edge must emit.
+_PORT_UPSTREAMS = [
+    (SslMode.OFF, False, 80, "http://origin.example.com:80"),
+    (SslMode.OFF, False, 8080, "http://origin.example.com:8080"),
+    (SslMode.OFF, False, 2052, "http://origin.example.com:2052"),
+    (SslMode.FLEXIBLE, True, 8080, "http://origin.example.com:8080"),
+    # Flexible is Flexible on 443 and Full-like on every other HTTPS port.
+    (SslMode.FLEXIBLE, True, 443, "http://origin.example.com:443"),
+    (SslMode.FLEXIBLE, True, 2053, "https://origin.example.com:2053"),
+    (SslMode.FLEXIBLE, True, 2083, "https://origin.example.com:2083"),
+    (SslMode.FLEXIBLE, True, 2087, "https://origin.example.com:2087"),
+    (SslMode.FLEXIBLE, True, 2096, "https://origin.example.com:2096"),
+    (SslMode.FLEXIBLE, True, 8443, "https://origin.example.com:8443"),
+    (SslMode.FULL, True, 80, "http://origin.example.com:80"),
+    (SslMode.FULL, True, 8080, "http://origin.example.com:8080"),
+    (SslMode.FULL, True, 443, "https://origin.example.com:443"),
+    (SslMode.FULL, True, 8443, "https://origin.example.com:8443"),
+    (SslMode.FULL_STRICT, True, 2052, "http://origin.example.com:2052"),
+    (SslMode.FULL_STRICT, True, 8443, "https://origin.example.com:8443"),
+    (SslMode.FULL_STRICT, True, 2053, "https://origin.example.com:2053"),
+]
+
+
+@pytest.mark.parametrize(("mode", "serves_tls", "port", "upstream"), _PORT_UPSTREAMS)
+def test_representative_ports_render_their_own_upstream(
+    mode, serves_tls, port, upstream
+):
+    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
+    assert upstream in _upstreams(rendered)
+
+
+def test_flexible_443_is_plaintext_and_flexible_8443_is_not():
+    """The compatibility bug this change exists to fix, pinned on its own.
+
+    Treating Flexible as one global origin protocol sent an HTTPS visitor on
+    8443 to ``http://origin:8443``. Cloudflare supports Flexible for HTTPS on
+    443 only; the other five HTTPS proxy ports fall back to Full.
+    """
+    upstreams = _upstreams(_render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True))))
+
+    assert "http://origin.example.com:443" in upstreams
+    assert "https://origin.example.com:443" not in upstreams
+    assert "https://origin.example.com:8443" in upstreams
+    assert "http://origin.example.com:8443" not in upstreams
+
+
+def _https_block(rendered: str, defaults: dict[str, Any], port: int) -> str:
+    """The one HTTPS server block listening on ``port``."""
+    _, https_blocks = _server_blocks(rendered, defaults)
+    matching = [block for block in https_blocks if f"listen {port} ssl;" in block]
+    assert len(matching) == 1, f"expected exactly one :{port} block"
+    return matching[0]
+
+
+def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
+    """443 terminates and re-originates plaintext; the alternates do not.
+
+    proxy_ssl_* on a plaintext leg would be a claim the edge does not honour, so
+    the directives have to be attributed to the listener rather than to the site.
+    """
+    rendered = _render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True)))
+    defaults = _role_defaults()
+    http_blocks, _ = _server_blocks(rendered, defaults)
+
+    for block in http_blocks:
+        assert "proxy_ssl_" not in block
+    assert "proxy_ssl_" not in _https_block(rendered, defaults, 443)
+
+    for port in defaults["blitzecdn_nginx_https_ports"]:
+        if port == 443:
             continue
-        assert f"origin.example.com:{port}" not in rendered
-        for other in ("http", "https"):
-            assert f"{other}://origin.example.com:{port}" not in rendered
-    # The wrong scheme on the right port is the other half of the same mistake.
-    wrong = "https" if scheme == "http" else "http"
-    assert f"{wrong}://origin.example.com:" not in rendered
+        block = _https_block(rendered, defaults, port)
+        # Full-like transport and SNI, but never Full (strict)'s verification:
+        # an origin that opted into Flexible was never asked for a certificate
+        # the edge could validate.
+        assert "proxy_ssl_server_name on;" in block
+        assert "proxy_ssl_name origin.example.com;" in block
+        assert "proxy_ssl_verify off;" in block
+        assert "proxy_ssl_trusted_certificate" not in block
+
+
+def test_full_strict_verifies_on_every_https_listener_including_alternates():
+    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL_STRICT, True)))
+    defaults = _role_defaults()
+
+    for port in defaults["blitzecdn_nginx_https_ports"]:
+        block = _https_block(rendered, defaults, port)
+        assert f"https://origin.example.com:{port}" in block
+        assert "proxy_ssl_verify on;" in block
+        assert "proxy_ssl_server_name on;" in block
+
+
+def test_ssl_off_never_encrypts_an_origin_leg_on_any_port():
+    rendered = _render(site_to_ansible(_mode_site(SslMode.OFF, serves_tls=False)))
+    assert "proxy_ssl_" not in rendered
+    assert "https://origin.example.com" not in rendered
+
+
+@pytest.mark.parametrize(
+    ("mode", "serves_tls", "http_origin", "canonical_origin", "alternate_origin"),
+    _MODE_SCHEMES,
+)
+def test_the_template_agrees_with_the_domains_scheme_rule(
+    mode, serves_tls, http_origin, canonical_origin, alternate_origin
+):
+    """The rule is written twice — Jinja and Python — so pin them together.
+
+    ``site.conf.j2`` cannot import ``SslMode``, so the only defence against the
+    two copies drifting is asserting the rendered output against the domain
+    method for every mode and every listener. That now includes the port, which
+    is the whole of Flexible's alternate-port fallback: an equality on the
+    complete upstream set, not a containment check, so a template that answered
+    HTTPS where the domain answers HTTP would fail here too.
+    """
+    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
+    defaults = _role_defaults()
+    listeners = [
+        (HttpScheme.HTTP, port) for port in defaults["blitzecdn_nginx_http_ports"]
+    ]
+    if serves_tls:
+        listeners += [
+            (HttpScheme.HTTPS, port) for port in defaults["blitzecdn_nginx_https_ports"]
+        ]
+    assert _upstreams(rendered) == {
+        f"{mode.origin_scheme_for(visitor_scheme, port).value}"
+        f"://origin.example.com:{port}"
+        for visitor_scheme, port in listeners
+    }
+
+
+def test_full_strict_verifies_only_where_the_origin_leg_is_https():
+    """TLS directives belong to the HTTPS listeners and nowhere else.
+
+    Under Full (strict) an HTTP visitor is proxied over HTTP, so its location
+    must carry no proxy_ssl_* directive at all — verification of a connection
+    that is not TLS is meaningless, and emitting it would be a claim the edge
+    does not honour.
+    """
+    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL_STRICT, True)))
+    defaults = _role_defaults()
+    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+
+    for block in http_blocks:
+        assert "proxy_ssl_verify" not in block
+        assert "proxy_ssl_server_name" not in block
+        assert "proxy_ssl_name" not in block
+        assert "proxy_ssl_trusted_certificate" not in block
+    for block in https_blocks:
+        assert "proxy_ssl_verify on;" in block
+        assert "proxy_ssl_server_name on;" in block
+        assert "proxy_ssl_name origin.example.com;" in block
+        assert (
+            "proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;" in block
+        )
+        assert "proxy_ssl_verify_depth 5;" in block
+
+
+def test_full_does_not_verify_and_still_sends_sni_on_https_listeners():
+    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
+    defaults = _role_defaults()
+    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+
+    for block in http_blocks:
+        assert "proxy_ssl_" not in block
+    for block in https_blocks:
+        assert "proxy_ssl_verify off;" in block
+        assert "proxy_ssl_server_name on;" in block
+        assert "proxy_ssl_trusted_certificate" not in block
+
+
+def test_an_ipv6_origin_is_bracketed_on_every_listener_port():
+    """The literal has to keep its brackets once a port is appended to it."""
+    site = _mode_site(SslMode.FULL, serves_tls=True, origin_host="2001:db8::10")
+    rendered = _render(site_to_ansible(site))
+    defaults = _role_defaults()
+
+    assert _upstreams(rendered) == {
+        f"http://[2001:db8::10]:{port}"
+        for port in defaults["blitzecdn_nginx_http_ports"]
+    } | {
+        f"https://[2001:db8::10]:{port}"
+        for port in defaults["blitzecdn_nginx_https_ports"]
+    }
+    # No unbracketed form anywhere, which would parse as host 2001 port db8.
+    assert "//2001:db8::10:" not in rendered
+
+
+def test_a_pinned_resolver_free_edge_still_preserves_the_listener_port():
+    """Without resolvers the upstream is a literal proxy_pass, same rule."""
+    rendered = _render(
+        site_to_ansible(_mode_site(SslMode.FULL, serves_tls=True)),
+        blitzecdn_nginx_resolvers=[],
+    )
+    assert "set $blitzecdn_upstream" not in rendered
+    passes = set(re.findall(r"proxy_pass (\S+);", rendered))
+    defaults = _role_defaults()
+    assert passes == {
+        f"http://origin.example.com:{port}"
+        for port in defaults["blitzecdn_nginx_http_ports"]
+    } | {
+        f"https://origin.example.com:{port}"
+        for port in defaults["blitzecdn_nginx_https_ports"]
+    }
+
+
+def test_the_origin_request_host_override_survives_port_preservation():
+    site = _mode_site(SslMode.FULL, serves_tls=True, origin_request_host="app.internal")
+    rendered = _render(site_to_ansible(site))
+    assert "proxy_set_header Host app.internal;" in rendered
+    assert "http://origin.example.com:8080" in rendered
+    assert "https://origin.example.com:8443" in rendered
+
+
+def test_the_cache_key_still_separates_the_listener_ports():
+    """$server_port is what keeps :8080 and :80 from sharing a cached object.
+
+    Preserving the port toward the origin makes this load-bearing rather than
+    merely tidy: two listeners can now reach genuinely different origin
+    services.
+    """
+    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
+    assert rendered.count('proxy_cache_key "$scheme$server_port$request_method') >= 2
 
 
 def test_http3_alt_svc_follows_the_listener_not_the_origin():
-    """Alt-Svc advertises the edge's own :443, so HTTP/3 must survive a
-    flexible site whose origin port is 80."""
+    """Alt-Svc advertises the edge's own :443 on the :443 listener only."""
     site = _mode_site(SslMode.FLEXIBLE, serves_tls=True, http3_enabled=True)
     rendered = _render(site_to_ansible(site))
-    assert "http://origin.example.com:80" in rendered
-    assert "add_header Alt-Svc 'h3=\":443\"; ma=86400' always;" in rendered
+    assert "http://origin.example.com:443" in rendered
+    assert rendered.count("add_header Alt-Svc 'h3=\":443\"; ma=86400' always;") == 1
+
+
+def test_the_acme_challenge_path_never_proxies_on_any_listener():
+    """Challenge files are served from disk, so no listener turns one into an
+    origin request on its own port."""
+    rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
+    defaults = _role_defaults()
+    expected = len(defaults["blitzecdn_nginx_http_ports"]) + len(
+        defaults["blitzecdn_nginx_https_ports"]
+    )
+    assert rendered.count("location ^~ /.well-known/acme-challenge/ {") == expected
+    for block in re.findall(
+        r"location \^~ /\.well-known/acme-challenge/ \{(.*?)\n    \}",
+        rendered,
+        re.S,
+    ):
+        assert "proxy_pass" not in block
+        assert f"root {defaults['blitzecdn_nginx_acme_root']};" in block
 
 
 def test_origin_port_is_not_part_of_the_edge_site_contract():
@@ -894,7 +1204,148 @@ def test_always_use_https_redirects_http_when_enabled():
 
     rendered = _render(site_to_ansible(site))
 
-    assert "return 308 https://$host$request_uri;" in rendered
+    assert "return 301 https://$host$request_uri;" in rendered
+
+
+def test_always_use_https_uses_a_permanent_redirect():
+    """Cloudflare-compatible status code: 301, not 308.
+
+    308 preserves the request method, which is the safer redirect in general and
+    the wrong one here — Cloudflare answers Always Use HTTPS with a permanent
+    301, and a client that follows it differently from a Cloudflare-fronted
+    origin is a compatibility difference the operator cannot see. Every path
+    that redirects — the plain HTTP location, both Under Attack Mode challenge
+    endpoints, and the named redirect location — uses the same code, so the
+    template is checked whole rather than one rendering at a time.
+    """
+    template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
+
+    assert "return 30" in template
+    assert "return 308" not in template
+    assert template.count("return 301 https://$host$request_uri;") == 4
+
+
+def test_always_use_https_redirects_every_http_listener_without_its_port():
+    """Redirect semantics are unchanged by port preservation, deliberately.
+
+    The thirteen proxy ports are two independent sets, not seven pairs: 8080's
+    counterpart is not 8443, and Cloudflare publishes no mapping between them.
+    Carrying an HTTP-only port such as 8080 or 2052 into the Location would
+    invent one and send the visitor to an endpoint the edge does not serve, so
+    the redirect stays scheme-only. ``$host`` carries no port, which is what
+    makes every HTTP listener land on the default 443 — a listener the site
+    always serves once it serves TLS at all, so the redirect cannot loop.
+    """
+    site = _mode_site(SslMode.FULL, serves_tls=True, always_use_https=True)
+    rendered = _render(site_to_ansible(site))
+    defaults = _role_defaults()
+    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+
+    ports = (
+        defaults["blitzecdn_nginx_http_ports"] + defaults["blitzecdn_nginx_https_ports"]
+    )
+    assert len(http_blocks) == len(defaults["blitzecdn_nginx_http_ports"])
+    for block in http_blocks:
+        assert "return 301 https://$host$request_uri;" in block
+        assert "proxy_pass" not in block
+        assert "$blitzecdn_upstream" not in block
+        # No port is carried into the Location, from either set.
+        for port in ports:
+            assert f"https://$host:{port}" not in block
+    # The HTTPS listeners still proxy, each to its own port.
+    assert _upstreams(rendered) == {
+        f"https://origin.example.com:{port}"
+        for port in defaults["blitzecdn_nginx_https_ports"]
+    }
+    assert len(https_blocks) == len(defaults["blitzecdn_nginx_https_ports"])
+
+
+def _redirects(rendered: str) -> bool:
+    return "return 301 https://$host$request_uri;" in rendered
+
+
+@pytest.mark.parametrize("under_attack", [False, True])
+@pytest.mark.parametrize(
+    "mode", [SslMode.OFF, SslMode.FLEXIBLE, SslMode.FULL, SslMode.FULL_STRICT]
+)
+def test_the_template_agrees_with_the_domains_redirect_rule(mode, under_attack):
+    """The second rule written twice, pinned the same way as the first.
+
+    ``always_use_https`` is inert unless the site serves TLS, and the template
+    gates on ``tls and always_use_https`` while the control plane answers
+    ``CdnSite.redirects_http_to_https``. Assert the rendering against the
+    property for every mode, in both the normal and the Under Attack Mode
+    request flow, so neither copy can move alone.
+    """
+    site = _mode_site(
+        mode,
+        serves_tls=mode is not SslMode.OFF,
+        always_use_https=True,
+        under_attack_mode=under_attack,
+    )
+    rendered = _render(
+        site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=under_attack
+    )
+
+    assert _redirects(rendered) is site.redirects_http_to_https
+
+
+def test_ssl_off_ignores_always_use_https_instead_of_looping():
+    """Off serves no HTTPS listener, so the redirect must not be emitted.
+
+    Cloudflare removes the Always Use HTTPS control from the dashboard while the
+    encryption mode is Off. BlitzeCDN keeps the stored preference — the record
+    API still accepts the combination, in either order — and renders it inert,
+    which is the only outcome that cannot send a visitor to a port the edge does
+    not answer on. A permanent 301 to a dead port is worse than a temporary one:
+    browsers cache it.
+    """
+    site = _mode_site(SslMode.OFF, serves_tls=False, always_use_https=True)
+    rendered = _render(site_to_ansible(site))
+    defaults = _role_defaults()
+    http_blocks, https_blocks = _server_blocks(rendered, defaults)
+
+    assert site.always_use_https is True
+    assert site.redirects_http_to_https is False
+    assert not https_blocks
+    assert "listen 443" not in rendered
+    assert not _redirects(rendered)
+    # Every HTTP listener still proxies, over HTTP, to its own port.
+    assert _upstreams(rendered) == {
+        f"http://origin.example.com:{port}"
+        for port in defaults["blitzecdn_nginx_http_ports"]
+    }
+    for block in http_blocks:
+        assert "proxy_pass" in block
+
+
+def test_under_attack_mode_redirects_permanently_on_every_challenge_path():
+    """The mitigation endpoints redirect with the same code as the proxy path.
+
+    A site in Under Attack Mode with Always Use HTTPS has three HTTP-side
+    redirects — the two challenge endpoints and the named location the guarded
+    request falls through to — and one of them keeping 308 would answer some
+    visitors differently from the rest.
+    """
+    site = _mode_site(
+        SslMode.FULL,
+        serves_tls=True,
+        always_use_https=True,
+        under_attack_mode=True,
+    )
+    rendered = _render(site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=True)
+    defaults = _role_defaults()
+    http_blocks, _ = _server_blocks(rendered, defaults)
+
+    assert "return 308" not in rendered
+    for block in http_blocks:
+        assert "proxy_pass" not in block
+        # challenge, verify, and the guarded fall-through, per HTTP listener.
+        assert block.count("return 301 https://$host$request_uri;") == 3
+    assert _upstreams(rendered) == {
+        f"https://origin.example.com:{port}"
+        for port in defaults["blitzecdn_nginx_https_ports"]
+    }
 
 
 def test_always_use_https_can_be_disabled_without_disabling_tls():
@@ -913,7 +1364,7 @@ def test_always_use_https_can_be_disabled_without_disabling_tls():
 
     rendered = _render(site_to_ansible(site))
 
-    assert "return 308 https://$host$request_uri;" not in rendered
+    assert "return 301 https://$host$request_uri;" not in rendered
     assert rendered.count("proxy_pass") >= 2
     assert "listen 443 ssl;" in rendered
 
@@ -1186,7 +1637,7 @@ def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     assert option.get("required", False) is False
 
     rendered = _render(site)
-    assert "return 308 https://$host$request_uri;" not in rendered
+    assert "return 301 https://$host$request_uri;" not in rendered
     assert rendered.count("proxy_pass") >= 2
 
 

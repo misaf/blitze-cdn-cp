@@ -434,9 +434,31 @@ of the edge connection:
 | Mode | Visitor to edge | Edge to origin | Origin certificate |
 | --- | --- | --- | --- |
 | `off` | HTTP only | HTTP | Not applicable |
-| `flexible` | HTTPS | HTTP | Not applicable |
-| `full` | HTTPS | HTTPS | Not verified |
-| `full_strict` | HTTPS | HTTPS | Verified against the system trust store and origin SNI |
+| `flexible` | HTTP or HTTPS | HTTP, except HTTPS on the alternate HTTPS ports | Not verified |
+| `full` | HTTP or HTTPS | Mirrors the visitor | Not verified |
+| `full_strict` | HTTP or HTTPS | Mirrors the visitor | Verified against the system trust store and origin SNI, on the HTTPS leg |
+
+Off never encrypts the origin leg. Full and Full (strict) mirror the visitor: an
+HTTPS request is proxied over HTTPS, and a request that arrived on one of the
+HTTP listeners is proxied over HTTP, because neither mode promises to
+re-originate a plaintext request as TLS. Full (strict) verifies the origin
+certificate wherever that leg is HTTPS, and has nothing to verify where it is
+not. In every mode the origin port is the visitor's own — see below.
+
+Flexible is the one mode whose origin leg also depends on the listener port,
+matching Cloudflare: Flexible applies to HTTPS on port 443 only, and HTTPS on
+the five alternate HTTPS proxy ports falls back to Full-like transport.
+
+| Visitor | Flexible edge to origin |
+| --- | --- |
+| HTTP on any HTTP proxy port `P` | `http://origin:P` |
+| HTTPS on 443 | `http://origin:443` |
+| HTTPS on 2053, 2083, 2087, 2096 or 8443 | `https://origin:` that same port |
+
+Only the transport falls back. The fallback leg behaves like Full and never
+like Full (strict): it sends SNI and does not verify the origin certificate, so
+enabling Flexible never starts demanding a valid certificate from an origin that
+was never asked for one.
 
 New records start Off and are enrolled in Cloudflare-compatible Automatic
 SSL/TLS (`ssl_automatic_mode: auto`). Uploading or issuing a certificate does
@@ -485,9 +507,26 @@ when an origin is unavailable or fails TLS.
 
 The edge preserves the listener port when connecting to the origin. A request
 received on port 80 reaches origin port 80, one received on 8443 reaches origin
-port 8443, and the same rule applies to every supported proxy port. The SSL mode
-selects HTTP or HTTPS for that connection; records do not configure a separate
-origin port.
+port 8443, and the same rule applies to every supported proxy port. The SSL
+mode, the visitor's own protocol and — under Flexible — the listener port
+together select HTTP or HTTPS for that connection; records do not configure a
+separate origin port. So a Flexible site answering on 8443 proxies to
+`https://origin:8443`, the same site answering on 443 proxies to
+`http://origin:443`, and any of the four modes answering on 8080 proxies to
+`http://origin:8080`.
+
+The origin only has to serve the ports its visitors actually use. Certificate
+preflight and `blitzecdn origin check` probe one endpoint per site — port 80 for
+Off and Flexible, port 443 for Full and Full (strict) — rather than requiring an
+answer on all thirteen public proxy ports, so an origin listening on 80 and 443
+deploys normally. A request arriving on an alternate port the origin does not
+serve gets a 502 from the edge; the rest of the site is unaffected.
+
+That gap is widest under Flexible, deliberately: its canonical probe is
+`http://origin:80`, while its alternate HTTPS listeners use `https://origin:`
+their own port. Probing those too would demand TLS on five extra ports from
+every origin that enables Flexible, so a request on 2053 to an origin that does
+not serve it 502s on its own without failing the deployment.
 
 TLS-enabled sites serve both HTTP and HTTPS by default. Enable Always Use HTTPS
 to redirect visitor HTTP requests while leaving the selected origin encryption
@@ -502,6 +541,25 @@ Use `--off` to serve both schemes again. The equivalent API update is `PATCH
 /v2/domains/{domain}/records/{name}?type=A` with
 `{"always_use_https": true}` or `false`. The ACME challenge path remains
 available over HTTP in either mode.
+
+The redirect is a Cloudflare-compatible permanent `301` to the same host and
+URI over HTTPS, sent before anything is proxied, on every HTTP listener and on
+the Under Attack Mode challenge endpoints alike. It carries no port. The
+thirteen public proxy ports are two independent sets rather than seven pairs —
+8080 has no HTTPS counterpart, and Cloudflare publishes no mapping between them
+— so a request to `http://example.com:8080/path` is redirected to
+`https://example.com/path` on the default 443, which is a listener every
+TLS-enabled site serves. Inventing a port mapping is the one way this redirect
+could loop or land on a closed port, so it does not.
+
+Always Use HTTPS is inert while `ssl_mode` is Off, matching Cloudflare, which
+removes the control from its dashboard for an Off zone. Off serves no HTTPS
+listener, so redirecting to one would send every visitor to a port the edge does
+not answer on — and a `301` is cached by browsers, which makes that worse than a
+temporary mistake. The record API still accepts the two settings in either
+order and keeps the stored preference: it starts redirecting the moment a secure
+mode is selected, and stops again if the mode returns to Off. No combination is
+rejected, and nothing is silently rewritten.
 
 The minimum visitor protocol defaults to TLS 1.2. A hostname that only serves
 modern clients can require TLS 1.3 independently of its origin SSL mode:

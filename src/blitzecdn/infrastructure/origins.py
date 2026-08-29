@@ -29,13 +29,41 @@ from typing import Any
 
 from blitzecdn.config import Settings
 from blitzecdn.domain.origins import OriginCheck
-from blitzecdn.domain.sites import CdnSite, HttpScheme
-
-_DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
+from blitzecdn.domain.sites import DEFAULT_PORTS, CdnSite, HttpScheme
 
 
 class OriginProbe:
-    """An origin's address, and what the controller alone can see of it."""
+    """An origin's address, and what the controller alone can see of it.
+
+    **What a probe covers.** The edge preserves the visitor's destination port
+    toward the origin, and BlitzeCDN accepts thirteen public proxy ports, so a
+    site has thirteen possible origin endpoints — ``http://origin:8080`` for a
+    visitor on 8080, ``https://origin:2053`` for a Full visitor on 2053, and so
+    on. Probing all of them is not what this does, and deliberately so: an
+    ordinary origin listens on 80 and 443 and nothing else, and requiring every
+    alternate port to answer would make that ordinary site undeployable for the
+    sake of ports no visitor has asked for. The alternate ports are capacity the
+    edge offers, not a contract the origin has to satisfy.
+
+    So both probes address one endpoint: ``CdnSite.canonical_origin_scheme`` on
+    that scheme's default port. Off and Flexible check ``http://origin:80``;
+    Full and Full (strict) check ``https://origin:443``, the latter verifying
+    the certificate. That is the endpoint the site's canonical listeners use, so
+    a pass means the same thing it always did, and a failure is still the
+    failure worth blocking issuance for. A request arriving on an alternate port
+    whose origin is not listening gets a 502 from the edge, exactly as it would
+    from any proxy in front of a closed port — the site itself stays up.
+
+    **Flexible widens that gap without changing this contract.** Flexible is
+    Flexible only on 443; on the five alternate HTTPS proxy ports it falls back
+    to a Full-like HTTPS origin leg. So a Flexible site whose canonical probe
+    passed against ``http://origin:80`` may still 502 for a visitor on 2053,
+    whose leg is ``https://origin:2053``. That is the alternate-port 502 above
+    and not a new class of failure: the probe has never spoken for any port but
+    the canonical one, and making it speak for more would mean demanding TLS on
+    five ports from every origin that enables Flexible. Deployment stays valid;
+    the individual request fails.
+    """
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -47,19 +75,22 @@ class OriginProbe:
         the two probes — the edges' and the controller's advisory one — cannot
         disagree about what a site's origin is. A Jinja default in a role would
         be a second copy of this rule with no test holding it to the first.
+
+        ``origin_port`` here is the canonical endpoint's port and not the port
+        any particular visitor request reaches; see the class docstring.
         """
         return {
             "name": site.name,
             "origin_host": site.origin_host,
-            "origin_port": _DEFAULT_PORTS[site.ssl_mode.origin_scheme],
+            "origin_port": DEFAULT_PORTS[site.canonical_origin_scheme],
             "ssl_mode": site.ssl_mode.value,
             "origin_tls_verify": site.ssl_mode.verifies_origin,
             "origin_sni": site.effective_origin_sni,
         }
 
     def check(self, site: CdnSite) -> OriginCheck:
-        scheme = site.ssl_mode.origin_scheme
-        port = _DEFAULT_PORTS[scheme]
+        scheme = site.canonical_origin_scheme
+        port = DEFAULT_PORTS[scheme]
         # The name the edge will put in the TLS handshake; probing with a
         # different one would verify a certificate the edge never asks for.
         sni = site.effective_origin_sni
