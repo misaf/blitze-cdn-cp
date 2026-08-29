@@ -583,6 +583,9 @@ class AnsibleRunner:
         environment["BLITZE_MAXMIND_LICENSE_KEY"] = (
             self._settings.maxmind_license_key.get_secret_value()
         )
+        environment["BLITZE_UNDER_ATTACK_SECRET"] = (
+            self._settings.under_attack_secret.get_secret_value()
+        )
         return environment
 
     def _prune_logs(self) -> None:

@@ -29,6 +29,7 @@ blitzecdn_nginx_packages:
   - nginx
   - libnginx-mod-http-geoip2
   - libnginx-mod-http-brotli-filter
+  - libnginx-mod-http-js
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
@@ -40,6 +41,19 @@ blitzecdn_nginx_acme_root: /var/lib/blitzecdn/acme
 blitzecdn_nginx_resolvers: [127.0.0.53]
 blitzecdn_nginx_resolver_valid: 30s
 blitzecdn_nginx_resolver_timeout: 5s
+
+# Emergency Layer-7 browser challenge support. The capability is deliberately
+# separate from each site's policy: a site asking for protection while this is
+# false fails validation instead of silently reaching its origin unchallenged.
+# The signing secret is environment-only and is written into the njs module as
+# root:www-data 0640 under no_log. Keep it stable across the fleet so clearance
+# survives an edge change during its 30-minute lifetime.
+blitzecdn_nginx_under_attack_enabled: false
+blitzecdn_nginx_under_attack_passage_seconds: 1800
+blitzecdn_nginx_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_SECRET') }}"
+blitzecdn_nginx_under_attack_js_file: /etc/nginx/blitzecdn/under-attack.js
+blitzecdn_nginx_under_attack_conf_file: /etc/nginx/conf.d/blitzecdn-under-attack.conf
+blitzecdn_nginx_under_attack_empty_root: /var/lib/blitzecdn/empty
 
 # Claims the default_server position for a block that serves ACME challenges and
 # answers everything else with 444. Without it, a request for a hostname no

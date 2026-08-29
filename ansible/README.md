@@ -99,9 +99,10 @@ BlitzeCDN installs these Ubuntu archive packages as one ABI-matched unit:
 - `nginx`
 - `libnginx-mod-http-geoip2`
 - `libnginx-mod-http-brotli-filter`
+- `libnginx-mod-http-js`
 
-The role verifies Nginx 1.25.0+, `--with-http_v3_module`, both loadable dynamic
-modules, and an executable Brotli directive probe before firewall changes. Do
+The role verifies Nginx 1.25.0+, `--with-http_v3_module`, all loadable dynamic
+modules, and executable Brotli/njs directive probes before firewall changes. Do
 not install nginx.org Nginx, manually replace the binary, or combine modules
 from another package source. Brotli static is not installed because the current
 configuration does not use it.

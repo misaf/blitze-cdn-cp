@@ -273,7 +273,7 @@ The full command surface:
 | Diagnostics | `doctor`, `audit`, `stats` |
 | Setup | `init`, `setup`, `serve` |
 | Edges | `edge list/add/update/remove`, `origin check` |
-| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/ssl-automatic/minimum-tls/always-use-https/cache-query-string/firewall/remove`, `dns export`, `site list/show` |
+| Zones | `domain add/list/remove`, `record add/list/proxy/ssl/ssl-automatic/minimum-tls/always-use-https/under-attack/cache-query-string/firewall/remove`, `dns export`, `site list/show` |
 | Certificates | `cert list`, `cert preflight`, `cert renew`, `cert reconcile` |
 | Cache | `cache purge` |
 
@@ -514,6 +514,61 @@ blitzecdn deploy
 Use `--version 1.2` to restore TLS 1.2 and 1.3 compatibility. The equivalent
 record API field is `minimum_tls_version`, accepting `"1.2"` or `"1.3"`.
 
+## Under Attack Mode
+
+Under Attack Mode is BlitzeCDN's emergency edge challenge/mitigation mode. It
+intercepts requests before cache lookup or origin proxying and requires
+unverified browsers to complete a short SHA-256 proof of work. The edge then
+issues a signed, host-only `blitzecdn_clearance` cookie for 1800 seconds. This
+is not Cloudflare's global Managed Challenge intelligence: there is no bot
+score, reputation feed, CAPTCHA, automatic detection, or per-path policy.
+
+Enable the fleet capability once, provision its HMAC secret in the control
+plane's 0600 `.env`, then turn the policy on for a record:
+
+```bash
+blitzecdn config set blitzecdn_nginx_under_attack_enabled true
+printf 'BLITZE_UNDER_ATTACK_SECRET=<at-least-32-random-bytes>\n' >> .env
+blitzecdn record under-attack example.com cdn --on
+blitzecdn deploy
+```
+
+Use a securely generated secret and keep the same value on every edge. The
+secret is environment-only: it is not accepted by `blitzecdn config set`,
+TOML, desired-state snapshots, or API models. A site requesting the mode while
+the capability is disabled or the secret is absent fails preflight before the
+edge configuration changes. The managed Ubuntu stack supplies
+`libnginx-mod-http-js` for the njs implementation.
+
+The v2 record field is `under_attack_mode: boolean`; PATCH the usual
+`/v2/domains/{domain}/records/{name}?type=A` route with
+`{"under_attack_mode": true}`. HTTP v1 is frozen and neither reports nor
+accepts the field, while v1 reads continue to work when the underlying record
+has it enabled.
+
+Challenges are stateless HMAC-SHA-256 tokens, expire after five minutes, and
+bind the proof and clearance to the request host, client IP (IPv4 or IPv6), and
+User-Agent. The proof requires 16 leading zero bits of SHA-256 work. Clearance
+cookies are `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when issued over
+HTTPS. A TLS site using Always Use HTTPS moves the challenge itself to HTTPS
+before setting the cookie. Changing address or User-Agent can therefore
+require a fresh proof. Because the design is stateless, a captured challenge
+can be replayed for its remaining five-minute lifetime and a captured clearance
+for its remaining cookie lifetime, but only from the same host/IP/User-Agent
+binding; there is deliberately no per-request session database in this release.
+
+`/.blitzecdn`, `/.blitzecdn/challenge`,
+`/.blitzecdn/challenge/verify`, and the whole `/.blitzecdn/` namespace are
+reserved for the edge and never proxy to customer origins or enter the CDN
+cache. `/.well-known/acme-challenge/` remains a higher-priority local location
+and bypasses both firewall and mitigation logic.
+
+API clients and other non-browser clients do not receive an exemption: without
+a valid cookie they receive the challenge redirect and responses marked
+`X-BlitzeCDN-Mitigation: challenge`. POST and other non-idempotent requests are
+resumed as a browser GET after verification, so enable this emergency mode
+only when that tradeoff is acceptable, and disable it once the incident ends.
+
 ## HTTP/3 (QUIC)
 
 HTTP/3 is an opt-in per-record visitor protocol. It applies only from visitors
@@ -538,7 +593,8 @@ and the managed UDP/443 firewall rule when no enabled site still needs it.
 
 UDP/443 must be reachable end to end. BlitzeCDN owns the edge Nginx stack and
 installs Ubuntu's `nginx`, `libnginx-mod-http-geoip2`, and
-`libnginx-mod-http-brotli-filter` packages together. The role then requires
+`libnginx-mod-http-brotli-filter`, and `libnginx-mod-http-js` packages together.
+The role then requires
 Nginx 1.25.0+, `--with-http_v3_module`, loadable ABI-matched dynamic modules,
 and accepted Brotli directives before firewall or live configuration changes.
 It fails instead of silently dropping a capability. The static Brotli module

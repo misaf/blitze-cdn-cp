@@ -1,0 +1,217 @@
+// Managed by BlitzeCDN. Contains an edge secret; keep this file root-owned.
+import crypto from 'crypto';
+
+const SECRET = {{ blitzecdn_nginx_under_attack_secret | to_json }};
+const PASSAGE_SECONDS = {{ blitzecdn_nginx_under_attack_passage_seconds | int }};
+const CHALLENGE_SECONDS = 300;
+const MAX_TARGET_BYTES = 4096;
+const MAX_TOKEN_BYTES = 6144;
+const PROOF_LIMIT = 0xffffffff;
+
+function hmac(value) {
+    return crypto.createHmac('sha256', SECRET).update(value).digest('base64url');
+}
+
+function sha256(value) {
+    return crypto.createHash('sha256').update(value).digest();
+}
+
+// Both operands are fixed-length base64url HMACs. The full loop always runs;
+// only the public fact that a value has the wrong length returns early.
+function safeEqual(left, right) {
+    if (typeof left !== 'string' || typeof right !== 'string' || left.length !== right.length) {
+        return false;
+    }
+    let difference = 0;
+    for (let index = 0; index < left.length; index += 1) {
+        difference |= left.charCodeAt(index) ^ right.charCodeAt(index);
+    }
+    return difference === 0;
+}
+
+function encode(value) {
+    return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function decode(value) {
+    if (typeof value !== 'string' || value.length === 0 || value.length > MAX_TOKEN_BYTES || !/^[A-Za-z0-9_-]+$/.test(value)) {
+        return null;
+    }
+    try {
+        return JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    } catch (error) {
+        return null;
+    }
+}
+
+function signed(kind, value) {
+    const payload = encode(value);
+    return payload + '.' + hmac(kind + '\0' + payload);
+}
+
+function verified(kind, token) {
+    if (typeof token !== 'string' || token.length > MAX_TOKEN_BYTES) {
+        return null;
+    }
+    const parts = token.split('.');
+    if (parts.length !== 2 || !safeEqual(hmac(kind + '\0' + parts[0]), parts[1])) {
+        return null;
+    }
+    return decode(parts[0]);
+}
+
+function binding(r) {
+    const host = String(r.variables.host || '');
+    const address = String(r.remoteAddress || '');
+    const agent = String(r.headersIn['User-Agent'] || '');
+    return hmac('binding\0' + host + '\0' + address + '\0' + agent);
+}
+
+function validTarget(value) {
+    return typeof value === 'string'
+        && value.length > 0
+        && Buffer.byteLength(value, 'utf8') <= MAX_TARGET_BYTES
+        && value[0] === '/'
+        && value.slice(0, 2) !== '//'
+        && value !== '/.blitzecdn'
+        && !value.startsWith('/.blitzecdn/')
+        && value.indexOf('\\') === -1
+        && !/[\u0000-\u001f\u007f]/.test(value);
+}
+
+function mitigationHeaders(r) {
+    r.headersOut['X-BlitzeCDN-Mitigation'] = 'challenge';
+    r.headersOut['Cache-Control'] = 'no-store, no-cache, must-revalidate, private';
+    r.headersOut.Pragma = 'no-cache';
+    r.headersOut['X-Content-Type-Options'] = 'nosniff';
+    r.headersOut['Referrer-Policy'] = 'no-referrer';
+}
+
+function challengeToken(r, target) {
+    const now = Math.floor(Date.now() / 1000);
+    // $request_id is generated independently for every Nginx request. HMACing
+    // it with the edge secret keeps the nonce unpredictable even on a build
+    // whose imported legacy crypto object does not expose Web Crypto RNG APIs.
+    const nonce = hmac('nonce\0' + String(r.variables.request_id || '') + '\0' + now);
+    return signed('challenge', {
+        v: 1,
+        i: now,
+        n: nonce,
+        b: binding(r),
+        u: target,
+    });
+}
+
+function validClearance(r, token) {
+    const payload = verified('clearance', token);
+    const now = Math.floor(Date.now() / 1000);
+    return payload !== null
+        && payload.v === 1
+        && Number.isInteger(payload.e)
+        && payload.e >= now
+        && payload.e <= now + PASSAGE_SECONDS
+        && payload.b === binding(r);
+}
+
+function guard(r) {
+    if (validClearance(r, r.variables.cookie_blitzecdn_clearance || '')) {
+        r.return(204);
+        return;
+    }
+    const target = String(r.variables.blitzecdn_under_attack_target || '');
+    if (!validTarget(target)) {
+        r.return(400);
+        return;
+    }
+    mitigationHeaders(r);
+    const location = '/.blitzecdn/challenge?token=' + challengeToken(r, target);
+    r.variables.blitzecdn_under_attack_location = location;
+    r.headersOut['X-BlitzeCDN-Challenge-Location'] = location;
+    r.return(401);
+}
+
+function validChallenge(r, token) {
+    const payload = verified('challenge', token);
+    const now = Math.floor(Date.now() / 1000);
+    if (payload === null
+        || payload.v !== 1
+        || !Number.isInteger(payload.i)
+        || payload.i > now + 30
+        || now - payload.i > CHALLENGE_SECONDS
+        || typeof payload.n !== 'string'
+        || payload.n.length < 16
+        || payload.b !== binding(r)
+        || !validTarget(payload.u)) {
+        return null;
+    }
+    return payload;
+}
+
+function challenge(r) {
+    mitigationHeaders(r);
+    if (r.method !== 'GET' && r.method !== 'HEAD') {
+        r.return(405);
+        return;
+    }
+    const token = typeof r.args.token === 'string' ? r.args.token : '';
+    if (validChallenge(r, token) === null) {
+        r.return(400, 'Invalid or expired BlitzeCDN challenge.');
+        return;
+    }
+    const cspNonce = challengeToken(r, '/').split('.')[0].slice(-24);
+    r.headersOut['Content-Type'] = 'text/html; charset=utf-8';
+    r.headersOut['Content-Security-Policy'] = "default-src 'none'; script-src 'nonce-" + cspNonce + "'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+    const safeToken = JSON.stringify(token);
+    const page = '<!doctype html><html lang="en"><head><meta charset="utf-8">'
+        + '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        + '<title>Security check | BlitzeCDN</title><style>'
+        + 'body{font:16px system-ui,sans-serif;background:#0b1020;color:#eef2ff;margin:0;display:grid;min-height:100vh;place-items:center}'
+        + 'main{max-width:34rem;padding:2rem}h1{font-size:1.5rem}p{line-height:1.55;color:#cbd5e1}</style></head>'
+        + '<body><main><h1>Checking your browser</h1><p id="status">BlitzeCDN is verifying this connection with a short cryptographic proof.</p>'
+        + '<noscript>JavaScript is required while this site is in Under Attack Mode.</noscript></main>'
+        + '<script nonce="' + cspNonce + '">(async()=>{const token=' + safeToken + ';const enc=new TextEncoder();'
+        + 'for(let proof=0;proof<=4294967295;proof++){const hash=new Uint8Array(await crypto.subtle.digest("SHA-256",enc.encode(token+":"+proof)));'
+        + 'if(hash[0]===0&&hash[1]===0){const response=await fetch("/.blitzecdn/challenge/verify",{method:"POST",credentials:"same-origin",headers:{"Content-Type":"application/json"},body:JSON.stringify({token,proof})});'
+        + 'if(!response.ok)throw new Error("verification refused");const result=await response.json();location.assign(result.redirect);return;}}'
+        + '})().catch(()=>{document.getElementById("status").textContent="The security check failed. Reload to try again.";});</script></body></html>';
+    r.return(200, page);
+}
+
+function verify(r) {
+    mitigationHeaders(r);
+    if (r.method !== 'POST' || typeof r.requestText !== 'string' || r.requestText.length > 2048) {
+        r.return(405);
+        return;
+    }
+    let input;
+    try {
+        input = JSON.parse(r.requestText);
+    } catch (error) {
+        r.return(400);
+        return;
+    }
+    const token = typeof input.token === 'string' ? input.token : '';
+    const payload = validChallenge(r, token);
+    const proof = input.proof;
+    if (payload === null || !Number.isInteger(proof) || proof < 0 || proof > PROOF_LIMIT) {
+        r.return(400);
+        return;
+    }
+    const work = sha256(token + ':' + proof);
+    if (work[0] !== 0 || work[1] !== 0) {
+        r.return(403);
+        return;
+    }
+    const now = Math.floor(Date.now() / 1000);
+    const clearance = signed('clearance', {v: 1, e: now + PASSAGE_SECONDS, b: binding(r)});
+    let cookie = 'blitzecdn_clearance=' + clearance
+        + '; Max-Age=' + PASSAGE_SECONDS + '; HttpOnly; SameSite=Lax; Path=/';
+    if (r.variables.scheme === 'https') {
+        cookie += '; Secure';
+    }
+    r.headersOut['Set-Cookie'] = cookie;
+    r.headersOut['Content-Type'] = 'application/json; charset=utf-8';
+    r.return(200, JSON.stringify({redirect: payload.u}));
+}
+
+export default {guard, challenge, verify};

@@ -14,6 +14,9 @@
     blitzecdn_nginx_geoip_enabled: true
     blitzecdn_nginx_geoip_update_enabled: false
     blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoIP2-Country-Test.mmdb
+    blitzecdn_nginx_under_attack_enabled: true
+    blitzecdn_nginx_under_attack_secret: >-
+      {{ lookup('file', '/run/blitzecdn-under-attack-secret') }}
     blitzecdn_nginx_resolvers: []
     blitzecdn_nginx_status_enabled: false
     blitzecdn_nginx_sites:
@@ -56,6 +59,7 @@
         minimum_tls_version: '1.2'
         http3_enabled: true
         always_use_https: false
+        under_attack_mode: true
         enabled: true
         certificate_mode: existing
         certificate_path: /etc/ssl/certs/blitzecdn-http3-test.pem

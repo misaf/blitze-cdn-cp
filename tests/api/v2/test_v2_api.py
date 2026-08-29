@@ -84,3 +84,46 @@ def test_http3_create_read_patch_and_validation(settings):
         events = client.get("/v2/audit-events", headers=headers).json()
         updates = [event for event in events if event["action"] == "record.updated"]
         assert any("http3_enabled" in event["details"]["fields"] for event in updates)
+
+
+def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
+    headers = {"X-API-Key": "x" * 32}
+    with TestClient(create_app(settings)) as client:
+        schema = client.get("/openapi.json").json()
+        property_schema = schema["components"]["schemas"]["RecordPatchV2"][
+            "properties"
+        ]["under_attack_mode"]
+        assert property_schema["anyOf"][0]["type"] == "boolean"
+
+        client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
+        created = client.post(
+            "/v2/domains/example.com/records",
+            json={
+                "domain": "example.com",
+                "name": "cdn",
+                "value": "198.51.100.10",
+                "proxied": True,
+            },
+            headers=headers,
+        )
+        assert created.status_code == 201
+        assert created.json()["under_attack_mode"] is False
+
+        patched = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"under_attack_mode": True},
+            headers=headers,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["under_attack_mode"] is True
+        assert (
+            client.get("/v2/sites", headers=headers).json()[0]["under_attack_mode"]
+            is True
+        )
+
+        invalid = client.patch(
+            "/v2/domains/example.com/records/cdn",
+            json={"under_attack_mode": "sometimes"},
+            headers=headers,
+        )
+        assert invalid.status_code == 422

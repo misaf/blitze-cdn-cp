@@ -27,6 +27,7 @@ def test_environment_configuration_and_precedence(tmp_path: Path):
         {"BLITZE_API_KEYS": "missing-separator"},
         {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "not-a-number"},
         {"BLITZE_ALLOW_EMPTY_SITES": "sometimes"},
+        {"BLITZE_UNDER_ATTACK_SECRET": "too-short"},
     ],
 )
 def test_invalid_environment_fails_closed(tmp_path, environment):
@@ -39,6 +40,15 @@ def test_runtime_validation_reports_missing_files(tmp_path):
     errors = settings.validate_runtime(require_auth=True)
     assert "no API keys configured" in errors
     assert any("inventory does not exist" in item for item in errors)
+
+
+def test_under_attack_secret_is_environment_only_and_masked(tmp_path):
+    settings = Settings.from_environment(
+        {"BLITZE_UNDER_ATTACK_SECRET": "s" * 32}, project_dir=tmp_path
+    )
+
+    assert settings.under_attack_secret.get_secret_value() == "s" * 32
+    assert "s" * 32 not in repr(settings)
 
 
 def test_runtime_validation_requires_generated_vars_beneath_state(settings):

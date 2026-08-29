@@ -2,6 +2,7 @@
 {% set ssl_mode = item.ssl_mode %}
 {% set tls = ssl_mode != 'off' %}
 {% set http3 = item.http3_enabled | default(false) %}
+{% set under_attack = item.under_attack_mode | default(false) %}
 {% set origin_scheme = 'https' if ssl_mode in ['full', 'full_strict'] else 'http' %}
 {% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
@@ -224,6 +225,82 @@
         add_header Alt-Svc 'h3=":443"; ma=86400' always;
 {% endif %}
 {% endmacro %}
+{# The /.blitzecdn namespace belongs to the edge and never reaches an origin. #}
+{% macro reserved_locations(move_to_https=false) %}
+{% if under_attack %}
+    location = /.blitzecdn/challenge {
+{% if move_to_https %}
+        add_header X-BlitzeCDN-Mitigation challenge always;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
+        return 308 https://$host$request_uri;
+{% else %}
+        js_content blitzecdn_under_attack.challenge;
+{% endif %}
+    }
+    location = /.blitzecdn/challenge/verify {
+{% if move_to_https %}
+        add_header X-BlitzeCDN-Mitigation challenge always;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
+        return 308 https://$host$request_uri;
+{% else %}
+        client_max_body_size 2k;
+        client_body_buffer_size 2k;
+        limit_req zone=blitzecdn_under_attack_verify burst=10 nodelay;
+        limit_req_status 429;
+        js_content blitzecdn_under_attack.verify;
+{% endif %}
+    }
+    location = /.blitzecdn/internal/under-attack-guard {
+        internal;
+        js_content blitzecdn_under_attack.guard;
+    }
+    location @blitzecdn_under_attack_redirect {
+        internal;
+        add_header X-BlitzeCDN-Mitigation challenge always;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
+        return 302 $blitzecdn_under_attack_location;
+    }
+{% endif %}
+    location = /.blitzecdn {
+        add_header Cache-Control "no-store" always;
+        return 404;
+    }
+    location ^~ /.blitzecdn/ {
+        add_header Cache-Control "no-store" always;
+        return 404;
+    }
+{% endmacro %}
+{#
+  Source ACLs run in the first location's access phase. Only after they grant
+  access does try_files dispatch in the content phase to the named location,
+  whose auth subrequest validates clearance before redirect/proxy processing.
+  This makes firewall -> mitigation ordering independent of access-module
+  registration order.
+#}
+{% macro protected(origin_port, secure=false, redirect_https=false) %}
+    location / {
+{{ access() }}
+        root {{ blitzecdn_nginx_under_attack_empty_root }};
+        try_files /__blitzecdn_dispatch__ @blitzecdn_under_attack;
+    }
+    location @blitzecdn_under_attack {
+        set $blitzecdn_under_attack_target $request_uri;
+        auth_request /.blitzecdn/internal/under-attack-guard;
+        error_page 401 = @blitzecdn_under_attack_redirect;
+{% if redirect_https %}
+        root {{ blitzecdn_nginx_under_attack_empty_root }};
+        try_files /__blitzecdn_https_dispatch__ @blitzecdn_under_attack_https_redirect;
+{% else %}
+{{ proxy(origin_port, secure=secure) }}
+{% endif %}
+    }
+{% if redirect_https %}
+    location @blitzecdn_under_attack_https_redirect {
+        internal;
+        return 308 https://$host$request_uri;
+    }
+{% endif %}
+{% endmacro %}
 {% for port in blitzecdn_nginx_http_ports %}
 server {
     listen {{ port }};
@@ -238,7 +315,11 @@ server {
         default_type text/plain;
         try_files $uri =404;
     }
+{{ reserved_locations(move_to_https=(tls and (item.always_use_https | default(false)))) }}
 {{ denied_paths() }}
+{% if under_attack %}
+{{ protected(port, redirect_https=(tls and (item.always_use_https | default(false)))) }}
+{% else %}
     location / {
 {{ access() }}
 {% if tls and (item.always_use_https | default(false)) %}
@@ -247,6 +328,7 @@ server {
 {{ proxy(port) }}
 {% endif %}
     }
+{% endif %}
 }
 {% endfor %}
 {% if tls %}
@@ -299,11 +381,21 @@ server {
     # see the note there. It is off by default in this collection: HSTS is a
     # promise made on the customer's domain, not ours, and a max-age already
     # served cannot be withdrawn faster than it expires in browsers that saw it.
+    location ^~ /.well-known/acme-challenge/ {
+        root {{ blitzecdn_nginx_acme_root }};
+        default_type text/plain;
+        try_files $uri =404;
+    }
+{{ reserved_locations() }}
 {{ denied_paths() }}
+{% if under_attack %}
+{{ protected(port, secure=true) }}
+{% else %}
     location / {
 {{ access() }}
 {{ proxy(port, secure=true) }}
     }
+{% endif %}
 }
 {% endfor %}
 {% endif %}

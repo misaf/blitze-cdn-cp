@@ -22,6 +22,12 @@ argument_specs:
             type: bool
             default: false
             description: Redirect visitor HTTP requests to HTTPS when TLS is active.
+          under_attack_mode:
+            type: bool
+            default: false
+            description: >-
+              Require a signed BlitzeCDN browser clearance before cache or
+              origin processing. Requires blitzecdn_nginx_under_attack_enabled.
           origin_request_host: {type: str}
           origin_sni: {type: str}
           enabled: {type: bool, default: true}
@@ -133,12 +139,30 @@ argument_specs:
         type: list
         elements: str
         required: true
-        description: Ubuntu ABI-matched Nginx, GeoIP2, and Brotli filter stack.
+        description: Ubuntu ABI-matched Nginx, GeoIP2, Brotli, and njs stack.
       blitzecdn_nginx_acme_root: {type: path, required: true}
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
       blitzecdn_nginx_resolver_valid: {type: str, required: true}
       blitzecdn_nginx_resolver_timeout: {type: str, required: true}
+      blitzecdn_nginx_under_attack_enabled:
+        type: bool
+        required: true
+        description: Enable the njs challenge capability for the edge fleet.
+      blitzecdn_nginx_under_attack_passage_seconds:
+        type: int
+        required: true
+        description: Lifetime of a valid clearance cookie, in seconds.
+      blitzecdn_nginx_under_attack_secret:
+        type: str
+        required: true
+        no_log: true
+        description: >-
+          Environment-provisioned HMAC secret; at least 32 bytes and never
+          stored in desired state or the fleet settings database.
+      blitzecdn_nginx_under_attack_js_file: {type: path, required: true}
+      blitzecdn_nginx_under_attack_conf_file: {type: path, required: true}
+      blitzecdn_nginx_under_attack_empty_root: {type: path, required: true}
       blitzecdn_nginx_default_server: {type: bool, required: true}
       blitzecdn_nginx_default_site_file: {type: path, required: true}
       blitzecdn_nginx_normalize_accept_encoding: {type: bool, required: true}

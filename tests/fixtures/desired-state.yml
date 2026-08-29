@@ -9,6 +9,7 @@ blitzecdn_nginx_sites:
     minimum_tls_version: '1.2'
     http3_enabled: false
     always_use_https: false
+    under_attack_mode: false
     origin_request_host: origin.example.com
     origin_sni: origin.example.com
     enabled: true
@@ -30,6 +31,7 @@ blitzecdn_nginx_sites:
     minimum_tls_version: '1.2'
     http3_enabled: false
     always_use_https: false
+    under_attack_mode: false
     enabled: false
     certificate_mode: existing
     certificate_path: /etc/ssl/plain/fullchain.pem

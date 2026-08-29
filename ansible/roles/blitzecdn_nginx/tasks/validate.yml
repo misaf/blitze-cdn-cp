@@ -190,3 +190,29 @@
       {{ blitzecdn_nginx_geoip_database }}, set the variable, and deploy again
       — or turn the country rules and visitor_headers.ip_country off. Nothing
       was changed on this host.
+
+- name: Refuse Under Attack Mode without the edge challenge capability
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_nginx_under_attack_enabled
+        or blitzecdn_nginx_sites
+        | selectattr('under_attack_mode', 'defined')
+        | selectattr('under_attack_mode')
+        | list | length == 0
+    fail_msg: >-
+      A site asks for Under Attack Mode, but
+      blitzecdn_nginx_under_attack_enabled is false on {{ inventory_hostname }}.
+      Enable the fleet capability, provision BLITZE_UNDER_ATTACK_SECRET on the
+      controller, and deploy again. Nothing was changed on this host.
+
+- name: Validate the Under Attack Mode capability settings
+  ansible.builtin.assert:
+    that:
+      - not blitzecdn_nginx_under_attack_enabled or blitzecdn_nginx_under_attack_secret | length >= 32
+      - blitzecdn_nginx_under_attack_passage_seconds | int >= 60
+      - blitzecdn_nginx_under_attack_passage_seconds | int <= 86400
+    fail_msg: >-
+      Under Attack Mode requires BLITZE_UNDER_ATTACK_SECRET to contain at
+      least 32 bytes and blitzecdn_nginx_under_attack_passage_seconds to be
+      between 60 and 86400 seconds. Nothing was changed on this host.

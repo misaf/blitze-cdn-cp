@@ -352,6 +352,37 @@ def record_cache_query_string(
         )
 
 
+@record_app.command("under-attack")
+def record_under_attack(
+    domain: Annotated[str, typer.Argument()],
+    name: Annotated[str, typer.Argument()],
+    on: Annotated[
+        bool,
+        typer.Option(
+            "--on/--off",
+            help="Challenge unverified browser traffic at the edge, or disable it.",
+        ),
+    ],
+    type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Enable or disable emergency edge challenge/mitigation mode.
+
+    Enabling this policy also requires the fleet's Nginx under-attack
+    capability and a signing secret. A deploy fails rather than ignoring a
+    site whose edge cannot enforce it.
+    """
+    record = common.control_plane().dns.update_record(
+        domain, name, type_, RecordPatch(under_attack_mode=on), "cli"
+    )
+    common.emit(record, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            f"Under Attack Mode is now {'enabled' if on else 'disabled'} for "
+            f"{record.fqdn}. Run 'blitzecdn deploy' to apply."
+        )
+
+
 @record_app.command("compression")
 def record_compression(
     domain: Annotated[str, typer.Argument()],

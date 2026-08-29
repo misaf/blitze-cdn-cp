@@ -21,10 +21,12 @@
         content: |
           load_module /usr/lib/nginx/modules/ngx_http_geoip2_module.so;
           load_module /usr/lib/nginx/modules/ngx_http_brotli_filter_module.so;
+          load_module /usr/lib/nginx/modules/ngx_http_js_module.so;
           pid /run/blitzecdn-nginx-probe.pid;
           events {}
           http {
               brotli off;
+              js_path /etc/nginx;
           }
       changed_when: false
 
@@ -44,9 +46,9 @@
       ansible.builtin.fail:
         msg: >-
           The Ubuntu Nginx dynamic modules are not loadable by the installed
-          binary, or the Brotli filter directives are unavailable. Reinstall
-          the managed Ubuntu 26.04 nginx, GeoIP2, and Brotli filter packages as
-          one ABI-matched stack. No edge configuration was applied.
+          binary, or the Brotli/njs directives are unavailable. Reinstall the
+          managed Ubuntu 26.04 nginx, GeoIP2, Brotli, and njs packages as one
+          ABI-matched stack. No edge configuration was applied.
 
   always:
     - name: Remove the temporary Nginx module probe
