@@ -791,17 +791,8 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
     assert "proxy_ssl_verify_depth 5;" in rendered
 
 
-@pytest.mark.parametrize(
-    ("mode", "upstream", "verify", "serves_tls"),
-    [
-        (SslMode.OFF, "http://", None, False),
-        (SslMode.FLEXIBLE, "http://", None, True),
-        (SslMode.FULL, "https://", "off", True),
-        (SslMode.FULL_STRICT, "https://", "on", True),
-    ],
-)
-def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls):
-    payload = {
+def _mode_site(mode: SslMode, serves_tls: bool, **extra: Any) -> CdnSite:
+    payload: dict[str, Any] = {
         "name": "mode",
         "server_names": ["mode.example.com"],
         "origin_host": "origin.example.com",
@@ -813,23 +804,72 @@ def test_every_ssl_mode_renders_its_transport(mode, upstream, verify, serves_tls
             "certificate_path": "/etc/ssl/certs/edge.pem",
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
-    rendered = _render(site_to_ansible(CdnSite.model_validate(payload)))
-    assert upstream in rendered
+    return CdnSite.model_validate(payload | extra)
+
+
+#: The origin endpoint each mode proxies to. The port comes from the origin
+#: scheme and from nothing else — in particular not from the listener the
+#: visitor arrived on, which is what a flexible site's :443 edge server once
+#: passed through to the origin.
+_MODE_ORIGINS = [
+    (SslMode.OFF, "http://origin.example.com:80", None, False),
+    (SslMode.FLEXIBLE, "http://origin.example.com:80", None, True),
+    (SslMode.FULL, "https://origin.example.com:443", "off", True),
+    (SslMode.FULL_STRICT, "https://origin.example.com:443", "on", True),
+]
+
+
+@pytest.mark.parametrize(("mode", "origin", "verify", "serves_tls"), _MODE_ORIGINS)
+def test_every_ssl_mode_renders_its_transport(mode, origin, verify, serves_tls):
+    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
+    assert origin in rendered
     for port in _role_defaults()["blitzecdn_nginx_http_ports"]:
         assert f"listen {port};" in rendered
         assert f"listen [::]:{port};" in rendered
-        assert (
-            f"set $blitzecdn_upstream {upstream}origin.example.com:{port};" in rendered
-        )
     for port in _role_defaults()["blitzecdn_nginx_https_ports"]:
         assert (f"listen {port} ssl;" in rendered) is serves_tls
         assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
-        assert (
-            f"set $blitzecdn_upstream {upstream}origin.example.com:{port};" in rendered
-        ) is serves_tls
+    # One upstream for the whole site: every listener, HTTP and HTTPS alike,
+    # proxies to the same origin endpoint.
+    assert set(re.findall(r"set \$blitzecdn_upstream (\S+);", rendered)) == {origin}
     assert "return 308 https://$host$request_uri;" not in rendered
     if verify is not None:
         assert f"proxy_ssl_verify {verify};" in rendered
+
+
+@pytest.mark.parametrize(("mode", "origin", "verify", "serves_tls"), _MODE_ORIGINS)
+def test_edge_listener_port_never_reaches_the_origin(mode, origin, verify, serves_tls):
+    """The listener port is the visitor's side of the proxy, not the origin's.
+
+    Flexible on a :443 listener must not become ``http://origin:443``, and full
+    on the :80 listener must not become ``https://origin:80`` — both were the
+    same bug, the edge port being handed to the upstream macro.
+    """
+    rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
+    listeners = (
+        _role_defaults()["blitzecdn_nginx_http_ports"]
+        + _role_defaults()["blitzecdn_nginx_https_ports"]
+    )
+    scheme, _, host_port = origin.partition("://")
+    origin_port = int(host_port.rsplit(":", 1)[1])
+    for port in listeners:
+        if port == origin_port:
+            continue
+        assert f"origin.example.com:{port}" not in rendered
+        for other in ("http", "https"):
+            assert f"{other}://origin.example.com:{port}" not in rendered
+    # The wrong scheme on the right port is the other half of the same mistake.
+    wrong = "https" if scheme == "http" else "http"
+    assert f"{wrong}://origin.example.com:" not in rendered
+
+
+def test_http3_alt_svc_follows_the_listener_not_the_origin():
+    """Alt-Svc advertises the edge's own :443, so HTTP/3 must survive a
+    flexible site whose origin port is 80."""
+    site = _mode_site(SslMode.FLEXIBLE, serves_tls=True, http3_enabled=True)
+    rendered = _render(site_to_ansible(site))
+    assert "http://origin.example.com:80" in rendered
+    assert "add_header Alt-Svc 'h3=\":443\"; ma=86400' always;" in rendered
 
 
 def test_origin_port_is_not_part_of_the_edge_site_contract():
