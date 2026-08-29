@@ -81,7 +81,7 @@ def _listener(*, tls_context: ssl.SSLContext | None = None):
 
 def test_a_listening_http_origin_is_reachable(settings, monkeypatch):
     with _listener() as port:
-        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTP, port)
+        monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTP, port)
         result = OriginProbe(settings).check(_site())
 
     assert result.reachable is True
@@ -96,7 +96,7 @@ def test_a_closed_port_is_not_reachable(settings, monkeypatch):
     port = probe.getsockname()[1]
     probe.close()
 
-    monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTP, port)
+    monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTP, port)
     result = OriginProbe(settings).check(_site())
 
     assert result.reachable is False
@@ -122,7 +122,7 @@ def test_an_https_origin_with_an_unverifiable_certificate_fails_tls(
     context.load_cert_chain(certificate_file)
 
     with _listener(tls_context=context) as port:
-        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTPS, port)
+        monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTPS, port)
         result = OriginProbe(settings).check(
             _site(
                 ssl_mode=SslMode.FULL_STRICT,
@@ -146,7 +146,7 @@ def test_full_accepts_an_unverifiable_origin_certificate(
     context.load_cert_chain(certificate_file)
 
     with _listener(tls_context=context) as port:
-        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTPS, port)
+        monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTPS, port)
         result = OriginProbe(settings).check(
             _site(
                 ssl_mode=SslMode.FULL,
@@ -163,7 +163,7 @@ def test_the_probe_uses_the_same_sni_the_edge_template_would(settings, monkeypat
     """site.conf.j2 falls back origin_sni -> origin_request_host -> origin_host."""
     probe = OriginProbe(settings)
     with _listener() as port:
-        monkeypatch.setitem(origins_module._DEFAULT_PORTS, HttpScheme.HTTPS, port)
+        monkeypatch.setitem(origins_module.DEFAULT_PORTS, HttpScheme.HTTPS, port)
         base = {"ssl_mode": SslMode.FULL}
         assert probe.check(_site(**base, origin_sni="a.example.com")).sni == (
             "a.example.com"
@@ -221,3 +221,69 @@ def test_an_origin_without_a_port_uses_the_scheme_default(
         _site(origin_host="origin.invalid", ssl_mode=mode)
     )
     assert result.origin.endswith(f":{expected_port}")
+
+
+@pytest.mark.parametrize(
+    ("mode", "scheme", "port"),
+    [
+        (SslMode.OFF, HttpScheme.HTTP, 80),
+        (SslMode.FLEXIBLE, HttpScheme.HTTP, 80),
+        (SslMode.FULL, HttpScheme.HTTPS, 443),
+        (SslMode.FULL_STRICT, HttpScheme.HTTPS, 443),
+    ],
+)
+def test_preflight_probes_the_canonical_endpoint_and_not_every_proxy_port(
+    settings, mode, scheme, port
+):
+    """The documented preflight decision, pinned.
+
+    The edge preserves the visitor's destination port toward the origin, so a
+    site has one origin endpoint per public proxy port — thirteen of them. The
+    probe deliberately checks only the canonical one: an ordinary origin serves
+    80 and 443 and nothing else, and demanding an answer on 2052 or 8443 would
+    make that site undeployable for ports no visitor has asked for. A request
+    arriving on an unserved alternate port 502s at the edge; the site stays up.
+    """
+    site = _site(origin_host="origin.example.com", ssl_mode=mode)
+
+    assert site.canonical_origin_scheme is scheme
+    assert OriginProbe(settings).to_probe(site)["origin_port"] == port
+    assert OriginProbe(settings).check(site).origin == f"origin.example.com:{port}"
+
+
+def test_the_probe_never_addresses_an_alternate_proxy_port(settings):
+    """No supported proxy port other than the scheme default may appear here."""
+    alternates = [8080, 8880, 2052, 2082, 2086, 2095, 2053, 2083, 2087, 2096, 8443]
+    for mode in SslMode:
+        site = _site(origin_host="origin.example.com", ssl_mode=mode)
+        origin = OriginProbe(settings).check(site).origin
+        assert origin.rsplit(":", 1)[1] in {"80", "443"}
+        for port in alternates:
+            assert not origin.endswith(f":{port}")
+
+
+def test_flexible_preflight_does_not_speak_for_its_alternate_port_legs(settings):
+    """Flexible now has two kinds of origin leg, and preflight checks one.
+
+    Flexible is Flexible on 443 only — the canonical listener, and the one the
+    probe addresses over plain HTTP. Its five alternate HTTPS listeners fall
+    back to a Full-like HTTPS leg on their own port, which the canonical probe
+    says nothing about: an origin serving only 80 and 443 still deploys, and a
+    visitor arriving on 2053 gets a 502 for that request alone.
+
+    Extending the probe to cover them would demand TLS on five extra ports from
+    every origin that enables Flexible, which is exactly the undeployable
+    ordinary site the canonical contract exists to avoid.
+    """
+    site = _site(origin_host="origin.example.com", ssl_mode=SslMode.FLEXIBLE)
+    rendered = OriginProbe(settings).to_probe(site)
+
+    assert site.canonical_origin_scheme is HttpScheme.HTTP
+    assert rendered["origin_port"] == 80
+    assert rendered["origin_tls_verify"] is False
+    # The legs preflight is silent about.
+    for port in (2053, 2083, 2087, 2096, 8443):
+        assert (
+            site.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, port) is HttpScheme.HTTPS
+        )
+    assert site.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, 443) is HttpScheme.HTTP

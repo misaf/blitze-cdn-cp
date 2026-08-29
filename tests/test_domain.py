@@ -27,8 +27,12 @@ from blitzecdn.domain.deployments import (
 from blitzecdn.domain.dns import DnsRecord, RecordPatch
 from blitzecdn.domain.runs import HostRun
 from blitzecdn.domain.sites import (
+    DEFAULT_PORTS,
+    HTTP_PROXY_PORTS,
+    HTTPS_PROXY_PORTS,
     CacheQueryStringMode,
     CdnSite,
+    HttpScheme,
     MinimumTlsVersion,
     SiteFirewall,
     SitePolicy,
@@ -126,7 +130,7 @@ def test_new_sites_default_to_ssl_off(site_payload):
     assert site.http3_enabled is False
     assert site.cache_query_string_mode is CacheQueryStringMode.INCLUDE
     assert site.serves_tls is False
-    assert site.ssl_mode.origin_scheme == "http"
+    assert site.canonical_origin_scheme is HttpScheme.HTTP
 
 
 def test_http3_requires_edge_tls(site_payload):
@@ -166,6 +170,188 @@ def test_off_keeps_an_installed_certificate_available(site_payload):
     site = CdnSite.model_validate(site_payload)
     assert site.certificate_mode == "existing"
     assert site.serves_tls is False
+
+
+#: The whole SSL-mode x visitor-protocol x listener-port matrix, in one table.
+#: Off has no HTTPS listener, so its HTTPS rows cannot arise in practice; the
+#: method still answers for them, and the answer is HTTP, because Off never
+#: encrypts anything.
+#:
+#: Flexible is the only mode whose answer varies with the port, and it is the
+#: reason the port is a parameter at all: Cloudflare supports Flexible for HTTPS
+#: on 443 only, and falls back to Full-like transport on the five alternate
+#: HTTPS proxy ports.
+_ORIGIN_SCHEMES = [
+    (SslMode.OFF, HttpScheme.HTTP, 80, HttpScheme.HTTP),
+    (SslMode.OFF, HttpScheme.HTTP, 8080, HttpScheme.HTTP),
+    (SslMode.OFF, HttpScheme.HTTPS, 443, HttpScheme.HTTP),
+    (SslMode.OFF, HttpScheme.HTTPS, 8443, HttpScheme.HTTP),
+    (SslMode.FLEXIBLE, HttpScheme.HTTP, 80, HttpScheme.HTTP),
+    (SslMode.FLEXIBLE, HttpScheme.HTTP, 8080, HttpScheme.HTTP),
+    (SslMode.FLEXIBLE, HttpScheme.HTTP, 2052, HttpScheme.HTTP),
+    (SslMode.FLEXIBLE, HttpScheme.HTTPS, 443, HttpScheme.HTTP),
+    (SslMode.FLEXIBLE, HttpScheme.HTTPS, 2053, HttpScheme.HTTPS),
+    (SslMode.FLEXIBLE, HttpScheme.HTTPS, 2083, HttpScheme.HTTPS),
+    (SslMode.FLEXIBLE, HttpScheme.HTTPS, 2087, HttpScheme.HTTPS),
+    (SslMode.FLEXIBLE, HttpScheme.HTTPS, 2096, HttpScheme.HTTPS),
+    (SslMode.FLEXIBLE, HttpScheme.HTTPS, 8443, HttpScheme.HTTPS),
+    (SslMode.FULL, HttpScheme.HTTP, 80, HttpScheme.HTTP),
+    (SslMode.FULL, HttpScheme.HTTP, 8080, HttpScheme.HTTP),
+    (SslMode.FULL, HttpScheme.HTTPS, 443, HttpScheme.HTTPS),
+    (SslMode.FULL, HttpScheme.HTTPS, 8443, HttpScheme.HTTPS),
+    (SslMode.FULL_STRICT, HttpScheme.HTTP, 80, HttpScheme.HTTP),
+    (SslMode.FULL_STRICT, HttpScheme.HTTP, 2052, HttpScheme.HTTP),
+    (SslMode.FULL_STRICT, HttpScheme.HTTPS, 443, HttpScheme.HTTPS),
+    (SslMode.FULL_STRICT, HttpScheme.HTTPS, 2053, HttpScheme.HTTPS),
+]
+
+
+@pytest.mark.parametrize(("mode", "visitor", "port", "origin"), _ORIGIN_SCHEMES)
+def test_origin_scheme_follows_the_mode_the_visitor_and_the_port(
+    mode, visitor, port, origin
+):
+    assert mode.origin_scheme_for(visitor, port) is origin
+
+
+@pytest.mark.parametrize("port", HTTPS_PROXY_PORTS)
+def test_flexible_is_flexible_on_443_and_full_like_everywhere_else(port):
+    """The Cloudflare compatibility rule this parameter exists for.
+
+    Treating Flexible as one global origin protocol sent an HTTPS visitor on
+    8443 to a plaintext ``http://origin:8443``. Cloudflare supports Flexible on
+    443 only; every other HTTPS proxy port falls back to Full.
+    """
+    expected = HttpScheme.HTTP if port == 443 else HttpScheme.HTTPS
+    assert SslMode.FLEXIBLE.origin_scheme_for(HttpScheme.HTTPS, port) is expected
+
+
+def test_the_flexible_fallback_is_full_and_never_full_strict():
+    """Only the transport falls back. Verification is a separate question.
+
+    An origin serving Flexible was never asked for a certificate the edge could
+    validate, so turning on verification along with TLS would break every one of
+    them the moment a visitor used an alternate port.
+    """
+    assert (
+        SslMode.FLEXIBLE.origin_scheme_for(HttpScheme.HTTPS, 8443) is HttpScheme.HTTPS
+    )
+    assert SslMode.FLEXIBLE.verifies_origin is False
+
+
+@pytest.mark.parametrize("mode", [SslMode.FULL, SslMode.FULL_STRICT])
+@pytest.mark.parametrize("port", HTTP_PROXY_PORTS)
+def test_full_modes_do_not_re_originate_http_as_https(mode, port):
+    """The regression this method exists to prevent.
+
+    A property keyed on the mode alone answered HTTPS for every request, so a
+    visitor arriving on a plaintext listener was proxied to a TLS origin port
+    that, for most origins, is not listening at all.
+    """
+    assert mode.origin_scheme_for(HttpScheme.HTTP, port) is HttpScheme.HTTP
+
+
+@pytest.mark.parametrize("mode", list(SslMode))
+@pytest.mark.parametrize("port", HTTP_PROXY_PORTS)
+def test_no_mode_encrypts_the_origin_leg_of_a_plaintext_visitor(mode, port):
+    assert mode.origin_scheme_for(HttpScheme.HTTP, port) is HttpScheme.HTTP
+
+
+def test_the_proxy_port_sets_are_independent_and_disjoint():
+    """8080 is not 8443's partner, and nothing in the domain pairs them."""
+    assert set(HTTP_PROXY_PORTS) & set(HTTPS_PROXY_PORTS) == set()
+    assert len(HTTP_PROXY_PORTS) + len(HTTPS_PROXY_PORTS) == 13
+    assert DEFAULT_PORTS[HttpScheme.HTTP] in HTTP_PROXY_PORTS
+    assert DEFAULT_PORTS[HttpScheme.HTTPS] in HTTPS_PROXY_PORTS
+
+
+@pytest.mark.parametrize(
+    ("mode", "verifies"),
+    [
+        (SslMode.OFF, False),
+        (SslMode.FLEXIBLE, False),
+        (SslMode.FULL, False),
+        (SslMode.FULL_STRICT, True),
+    ],
+)
+def test_only_full_strict_verifies_the_origin_certificate(mode, verifies):
+    assert mode.verifies_origin is verifies
+
+
+@pytest.mark.parametrize(
+    ("mode", "visitor", "origin"),
+    [
+        (SslMode.OFF, HttpScheme.HTTP, HttpScheme.HTTP),
+        (SslMode.FLEXIBLE, HttpScheme.HTTPS, HttpScheme.HTTP),
+        (SslMode.FULL, HttpScheme.HTTPS, HttpScheme.HTTPS),
+        (SslMode.FULL_STRICT, HttpScheme.HTTPS, HttpScheme.HTTPS),
+    ],
+)
+def test_the_canonical_endpoint_is_the_one_preflight_probes(
+    site_payload, mode, visitor, origin
+):
+    """Preflight checks one endpoint, not one per supported proxy port."""
+    payload = site_payload | {"ssl_mode": mode}
+    if mode is not SslMode.OFF:
+        payload |= {
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+    site = CdnSite.model_validate(payload)
+    assert site.canonical_visitor_scheme is visitor
+    assert site.canonical_origin_scheme is origin
+
+
+def _tls_payload(site_payload, mode, **extra):
+    return (
+        site_payload
+        | {
+            "ssl_mode": mode,
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/certs/edge.pem",
+            "certificate_key_path": "/etc/ssl/private/edge.key",
+        }
+        | extra
+    )
+
+
+@pytest.mark.parametrize("mode", [SslMode.FLEXIBLE, SslMode.FULL, SslMode.FULL_STRICT])
+def test_always_use_https_redirects_once_the_site_serves_tls(site_payload, mode):
+    site = CdnSite.model_validate(
+        _tls_payload(site_payload, mode, always_use_https=True)
+    )
+    assert site.redirects_http_to_https is True
+
+
+def test_always_use_https_is_inert_under_ssl_off(site_payload):
+    """Cloudflare hides the Always Use HTTPS control while the mode is Off.
+
+    Off serves no HTTPS listener, so a redirect to HTTPS would send every
+    visitor to a port the edge does not answer on — a dead end, and with a
+    permanent 301 a cached one. The stored preference is kept rather than
+    rejected or erased, exactly as Cloudflare keeps the zone setting: it takes
+    effect the moment a secure mode is selected, in either order.
+    """
+    site = CdnSite.model_validate(site_payload | {"always_use_https": True})
+
+    assert site.ssl_mode is SslMode.OFF
+    assert site.always_use_https is True
+    assert site.serves_tls is False
+    assert site.redirects_http_to_https is False
+
+
+def test_turning_tls_on_activates_a_preference_set_while_off(site_payload):
+    off = CdnSite.model_validate(site_payload | {"always_use_https": True})
+    on = CdnSite.model_validate(
+        _tls_payload(site_payload, SslMode.FULL, always_use_https=True)
+    )
+    assert (off.redirects_http_to_https, on.redirects_http_to_https) == (False, True)
+
+
+def test_a_tls_site_without_always_use_https_serves_both_schemes(site_payload):
+    site = CdnSite.model_validate(_tls_payload(site_payload, SslMode.FULL))
+    assert site.always_use_https is False
+    assert site.redirects_http_to_https is False
 
 
 def test_removed_origin_scheme_is_rejected(site_payload):

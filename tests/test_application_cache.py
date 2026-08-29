@@ -129,7 +129,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
 
 
 def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
-    """Port 80 only answers 308 for a TLS site, so it caches nothing."""
+    """Port 80 only answers 301 for a TLS site, so it caches nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
