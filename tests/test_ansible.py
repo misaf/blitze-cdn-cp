@@ -553,6 +553,28 @@ def test_maxmind_credentials_reach_ansible_through_the_environment(
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "SENTINELKEY"
 
 
+def test_under_attack_secret_reaches_ansible_only_through_the_environment(
+    settings, monkeypatch
+):
+    sentinel = "UNDER" + "-ATTACK-SENTINEL"
+    configured = settings.model_copy(
+        update={"under_attack_secret": SecretStr(sentinel)}
+    )
+    captured_env: dict[str, str] = {}
+    captured_argv: list[str] = []
+
+    def fake_run(**kwargs):
+        captured_env.update(kwargs["envvars"])
+        captured_argv.extend(_runner_command(kwargs))
+        return _runner_result(kwargs)
+
+    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
+
+    assert captured_env["BLITZE_UNDER_ATTACK_SECRET"] == sentinel
+    assert not any(sentinel in argument for argument in captured_argv)
+
+
 def test_maxmind_credentials_never_become_command_arguments(settings, monkeypatch):
     """A secret in argv is readable by every account on the controller.
 

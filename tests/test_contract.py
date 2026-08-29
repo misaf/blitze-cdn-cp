@@ -1025,7 +1025,86 @@ def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
         "nginx",
         "libnginx-mod-http-geoip2",
         "libnginx-mod-http-brotli-filter",
+        "libnginx-mod-http-js",
     ]
+
+
+def _under_attack_site(*, enabled: bool = True) -> dict[str, Any]:
+    return site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": "mitigated",
+                "server_names": ["mitigated.example.com"],
+                "origin_host": "origin.example.com",
+                "ssl_mode": "flexible",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+                "under_attack_mode": enabled,
+                "always_use_https": True,
+            }
+        )
+    )
+
+
+def test_under_attack_mode_is_absent_from_the_disabled_request_flow():
+    rendered = _render(_under_attack_site(enabled=False))
+
+    assert "blitzecdn_under_attack.guard" not in rendered
+    assert "X-BlitzeCDN-Mitigation challenge" not in rendered
+    assert "auth_request /.blitzecdn/" not in rendered
+    assert "proxy_pass" in rendered
+
+
+def test_under_attack_mode_renders_before_redirect_and_proxy_on_http_and_https():
+    defaults = _role_defaults()
+    rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
+
+    assert rendered.count("auth_request /.blitzecdn/internal/under-attack-guard;") == (
+        len(defaults["blitzecdn_nginx_http_ports"])
+        + len(defaults["blitzecdn_nginx_https_ports"])
+    )
+    assert "try_files /__blitzecdn_https_dispatch__" in rendered
+    assert "proxy_pass" in rendered
+    assert rendered.index("auth_request /.blitzecdn/") < rendered.index("proxy_pass")
+    assert "X-BlitzeCDN-Mitigation challenge" in rendered
+
+
+def test_under_attack_reserved_endpoints_are_edge_only_and_uncached():
+    rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
+
+    assert "location = /.blitzecdn/challenge {" in rendered
+    assert "location = /.blitzecdn/challenge/verify {" in rendered
+    assert "location ^~ /.blitzecdn/" in rendered
+    assert "js_content blitzecdn_under_attack.challenge;" in rendered
+    assert "js_content blitzecdn_under_attack.verify;" in rendered
+    assert 'Cache-Control "no-store' in rendered
+    assert "limit_req zone=blitzecdn_under_attack_verify" in rendered
+
+    for marker in (
+        "location = /.blitzecdn/challenge {",
+        "location = /.blitzecdn/challenge/verify {",
+    ):
+        block = rendered.split(marker, 1)[1].split("    }", 1)[0]
+        assert "proxy_pass" not in block
+        assert "proxy_cache" not in block
+
+
+def test_acme_bypasses_under_attack_mode_in_every_server_block():
+    defaults = _role_defaults()
+    rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
+    expected = len(defaults["blitzecdn_nginx_http_ports"]) + len(
+        defaults["blitzecdn_nginx_https_ports"]
+    )
+
+    assert rendered.count("location ^~ /.well-known/acme-challenge/ {") == expected
+    acme_blocks = rendered.split("location ^~ /.well-known/acme-challenge/ {")[1:]
+    for block in acme_blocks:
+        location = block.split("    }", 1)[0]
+        assert "auth_request" not in location
+        assert "js_content" not in location
+        assert "allow " not in location
+        assert "deny " not in location
 
 
 def test_missing_compression_preserves_pre_upgrade_behavior():

@@ -1,6 +1,7 @@
 import threading
 import time
 
+import pytest
 from conftest import FakeRunner, ansible_run, host_run
 from fastapi.testclient import TestClient
 
@@ -82,13 +83,26 @@ def test_v1_survives_a_domain_field_it_has_never_heard_of():
 
     representation = V1DnsRecord.from_domain(record)
 
-    for field in ("compression", "visitor_headers"):
+    for field in ("compression", "visitor_headers", "under_attack_mode"):
         assert field not in representation.model_dump()
     site = record.to_site()
     assert site is not None
     projected = V1CdnSite.from_domain(site).model_dump()
-    for field in ("compression", "visitor_headers"):
+    for field in ("compression", "visitor_headers", "under_attack_mode"):
         assert field not in projected
+
+
+def test_v1_neither_reads_nor_writes_under_attack_mode():
+    record = DomainDnsRecord(
+        domain="example.com",
+        name="cdn",
+        value="203.0.113.10",
+        under_attack_mode=True,
+    )
+    assert "under_attack_mode" not in V1DnsRecord.from_domain(record).model_dump()
+
+    with pytest.raises(ValueError):
+        V1RecordPatch.model_validate({"under_attack_mode": True})
 
 
 def test_interrupted_workflows_are_recovered_and_visible(settings):

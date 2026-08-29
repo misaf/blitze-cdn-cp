@@ -216,6 +216,36 @@ def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_
     assert result.returncode == 0, result.stdout
 
 
+def test_role_refuses_under_attack_mode_without_capability_or_secret(
+    desired_state, tmp_path
+):
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"under_attack_mode": True}
+
+    unsupported = _run_validation(
+        sites, tmp_path, blitzecdn_nginx_under_attack_enabled=False
+    )
+    assert unsupported.returncode != 0
+    assert "blitzecdn_nginx_under_attack_enabled is false" in unsupported.stdout
+
+    missing_secret = _run_validation(
+        sites,
+        tmp_path,
+        blitzecdn_nginx_under_attack_enabled=True,
+        blitzecdn_nginx_under_attack_secret="",
+    )
+    assert missing_secret.returncode != 0
+    assert "BLITZE_UNDER_ATTACK_SECRET" in missing_secret.stdout
+
+    supported = _run_validation(
+        sites,
+        tmp_path,
+        blitzecdn_nginx_under_attack_enabled=True,
+        blitzecdn_nginx_under_attack_secret="s" * 32,
+    )
+    assert supported.returncode == 0, supported.stdout
+
+
 def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp_path):
     """Defence in depth: the role holds even if the control plane regresses."""
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
@@ -292,6 +322,25 @@ def test_the_credentials_file_is_written_private_and_unlogged():
     assert writer["ansible.builtin.template"]["mode"] == "0600"
     assert writer["ansible.builtin.template"]["owner"] == "root"
     assert writer["no_log"] is True
+
+
+def test_under_attack_secret_file_is_private_and_unlogged():
+    tasks = yaml.safe_load((ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8"))
+    writer = next(
+        task
+        for task in tasks
+        if task.get("ansible.builtin.template", {}).get("src") == "under-attack.js.j2"
+    )
+
+    assert writer["ansible.builtin.template"]["mode"] == "0640"
+    assert writer["ansible.builtin.template"]["owner"] == "root"
+    assert writer["ansible.builtin.template"]["group"] == "www-data"
+    assert writer["no_log"] is True
+
+    option = _role_spec()["blitzecdn_nginx_under_attack_secret"]
+    assert option["no_log"] is True
+    assert _role_defaults()["blitzecdn_nginx_under_attack_enabled"] is False
+    assert _role_defaults()["blitzecdn_nginx_under_attack_passage_seconds"] == 1800
 
 
 def test_the_stats_role_publishes_through_the_agreed_report_fact():

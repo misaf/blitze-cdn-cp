@@ -1223,6 +1223,28 @@ def test_record_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
     assert control.dns.get_site("cdn-example-com").http3_enabled is True
 
 
+def test_record_under_attack_toggles_edge_mitigation(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    control.dns.create_domain(Domain(name="example.com"), "cli")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "cli",
+    )
+
+    result = runner.invoke(
+        cli.app, ["record", "under-attack", "example.com", "cdn", "--on", "--json"]
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["under_attack_mode"] is True
+    assert control.dns.get_site("cdn-example-com").under_attack_mode is True
+
+
 def test_record_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     control.dns.create_domain(Domain(name="example.com"), "cli")

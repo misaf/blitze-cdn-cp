@@ -55,6 +55,7 @@ in_edge 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ansible-core open
 in_edge 'ansible-galaxy collection install -r /workspace/ansible/requirements.yml >/dev/null'
 in_edge "install -d -m 0755 /usr/share/GeoIP && curl -fsSL --proto '=https' --tlsv1.2 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/${MMDB_COMMIT}/test-data/GeoIP2-Country-Test.mmdb' -o /usr/share/GeoIP/GeoIP2-Country-Test.mmdb && echo '${MMDB_SHA256}  /usr/share/GeoIP/GeoIP2-Country-Test.mmdb' | sha256sum -c -"
 in_edge "openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=site-one.test' -addext 'subjectAltName=DNS:site-one.test,DNS:site-two.test' -keyout /etc/ssl/private/blitzecdn-http3-test.key -out /etc/ssl/certs/blitzecdn-http3-test.pem >/dev/null 2>&1"
+in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0600 /run/blitzecdn-under-attack-secret"
 
 say "Running the real BlitzeCDN Nginx role"
 in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/http3-edge.yml"
@@ -65,7 +66,7 @@ printf '%s\n' "${converge}"
 grep -Eq 'changed=0[[:space:]]' <<<"${converge}"
 
 say "Proving package and build capabilities"
-in_edge "dpkg-query -W -f='\${Package}=\${Version}\\n' nginx libnginx-mod-http-geoip2 libnginx-mod-http-brotli-filter"
+in_edge "dpkg-query -W -f='\${Package}=\${Version}\\n' nginx libnginx-mod-http-geoip2 libnginx-mod-http-brotli-filter libnginx-mod-http-js"
 in_edge 'nginx -v'
 in_edge 'nginx -V'
 in_edge 'nginx -t'
@@ -75,16 +76,30 @@ in_edge "nginx -T 2>&1 | grep -q 'geoip2 /usr/share/GeoIP/GeoIP2-Country-Test.mm
 in_edge "grep -qx 'tcp|443|any' /etc/blitzecdn/firewall-rules"
 in_edge "grep -qx 'udp|443|any' /etc/blitzecdn/firewall-rules"
 
+edge_ip=$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" "${edge}")
+client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -kfsS --resolve "site-one.test:443:${edge_ip}")
+challenge_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -ksS --resolve "site-two.test:443:${edge_ip}")
+
+say "Under Attack Mode intercept before origin processing"
+challenge=$("${challenge_client[@]}" --http2 -D - -o /dev/null https://site-two.test/private)
+printf '%s\n' "${challenge}"
+if ! grep -q 'HTTP/2 302' <<<"${challenge}"; then
+  in_edge "journalctl -u nginx --no-pager -n 50" || true
+fi
+grep -q 'HTTP/2 302' <<<"${challenge}"
+grep -qi '^x-blitzecdn-mitigation: challenge' <<<"${challenge}"
+grep -Eqi '^location: (https://site-two\.test)?/\.blitzecdn/challenge\?token=' <<<"${challenge}"
+if grep -qi '^x-cache-status:' <<<"${challenge}"; then
+  fail "Under Attack Mode challenge entered the CDN cache flow"
+fi
+
 say "Checking module failure paths before configuration apply"
-for module in ngx_http_brotli_filter_module.so ngx_http_geoip2_module.so; do
+for module in ngx_http_brotli_filter_module.so ngx_http_geoip2_module.so ngx_http_js_module.so; do
   failure=$(in_edge "mv /usr/lib/nginx/modules/${module} /usr/lib/nginx/modules/${module}.disabled; cd /workspace; set +e; ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/http3-edge.yml 2>&1; rc=\$?; mv /usr/lib/nginx/modules/${module}.disabled /usr/lib/nginx/modules/${module}; test \${rc} -ne 0")
   printf '%s\n' "${failure}"
   grep -q 'No edge configuration was applied' <<<"${failure}"
 done
 in_edge 'nginx -t'
-
-edge_ip=$(docker inspect -f "{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}" "${edge}")
-client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -kfsS --resolve "site-one.test:443:${edge_ip}")
 
 say "HTTP/1.1 request"
 http1=$("${client[@]}" --http1.1 -o /dev/null -w 'protocol=%{http_version} code=%{http_code}\n' https://site-one.test/)

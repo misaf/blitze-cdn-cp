@@ -76,6 +76,7 @@ class SitePolicyV2(V2Model):
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
     http3_enabled: bool = False
     always_use_https: bool = False
+    under_attack_mode: bool = False
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool = True
@@ -128,6 +129,7 @@ class RecordPatchV2(V2Model):
     minimum_tls_version: MinimumTlsVersion | None = None
     http3_enabled: bool | None = None
     always_use_https: bool | None = None
+    under_attack_mode: bool | None = None
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool | None = None

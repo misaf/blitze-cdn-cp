@@ -360,6 +360,10 @@ class SitePolicy(BaseModel):
     #: serves TLS. Kept independent from ``ssl_mode`` so a site can offer both
     #: schemes while retaining its edge and origin encryption policy.
     always_use_https: bool = False
+    #: Emergency browser verification at the edge. The Nginx role refuses to
+    #: serve a site carrying this policy unless its njs capability and signing
+    #: secret are explicitly enabled for the fleet.
+    under_attack_mode: bool = False
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool = True

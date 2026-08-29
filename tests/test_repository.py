@@ -90,6 +90,34 @@ def test_visitor_headers_survive_persistence_and_derivation(
     assert site.requires_geoip is True
 
 
+def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
+    settings, domain_payload, record_payload
+):
+    repository = Repository(settings.database_path)
+    repository.zones.create_domain(Domain.model_validate(domain_payload))
+    repository.zones.create_record(
+        DnsRecord.model_validate(record_payload | {"under_attack_mode": True})
+    )
+    stored = repository.zones.get_record(
+        record_payload["domain"], record_payload["name"], RecordType.A
+    )
+    assert stored.under_attack_mode is True
+    assert decode_snapshot(repository.snapshot())[0].under_attack_mode is True
+
+    connection = sqlite3.connect(settings.database_path)
+    try:
+        connection.execute(
+            "UPDATE dns_records SET policy = json_remove(policy, '$.under_attack_mode')"
+        )
+        connection.commit()
+    finally:
+        connection.close()
+    old = repository.zones.get_record(
+        record_payload["domain"], record_payload["name"], RecordType.A
+    )
+    assert old.under_attack_mode is False
+
+
 def test_deployment_transitions_snapshots_and_recovery(
     settings, domain_payload, record_payload
 ):

@@ -164,6 +164,10 @@ class Settings(BaseSettings):
     #: and like the API keys it is readable from the environment only — never
     #: from the committed `blitzecdn.toml`.
     maxmind_license_key: SecretStr = SecretStr("")
+    #: Fleet-wide HMAC key for stateless Under Attack Mode challenges and
+    #: clearance cookies. Environment-only so it never enters TOML, desired
+    #: state, the settings database, or an Ansible command line.
+    under_attack_secret: SecretStr = SecretStr("")
     #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
@@ -278,6 +282,16 @@ class Settings(BaseSettings):
             )
         return candidate
 
+    @field_validator("under_attack_secret")
+    @classmethod
+    def validate_under_attack_secret(cls, value: SecretStr) -> SecretStr:
+        secret = value.get_secret_value()
+        if secret and len(secret.encode("utf-8")) < 32:
+            raise ValueError(
+                "BLITZE_UNDER_ATTACK_SECRET must contain at least 32 bytes"
+            )
+        return value
+
     @classmethod
     def from_environment(
         cls,
@@ -362,6 +376,7 @@ class Settings(BaseSettings):
             # with either name remain rejected by `_read_project_config`.
             maxmind_account_id=env.get("BLITZE_MAXMIND_ACCOUNT_ID", ""),
             maxmind_license_key=SecretStr(env.get("BLITZE_MAXMIND_LICENSE_KEY", "")),
+            under_attack_secret=SecretStr(env.get("BLITZE_UNDER_ATTACK_SECRET", "")),
             api_keys=cls._read_api_keys(env),
         )
         return values

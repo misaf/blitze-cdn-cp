@@ -288,6 +288,16 @@ def test_a_site_derived_from_a_record_carries_every_policy_field():
         )
 
 
+def test_under_attack_mode_defaults_off_and_is_patchable():
+    assert SitePolicy().under_attack_mode is False
+    assert RecordPatch(under_attack_mode=True).under_attack_mode is True
+
+    record = DnsRecord.model_validate(_managed_record(under_attack_mode=True))
+    site = record.to_site()
+    assert site is not None
+    assert site.under_attack_mode is True
+
+
 def test_visitor_headers_default_to_the_address_and_not_the_country(site_payload):
     """The default has to be deployable on an edge with GeoIP off.
 

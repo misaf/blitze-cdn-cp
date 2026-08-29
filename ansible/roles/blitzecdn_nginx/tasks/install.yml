@@ -10,10 +10,10 @@
       - >-
         blitzecdn_nginx_packages ==
         ['nginx', 'libnginx-mod-http-geoip2',
-         'libnginx-mod-http-brotli-filter']
+         'libnginx-mod-http-brotli-filter', 'libnginx-mod-http-js']
     fail_msg: >-
       The managed BlitzeCDN Nginx stack requires a fresh Ubuntu 26.04 LTS edge
-      and the exact Ubuntu nginx, GeoIP2, and Brotli filter package set.
+      and the exact Ubuntu nginx, GeoIP2, Brotli filter, and njs package set.
 
 - name: Install the managed Nginx stack
   ansible.builtin.apt:
