@@ -89,6 +89,45 @@ def test_upload_and_request_certificate_preserve_ssl_mode(
     assert document["certificate_key_path"].endswith(f"/privkey-{fingerprint}.pem")
 
 
+def test_new_certificate_material_owes_the_fleet_a_deployment(
+    settings, certificate_pair
+):
+    """The requirement lifecycle, from the service that raises it to the one that
+    clears it.
+
+    Storing a certificate in the control plane does not put it on an edge. The
+    gap between the two is recorded durably, so a crash in between cannot lose
+    the fact that the fleet is behind — and a check-mode run, which converges
+    nothing, must not clear it.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(
+            [ansible_run(host_run("edge-a")), ansible_run(host_run("edge-a"))]
+        ),  # type: ignore[arg-type]
+    )
+    _seed_proxied_record(control)
+    certificate, key = certificate_pair()
+    kind = DeploymentRequirementKind.CERTIFICATES
+
+    assert not repository.deployment_requirements.pending(kind)
+
+    control.certificates.upload_certificate(
+        "cdn-example-com", certificate, key, "alice"
+    )
+    assert repository.deployment_requirements.pending(kind)
+
+    checked = control.deployments.deploy("alice", check=True)
+    assert checked.status is DeploymentStatus.SUCCEEDED
+    assert repository.deployment_requirements.pending(kind)
+
+    converged = control.deployments.deploy("alice")
+    assert converged.status is DeploymentStatus.SUCCEEDED
+    assert not repository.deployment_requirements.pending(kind)
+
+
 @pytest.mark.parametrize(
     ("tls_verified", "expected"),
     [(True, SslMode.FULL_STRICT), (False, SslMode.FULL)],

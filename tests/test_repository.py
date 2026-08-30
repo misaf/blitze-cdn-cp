@@ -4,7 +4,10 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.pool import NullPool, QueuePool
 
-from blitzecdn.domain.deployments import DeploymentStatus
+from blitzecdn.domain.deployments import (
+    DeploymentRequirementKind,
+    DeploymentStatus,
+)
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.domain.sites import CdnSite
@@ -227,16 +230,38 @@ def test_workflow_progress_is_durable(settings):
 
 
 def test_deployment_requirements_are_durable_and_idempotent(settings):
+    kind = DeploymentRequirementKind.CERTIFICATES
     repository = Repository(settings.database_path)
-    repository.deployment_requirements.require("certificates")
-    repository.deployment_requirements.require("certificates")
+    repository.deployment_requirements.require(kind)
+    repository.deployment_requirements.require(kind)
     repository.close()
 
     reopened = Repository(settings.database_path)
-    assert reopened.deployment_requirements.pending("certificates")
-    reopened.deployment_requirements.clear("certificates")
-    assert not reopened.deployment_requirements.pending("certificates")
+    assert reopened.deployment_requirements.pending(kind)
+    reopened.deployment_requirements.clear(kind)
+    assert not reopened.deployment_requirements.pending(kind)
     reopened.close()
+
+
+def test_a_requirement_is_stored_under_its_enum_value(settings):
+    """The enum is the in-process type; the column keeps the string it always had.
+
+    Typing the kind was a refactor of the callers, not of the schema. A row
+    written before that change has to still be found by the enum, so the stored
+    representation is asserted directly rather than only round-tripped.
+    """
+    repository = Repository(settings.database_path)
+    repository.deployment_requirements.require(DeploymentRequirementKind.CERTIFICATES)
+    connection = sqlite3.connect(settings.database_path)
+    try:
+        stored = connection.execute(
+            "SELECT kind FROM deployment_requirements"
+        ).fetchall()
+    finally:
+        connection.close()
+    repository.close()
+
+    assert stored == [("certificates",)]
 
 
 def test_begin_immediate_reserves_the_cross_process_writer(settings):
