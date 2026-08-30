@@ -121,7 +121,11 @@ in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1 --
 
 # Check mode first: it must survive a host that has never converged, which is
 # the case the `not ansible_check_mode` gates exist for.
-in_container 'cd / && blitzecdn plan --json >/dev/null' || fail "check-mode run failed"
+in_container 'cd / && blitzecdn plan --json >/dev/null' || {
+  # shellcheck disable=SC2016
+  in_container 'latest=$(ls -t /opt/blitzecdn/.state/logs/*.log | head -1); printf "Ansible log: %s\n" "$latest"; sed -n "1,240p" "$latest"' || true
+  fail "check-mode run failed"
+}
 
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "deploy failed"
 in_container 'test -f /etc/nginx/sites-enabled/cdn-example-test.conf' ||
@@ -148,10 +152,28 @@ in_container 'test ! -e /etc/nginx/sites-enabled/cdn-example-test.conf' ||
   fail "the stale site was left enabled"
 in_container 'nginx -t' || fail "nginx does not load after the site was withdrawn"
 
-say "Backing up the database while the API is serving"
-in_container 'cd / && blitzecdn db backup /var/lib/blitzecdn/backup.db' ||
-  fail "db backup failed"
-in_container 'test -s /var/lib/blitzecdn/backup.db' || fail "the backup is empty"
+say "Backing up the control plane while the API is serving"
+in_container 'cd / && blitzecdn backup create' ||
+  fail "backup create failed"
+in_container 'ls /var/backups/blitzecdn/blitzecdn-backup-*Z.tar.gz >/dev/null' ||
+  fail "no backup landed in /var/backups/blitzecdn"
+# The expansions belong to the container shell: the archive is named for the
+# moment it was taken, so the test cannot know its name in advance.
+# shellcheck disable=SC2016
+in_container 'test "$(stat -c %a "$(ls -t /var/backups/blitzecdn/*.tar.gz | head -1)")" = 600' ||
+  fail "the backup archive is not 0600"
+# shellcheck disable=SC2016
+in_container 'cd / && blitzecdn backup inspect "$(ls -t /var/backups/blitzecdn/*.tar.gz | head -1)" | grep -q "^  database$"' ||
+  fail "the backup does not declare a database component"
+in_container 'cd / && blitzecdn backup create --only database -o /var/lib/blitzecdn/database-only.tar.gz' ||
+  fail "a database-only backup failed"
+in_container 'test -s /var/lib/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
+in_container 'cd / && blitzecdn backup restore /var/lib/blitzecdn/database-only.tar.gz --yes' ||
+  fail "a database-only restore failed"
+in_container 'systemctl is-active --quiet blitzecdn-api.service' ||
+  fail "the database restore did not restart the API"
+in_container 'systemctl is-active --quiet blitzecdn-worker.service' ||
+  fail "the database restore did not restart the worker"
 
 say "Re-running the installer"
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||

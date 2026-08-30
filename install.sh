@@ -701,13 +701,16 @@ cmd_update() {
     "${current_description}" "${target_description}" "${commits}"
 
   # Before anything is touched, and through the wrapper so it runs as the
-  # service account against the service environment. `db backup` uses VACUUM
-  # INTO, so this is safe against a controller that is still serving.
+  # service account against the service environment. The database component
+  # uses VACUUM INTO, so this is safe against a controller that is still
+  # serving. Only the database: an update replaces code, never certificates or
+  # credentials, so a full backup here would cost minutes and protect nothing
+  # this operation can damage.
   if [[ ${parsed_no_backup} -eq 1 ]]; then
     echo "Skipping the database backup (--no-backup)."
   elif [[ -x ${CLI_WRAPPER} ]]; then
     echo "Backing up the database..."
-    "${CLI_WRAPPER}" db backup ||
+    "${CLI_WRAPPER}" backup create --only database ||
       die 1 "error: the database backup failed; nothing was changed" \
         "Fix the failure, or rerun with --no-backup if the data is expendable."
   else

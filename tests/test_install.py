@@ -850,11 +850,12 @@ def test_update_preserves_state_rather_than_removing_it():
 
 def test_update_takes_a_backup_before_it_changes_anything():
     update = _section("update")
-    assert "db backup" in update
+    assert "backup create --only database" in update
     # Ordering is the guarantee. A backup taken after the checkout, or after the
     # migration, is a backup of the thing it was supposed to protect against.
-    assert update.index("db backup") < update.index("stop_control_plane_services")
-    assert update.index("db backup") < update.index("bootstrap_runtime")
+    marker = "backup create --only database"
+    assert update.index(marker) < update.index("stop_control_plane_services")
+    assert update.index(marker) < update.index("bootstrap_runtime")
 
 
 def test_update_stops_the_services_before_migrating_the_schema():

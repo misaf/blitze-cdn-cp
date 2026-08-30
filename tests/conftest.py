@@ -347,6 +347,8 @@ def settings(tmp_path: Path) -> Settings:
         generated_vars_path=state / "desired-state.yml",
         deployment_lock_path=state / "deployment.lock",
         certificate_dir=state / "certificates",
+        environment_path=tmp_path / ".env",
+        backup_dir=state / "backups",
         acme_challenge_playbook_path=ansible / "playbooks/acme-challenge.yml",
         cache_purge_playbook_path=ansible / "playbooks/cache-purge.yml",
         stats_playbook_path=ansible / "playbooks/stats.yml",

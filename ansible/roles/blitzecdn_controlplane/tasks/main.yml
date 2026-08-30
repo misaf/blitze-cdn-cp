@@ -90,9 +90,15 @@
     group: "{{ blitzecdn_controlplane_service_user }}"
     recurse: true
 
-- name: Permit the deployment account to converge this host
+- name: Permit deployment and controlled service restarts
   ansible.builtin.copy:
-    content: "{{ blitzecdn_controlplane_deploy_user }} ALL=(root) NOPASSWD: ALL\n"
+    content: |
+      {{ blitzecdn_controlplane_deploy_user }} ALL=(root) NOPASSWD: ALL
+      {{ blitzecdn_controlplane_service_user }} ALL=(root) NOPASSWD: \
+          /usr/bin/systemctl stop blitzecdn-api.service, \
+          /usr/bin/systemctl stop blitzecdn-worker.service, \
+          /usr/bin/systemctl start blitzecdn-api.service, \
+          /usr/bin/systemctl start blitzecdn-worker.service
     dest: "{{ blitzecdn_controlplane_sudoers_file }}"
     owner: root
     group: root
@@ -108,6 +114,17 @@
 - name: Create the state directory
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_install_dir }}/.state"
+    state: directory
+    owner: "{{ blitzecdn_controlplane_service_user }}"
+    group: "{{ blitzecdn_controlplane_service_user }}"
+    mode: "0700"
+
+# 0700, because an archive in here holds every TLS private key, the API
+# credentials, and the whole audit trail. File modes alone would still let any
+# account list what this controller holds and when it was last backed up.
+- name: Create the backup directory
+  ansible.builtin.file:
+    path: "{{ blitzecdn_controlplane_backup_dir }}"
     state: directory
     owner: "{{ blitzecdn_controlplane_service_user }}"
     group: "{{ blitzecdn_controlplane_service_user }}"
@@ -203,9 +220,9 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_config_dir }}"
     state: directory
-    owner: root
+    owner: "{{ blitzecdn_controlplane_service_user }}"
     group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0750"
+    mode: "0700"
 
 - name: Inspect the environment file
   ansible.builtin.stat:
@@ -272,9 +289,9 @@
   ansible.builtin.template:
     src: blitzecdn.toml.j2
     dest: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
-    owner: root
+    owner: "{{ blitzecdn_controlplane_service_user }}"
     group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0640"
+    mode: "0600"
 
 - name: Generate the API credential for a first installation
   ansible.builtin.set_fact:
@@ -292,18 +309,18 @@
     src: blitzecdn.env.j2
     dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
     force: false
-    owner: root
+    owner: "{{ blitzecdn_controlplane_service_user }}"
     group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0640"
+    mode: "0600"
   when: not blitzecdn_controlplane_environment.stat.exists
   no_log: true
 
 - name: Enforce the environment file ownership
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    owner: root
+    owner: "{{ blitzecdn_controlplane_service_user }}"
     group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0640"
+    mode: "0600"
 
 - name: Remove migrated non-secret settings from the service environment
   ansible.builtin.lineinfile:

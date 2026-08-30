@@ -13,10 +13,18 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from blitzecdn.exceptions import ConfigurationError
 
-_PATH_SETTINGS: tuple[tuple[str, str, str, str], ...] = ()
+_PATH_SETTINGS = (
+    ("environment_path", "BLITZE_ENVIRONMENT_PATH", "environment_path", ".env"),
+)
 
 _STATE_PATH_SETTINGS = (
     ("database_path", "BLITZE_DATABASE_PATH", "database_path", "control-plane.db"),
+    # Under the state directory for a checkout, and repointed at
+    # `/var/backups/blitzecdn` by the managed configuration a real installation
+    # gets. Both are right for where they are: a developer should not need a
+    # privileged directory to take a backup, and an installed controller should
+    # not keep its backups inside the directory an uninstall removes.
+    ("backup_dir", "BLITZE_BACKUP_DIR", "backup_dir", "backups"),
 )
 
 _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
@@ -92,6 +100,37 @@ _PROJECT_KEYS = {
     "preflight_dns_servers",
 }
 
+# Disaster recovery moves portable policy and non-regenerable identity onto a
+# compatible fresh install, but it must not replace the new host's filesystem
+# layout or local Redis endpoint with values from the failed machine.
+MACHINE_SPECIFIC_CONFIG_KEYS = frozenset(
+    {"database_path", "backup_dir", "environment_path", "redis_url"}
+)
+PORTABLE_CONFIG_KEYS = frozenset(_PROJECT_KEYS - MACHINE_SPECIFIC_CONFIG_KEYS)
+MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
+    {
+        "BLITZE_PROJECT_DIR",
+        "BLITZE_CONFIG",
+        "BLITZE_DATABASE_PATH",
+        "BLITZE_BACKUP_DIR",
+        "BLITZE_ENVIRONMENT_PATH",
+        "BLITZE_REDIS_URL",
+    }
+)
+PORTABLE_ENVIRONMENT_KEYS = frozenset(
+    {
+        *(spec[1] for spec in _VALUE_SETTINGS),
+        "BLITZE_ACME_DEFAULT_EMAIL",
+        "BLITZE_PREFLIGHT_DNS_SERVERS",
+        "BLITZE_MAXMIND_ACCOUNT_ID",
+        "BLITZE_MAXMIND_LICENSE_KEY",
+        "BLITZE_UNDER_ATTACK_SECRET",
+        "BLITZE_API_KEY",
+        "BLITZE_API_KEYS",
+    }
+    - MACHINE_SPECIFIC_ENVIRONMENT_KEYS
+)
+
 
 class Settings(BaseSettings):
     """Validated application settings assembled from environment and TOML.
@@ -120,6 +159,13 @@ class Settings(BaseSettings):
     generated_vars_path: Path
     deployment_lock_path: Path
     certificate_dir: Path
+    #: Environment/secrets file. Installed controllers keep this under /etc;
+    #: checkouts use the project-local `.env`.
+    environment_path: Path
+    #: Where `backup create` writes when it is given no destination. The
+    #: archives here hold private keys and the whole audit trail, so the
+    #: directory is created `0700` and each archive `0600`.
+    backup_dir: Path
     acme_challenge_playbook_path: Path
     cache_purge_playbook_path: Path
     stats_playbook_path: Path
@@ -230,6 +276,8 @@ class Settings(BaseSettings):
         "generated_vars_path",
         "deployment_lock_path",
         "certificate_dir",
+        "environment_path",
+        "backup_dir",
         "acme_challenge_playbook_path",
         "cache_purge_playbook_path",
         "stats_playbook_path",

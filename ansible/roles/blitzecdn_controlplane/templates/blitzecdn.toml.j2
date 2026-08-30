@@ -2,6 +2,8 @@
 [blitzecdn]
 
 database_path = ".state/control-plane.db"
+backup_dir = {{ blitzecdn_controlplane_backup_dir | to_json }}
+environment_path = {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.env') | to_json }}
 acme_default_email = {{ blitzecdn_controlplane_effective_acme_email | to_json }}
 
 deployment_timeout_seconds = 900

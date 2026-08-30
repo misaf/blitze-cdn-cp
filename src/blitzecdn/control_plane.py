@@ -23,6 +23,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
+from blitzecdn import __version__
 from blitzecdn.application import (
     AutomaticSslService,
     CacheService,
@@ -35,11 +36,22 @@ from blitzecdn.application import (
     DnsService,
     EdgeOperationsService,
 )
+from blitzecdn.application.backup import BackupPolicy, BackupService
 from blitzecdn.application.configuration import CertificatePolicy, DeploymentPolicy
 from blitzecdn.application.maintenance import MaintenanceService
 from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
+from blitzecdn.infrastructure.backup import (
+    AcmeComponent,
+    AlembicSchemaVersions,
+    ConfigComponent,
+    DatabaseComponent,
+    SystemdServiceControl,
+    TarArchive,
+    TemporaryWorkspace,
+    TlsComponent,
+)
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
 from blitzecdn.infrastructure.desired_state import DesiredStateRenderer
@@ -236,6 +248,7 @@ class ControlPlane:
             events=self.events,
             runner=self._runner,
         )
+        self.backup = build_backup_service(self.settings)
         self.maintenance = MaintenanceService(
             certificates=self.certificates,
             automatic_ssl=self.automatic_ssl,
@@ -258,6 +271,31 @@ class ControlPlane:
         repository, self._owned_repository = self._owned_repository, None
         if repository is not None:
             repository.close()
+
+
+def build_backup_service(settings: Settings) -> BackupService:
+    """Wire backup and restore, which need no repository and open none.
+
+    Separate from ``ControlPlane`` because it has to work on a host where the
+    control plane cannot start: a fresh install with an empty database, or one
+    whose configuration was lost with the disk. Opening a repository to restore
+    a database would create and migrate the very file about to be replaced.
+    """
+    return BackupService(
+        policy=BackupPolicy(backup_dir=settings.backup_dir, version=__version__),
+        components=(
+            DatabaseComponent(settings),
+            TlsComponent(settings),
+            AcmeComponent(settings),
+            ConfigComponent(settings),
+        ),
+        archive=TarArchive(),
+        schema=AlembicSchemaVersions(settings),
+        services=SystemdServiceControl(),
+        # Staged under the state directory rather than /tmp: a staged backup is
+        # a complete copy of the database and every private key.
+        workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),
+    )
 
 
 def build_control_plane(
