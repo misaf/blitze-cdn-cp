@@ -28,6 +28,7 @@
               brotli off;
               js_path /etc/nginx;
           }
+      check_mode: false
       changed_when: false
 
     - name: Test the Nginx module probe

@@ -28,6 +28,11 @@
 
 - name: Verify the managed Nginx stack
   ansible.builtin.import_tasks: capabilities.yml
+  # In check mode apt reports that an absent stack would be installed without
+  # installing it. There is no binary or module set to probe in that case; the
+  # real deploy verifies both immediately after apt changes the host. An
+  # already-installed stack is still probed during check mode.
+  when: not (ansible_check_mode and blitzecdn_nginx_stack_apt is changed)
 
 - name: Record that the managed Nginx stack is ready
   ansible.builtin.set_fact:
