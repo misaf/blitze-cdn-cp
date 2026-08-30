@@ -117,6 +117,10 @@ ansible-check:
         tests/integration/http3-firewall-disabled.yml --syntax-check
     uv run ansible-playbook -i localhost, \
         tests/integration/edge-teardown.yml --syntax-check
+    uv run ansible-playbook -i localhost, \
+        ansible/playbooks/control-plane.yml --syntax-check
+    uv run ansible-playbook -i localhost, \
+        ansible/playbooks/uninstall.yml --syntax-check
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
         ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml \
         ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \

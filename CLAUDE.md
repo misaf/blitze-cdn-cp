@@ -31,9 +31,9 @@ Work happens on `2.x`, not `master`.
 A hexagonal layering that is **enforced by tests, not by convention** — `tests/test_layering.py` walks the real source tree and will fail your change if you cross a boundary. Read it before restructuring anything.
 
 - `domain/` — pure. Imports nothing but itself: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml).
-- `application/ports/` — feature-owned `Protocol` interfaces over the outside world; may see the domain. The top-level `ports.py` is compatibility-only. Ports are deliberately narrow, so each service's constructor documents its true reach into persistence.
+- `application/ports/` — feature-owned `Protocol` interfaces over the outside world; may see the domain. Ports are deliberately narrow, so each service's constructor documents its true reach into persistence.
 - `application/` — orchestrates the domain through ports and never names a concrete adapter.
-- `infrastructure/` — SQLite, Ansible, Certbot, filesystem, DNS. Matched to ports **structurally**; adapters never import or subclass the protocols.
+- `infrastructure/` — SQLite, Ansible, Certbot, filesystem, DNS. Implements application ports without depending on application services.
 - `control_plane.py` — the sole composition root. It builds every adapter and injects it into the services; production wiring exists nowhere else.
 - `cli/`, `api/` — entry points, split along matching feature boundaries. They call services on `ControlPlane`.
 
@@ -42,8 +42,8 @@ inventory mappings in `infrastructure/ansible_mapping.py`. Keep the frozen HTTP
 v1 representations in `api/v1_models.py` and `api/v1_operations.py`, and evolve
 v2 independently in `api/v2_models.py` and `api/v2_operations.py`. Persisted deployment snapshots are a
 versioned compatibility contract; add an upcaster and a legacy fixture before
-changing their shape. Application code receives the policies in
-`application/configuration.py`, not the global `Settings` model.
+changing their shape. Application services own their small policy dataclasses
+and receive those rather than the global `Settings` model.
 
 Rules that the layering tests exist to defend, each guarding a failure that is invisible in review:
 
@@ -69,4 +69,5 @@ These constrain what a change is allowed to do:
 - Failed and timed-out runs stay recorded and never become a canonical rollback target. Rollback converges the selected snapshot first; canonical desired state changes only after Ansible succeeds.
 - Startup republishes queued records and marks orphaned running records `abandoned` **only while holding the deployment lock**.
 - SQLite plus local locking means a single control-plane node. Active/active would require replacing both with transactional shared infrastructure — don't design around it as if it already works.
+- Every long-running BlitzeCDN process is a dedicated Compose service and that service's main process. Never start Uvicorn or Dramatiq with `docker exec`, background shells, or host application systemd units. One-off commands use the installed `blitzecdn` wrapper, which runs `docker compose run --rm blitzecdn-cli`.
 - `install.sh` runs as root, so it is linted like the Python (`just shell-lint`). `just uv-pin <version>` is the only correct way to bump the uv it downloads: the version and its four checksums must move together, or the installer compares a new download against an old hash and refuses to run.

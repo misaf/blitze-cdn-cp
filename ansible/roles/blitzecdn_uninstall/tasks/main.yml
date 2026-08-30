@@ -3,7 +3,32 @@
 # ansible-playbook process executing these tasks; install.sh removes it after
 # the play exits. Packages are shared host state and are not removed either.
 
-- name: Stop and disable BlitzeCDN services
+- name: Inspect the control-plane Compose project
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_uninstall_compose_file }}"
+  register: blitzecdn_uninstall_compose
+
+- name: Remove the control-plane containers and persistent Redis volume
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --file
+      - "{{ blitzecdn_uninstall_compose_file }}"
+      - down
+      - --volumes
+      - --remove-orphans
+  when: blitzecdn_uninstall_compose.stat.exists
+  changed_when: true
+
+- name: Remove the local control-plane runtime image
+  ansible.builtin.command:
+    argv: [docker, image, rm, "{{ blitzecdn_uninstall_image }}"]
+  register: blitzecdn_uninstall_image_removal
+  changed_when: blitzecdn_uninstall_image_removal.rc == 0
+  failed_when: false
+
+- name: Stop and disable obsolete host application units
   ansible.builtin.systemd_service:
     name: "{{ item }}"
     state: stopped
@@ -11,7 +36,7 @@
   loop: "{{ blitzecdn_uninstall_controlplane_units }}"
   failed_when: false
 
-- name: Remove BlitzeCDN systemd units
+- name: Remove obsolete host application units
   ansible.builtin.file:
     path: "/etc/systemd/system/{{ item }}"
     state: absent

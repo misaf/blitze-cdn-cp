@@ -15,7 +15,7 @@ the controller and distributed to every edge.
 ## Install
 
 Python 3.12–3.14 is supported; development and CI currently use Python 3.14.
-Certbot must also be installed on the controller for ACME requests.
+The production image includes Certbot and the Python application runtime.
 
 ### Standalone server
 
@@ -36,9 +36,9 @@ Replace the CIDR with the network from which SSH administration is allowed and
 the public address with the A/AAAA answer that reaches this edge. Supplying the
 public address is important when the standalone server is behind NAT or uses
 split DNS.
-The installer creates the service accounts, local SSH trust, API credential,
-inventory, systemd services, certificate timers, and a global `blitzecdn`
-command. It deliberately does not deploy on the first run: add or recreate the
+The installer configures Docker Engine, creates the service accounts, local SSH
+trust, API credential, inventory, Compose services, host certificate timers,
+and a global `blitzecdn` command. It deliberately does not deploy on the first run: add or recreate the
 desired sites, review `blitzecdn plan`, then run `blitzecdn deploy`.
 It is safe to rerun and does not replace existing API credentials or state.
 The API remains bound to loopback; connect without opening another public port:
@@ -56,10 +56,9 @@ Move the server onto a newer release, keeping everything it holds:
 sudo /opt/blitzecdn/install.sh update [--ref REF] [--yes] [--no-backup]
 ```
 
-`update` fetches from origin, backs up the database, stops the services,
-fast-forwards the checkout, rebuilds the virtualenv from the new lockfile, and
-converges the host — which installs any new units, migrates the schema, and
-starts the services again on the new release. Without `--ref` it follows the
+`update` fetches from origin, backs up the database, stops the containers,
+fast-forwards the checkout, rebuilds the bootstrap tooling and immutable image,
+migrates the schema, and recreates the Compose services. Without `--ref` it follows the
 branch the checkout tracks; a release installation is detached at its tag and
 must name what to move to, as in `--ref v2.1.0`. The database, certificates,
 inventory, and the API credentials in `/etc/blitzecdn` all survive. It refuses
@@ -85,7 +84,7 @@ checkout must be a Git clone of the upstream repository. `--uninstall` only
 removes. Both operations require the checkout's Ansible runtime because Ansible
 is the single implementation of system teardown. Standalone uninstall invokes
 the same `blitzecdn_teardown` role as normal edge decommissioning, then removes
-controller-only units, accounts, and commands. Bash removes `/opt/blitzecdn`
+controller-only containers, accounts, and commands. Bash removes `/opt/blitzecdn`
 only after the complete play succeeds. Both ask for confirmation unless
 `--yes` is given.
 
@@ -109,14 +108,15 @@ sudo git clone --branch 2.x https://github.com/misaf/blitze-cdn-cp.git /opt/blit
 sudo /opt/blitzecdn/install.sh standalone --admin-cidr 203.0.113.8/32 --email ops@example.com
 ```
 
-The path is not a suggestion: the hardened systemd units name `/opt/blitzecdn`,
-and `--fresh` needs a real clone with the right origin, so an unpacked tarball
+The path is not a suggestion: it is the production image build context, and
+`--fresh` needs a real clone with the right origin, so an unpacked tarball
 elsewhere will not do.
 
 It runs as root, but Bash only establishes the Python/Ansible runtime and invokes
 the control-plane and uninstall playbooks. Ansible owns accounts, sudo, SSH
-trust, units, and other host state; the installed control-plane runtime owns local-edge
-registration and the optional first deployment.
+trust, Docker and other host state. Compose owns the API, worker and Redis
+processes; an ephemeral application container owns local-edge registration and
+the optional first deployment.
 
 Environment variables that change what it installs, or how a later deploy
 behaves:
@@ -134,9 +134,9 @@ A lab controller wants the first:
 BLITZECDN_DEV=1 ./install.sh
 ```
 
-The Ansible roles live in `ansible/roles/` and are read at deploy time, so a
-role edit takes effect immediately — there is nothing to rebuild, pin, or
-reinstall after changing one.
+The Ansible roles live in `ansible/roles/`. A controller-only development
+checkout reads edits directly; a production installation rebuilds its immutable
+runtime image through `install.sh update` before using changed application roles.
 
 An empty desired state is safe on a fresh edge. On an edge whose managed-site
 registry is non-empty, it is refused by default because it would delete every
@@ -185,9 +185,9 @@ The package is layered, and the layering is checked rather than trusted:
 | Layer | Module | Rule |
 | --- | --- | --- |
 | Domain | `domain/` | Knows only itself. No I/O, no adapter imports. |
-| Ports | `application/ports/` | Feature-owned `Protocol` interfaces over the outside world. `ports.py` is a compatibility facade. |
+| Ports | `application/ports/` | Feature-owned `Protocol` interfaces over the outside world. |
 | Application | `application/` | Orchestrates the domain through those ports. Never names a concrete adapter. |
-| Infrastructure | `infrastructure/` | SQLite, Ansible, Certbot, filesystem, inventory, DNS. Matched to ports structurally — it never imports them. |
+| Infrastructure | `infrastructure/` | SQLite, Ansible, Certbot, filesystem, inventory, DNS. Implements ports without importing application services. |
 | Composition root | `control_plane.py` | The one module that knows both halves. Builds the adapters and injects them into the services. |
 | Entry points | `cli/`, `api/` | Call the `ControlPlane` facade. CLI commands and HTTP routers are split along matching feature boundaries. |
 
@@ -514,8 +514,9 @@ blitzecdn config unset blitzecdn_firewall_enabled
 ```
 
 The CLI automatically loads `.env` from the project directory as local
-defaults; already-exported variables take precedence. Production services can
-instead use a systemd `EnvironmentFile` or secret manager. API secrets must be
+defaults; already-exported variables take precedence. Production Compose
+services load `/etc/blitzecdn/blitzecdn.env`; an external secret manager may
+manage that file. API secrets must be
 at least 32 characters. Named credentials use
 `BLITZE_API_KEYS=alice:secret,bob:secret`. Store Ansible secrets in
 Vault-encrypted vars or an external secret plugin.
@@ -566,17 +567,36 @@ deployment.
 The CLI is synchronous: `deploy`, `plan`, and `rollback` return when Ansible
 does.
 
+## Production process lifecycle
+
+The installed API, worker, and Redis processes are dedicated Compose services.
+Docker owns each long-running process from creation through removal:
+
+```bash
+sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml up -d
+sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml stop
+sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml restart blitzecdn-api
+sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml restart blitzecdn-worker
+sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-worker
+```
+
+The installed `blitzecdn` wrapper runs administrative commands through
+`docker compose run --rm blitzecdn-cli`; operators do not enter a running
+container to launch them. `docker exec` is reserved for exceptional debugging,
+never daemon startup, upgrade, recovery, or routine CLI use.
+
 ## API
 
 ```bash
 blitzecdn serve --host 127.0.0.1 --port 8000
 ```
 
-For production, install both units in `packaging/systemd/`: the API unit runs
-FastAPI and the lightweight scheduler, while the worker unit executes Dramatiq
-deployments and scheduled certificate/drift work. Both supply the virtualenv
-`PATH` and load secrets from `/etc/blitzecdn/blitzecdn.env` when present. Put an
-authenticated TLS reverse proxy in front of the loopback listener.
+In production, `blitzecdn-api` runs Uvicorn as its main process and
+`blitzecdn-worker` runs Dramatiq as its main process. Redis has its own service.
+The lightweight scheduler remains in the API lifespan because the supported
+deployment has one API replica and SQLite/local locking intentionally excludes
+active-active operation. Put an authenticated TLS reverse proxy in front of
+the loopback listener.
 
 Unlike the CLI, the API does not block on a convergence. A run can take
 `deployment_timeout_seconds`
@@ -1206,10 +1226,11 @@ blitzecdn deploy
 
 The whole archive is validated before anything is written: the member names,
 the manifest, the format version, the component names, and each component's
-required files. Only then are the control-plane services stopped — and only if
-a component needs it, so a TLS-only restore never takes the controller offline
-— the components restored, the database migrated, and the services started
-again. A failure at any point leaves the services as it found them.
+required files. The installed wrapper records the currently running API and
+worker services, stops them before the ephemeral restore container writes
+state, and restores that exact running set in a shell trap. The archive is
+restored and the database migrated while those processes are offline. A
+failure still leaves the service set as it found it.
 
 ## Failure and recovery
 

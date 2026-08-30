@@ -15,6 +15,10 @@ argument_specs:
         type: str
       blitzecdn_uninstall_deploy_home:
         type: path
+      blitzecdn_uninstall_compose_file:
+        type: path
+      blitzecdn_uninstall_image:
+        type: str
       blitzecdn_uninstall_controlplane_units:
         type: list
         elements: str

@@ -2,7 +2,8 @@
 # The control-plane host is a Debian/Ubuntu host like any edge, so its state is
 # converged the same way an edge's is. What the installer keeps is only what has
 # to exist before Ansible can run at all: the packages Python needs, the
-# virtualenv, and the pinned collections.
+# bootstrap-only virtualenv and pinned collections. Application processes run
+# only in the Compose project.
 blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn
 blitzecdn_controlplane_service_user: blitzecdn
@@ -14,10 +15,13 @@ blitzecdn_controlplane_backup_dir: /var/backups/blitzecdn
 blitzecdn_controlplane_deploy_user: deploy
 blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
+blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
+blitzecdn_controlplane_image: blitzecdn-control-plane:local
+blitzecdn_controlplane_redis_image: redis:8.2-alpine
 
 # python3 and python3-venv are absent here on purpose: the installer has already
 # had to install them to build the virtualenv this play is running from.
-blitzecdn_controlplane_packages: [certbot, git, openssh-server, openssl, redis-server, sudo]
+blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo]
 
 # Set on a first installation only. An existing environment file keeps its
 # credentials; supplying an address repoints the ACME account, and omitting it
@@ -29,13 +33,7 @@ blitzecdn_controlplane_certificate_renewal_seconds: 43200
 blitzecdn_controlplane_drift_check_seconds: 3600
 blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
 
-# Kept in step with CONTROL_PLANE_SERVICES in install.sh, which needs the same
-# list to stop the services an update replaces. tests/test_install.py compares
-# the two, because a unit added here and missed there would survive an update
-# still running the release it was supposed to replace.
-blitzecdn_controlplane_units:
-  - blitzecdn-api.service
-  - blitzecdn-worker.service
-blitzecdn_controlplane_services:
+# Removed when upgrading a host-installed 2.x control plane.
+blitzecdn_controlplane_obsolete_units:
   - blitzecdn-api.service
   - blitzecdn-worker.service

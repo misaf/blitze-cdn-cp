@@ -256,6 +256,7 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "opt/blitzecdn/ansible/playbooks/uninstall.yml",
         root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/firewall-rules",
+        root / "etc/blitzecdn/control-plane.compose.yml",
         root / "etc/systemd/system/blitzecdn-api.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.timer",
@@ -547,6 +548,13 @@ def test_installer_installs_only_third_party_collections():
     assert '-r ansible/requirements.yml -p "${collections_path}"' in script
     assert "--force" not in script
     assert "collection build" not in script
+
+
+def test_production_bootstrap_does_not_install_the_application_on_the_host():
+    script = _script()
+    assert "bootstrap_runtime ansible-only" in _section("standalone")
+    assert "bootstrap_runtime ansible-only" in _section("update")
+    assert "--no-dev --no-install-project" in script
 
 
 def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():
@@ -881,16 +889,12 @@ def test_update_verifies_the_code_it_is_about_to_run_as_root():
     assert "${INSTALL_DIR} is not a Git checkout" in update
 
 
-def test_update_stops_exactly_the_services_the_role_starts():
-    """A unit added to the role and missed here survives on the old release."""
-    defaults = yaml.safe_load(
-        (ROLE / "defaults/main.yml").read_text(encoding="utf-8"),
-    )
+def test_update_stops_both_persistent_compose_services():
     declared = re.search(
         r"readonly CONTROL_PLANE_SERVICES=\((.*?)\)", _script(), re.DOTALL
     )
     assert declared is not None, "install.sh no longer declares CONTROL_PLANE_SERVICES"
-    assert declared.group(1).split() == defaults["blitzecdn_controlplane_services"]
+    assert declared.group(1).split() == ["blitzecdn-api", "blitzecdn-worker"]
 
 
 # --- update: sandboxed behaviour ---------------------------------------------
@@ -947,17 +951,17 @@ def _stub_update_git(sandbox: Path) -> None:
 
 
 def _stub_update_services(sandbox: Path, root: Path) -> None:
-    """systemctl and the CLI wrapper, both recording into the order log."""
-    (sandbox / "bin" / "systemctl").write_text(
+    """Docker Compose and the CLI wrapper, both recording into the order log."""
+    (sandbox / "bin" / "docker").write_text(
         "#!/usr/bin/env bash\n"
-        'case "$1" in\n'
-        "  list-unit-files) echo 'blitzecdn-api.service enabled'; exit 0 ;;\n"
-        '  stop) printf "%s\\n" "stop $2" >> "${UPDATE_ORDER_LOG:-/dev/null}" ;;\n'
-        "esac\n"
+        'if [[ "$*" == *" stop blitzecdn-api blitzecdn-worker"* ]]; then\n'
+        '  printf "%s\\n" "stop blitzecdn-api blitzecdn-worker" '
+        '>> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
+        "fi\n"
         "exit 0\n",
         encoding="utf-8",
     )
-    (sandbox / "bin" / "systemctl").chmod(0o700)
+    (sandbox / "bin" / "docker").chmod(0o700)
     wrapper = root / "usr/local/bin/blitzecdn"
     wrapper.parent.mkdir(parents=True, exist_ok=True)
     wrapper.write_text(
@@ -1141,7 +1145,7 @@ def test_update_backs_up_and_stops_services_in_that_order(tmp_path: Path):
     assert result.returncode == 1
     recorded = log.read_text(encoding="utf-8").splitlines()
     assert recorded[0] == "backup"
-    assert "stop blitzecdn-api.service" in recorded
+    assert "stop blitzecdn-api blitzecdn-worker" in recorded
     assert "checkout" not in recorded
 
 
@@ -1227,24 +1231,22 @@ def test_host_key_scan_is_stable_across_runs():
     assert "sort" in written["ansible.builtin.copy"]["content"]
 
 
-def test_controlplane_role_services_are_managed_as_units():
-    """Every service started by the role must be one of its installed units."""
+def test_controlplane_role_removes_obsolete_host_application_units():
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
-    for service in defaults["blitzecdn_controlplane_services"]:
-        assert service in defaults["blitzecdn_controlplane_units"]
+    assert defaults["blitzecdn_controlplane_obsolete_units"] == [
+        "blitzecdn-api.service",
+        "blitzecdn-worker.service",
+    ]
 
 
 def test_controlplane_initializes_schema_before_starting_services():
     tasks = _role_tasks()
     schema = _role_task("Initialize the application schema before starting services")
-    services = _role_task("Enable and start the control-plane services")
+    services = _role_task("Recreate and start the control-plane services")
 
     assert tasks.index(schema) < tasks.index(services)
-    assert schema["become_user"] == "{{ blitzecdn_controlplane_service_user }}"
-    assert schema["ansible.builtin.command"]["argv"][-2:] == [
-        "setup",
-        "--schema-only",
-    ]
+    command = schema["ansible.builtin.command"]["argv"]
+    assert command[-4:] == ["--no-deps", "blitzecdn-cli", "setup", "--schema-only"]
 
 
 def test_standalone_bootstraps_only_what_ansible_needs():

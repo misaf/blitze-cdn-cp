@@ -13,13 +13,8 @@ set -Eeuo pipefail
 readonly INSTALL_DIR=/opt/blitzecdn
 readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
-
-# The units `update` stops and expects the control-plane role to bring back.
-# The comment in the role's defaults promises these stay in step with that
-# role's `blitzecdn_controlplane_services`; tests/test_install.py enforces it,
-# because a unit added there and missed here would survive an update running
-# the old code with nothing to say so.
-readonly CONTROL_PLANE_SERVICES=(blitzecdn-api.service blitzecdn-worker.service)
+readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
+readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
 
 # Captured before dispatch strips the subcommand so destructive modes can
 # re-exec a private copy after deleting the checkout that contained this file.
@@ -322,21 +317,20 @@ require_upstream_origin() {
   printf '%s\n' "${remote_url}"
 }
 
-# Run the private post-bootstrap entry point as the service account.
+# Run the private post-bootstrap entry point in the same immutable image as the
+# API and worker. It is a one-off operation, so Compose removes the container.
 run_install_handoff() {
-  runuser -u blitzecdn -- env \
-    PATH="${INSTALL_DIR}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
-    BLITZE_PROJECT_DIR="${INSTALL_DIR}" \
-    BLITZE_ALLOW_EMPTY_SITES="${BLITZE_ALLOW_EMPTY_SITES:-false}" \
-    "${INSTALL_DIR}/.venv/bin/python" -m blitzecdn.install_handoff "$@"
+  docker compose --file "${CONTROL_PLANE_COMPOSE_FILE}" run --rm \
+    --entrypoint python \
+    -e "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES:-false}" \
+    blitzecdn-cli -m blitzecdn.install_handoff "$@"
 }
 
 # Converge this host through the control-plane role.
 #
 # Ansible owns the Linux state here exactly as it owns an edge's: accounts,
-# ownership, sudo, the loopback SSH trust, the CLI wrapper, the environment
-# file, and the systemd units. The installer's remaining job is to make this
-# call possible — packages, virtualenv, collections — and then to hand over.
+# ownership, sudo, loopback SSH trust, CLI wrapper, environment, runtime image,
+# and Compose project. The installer only makes this call possible.
 converge_control_plane() {
   local ansible_tmp status=0
   ansible_tmp=$(mktemp -d)
@@ -405,6 +399,10 @@ handoff_user_wrapper() {
 bootstrap_runtime() {
   cd -- "${script_dir}"
 
+  local mode="${1:-application}"
+  [[ ${mode} == application || ${mode} == ansible-only ]] ||
+    die 2 "error: unknown bootstrap runtime mode: ${mode}"
+
   local python_command="${BLITZECDN_PYTHON:-python3}"
   command -v "${python_command}" >/dev/null 2>&1 ||
     die 1 "error: ${python_command} was not found; install Python 3.12 or newer"
@@ -434,17 +432,23 @@ if sys.version_info[:2] < (3, 12):
   # fails the install rather than quietly installing something nobody tested.
   #
   # BLITZECDN_DEV=1 adds the test and lint tooling and makes src/ edits take
-  # effect without reinstalling. Without it the venv holds what a server wants
-  # and nothing else.
+  # effect without reinstalling. Production standalone/update calls use
+  # ansible-only: dependencies still include ansible-core, but the BlitzeCDN
+  # project and its CLI are not installed on the host.
   local -a sync_flags=(--frozen --python "${python_command}")
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
     "${uv}" sync "${sync_flags[@]}"
+  elif [[ ${mode} == ansible-only ]]; then
+    "${uv}" sync "${sync_flags[@]}" --no-dev --no-install-project
   else
     "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
   fi
 
-  [[ -x .venv/bin/python && -x .venv/bin/blitzecdn ]] ||
+  [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
     die 1 "error: uv created an incomplete .venv; rerun with --fresh"
+  if [[ ${mode} == application && ! -x .venv/bin/blitzecdn ]]; then
+    die 1 "error: uv did not install the local BlitzeCDN CLI"
+  fi
 
   # Collections go inside the repository rather than ~/.ansible/collections:
   # ansible/ansible.cfg looks here first, tests/test_contract.py reads whatever
@@ -495,8 +499,8 @@ Options:
                       Public edge IP or hostname; repeat when needed (NAT safe)
   -h, --help         Show this help
 
-The checkout must be /opt/blitzecdn because the hardened systemd units use that
-path. Re-running the installer preserves the API key, inventory, and state.
+The checkout must be /opt/blitzecdn because it is the immutable image build
+context. Re-running the installer preserves the API key, inventory, and state.
 EOF
 }
 
@@ -511,8 +515,8 @@ cmd_standalone() {
 
   # Everything up to `converge_control_plane` is bootstrap: the least this host
   # needs before Ansible can run on it. The operating-system check, the rest of
-  # the packages, the accounts, the SSH trust, the units and the environment
-  # file all belong to the role, which converges them the same way the edge
+  # the packages, accounts, SSH trust, image, Compose project and environment
+  # all belong to the role, which converges them the same way the edge
   # roles converge an edge.
   # python3 is the interpreter uv builds the virtualenv around — uv creates the
   # environment itself, so python3-venv is no longer needed. curl fetches the
@@ -542,9 +546,9 @@ if email.count("@") != 1 or any(char.isspace() for char in email):
 PY
 
 
-  # The virtualenv is built as root because the service account does not exist
-  # yet; the role hands the tree over immediately afterwards.
-  bootstrap_runtime
+  # This virtualenv is bootstrap tooling for Ansible. Long-running application
+  # processes are installed into the image built by the role, never the host.
+  bootstrap_runtime ansible-only
 
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}"
@@ -564,7 +568,7 @@ PY
   echo "Connect from your workstation with your existing operator account and key:"
   echo "  ssh -L 8000:127.0.0.1:8000 OPERATOR@THIS_SERVER"
   echo "API:     http://127.0.0.1:8000"
-  echo "Status:  systemctl status blitzecdn-api.service"
+  echo "Status:  docker compose --file ${CONTROL_PLANE_COMPOSE_FILE} ps"
 }
 
 # ---------------------------------------------------------------------------
@@ -576,8 +580,8 @@ usage_update() {
 Usage: sudo ./install.sh update [OPTIONS]
 
 Move this installation onto a newer release and leave its state intact: fetch
-the code, rebuild the virtualenv from the lockfile, converge the host, and
-bring the services back up on the new release.
+the code, rebuild the bootstrap tooling and application image, migrate state,
+and recreate the Compose services on the new release.
 
 Nothing is rewritten that an operator owns. The database, the certificates, the
 inventory, and the API credentials in /etc/blitzecdn all survive — this is the
@@ -590,36 +594,29 @@ Options:
   -h, --help   Show this help
 
 The checkout must be /opt/blitzecdn, must have the upstream origin, and must
-have no local modifications. The services are stopped for the duration of the
-update: a schema migration must not run underneath the code it migrates away
-from.
+have no local modifications. The persistent containers are stopped while the
+schema and immutable image are replaced.
 EOF
 }
 
-# Stop the units that exist. An update crossing the release that split the API
-# and the worker finds only one of them installed, and `systemctl stop` on a
-# unit this host has never had is an error rather than a no-op.
+# Stop persistent containers before replacing the code and image they run.
 stop_control_plane_services() {
-  local service
-  for service in "${CONTROL_PLANE_SERVICES[@]}"; do
-    if systemctl list-unit-files "${service}" >/dev/null 2>&1 &&
-      [[ -n $(systemctl list-unit-files --no-legend "${service}" 2>/dev/null) ]]; then
-      echo "Stopping ${service}..."
-      systemctl stop "${service}" || true
-    fi
-  done
+  [[ -f ${CONTROL_PLANE_COMPOSE_FILE} ]] || return 0
+  docker compose --file "${CONTROL_PLANE_COMPOSE_FILE}" stop \
+    "${CONTROL_PLANE_SERVICES[@]}"
 }
 
 # Report what is running once the role has started it again. The role uses
 # `state: started`, so a unit that fails on the new code leaves the play green
 # and the service down; this is what makes that visible at the end of a run.
 report_control_plane_services() {
-  local service status=0
+  local service health status=0
   for service in "${CONTROL_PLANE_SERVICES[@]}"; do
-    if systemctl is-active --quiet "${service}"; then
-      echo "  ${service}: active"
+    health=$(docker inspect --format '{{.State.Health.Status}}' "${service}" 2>/dev/null || true)
+    if [[ ${health} == healthy ]]; then
+      echo "  ${service}: healthy"
     else
-      echo "  ${service}: NOT RUNNING — inspect 'journalctl -u ${service}'" >&2
+      echo "  ${service}: NOT HEALTHY — inspect 'docker compose --file ${CONTROL_PLANE_COMPOSE_FILE} logs ${service}'" >&2
       status=1
     fi
   done
@@ -635,8 +632,8 @@ Updating the BlitzeCDN control plane on this host:
   from  ${current}
   to    ${target}  (${commits} commit(s) ahead)
 
-The services are stopped, the schema is migrated, and they are started again on
-the new release. State is preserved; a migration is not reversible.
+The containers are stopped, the schema is migrated, and they are recreated on
+the new image. State is preserved; a migration is not reversible.
 EOF
   [[ ${assume_yes} == 1 ]] && return 0
   local answer
@@ -727,7 +724,7 @@ cmd_update() {
     # A tag checks out detached, which is what a release installation looks
     # like and what --fresh reads back to reinstall the same release.
     repo_git checkout --quiet "${parsed_ref}" ||
-      die 1 "error: could not check out ${parsed_ref}; the services are stopped — " \
+      die 1 "error: could not check out ${parsed_ref}; the containers are stopped — " \
         "restore with 'git -C ${INSTALL_DIR} checkout ${current_description}' and rerun"
   else
     # Fast-forward only: an update must never quietly merge or rewrite history
@@ -739,9 +736,9 @@ cmd_update() {
   fi
 
   # Same two steps a standalone install runs, in the same order and through the
-  # same functions: the virtualenv from the new lockfile, then the role, which
-  # owns the units, the schema migration, and starting the services again.
-  bootstrap_runtime
+  # same functions: bootstrap tooling from the new lockfile, then the role,
+  # which owns image build, schema migration, and Compose service recreation.
+  bootstrap_runtime ansible-only
   converge_control_plane
 
   echo
@@ -768,7 +765,7 @@ Options:
 Removed:
   - the installation directory /opt/blitzecdn and everything in it: source,
     .venv, .env, and .state (database, certificates, collections, locks, logs)
-  - the services, timers, and systemd unit files
+  - the control-plane Compose project and BlitzeCDN host timers
   - /etc/blitzecdn and the API credentials it holds
   - the /usr/local/bin/blitzecdn command
   - the sudo rule /etc/sudoers.d/blitzecdn-deploy
@@ -814,7 +811,7 @@ confirm_destructive() {
 This removes every BlitzeCDN artifact on this host and cannot be undone:
 
   - /opt/blitzecdn and all state in it (database, certificates, collections)
-  - the BlitzeCDN services and systemd unit files
+  - the control-plane Compose project and BlitzeCDN host timers
   - /etc/blitzecdn and the API credentials it holds
   - the /usr/local/bin/blitzecdn command
   - the sudo rule /etc/sudoers.d/blitzecdn-deploy

@@ -1,8 +1,8 @@
 ---
 # Converges the host the control plane itself runs on. `install.sh standalone`
 # runs this once the virtualenv and the collections exist, and `install.sh
-# update` runs it again after checking out a release, so new or changed systemd
-# units land without a second mechanism for installing them.
+# update` runs it again after checking out a release, so the image and Compose
+# project move together without a second runtime mechanism.
 #
 # The role lives in this repository rather than the edge collection: it
 # configures the operator's own host, it is versioned with the control plane it
@@ -14,5 +14,12 @@
   gather_facts: true
   any_errors_fatal: true
   roles:
+    - role: blitzecdn_docker
+      tags: [docker, control_plane]
+      vars:
+        blitzecdn_docker_repository_url: >-
+          https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}
+        blitzecdn_docker_gpg_url: >-
+          https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}/gpg
     - role: blitzecdn_controlplane
       tags: [control_plane]

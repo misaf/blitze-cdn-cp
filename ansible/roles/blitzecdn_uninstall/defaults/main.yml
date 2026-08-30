@@ -5,7 +5,10 @@ blitzecdn_uninstall_service_user: blitzecdn
 blitzecdn_uninstall_service_home: /var/lib/blitzecdn
 blitzecdn_uninstall_deploy_user: deploy
 blitzecdn_uninstall_deploy_home: /home/deploy
+blitzecdn_uninstall_compose_file: /etc/blitzecdn/control-plane.compose.yml
+blitzecdn_uninstall_image: blitzecdn-control-plane:local
 
+# Compatibility cleanup for hosts upgrading from the pre-container runtime.
 blitzecdn_uninstall_controlplane_units:
   - blitzecdn-api.service
   - blitzecdn-worker.service
