@@ -12,7 +12,7 @@ def test_http3_uses_the_firewall_registry_for_udp_443():
     assert "when: blitzecdn_firewall_http3_enabled" in tasks
     assert "^(tcp|udp)\\|" in tasks
     assert "difference(blitzecdn_firewall_desired_rules)" in tasks
-    assert play.index("tasks_from: install.yml") < play.index(
+    assert play.index("tasks_from: verify-runtime.yml") < play.index(
         "role: blitzecdn_firewall"
     )
 
@@ -258,35 +258,149 @@ def test_teardown_separates_stopping_the_edge_from_erasing_it():
         assert gate(destructive) == "blitzecdn_teardown_remove_data", destructive
 
 
-def test_no_role_installs_a_native_nginx_stack():
-    """The host keeps Linux, SSH, Docker, the firewall and sysctl. Not Nginx.
+def _walk_ansible_tasks(value: Any):
+    """Yield tasks, including tasks nested in block/rescue/always sections."""
+    if not isinstance(value, list):
+        return
+    for task in value:
+        if not isinstance(task, dict):
+            continue
+        yield task
+        for section in ("block", "rescue", "always"):
+            yield from _walk_ansible_tasks(task.get(section))
 
-    A surviving apt task would put a second Nginx on the host competing for
-    :80 with the container — the exact failure blitzecdn_edge_stack refuses to
-    converge into.
-    """
-    native = {
+
+def _role_tasks():
+    for role in sorted(ROLES_DIR.iterdir()):
+        if not role.is_dir():
+            continue
+        for directory in (role / "tasks", role / "handlers"):
+            if not directory.is_dir():
+                continue
+            for source in sorted(directory.glob("*.yml")):
+                yield (
+                    source,
+                    _walk_ansible_tasks(
+                        yaml.safe_load(source.read_text(encoding="utf-8"))
+                    ),
+                )
+
+
+def test_no_host_role_installs_traffic_serving_packages():
+    """Nginx and GeoIP updater packages belong only in runtime images."""
+    forbidden = {
         "nginx",
+        "nginx-common",
+        "nginx-core",
         "libnginx-mod-http-geoip2",
         "libnginx-mod-http-brotli-filter",
         "libnginx-mod-http-js",
         "geoipupdate",
     }
-    for role in sorted(ROLES_DIR.iterdir()):
-        if not role.is_dir() or role.name == "blitzecdn_edge_stack":
-            continue
-        for source in sorted(role.rglob("*.yml")):
-            document = source.read_text(encoding="utf-8")
-            if "ansible.builtin.apt:" not in document:
-                continue
-            for package in native:
-                assert f"name: {package}\n" not in document, (
-                    f"{source} installs {package}"
-                )
-    # The one role allowed to name them names them only to purge a legacy edge.
-    migration = (STACK_ROLE_DIR / "tasks/native.yml").read_text(encoding="utf-8")
-    assert "state: absent" in migration
-    assert "purge: true" in migration
+    package_modules = ("ansible.builtin.apt", "ansible.builtin.package")
+    for source, tasks in _role_tasks():
+        for task in tasks:
+            for module in package_modules:
+                if module not in task:
+                    continue
+                arguments = yaml.safe_dump(task[module])
+                for package in forbidden:
+                    pattern = (
+                        rf"(?<![A-Za-z0-9_-]){re.escape(package)}(?![A-Za-z0-9_-])"
+                    )
+                    assert re.search(pattern, arguments) is None, (
+                        f"{source} installs forbidden host package {package}"
+                    )
+
+
+def test_no_host_task_controls_or_executes_nginx():
+    """Host automation may signal Nginx only through docker_container_exec."""
+    host_modules = (
+        "ansible.builtin.systemd",
+        "ansible.builtin.systemd_service",
+        "ansible.builtin.service",
+        "ansible.builtin.command",
+        "ansible.builtin.shell",
+    )
+    nginx = re.compile(r"(?<![A-Za-z0-9_-])nginx(?![A-Za-z0-9_-])", re.I)
+    for source, tasks in _role_tasks():
+        for task in tasks:
+            for module in host_modules:
+                if module in task:
+                    assert nginx.search(yaml.safe_dump(task[module])) is None, (
+                        f"{source} controls or executes Nginx on the host"
+                    )
+
+
+def test_fresh_host_guard_is_validation_only_and_runs_first(tmp_path):
+    guard_path = STACK_ROLE_DIR / "tasks/validate-host.yml"
+    guard = yaml.safe_load(guard_path.read_text(encoding="utf-8"))
+    prepare = (STACK_ROLE_DIR / "tasks/prepare.yml").read_text(encoding="utf-8")
+
+    assert guard[0]["ansible.builtin.stat"]["path"] == "/usr/sbin/nginx"
+    assert guard[1]["ansible.builtin.assert"]["that"] == [
+        "not blitzecdn_edge_stack_host_nginx.stat.exists"
+    ]
+    message = guard[1]["ansible.builtin.assert"]["fail_msg"]
+    assert "requires a fresh Ubuntu 26.04 LTS edge" in message
+    assert "does not migrate or purge" in message
+    assert "Rebuild the host" in message
+    assert set(guard[0]) == {"name", "ansible.builtin.stat", "register"}
+    assert set(guard[1]) == {"name", "ansible.builtin.assert"}
+    assert prepare.index("validate-host.yml") < prepare.index(
+        "Create the persistent edge directories"
+    )
+
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+    playbook = tmp_path / "fresh-host-guard.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "vars": {
+                        "blitzecdn_edge_stack_host_nginx": {"stat": {"exists": True}}
+                    },
+                    "tasks": [guard[1]],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "does not migrate or purge" in result.stdout
+
+
+def test_removed_host_compatibility_contracts_do_not_reappear():
+    forbidden = {
+        "blitzecdn_edge_stack_migrate_" + "from_native",
+        "blitzecdn_edge_stack_native_" + "packages",
+        "/etc/" + "GeoIP.conf",
+    }
+    ignored = {".git", ".venv", ".state", ".mypy_cache", ".pytest_cache"}
+    sources = (
+        path
+        for path in PROJECT_DIR.rglob("*")
+        if path.is_file()
+        and not ignored.intersection(path.parts)
+        and path.suffix in {".md", ".py", ".sh", ".yml", ".yaml", ".j2"}
+    )
+    for source in sources:
+        document = source.read_text(encoding="utf-8")
+        for obsolete in forbidden:
+            assert obsolete not in document, f"{source} contains {obsolete}"
 
 
 def test_the_edge_image_installs_the_abi_matched_stack_in_one_transaction():
@@ -493,7 +607,7 @@ def test_the_edge_lifecycle_order_holds():
     order = [
         "name: blitzecdn_docker",
         "tasks_from: prepare.yml",
-        "tasks_from: install.yml",
+        "tasks_from: verify-runtime.yml",
         "role: blitzecdn_firewall",
         "role: blitzecdn_nginx",
         "role: blitzecdn_edge_stack",
@@ -522,6 +636,5 @@ def test_the_image_is_settable_as_ordinary_fleet_policy():
         "blitzecdn_edge_image_tag",
         "blitzecdn_edge_image_digest",
         "blitzecdn_edge_stack_image_pull",
-        "blitzecdn_edge_stack_migrate_from_native",
     ):
         assert validate_setting_name(name) == name

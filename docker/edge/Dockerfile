@@ -4,12 +4,9 @@
 # keeps Linux, SSH, Docker, the firewall and kernel tuning; this image keeps
 # Nginx and its dynamic modules.
 #
-# Ubuntu 26.04 is deliberately the same platform the edges used to run natively.
-# The four packages below are the exact set the host used to install, so the
-# software serving traffic did not change when it moved into a container — only
-# where it lives. That is what makes the migration reviewable: a behaviour
-# difference between a native edge and a containerised one would have to come
-# from the mounts or the compose file, never from a different Nginx.
+# Ubuntu 26.04 provides the Nginx binary and the three dynamic modules below as
+# one archive-supported runtime. The edge image is the only place these
+# traffic-serving packages are installed.
 #
 # BlitzeCDN treats Nginx and its dynamic modules as one ABI-compatible unit.
 # Ubuntu expresses that by pinning every libnginx-mod-* package to an

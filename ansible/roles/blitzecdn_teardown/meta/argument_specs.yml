@@ -12,9 +12,10 @@ argument_specs:
         Stops and removes the Compose project first: a running edge holds the
         configuration it loaded, including the key files this role deletes.
       - >-
-        Leaves the container engine and shared packages installed, but withdraws the dedicated Nginx,
-        firewall, resolver, SSH, Fail2Ban, kernel and GeoIP artifacts written by
-        the edge roles. It does not alter unrelated administrator configuration.
+        Leaves the container engine and shared packages installed, but withdraws
+        the dedicated Nginx configuration, firewall, resolver, SSH, Fail2Ban,
+        kernel and GeoIP artifacts written by the edge roles. It does not alter
+        unrelated administrator configuration.
       - >-
         Must run while the host is still in inventory. Once the control plane
         drops the inventory entry no playbook can reach the host again, and
@@ -48,9 +49,6 @@ argument_specs:
         type: path
         required: true
       blitzecdn_teardown_sysctl_file:
-        type: path
-        required: true
-      blitzecdn_teardown_geoip_config_file:
         type: path
         required: true
       blitzecdn_teardown_geoip_units:

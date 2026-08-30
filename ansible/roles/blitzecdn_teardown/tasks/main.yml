@@ -47,13 +47,9 @@
     path: "{{ blitzecdn_teardown_compose_file }}"
   register: blitzecdn_teardown_compose
 
-# Stopped rather than reloaded, and before the certificates are deleted below.
-#
-# A running Nginx still holds the configuration it loaded until it is told
-# otherwise, and that configuration references key files this role is about to
-# remove. The pre-container releases reloaded here; there is nothing to reload
-# onto now, because the whole point of a teardown is that this host stops
-# serving. `down` also removes the containers, which is the half of a teardown
+# Stopped before the certificates are deleted below. A running Nginx keeps the
+# configuration it loaded, including references to key files this role is about
+# to remove. `down` also removes the containers, which is the half of a teardown
 # that must happen whether or not the data goes with it.
 - name: Stop and remove the edge stack
   community.docker.docker_compose_v2:
@@ -167,7 +163,7 @@
   loop: "{{ blitzecdn_teardown_geoip_units }}"
   notify: Reload systemd after edge teardown
 
-- name: Remove edge security and GeoIP configuration
+- name: Remove edge security configuration
   ansible.builtin.file:
     path: "{{ item }}"
     state: absent
@@ -175,7 +171,6 @@
     - "{{ blitzecdn_teardown_sshd_file }}"
     - "{{ blitzecdn_teardown_fail2ban_file }}"
     - "{{ blitzecdn_teardown_sysctl_file }}"
-    - "{{ blitzecdn_teardown_geoip_config_file }}"
   notify:
     - Reload SSH after edge teardown
     - Reload Fail2Ban after edge teardown
@@ -217,8 +212,7 @@
       [blitzecdn_teardown_resolver_file,
        blitzecdn_teardown_sshd_file,
        blitzecdn_teardown_fail2ban_file,
-       blitzecdn_teardown_sysctl_file,
-       blitzecdn_teardown_geoip_config_file]
+       blitzecdn_teardown_sysctl_file]
       + ([blitzecdn_teardown_state_path,
           blitzecdn_teardown_cache_path,
           blitzecdn_teardown_acme_root,

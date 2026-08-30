@@ -2,8 +2,8 @@
 #
 # Resolves the client address to a country once, in the http context, so every
 # managed site reads the same variable — firewall country rules, and the
-# BZ-IPCountry header sent to the origin. The module itself is loaded by
-# /etc/nginx/modules-enabled/, which the distribution package installs.
+# BZ-IPCountry header sent to the origin. The edge image provides and loads the
+# module through /etc/nginx/modules-enabled/.
 #
 # $blitzecdn_country is the ISO 3166-1 alpha-2 code, or "" for an address the
 # database has no entry for — private ranges, and anything newly allocated.
@@ -13,7 +13,7 @@
 # "block these" cannot know an unknown address is one of them, and "only these"
 # cannot know it is not.
 geoip2 {{ blitzecdn_nginx_geoip_database }} {
-    # Picks up a database replaced in place by geoipupdate(8) without a reload.
+    # Picks up a database replaced by the updater container without a reload.
     auto_reload {{ blitzecdn_nginx_geoip_reload }};
     $blitzecdn_country source=$remote_addr country iso_code;
 }

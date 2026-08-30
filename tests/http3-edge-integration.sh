@@ -107,9 +107,9 @@ in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0
 say "Converging a fresh Docker edge"
 converge
 
-say "Proving the host runs no native BlitzeCDN packages"
-in_edge '! command -v nginx' || fail "a native nginx survived on the edge host"
-in_edge '! command -v geoipupdate' || fail "a native geoipupdate survived on the edge host"
+say "Proving the host runs no traffic-serving BlitzeCDN packages"
+in_edge '! command -v nginx' || fail "nginx was installed on the edge host"
+in_edge '! command -v geoipupdate' || fail "geoipupdate was installed on the edge host"
 in_edge 'dpkg-query -W nginx 2>/dev/null && exit 1; exit 0' ||
   fail "the nginx package is installed on the edge host"
 

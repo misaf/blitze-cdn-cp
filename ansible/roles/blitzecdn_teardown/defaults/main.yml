@@ -12,10 +12,6 @@ blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
 blitzecdn_teardown_sshd_file: /etc/ssh/sshd_config.d/50-blitzecdn.conf
 blitzecdn_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.local
 blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
-# Written by the pre-container releases of this collection, which ran
-# geoipupdate(8) natively. Still removed: a host upgraded rather than rebuilt
-# has one, and it holds a MaxMind license key.
-blitzecdn_teardown_geoip_config_file: /etc/GeoIP.conf
 blitzecdn_teardown_geoip_units:
   - blitzecdn-geoipupdate.service
   - blitzecdn-geoipupdate.timer
@@ -26,7 +22,7 @@ blitzecdn_teardown_geoip_units:
 # reached the registry, and matching on content is what still finds it.
 blitzecdn_teardown_marker: "# Managed by BlitzeCDN. Local edits are overwritten."
 
-# The containerised runtime.
+# The container runtime.
 blitzecdn_teardown_compose_file: /etc/blitzecdn/compose.yml
 blitzecdn_teardown_project: blitzecdn
 blitzecdn_teardown_container: blitzecdn-edge

@@ -2,8 +2,8 @@
 - name: Validate the desired state before changing anything
   ansible.builtin.import_tasks: validate.yml
 
-- name: Install and verify the managed Nginx stack
-  ansible.builtin.import_tasks: install.yml
+- name: Verify the edge runtime
+  ansible.builtin.import_tasks: verify-runtime.yml
   when: not (blitzecdn_nginx_stack_ready | default(false) | bool)
 
 # The GeoLite2 database itself is provided by blitzecdn_edge_stack, whose
@@ -30,9 +30,9 @@
       The download ran and did not produce one — check the MaxMind account ID
       and license key, and that this edge can reach updates.maxmind.com.
       {% else %}
-      Set blitzecdn_nginx_geoip_account_id and
-      blitzecdn_nginx_geoip_license_key so this role can fetch GeoLite2, or
-      install the database yourself and point the variable at it.
+      Configure the MaxMind account ID and license key so the edge-stack GeoIP
+      updater can provision GeoLite2, or provide the database yourself and
+      point the variable at it.
       {% endif %}
   when: blitzecdn_nginx_geoip_enabled
 

@@ -4,7 +4,5 @@
   connection: local
   become: true
   gather_facts: false
-  vars:
-    blitzecdn_teardown_geoip_config_file: /etc/GeoIP.conf
   roles:
     - role: blitzecdn_teardown

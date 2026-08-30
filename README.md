@@ -228,7 +228,7 @@ BlitzeCDN control plane
 ┌──────────────────────────────────────────────┐
 │ Edge host                                    │
 │                                              │
-│ Native                                       │
+│ Host infrastructure                          │
 │ ├── Ubuntu 26.04 LTS                         │
 │ ├── SSH (blitzecdn_sshd, blitzecdn_fail2ban) │
 │ ├── Docker Engine (blitzecdn_docker)         │
@@ -257,13 +257,13 @@ containers. What they will read already exists: the `blitzecdn` access log
 format carrying the per-request cache outcome, and the loopback-bound
 `stub_status` endpoint.
 
-### What stopped being installed on the host
+### Host and container responsibilities
 
-`nginx`, `libnginx-mod-http-geoip2`, `libnginx-mod-http-brotli-filter`,
-`libnginx-mod-http-js` and `geoipupdate` are no longer installed on an edge.
-They live in images. The host installs Docker Engine, the Compose plugin,
-`containerd`, `ufw`, `fail2ban` and the handful of base packages the other
-roles need — and nothing that serves traffic.
+Nothing that serves CDN traffic is installed directly on the host. Nginx,
+`libnginx-mod-http-geoip2`, `libnginx-mod-http-brotli-filter`,
+`libnginx-mod-http-js` and `geoipupdate` live only in containers. The host owns
+Docker Engine, the Compose plugin, `containerd`, SSH, `ufw`, `fail2ban`,
+systemd-resolved, kernel tuning and the persistent bind-mount directories.
 
 Everything else is unchanged. The control plane still renders every site from
 the same models through the same templates onto the same paths; the container
@@ -279,9 +279,9 @@ challenges and the status endpoint all behave exactly as before.
 ghcr.io/misaf/blitzecdn-edge:<version>
 ```
 
-Built from [`docker/edge/`](docker/edge/) on `ubuntu:26.04` with the same four
-Ubuntu packages an edge used to install. BlitzeCDN treats Nginx and its dynamic
-modules as one ABI-compatible unit; Ubuntu expresses that by pinning every
+Built from [`docker/edge/`](docker/edge/) on `ubuntu:26.04` with four Ubuntu
+runtime packages. BlitzeCDN treats Nginx and its dynamic modules as one
+ABI-compatible unit; Ubuntu expresses that by pinning every
 `libnginx-mod-*` package to an `nginx-abi-<version>` virtual package, so apt
 resolving all four in one transaction is the guarantee. The build then proves
 it: it loads all three modules and uses a directive from each, so an image that
@@ -464,26 +464,21 @@ tail -f /var/log/nginx/blitzecdn-access.log
 The container's own output carries startup and error messages only; the request
 log is the bind-mounted file above.
 
-### Migrating an existing native edge
+### Replacing an older edge host
 
-A native Nginx and the edge container cannot share the public ports, and the
-failure is the worst kind: the container never binds, Docker restarts it
-forever, and the host keeps serving whatever the native Nginx last loaded, so
-every deploy afterwards reports success against a fleet running none of it.
+BlitzeCDN 2.x requires fresh Ubuntu 26.04 LTS edge hosts. Existing
+native-Nginx BlitzeCDN edges are not upgraded in place, and BlitzeCDN never
+stops, disables or purges a pre-existing host Nginx. A converge fails safely
+before preparing the runtime when `/usr/sbin/nginx` exists.
 
-A converge therefore stops when it finds `/usr/sbin/nginx`, and says so.
-Preferred path: build fresh Ubuntu 26.04 edges, validate a small batch, shift
-traffic, retire the old ones. In place, once, per host:
+To move an older edge to 2.x:
 
-```bash
-blitzecdn deploy --limit edge-01   -e blitzecdn_edge_stack_migrate_from_native=true
-```
-
-That stops and disables the native Nginx and the native GeoIP timer, purges the
-five packages, confirms nothing is still listening, and only then starts the
-container. The configuration tree, the certificates, the ACME state and the
-cache are left exactly where they are — they are the same paths the container
-mounts.
+1. Provision a fresh Ubuntu 26.04 host.
+2. Register it as a new edge.
+3. Deploy the desired state.
+4. Validate traffic and TLS.
+5. Shift traffic to the new edge.
+6. Decommission the old host.
 
 ### Decommissioning
 
@@ -1003,8 +998,8 @@ reading the record sees the same shape it always did.
 
 Three things worth knowing before changing it:
 
-- **Brotli is part of the managed edge stack.** Ubuntu 26.04 splits its dynamic
-  modules, so BlitzeCDN installs `libnginx-mod-http-brotli-filter` for the exact
+- **Brotli is part of the managed edge image.** Ubuntu 26.04 splits its dynamic
+  modules, so the image installs `libnginx-mod-http-brotli-filter` for the exact
   Nginx ABI. If it is missing or unloadable, provisioning fails; Brotli policy
   is never silently changed to gzip. The static module is not needed.
 - **`off` means this edge does not compress, not that responses arrive

@@ -1,10 +1,7 @@
 ---
-# BlitzeCDN owns this stack as one ABI unit. It is now an image rather than an
-# apt transaction, which makes the unit stronger rather than weaker: the binary
-# and its three dynamic modules were resolved together at build time, published
-# together, and are pulled together as one immutable object. Nothing on the edge
-# can combine one version's binary with another version's modules, because
-# nothing on the edge installs either.
+# The Nginx binary and its dynamic modules are an immutable unit in the edge
+# image. This task file only makes that image available and verifies its runtime
+# capabilities; it installs no traffic-serving software on the host.
 - name: Require the supported fresh-edge operating system
   ansible.builtin.assert:
     that:
@@ -12,8 +9,8 @@
       - ansible_facts.distribution_version == '26.04'
     fail_msg: >-
       BlitzeCDN edges for this release require a fresh Ubuntu 26.04 LTS host.
-      The Nginx stack itself now ships in the edge runtime image; this gate is
-      about the host that runs Docker, the firewall and the kernel tuning.
+      The Nginx stack ships in the edge runtime image; this gate is about the
+      host that runs Docker, the firewall and the kernel tuning.
 
 - name: Look for the edge runtime image on this host
   community.docker.docker_image_info:
