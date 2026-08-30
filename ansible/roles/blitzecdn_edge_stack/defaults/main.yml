@@ -133,19 +133,3 @@ blitzecdn_edge_stack_geoip_env_file: /etc/blitzecdn/geoipupdate.env
 blitzecdn_edge_stack_geoip_units:
   - blitzecdn-geoipupdate.service
   - blitzecdn-geoipupdate.timer
-
-# --- migration -----------------------------------------------------------
-#
-# A native Nginx and the edge container cannot both own :80. Left alone, the
-# container would fail to bind and the host would keep serving whatever the
-# native Nginx last loaded — a fleet that looks converged and is not. Set this
-# true, once, to have the converge stop and purge the native stack first.
-blitzecdn_edge_stack_migrate_from_native: false
-blitzecdn_edge_stack_native_packages:
-  - nginx
-  - nginx-common
-  - nginx-core
-  - libnginx-mod-http-geoip2
-  - libnginx-mod-http-brotli-filter
-  - libnginx-mod-http-js
-  - geoipupdate

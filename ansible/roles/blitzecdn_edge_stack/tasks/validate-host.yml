@@ -1,0 +1,17 @@
+---
+# Validation only. BlitzeCDN never stops services or removes packages from a
+# host that does not satisfy the fresh-install contract.
+- name: Check for a host-installed Nginx runtime
+  ansible.builtin.stat:
+    path: /usr/sbin/nginx
+  register: blitzecdn_edge_stack_host_nginx
+
+- name: Require a fresh edge host
+  ansible.builtin.assert:
+    that:
+      - not blitzecdn_edge_stack_host_nginx.stat.exists
+    fail_msg: >-
+      BlitzeCDN 2.x requires a fresh Ubuntu 26.04 LTS edge. A native Nginx
+      installation was detected at /usr/sbin/nginx. BlitzeCDN does not migrate
+      or purge pre-existing Nginx installations. Rebuild the host from a fresh
+      supported Ubuntu installation. Nothing was changed on this host.

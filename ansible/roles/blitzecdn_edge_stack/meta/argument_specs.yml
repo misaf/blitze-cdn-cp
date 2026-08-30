@@ -91,11 +91,3 @@ argument_specs:
       blitzecdn_edge_stack_geoip_update_splay: {type: str, required: true}
       blitzecdn_edge_stack_geoip_env_file: {type: path, required: true}
       blitzecdn_edge_stack_geoip_units: {type: list, elements: str, required: true}
-      blitzecdn_edge_stack_migrate_from_native:
-        type: bool
-        required: true
-        description: >-
-          Stop and purge a native Nginx before starting the container. Off, a
-          host that still has one fails the converge rather than leaving two
-          services competing for the public ports.
-      blitzecdn_edge_stack_native_packages: {type: list, elements: str, required: true}

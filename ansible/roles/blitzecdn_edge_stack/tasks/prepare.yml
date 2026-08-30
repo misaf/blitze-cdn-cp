@@ -10,8 +10,8 @@
 - name: Prepare the edge runtime
   when: blitzecdn_edge_stack_enabled
   block:
-    - name: Refuse to start the edge stack beside a native Nginx
-      ansible.builtin.import_tasks: native.yml
+    - name: Validate the fresh edge host
+      ansible.builtin.import_tasks: validate-host.yml
 
     - name: Create the persistent edge directories
       ansible.builtin.file:

@@ -99,7 +99,7 @@
     - name: Verify the edge runtime image before opening firewall ports
       ansible.builtin.import_role:
         name: blitzecdn_nginx
-        tasks_from: install.yml
+        tasks_from: verify-runtime.yml
       vars:
         blitzecdn_nginx_config_test_image: >-
           {{ blitzecdn_edge_stack_resolved_image | default(blitzecdn_nginx_image) }}

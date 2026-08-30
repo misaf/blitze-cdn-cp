@@ -36,8 +36,7 @@
     # before a configuration is rendered: the persistent directories, the
     # runtime image, the Compose project and the GeoLite2 database.
     #
-    # Both run before the firewall, which is the same rule the native stack
-    # followed and for the same reason: opening the public ports on a host that
+    # Both run before the firewall: opening the public ports on a host that
     # cannot serve them advertises an edge that is not there. The container
     # itself is not started here — that waits until the configuration exists and
     # has passed `nginx -t`, at the end of the roles below.
@@ -53,7 +52,7 @@
     - name: Verify the edge runtime image before firewall changes
       ansible.builtin.import_role:
         name: blitzecdn_nginx
-        tasks_from: install.yml
+        tasks_from: verify-runtime.yml
       vars:
         # The digest prepare.yml just pinned, not the tag it was asked for. The
         # image that is probed has to be the image that will serve.
@@ -85,9 +84,9 @@
     # SSH policy comes after the firewall so a host that fails firewall
     # validation is never left key-only but unreachable from the management
     # network, and before Fail2Ban so bans apply to a daemon that has already
-    # stopped accepting passwords. Both stay native: they protect and configure
-    # the host itself, and an edge whose containers are all broken must still be
-    # reachable for Ansible to repair it.
+    # stopped accepting passwords. Both stay on the host: they protect and
+    # configure the host itself, and an edge whose containers are all broken
+    # must still be reachable for Ansible to repair it.
     - role: blitzecdn_sshd
       tags: [security, sshd]
     - role: blitzecdn_fail2ban

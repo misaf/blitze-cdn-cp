@@ -167,18 +167,18 @@ blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
 blitzecdn_nginx_geoip_reload: 5m
 blitzecdn_nginx_geoip_file: /etc/nginx/conf.d/blitzecdn-geoip.conf
 
-# MaxMind GeoLite2 — free, but not anonymous. Downloads need an account and a
-# license key, so the role can only fetch the database once you supply them.
-# Leave them empty to manage the file yourself; the role then just checks it is
-# there.
+# MaxMind GeoLite2 — free, but not anonymous. The edge-stack updater container
+# can provision the database once you supply an account and license key. Leave
+# them empty to manage the file yourself; this role then only checks it exists.
 #
 # The key is a secret. Do not commit it: set it from the controller's
 # environment in group_vars, e.g.
 #
 #   blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'MAXMIND_LICENSE_KEY') }}"
 #
-# It is written to a 0600 root-owned file and every task that handles it sets
-# no_log.
+# blitzecdn_edge_stack writes it to /etc/blitzecdn/geoipupdate.env as root:root
+# mode 0600 and supplies that file only to the updater container. Every task
+# that handles it sets no_log.
 blitzecdn_nginx_geoip_account_id: ""
 blitzecdn_nginx_geoip_license_key: ""
 # Country is all the firewall rules need. GeoLite2-City is far larger and buys

@@ -172,9 +172,9 @@ in_container 'grep -q "^cdn-example-test$" /etc/nginx/blitzecdn-managed-sites' |
   fail "the managed-site registry was not written"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx healthy' ||
   fail "the edge container is not healthy"
-# The host must be left with no BlitzeCDN runtime packages of its own: a native
-# Nginx would compete with the container for every public port.
-in_container '! command -v nginx' || fail "a native nginx was installed on the host"
+# The host must be left with no traffic-serving BlitzeCDN runtime packages of
+# its own: a host process would compete with the container for public ports.
+in_container '! command -v nginx' || fail "nginx was installed on the host"
 
 # Converging twice must change nothing: the drift check is the assertion.
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"

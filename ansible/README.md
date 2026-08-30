@@ -101,15 +101,15 @@ Check mode cannot prove service behaviour or package availability. Always run
 
 ## The containerised edge runtime
 
-The supported fresh-edge platform for this release is Ubuntu 26.04 LTS, and it
-runs the CDN as containers. Nothing that serves traffic is installed on the
-host: no `nginx`, no `libnginx-mod-*`, no `geoipupdate`.
+BlitzeCDN 2.x requires a fresh Ubuntu 26.04 LTS edge and runs the CDN as
+containers. Nothing that serves CDN traffic is installed directly on the host:
+no `nginx`, no `libnginx-mod-*`, no `geoipupdate`.
 
 | Role | Owns |
 | --- | --- |
 | `blitzecdn_docker` | Docker Engine, the Compose plugin, the daemon configuration |
-| `blitzecdn_edge_stack` | The Compose project, the runtime image, persistent directories, GeoLite2, health |
-| `blitzecdn_nginx` | The configuration tree on the host filesystem, its validation and reload |
+| `blitzecdn_edge_stack` | The runtime image, Compose project, edge and updater containers, persistent directories, and runtime health |
+| `blitzecdn_nginx` | Generated Nginx configuration, configuration validation, and reload signalling inside the running edge container |
 
 `blitzecdn_edge_stack` has two entry points. `prepare.yml` runs as a pre-task —
 persistent directories, image pull and digest pin, the Compose file, the
@@ -117,6 +117,12 @@ GeoLite2 database — because the database must exist before a configuration tha
 reads it is validated, and the image must exist before anything can be
 validated against it. `main.yml` runs last and starts, keeps or replaces the
 container.
+
+Existing native-Nginx BlitzeCDN edges are not upgraded in place. The fresh-host
+guard fails without changing the host when `/usr/sbin/nginx` exists; it never
+stops a service or removes a package. To move an older edge to 2.x, provision a
+fresh Ubuntu 26.04 host, register it as a new edge, deploy desired state,
+validate traffic and TLS, shift traffic, and then decommission the old host.
 
 The image is `ghcr.io/misaf/blitzecdn-edge:<version>`, built from
 `docker/edge/` on `ubuntu:26.04` with these four Ubuntu archive packages
