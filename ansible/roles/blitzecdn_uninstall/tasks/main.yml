@@ -28,21 +28,6 @@
   changed_when: blitzecdn_uninstall_image_removal.rc == 0
   failed_when: false
 
-- name: Stop and disable obsolete host application units
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    state: stopped
-    enabled: false
-  loop: "{{ blitzecdn_uninstall_controlplane_units }}"
-  failed_when: false
-
-- name: Remove obsolete host application units
-  ansible.builtin.file:
-    path: "/etc/systemd/system/{{ item }}"
-    state: absent
-  loop: "{{ blitzecdn_uninstall_controlplane_units }}"
-  notify: Reload systemd after removing units
-
 - name: Remove edge-managed Linux state through its canonical role
   ansible.builtin.include_role:
     name: blitzecdn_teardown
@@ -56,28 +41,18 @@
   loop:
     - "{{ blitzecdn_uninstall_cli_wrapper }}"
     - "{{ blitzecdn_uninstall_sudoers_file }}"
+    - "{{ blitzecdn_uninstall_state_dir }}"
 
-# Accounts come last: stopping the services first gives userdel a clean chance
-# to remove them, and removing them through the user module also removes their
-# dedicated homes and the local SSH trust stored there.
-- name: Remove BlitzeCDN service accounts and homes
+# The deployment identity genuinely logs in over SSH while installed. It is
+# removed after the controller and edge containers have stopped using it.
+- name: Remove the deployment account and home
   ansible.builtin.user:
-    name: "{{ item.name }}"
+    name: "{{ blitzecdn_uninstall_deploy_user }}"
     state: absent
     remove: true
     force: true
-  loop:
-    - name: "{{ blitzecdn_uninstall_service_user }}"
-      home: "{{ blitzecdn_uninstall_service_home }}"
-    - name: "{{ blitzecdn_uninstall_deploy_user }}"
-      home: "{{ blitzecdn_uninstall_deploy_home }}"
-  loop_control:
-    label: "{{ item.name }}"
 
-- name: Ensure dedicated account homes are absent
+- name: Ensure the deployment account home is absent
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ blitzecdn_uninstall_deploy_home }}"
     state: absent
-  loop:
-    - "{{ blitzecdn_uninstall_service_home }}"
-    - "{{ blitzecdn_uninstall_deploy_home }}"

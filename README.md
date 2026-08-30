@@ -36,11 +36,14 @@ Replace the CIDR with the network from which SSH administration is allowed and
 the public address with the A/AAAA answer that reaches this edge. Supplying the
 public address is important when the standalone server is behind NAT or uses
 split DNS.
-The installer configures Docker Engine, creates the service accounts, local SSH
+The installer configures Docker Engine, creates the deployment account and local SSH
 trust, API credential, inventory, Compose services, host certificate timers,
 and a global `blitzecdn` command. It deliberately does not deploy on the first run: add or recreate the
 desired sites, review `blitzecdn plan`, then run `blitzecdn deploy`.
 It is safe to rerun and does not replace existing API credentials or state.
+No `blitzecdn` account exists on the host. API, worker, and CLI containers reuse
+the base image's `nobody:nogroup` identity; the host grants numeric ownership
+only to their writable state and backup directories.
 The API remains bound to loopback; connect without opening another public port:
 
 ```bash

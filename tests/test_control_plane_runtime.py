@@ -24,10 +24,8 @@ def _compose() -> dict[str, Any]:
     ).render(
         blitzecdn_controlplane_image="blitzecdn-control-plane:test",
         blitzecdn_controlplane_install_dir="/opt/blitzecdn",
-        blitzecdn_controlplane_service_uid=991,
-        blitzecdn_controlplane_service_gid=991,
         blitzecdn_controlplane_config_dir="/etc/blitzecdn",
-        blitzecdn_controlplane_service_home="/var/lib/blitzecdn",
+        blitzecdn_controlplane_state_dir="/var/lib/blitzecdn",
         blitzecdn_controlplane_backup_dir="/var/backups/blitzecdn",
         blitzecdn_controlplane_redis_image="redis:test",
     )
@@ -55,6 +53,40 @@ def test_cli_is_ephemeral_and_not_a_persistent_daemon():
     assert cli["profiles"] == ["cli"]
     assert cli["restart"] == "no"
     assert cli["entrypoint"] == ["blitzecdn"]
+
+
+def test_application_services_reuse_the_image_non_root_identity():
+    services = _compose()["services"]
+    for name in ("blitzecdn-api", "blitzecdn-worker", "blitzecdn-cli"):
+        service = services[name]
+        assert "user" not in service
+        assert "group_add" not in service
+        assert service["security_opt"] == ["no-new-privileges:true"]
+
+    dockerfile = (ROOT / "docker/control-plane/Dockerfile").read_text(encoding="utf-8")
+    assert "USER nobody:nogroup" in dockerfile
+    for duplicate_account in ("useradd", "groupadd", "adduser", "addgroup"):
+        assert duplicate_account not in dockerfile
+    for dynamic_mapping in ("BLITZE_UID", "BLITZE_GID", "PUID", "PGID"):
+        assert dynamic_mapping not in dockerfile
+    dockerignore = (ROOT / "docker/control-plane/Dockerfile.dockerignore").read_text(
+        encoding="utf-8"
+    )
+    assert "blitzecdn.toml" in dockerignore.splitlines()
+
+
+def test_control_plane_mounts_only_the_required_writable_state():
+    services = _compose()["services"]
+    shared = {
+        "/var/lib/blitzecdn:/opt/blitzecdn/.state",
+        "/opt/blitzecdn/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro",
+    }
+    for name in ("blitzecdn-api", "blitzecdn-worker"):
+        assert set(services[name]["volumes"]) == shared
+        assert all("docker.sock" not in mount for mount in services[name]["volumes"])
+    assert set(services["blitzecdn-cli"]["volumes"]) == shared | {
+        "/var/backups/blitzecdn:/var/backups/blitzecdn"
+    }
 
 
 def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
@@ -103,3 +135,64 @@ def test_no_host_units_launch_application_daemons():
         text = path.read_text(encoding="utf-8").lower()
         assert "uvicorn" not in text
         assert "dramatiq" not in text
+
+
+def test_host_has_no_blitzecdn_service_account_contract():
+    sources = [
+        ROLE / "defaults/main.yml",
+        ROLE / "meta/argument_specs.yml",
+        ROLE / "tasks/main.yml",
+        ROOT / "ansible/roles/blitzecdn_uninstall/defaults/main.yml",
+        ROOT / "ansible/roles/blitzecdn_uninstall/meta/argument_specs.yml",
+        ROOT / "ansible/roles/blitzecdn_uninstall/tasks/main.yml",
+    ]
+    document = "\n".join(path.read_text(encoding="utf-8") for path in sources)
+    for obsolete in (
+        "blitzecdn_controlplane_service_user",
+        "blitzecdn_controlplane_service_uid",
+        "blitzecdn_controlplane_service_gid",
+        "blitzecdn_uninstall_service_user",
+        "become_user:",
+        "sudo -u blitzecdn",
+        "runuser",
+    ):
+        assert obsolete not in document
+
+    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    users = [
+        task["ansible.builtin.user"] for task in tasks if "ansible.builtin.user" in task
+    ]
+    assert users == [
+        {
+            "name": "{{ blitzecdn_controlplane_deploy_user }}",
+            "shell": "/bin/bash",
+            "create_home": True,
+        }
+    ]
+
+
+def test_host_permissions_match_container_write_requirements():
+    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+
+    def file_task(name: str) -> dict[str, Any]:
+        return next(
+            task["ansible.builtin.file"] for task in tasks if task["name"] == name
+        )
+
+    for name in ("Create the state directory", "Create the backup directory"):
+        arguments = file_task(name)
+        assert arguments["owner"] == "65534"
+        assert arguments["group"] == "65534"
+        assert arguments["mode"] == "0700"
+
+    config = file_task("Create the configuration directory")
+    assert config | {"path": None} == {
+        "path": None,
+        "state": "directory",
+        "owner": "root",
+        "group": "root",
+        "mode": "0700",
+    }
+    environment = file_task("Enforce the environment file ownership")
+    assert environment["owner"] == environment["group"] == "root"
+    assert environment["mode"] == "0600"

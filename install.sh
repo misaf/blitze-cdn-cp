@@ -328,15 +328,16 @@ run_install_handoff() {
 
 # Converge this host through the control-plane role.
 #
-# Ansible owns the Linux state here exactly as it owns an edge's: accounts,
-# ownership, sudo, loopback SSH trust, CLI wrapper, environment, runtime image,
-# and Compose project. The installer only makes this call possible.
+# Ansible owns the Linux state here exactly as it owns an edge's: the deployment
+# account, explicit container-state ownership, sudo, loopback SSH trust, CLI
+# wrapper, environment, runtime image, and Compose project. The installer only
+# makes this call possible.
 converge_control_plane() {
   local ansible_tmp status=0
   ansible_tmp=$(mktemp -d)
   # Ansible's temporary files must not land in .state. This play runs as root
-  # and gives .state to the service account, and a root-owned leftover there
-  # would break the next command run as that account.
+  # and gives the persistent state bind mount to the image's non-root account;
+  # a root-owned leftover there would break the next container invocation.
   ANSIBLE_CONFIG=ansible/ansible.cfg ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" \
     -i localhost, ansible/playbooks/control-plane.yml "$@" || status=$?
@@ -698,7 +699,7 @@ cmd_update() {
     "${current_description}" "${target_description}" "${commits}"
 
   # Before anything is touched, and through the wrapper so it runs as the
-  # service account against the service environment. The database component
+  # image's non-root account against the service environment. The database component
   # uses VACUUM INTO, so this is safe against a controller that is still
   # serving. Only the database: an update replaces code, never certificates or
   # credentials, so a full backup here would cost minutes and protect nothing
@@ -769,7 +770,7 @@ Removed:
   - /etc/blitzecdn and the API credentials it holds
   - the /usr/local/bin/blitzecdn command
   - the sudo rule /etc/sudoers.d/blitzecdn-deploy
-  - the blitzecdn and deploy accounts and their homes
+  - the deploy account and its home
   - the edge-managed nginx sites, certificates, cache, and drop-ins this host
     converged as an edge
 
@@ -815,7 +816,7 @@ This removes every BlitzeCDN artifact on this host and cannot be undone:
   - /etc/blitzecdn and the API credentials it holds
   - the /usr/local/bin/blitzecdn command
   - the sudo rule /etc/sudoers.d/blitzecdn-deploy
-  - the blitzecdn and deploy accounts and their homes
+  - the deploy account and its home
   - the edge-managed nginx sites and certificates on this host
 EOF
   if [[ ${mode} == fresh ]]; then

@@ -2,6 +2,7 @@
 .venv
 .state
 .env
+blitzecdn.toml
 .coverage
 .mypy_cache
 .pytest_cache
