@@ -425,8 +425,43 @@ def seeded(settings):
     return build
 
 
+#: RSA-2048 generation costs about a tenth of a second, and the suite asks for
+#: well over a hundred certificates. Nothing asserts on the modulus, only on
+#: whether a key *matches* the certificate beside it, so a small pool of keys
+#: reused across certificates proves exactly what generating each one afresh
+#: did. The pool is built once per process — which under xdist means once per
+#: worker — and the keys are immutable, so it carries no state between tests.
+_KEY_POOL_SIZE = 4
+_key_pool: list[rsa.RSAPrivateKey] = []
+
+
+def _pooled_key(index: int) -> rsa.RSAPrivateKey:
+    while len(_key_pool) <= index:
+        _key_pool.append(rsa.generate_private_key(public_exponent=65537, key_size=2048))
+    return _key_pool[index]
+
+
+@pytest.fixture(scope="session")
+def rsa_keys():
+    """Distinct cached RSA keys, for a test that needs two that disagree."""
+    return tuple(_pooled_key(index) for index in range(_KEY_POOL_SIZE))
+
+
+def private_key_pem(key: rsa.RSAPrivateKey) -> bytes:
+    return key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    )
+
+
 @pytest.fixture
 def certificate_pair():
+    #: Per test, not per session: successive calls within one test hand back
+    #: *different* keys, so a test that installs one pair over another can still
+    #: tell the two apart on disk.
+    issued = 0
+
     def generate(
         domains: tuple[str, ...] = ("cdn.example.com",),
         *,
@@ -434,7 +469,9 @@ def certificate_pair():
         days: int = 30,
     ) -> tuple[bytes, bytes]:
         """``days`` is the remaining lifetime, for exercising expiry logic."""
-        key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        nonlocal issued
+        key = _pooled_key(issued % _KEY_POOL_SIZE)
+        issued += 1
         now = datetime.now(UTC)
         start = now - timedelta(days=1) if valid else now - timedelta(days=10)
         end = now + timedelta(days=days) if valid else now - timedelta(days=1)
@@ -456,13 +493,8 @@ def certificate_pair():
             )
             .sign(key, hashes.SHA256())
         )
-        return (
-            certificate.public_bytes(serialization.Encoding.PEM),
-            key.private_bytes(
-                serialization.Encoding.PEM,
-                serialization.PrivateFormat.PKCS8,
-                serialization.NoEncryption(),
-            ),
+        return certificate.public_bytes(serialization.Encoding.PEM), private_key_pem(
+            key
         )
 
     return generate

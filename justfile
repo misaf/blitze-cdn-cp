@@ -94,9 +94,34 @@ edge-image tag="blitzecdn-edge:dev":
 test-integration-http3:
     bash tests/http3-edge-integration.sh
 
-# The test suite, with the coverage floor from pyproject.
+# `worksteal` rather than the default `load`: the suite's cost is lopsided — a
+# handful of tests spawn a real Ansible and take seconds while most take
+# milliseconds — and a static up-front split leaves whichever worker drew the
+# Ansible tests running long after the rest have finished. Workers are separate
+# processes, so every fixture here is already per-process; nothing is shared.
+#
+# pytest-cov combines the workers' data files itself, so the floor is measured
+# against the same total a sequential run produces.
+#
+# The gate: the whole suite across every core, with the coverage floor.
 test *args:
-    uv run pytest {{args}}
+    uv run pytest -n auto --dist=worksteal {{args}}
+
+# The everyday inner loop: the whole suite, in parallel, coverage off.
+test-fast *args:
+    uv run pytest --no-cov -n auto --dist=worksteal {{args}}
+
+# Sequential and without coverage, because a subset would otherwise fail on the
+# global coverage floor rather than on the test, and because a handful of cases
+# are not worth sixteen workers.
+#
+# One file, or one case.
+test-one *args:
+    uv run pytest --no-cov {{args}}
+
+# Where the time goes. Sequential: parallel durations overlap and mislead.
+test-profile *args:
+    uv run pytest --no-cov --durations=30 {{args}}
 
 # YAML, playbook syntax, and role linting.
 #

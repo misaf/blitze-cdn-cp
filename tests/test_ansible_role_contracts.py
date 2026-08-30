@@ -390,14 +390,19 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
         "/etc/" + "GeoIP.conf",
     }
     ignored = {".git", ".venv", ".state", ".mypy_cache", ".pytest_cache"}
-    sources = (
-        path
-        for path in PROJECT_DIR.rglob("*")
-        if path.is_file()
-        and not ignored.intersection(path.parts)
-        and path.suffix in {".md", ".py", ".sh", ".yml", ".yaml", ".j2"}
-    )
-    for source in sources:
+
+    def sources():
+        # Pruned during the walk, not filtered after one: `.venv` alone holds
+        # tens of thousands of files, and descending into it to discard every
+        # entry was most of this test's runtime.
+        for parent, directories, files in os.walk(PROJECT_DIR):
+            directories[:] = [name for name in directories if name not in ignored]
+            for name in files:
+                path = Path(parent, name)
+                if path.suffix in {".md", ".py", ".sh", ".yml", ".yaml", ".j2"}:
+                    yield path
+
+    for source in sources():
         document = source.read_text(encoding="utf-8")
         for obsolete in forbidden:
             assert obsolete not in document, f"{source} contains {obsolete}"
