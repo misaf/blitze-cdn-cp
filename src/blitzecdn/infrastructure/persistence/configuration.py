@@ -7,6 +7,7 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, Result, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
+from blitzecdn.domain.deployments import DeploymentRequirementKind
 from blitzecdn.domain.validation import validate_setting_name
 from blitzecdn.exceptions import NotFoundError
 from blitzecdn.infrastructure.engine import Database
@@ -17,28 +18,28 @@ class DeploymentRequirementStore:
     def __init__(self, database: Database) -> None:
         self._db = database
 
-    def require(self, kind: str) -> None:
+    def require(self, kind: DeploymentRequirementKind) -> None:
         with self._db.session() as session:
             session.execute(
                 sqlite_insert(DeploymentRequirementRow)
-                .values(kind=kind, requested_at=self._db.now())
+                .values(kind=kind.value, requested_at=self._db.now())
                 .on_conflict_do_update(
                     index_elements=[DeploymentRequirementRow.kind],
                     set_={"requested_at": self._db.now()},
                 )
             )
 
-    def clear(self, kind: str) -> None:
+    def clear(self, kind: DeploymentRequirementKind) -> None:
         with self._db.session() as session:
             session.execute(
                 delete(DeploymentRequirementRow).where(
-                    DeploymentRequirementRow.kind == kind
+                    DeploymentRequirementRow.kind == kind.value
                 )
             )
 
-    def pending(self, kind: str) -> bool:
+    def pending(self, kind: DeploymentRequirementKind) -> bool:
         with self._db.session() as session:
-            return session.get(DeploymentRequirementRow, kind) is not None
+            return session.get(DeploymentRequirementRow, kind.value) is not None
 
 
 #: Fields of a record that are columns; everything else is CDN policy. Derived

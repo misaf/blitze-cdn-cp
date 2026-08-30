@@ -29,7 +29,12 @@ from blitzecdn.application.ports.deployments import (
     ZoneStore,
 )
 from blitzecdn.application.workflows import WorkflowCoordinator
-from blitzecdn.domain.deployments import Deployment, DeploymentStatus, DriftReport
+from blitzecdn.domain.deployments import (
+    Deployment,
+    DeploymentRequirementKind,
+    DeploymentStatus,
+    DriftReport,
+)
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
@@ -562,7 +567,9 @@ class DeploymentService:
                 result=run,
             )
             if target_status is DeploymentStatus.SUCCEEDED and not check:
-                self.persistence.requirements.clear("certificates")
+                self.persistence.requirements.clear(
+                    DeploymentRequirementKind.CERTIFICATES
+                )
             self.events.record(
                 domain_event(
                     operator,

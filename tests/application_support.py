@@ -23,7 +23,10 @@ from conftest import (
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.certificates import CertificateSource
-from blitzecdn.domain.deployments import DeploymentStatus
+from blitzecdn.domain.deployments import (
+    DeploymentRequirementKind,
+    DeploymentStatus,
+)
 from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.domain.runs import HostRun, RunStatus

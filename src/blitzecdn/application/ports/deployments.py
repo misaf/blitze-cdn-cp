@@ -9,16 +9,28 @@ from blitzecdn.application.ports.common import UnitOfWork
 from blitzecdn.application.ports.dns import ZoneEditor, ZoneStore
 from blitzecdn.application.ports.operations import EventRecorder
 from blitzecdn.domain.cache import PurgeEntry
-from blitzecdn.domain.deployments import Deployment, DeploymentStatus
+from blitzecdn.domain.deployments import (
+    Deployment,
+    DeploymentRequirementKind,
+    DeploymentStatus,
+)
 from blitzecdn.domain.runs import AnsibleRun
 
 
 class DeploymentRequirements(Protocol):
-    def require(self, kind: str) -> None: ...
+    """The durable reasons a convergence is still owed to the fleet.
 
-    def clear(self, kind: str) -> None: ...
+    Typed by :class:`~blitzecdn.domain.deployments.DeploymentRequirementKind`
+    rather than by a bare string: the kinds are a closed set every caller has to
+    agree on, and a typo in one of three call sites would otherwise raise a
+    requirement nothing ever clears.
+    """
 
-    def pending(self, kind: str) -> bool: ...
+    def require(self, kind: DeploymentRequirementKind) -> None: ...
+
+    def clear(self, kind: DeploymentRequirementKind) -> None: ...
+
+    def pending(self, kind: DeploymentRequirementKind) -> bool: ...
 
 
 class DeploymentStore(Protocol):

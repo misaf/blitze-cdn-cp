@@ -16,6 +16,21 @@ from blitzecdn.domain.operations import DeploymentId, Operator
 from blitzecdn.domain.runs import AnsibleRun, HostRun, RunStatus
 
 
+class DeploymentRequirementKind(StrEnum):
+    """A durable reason the current desired state has to reach the fleet.
+
+    A requirement outlives the process that raised it: certificate material
+    written to the control plane is not on an edge until a deployment converges,
+    and a crash in between must not lose that fact. The set is closed and small
+    — every kind has to be understood by the deployment service that clears it
+    and by the scheduler that acts on it — so it is an enum rather than a string
+    a caller can invent. The value is what persistence stores, so adding a
+    member needs no migration and renaming one does.
+    """
+
+    CERTIFICATES = "certificates"
+
+
 class DeploymentStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"

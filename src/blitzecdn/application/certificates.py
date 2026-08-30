@@ -36,6 +36,7 @@ from blitzecdn.domain.certificates import (
     ReconciliationResult,
     RenewalResult,
 )
+from blitzecdn.domain.deployments import DeploymentRequirementKind
 from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.domain.sites import CdnSite, CertificateMode
@@ -120,7 +121,9 @@ class CertificateService:
             progress.checkpoint("installed", {"site": name})
             with self.persistence.uow.transaction():
                 self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
-                self.persistence.requirements.require("certificates")
+                self.persistence.requirements.require(
+                    DeploymentRequirementKind.CERTIFICATES
+                )
                 self.events.record(
                     domain_event(
                         operator,
@@ -276,7 +279,9 @@ class CertificateService:
             progress.checkpoint("stored", {"site": site.name})
         with self.persistence.uow.transaction():
             self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
-            self.persistence.requirements.require("certificates")
+            self.persistence.requirements.require(
+                DeploymentRequirementKind.CERTIFICATES
+            )
             self.events.record(
                 domain_event(
                     operator,

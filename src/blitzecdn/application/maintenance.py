@@ -6,7 +6,11 @@ from typing import Protocol
 
 from blitzecdn.domain.automatic_ssl import SslAutomaticReconciliation
 from blitzecdn.domain.certificates import ReconciliationResult, RenewalResult
-from blitzecdn.domain.deployments import Deployment, DriftReport
+from blitzecdn.domain.deployments import (
+    Deployment,
+    DeploymentRequirementKind,
+    DriftReport,
+)
 from blitzecdn.domain.operations import MaintenanceOperation
 
 
@@ -27,7 +31,7 @@ class _Deployments(Protocol):
 
 
 class _Requirements(Protocol):
-    def pending(self, kind: str) -> bool: ...
+    def pending(self, kind: DeploymentRequirementKind) -> bool: ...
 
 
 class MaintenanceService:
@@ -60,5 +64,5 @@ class MaintenanceService:
         elif operation is MaintenanceOperation.CHECK_DRIFT:
             self._deployments.check_drift(operator)
 
-        if self._requirements.pending("certificates"):
+        if self._requirements.pending(DeploymentRequirementKind.CERTIFICATES):
             self._deployments.submit_deployment(operator)
