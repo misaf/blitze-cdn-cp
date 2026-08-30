@@ -59,6 +59,15 @@ dev = [
   "pre-commit>=4.2,<5",
   "pytest>=9.0.3,<10",
   "pytest-cov>=7.1,<8",
+  # Runs the suite across cores. `-n auto --dist=worksteal` is the everyday
+  # command; the gates keep the sequential-equivalent semantics because every
+  # fixture is per-test and process-local.
+  #
+  # The `psutil` extra is what makes `-n auto` mean *physical* cores: without
+  # it xdist falls back to `os.cpu_count()` and starts one worker per hardware
+  # thread, which oversubscribes the cores and measured slower than half as
+  # many workers. Each machine then picks its own number — no hardcoded count.
+  "pytest-xdist[psutil]>=3.8,<4",
   "ruff>=0.16.3,<1",
   # install.sh runs as root and can stop services, so it is linted like the
   # Python. The wheel bundles the real ShellCheck binary, which keeps it a venv

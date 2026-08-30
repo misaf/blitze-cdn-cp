@@ -50,25 +50,35 @@ def test_origin_reports_require_the_current_ssl_mode():
 
 @contextmanager
 def _listener(*, tls_context: ssl.SSLContext | None = None):
-    """A socket that accepts one connection and immediately drops it."""
+    """A socket that accepts connections and immediately drops each one.
+
+    It serves until the context manager closes it rather than accepting once:
+    a test that probes the same listener twice would otherwise leave the second
+    connection sitting in the backlog until the probe's own timeout expired,
+    paying that timeout for a result the test does not depend on.
+
+    The port is whatever the kernel hands out, so parallel workers never
+    contend for one.
+    """
     server = socket.socket()
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", 0))
-    server.listen(1)
+    server.listen(5)
 
     def serve() -> None:
-        try:
-            connection, _ = server.accept()
-        except OSError:
-            return
-        try:
-            if tls_context is not None:
-                with tls_context.wrap_socket(connection, server_side=True):
-                    pass
-            else:
+        while True:
+            try:
+                connection, _ = server.accept()
+            except OSError:
+                return
+            try:
+                if tls_context is not None:
+                    with tls_context.wrap_socket(connection, server_side=True):
+                        pass
+                else:
+                    connection.close()
+            except (OSError, ssl.SSLError):
                 connection.close()
-        except (OSError, ssl.SSLError):
-            pass
 
     thread = threading.Thread(target=serve, daemon=True)
     thread.start()

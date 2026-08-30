@@ -6,9 +6,9 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import private_key_pem
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 
 from blitzecdn.domain.certificates import CertificateSource
@@ -70,17 +70,15 @@ def test_store_commits_a_certificate_pair_only_after_both_files_exist(
 
 
 def test_store_rejects_invalid_mismatched_expired_and_wrong_domain(
-    settings, site_payload, certificate_pair
+    settings, site_payload, certificate_pair, rsa_keys
 ):
     site = CdnSite.model_validate(site_payload)
     store = CertificateStore(settings)
-    certificate, _key = certificate_pair()
-    wrong_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    wrong_key_pem = wrong_key.private_bytes(
-        serialization.Encoding.PEM,
-        serialization.PrivateFormat.PKCS8,
-        serialization.NoEncryption(),
-    )
+    certificate, key = certificate_pair()
+    # A key from the pool that this certificate was demonstrably not signed
+    # with — `certificate_pair` hands out `rsa_keys[0]` first.
+    wrong_key_pem = private_key_pem(rsa_keys[-1])
+    assert wrong_key_pem != key
     with pytest.raises(ConfigurationError, match="do not match"):
         store.install(
             site,
@@ -105,9 +103,9 @@ def test_store_rejects_invalid_mismatched_expired_and_wrong_domain(
         store.get("missing")
 
 
-def test_store_validates_certificate_chain(settings, site_payload):
+def test_store_validates_certificate_chain(settings, site_payload, rsa_keys):
     now = datetime.now(UTC)
-    issuer_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    issuer_key = rsa_keys[0]
     issuer_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "Test CA")])
     issuer = (
         x509.CertificateBuilder()
@@ -120,7 +118,7 @@ def test_store_validates_certificate_chain(settings, site_payload):
         .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
         .sign(issuer_key, hashes.SHA256())
     )
-    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    leaf_key = rsa_keys[1]
     leaf = (
         x509.CertificateBuilder()
         .subject_name(
@@ -151,7 +149,7 @@ def test_store_validates_certificate_chain(settings, site_payload):
         site, chain, key, source=CertificateSource.UPLOADED
     )
 
-    unrelated_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    unrelated_key = rsa_keys[2]
     unrelated = (
         x509.CertificateBuilder()
         .subject_name(issuer_name)
