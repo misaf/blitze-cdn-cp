@@ -1,0 +1,33 @@
+---
+# What a usable BlitzeCDN edge runtime has to be, given the combined output of
+# `nginx -V` and the exit status that produced it. No I/O of its own: the caller
+# supplies blitzecdn_nginx_build_status and blitzecdn_nginx_build_output, which
+# is what lets tests/test_ansible_validation_contracts.py execute these
+# assertions against fabricated builds rather than merely parse them.
+- name: Require the managed Nginx binary
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_build_status | int == 0
+      - >-
+        blitzecdn_nginx_build_output
+        is regex('.*nginx/[0-9]+\.[0-9]+\.[0-9]+.*')
+    fail_msg: >-
+      {{ blitzecdn_nginx_config_test_image }} does not contain a working nginx
+      binary. BlitzeCDN edges require the published edge runtime image.
+
+- name: Extract the edge runtime Nginx version
+  ansible.builtin.set_fact:
+    blitzecdn_nginx_installed_version: >-
+      {{ (blitzecdn_nginx_build_output
+          | regex_findall('nginx/([0-9]+\.[0-9]+\.[0-9]+)') | first) }}
+
+- name: Require the HTTP/3-capable Ubuntu Nginx build
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_installed_version is version('1.25.0', '>=')
+      - "'--with-http_v3_module' in blitzecdn_nginx_build_output"
+      - "'--build=Ubuntu' in blitzecdn_nginx_build_output"
+    fail_msg: >-
+      {{ blitzecdn_nginx_config_test_image }} is not a supported BlitzeCDN edge
+      build. Ubuntu Nginx 1.25.0+ with --with-http_v3_module is required;
+      HTTP/3 will not be silently disabled.

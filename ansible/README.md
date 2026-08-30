@@ -29,7 +29,7 @@ ansible-galaxy collection install -r requirements.yml -p ../.state/collections
 | `inventory/blitzecdn.yml` | The inventory: configuration for the plugin below, not a host list |
 | `plugins/inventory/blitzecdn.py` | Publishes the `edges` table into the `blitzecdn_edges` group |
 | `inventory/group_vars/` | Environment policy for `blitzecdn_edges` |
-| `playbooks/edge.yml` | Converges edges by calling the collection's roles by FQCN |
+| `playbooks/edge.yml` | Converges edges: host, then container engine, then the runtime stack |
 | `playbooks/acme-challenge.yml` | Publishes an HTTP-01 token to every edge |
 | `playbooks/cache-purge.yml` | Removes cached responses by key, or empties the cache |
 | `playbooks/stats.yml` | Collects cache and connection counters from every edge |
@@ -38,10 +38,18 @@ ansible-galaxy collection install -r requirements.yml -p ../.state/collections
 | `ansible.cfg` | Connection, fork, and collection-path settings |
 
 `playbooks/edge.yml` converges only the `blitzecdn_edges` inventory group. Tags
-are `base`, `resolver`, `kernel`, `firewall`, `nginx`, `sshd`, and `security`
-(`sshd` and Fail2Ban both carry `security`). High-impact deployments should
-normally run the complete play because firewall, port, and Fail2Ban policy are
-related.
+are `base`, `resolver`, `kernel`, `firewall`, `docker`, `nginx`, `edge_stack`,
+`sshd`, and `security` (`sshd` and Fail2Ban both carry `security`). High-impact
+deployments should normally run the complete play because firewall, port, and
+Fail2Ban policy are related.
+
+The order is forced by two rules that have each cost an outage elsewhere. The
+container engine, the persistent edge state and the runtime image are prepared
+*before* the firewall, because opening the public ports on a host that cannot
+serve them advertises an edge that is not there. And the edge container is
+started *after* `blitzecdn_nginx` has rendered the configuration and proved it
+loads, because a container started against an incomplete tree is an edge
+answering 444 for every customer.
 
 The control plane writes validated `blitzecdn_nginx_sites` to a restrictive
 file beneath `.state/` and passes it explicitly with `--extra-vars`. Generated
@@ -91,24 +99,50 @@ exactly as it was for the group the old static file declared.
 Check mode cannot prove service behaviour or package availability. Always run
 `blitzecdn validate`, then `blitzecdn plan`, before an applied deployment.
 
-## Managed Ubuntu 26.04 edge stack
+## The containerised edge runtime
 
-The supported fresh-edge platform for this release is Ubuntu 26.04 LTS.
-BlitzeCDN installs these Ubuntu archive packages as one ABI-matched unit:
+The supported fresh-edge platform for this release is Ubuntu 26.04 LTS, and it
+runs the CDN as containers. Nothing that serves traffic is installed on the
+host: no `nginx`, no `libnginx-mod-*`, no `geoipupdate`.
+
+| Role | Owns |
+| --- | --- |
+| `blitzecdn_docker` | Docker Engine, the Compose plugin, the daemon configuration |
+| `blitzecdn_edge_stack` | The Compose project, the runtime image, persistent directories, GeoLite2, health |
+| `blitzecdn_nginx` | The configuration tree on the host filesystem, its validation and reload |
+
+`blitzecdn_edge_stack` has two entry points. `prepare.yml` runs as a pre-task —
+persistent directories, image pull and digest pin, the Compose file, the
+GeoLite2 database — because the database must exist before a configuration that
+reads it is validated, and the image must exist before anything can be
+validated against it. `main.yml` runs last and starts, keeps or replaces the
+container.
+
+The image is `ghcr.io/misaf/blitzecdn-edge:<version>`, built from
+`docker/edge/` on `ubuntu:26.04` with these four Ubuntu archive packages
+resolved in one apt transaction, which is how Ubuntu expresses an ABI-matched
+unit:
 
 - `nginx`
 - `libnginx-mod-http-geoip2`
 - `libnginx-mod-http-brotli-filter`
 - `libnginx-mod-http-js`
 
-The role verifies Nginx 1.25.0+, `--with-http_v3_module`, all loadable dynamic
-modules, and executable Brotli/njs directive probes before firewall changes. Do
-not install nginx.org Nginx, manually replace the binary, or combine modules
-from another package source. Brotli static is not installed because the current
-configuration does not use it.
+Before firewall changes, `blitzecdn_nginx` starts a throwaway container from
+that image, with no network, and verifies Nginx 1.25.0+,
+`--with-http_v3_module`, an `--build=Ubuntu` binary, all loadable dynamic
+modules and executable Brotli/njs directive probes. Do not build an edge image
+that replaces the binary or combines modules from another package source.
+Brotli static is not installed because the current configuration does not use
+it.
+
+Set the fleet's image with `blitzecdn config set blitzecdn_edge_image_tag` (and
+`blitzecdn_edge_image_digest`); never `latest`. See the project README's *Edge
+runtime* section for upgrade, rollback, GeoIP, backup and teardown behaviour.
 
 Per-site HTTP/3 serves visitor traffic over QUIC on UDP/443 only. TCP/443 keeps
 HTTP/2 and HTTP/1.1 fallback, alternate HTTPS ports stay TCP-only, and origin
 proxying remains HTTP/1.1. The firewall owns UDP/443 only while at least one
-enabled site requests HTTP/3. Run `just test-integration-http3` from the project
-root for the clean Ubuntu package, module, multi-site, and real protocol proof.
+enabled site requests HTTP/3. Run `just test-integration-http3` from the project root for the clean-host
+proof: a real containerised edge, real protocols, an image upgrade, a rollback
+and both kinds of teardown.

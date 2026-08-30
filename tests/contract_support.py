@@ -71,6 +71,8 @@ def _role_defaults() -> dict[str, Any]:
 
 
 CACHE_ROLE_DIR = _role("blitzecdn_cache")
+STACK_ROLE_DIR = _role("blitzecdn_edge_stack")
+DOCKER_ROLE_DIR = _role("blitzecdn_docker")
 STATS_ROLE_DIR = _role("blitzecdn_stats")
 
 

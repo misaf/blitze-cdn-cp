@@ -1,0 +1,72 @@
+---
+# GeoLite2 is free but not anonymous: downloads are authenticated. With
+# credentials this fetches the first copy and schedules refreshes; without them
+# the operator manages the file and blitzecdn_nginx only checks it is there.
+#
+# The credentials and the directory are written by geoip-credentials.yml, before
+# the Compose file that names them.
+- name: Manage the MaxMind GeoLite2 database
+  when:
+    - blitzecdn_edge_stack_geoip_enabled | bool
+    - blitzecdn_edge_stack_geoip_license_key | length > 0
+  block:
+    - name: Check whether the database has been downloaded
+      ansible.builtin.stat:
+        path: "{{ blitzecdn_edge_stack_geoip_database }}"
+      register: blitzecdn_edge_stack_geoip_present
+
+    # Only when absent. MaxMind publishes GeoLite2 twice a week and rate-limits
+    # downloads, so fetching on every converge would spend a quota to re-fetch a
+    # file that has not changed. Refreshes are the timer's job.
+    - name: Download the GeoLite2 database
+      community.docker.docker_compose_v2_run:
+        project_src: "{{ blitzecdn_edge_stack_compose_file | dirname }}"
+        project_name: "{{ blitzecdn_edge_stack_project }}"
+        files: ["{{ blitzecdn_edge_stack_compose_file | basename }}"]
+        profiles: [maintenance]
+        service: geoipupdate
+        # --rm. This is a one-shot whose only output is a replaced file on a
+        # shared mount; leaving exited containers behind would turn a
+        # twice-weekly refresh into an ever-growing `docker ps -a`.
+        cleanup: true
+        # There is no terminal here, and asking for one makes the run fail under
+        # Ansible rather than under an operator.
+        interactive: false
+      register: blitzecdn_edge_stack_geoip_fetch
+      until: blitzecdn_edge_stack_geoip_fetch is success
+      retries: 3
+      delay: 15
+      when:
+        - not blitzecdn_edge_stack_geoip_present.stat.exists
+        - not ansible_check_mode
+
+    - name: Schedule database refreshes
+      ansible.builtin.template:
+        src: "geoipupdate.{{ item }}.j2"
+        dest: "/etc/systemd/system/blitzecdn-geoipupdate.{{ item }}"
+        owner: root
+        group: root
+        mode: "0644"
+      loop: [service, timer]
+      register: blitzecdn_edge_stack_geoip_units
+      when: blitzecdn_edge_stack_geoip_update_enabled | bool
+
+    - name: Enable the refresh timer
+      ansible.builtin.systemd_service:
+        name: blitzecdn-geoipupdate.timer
+        enabled: true
+        state: started
+        daemon_reload: "{{ blitzecdn_edge_stack_geoip_units is changed }}"
+      when:
+        - blitzecdn_edge_stack_geoip_update_enabled | bool
+        - not ansible_check_mode
+
+    - name: Withdraw the refresh timer
+      ansible.builtin.systemd_service:
+        name: blitzecdn-geoipupdate.timer
+        enabled: false
+        state: stopped
+      failed_when: false
+      when:
+        - not (blitzecdn_edge_stack_geoip_update_enabled | bool)
+        - not ansible_check_mode

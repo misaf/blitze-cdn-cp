@@ -7,6 +7,12 @@
   # set alongside this: it expresses the same policy in a second dialect, and
   # the two invite a later reader to change one and believe they have changed
   # the rule. `any_errors_fatal` is the stricter of the pair and wins anyway.
+  #
+  # It matters more now than it did, not less. A runtime upgrade rolls out one
+  # batch at a time, and an image that fails to serve on the first batch must
+  # stop the rollout rather than reaching the whole fleet — each failing edge
+  # returns to its previous image on its own, but only the play can stop the
+  # next batch from being handed the same broken build.
   any_errors_fatal: true
   serial: "25%"
   pre_tasks:
@@ -26,10 +32,33 @@
           desired-state document; UDP/443 and the QUIC listener must converge
           together.
       tags: [always, firewall, nginx]
-    - name: Install and verify the managed Nginx stack before firewall changes
+    # The container engine, and then everything the edge runtime needs to exist
+    # before a configuration is rendered: the persistent directories, the
+    # runtime image, the Compose project and the GeoLite2 database.
+    #
+    # Both run before the firewall, which is the same rule the native stack
+    # followed and for the same reason: opening the public ports on a host that
+    # cannot serve them advertises an edge that is not there. The container
+    # itself is not started here — that waits until the configuration exists and
+    # has passed `nginx -t`, at the end of the roles below.
+    - name: Install and verify the host container engine
+      ansible.builtin.import_role:
+        name: blitzecdn_docker
+      tags: [always, docker]
+    - name: Prepare the persistent edge state and runtime image
+      ansible.builtin.import_role:
+        name: blitzecdn_edge_stack
+        tasks_from: prepare.yml
+      tags: [always, docker, edge_stack]
+    - name: Verify the edge runtime image before firewall changes
       ansible.builtin.import_role:
         name: blitzecdn_nginx
         tasks_from: install.yml
+      vars:
+        # The digest prepare.yml just pinned, not the tag it was asked for. The
+        # image that is probed has to be the image that will serve.
+        blitzecdn_nginx_config_test_image: >-
+          {{ blitzecdn_edge_stack_resolved_image | default(blitzecdn_nginx_image) }}
       tags: [always, nginx]
   roles:
     - role: blitzecdn_base
@@ -42,12 +71,23 @@
       tags: [kernel]
     - role: blitzecdn_firewall
       tags: [firewall]
+    # Renders the whole configuration tree onto the host filesystem and proves
+    # it loads, under the very image the container will run. Nothing is started
+    # here and nothing is reloaded unless a container is already serving.
     - role: blitzecdn_nginx
       tags: [nginx]
+    # Starts the edge, or leaves a running one alone, or replaces it for a
+    # runtime upgrade — and then proves it is serving. Strictly after the
+    # configuration exists: a container started against an incomplete tree is
+    # an edge answering 444 for every customer.
+    - role: blitzecdn_edge_stack
+      tags: [nginx, edge_stack]
     # SSH policy comes after the firewall so a host that fails firewall
     # validation is never left key-only but unreachable from the management
     # network, and before Fail2Ban so bans apply to a daemon that has already
-    # stopped accepting passwords.
+    # stopped accepting passwords. Both stay native: they protect and configure
+    # the host itself, and an edge whose containers are all broken must still be
+    # reachable for Ansible to repair it.
     - role: blitzecdn_sshd
       tags: [security, sshd]
     - role: blitzecdn_fail2ban

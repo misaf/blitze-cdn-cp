@@ -1,0 +1,101 @@
+---
+argument_specs:
+  main:
+    short_description: Run the BlitzeCDN edge as a Docker Compose project.
+    description:
+      - >-
+        Owns the edge *runtime*: the Compose project, the image it runs, the
+        persistent host directories the container mounts, the GeoLite2 updater
+        and the health verification that decides whether a converge succeeded.
+      - >-
+        It renders no customer configuration. blitzecdn_nginx writes the whole
+        configuration tree to the host filesystem and this role mounts it
+        read-only, which is what keeps a site change a reload rather than a
+        container replacement.
+      - >-
+        prepare.yml is a separate entry point, run before the firewall and
+        before any configuration is rendered. The GeoLite2 database has to exist
+        before a configuration that reads it is validated, and the image has to
+        exist before anything can be validated against it, but the container
+        must not start until the configuration has passed nginx -t.
+    options:
+      blitzecdn_edge_stack_enabled: {type: bool, required: true}
+      blitzecdn_edge_stack_image:
+        type: str
+        required: true
+        description: >-
+          The edge runtime image, tag- or digest-pinned. Never `latest`: a
+          floating tag makes the running version unanswerable and rollback a
+          guess. Must equal blitzecdn_nginx_image, which validates
+          configuration against the same image.
+      blitzecdn_edge_stack_image_default: {type: str, required: true}
+      blitzecdn_edge_stack_image_pull:
+        type: bool
+        required: true
+        description: >-
+          Fetch the image from its registry when absent. Off for an air-gapped
+          or pre-seeded fleet; the converge then fails clearly on a missing
+          image instead of reaching for a registry it cannot see.
+      blitzecdn_edge_stack_image_reference: {type: str, required: true}
+      blitzecdn_edge_stack_geoipupdate_image: {type: str, required: true}
+      blitzecdn_edge_stack_project: {type: str, required: true}
+      blitzecdn_edge_stack_container: {type: str, required: true}
+      blitzecdn_edge_stack_state_path: {type: path, required: true}
+      blitzecdn_edge_stack_compose_file: {type: path, required: true}
+      blitzecdn_edge_stack_runtime_path: {type: path, required: true}
+      blitzecdn_edge_stack_deployed_image_file:
+        type: path
+        required: true
+        description: >-
+          What the last successful converge was asked for and what that
+          resolved to. Reading it back is what tells a re-converge from an
+          upgrade, and what gives a rollback an exact image to return to.
+      blitzecdn_edge_stack_nginx_config_path: {type: path, required: true}
+      blitzecdn_edge_stack_module_path: {type: path, required: true}
+      blitzecdn_edge_stack_tls_path: {type: path, required: true}
+      blitzecdn_edge_stack_cache_path: {type: path, required: true}
+      blitzecdn_edge_stack_acme_root: {type: path, required: true}
+      blitzecdn_edge_stack_empty_root: {type: path, required: true}
+      blitzecdn_edge_stack_log_path: {type: path, required: true}
+      blitzecdn_edge_stack_geoip_path: {type: path, required: true}
+      blitzecdn_edge_stack_status_enabled: {type: bool, required: true}
+      blitzecdn_edge_stack_status_address: {type: str, required: true}
+      blitzecdn_edge_stack_status_port: {type: int, required: true}
+      blitzecdn_edge_stack_status_path: {type: str, required: true}
+      blitzecdn_edge_stack_http_ports: {type: list, elements: int, required: true}
+      blitzecdn_edge_stack_https_ports: {type: list, elements: int, required: true}
+      blitzecdn_edge_stack_http3_enabled: {type: bool, required: true}
+      blitzecdn_edge_stack_health_timeout: {type: int, required: true}
+      blitzecdn_edge_stack_require_container_health: {type: bool, required: true}
+      blitzecdn_edge_stack_stop_grace_period: {type: str, required: true}
+      blitzecdn_edge_stack_recreate:
+        type: bool
+        required: true
+        description: >-
+          Force a container replacement even when nothing about it changed. Off:
+          a configuration deployment must not replace the process serving
+          traffic.
+      blitzecdn_edge_stack_geoip_enabled: {type: bool, required: true}
+      blitzecdn_edge_stack_geoip_database: {type: path, required: true}
+      blitzecdn_edge_stack_geoip_edition: {type: str, required: true}
+      blitzecdn_edge_stack_geoip_account_id: {type: str, required: true}
+      blitzecdn_edge_stack_geoip_license_key:
+        type: str
+        required: true
+        no_log: true
+        description: >-
+          MaxMind license key. Reaches the updater container through a 0600
+          env_file, never through the Compose file or `docker inspect`.
+      blitzecdn_edge_stack_geoip_update_enabled: {type: bool, required: true}
+      blitzecdn_edge_stack_geoip_update_calendar: {type: str, required: true}
+      blitzecdn_edge_stack_geoip_update_splay: {type: str, required: true}
+      blitzecdn_edge_stack_geoip_env_file: {type: path, required: true}
+      blitzecdn_edge_stack_geoip_units: {type: list, elements: str, required: true}
+      blitzecdn_edge_stack_migrate_from_native:
+        type: bool
+        required: true
+        description: >-
+          Stop and purge a native Nginx before starting the container. Off, a
+          host that still has one fails the converge rather than leaving two
+          services competing for the public ports.
+      blitzecdn_edge_stack_native_packages: {type: list, elements: str, required: true}

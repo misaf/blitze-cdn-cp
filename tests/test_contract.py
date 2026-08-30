@@ -1512,12 +1512,21 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
 
 
 def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
-    assert _role_defaults()["blitzecdn_nginx_packages"] == [
-        "nginx",
-        "libnginx-mod-http-geoip2",
-        "libnginx-mod-http-brotli-filter",
-        "libnginx-mod-http-js",
-    ]
+    """The stack is one ABI unit, now as an image rather than an apt transaction.
+
+    Which makes the unit stronger rather than weaker: the binary and its three
+    dynamic modules are resolved together at build time, published together,
+    and pulled together as one immutable object. Nothing on an edge can pair
+    one version's binary with another version's modules, because nothing on an
+    edge installs either. tests/test_ansible_role_contracts.py holds the
+    Dockerfile end of this; here the point is that the *edge* no longer names
+    the packages at all.
+    """
+    assert "blitzecdn_nginx_packages" not in _role_defaults()
+    assert (
+        "ghcr.io/misaf/blitzecdn-edge"
+        in _role_defaults()["blitzecdn_nginx_image_default"]
+    )
 
 
 def _under_attack_site(*, enabled: bool = True) -> dict[str, Any]:

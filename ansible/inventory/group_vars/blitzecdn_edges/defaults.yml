@@ -10,6 +10,33 @@ blitzecdn_acme_root: /var/lib/blitzecdn/acme
 blitzecdn_nginx_acme_root: "{{ blitzecdn_acme_root }}"
 
 blitzecdn_base_timezone: Asia/Tehran
+
+# The edge runtime image, and the one place the fleet's version of it is set.
+#
+# This is software policy, not desired state: the sites an edge serves come from
+# the control-plane database, while which build of Nginx serves them is set here
+# and rolled out on purpose.
+#
+#   blitzecdn config set blitzecdn_edge_image_tag 2.8.0
+#   blitzecdn config set blitzecdn_edge_image_digest sha256:...
+#   blitzecdn deploy --limit edge-01     # canary first
+#
+# Never `latest`. A floating tag makes "which build is this fleet running"
+# unanswerable and makes rollback a guess. Set the digest as well and the tag
+# becomes documentation: the pull, the configuration test and the running
+# container are then all provably the same bytes.
+blitzecdn_edge_image_registry: ghcr.io
+blitzecdn_edge_image_repository: misaf/blitzecdn-edge
+blitzecdn_edge_image_tag: "2.7.0"
+blitzecdn_edge_image_digest: ""
+# Composed here so both blitzecdn_nginx, which validates configuration against
+# the image, and blitzecdn_edge_stack, which serves from it, read one value.
+blitzecdn_edge_image: >-
+  {{ blitzecdn_edge_image_registry }}/{{ blitzecdn_edge_image_repository }}{{
+    '@' ~ blitzecdn_edge_image_digest
+    if blitzecdn_edge_image_digest
+    else ':' ~ blitzecdn_edge_image_tag
+  }}
 blitzecdn_firewall_enabled: false
 # blitzecdn_firewall_ssh_port and blitzecdn_firewall_ssh_sources are NOT set
 # here any more. Both describe an edge, so both are recorded on the edge and

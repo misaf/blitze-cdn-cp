@@ -5,6 +5,15 @@
   become: true
   gather_facts: true
   vars:
+    # Built from docker/edge/ by the integration script and loaded into this
+    # host's engine, so the test proves the image this repository produces
+    # rather than whatever the registry currently publishes.
+    blitzecdn_edge_image: blitzecdn-edge:integration
+    blitzecdn_edge_stack_image_pull: false
+    # The runner has no MaxMind credentials, and the test installs a MaxMind
+    # sample database by hand. Without this the role would try to fetch one.
+    blitzecdn_nginx_geoip_account_id: ''
+    blitzecdn_nginx_geoip_license_key: ''
     blitzecdn_firewall_enabled: true
     blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
     blitzecdn_firewall_http3_enabled: true
@@ -80,10 +89,21 @@
           connecting_ip: true
           ip_country: true
   pre_tasks:
-    - name: Install and verify Nginx before opening firewall ports
+    - name: Install and verify the host container engine
+      ansible.builtin.import_role:
+        name: blitzecdn_docker
+    - name: Prepare the persistent edge state and runtime image
+      ansible.builtin.import_role:
+        name: blitzecdn_edge_stack
+        tasks_from: prepare.yml
+    - name: Verify the edge runtime image before opening firewall ports
       ansible.builtin.import_role:
         name: blitzecdn_nginx
         tasks_from: install.yml
+      vars:
+        blitzecdn_nginx_config_test_image: >-
+          {{ blitzecdn_edge_stack_resolved_image | default(blitzecdn_nginx_image) }}
   roles:
     - role: blitzecdn_firewall
     - role: blitzecdn_nginx
+    - role: blitzecdn_edge_stack

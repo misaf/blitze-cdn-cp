@@ -1,0 +1,20 @@
+# Managed by BlitzeCDN. Local edits are overwritten.
+[Unit]
+Description=Refresh the MaxMind GeoLite2 database for BlitzeCDN
+# No point waking up without a route to MaxMind, and none without an engine to
+# run the updater container on.
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# --rm, because this is a one-shot whose only output is a replaced database
+# file on a shared mount. Leaving exited containers behind would turn a twice-
+# weekly refresh into an ever-growing list in `docker ps -a`.
+ExecStart=/usr/bin/docker compose --file {{ blitzecdn_edge_stack_compose_file }} --profile maintenance run --rm geoipupdate
+# A failed refresh is allowed to fail loudly. It cannot take the edge with it —
+# Nginx keeps serving the database already on disk, stale rather than absent —
+# so there is nothing to protect by masking the exit status, and masking it
+# would hide a database quietly ageing out from `systemctl --failed`.
+Nice=10

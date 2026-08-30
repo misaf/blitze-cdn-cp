@@ -6,99 +6,11 @@
   ansible.builtin.import_tasks: install.yml
   when: not (blitzecdn_nginx_stack_ready | default(false) | bool)
 
-# GeoLite2 is free but not anonymous: downloads are authenticated. With
-# credentials the role fetches and schedules refreshes; without them it assumes
-# the operator manages the file and only checks it is there.
-- name: Manage the MaxMind GeoLite2 database
-  when:
-    - blitzecdn_nginx_geoip_enabled
-    - blitzecdn_nginx_geoip_license_key | length > 0
-  block:
-    - name: Install the MaxMind database updater
-      ansible.builtin.apt:
-        name: "{{ blitzecdn_nginx_geoip_updater_package }}"
-        state: present
-        update_cache: true
-        cache_valid_time: 3600
-      register: blitzecdn_nginx_updater_apt
-      until: blitzecdn_nginx_updater_apt is success
-      retries: 3
-      delay: 5
-
-    # 0600 root: the license key authenticates to a MaxMind account, so it is
-    # a credential rather than a database identifier.
-    - name: Configure the MaxMind credentials
-      ansible.builtin.template:
-        src: maxmind.conf.j2
-        dest: "{{ blitzecdn_nginx_geoip_config_file }}"
-        owner: root
-        group: root
-        mode: "0600"
-      no_log: true
-
-    - name: Create the GeoIP database directory
-      ansible.builtin.file:
-        path: "{{ blitzecdn_nginx_geoip_database | dirname }}"
-        state: directory
-        owner: root
-        group: root
-        mode: "0755"
-
-    - name: Check whether the database has been downloaded
-      ansible.builtin.stat:
-        path: "{{ blitzecdn_nginx_geoip_database }}"
-      register: blitzecdn_nginx_geoip_present
-
-    # Only when absent. MaxMind publishes GeoLite2 twice a week and rate-limits
-    # downloads, so fetching on every converge would spend a quota to re-fetch
-    # a file that has not changed. Refreshes are the timer's job.
-    - name: Download the GeoLite2 database
-      ansible.builtin.command:
-        argv: ["{{ blitzecdn_nginx_geoip_updater_binary }}"]
-      register: blitzecdn_nginx_geoip_fetch
-      changed_when: blitzecdn_nginx_geoip_fetch.rc == 0
-      # Longer between attempts than the package tasks use. This one crosses
-      # the public internet to a service that rate-limits, so a failure may
-      # well be "not yet" rather than "not working", and retrying it hard
-      # would be the wrong answer to the most likely cause.
-      until: blitzecdn_nginx_geoip_fetch is success
-      retries: 3
-      delay: 15
-      when:
-        - not blitzecdn_nginx_geoip_present.stat.exists
-        - not ansible_check_mode
-
-    - name: Schedule database refreshes
-      ansible.builtin.template:
-        src: "geoipupdate.{{ item }}.j2"
-        dest: "/etc/systemd/system/blitzecdn-geoipupdate.{{ item }}"
-        owner: root
-        group: root
-        mode: "0644"
-      loop: [service, timer]
-      register: blitzecdn_nginx_geoip_units
-      when: blitzecdn_nginx_geoip_update_enabled
-
-    - name: Enable the refresh timer
-      ansible.builtin.systemd_service:
-        name: blitzecdn-geoipupdate.timer
-        enabled: true
-        state: started
-        daemon_reload: "{{ blitzecdn_nginx_geoip_units is changed }}"
-      when:
-        - blitzecdn_nginx_geoip_update_enabled
-        - not ansible_check_mode
-
-    - name: Withdraw the refresh timer
-      ansible.builtin.systemd_service:
-        name: blitzecdn-geoipupdate.timer
-        enabled: false
-        state: stopped
-      failed_when: false
-      when:
-        - not blitzecdn_nginx_geoip_update_enabled
-        - not ansible_check_mode
-
+# The GeoLite2 database itself is provided by blitzecdn_edge_stack, whose
+# prepare tasks run before this role: the updater is a container now, so
+# fetching the database needs the Compose project that defines it. This role
+# still owns the *decision* — the assertion below refuses to converge an edge
+# whose configuration reads a database that is not there.
 # Without the file nginx fails to start — not merely to reload — so catching it
 # here keeps the failure inside the deploy rather than at the next reboot.
 - name: Inspect the GeoIP database
@@ -437,9 +349,7 @@
     # after every other role's tasks have run. This is the gate that decides
     # whether the tree we just wrote is allowed to survive the play.
     - name: Validate the assembled configuration
-      ansible.builtin.command:
-        argv: [nginx, -t]
-      changed_when: false
+      ansible.builtin.include_tasks: config-test.yml
       when: not ansible_check_mode
 
   rescue:
@@ -488,11 +398,9 @@
 
     # Proves the rollback actually landed. If this fails the edge cannot reload
     # nginx and needs hands on it — far better to learn that now, inside a failed
-    # deploy, than at the next reboot.
+    # deploy, than at the next restart of the container.
     - name: Confirm the restored configuration loads
-      ansible.builtin.command:
-        argv: [nginx, -t]
-      changed_when: false
+      ansible.builtin.include_tasks: config-test.yml
       when: not ansible_check_mode
 
     - name: Report the withdrawn configuration
@@ -570,12 +478,7 @@
     - item.1.path != item.0.item.certificate_path
     - item.1.path != item.0.item.certificate_key_path
 
-# Skipped under --check for the same reason as `nginx -t`: on a host that does
-# not have Nginx yet the package install was only simulated, so the unit does
-# not exist and the module fails on a preview that should have succeeded.
-- name: Enable and start Nginx
-  ansible.builtin.systemd_service:
-    name: nginx
-    enabled: true
-    state: started
-  when: not ansible_check_mode
+# Nothing here starts Nginx. The configuration tree is now complete and proven
+# loadable; blitzecdn_edge_stack decides whether that means starting a container
+# for the first time, leaving a running one alone, or replacing it for a runtime
+# upgrade. Keeping the two apart is what makes a site change a reload.

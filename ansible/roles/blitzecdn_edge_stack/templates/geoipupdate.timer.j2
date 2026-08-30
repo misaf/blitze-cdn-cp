@@ -3,10 +3,10 @@
 Description=Refresh the MaxMind GeoLite2 database for BlitzeCDN
 
 [Timer]
-OnCalendar={{ blitzecdn_nginx_geoip_update_calendar }}
+OnCalendar={{ blitzecdn_edge_stack_geoip_update_calendar }}
 # GeoLite2 is published twice a week, so this only has to be near it. The splay
 # keeps a fleet from arriving at MaxMind together.
-RandomizedDelaySec={{ blitzecdn_nginx_geoip_update_splay }}
+RandomizedDelaySec={{ blitzecdn_edge_stack_geoip_update_splay }}
 # Catches an edge that was powered off at the scheduled time, which would
 # otherwise wait until the next window with an ageing database.
 Persistent=true

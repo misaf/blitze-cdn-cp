@@ -77,10 +77,20 @@ types:
 
 # Lint the shell scripts that run as root.
 shell-lint:
-    uv run shellcheck install.sh tests/container-install.sh tests/http3-edge-integration.sh
+    uv run shellcheck install.sh docker/edge/healthcheck.sh \
+        tests/container-install.sh tests/http3-edge-integration.sh
 
-# Slow, privileged proof of a clean Ubuntu edge and real HTTP/1.1, HTTP/2,
-# HTTP/3, GeoIP2 and Brotli. Deliberately separate from the normal unit suite.
+# Build the edge runtime image locally, the way CI and the integration test do.
+#
+# The tag is only a local name: production pulls the published image by the tag
+# and digest recorded in the fleet settings, never a locally built one.
+edge-image tag="blitzecdn-edge:dev":
+    docker build --tag {{tag}} docker/edge
+
+# Slow, privileged proof of a clean Ubuntu edge running the containerised
+# runtime: real HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli and Under Attack Mode,
+# plus image upgrade, rollback, engine restart and both kinds of teardown.
+# Deliberately separate from the normal unit suite.
 test-integration-http3:
     bash tests/http3-edge-integration.sh
 
@@ -105,13 +115,16 @@ ansible-check:
         tests/integration/http3-edge.yml --syntax-check
     uv run ansible-playbook -i localhost, \
         tests/integration/http3-firewall-disabled.yml --syntax-check
+    uv run ansible-playbook -i localhost, \
+        tests/integration/edge-teardown.yml --syntax-check
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
         ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml \
         ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \
         ansible/playbooks/uninstall.yml \
         ansible/playbooks/cache-purge.yml ansible/playbooks/stats.yml \
         ansible/playbooks/origin-check.yml tests/integration/http3-edge.yml \
-        tests/integration/http3-firewall-disabled.yml
+        tests/integration/http3-firewall-disabled.yml \
+        tests/integration/edge-teardown.yml
 
 # Static security analysis and a dependency vulnerability audit.
 audit:

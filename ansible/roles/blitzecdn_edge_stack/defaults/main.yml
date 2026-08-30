@@ -1,0 +1,151 @@
+---
+# The BlitzeCDN runtime, as a Docker Compose project.
+#
+# This role owns *running* the edge. It does not render a single line of
+# customer configuration: blitzecdn_nginx writes the whole configuration tree to
+# the host filesystem and this mounts it. The split is deliberate and is what
+# keeps a site change a reload rather than a container replacement — see
+# blitzecdn_edge_stack_recreate below.
+blitzecdn_edge_stack_enabled: true
+
+# --- image ---------------------------------------------------------------
+#
+# Software version, not desired state. The image an edge runs is fleet policy —
+# set it with `blitzecdn config set blitzecdn_edge_image_tag 2.8.0` — while the
+# sites it serves come from the control-plane database through desired state.
+# Conflating them would make a customer adding a hostname a candidate for an
+# Nginx upgrade.
+#
+# The fleet value is composed in inventory/group_vars/blitzecdn_edges from
+# blitzecdn_edge_image_registry, _repository, _tag and _digest, and lands here
+# as one reference. The literal below is only the standalone fallback, for a
+# playbook that runs this role without that group — the integration tests do
+# exactly that. blitzecdn_nginx carries the identical fallback, because it has
+# to validate a configuration against the same image before this role starts a
+# container from it; tests/test_ansible_role_contracts.py asserts the two agree.
+#
+# Never `latest`. A floating tag makes "which build is this fleet running"
+# unanswerable and makes rollback a guess; both are things an edge fleet cannot
+# afford.
+blitzecdn_edge_stack_image_default: ghcr.io/misaf/blitzecdn-edge:2.7.0
+blitzecdn_edge_stack_image: >-
+  {{ blitzecdn_edge_image | default(blitzecdn_edge_stack_image_default, true) }}
+# Fetch the image from its registry when this host does not already have it.
+# Off for an air-gapped fleet, or one whose images are pre-seeded with
+# `docker load` — the converge then requires the image to be present and fails
+# clearly if it is not, rather than reaching for a registry it cannot see.
+blitzecdn_edge_stack_image_pull: true
+# The repository without its tag or digest, used to recognise this image's own
+# entry among the RepoDigests of a pulled manifest.
+blitzecdn_edge_stack_image_reference: >-
+  {{ blitzecdn_edge_stack_image | regex_replace('(@sha256:[0-9a-f]+|:[^/:]+)$', '') }}
+
+# MaxMind's own updater, pinned by tag and digest. Never built here: it is one
+# statically linked Go binary whose whole job is talking to MaxMind, and
+# rebuilding it would only add a supply chain BlitzeCDN would then have to own.
+blitzecdn_edge_stack_geoipupdate_image: >-
+  ghcr.io/maxmind/geoipupdate:v7.1.1@sha256:faecdca22579730ab0b7dea5aa9af350bb3c93cb9d39845c173639ead30346d2
+
+# --- project layout ------------------------------------------------------
+blitzecdn_edge_stack_project: blitzecdn
+blitzecdn_edge_stack_container: blitzecdn-edge
+blitzecdn_edge_stack_state_path: /etc/blitzecdn
+blitzecdn_edge_stack_compose_file: /etc/blitzecdn/compose.yml
+# Runtime state this role owns, kept apart from /etc/blitzecdn so a
+# configuration backup does not carry a record of which image bytes were running
+# on one host at one moment.
+blitzecdn_edge_stack_runtime_path: /var/lib/blitzecdn/edge
+# The image reference the last successful converge left running. Read back on
+# the next run to tell "nothing changed" from "this is an upgrade", and to give
+# a rollback something exact to return to.
+blitzecdn_edge_stack_deployed_image_file: /var/lib/blitzecdn/edge/image
+
+# --- mounted state -------------------------------------------------------
+#
+# Every one of these is a host directory. Containers stay disposable: replacing
+# blitzecdn-edge, or upgrading it to a new image, touches nothing here. They are
+# expressed as references to the roles that own them rather than restated, so
+# there is exactly one definition of where an edge keeps its cache — the
+# alternative is two values that agree until the day somebody changes one.
+blitzecdn_edge_stack_nginx_config_path: /etc/nginx
+blitzecdn_edge_stack_module_path: /etc/blitzecdn/nginx
+blitzecdn_edge_stack_tls_path: /etc/blitzecdn/tls
+blitzecdn_edge_stack_cache_path: "{{ blitzecdn_nginx_cache_path }}"
+blitzecdn_edge_stack_acme_root: "{{ blitzecdn_nginx_acme_root }}"
+blitzecdn_edge_stack_empty_root: "{{ blitzecdn_nginx_under_attack_empty_root }}"
+blitzecdn_edge_stack_log_path: /var/log/nginx
+blitzecdn_edge_stack_geoip_path: "{{ blitzecdn_nginx_geoip_database | dirname }}"
+
+# --- health --------------------------------------------------------------
+#
+# Read from the blitzecdn_nginx values rather than restated: a status endpoint
+# moved on one side and not the other would leave the container health check
+# probing a closed port and reporting an edge unhealthy that is serving fine.
+blitzecdn_edge_stack_status_enabled: "{{ blitzecdn_nginx_status_enabled }}"
+blitzecdn_edge_stack_status_address: "{{ blitzecdn_nginx_status_address }}"
+blitzecdn_edge_stack_status_port: "{{ blitzecdn_nginx_status_port }}"
+blitzecdn_edge_stack_status_path: "{{ blitzecdn_nginx_status_path }}"
+blitzecdn_edge_stack_http_ports: "{{ blitzecdn_nginx_http_ports }}"
+blitzecdn_edge_stack_https_ports: "{{ blitzecdn_nginx_https_ports }}"
+blitzecdn_edge_stack_http3_enabled: "{{ blitzecdn_nginx_http3_enabled }}"
+# How long a recreated edge is given to open every listener and answer. Nginx
+# reads thirteen listeners and every managed site before it accepts the first
+# connection, and a cold edge on a busy fleet is doing that while pulling.
+blitzecdn_edge_stack_health_timeout: 90
+# Docker's own health state, which the image's HEALTHCHECK computes. Waited on
+# separately from the listener probes below because it answers a different
+# question — "does Nginx think its own configuration is loadable" — and because
+# a container Docker itself calls unhealthy will be restarted underneath us.
+blitzecdn_edge_stack_require_container_health: true
+# Graceful stop. SIGQUIT lets Nginx finish in-flight requests; anything shorter
+# turns every container replacement into a burst of visitor errors.
+blitzecdn_edge_stack_stop_grace_period: 30s
+
+# --- lifecycle -----------------------------------------------------------
+#
+# Recreate the container even when nothing about it changed. Off, because a
+# configuration deployment must not replace the process serving traffic: the
+# nginx role reloads instead, and only an image change recreates. Set true for a
+# deliberate `docker compose up --force-recreate`, never as routine policy.
+blitzecdn_edge_stack_recreate: false
+
+# --- GeoIP ---------------------------------------------------------------
+#
+# The updater is a container; its *schedule* is a host responsibility, for the
+# same reason the firewall and the kernel are. A systemd timer with a calendar
+# and a randomised delay is what keeps a fleet from arriving at MaxMind on the
+# same second, and Compose has no equivalent — the alternative, a long-running
+# container sleeping between updates, restarts its interval every time the stack
+# is converged and drifts a little further from the publication window each time.
+blitzecdn_edge_stack_geoip_enabled: "{{ blitzecdn_nginx_geoip_enabled }}"
+blitzecdn_edge_stack_geoip_database: "{{ blitzecdn_nginx_geoip_database }}"
+blitzecdn_edge_stack_geoip_edition: "{{ blitzecdn_nginx_geoip_edition }}"
+blitzecdn_edge_stack_geoip_account_id: "{{ blitzecdn_nginx_geoip_account_id }}"
+blitzecdn_edge_stack_geoip_license_key: "{{ blitzecdn_nginx_geoip_license_key }}"
+blitzecdn_edge_stack_geoip_update_enabled: "{{ blitzecdn_nginx_geoip_update_enabled }}"
+blitzecdn_edge_stack_geoip_update_calendar: "{{ blitzecdn_nginx_geoip_update_calendar }}"
+blitzecdn_edge_stack_geoip_update_splay: "{{ blitzecdn_nginx_geoip_update_splay }}"
+# 0600 root: the license key authenticates to a MaxMind account, so it is a
+# credential and not a database identifier. It reaches the container as an
+# env_file rather than an `environment:` entry, so it never appears in
+# `docker inspect`, in the compose file, or in this repository.
+blitzecdn_edge_stack_geoip_env_file: /etc/blitzecdn/geoipupdate.env
+blitzecdn_edge_stack_geoip_units:
+  - blitzecdn-geoipupdate.service
+  - blitzecdn-geoipupdate.timer
+
+# --- migration -----------------------------------------------------------
+#
+# A native Nginx and the edge container cannot both own :80. Left alone, the
+# container would fail to bind and the host would keep serving whatever the
+# native Nginx last loaded — a fleet that looks converged and is not. Set this
+# true, once, to have the converge stop and purge the native stack first.
+blitzecdn_edge_stack_migrate_from_native: false
+blitzecdn_edge_stack_native_packages:
+  - nginx
+  - nginx-common
+  - nginx-core
+  - libnginx-mod-http-geoip2
+  - libnginx-mod-http-brotli-filter
+  - libnginx-mod-http-js
+  - geoipupdate

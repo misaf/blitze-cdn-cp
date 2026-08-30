@@ -1,0 +1,48 @@
+---
+# Host-level Docker only. Nothing in this role knows what BlitzeCDN runs on the
+# engine it installs — that is blitzecdn_edge_stack's job — so a change to the
+# edge runtime never has to touch the role that owns the host's container
+# engine, and a host whose engine is broken fails here rather than three roles
+# later with a confusing error about a container.
+blitzecdn_docker_enabled: true
+
+# Docker's own apt repository rather than the distribution's docker.io. The
+# Compose *plugin* (`docker compose`, not the retired `docker-compose` script)
+# is only published there, and the edge stack is a Compose project.
+blitzecdn_docker_repository_url: https://download.docker.com/linux/ubuntu
+blitzecdn_docker_gpg_url: https://download.docker.com/linux/ubuntu/gpg
+blitzecdn_docker_keyring: /etc/apt/keyrings/docker.asc
+blitzecdn_docker_list_file: /etc/apt/sources.list.d/docker.sources
+
+# Installed as one transaction. The engine, its CLI, the runtime and the
+# Compose plugin are a matched set the same way the Nginx stack inside the edge
+# image is: a CLI that speaks a protocol the daemon does not is a broken edge
+# that looks installed.
+blitzecdn_docker_packages:
+  - docker-ce
+  - docker-ce-cli
+  - containerd.io
+  - docker-buildx-plugin
+  - docker-compose-plugin
+
+# community.docker talks to the daemon over its HTTP socket through a vendored
+# API client whose only dependency is requests. Installed from the archive
+# rather than pip: this is a system interpreter on a server, and the modules
+# run under it.
+blitzecdn_docker_python_packages: [python3-requests]
+
+# The engine's own log driver. An edge container that logs forever fills the
+# root filesystem, and the filesystem it fills is the one holding the cache and
+# the TLS material. Nginx's request log is a bind-mounted file and is not
+# affected by this — these are the container's stdout/stderr, which carry
+# startup and error output only.
+blitzecdn_docker_log_driver: json-file
+blitzecdn_docker_log_max_size: 32m
+blitzecdn_docker_log_max_file: 3
+blitzecdn_docker_daemon_config_file: /etc/docker/daemon.json
+
+# `live-restore` keeps running containers alive across a daemon restart, so an
+# engine upgrade or a `systemctl restart docker` does not drop every visitor's
+# connection. It is incompatible with Swarm mode, which this edge deliberately
+# does not use.
+blitzecdn_docker_live_restore: true

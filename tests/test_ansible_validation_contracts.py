@@ -17,7 +17,7 @@ from contract_support import *
 # ----------------------------------------------------------------------
 
 VALIDATE_TASKS = ROLE_DIR / "tasks/validate.yml"
-NGINX_BUILD_CAPABILITY_TASKS = ROLE_DIR / "tasks/build-capability.yml"
+NGINX_BUILD_INVARIANT_TASKS = ROLE_DIR / "tasks/build-invariant.yml"
 
 
 def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: Any):
@@ -67,18 +67,15 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
 
 
 def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
-    fake_bin = tmp_path / "bin"
-    fake_bin.mkdir()
+    """Execute the build invariant against a fabricated `nginx -V` banner.
+
+    Nginx runs in a container now, so there is no binary on the host to fake.
+    The invariant was split out of the probe for exactly this: the assertions
+    read two variables, so a test can hand them the output of a build that does
+    not exist rather than needing an engine, an image and a network.
+    """
     ansible_local = tmp_path / "ansible-local"
     ansible_local.mkdir()
-    nginx = fake_bin / "nginx"
-    nginx.write_text(
-        "#!/bin/sh\n"
-        "echo 'nginx version: nginx/1.27.0' >&2\n"
-        f"echo 'configure arguments: {configure_arguments}' >&2\n",
-        encoding="utf-8",
-    )
-    nginx.chmod(0o755)
     playbook = tmp_path / "nginx-build-capability.yml"
     playbook.write_text(
         yaml.safe_dump(
@@ -86,7 +83,15 @@ def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
                 {
                     "hosts": "localhost",
                     "gather_facts": False,
-                    "tasks": [{"import_tasks": str(NGINX_BUILD_CAPABILITY_TASKS)}],
+                    "vars": {
+                        "blitzecdn_nginx_config_test_image": "example/edge:test",
+                        "blitzecdn_nginx_build_status": 0,
+                        "blitzecdn_nginx_build_output": (
+                            "nginx version: nginx/1.27.0\n"
+                            f"configure arguments: {configure_arguments}\n"
+                        ),
+                    },
+                    "tasks": [{"import_tasks": str(NGINX_BUILD_INVARIANT_TASKS)}],
                 }
             ]
         ),
@@ -113,7 +118,6 @@ def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
         | {
             "ANSIBLE_LOCALHOST_WARNING": "False",
             "ANSIBLE_LOCAL_TEMP": str(ansible_local),
-            "PATH": f"{fake_bin}:{os.environ.get('PATH', '')}",
         },
         check=False,
     )
@@ -298,14 +302,31 @@ def test_maxmind_credentials_never_reach_an_nginx_config():
     assert "123456" not in nginx_side
     assert context["blitzecdn_nginx_geoip_database"] in nginx_side
 
-    # …and it does reach the file that is supposed to carry it.
-    credentials = environment.get_template("maxmind.conf.j2").render(**context)
-    assert "LicenseKey SENTINELKEY" in credentials
+    # …and it does reach the file that is supposed to carry it. The updater is
+    # a container now, so the credential travels as a 0600 env_file rather than
+    # a geoipupdate(8) configuration — and never through the Compose file, where
+    # `docker inspect` would hand it to anyone who can talk to the engine.
+    stack = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(STACK_ROLE_DIR / "templates"),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+    credentials = stack.get_template("geoipupdate.env.j2").render(
+        blitzecdn_edge_stack_geoip_account_id="123456",
+        blitzecdn_edge_stack_geoip_license_key="SENTINELKEY",
+    )
+    assert "GEOIPUPDATE_LICENSE_KEY=SENTINELKEY" in credentials
+
+    compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
+    assert "GEOIPUPDATE_LICENSE_KEY" not in compose
+    assert "blitzecdn_edge_stack_geoip_license_key" not in compose
 
 
 def test_the_credentials_file_is_written_private_and_unlogged():
     """Mode and no_log are the whole protection; assert them, not the intent."""
-    tasks = yaml.safe_load((ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8"))
+    tasks = yaml.safe_load(
+        (STACK_ROLE_DIR / "tasks/geoip-credentials.yml").read_text(encoding="utf-8")
+    )
 
     def walk(items):
         for task in items:
@@ -317,7 +338,7 @@ def test_the_credentials_file_is_written_private_and_unlogged():
     writer = next(
         task
         for task in walk(tasks)
-        if task.get("ansible.builtin.template", {}).get("src") == "maxmind.conf.j2"
+        if task.get("ansible.builtin.template", {}).get("src") == "geoipupdate.env.j2"
     )
     assert writer["ansible.builtin.template"]["mode"] == "0600"
     assert writer["ansible.builtin.template"]["owner"] == "root"

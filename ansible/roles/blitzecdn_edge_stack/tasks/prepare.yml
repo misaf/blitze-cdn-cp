@@ -1,0 +1,60 @@
+---
+# Everything the edge needs in place *before* its configuration is rendered.
+#
+# Split out of main.yml because the ordering is forced from two directions. The
+# GeoIP database has to exist before blitzecdn_nginx validates a configuration
+# that reads it, and the runtime image has to exist before anything can be
+# validated against it at all — but the container itself must not start until
+# the configuration is written and has passed `nginx -t`. So: this file first,
+# the Nginx role next, main.yml last.
+- name: Prepare the edge runtime
+  when: blitzecdn_edge_stack_enabled
+  block:
+    - name: Refuse to start the edge stack beside a native Nginx
+      ansible.builtin.import_tasks: native.yml
+
+    - name: Create the persistent edge directories
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: directory
+        owner: "{{ item.owner | default('root') }}"
+        group: "{{ item.group | default('root') }}"
+        mode: "{{ item.mode }}"
+      loop:
+        - {path: "{{ blitzecdn_edge_stack_state_path }}", mode: "0755"}
+        # Read-only in the container and root-only on the host: this is where
+        # the njs implementation of Under Attack Mode lives, and it is signed
+        # with a fleet secret.
+        - {path: "{{ blitzecdn_edge_stack_module_path }}", group: www-data, mode: "0750"}
+        - {path: "{{ blitzecdn_edge_stack_tls_path }}", mode: "0700"}
+        - {path: "{{ blitzecdn_edge_stack_runtime_path }}", mode: "0700"}
+        # The three configuration directories the container mounts. Created
+        # here rather than by a package, because there is no longer a package:
+        # a bind mount of a path that does not exist makes Docker create it as
+        # an empty root-owned directory, and an edge would start with no
+        # configuration at all and answer 404 for every site.
+        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}/conf.d", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}/sites-available", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}/sites-enabled", mode: "0755"}
+        # Nginx opens its logs as the root master process; adm is the group
+        # Ubuntu gives log readers, and it is what a Phase 2 log shipper will
+        # join rather than being given root.
+        - {path: "{{ blitzecdn_edge_stack_log_path }}", owner: www-data, group: adm, mode: "0755"}
+      loop_control:
+        label: "{{ item.path }}"
+
+    - name: Resolve the edge runtime image
+      ansible.builtin.import_tasks: image.yml
+
+    # Before the Compose file, which names the credentials file the geoipupdate
+    # service reads: `docker compose config` validates the rendered project and
+    # fails on an env_file that does not exist yet.
+    - name: Provide the MaxMind credentials
+      ansible.builtin.import_tasks: geoip-credentials.yml
+
+    - name: Render the Compose project
+      ansible.builtin.import_tasks: compose.yml
+
+    - name: Provide the GeoLite2 database
+      ansible.builtin.import_tasks: geoip-database.yml

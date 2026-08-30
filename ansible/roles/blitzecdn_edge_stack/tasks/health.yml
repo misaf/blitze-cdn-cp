@@ -1,0 +1,126 @@
+---
+# "Is the container running" is not a health check.
+#
+# Nginx keeps serving the configuration it loaded at start, so a container can
+# be up and healthy-looking while the tree on disk is broken; and it can be up
+# with a valid configuration and still not have bound a listener, because
+# something else on the host owns the port. Each question below has produced a
+# real outage on its own, so each is asked separately.
+- name: Inspect the edge container
+  community.docker.docker_container_info:
+    name: "{{ blitzecdn_edge_stack_container }}"
+  register: blitzecdn_edge_stack_container_state
+  when: not ansible_check_mode
+
+- name: Require the edge container to be running
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_edge_stack_container_state.exists
+      - blitzecdn_edge_stack_container_state.container.State.Running
+    fail_msg: >-
+      {{ blitzecdn_edge_stack_container }} is not running on
+      {{ inventory_hostname }}. Read its output with
+      `docker logs {{ blitzecdn_edge_stack_container }}`; the most common cause
+      on a first converge is another process already holding a public port.
+  when: not ansible_check_mode
+
+# Docker's own verdict, computed by the image's HEALTHCHECK: the configuration
+# on disk parses, the master process is alive, and the loopback status endpoint
+# answers. Separate from the checks below because a container Docker calls
+# unhealthy is one it will keep restarting underneath us.
+- name: Require the container health check to pass
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_edge_stack_container_state.container.State.Health.Status
+        | default('healthy') == 'healthy'
+    fail_msg: >-
+      Docker reports {{ blitzecdn_edge_stack_container }} as
+      {{ blitzecdn_edge_stack_container_state.container.State.Health.Status
+         | default('unknown') }} on {{ inventory_hostname }}. The last probe
+      said:
+      {{ (blitzecdn_edge_stack_container_state.container.State.Health.Log
+          | default([]) | last | default({})).Output | default('nothing') }}
+  when:
+    - not ansible_check_mode
+    - blitzecdn_edge_stack_require_container_health | bool
+
+- name: Confirm the running edge accepts its own configuration
+  community.docker.docker_container_exec:
+    container: "{{ blitzecdn_edge_stack_container }}"
+    argv: [nginx, -t]
+  register: blitzecdn_edge_stack_config_test
+  changed_when: false
+  when: not ansible_check_mode
+
+# Every public TCP listener, not a sample. A missing alternate port is invisible
+# until a visitor arrives on it, and the catch-all default server means these
+# are open on a fresh edge with no sites at all.
+- name: Require every public TCP listener
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: "{{ item }}"
+    state: started
+    timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
+  loop: >-
+    {{ (blitzecdn_edge_stack_http_ports | list)
+       + (blitzecdn_edge_stack_https_ports | list) }}
+  when:
+    - not ansible_check_mode
+    - blitzecdn_nginx_default_server | default(true) | bool
+      or blitzecdn_nginx_sites | default([]) | length > 0
+
+# wait_for cannot ask about UDP — there is nothing to connect to — so HTTP/3 is
+# confirmed from the kernel's own listener table. This is the check that keeps
+# the firewall's UDP/443 rule and the QUIC listener from silently disagreeing:
+# the play already refuses to converge when the two desired states differ, and
+# this proves the listener the firewall was opened for actually exists.
+- name: Read the kernel listener table
+  ansible.builtin.command:
+    argv: [ss, -H, -lnu]
+  register: blitzecdn_edge_stack_udp_listeners
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - blitzecdn_edge_stack_http3_enabled | bool
+
+- name: Require the HTTP/3 listener on UDP/443
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_edge_stack_udp_listeners.stdout is search(':443\s')
+    fail_msg: >-
+      HTTP/3 is enabled for {{ inventory_hostname }} and UDP/443 is open in the
+      firewall, but nothing is listening on UDP/443. Visitors would negotiate
+      h3 from the Alt-Svc header and time out. Check
+      `docker logs {{ blitzecdn_edge_stack_container }}` for a QUIC bind error.
+  when:
+    - not ansible_check_mode
+    - blitzecdn_edge_stack_http3_enabled | bool
+
+# The one endpoint that proves requests are actually served rather than merely
+# accepted. Read from the edge, because it is bound to loopback there.
+- name: Read the local status endpoint
+  ansible.builtin.uri:
+    url: >-
+      http://{{ blitzecdn_edge_stack_status_address }}:{{
+        blitzecdn_edge_stack_status_port }}{{ blitzecdn_edge_stack_status_path }}
+    return_content: true
+    status_code: [200]
+  register: blitzecdn_edge_stack_status
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - blitzecdn_edge_stack_status_enabled | bool
+
+# Nothing may report an edge healthy while a site it serves asks for a country
+# rule the edge cannot evaluate. blitzecdn_nginx refuses to render that
+# combination; this refuses to run it, which covers a database removed from the
+# host after the configuration was written.
+- name: Require the GeoIP database the running configuration reads
+  community.docker.docker_container_exec:
+    container: "{{ blitzecdn_edge_stack_container }}"
+    argv: [test, -s, "{{ blitzecdn_edge_stack_geoip_database }}"]
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - blitzecdn_edge_stack_geoip_enabled | bool

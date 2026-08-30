@@ -1,0 +1,9 @@
+{
+  "//": "Managed by BlitzeCDN. Local edits are overwritten.",
+  "log-driver": "{{ blitzecdn_docker_log_driver }}",
+  "log-opts": {
+    "max-size": "{{ blitzecdn_docker_log_max_size }}",
+    "max-file": "{{ blitzecdn_docker_log_max_file | string }}"
+  },
+  "live-restore": {{ blitzecdn_docker_live_restore | bool | lower }}
+}

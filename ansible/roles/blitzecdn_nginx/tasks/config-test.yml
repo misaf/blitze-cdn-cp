@@ -1,0 +1,26 @@
+---
+# `nginx -t` for a containerised edge.
+#
+# Deliberately a *fresh* container rather than an exec into the running one.
+# Three reasons, each of which has to hold:
+#
+#   * on a first converge there is no running container yet, and the whole point
+#     of validating is to decide whether one may be started;
+#   * an upgrade has to test the configuration against the image it is about to
+#     move to, which is by definition not the one running;
+#   * a probe that cannot reach the live container cannot disturb it. This runs
+#     with no network and the same mounts, so it sees exactly what the edge
+#     would see and can affect nothing that is serving.
+- name: Test the rendered configuration against the edge runtime image
+  community.docker.docker_container:
+    name: blitzecdn-edge-config-test
+    image: "{{ blitzecdn_nginx_config_test_image }}"
+    command: [nginx, -t]
+    detach: false
+    cleanup: true
+    network_mode: none
+    volumes: "{{ blitzecdn_nginx_config_test_volumes }}"
+    state: started
+  register: blitzecdn_nginx_config_test
+  changed_when: false
+  failed_when: blitzecdn_nginx_config_test.status | default(1) != 0
