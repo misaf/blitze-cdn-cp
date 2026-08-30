@@ -11,14 +11,14 @@ from blitzecdn.infrastructure.backup.components import (
     TlsComponent,
 )
 from blitzecdn.infrastructure.backup.schema import AlembicSchemaVersions
-from blitzecdn.infrastructure.backup.services import SystemdServiceControl
+from blitzecdn.infrastructure.backup.services import ComposeRestoreGuard
 
 __all__ = [
     "AcmeComponent",
     "AlembicSchemaVersions",
+    "ComposeRestoreGuard",
     "ConfigComponent",
     "DatabaseComponent",
-    "SystemdServiceControl",
     "TarArchive",
     "TemporaryWorkspace",
     "TlsComponent",

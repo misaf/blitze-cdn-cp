@@ -69,7 +69,7 @@ dev = [
 ]
 
 [project.scripts]
-blitzecdn = "blitzecdn.cli:run"
+blitzecdn = "blitzecdn.cli.main:run"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/blitzecdn"]

@@ -3,7 +3,7 @@ import threading
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
-from blitzecdn.infrastructure.operation_stores import WorkflowStore
+from blitzecdn.infrastructure.persistence.workflows import WorkflowStore
 
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):
@@ -13,7 +13,7 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
         built.append(True)
         raise AssertionError("construction must happen in lifespan")
 
-    monkeypatch.setattr("blitzecdn.api.build_control_plane", build)
+    monkeypatch.setattr("blitzecdn.api.app.build_control_plane", build)
     create_app(settings)
     assert built == []
 

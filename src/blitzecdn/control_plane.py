@@ -37,17 +37,29 @@ from blitzecdn.application import (
     EdgeOperationsService,
 )
 from blitzecdn.application.backup import BackupPolicy, BackupService
-from blitzecdn.application.configuration import CertificatePolicy, DeploymentPolicy
+from blitzecdn.application.certificates import CertificatePolicy
+from blitzecdn.application.deployments import DeploymentPolicy
 from blitzecdn.application.maintenance import MaintenanceService
+from blitzecdn.application.ports.certificates import (
+    CertificateStore as CertificateStorePort,
+)
+from blitzecdn.application.ports.certificates import Issuer, Preflight
+from blitzecdn.application.ports.deployments import (
+    DeploymentRunner,
+    QueueBackgroundRunner,
+)
+from blitzecdn.application.ports.edges import EdgeStore as EdgeStorePort
+from blitzecdn.application.ports.edges import OriginProbe as OriginProbePort
+from blitzecdn.application.ports.operations import AuditTrail
 from blitzecdn.application.workflows import WorkflowCoordinator
 from blitzecdn.config import Settings
 from blitzecdn.infrastructure.ansible import AnsibleRunner
 from blitzecdn.infrastructure.backup import (
     AcmeComponent,
     AlembicSchemaVersions,
+    ComposeRestoreGuard,
     ConfigComponent,
     DatabaseComponent,
-    SystemdServiceControl,
     TarArchive,
     TemporaryWorkspace,
     TlsComponent,
@@ -58,22 +70,6 @@ from blitzecdn.infrastructure.desired_state import DesiredStateRenderer
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
-from blitzecdn.ports import (
-    AuditTrail,
-    DeploymentRunner,
-    Issuer,
-    Preflight,
-    QueueBackgroundRunner,
-)
-from blitzecdn.ports import (
-    CertificateStore as CertificateStorePort,
-)
-from blitzecdn.ports import (
-    EdgeStore as EdgeStorePort,
-)
-from blitzecdn.ports import (
-    OriginProbe as OriginProbePort,
-)
 from blitzecdn.worker import DramatiqBackgroundRunner, redis_ready
 
 
@@ -291,7 +287,7 @@ def build_backup_service(settings: Settings) -> BackupService:
         ),
         archive=TarArchive(),
         schema=AlembicSchemaVersions(settings),
-        services=SystemdServiceControl(),
+        services=ComposeRestoreGuard(),
         # Staged under the state directory rather than /tmp: a staged backup is
         # a complete copy of the database and every private key.
         workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),

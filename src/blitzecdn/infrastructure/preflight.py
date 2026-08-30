@@ -29,6 +29,7 @@ import dns.exception
 import dns.rdatatype
 import dns.resolver
 
+from blitzecdn.application.ports.edges import EdgeStore, OriginProbe
 from blitzecdn.config import Settings
 from blitzecdn.domain.certificates import (
     TTL_CUTOVER_ADVISORY_SECONDS,
@@ -38,7 +39,6 @@ from blitzecdn.domain.certificates import (
 )
 from blitzecdn.domain.sites import CdnSite
 from blitzecdn.infrastructure.origins import OriginProbe as ConcreteOriginProbe
-from blitzecdn.ports import EdgeStore, OriginProbe
 
 #: CAA property tags we understand. ``issue`` governs ordinary issuance,
 #: ``issuewild`` wildcard issuance; RFC 8659 says a wildcard order consults

@@ -91,22 +91,6 @@ def test_domain_imports_nothing_but_itself():
     )
 
 
-def test_compatibility_ports_only_reexport_canonical_ports():
-    """The legacy module remains a facade, never a second port registry."""
-    assert (
-        _violations(
-            "ports",
-            (
-                *_ADAPTERS,
-                "blitzecdn.infrastructure",
-                "blitzecdn.control_plane",
-            ),
-        )
-        == []
-    )
-    assert len((_SOURCE / "ports.py").read_text(encoding="utf-8").splitlines()) < 50
-
-
 def test_canonical_ports_only_face_the_domain_and_other_ports():
     assert (
         _violations(
@@ -143,12 +127,17 @@ def test_application_never_touches_a_concrete_adapter():
 
 
 def test_infrastructure_does_not_depend_on_the_application():
-    """Adapters are used by the application, never the other way round."""
+    """Adapters implement ports but never import application services."""
+    offenders = [
+        f"{path.name} imports {imported}"
+        for path in _modules("infrastructure")
+        for imported in sorted(_imports(path))
+        if imported.startswith("blitzecdn.application.")
+        and not imported.startswith("blitzecdn.application.ports.")
+    ]
+    assert offenders == []
     assert (
-        _violations(
-            "infrastructure",
-            ("blitzecdn.application", "blitzecdn.control_plane", "blitzecdn.api"),
-        )
+        _violations("infrastructure", ("blitzecdn.control_plane", "blitzecdn.api"))
         == []
     )
 
@@ -188,11 +177,9 @@ def test_api_routes_expose_only_api_owned_models():
 
 
 def test_persistence_is_physically_split_by_feature():
-    facade = _SOURCE / "infrastructure/stores.py"
-    assert len(facade.read_text(encoding="utf-8").splitlines()) < 50
     assert {
         path.stem for path in (_SOURCE / "infrastructure/persistence").glob("*.py")
-    } >= {"audit", "configuration", "deployments", "dns", "edges", "sites"}
+    } >= {"audit", "configuration", "deployments", "dns", "edges", "sites", "workflows"}
 
 
 def test_removed_subsystems_do_not_return():

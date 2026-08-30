@@ -12,7 +12,7 @@ from conftest import (
 )
 from typer.testing import CliRunner
 
-from blitzecdn import cli
+from blitzecdn.cli import main as cli
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.certificates import (

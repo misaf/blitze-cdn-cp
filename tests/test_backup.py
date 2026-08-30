@@ -17,12 +17,11 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
-import yaml
 from conftest import FakeRunner
 from typer.testing import CliRunner
 
-from blitzecdn import cli
 from blitzecdn.application.backup import BackupPolicy, BackupService
+from blitzecdn.cli import main as cli
 from blitzecdn.control_plane import ControlPlane, build_backup_service
 from blitzecdn.domain.backup import (
     BACKUP_FORMAT_VERSION,
@@ -40,10 +39,7 @@ from blitzecdn.infrastructure.backup import (
     TemporaryWorkspace,
 )
 from blitzecdn.infrastructure.backup.components import DATABASE_MEMBER
-from blitzecdn.infrastructure.backup.services import (
-    CONTROL_PLANE_UNITS,
-    SystemdServiceControl,
-)
+from blitzecdn.infrastructure.backup.services import ComposeRestoreGuard
 from blitzecdn.infrastructure.database import Repository
 
 runner = CliRunner()
@@ -1049,95 +1045,34 @@ def test_an_archive_entry_outside_a_component_is_refused():
     assert member_component("tls/key.pem") is BackupComponent.TLS
 
 
-# --- the systemd adapter ----------------------------------------------
+# --- the Compose restore boundary ------------------------------------
 
 
-class _FakeSystemd(SystemdServiceControl):
-    """The real control flow, with `systemctl` replaced by a recorder."""
-
-    def __init__(self, *, active: set[str], failing: str | None = None) -> None:
-        super().__init__()
-        # `stopped` short-circuits when systemctl is absent, which it is on a
-        # developer machine; this stands in for a host where it is present.
-        self.active = active
-        self.failing = failing
-        self.calls: list[str] = []
-
-    def _invoke(self, command: tuple[str, ...]) -> int:  # type: ignore[override]
-        verb, unit = command[-2], command[-1]
-        if command[0] == "systemctl":
-            verb = command[1]
-        if verb == "is-active":
-            return 0 if unit in self.active else 3
-        self.calls.append(f"{verb} {unit}")
-        return 1 if f"{verb} {unit}" == self.failing else 0
-
-
-@pytest.fixture
-def systemd_present(monkeypatch):
-    """Pretend systemctl exists; `stopped` short-circuits without it."""
+def test_container_restore_requires_the_host_compose_wrapper(monkeypatch):
     monkeypatch.setattr(
-        "blitzecdn.infrastructure.backup.services.shutil.which",
-        lambda name: f"/usr/bin/{name}",
+        "blitzecdn.infrastructure.backup.services.Path.exists", lambda _path: True
     )
+    monkeypatch.delenv("COMPOSE_RESTORE_OFFLINE", raising=False)
+    with (
+        pytest.raises(ExecutionError, match="must run through the host"),
+        ComposeRestoreGuard().stopped(),
+    ):
+        pytest.fail("the restore body must not run")
 
 
-def test_systemd_stops_and_restarts_only_what_was_running(systemd_present):
-    """A unit an operator deliberately left stopped must not come back."""
-    control = _FakeSystemd(active={"blitzecdn-api.service"})
-    with control.stopped():
-        assert control.calls == ["stop blitzecdn-api.service"]
-    assert control.calls == [
-        "stop blitzecdn-api.service",
-        "start blitzecdn-api.service",
-    ]
-
-
-def test_systemd_restarts_in_the_reverse_order_it_stopped(systemd_present):
-    control = _FakeSystemd(active={"blitzecdn-api.service", "blitzecdn-worker.service"})
-    with control.stopped():
-        pass
-    assert control.calls == [
-        "stop blitzecdn-api.service",
-        "stop blitzecdn-worker.service",
-        "start blitzecdn-worker.service",
-        "start blitzecdn-api.service",
-    ]
-
-
-def test_systemd_restarts_the_services_even_when_the_body_raises(systemd_present):
-    control = _FakeSystemd(active={"blitzecdn-api.service"})
-    with pytest.raises(RuntimeError), control.stopped():
-        raise RuntimeError("the restore failed")
-    assert control.calls[-1] == "start blitzecdn-api.service"
-
-
-def test_a_unit_that_will_not_stop_aborts_before_anything_is_restored(
-    systemd_present,
-):
-    control = _FakeSystemd(
-        active={"blitzecdn-api.service"}, failing="stop blitzecdn-api.service"
-    )
-    with pytest.raises(ExecutionError, match="could not stop"), control.stopped():
-        pytest.fail("the body must not run")
-
-
-def test_systemd_does_nothing_on_a_host_that_has_no_systemctl(monkeypatch):
-    """A developer restoring into a checkout has no units to stop."""
+def test_container_restore_accepts_the_offline_boundary(monkeypatch):
     monkeypatch.setattr(
-        "blitzecdn.infrastructure.backup.services.shutil.which", lambda _name: None
+        "blitzecdn.infrastructure.backup.services.Path.exists", lambda _path: True
     )
-    control = SystemdServiceControl()
-    with control.stopped():
+    monkeypatch.setenv("COMPOSE_RESTORE_OFFLINE", "1")
+    with ComposeRestoreGuard().stopped():
         pass
 
 
-def test_the_unit_list_matches_the_control_plane_role():
-    """A unit added to the role and missed here survives a restore.
-
-    It would hold the database open across the file being replaced, which is
-    exactly the failure stopping the services exists to prevent.
-    """
-    role = Path("ansible/roles/blitzecdn_controlplane/defaults/main.yml")
-    document = yaml.safe_load(role.read_text(encoding="utf-8"))
-    assert list(CONTROL_PLANE_UNITS) == document["blitzecdn_controlplane_services"]
+def test_checkout_restore_needs_no_container_lifecycle(monkeypatch):
+    monkeypatch.setattr(
+        "blitzecdn.infrastructure.backup.services.Path.exists", lambda _path: False
+    )
+    monkeypatch.delenv("COMPOSE_RESTORE_OFFLINE", raising=False)
+    with ComposeRestoreGuard().stopped():
+        pass

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
+from blitzecdn.application.ports.certificates import CertificateStore
+from blitzecdn.application.ports.deployments import YamlWriter
 from blitzecdn.domain.sites import MANAGED_TLS_ROOT, CertificateMode
 from blitzecdn.domain.snapshots import decode_snapshot
 from blitzecdn.infrastructure.ansible_mapping import site_to_ansible
-from blitzecdn.ports import CertificateStore, YamlWriter
 
 
 class DesiredStateRenderer:

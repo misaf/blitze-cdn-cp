@@ -580,7 +580,7 @@ def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
         )
     )
     monkeypatch.setattr(
-        "blitzecdn.api.build_control_plane", lambda _settings, **_kwargs: control
+        "blitzecdn.api.app.build_control_plane", lambda _settings, **_kwargs: control
     )
 
     with TestClient(create_app(settings)) as client:
@@ -606,7 +606,7 @@ def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
 def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
     control, _ = seeded(FakeRunner([ansible_run(host_run("edge-a"))]))
     monkeypatch.setattr(
-        "blitzecdn.api.build_control_plane", lambda _settings, **_kwargs: control
+        "blitzecdn.api.app.build_control_plane", lambda _settings, **_kwargs: control
     )
 
     with TestClient(create_app(settings)) as client:
