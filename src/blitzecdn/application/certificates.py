@@ -14,8 +14,6 @@ from datetime import UTC, datetime
 from time import monotonic
 from typing import Literal
 
-from blitzecdn.application.certificate_queries import CertificateQueries
-from blitzecdn.application.configuration import CertificatePolicy
 from blitzecdn.application.ports.certificates import (
     CertificateStore,
     DeploymentGateway,
@@ -49,6 +47,13 @@ from blitzecdn.exceptions import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CertificatePolicy:
+    """Configuration owned by certificate workflows."""
+
+    default_email: str | None
 
 
 @dataclass(frozen=True)
@@ -91,9 +96,6 @@ class CertificateService:
         self.dns = dns
         self.deployments = deployments
         self.workflows = workflows
-        self.queries = CertificateQueries(
-            sites=persistence.sites, certificates=persistence.certificates
-        )
 
     # -- Installing ----------------------------------------------------
 
@@ -349,11 +351,16 @@ class CertificateService:
     # -- Reporting -----------------------------------------------------
 
     def certificate(self, name: str) -> CertificateInfo:
-        return self.queries.get(name)
+        self.persistence.sites.get_site(name)
+        return self.persistence.certificates.get(name)
 
     def certificate_statuses(self) -> list[CertificateStatus]:
         """Every managed certificate against the clock, soonest expiry first."""
-        return self.queries.statuses()
+        now = datetime.now(UTC)
+        return [
+            CertificateStatus.of(info, now=now)
+            for info in self.persistence.certificates.list_all()
+        ]
 
     def expiring_certificates(
         self, within_days: int = CERTIFICATE_RENEWAL_DAYS
@@ -364,7 +371,11 @@ class CertificateService:
         are precisely the ones worth surfacing early — someone has to be asked
         for a replacement, and that takes longer than an ACME round trip.
         """
-        return self.queries.expiring(within_days)
+        return [
+            status
+            for status in self.certificate_statuses()
+            if status.days_remaining <= within_days
+        ]
 
     # -- Renewal -------------------------------------------------------
 

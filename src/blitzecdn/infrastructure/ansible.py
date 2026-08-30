@@ -30,6 +30,7 @@ from ansible_runner import (
     exceptions as runner_exceptions,
 )
 
+from blitzecdn.application.ports.edges import EdgeStore
 from blitzecdn.config import Settings
 from blitzecdn.domain.cache import PurgeEntry
 from blitzecdn.domain.edges import EDGE_GROUP
@@ -44,7 +45,6 @@ from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
 from blitzecdn.infrastructure.ansible_mapping import purge_entry_to_ansible
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml
-from blitzecdn.ports import EdgeStore
 
 __all__ = ["AnsibleRunner", "DeploymentLock"]
 

@@ -16,8 +16,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from blitzecdn.application.configuration import DeploymentPolicy
-from blitzecdn.application.deployment_queries import DeploymentQueries
 from blitzecdn.application.ports.deployments import (
     DeploymentRequirements,
     DeploymentRunner,
@@ -36,6 +34,7 @@ from blitzecdn.domain.events import domain_event
 from blitzecdn.domain.operations import WorkflowKind
 from blitzecdn.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.domain.snapshots import (
+    decode_snapshot,
     decode_snapshot_zones,
     snapshot_digest,
 )
@@ -43,6 +42,18 @@ from blitzecdn.domain.validation import validate_edge_limit
 from blitzecdn.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 
 _LOGGER = logging.getLogger(__name__)
+_DEPLOYMENT_LOOKBACK = 50
+
+
+@dataclass(frozen=True)
+class DeploymentPolicy:
+    """Configuration owned by deployment workflows."""
+
+    run_dir: Path
+    generated_vars_path: Path
+    output_limit_bytes: int
+    history_retention: int
+    runtime_errors: Callable[[], list[str]]
 
 
 @dataclass(frozen=True)
@@ -85,7 +96,6 @@ class DeploymentService:
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
         self.workflows = workflows
-        self.queries = DeploymentQueries(persistence.deployments)
 
     def initialize(self) -> int:
         """Recover durable work a previous controller process left in flight.
@@ -322,17 +332,24 @@ class DeploymentService:
         result is the structured one, so this reads the same object a live run
         produced rather than re-deriving anything.
         """
-        return self.queries.drift_report(deployment_id)
+        deployment = self.persistence.deployments.get_deployment(deployment_id)
+        if not deployment.check_mode:
+            raise ConflictError(
+                f"deployment {deployment.id} applied changes rather than "
+                "previewing them, so its result describes what it did, not "
+                "what had drifted. Run 'blitzecdn drift' instead."
+            )
+        return DriftReport.of(deployment)
 
     # -- History -------------------------------------------------------
 
     def get_deployment(self, deployment_id: str) -> Deployment:
         """One deployment, for an operator or a client polling a queued run."""
-        return self.queries.get(deployment_id)
+        return self.persistence.deployments.get_deployment(deployment_id)
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]:
         """Recent deployments, newest first."""
-        return self.queries.list(limit)
+        return self.persistence.deployments.list_deployments(limit)
 
     def site_is_deployed(self, site_name: str) -> bool:
         """Whether the most recent real deployment carried this site.
@@ -344,7 +361,16 @@ class DeploymentService:
         canaries. Only the newest successful run is consulted; an older one
         listing the site says nothing about whether it is still deployed.
         """
-        return self.queries.site_is_deployed(site_name)
+        for deployment in self.persistence.deployments.list_deployments(
+            limit=_DEPLOYMENT_LOOKBACK
+        ):
+            if deployment.status is not DeploymentStatus.SUCCEEDED:
+                continue
+            if deployment.check_mode:
+                continue
+            snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
+            return any(site.name == site_name for site in decode_snapshot(snapshot))
+        return False
 
     # -- Internals -----------------------------------------------------
 
