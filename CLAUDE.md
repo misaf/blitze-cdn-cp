@@ -9,14 +9,16 @@ Tasks run through `just` (recipes are in `justfile`) and every recipe wraps `uv 
 ```bash
 just install       # uv sync --frozen + install the Ansible collections into .state/
 just check         # every CI gate, in CI order — run before pushing
-just test tests/test_domain.py -k some_case --no-cov   # a single case
+just test-fast     # the whole suite across every core, coverage off — the inner loop
+just test-one tests/test_domain.py -k some_case        # a single case
 ```
 
 `just check` is the contract with CI: `.github/workflows/ci.yml` calls these same recipes rather than repeating commands, so a gate added to the justfile is a gate CI picks up with no second edit. Don't add a CI step that bypasses it.
 
 Things that are not guessable:
 
-- **`--no-cov` when running a subset.** `pyproject.toml` sets `--cov-fail-under=85` globally, so any run narrower than the full suite fails on coverage rather than on the test.
+- **`--no-cov` when running a subset.** `pyproject.toml` sets `--cov-fail-under=85` globally, so any run narrower than the full suite fails on coverage rather than on the test. `just test-one` already passes it.
+- **The suite runs in parallel.** `just test` — the gate, and what `just check` calls — is `pytest -n auto --dist=worksteal`, and pytest-cov combines the workers' data, so the floor is measured against the same total a sequential run produces. Workers are separate processes and every fixture is per-test, so a test that needs a port binds `:0`, a test that needs a path takes `tmp_path`, and a test that shells out to Ansible gives the child its own `ANSIBLE_LOCAL_TEMP`. A new test that reaches for a fixed port, a fixed path outside `tmp_path`, or a shared temp directory breaks under `-n` and not sequentially.
 - **`filterwarnings = ["error"]`.** A new DeprecationWarning anywhere in the dependency tree fails the suite.
 - **`BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov`** regenerates the control-plane/edge contract fixture. Do this only after an *intended* change to `CdnSite` or the Nginx role.
 - **Contract tests skip silently when the Ansible collections aren't installed.** Check the count, not the exit code — thirty-one tests, not thirty-one skips. Run `just install` (or `./install.sh`) first.

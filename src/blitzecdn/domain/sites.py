@@ -4,6 +4,19 @@
 derived rather than authored — :mod:`blitzecdn.domain.dns` owns the records it
 comes from — so nothing here reads or writes state; it validates a shape and
 renders it.
+
+TLS, compression, caching, the firewall and the visitor headers all live in this
+one module on purpose. They are not five subjects that happen to share a file:
+they are the fields of ``SitePolicy``, which ``CdnSite`` inherits and
+``RecordPatch`` mirrors, and they change together — a new knob is a field, a
+validator, and a line in the desired-state contract, added in one edit. Splitting
+them per feature would turn that single edit into a walk through five modules and
+buy nothing, because none of them is independently importable: the value objects
+exist to be fields of the policy, and the policy exists to be the base of the
+site. The cross-field rules are the evidence — ``http3_enabled`` is refused
+unless ``ssl_mode`` serves edge TLS, and ``certificate_mode`` has to stay
+consistent with the two certificate paths — and a rule that reads two features
+cannot live in either one's module.
 """
 
 from __future__ import annotations

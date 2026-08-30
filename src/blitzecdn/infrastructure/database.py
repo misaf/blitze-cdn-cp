@@ -1,8 +1,8 @@
 """One SQLite database, exposed as focused feature stores.
 
-``Repository`` opens the database and hands out the four stores that sit on it.
-It is a bundle, not a layer: each store already satisfies its port in
-:mod:`blitzecdn.ports` structurally, so the composition root passes
+``Repository`` opens the database and hands out the focused stores that sit on
+it. It is a bundle, not a layer: each store already satisfies its port in
+:mod:`blitzecdn.application.ports` structurally, so the composition root passes
 ``repository.zones`` to whatever asked for a ``ZoneStore`` and no service is
 ever handed more of persistence than it declared.
 
