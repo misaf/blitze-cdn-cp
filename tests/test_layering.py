@@ -1,9 +1,10 @@
 """The layering rule, enforced instead of merely documented.
 
-``domain`` knows nothing but itself. ``ports`` declares the interfaces over the
-outside world and may see the domain. ``application`` orchestrates the domain
-through those ports and must never reach for a concrete adapter. Only the
-composition root and the two entry points are allowed to know both halves.
+``domain`` knows nothing but itself. ``application/ports`` declares the
+interfaces over the outside world and may see the domain. ``application``
+orchestrates the domain through those ports and must never reach for a concrete
+adapter. Only the composition root and the entry points — the CLI, the API, and
+the worker — are allowed to know both halves.
 
 This used to be a convention kept by review. Reviews miss a single import, and
 the failure is invisible until someone tries to test a service without a
@@ -84,7 +85,6 @@ def test_domain_imports_nothing_but_itself():
                 "blitzecdn.api",
                 "blitzecdn.cli",
                 "blitzecdn.config",
-                "blitzecdn.ports",
             ),
         )
         == []
@@ -159,6 +159,64 @@ def test_the_wiring_modules_do_wire(module):
 def test_worker_is_an_explicit_control_plane_entry_point():
     imports = _imports(_SOURCE / "worker.py")
     assert "blitzecdn.control_plane" in imports
+
+
+def test_the_composition_root_never_imports_the_worker():
+    """The queue arrow points one way.
+
+    ``worker.py`` is an entry point: it builds a control plane and calls a
+    service on it, exactly as the CLI does. The composition root used to import
+    the Redis broker and the background runner back out of it, which made the
+    two modules mutually dependent — survivable only because the actors imported
+    the control plane lazily, inside the function body, which is the kind of
+    fix that hides the problem instead of stating it.
+
+    The broker now lives in ``infrastructure/broker.py``, so the composition
+    root reaches an adapter like it reaches every other one. This refuses the
+    old edge by name.
+    """
+    offenders = sorted(
+        name
+        for name in _imports(_SOURCE / "control_plane.py")
+        if name == "blitzecdn.worker" or name.startswith("blitzecdn.worker.")
+    )
+    assert offenders == [], (
+        "control_plane reaches the queue through infrastructure.broker; the "
+        "worker imports the control plane and never the other way round"
+    )
+
+
+def test_nothing_but_the_worker_process_imports_the_worker():
+    """A publisher enqueues by name and never imports an actor.
+
+    The API and the scheduler publish into Redis without loading the actors,
+    which is what keeps the actors' dependencies — a control plane per message —
+    out of the web process. Importing ``blitzecdn.worker`` anywhere but the
+    worker itself would quietly undo that.
+    """
+    offenders = [
+        str(path.relative_to(_SOURCE))
+        for path in _SOURCE.rglob("*.py")
+        if path.name != "worker.py"
+        and any(
+            name == "blitzecdn.worker" or name.startswith("blitzecdn.worker.")
+            for name in _imports(path)
+        )
+    ]
+    assert offenders == []
+
+
+def test_the_broker_adapter_publishes_without_importing_actors():
+    """The broker is an adapter, so it faces outward only.
+
+    It implements ``QueueBackgroundRunner`` structurally and knows the queue and
+    actor *names*; knowing the actor objects would be the import cycle again in
+    a different direction.
+    """
+    imports = _imports(_SOURCE / "infrastructure/broker.py")
+    assert not any(name.startswith("blitzecdn.worker") for name in imports)
+    assert not any(name.startswith("blitzecdn.application") for name in imports)
+    assert not any(name.startswith("blitzecdn.control_plane") for name in imports)
 
 
 def test_the_api_reaches_infrastructure_only_through_the_control_plane():

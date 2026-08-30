@@ -9,6 +9,8 @@ from typing import Any
 import jinja2
 import yaml
 
+from blitzecdn.infrastructure import broker
+
 ROOT = Path(__file__).resolve().parent.parent
 ROLE = ROOT / "ansible/roles/blitzecdn_controlplane"
 UNINSTALL = ROOT / "ansible/roles/blitzecdn_uninstall/tasks/main.yml"
@@ -46,6 +48,20 @@ def test_api_worker_and_redis_are_dedicated_persistent_services():
     assert services["blitzecdn-worker"]["restart"] == "unless-stopped"
     assert "healthcheck" in services["blitzecdn-api"]
     assert "healthcheck" in services["blitzecdn-worker"]
+
+
+def test_the_worker_consumes_every_queue_the_broker_publishes_to():
+    """The third copy of the queue names, held against the first.
+
+    ``infrastructure/broker.py`` names the queues, ``worker.py`` declares actors
+    on them, and this Compose command tells Dramatiq which ones to consume. A
+    queue missing from the command is not an error anywhere — the messages just
+    sit in Redis unread — so the list is checked rather than trusted.
+    """
+    command = _compose()["services"]["blitzecdn-worker"]["command"]
+    queues = command[command.index("--queues") + 1 : command.index("--processes")]
+
+    assert set(queues) >= {broker.DEPLOYMENT_QUEUE, broker.SCHEDULED_QUEUE}
 
 
 def test_cli_is_ephemeral_and_not_a_persistent_daemon():
