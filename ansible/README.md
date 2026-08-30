@@ -1,154 +1,53 @@
-# Operator Ansible configuration
+# Ansible quick start
 
-This directory is the operator-side half of the deployment: the inventory
-plugin, group variables, connection settings, and the playbooks the control
-plane invokes.
+The control plane invokes the playbooks and roles in this directory to manage
+BlitzeCDN edges. There is no host inventory file to edit: the inventory plugin
+reads registered edges and fleet configuration from the control-plane database.
 
-Ansible is the single source of truth for host installation and teardown.
-Python decides when to run those operations and records their results; the
-shell installer only bootstraps Ansible, invokes it, and removes its own
-checkout after the uninstall play succeeds.
-
-**There is no inventory file to edit.** The fleet lives in the `edges` table of
-the control-plane database, and `plugins/inventory/blitzecdn.py` reads it at the
-start of every run — so a host exists for Ansible exactly when it exists in the
-control plane, with nothing in between to drift. Manage it with `blitzecdn edge
-add`, `edge update`, `edge list` and `edge remove`.
-
-The BlitzeCDN roles live in `roles/` and are loaded directly from this checkout.
-[`requirements.yml`](requirements.yml) pins only the third-party collections
-used by those roles.
+Install the controller from the project root, then register and deploy an edge:
 
 ```bash
-ansible-galaxy collection install -r requirements.yml -p ../.state/collections
+BLITZECDN_DEV=1 ./install.sh
+
+blitzecdn edge add edge-01 \
+  --host 192.0.2.10 \
+  --public-address 203.0.113.10 \
+  --user deploy \
+  --ssh-source 198.51.100.0/24
+blitzecdn validate
+blitzecdn plan
+blitzecdn deploy
 ```
 
-| Path | Purpose |
-| --- | --- |
-| `requirements.yml` | Pins third-party Ansible collections used by the local roles |
-| `inventory/blitzecdn.yml` | The inventory: configuration for the plugin below, not a host list |
-| `plugins/inventory/blitzecdn.py` | Publishes the `edges` table into the `blitzecdn_edges` group |
-| `inventory/group_vars/` | Environment policy for `blitzecdn_edges` |
-| `playbooks/edge.yml` | Converges edges: host, then container engine, then the runtime stack |
-| `playbooks/acme-challenge.yml` | Publishes an HTTP-01 token to every edge |
-| `playbooks/cache-purge.yml` | Removes cached responses by key, or empties the cache |
-| `playbooks/stats.yml` | Collects cache and connection counters from every edge |
-| `playbooks/decommission.yml` | Takes a host out of service and removes managed state |
-| `playbooks/uninstall.yml` | Removes managed state from a standalone controller/edge host |
-| `ansible.cfg` | Connection, fork, and collection-path settings |
+Use a non-root SSH user, verified host keys, and at least one trusted management
+CIDR. Managed edges must be fresh Ubuntu 26.04 LTS hosts.
 
-`playbooks/edge.yml` converges only the `blitzecdn_edges` inventory group. Tags
-are `base`, `resolver`, `kernel`, `firewall`, `docker`, `nginx`, `edge_stack`,
-`sshd`, and `security` (`sshd` and Fail2Ban both carry `security`). High-impact
-deployments should normally run the complete play because firewall, port, and
-Fail2Ban policy are related.
-
-The order is forced by two rules that have each cost an outage elsewhere. The
-container engine, the persistent edge state and the runtime image are prepared
-*before* the firewall, because opening the public ports on a host that cannot
-serve them advertises an edge that is not there. And the edge container is
-started *after* `blitzecdn_nginx` has rendered the configuration and proved it
-loads, because a container started against an incomplete tree is an edge
-answering 444 for every customer.
-
-The control plane writes validated `blitzecdn_nginx_sites` to a restrictive
-file beneath `.state/` and passes it explicitly with `--extra-vars`. Generated
-data is never committed or implicitly discovered.
-
-## The inventory
-
-Register an edge through the control plane; there is nothing to copy or edit:
+Inspect the generated inventory when troubleshooting:
 
 ```bash
-blitzecdn edge add edge-01 --host 192.0.2.10 --port 22 \
-    --ssh-source 198.51.100.0/24 --public-address 203.0.113.10
+ANSIBLE_CONFIG=ansible/ansible.cfg \
+  ansible-inventory --list
 ```
 
-To see exactly what Ansible will be given, including the group variables that
-apply on top:
+The main entry points are:
+
+- `inventory/blitzecdn.yml` — dynamic inventory configuration
+- `plugins/inventory/blitzecdn.py` — database-backed inventory plugin
+- `inventory/group_vars/` — shipped fleet defaults
+- `playbooks/edge.yml` — edge convergence
+- `playbooks/decommission.yml` — managed edge removal
+- `playbooks/uninstall.yml` — standalone host removal
+- `roles/` — controller and edge roles
+
+Do not edit tracked fleet defaults for local overrides. Use
+`blitzecdn config set`, `blitzecdn config list`, and `blitzecdn config unset`.
+
+From the project root, run the Ansible checks with:
 
 ```bash
-ansible-inventory -i inventory/blitzecdn.yml --list
+just ansible-check
 ```
 
-The plugin finds the database from `BLITZE_DATABASE_PATH`, which the control
-plane exports for every run it starts, and otherwise uses
-`../.state/control-plane.db` — so the command above works as written on a
-default install. The plugin requires the current `edges` table and refuses a
-missing or incompatible schema; `blitzecdn setup` creates a clean database.
-
-Use a non-root `--user`, an external SSH key or agent, verified `known_hosts`,
-and at least one `--ssh-source` management CIDR — the firewall role refuses to
-enable without one.
-
-`--ssh-source` and `--port` are published as **host** variables. Both used to be
-set in `group_vars/blitzecdn_edges/`, which meant two things that hurt: an
-inventory group variable loses to a `group_vars/` file, so `edge add
---ssh-source` recorded a value the firewall never applied; and the firewall port
-was maintained separately from `ansible_port`, so a mismatch closed the port the
-next converge arrived on. Both now come from the edge itself and cannot
-disagree. Setting either key in `group_vars/` has no effect.
-
-Group variables must live in `inventory/group_vars/`, beside the inventory
-source. Ansible only auto-loads `group_vars` adjacent to the inventory or the
-playbook, so a `group_vars/` directory anywhere else is silently ignored and
-every setting in it falls back to the role default. This did not change with
-the move to a plugin: the directory is loaded for the group the plugin creates
-exactly as it was for the group the old static file declared.
-
-Check mode cannot prove service behaviour or package availability. Always run
-`blitzecdn validate`, then `blitzecdn plan`, before an applied deployment.
-
-## The containerised edge runtime
-
-BlitzeCDN 2.x requires a fresh Ubuntu 26.04 LTS edge and runs the CDN as
-containers. Nothing that serves CDN traffic is installed directly on the host:
-no `nginx`, no `libnginx-mod-*`, no `geoipupdate`.
-
-| Role | Owns |
-| --- | --- |
-| `blitzecdn_docker` | Docker Engine, the Compose plugin, the daemon configuration |
-| `blitzecdn_edge_stack` | The runtime image, Compose project, edge and updater containers, persistent directories, and runtime health |
-| `blitzecdn_nginx` | Generated Nginx configuration, configuration validation, and reload signalling inside the running edge container |
-
-`blitzecdn_edge_stack` has two entry points. `prepare.yml` runs as a pre-task —
-persistent directories, image pull and digest pin, the Compose file, the
-GeoLite2 database — because the database must exist before a configuration that
-reads it is validated, and the image must exist before anything can be
-validated against it. `main.yml` runs last and starts, keeps or replaces the
-container.
-
-Existing native-Nginx BlitzeCDN edges are not upgraded in place. The fresh-host
-guard fails without changing the host when `/usr/sbin/nginx` exists; it never
-stops a service or removes a package. To move an older edge to 2.x, provision a
-fresh Ubuntu 26.04 host, register it as a new edge, deploy desired state,
-validate traffic and TLS, shift traffic, and then decommission the old host.
-
-The image is `ghcr.io/misaf/blitzecdn-edge:<version>`, built from
-`docker/edge/` on `ubuntu:26.04` with these four Ubuntu archive packages
-resolved in one apt transaction, which is how Ubuntu expresses an ABI-matched
-unit:
-
-- `nginx`
-- `libnginx-mod-http-geoip2`
-- `libnginx-mod-http-brotli-filter`
-- `libnginx-mod-http-js`
-
-Before firewall changes, `blitzecdn_nginx` starts a throwaway container from
-that image, with no network, and verifies Nginx 1.25.0+,
-`--with-http_v3_module`, an `--build=Ubuntu` binary, all loadable dynamic
-modules and executable Brotli/njs directive probes. Do not build an edge image
-that replaces the binary or combines modules from another package source.
-Brotli static is not installed because the current configuration does not use
-it.
-
-Set the fleet's image with `blitzecdn config set blitzecdn_edge_image_tag` (and
-`blitzecdn_edge_image_digest`); never `latest`. See the project README's *Edge
-runtime* section for upgrade, rollback, GeoIP, backup and teardown behaviour.
-
-Per-site HTTP/3 serves visitor traffic over QUIC on UDP/443 only. TCP/443 keeps
-HTTP/2 and HTTP/1.1 fallback, alternate HTTPS ports stay TCP-only, and origin
-proxying remains HTTP/1.1. The firewall owns UDP/443 only while at least one
-enabled site requests HTTP/3. Run `just test-integration-http3` from the project root for the clean-host
-proof: a real containerised edge, real protocols, an image upgrade, a rollback
-and both kinds of teardown.
+See the project [quick start](../README.md) and the
+[full documentation](https://github.com/misaf/blitze-cdn-web) for installation,
+configuration, upgrades, rollback, and recovery.
