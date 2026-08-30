@@ -6,7 +6,7 @@ from :mod:`blitzecdn.infrastructure` and injects them into the pure services in
 "what does a real control plane consist of" is answerable by reading one
 constructor.
 
-``ControlPlane`` is that constructor and nothing else. It holds the four
+``ControlPlane`` is that constructor and nothing else. It holds the feature
 services and the ports the entry layers read through, and it forwards no calls:
 the CLI and the API reach the service that owns the work —
 ``control_plane.dns.create_record(...)`` — rather than a method here that would
@@ -17,6 +17,11 @@ Everything reachable from here is a service or a port. The concrete
 reach it would be one import away from calling SQLite directly, which is easy
 to do by accident in a read path and invisible in review — so the rule is
 written down rather than assumed.
+
+The queue is reached through :mod:`blitzecdn.infrastructure.broker` and never
+through :mod:`blitzecdn.worker`. The worker is an entry point that builds a
+control plane, so importing it from here would point the arrow both ways;
+``tests/test_layering.py`` refuses that import by name.
 """
 
 from __future__ import annotations
@@ -64,13 +69,13 @@ from blitzecdn.infrastructure.backup import (
     TemporaryWorkspace,
     TlsComponent,
 )
+from blitzecdn.infrastructure.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
 from blitzecdn.infrastructure.database import Repository
 from blitzecdn.infrastructure.desired_state import DesiredStateRenderer
 from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.infrastructure.origins import OriginProbe
 from blitzecdn.infrastructure.preflight import CertificatePreflight
-from blitzecdn.worker import DramatiqBackgroundRunner, redis_ready
 
 
 class ControlPlane:

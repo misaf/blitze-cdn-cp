@@ -34,6 +34,8 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
         }
         | overrides
     )
+    ansible_local = tmp_path / "ansible-local"
+    ansible_local.mkdir(exist_ok=True)
     playbook = tmp_path / "validate.yml"
     playbook.write_text(
         yaml.safe_dump(
@@ -61,7 +63,12 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
             for key, value in os.environ.items()
             if not key.startswith(("COV_CORE", "COVERAGE"))
         }
-        | {"ANSIBLE_LOCALHOST_WARNING": "False"},
+        # Its own local temp: the ambient one is a single shared directory, and
+        # these runs happen concurrently under xdist.
+        | {
+            "ANSIBLE_LOCALHOST_WARNING": "False",
+            "ANSIBLE_LOCAL_TEMP": str(ansible_local),
+        },
         check=False,
     )
 
