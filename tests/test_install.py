@@ -10,7 +10,7 @@ rather than the text that happens to implement it.
 The lifecycle paths (``--uninstall``, ``--fresh`` and ``update``) are exercised
 for real in a sandbox: the script is copied with every path it touches
 redirected under a temp directory and the root check neutralised, and the
-privileged commands (systemctl, userdel, getent, nginx, git) are stubbed on
+privileged commands (systemctl, userdel, nginx, git) are stubbed on
 ``PATH``. That lets a test verify what is actually removed and that the
 reinstall takes the same path as a brand-new server, without touching the host.
 
@@ -165,12 +165,8 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         f'#!/usr/bin/env bash\ntouch "{process_marker}"\n',
         encoding="utf-8",
     )
-    # userdel and getent share a marker directory so the pair behaves like a
-    # real account database: getent stops resolving an account once userdel has
-    # removed it. A stub that always resolved both could not tell a successful
-    # removal from a refused one, which is the distinction the uninstaller now
-    # fails on. USERDEL_REFUSES makes userdel refuse, as it does for an account
-    # that still has a process running.
+    # USERDEL_REFUSES makes the deployment-account removal fail as it would for
+    # an account that still has a process running.
     deleted = sandbox / "deleted"
     deleted.mkdir(exist_ok=True)
     (bindir / "userdel").write_text(
@@ -182,21 +178,6 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         "fi\n"
         f'touch "{deleted}/${{account}}"\n'
         "exit 0\n",
-        encoding="utf-8",
-    )
-    (bindir / "getent").write_text(
-        "#!/usr/bin/env bash\n"
-        f'[[ -e "{deleted}/$2" ]] && exit 2\n'
-        'case "$2" in\n'
-        "  blitzecdn)\n"
-        f'    echo "blitzecdn:x:999:999:BlitzeCDN:{root / "var/lib/blitzecdn"}'
-        ':/usr/sbin/nologin"\n'
-        "    ;;\n"
-        "  deploy)\n"
-        f'    echo "deploy:x:1000:1000:deploy:{root / "home/deploy"}:/bin/bash"\n'
-        "    ;;\n"
-        "  *) exit 2 ;;\n"
-        "esac\n",
         encoding="utf-8",
     )
     # A stand-in that answers the fresh-rebuild questions and fabricates a
@@ -257,7 +238,6 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/blitzecdn/control-plane.compose.yml",
-        root / "etc/systemd/system/blitzecdn-api.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.service",
         root / "etc/systemd/system/blitzecdn-geoipupdate.timer",
         root / "usr/local/bin/blitzecdn",
@@ -526,15 +506,13 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
     ).read_text(encoding="utf-8")
 
 
-def test_role_does_not_take_ownership_of_role_managed_home_data():
-    """A blanket chown of the service home breaks role-managed ACME paths."""
-    home = _role_task("Set the service home mode")
-    assert home["ansible.builtin.file"]["mode"] == "0751"
-    assert home["ansible.builtin.file"].get("recurse") is not True
-
-    repair = _role_task("Repair service-home ownership left by an interrupted run")
-    assert repair["loop"] == [".ansible", ".cache", ".ssh"]
-    assert repair["ansible.builtin.file"]["recurse"] is True
+def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
+    installation = _role_task("Set the installation directory mode")
+    arguments = installation["ansible.builtin.file"]
+    assert arguments["owner"] == "root"
+    assert arguments["group"] == "root"
+    assert arguments["mode"] == "0755"
+    assert arguments.get("recurse") is not True
 
 
 def test_installer_installs_only_third_party_collections():
@@ -1231,12 +1209,11 @@ def test_host_key_scan_is_stable_across_runs():
     assert "sort" in written["ansible.builtin.copy"]["content"]
 
 
-def test_controlplane_role_removes_obsolete_host_application_units():
+def test_controlplane_role_has_no_legacy_host_application_unit_cleanup():
     defaults = yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
-    assert defaults["blitzecdn_controlplane_obsolete_units"] == [
-        "blitzecdn-api.service",
-        "blitzecdn-worker.service",
-    ]
+    assert "blitzecdn_controlplane_obsolete_units" not in defaults
+    tasks = (ROLE / "tasks/main.yml").read_text(encoding="utf-8")
+    assert "obsolete host application units" not in tasks
 
 
 def test_controlplane_initializes_schema_before_starting_services():

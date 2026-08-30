@@ -6,8 +6,7 @@
 # only in the Compose project.
 blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn
-blitzecdn_controlplane_service_user: blitzecdn
-blitzecdn_controlplane_service_home: /var/lib/blitzecdn
+blitzecdn_controlplane_state_dir: /var/lib/blitzecdn
 # Deliberately outside the installation directory: an uninstall removes
 # /opt/blitzecdn and everything in it, and the one thing that must survive
 # that is the backup taken before it.
@@ -32,8 +31,3 @@ blitzecdn_controlplane_ssl_automatic_scan_seconds: 2592000
 blitzecdn_controlplane_certificate_renewal_seconds: 43200
 blitzecdn_controlplane_drift_check_seconds: 3600
 blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
-
-# Removed when upgrading a host-installed 2.x control plane.
-blitzecdn_controlplane_obsolete_units:
-  - blitzecdn-api.service
-  - blitzecdn-worker.service

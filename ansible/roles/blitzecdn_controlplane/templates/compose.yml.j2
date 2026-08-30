@@ -5,9 +5,6 @@ x-blitzecdn-runtime: &blitzecdn-runtime
   build:
     context: {{ blitzecdn_controlplane_install_dir | to_json }}
     dockerfile: docker/control-plane/Dockerfile
-    args:
-      BLITZE_UID: {{ blitzecdn_controlplane_service_uid | string | to_json }}
-      BLITZE_GID: {{ blitzecdn_controlplane_service_gid | string | to_json }}
   env_file:
     - {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.env') | to_json }}
   environment:
@@ -15,10 +12,8 @@ x-blitzecdn-runtime: &blitzecdn-runtime
     BLITZE_CONFIG: /opt/blitzecdn/blitzecdn.toml
   network_mode: host
   volumes:
-    - {{ (blitzecdn_controlplane_install_dir ~ '/.state:/opt/blitzecdn/.state') | to_json }}
+    - {{ (blitzecdn_controlplane_state_dir ~ ':/opt/blitzecdn/.state') | to_json }}
     - {{ (blitzecdn_controlplane_install_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
-    - {{ (blitzecdn_controlplane_service_home ~ '/.ssh:/var/lib/blitzecdn/.ssh:ro') | to_json }}
-    - {{ (blitzecdn_controlplane_backup_dir ~ ':/var/backups/blitzecdn') | to_json }}
   security_opt:
     - no-new-privileges:true
 
@@ -73,9 +68,12 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    volumes:
+      - {{ (blitzecdn_controlplane_state_dir ~ ':/opt/blitzecdn/.state') | to_json }}
+      - {{ (blitzecdn_controlplane_install_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
+      - {{ (blitzecdn_controlplane_backup_dir ~ ':/var/backups/blitzecdn') | to_json }}
     entrypoint: ["blitzecdn"]
 
 volumes:
   blitzecdn-redis:
     name: blitzecdn-redis
-

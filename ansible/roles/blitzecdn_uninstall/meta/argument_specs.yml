@@ -7,9 +7,7 @@ argument_specs:
         type: path
       blitzecdn_uninstall_sudoers_file:
         type: path
-      blitzecdn_uninstall_service_user:
-        type: str
-      blitzecdn_uninstall_service_home:
+      blitzecdn_uninstall_state_dir:
         type: path
       blitzecdn_uninstall_deploy_user:
         type: str
@@ -19,6 +17,3 @@ argument_specs:
         type: path
       blitzecdn_uninstall_image:
         type: str
-      blitzecdn_uninstall_controlplane_units:
-        type: list
-        elements: str

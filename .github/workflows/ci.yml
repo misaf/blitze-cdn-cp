@@ -56,7 +56,7 @@ jobs:
         run: just lint
       - name: Strict type checking
         run: just types
-      # install.sh provisions users, writes sudoers, and stops services as
+      # install.sh provisions deployment access, writes sudoers, and stops services as
       # root. Nothing else in this workflow reads it.
       - name: Shell lint
         run: just shell-lint

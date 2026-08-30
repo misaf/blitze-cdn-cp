@@ -91,7 +91,8 @@ if ! in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${A
 fi
 
 say "Checking what the installation produced"
-in_container 'getent passwd blitzecdn >/dev/null' || fail "no blitzecdn account"
+in_container '! getent passwd blitzecdn >/dev/null' || fail "unexpected blitzecdn host account"
+in_container '! getent group blitzecdn >/dev/null' || fail "unexpected blitzecdn host group"
 in_container 'getent passwd deploy >/dev/null' || fail "no deploy account"
 in_container 'test -x /usr/local/bin/blitzecdn' || fail "no CLI wrapper"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' || {
@@ -101,6 +102,26 @@ in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep 
 }
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-redis | grep -qx healthy' || fail "Redis not running"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' || fail "worker not running"
+for service in blitzecdn-api blitzecdn-worker; do
+  in_container "docker inspect -f '{{.Config.User}}' ${service} | grep -qx nobody:nogroup" ||
+    fail "${service} does not declare the reused image identity"
+  in_container "docker exec ${service} id | grep -q 'uid=65534(nobody) gid=65534(nogroup)'" ||
+    fail "${service} is not running as nobody:nogroup"
+done
+in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml run --rm --no-deps --entrypoint id blitzecdn-cli | grep -q "uid=65534(nobody) gid=65534(nogroup)"' ||
+  fail "CLI is not running as nobody:nogroup"
+in_container 'stat -c %u:%g:%a /var/lib/blitzecdn | grep -qx 65534:65534:700' ||
+  fail "persistent state ownership does not match the container identity"
+in_container 'stat -c %u:%g:%a /var/backups/blitzecdn | grep -qx 65534:65534:700' ||
+  fail "backup ownership does not match the container identity"
+in_container 'stat -c %U:%G:%a /etc/blitzecdn/blitzecdn.env | grep -qx root:root:600' ||
+  fail "service secrets are not restricted to host root"
+in_container 'stat -c %U:%G:%a /opt/blitzecdn/blitzecdn.toml | grep -qx root:root:644' ||
+  fail "non-secret configuration is not host-managed"
+in_container 'docker exec blitzecdn-api python -c "import sqlite3; p=\"/opt/blitzecdn/.state/permission-test.db\"; c=sqlite3.connect(p); assert c.execute(\"PRAGMA journal_mode=WAL\").fetchone()[0] == \"wal\"; c.execute(\"CREATE TABLE writable (id INTEGER)\"); c.commit(); c.close()"' ||
+  fail "SQLite could not create and write WAL state as the application identity"
+in_container 'test -f /var/lib/blitzecdn/permission-test.db && rm -f /var/lib/blitzecdn/permission-test.db*' ||
+  fail "SQLite permission test did not write into persistent state"
 # From / rather than the checkout: the wrapper exists to make that work.
 in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
@@ -207,7 +228,7 @@ in_container 'test "$(stat -c %a "$(ls -t /var/backups/blitzecdn/*.tar.gz | head
 # shellcheck disable=SC2016
 in_container 'cd / && blitzecdn backup inspect "$(ls -t /var/backups/blitzecdn/*.tar.gz | head -1)" | grep -q "^  database$"' ||
   fail "the backup does not declare a database component"
-in_container 'cd / && blitzecdn backup create --only database -o /var/lib/blitzecdn/database-only.tar.gz' ||
+in_container 'cd / && blitzecdn backup create --only database -o /opt/blitzecdn/.state/database-only.tar.gz' ||
   fail "a database-only backup failed"
 in_container 'test -s /var/lib/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
 in_container 'cd / && blitzecdn backup restore /var/lib/blitzecdn/database-only.tar.gz --yes' ||
@@ -244,7 +265,8 @@ for path in /opt/blitzecdn /etc/blitzecdn /usr/local/bin/blitzecdn \
   /etc/sudoers.d/blitzecdn-deploy /var/lib/blitzecdn /home/deploy; do
   in_container "test ! -e ${path}" || fail "${path} survived the uninstall"
 done
-in_container 'getent passwd blitzecdn >/dev/null' && fail "blitzecdn account survived"
+in_container 'getent passwd blitzecdn >/dev/null' && fail "unexpected blitzecdn account appeared"
+in_container 'getent group blitzecdn >/dev/null' && fail "unexpected blitzecdn group appeared"
 in_container 'getent passwd deploy >/dev/null' && fail "deploy account survived"
 in_container 'ls /etc/systemd/system | grep -q blitzecdn' && fail "unit files survived"
 in_container 'docker ps --all --format "{{.Names}}" | grep -q "^blitzecdn-\(api\|worker\|redis\)$"' &&

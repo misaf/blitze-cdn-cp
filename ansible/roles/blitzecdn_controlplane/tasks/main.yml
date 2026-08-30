@@ -31,15 +31,7 @@
     enabled: true
     state: started
 
-# --- accounts and ownership --------------------------------------------------
-
-- name: Create the control-plane service account
-  ansible.builtin.user:
-    name: "{{ blitzecdn_controlplane_service_user }}"
-    system: true
-    home: "{{ blitzecdn_controlplane_service_home }}"
-    create_home: true
-    shell: /usr/sbin/nologin
+# --- deployment access and filesystem ownership -----------------------------
 
 - name: Create the deployment account
   ansible.builtin.user:
@@ -47,60 +39,13 @@
     shell: /bin/bash
     create_home: true
 
-- name: Read the service account identifiers for the runtime image
-  ansible.builtin.getent:
-    database: passwd
-    key: "{{ blitzecdn_controlplane_service_user }}"
-
-- name: Record the runtime user and group identifiers
-  ansible.builtin.set_fact:
-    blitzecdn_controlplane_service_uid: >-
-      {{ ansible_facts.getent_passwd[blitzecdn_controlplane_service_user][1] }}
-    blitzecdn_controlplane_service_gid: >-
-      {{ ansible_facts.getent_passwd[blitzecdn_controlplane_service_user][2] }}
-
-# Nginx needs traverse access to serve HTTP-01 tokens from below this home.
-# 0751 grants that without letting other users list it, and the directories
-# underneath keep stricter modes of their own.
-- name: Set the service home mode
-  ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_service_home }}"
-    state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0751"
-
-# A partial earlier run can leave root-owned cache and Ansible directories in
-# the service home, and every later command as the service account then fails
-# on them. This is a dedicated home, so the invariant is stated outright.
-- name: Repair service-home ownership left by an interrupted run
-  ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_service_home }}/{{ item }}"
-    state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
-    recurse: true
-  loop: [.ansible, .cache, .ssh]
-
 - name: Set the installation directory mode
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_install_dir }}"
     state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0750"
-
-# The installer builds the virtualenv as root, because it needs it before this
-# account exists. Handing the tree over is what makes the CLI, the API service,
-# and every deployment able to run unprivileged afterwards. Ownership only: the
-# per-file modes pip and git created are correct already.
-- name: Hand the installation directory to the service account
-  ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_install_dir }}"
-    state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
-    recurse: true
+    owner: root
+    group: root
+    mode: "0755"
 
 - name: Permit deployment account provisioning
   ansible.builtin.copy:
@@ -112,7 +57,7 @@
     mode: "0440"
     validate: visudo -cf %s
 
-# --- the loopback trust between the two accounts -----------------------------
+# --- loopback trust between the container and deployment account -------------
 #
 # A standalone host is its own edge, so the control plane reaches it the same
 # way it reaches any other: over SSH, key-only, as the deployment account. That
@@ -120,10 +65,20 @@
 
 - name: Create the state directory
   ansible.builtin.file:
-    path: "{{ blitzecdn_controlplane_install_dir }}/.state"
+    path: "{{ blitzecdn_controlplane_state_dir }}"
     state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    # Debian's existing nobody:nogroup image account is 65534:65534. Numeric
+    # ownership does not require a corresponding BlitzeCDN account on the host.
+    owner: "65534"
+    group: "65534"
+    mode: "0700"
+
+- name: Create the container SSH directory
+  ansible.builtin.file:
+    path: "{{ blitzecdn_controlplane_state_dir }}/.ssh"
+    state: directory
+    owner: "65534"
+    group: "65534"
     mode: "0700"
 
 # 0700, because an archive in here holds every TLS private key, the API
@@ -133,8 +88,8 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_backup_dir }}"
     state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    owner: "65534"
+    group: "65534"
     mode: "0700"
 
 - name: Create the controller key pair
@@ -149,14 +104,22 @@
       - -C
       - blitzecdn-local-controller
       - -f
-      - "{{ blitzecdn_controlplane_install_dir }}/.state/id_ed25519"
-    creates: "{{ blitzecdn_controlplane_install_dir }}/.state/id_ed25519"
-  become: true
-  become_user: "{{ blitzecdn_controlplane_service_user }}"
+      - "{{ blitzecdn_controlplane_state_dir }}/id_ed25519"
+    creates: "{{ blitzecdn_controlplane_state_dir }}/id_ed25519"
+
+- name: Set controller key ownership for the container identity
+  ansible.builtin.file:
+    path: "{{ blitzecdn_controlplane_state_dir }}/{{ item.path }}"
+    owner: "65534"
+    group: "65534"
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: id_ed25519, mode: "0600"}
+    - {path: id_ed25519.pub, mode: "0644"}
 
 - name: Read the controller public key
   ansible.builtin.slurp:
-    src: "{{ blitzecdn_controlplane_install_dir }}/.state/id_ed25519.pub"
+    src: "{{ blitzecdn_controlplane_state_dir }}/id_ed25519.pub"
   register: blitzecdn_controlplane_public_key
 
 - name: Authorize the controller key for the deployment account
@@ -183,35 +146,18 @@
     # Sorted because ssh-keyscan does not promise an order, and an unsorted
     # write would report a change on every run.
     content: "{{ blitzecdn_controlplane_host_keys.stdout_lines | sort | join('\n') }}\n"
-    dest: "{{ blitzecdn_controlplane_service_home }}/.ssh/known_hosts"
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    dest: "{{ blitzecdn_controlplane_state_dir }}/.ssh/known_hosts"
+    owner: "65534"
+    group: "65534"
     mode: "0600"
 
 - name: Configure the controller's SSH client
   ansible.builtin.template:
     src: ssh_config.j2
-    dest: "{{ blitzecdn_controlplane_service_home }}/.ssh/config"
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    dest: "{{ blitzecdn_controlplane_state_dir }}/.ssh/config"
+    owner: "65534"
+    group: "65534"
     mode: "0600"
-
-# Proves the whole chain before anything depends on it: the key, the authorized
-# key, the recorded host key, and the sudo rule. Failing here is far cheaper
-# than failing inside the first deployment.
-- name: Verify the control plane can reach this host as the deployment account
-  ansible.builtin.command:
-    argv:
-      - ssh
-      - -o
-      - BatchMode=yes
-      - "{{ blitzecdn_controlplane_deploy_user }}@localhost"
-      - sudo
-      - -n
-      - "true"
-  become: true
-  become_user: "{{ blitzecdn_controlplane_service_user }}"
-  changed_when: false
 
 # --- the CLI wrapper and the service environment -----------------------------
 
@@ -227,8 +173,8 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_config_dir }}"
     state: directory
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    owner: root
+    group: root
     mode: "0700"
 
 - name: Inspect the environment file
@@ -240,13 +186,6 @@
   ansible.builtin.stat:
     path: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
   register: blitzecdn_controlplane_configuration
-
-- name: Read the existing environment for migration
-  ansible.builtin.slurp:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-  register: blitzecdn_controlplane_existing_environment
-  when: blitzecdn_controlplane_environment.stat.exists
-  no_log: true
 
 - name: Read the existing service configuration
   ansible.builtin.slurp:
@@ -261,24 +200,12 @@
         blitzecdn_controlplane_acme_email
         if blitzecdn_controlplane_acme_email | length > 0
         else (
-          (
-            blitzecdn_controlplane_existing_environment.content
-            | default('')
-            | b64decode
-            | regex_findall('(?m)^BLITZE_ACME_DEFAULT_EMAIL=(.*)$')
-            | first
-          )
-          | default(
-              (
-                blitzecdn_controlplane_existing_configuration.content
-                | default('')
-                | b64decode
-                | regex_findall('(?m)^acme_default_email\\s*=\\s*"([^"]*)"')
-                | first
-              )
-              | default('', true),
-              true
-            )
+          blitzecdn_controlplane_existing_configuration.content
+          | default('')
+          | b64decode
+          | regex_findall('(?m)^acme_default_email\\s*=\\s*"([^"]*)"')
+          | first
+          | default('', true)
         )
       }}
   no_log: true
@@ -296,9 +223,9 @@
   ansible.builtin.template:
     src: blitzecdn.toml.j2
     dest: "{{ blitzecdn_controlplane_install_dir }}/blitzecdn.toml"
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
-    mode: "0600"
+    owner: root
+    group: root
+    mode: "0644"
 
 - name: Generate the API credential for a first installation
   ansible.builtin.set_fact:
@@ -316,8 +243,8 @@
     src: blitzecdn.env.j2
     dest: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
     force: false
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    owner: root
+    group: root
     mode: "0600"
   when: not blitzecdn_controlplane_environment.stat.exists
   no_log: true
@@ -325,42 +252,11 @@
 - name: Enforce the environment file ownership
   ansible.builtin.file:
     path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    owner: "{{ blitzecdn_controlplane_service_user }}"
-    group: "{{ blitzecdn_controlplane_service_user }}"
+    owner: root
+    group: root
     mode: "0600"
 
-- name: Remove migrated non-secret settings from the service environment
-  ansible.builtin.lineinfile:
-    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
-    regexp: "^{{ item }}="
-    state: absent
-  loop:
-    - BLITZE_ACME_DEFAULT_EMAIL
-    - BLITZE_INVENTORY
-    - BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS
-    - BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS
-    - BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS
-    - BLITZE_DRIFT_CHECK_INTERVAL_SECONDS
-    - BLITZE_PREFLIGHT_DNS_SERVERS
-    - BLITZE_REDIS_URL
-  no_log: true
-
 # --- Compose runtime ---------------------------------------------------------
-
-- name: Stop obsolete host application units
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    state: stopped
-    enabled: false
-  loop: "{{ blitzecdn_controlplane_obsolete_units }}"
-  failed_when: false
-
-- name: Remove obsolete host application units
-  ansible.builtin.file:
-    path: "/etc/systemd/system/{{ item }}"
-    state: absent
-  loop: "{{ blitzecdn_controlplane_obsolete_units }}"
-  notify: Reload the systemd manager
 
 - name: Render the control-plane Compose project
   ansible.builtin.template:
@@ -382,6 +278,29 @@
       - --pull
   changed_when: true
 
+# Prove the exact identity and mounts used by API/worker/CLI can use the
+# controller key. No host service account participates in this trust chain.
+- name: Verify the container can reach this host as the deployment account
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --file
+      - "{{ blitzecdn_controlplane_compose_file }}"
+      - run
+      - --rm
+      - --no-deps
+      - --entrypoint
+      - ssh
+      - blitzecdn-cli
+      - -o
+      - BatchMode=yes
+      - "{{ blitzecdn_controlplane_deploy_user }}@localhost"
+      - sudo
+      - -n
+      - "true"
+  changed_when: false
+
 # The API and worker both open the repository during startup. Migrating before
 # Compose starts them prevents either process racing Alembic on a fresh install.
 - name: Initialize the application schema before starting services
@@ -398,9 +317,6 @@
       - setup
       - --schema-only
   changed_when: false
-
-- name: Apply pending removal of obsolete units
-  ansible.builtin.meta: flush_handlers
 
 - name: Recreate and start the control-plane services
   ansible.builtin.command:
