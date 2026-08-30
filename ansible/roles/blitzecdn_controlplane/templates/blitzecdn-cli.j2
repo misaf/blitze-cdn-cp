@@ -1,33 +1,42 @@
 #!/usr/bin/env bash
 # Managed by BlitzeCDN (blitzecdn_controlplane). Manual edits are lost.
-#
-# Runs the BlitzeCDN CLI as the service account with its service environment.
-#
-# Anyone else re-enters this same file through sudo rather than a second copy
-# of the environment written inline: one place builds PATH, the project
-# directory, and the environment file, for both the direct and the sudo path.
-set -euo pipefail
+# One-off commands run in a disposable container. Persistent processes are
+# started and stopped only through their Compose services.
+set -Eeuo pipefail
 
-allow_empty_sites_override=${BLITZE_ALLOW_EMPTY_SITES-}
-
-if [[ $(id -un) != {{ blitzecdn_controlplane_service_user }} ]]; then
-  exec sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES \
-    -u {{ blitzecdn_controlplane_service_user }} -- "$0" "$@"
+if [[ ${EUID} -ne 0 ]]; then
+  exec sudo --preserve-env=BLITZE_ALLOW_EMPTY_SITES -- "$0" "$@"
 fi
 
-set -a
-if [[ -r {{ blitzecdn_controlplane_config_dir }}/blitzecdn.env ]]; then
-  # shellcheck disable=SC1091
-  source {{ blitzecdn_controlplane_config_dir }}/blitzecdn.env
-fi
-set +a
+readonly compose_file={{ blitzecdn_controlplane_compose_file | quote }}
+compose=(docker compose --file "${compose_file}")
+run=("${compose[@]}" run --rm)
 
-if [[ -n ${allow_empty_sites_override} ]]; then
-  BLITZE_ALLOW_EMPTY_SITES=${allow_empty_sites_override}
+if [[ -n ${BLITZE_ALLOW_EMPTY_SITES-} ]]; then
+  run+=(-e "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES}")
 fi
 
-exec env \
-  PATH={{ blitzecdn_controlplane_install_dir }}/.venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  BLITZE_PROJECT_DIR={{ blitzecdn_controlplane_install_dir }} \
-  "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES:-false}" \
-  {{ blitzecdn_controlplane_install_dir }}/.venv/bin/blitzecdn "$@"
+# A database restore must run with every process that can hold the database
+# stopped. Preserve the operator's prior running set and restore it on failure.
+if [[ ${1-} == backup && ${2-} == restore ]]; then
+  running=()
+  while IFS= read -r service; do
+    case "${service}" in
+      blitzecdn-api|blitzecdn-worker) running+=("${service}") ;;
+    esac
+  done < <("${compose[@]}" ps --status running --services)
+
+  if (( ${#running[@]} )); then
+    "${compose[@]}" stop "${running[@]}"
+  fi
+  restore_running() {
+    if (( ${#running[@]} )); then
+      "${compose[@]}" up --detach "${running[@]}"
+    fi
+  }
+  trap restore_running EXIT
+  "${run[@]}" -e COMPOSE_RESTORE_OFFLINE=1 blitzecdn-cli "$@"
+  exit $?
+fi
+
+exec "${run[@]}" blitzecdn-cli "$@"

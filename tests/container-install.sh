@@ -94,13 +94,13 @@ say "Checking what the installation produced"
 in_container 'getent passwd blitzecdn >/dev/null' || fail "no blitzecdn account"
 in_container 'getent passwd deploy >/dev/null' || fail "no deploy account"
 in_container 'test -x /usr/local/bin/blitzecdn' || fail "no CLI wrapper"
-in_container 'systemctl is-active --quiet blitzecdn-api.service' || {
-  in_container 'systemctl status --no-pager blitzecdn-api.service' || true
-  in_container 'journalctl --no-pager -u blitzecdn-api.service -n 100' || true
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' || {
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps' || true
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-api' || true
   fail "API not running"
 }
-in_container 'systemctl is-active --quiet redis-server.service' || fail "Redis not running"
-in_container 'systemctl is-active --quiet blitzecdn-worker.service' || fail "worker not running"
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-redis | grep -qx healthy' || fail "Redis not running"
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' || fail "worker not running"
 # From / rather than the checkout: the wrapper exists to make that work.
 in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
@@ -212,9 +212,9 @@ in_container 'cd / && blitzecdn backup create --only database -o /var/lib/blitze
 in_container 'test -s /var/lib/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
 in_container 'cd / && blitzecdn backup restore /var/lib/blitzecdn/database-only.tar.gz --yes' ||
   fail "a database-only restore failed"
-in_container 'systemctl is-active --quiet blitzecdn-api.service' ||
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "the database restore did not restart the API"
-in_container 'systemctl is-active --quiet blitzecdn-worker.service' ||
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "the database restore did not restart the worker"
 
 say "Re-running the installer"
@@ -230,9 +230,9 @@ say "Checking the updater refuses a checkout it cannot verify"
 # after it, because nothing was stopped on the way to the refusal.
 in_container 'cd /opt/blitzecdn && ./install.sh update --yes' &&
   fail "update ran against a checkout with no origin"
-in_container 'systemctl is-active --quiet blitzecdn-api.service' ||
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "a refused update stopped the API"
-in_container 'systemctl is-active --quiet blitzecdn-worker.service' ||
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "a refused update stopped the worker"
 
 say "Uninstalling"
@@ -247,5 +247,9 @@ done
 in_container 'getent passwd blitzecdn >/dev/null' && fail "blitzecdn account survived"
 in_container 'getent passwd deploy >/dev/null' && fail "deploy account survived"
 in_container 'ls /etc/systemd/system | grep -q blitzecdn' && fail "unit files survived"
+in_container 'docker ps --all --format "{{.Names}}" | grep -q "^blitzecdn-\(api\|worker\|redis\)$"' &&
+  fail "control-plane containers survived"
+in_container 'docker volume inspect blitzecdn-redis >/dev/null 2>&1' &&
+  fail "control-plane Redis volume survived"
 
 printf '\nPASS: %s completed install, re-install, and uninstall\n' "${IMAGE}"

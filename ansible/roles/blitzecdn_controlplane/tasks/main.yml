@@ -47,6 +47,18 @@
     shell: /bin/bash
     create_home: true
 
+- name: Read the service account identifiers for the runtime image
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ blitzecdn_controlplane_service_user }}"
+
+- name: Record the runtime user and group identifiers
+  ansible.builtin.set_fact:
+    blitzecdn_controlplane_service_uid: >-
+      {{ ansible_facts.getent_passwd[blitzecdn_controlplane_service_user][1] }}
+    blitzecdn_controlplane_service_gid: >-
+      {{ ansible_facts.getent_passwd[blitzecdn_controlplane_service_user][2] }}
+
 # Nginx needs traverse access to serve HTTP-01 tokens from below this home.
 # 0751 grants that without letting other users list it, and the directories
 # underneath keep stricter modes of their own.
@@ -90,15 +102,10 @@
     group: "{{ blitzecdn_controlplane_service_user }}"
     recurse: true
 
-- name: Permit deployment and controlled service restarts
+- name: Permit deployment account provisioning
   ansible.builtin.copy:
     content: |
       {{ blitzecdn_controlplane_deploy_user }} ALL=(root) NOPASSWD: ALL
-      {{ blitzecdn_controlplane_service_user }} ALL=(root) NOPASSWD: \
-          /usr/bin/systemctl stop blitzecdn-api.service, \
-          /usr/bin/systemctl stop blitzecdn-worker.service, \
-          /usr/bin/systemctl start blitzecdn-api.service, \
-          /usr/bin/systemctl start blitzecdn-worker.service
     dest: "{{ blitzecdn_controlplane_sudoers_file }}"
     owner: root
     group: root
@@ -338,39 +345,87 @@
     - BLITZE_REDIS_URL
   no_log: true
 
-# The API and worker both open the repository during startup. Letting systemd
-# start them against an empty installation would make those two processes and
-# the installer's handoff race to run Alembic. Schema ownership remains in the
-# Python application; Ansible only establishes the ordering boundary.
+# --- Compose runtime ---------------------------------------------------------
+
+- name: Stop obsolete host application units
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: "{{ blitzecdn_controlplane_obsolete_units }}"
+  failed_when: false
+
+- name: Remove obsolete host application units
+  ansible.builtin.file:
+    path: "/etc/systemd/system/{{ item }}"
+    state: absent
+  loop: "{{ blitzecdn_controlplane_obsolete_units }}"
+  notify: Reload the systemd manager
+
+- name: Render the control-plane Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ blitzecdn_controlplane_compose_file }}"
+    owner: root
+    group: root
+    mode: "0600"
+    validate: docker compose --file %s config --quiet
+
+- name: Build the immutable control-plane runtime image
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --file
+      - "{{ blitzecdn_controlplane_compose_file }}"
+      - build
+      - --pull
+  changed_when: true
+
+# The API and worker both open the repository during startup. Migrating before
+# Compose starts them prevents either process racing Alembic on a fresh install.
 - name: Initialize the application schema before starting services
   ansible.builtin.command:
     argv:
-      - "{{ blitzecdn_controlplane_cli_wrapper }}"
+      - docker
+      - compose
+      - --file
+      - "{{ blitzecdn_controlplane_compose_file }}"
+      - run
+      - --rm
+      - --no-deps
+      - blitzecdn-cli
       - setup
       - --schema-only
-  become: true
-  become_user: "{{ blitzecdn_controlplane_service_user }}"
   changed_when: false
 
-# --- services ----------------------------------------------------------------
-
-- name: Install the systemd units
-  ansible.builtin.copy:
-    src: "{{ blitzecdn_controlplane_install_dir }}/packaging/systemd/{{ item }}"
-    dest: /etc/systemd/system/{{ item }}
-    remote_src: true
-    owner: root
-    group: root
-    mode: "0644"
-  loop: "{{ blitzecdn_controlplane_units }}"
-  notify: Reload the systemd manager
-
-- name: Apply pending unit changes before starting anything
+- name: Apply pending removal of obsolete units
   ansible.builtin.meta: flush_handlers
 
-- name: Enable and start the control-plane services
-  ansible.builtin.systemd_service:
-    name: "{{ item }}"
-    enabled: true
-    state: started
-  loop: "{{ blitzecdn_controlplane_services }}"
+- name: Recreate and start the control-plane services
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --file
+      - "{{ blitzecdn_controlplane_compose_file }}"
+      - up
+      - --detach
+      - --remove-orphans
+      - --force-recreate
+  changed_when: true
+
+- name: Wait for the API and worker containers to become healthy
+  ansible.builtin.command:
+    argv:
+      - docker
+      - inspect
+      - --format
+      - "{{ '{{' }}.State.Health.Status{{ '}}' }}"
+      - "{{ item }}"
+  loop: [blitzecdn-api, blitzecdn-worker]
+  register: blitzecdn_controlplane_health
+  changed_when: false
+  retries: 24
+  delay: 5
+  until: blitzecdn_controlplane_health.stdout == 'healthy'

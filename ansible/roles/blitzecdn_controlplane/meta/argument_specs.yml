@@ -7,7 +7,7 @@ argument_specs:
         Owns every piece of Linux state a standalone installation needs. The
         service and deploy accounts, directory ownership, the sudo rule, the
         loopback SSH trust between them, the CLI wrapper, the environment file,
-        and the systemd units.
+        and the Docker Compose project.
       - Runs against localhost from the standalone installer.
     options:
       blitzecdn_controlplane_install_dir: {type: path, required: true}
@@ -18,6 +18,9 @@ argument_specs:
       blitzecdn_controlplane_deploy_user: {type: str, required: true}
       blitzecdn_controlplane_cli_wrapper: {type: path, required: true}
       blitzecdn_controlplane_sudoers_file: {type: path, required: true}
+      blitzecdn_controlplane_compose_file: {type: path, required: true}
+      blitzecdn_controlplane_image: {type: str, required: true}
+      blitzecdn_controlplane_redis_image: {type: str, required: true}
       blitzecdn_controlplane_packages: {type: list, elements: str, required: true}
       blitzecdn_controlplane_acme_email:
         type: str
@@ -33,5 +36,4 @@ argument_specs:
       blitzecdn_controlplane_ssl_automatic_scan_seconds: {type: int, required: true}
       blitzecdn_controlplane_certificate_renewal_seconds: {type: int, required: true}
       blitzecdn_controlplane_drift_check_seconds: {type: int, required: true}
-      blitzecdn_controlplane_units: {type: list, elements: str, required: true}
-      blitzecdn_controlplane_services: {type: list, elements: str, required: true}
+      blitzecdn_controlplane_obsolete_units: {type: list, elements: str, required: true}
