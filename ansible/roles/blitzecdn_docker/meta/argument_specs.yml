@@ -1,0 +1,47 @@
+---
+argument_specs:
+  main:
+    short_description: Install and verify the host's Docker Engine.
+    description:
+      - >-
+        Host-level container engine only. This role installs Docker Engine and
+        the Compose plugin, configures the daemon, and proves the daemon
+        answers its API. It knows nothing about what BlitzeCDN runs on that
+        engine — blitzecdn_edge_stack owns the Compose project — so an edge
+        runtime change never has to touch this role.
+      - >-
+        Docker's own repository rather than the distribution's docker.io: the
+        Compose plugin is published only there, and the edge stack is a Compose
+        project.
+    options:
+      blitzecdn_docker_enabled: {type: bool, required: true}
+      blitzecdn_docker_repository_url: {type: str, required: true}
+      blitzecdn_docker_gpg_url: {type: str, required: true}
+      blitzecdn_docker_keyring: {type: path, required: true}
+      blitzecdn_docker_list_file: {type: path, required: true}
+      blitzecdn_docker_packages:
+        type: list
+        elements: str
+        required: true
+        description: >-
+          Engine, CLI, runtime and Compose plugin, installed as one
+          transaction. A CLI that speaks a protocol the daemon does not is a
+          broken edge that looks installed.
+      blitzecdn_docker_python_packages:
+        type: list
+        elements: str
+        required: true
+        description: >-
+          The community.docker API client's only dependency. Installed from the
+          archive rather than pip; this is a system interpreter on a server.
+      blitzecdn_docker_log_driver: {type: str, required: true}
+      blitzecdn_docker_log_max_size: {type: str, required: true}
+      blitzecdn_docker_log_max_file: {type: int, required: true}
+      blitzecdn_docker_daemon_config_file: {type: path, required: true}
+      blitzecdn_docker_live_restore:
+        type: bool
+        required: true
+        description: >-
+          Keep running containers alive across a daemon restart, so an engine
+          upgrade does not drop every visitor connection. Incompatible with
+          Swarm mode, which this edge deliberately does not use.

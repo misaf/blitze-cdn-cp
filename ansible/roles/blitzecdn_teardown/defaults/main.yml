@@ -1,7 +1,8 @@
 ---
-# Paths this role removes. Each must equal the value blitzecdn_nginx converged
-# with on the same host, or teardown leaves the real files behind and reports
-# success. The control plane passes both roles the same variables.
+# Paths this role removes. Each must equal the value blitzecdn_nginx or
+# blitzecdn_edge_stack converged with on the same host, or teardown leaves the
+# real files behind and reports success. The control plane passes every role the
+# same variables.
 blitzecdn_teardown_cache_path: /var/cache/nginx/blitzecdn
 blitzecdn_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
 blitzecdn_teardown_acme_root: /var/lib/blitzecdn/acme
@@ -11,6 +12,9 @@ blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
 blitzecdn_teardown_sshd_file: /etc/ssh/sshd_config.d/50-blitzecdn.conf
 blitzecdn_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.local
 blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
+# Written by the pre-container releases of this collection, which ran
+# geoipupdate(8) natively. Still removed: a host upgraded rather than rebuilt
+# has one, and it holds a MaxMind license key.
 blitzecdn_teardown_geoip_config_file: /etc/GeoIP.conf
 blitzecdn_teardown_geoip_units:
   - blitzecdn-geoipupdate.service
@@ -22,7 +26,28 @@ blitzecdn_teardown_geoip_units:
 # reached the registry, and matching on content is what still finds it.
 blitzecdn_teardown_marker: "# Managed by BlitzeCDN. Local edits are overwritten."
 
-# Logs are evidence and survive by default. A decommissioned host is often
-# decommissioned because something went wrong on it.
+# The containerised runtime.
+blitzecdn_teardown_compose_file: /etc/blitzecdn/compose.yml
+blitzecdn_teardown_project: blitzecdn
+blitzecdn_teardown_container: blitzecdn-edge
+blitzecdn_teardown_runtime_path: /var/lib/blitzecdn/edge
+blitzecdn_teardown_empty_root: /var/lib/blitzecdn/empty
+
+# Stopping the edge and destroying what it was serving are two different
+# operations, and conflating them is how a routine runtime removal takes a
+# customer's private keys with it.
+#
+# The containers always go: they are disposable by construction and a stopped
+# edge can be recreated from the control plane in one deploy. The *data* —
+# TLS material, the configuration tree, ACME state, the GeoIP database, the
+# cache and the logs — goes only when this is true.
+#
+# It defaults to true because both callers are decommissions: `blitzecdn edge
+# remove`, which forgets the host entirely, and the uninstaller. Set it false to
+# take the runtime off a host that is going to be rebuilt and re-converged.
+blitzecdn_teardown_remove_data: true
+
+# Logs are evidence and survive by default, even under remove_data. A
+# decommissioned host is often decommissioned because something went wrong on it.
 blitzecdn_teardown_remove_logs: false
 blitzecdn_teardown_access_log_path: /var/log/nginx/blitzecdn-access.log

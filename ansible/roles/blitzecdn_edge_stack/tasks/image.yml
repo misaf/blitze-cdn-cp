@@ -1,0 +1,99 @@
+---
+# Which exact bytes this edge runs, and whether that is a change.
+#
+# A tag is not an answer. `blitzecdn-edge:2.7.0` is whatever the registry
+# returns today, so a converge that pulled a tag on every run could upgrade a
+# fleet with no diff anywhere and no way back — the previous bytes have no name.
+# So the last successful converge records both what it was *asked* for and what
+# that resolved to, and a re-converge that was asked for the same thing keeps
+# the resolved digest instead of asking the registry again.
+- name: Read the image this edge is already running
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_edge_stack_deployed_image_file }}"
+  register: blitzecdn_edge_stack_deployed_raw
+  failed_when: false
+
+- name: Interpret the recorded image
+  ansible.builtin.set_fact:
+    blitzecdn_edge_stack_deployed: >-
+      {{ (blitzecdn_edge_stack_deployed_raw.content | default('') | b64decode | from_json)
+         if (blitzecdn_edge_stack_deployed_raw.content is defined)
+         else {} }}
+
+- name: Check whether the recorded image is still on this host
+  community.docker.docker_image_info:
+    name: "{{ blitzecdn_edge_stack_deployed.resolved }}"
+  register: blitzecdn_edge_stack_local_image
+  when:
+    - blitzecdn_edge_stack_deployed.resolved is defined
+    - blitzecdn_edge_stack_deployed.requested | default('') == blitzecdn_edge_stack_image
+    - not ansible_check_mode
+
+# Reusing the recorded digest is the whole point of the record: it is what makes
+# a repeated converge a no-op rather than a silent upgrade, and what leaves the
+# previous version nameable when a new one has to be rolled back.
+- name: Reuse the recorded image
+  ansible.builtin.set_fact:
+    blitzecdn_edge_stack_resolved_image: "{{ blitzecdn_edge_stack_deployed.resolved }}"
+    blitzecdn_edge_stack_upgrading: false
+  when: blitzecdn_edge_stack_local_image.images | default([]) | length > 0
+
+- name: Fetch the requested edge runtime image
+  when: blitzecdn_edge_stack_resolved_image is not defined
+  block:
+    - name: Pull the edge runtime image
+      community.docker.docker_image_pull:
+        name: "{{ blitzecdn_edge_stack_image }}"
+      register: blitzecdn_edge_stack_pull
+      until: blitzecdn_edge_stack_pull is success
+      # Longer between attempts than the package tasks use, for the same reason
+      # the GeoLite2 download uses: this crosses the public internet to a
+      # registry that rate-limits, so a failure is often "not yet".
+      retries: 3
+      delay: 15
+      when:
+        - not ansible_check_mode
+        - blitzecdn_edge_stack_image_pull | bool
+
+    - name: Inspect the pulled image
+      community.docker.docker_image_info:
+        name: "{{ blitzecdn_edge_stack_image }}"
+      register: blitzecdn_edge_stack_pulled_info
+      when: not ansible_check_mode
+
+    - name: Require the requested image to be present
+      ansible.builtin.assert:
+        that:
+          - blitzecdn_edge_stack_pulled_info.images | default([]) | length > 0
+        fail_msg: >-
+          {{ blitzecdn_edge_stack_image }} is not available on
+          {{ inventory_hostname }}
+          {{ 'and could not be pulled'
+             if blitzecdn_edge_stack_image_pull
+             else 'and blitzecdn_edge_stack_image_pull is false, so nothing tried to fetch it' }}.
+          Nothing was changed; the edge is still running whatever it was
+          running before.
+      when: not ansible_check_mode
+
+    # Pinned to the digest from here on, even when the operator named a tag.
+    # The validation container, the running container and the recorded state
+    # then all refer to one immutable object, which is what makes a rollback
+    # exact rather than "whatever that tag means now".
+    - name: Pin the resolved image to its digest
+      ansible.builtin.set_fact:
+        blitzecdn_edge_stack_resolved_image: >-
+          {{ (blitzecdn_edge_stack_pulled_info.images[0].RepoDigests | default([]))
+             | select('match', '^' ~ (blitzecdn_edge_stack_image_reference | regex_escape) ~ '@')
+             | list | first
+             | default(blitzecdn_edge_stack_image, true) }}
+        blitzecdn_edge_stack_upgrading: true
+      when: not ansible_check_mode
+
+    # Under --check nothing was pulled and nothing can be inspected, so the
+    # preview runs against the reference as configured. It is the one case where
+    # the compose file is rendered from a tag.
+    - name: Preview the requested image
+      ansible.builtin.set_fact:
+        blitzecdn_edge_stack_resolved_image: "{{ blitzecdn_edge_stack_image }}"
+        blitzecdn_edge_stack_upgrading: false
+      when: ansible_check_mode

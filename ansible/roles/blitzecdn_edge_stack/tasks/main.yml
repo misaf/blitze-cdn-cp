@@ -1,0 +1,73 @@
+---
+- name: Converge the edge runtime stack
+  when: blitzecdn_edge_stack_enabled
+  block:
+    # The edge playbook runs prepare.yml as a pre-task, before the firewall
+    # opens the public ports and before blitzecdn_nginx renders a line of
+    # configuration. A playbook that uses this role on its own — the integration
+    # tests do — gets the same preparation here instead of a confusing failure
+    # about an undefined image.
+    - name: Prepare the edge runtime
+      ansible.builtin.include_tasks: prepare.yml
+      when: blitzecdn_edge_stack_resolved_image is not defined
+
+    # Re-rendered rather than assumed: prepare.yml wrote this file, but a
+    # rollback further down rewrites it, and a converge that resumes after one
+    # must not leave the previous version's compose file describing the fleet.
+    - name: Render the Compose project
+      ansible.builtin.import_tasks: compose.yml
+
+    # An image upgrade is validated against the configuration this edge is
+    # actually serving, before the container serving it is replaced. A new
+    # Nginx that rejects a directive the previous one accepted is otherwise
+    # discovered by the visitors.
+    - name: Validate the current configuration against the new image
+      ansible.builtin.include_role:
+        name: blitzecdn_nginx
+        tasks_from: config-test.yml
+      vars:
+        blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_stack_resolved_image }}"
+      when:
+        - blitzecdn_edge_stack_upgrading | default(false)
+        - not ansible_check_mode
+
+    # `pull: never`, because image.yml already pulled and pinned the digest this
+    # compose file names. Letting Compose pull here would reopen the door this
+    # role closes: a floating tag resolved twice in one run can resolve to two
+    # different images, and the one that ends up running would not be the one
+    # that was validated.
+    - name: Start or update the edge stack
+      community.docker.docker_compose_v2:
+        project_src: "{{ blitzecdn_edge_stack_compose_file | dirname }}"
+        project_name: "{{ blitzecdn_edge_stack_project }}"
+        files: ["{{ blitzecdn_edge_stack_compose_file | basename }}"]
+        state: present
+        pull: never
+        build: never
+        recreate: "{{ 'always' if blitzecdn_edge_stack_recreate | bool else 'auto' }}"
+        remove_orphans: true
+        wait: "{{ blitzecdn_edge_stack_require_container_health | bool }}"
+        wait_timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
+      register: blitzecdn_edge_stack_up
+      when: not ansible_check_mode
+
+    - name: Verify the edge is serving
+      ansible.builtin.import_tasks: health.yml
+
+    # Written last, and only once the stack is up and answering. Recording an
+    # image the edge failed to run would make the next converge believe it was
+    # already deployed and skip both the pull and the validation.
+    - name: Record the deployed edge runtime image
+      ansible.builtin.copy:
+        content: |
+          {{ {'requested': blitzecdn_edge_stack_image,
+              'resolved': blitzecdn_edge_stack_resolved_image} | to_nice_json }}
+        dest: "{{ blitzecdn_edge_stack_deployed_image_file }}"
+        owner: root
+        group: root
+        mode: "0600"
+      when: not ansible_check_mode
+
+  rescue:
+    - name: Restore the previous edge runtime image
+      ansible.builtin.import_tasks: rollback.yml

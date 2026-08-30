@@ -1,0 +1,77 @@
+---
+# The new image did not come up, or came up and was not serving.
+#
+# Rolling back is only possible because image.yml records what the *previous*
+# successful converge resolved to, as a digest. A tag would not do: by the time
+# a rollback is needed, the tag that was running an hour ago may point somewhere
+# else, and "put it back" would install a third unknown version.
+- name: Read the image this edge was running before
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_edge_stack_deployed_image_file }}"
+  register: blitzecdn_edge_stack_rollback_raw
+  failed_when: false
+
+- name: Interpret the previous image
+  ansible.builtin.set_fact:
+    blitzecdn_edge_stack_previous: >-
+      {{ (blitzecdn_edge_stack_rollback_raw.content | default('') | b64decode | from_json)
+         if (blitzecdn_edge_stack_rollback_raw.content is defined)
+         else {} }}
+
+# A first converge has nothing to return to. Saying so plainly matters: the edge
+# is not "rolled back and serving", it has never served, and the operator needs
+# to know the difference before they move on to the next host.
+- name: Report an edge with no previous runtime to return to
+  ansible.builtin.fail:
+    msg: >-
+      The edge runtime failed to come up on {{ inventory_hostname }} and there
+      is no previously deployed image to fall back to — this host has never
+      served. Read `docker logs {{ blitzecdn_edge_stack_container }}` and
+      `docker compose --file {{ blitzecdn_edge_stack_compose_file }} ps`.
+      The configuration on disk was not changed by this role.
+  when: blitzecdn_edge_stack_previous.resolved is not defined
+
+- name: Return this edge to its previous runtime image
+  when: blitzecdn_edge_stack_previous.resolved is defined
+  block:
+    - name: Point the Compose project back at the previous image
+      ansible.builtin.set_fact:
+        blitzecdn_edge_stack_resolved_image: "{{ blitzecdn_edge_stack_previous.resolved }}"
+
+    - name: Re-render the Compose project
+      ansible.builtin.import_tasks: compose.yml
+
+    # `recreate: always`, unlike the converge path. The container that has to go
+    # is the failed one, and Compose compares against the service definition it
+    # last created rather than against what is running, so an ordinary `up`
+    # after a half-finished recreate can decide there is nothing to do.
+    - name: Restart the previous edge runtime
+      community.docker.docker_compose_v2:
+        project_src: "{{ blitzecdn_edge_stack_compose_file | dirname }}"
+        project_name: "{{ blitzecdn_edge_stack_project }}"
+        files: ["{{ blitzecdn_edge_stack_compose_file | basename }}"]
+        state: present
+        pull: never
+        build: never
+        recreate: always
+        remove_orphans: true
+        wait: "{{ blitzecdn_edge_stack_require_container_health | bool }}"
+        wait_timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
+      when: not ansible_check_mode
+
+    # Proves the rollback actually landed, exactly as blitzecdn_nginx proves a
+    # restored configuration loads. If this fails the edge is down and needs
+    # hands on it — far better to learn that inside the failed deploy than from
+    # a monitoring page an hour later.
+    - name: Verify the previous runtime is serving
+      ansible.builtin.import_tasks: health.yml
+
+    - name: Report the withdrawn edge runtime
+      ansible.builtin.fail:
+        msg: >-
+          {{ blitzecdn_edge_stack_image }} failed to serve on
+          {{ inventory_hostname }}, so this edge was returned to
+          {{ blitzecdn_edge_stack_previous.resolved }} and is serving again.
+          Nothing about the site configuration was changed. Read
+          `docker logs {{ blitzecdn_edge_stack_container }}` for what the new
+          image said before it was withdrawn.

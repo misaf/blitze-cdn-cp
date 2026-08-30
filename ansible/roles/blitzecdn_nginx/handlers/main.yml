@@ -1,15 +1,30 @@
 ---
+# Validate, then reload — and reload by signalling the running container rather
+# than replacing it. A site change is a configuration deployment, not a runtime
+# upgrade: replacing the container would drop every connection in flight and
+# empty the shared-memory cache zone for a change that Nginx applies without
+# dropping a single request.
 - name: Validate Nginx configuration
-  ansible.builtin.command:
-    argv: [nginx, -t]
-  changed_when: false
-  listen: Validate and reload Nginx
-# Under --check the validate handler above is skipped (the command module does
-# not run in check mode), so reloading here would act on a configuration nothing
-# verified — and on a host without Nginx yet the unit does not even exist.
-- name: Reload Nginx after validation
-  ansible.builtin.systemd_service:
-    name: nginx
-    state: reloaded
+  ansible.builtin.include_tasks: config-test.yml
   listen: Validate and reload Nginx
   when: not ansible_check_mode
+
+- name: Inspect the running edge container
+  community.docker.docker_container_info:
+    name: "{{ blitzecdn_nginx_container }}"
+  register: blitzecdn_nginx_running
+  listen: Validate and reload Nginx
+  when: not ansible_check_mode
+
+# Skipped on a first converge, where there is nothing to reload: the container
+# has not been started yet, and blitzecdn_edge_stack starts it — from the
+# configuration this handler just validated — later in the same play.
+- name: Reload Nginx after validation
+  community.docker.docker_container_exec:
+    container: "{{ blitzecdn_nginx_container }}"
+    argv: [nginx, -s, reload]
+  listen: Validate and reload Nginx
+  when:
+    - not ansible_check_mode
+    - blitzecdn_nginx_running.exists | default(false)
+    - blitzecdn_nginx_running.container.State.Running | default(false)

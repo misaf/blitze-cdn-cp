@@ -135,11 +135,33 @@ argument_specs:
       blitzecdn_nginx_https_ports: {type: list, elements: int, required: true}
       blitzecdn_nginx_http3_enabled: {type: bool, required: true}
       blitzecdn_nginx_http3_listener_owner: {type: str, required: true}
-      blitzecdn_nginx_packages:
+      blitzecdn_nginx_image:
+        type: str
+        required: true
+        description: >-
+          The edge runtime image holding the ABI-matched Ubuntu Nginx, GeoIP2,
+          Brotli and njs stack. Must equal blitzecdn_edge_stack_image: this role
+          validates configuration against it and that role serves from it.
+      blitzecdn_nginx_image_default: {type: str, required: true}
+      blitzecdn_nginx_container:
+        type: str
+        required: true
+        description: The container this role signals to reload Nginx.
+      blitzecdn_nginx_config_test_image:
+        type: str
+        required: true
+        description: >-
+          The image a configuration test runs under. Overridden by
+          blitzecdn_edge_stack to validate the running configuration against a
+          new image before the container serving traffic is replaced.
+      blitzecdn_nginx_config_test_volumes:
         type: list
         elements: str
         required: true
-        description: Ubuntu ABI-matched Nginx, GeoIP2, Brotli, and njs stack.
+        description: >-
+          Compose-form mounts the configuration test container receives. The
+          same set the running edge gets: a test that cannot see a certificate
+          or the GeoIP database passes against a tree the real edge refuses.
       blitzecdn_nginx_acme_root: {type: path, required: true}
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
@@ -203,16 +225,14 @@ argument_specs:
           MaxMind license key. A credential for the account, not a per-database
           token: supply it from the environment, never a committed file.
       blitzecdn_nginx_geoip_edition: {type: str, required: true}
-      blitzecdn_nginx_geoip_updater_package: {type: str, required: true}
-      blitzecdn_nginx_geoip_updater_binary: {type: path, required: true}
-      blitzecdn_nginx_geoip_config_file: {type: path, required: true}
       blitzecdn_nginx_geoip_update_enabled:
         type: bool
         required: true
         description: >-
-          Install a systemd timer that refreshes the database. GeoLite2 is
-          republished twice a week; without this the copy fetched at first
-          converge ages indefinitely.
+          Schedule refreshes of the database. GeoLite2 is republished twice a
+          week; without this the copy fetched at first converge ages
+          indefinitely. Read by blitzecdn_edge_stack, which owns the updater
+          container and the timer that runs it.
       blitzecdn_nginx_geoip_update_calendar: {type: str, required: true}
       blitzecdn_nginx_geoip_update_splay: {type: str, required: true}
       blitzecdn_nginx_access_log_enabled:

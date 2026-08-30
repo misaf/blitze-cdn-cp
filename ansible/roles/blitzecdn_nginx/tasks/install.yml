@@ -1,38 +1,48 @@
 ---
-# BlitzeCDN owns this stack as one Ubuntu ABI unit. Installing the binary and
-# dynamic modules in a single transaction prevents an nginx.org binary from
-# being combined with Ubuntu modules built for a different nginx ABI.
+# BlitzeCDN owns this stack as one ABI unit. It is now an image rather than an
+# apt transaction, which makes the unit stronger rather than weaker: the binary
+# and its three dynamic modules were resolved together at build time, published
+# together, and are pulled together as one immutable object. Nothing on the edge
+# can combine one version's binary with another version's modules, because
+# nothing on the edge installs either.
 - name: Require the supported fresh-edge operating system
   ansible.builtin.assert:
     that:
       - ansible_facts.distribution == 'Ubuntu'
       - ansible_facts.distribution_version == '26.04'
-      - >-
-        blitzecdn_nginx_packages ==
-        ['nginx', 'libnginx-mod-http-geoip2',
-         'libnginx-mod-http-brotli-filter', 'libnginx-mod-http-js']
     fail_msg: >-
-      The managed BlitzeCDN Nginx stack requires a fresh Ubuntu 26.04 LTS edge
-      and the exact Ubuntu nginx, GeoIP2, Brotli filter, and njs package set.
+      BlitzeCDN edges for this release require a fresh Ubuntu 26.04 LTS host.
+      The Nginx stack itself now ships in the edge runtime image; this gate is
+      about the host that runs Docker, the firewall and the kernel tuning.
 
-- name: Install the managed Nginx stack
-  ansible.builtin.apt:
-    name: "{{ blitzecdn_nginx_packages }}"
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
-  register: blitzecdn_nginx_stack_apt
-  until: blitzecdn_nginx_stack_apt is success
+- name: Look for the edge runtime image on this host
+  community.docker.docker_image_info:
+    name: "{{ blitzecdn_nginx_config_test_image }}"
+  register: blitzecdn_nginx_image_present
+  when: not ansible_check_mode
+
+# Normally a no-op: blitzecdn_edge_stack's prepare tasks pulled and digest-
+# pinned this image before the play reached here. Present so the role still
+# stands on its own — the integration playbooks run it without the stack role —
+# rather than failing on an image nothing had been asked to fetch.
+- name: Fetch the edge runtime image
+  community.docker.docker_image_pull:
+    name: "{{ blitzecdn_nginx_config_test_image }}"
+  register: blitzecdn_nginx_image_pull
+  until: blitzecdn_nginx_image_pull is success
   retries: 3
-  delay: 5
+  delay: 15
+  when:
+    - not ansible_check_mode
+    - blitzecdn_nginx_image_present.images | default([]) | length == 0
 
 - name: Verify the managed Nginx stack
   ansible.builtin.import_tasks: capabilities.yml
-  # In check mode apt reports that an absent stack would be installed without
-  # installing it. There is no binary or module set to probe in that case; the
-  # real deploy verifies both immediately after apt changes the host. An
-  # already-installed stack is still probed during check mode.
-  when: not (ansible_check_mode and blitzecdn_nginx_stack_apt is changed)
+  # In check mode nothing was pulled, so on a host that has never run this
+  # image there is no binary or module set to probe. The real deploy verifies
+  # both immediately. An image already on the host is still probed under
+  # --check, which is what makes a check-mode run of a live edge meaningful.
+  when: not ansible_check_mode
 
 - name: Record that the managed Nginx stack is ready
   ansible.builtin.set_fact:

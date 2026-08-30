@@ -2,59 +2,37 @@
 - name: Verify the managed Nginx binary and HTTP/3 build
   ansible.builtin.import_tasks: build-capability.yml
 
-- name: Create a temporary Nginx module probe
-  ansible.builtin.tempfile:
-    state: file
-    suffix: .conf
-  register: blitzecdn_nginx_module_probe
-  check_mode: false
-  changed_when: false
-
+# The image carries its own probe configuration, written and executed during
+# the build so an ABI-mismatched image is never published. Running it again here
+# is not redundant: it proves *this* host pulled the image it was told to, that
+# the layers arrived intact, and that the engine can actually start a container
+# from it — three things a registry digest cannot promise on its own.
+#
+# `--network none` and no mounts: this must not be able to touch the running
+# edge, its ports, or a single byte of customer state.
 - name: Validate the managed dynamic modules
-  block:
-    - name: Write the Nginx module probe
-      ansible.builtin.copy:
-        dest: "{{ blitzecdn_nginx_module_probe.path }}"
-        owner: root
-        group: root
-        mode: "0600"
-        content: |
-          load_module /usr/lib/nginx/modules/ngx_http_geoip2_module.so;
-          load_module /usr/lib/nginx/modules/ngx_http_brotli_filter_module.so;
-          load_module /usr/lib/nginx/modules/ngx_http_js_module.so;
-          pid /run/blitzecdn-nginx-probe.pid;
-          events {}
-          http {
-              brotli off;
-              js_path /etc/nginx;
-          }
-      check_mode: false
-      changed_when: false
+  community.docker.docker_container:
+    name: blitzecdn-edge-module-probe
+    image: "{{ blitzecdn_nginx_config_test_image }}"
+    command: [nginx, -t, -c, /usr/share/blitzecdn/module-probe.conf]
+    detach: false
+    cleanup: true
+    network_mode: none
+    read_only: true
+    # nginx -t writes a pid file and may buffer to a temporary directory, and
+    # the probe must not be the reason a read-only container fails.
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m", "/run:rw,noexec,nosuid,size=8m"]
+    state: started
+  register: blitzecdn_nginx_module_probe
+  changed_when: false
+  failed_when: blitzecdn_nginx_module_probe.status | default(1) != 0
 
-    - name: Test the Nginx module probe
-      ansible.builtin.command:
-        argv:
-          - nginx
-          - -t
-          - -c
-          - "{{ blitzecdn_nginx_module_probe.path }}"
-      register: blitzecdn_nginx_module_probe_result
-      changed_when: false
-      check_mode: false
-
-  rescue:
-    - name: Fail for an incompatible managed Nginx module stack
-      ansible.builtin.fail:
-        msg: >-
-          The Ubuntu Nginx dynamic modules are not loadable by the installed
-          binary, or the Brotli/njs directives are unavailable. Reinstall the
-          managed Ubuntu 26.04 nginx, GeoIP2, Brotli, and njs packages as one
-          ABI-matched stack. No edge configuration was applied.
-
-  always:
-    - name: Remove the temporary Nginx module probe
-      ansible.builtin.file:
-        path: "{{ blitzecdn_nginx_module_probe.path }}"
-        state: absent
-      check_mode: false
-      changed_when: false
+- name: Fail for an incompatible managed Nginx module stack
+  ansible.builtin.fail:
+    msg: >-
+      The edge runtime image {{ blitzecdn_nginx_config_test_image }} cannot load
+      its GeoIP2, Brotli and njs modules, or does not provide their directives.
+      It is not a usable BlitzeCDN edge image. No edge configuration was
+      applied. The probe said:
+      {{ blitzecdn_nginx_module_probe.container.Output | default('nothing') }}
+  when: blitzecdn_nginx_module_probe.status | default(1) != 0

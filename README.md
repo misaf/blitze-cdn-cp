@@ -215,6 +215,287 @@ settings object. Scheduled cross-feature behavior is owned by
 `application/maintenance.py`; Dramatiq actors only select and invoke a typed
 maintenance operation.
 
+## Edge runtime
+
+A BlitzeCDN edge is a minimal Linux host that runs the CDN as containers. The
+host keeps what only a host can own; everything BlitzeCDN serves traffic with
+runs on Docker.
+
+```text
+BlitzeCDN control plane
+        │  Ansible over SSH
+        ▼
+┌──────────────────────────────────────────────┐
+│ Edge host                                    │
+│                                              │
+│ Native                                       │
+│ ├── Ubuntu 26.04 LTS                         │
+│ ├── SSH (blitzecdn_sshd, blitzecdn_fail2ban) │
+│ ├── Docker Engine (blitzecdn_docker)         │
+│ ├── ufw (blitzecdn_firewall)                 │
+│ └── sysctl (blitzecdn_kernel)                │
+│                                              │
+│ Docker Compose (blitzecdn_edge_stack)        │
+│ ├── blitzecdn-edge                           │
+│ │   └── Nginx + GeoIP2 + Brotli + njs        │
+│ │       HTTP/1.1, HTTP/2, HTTP/3             │
+│ └── geoipupdate (one-shot, on a timer)       │
+│                                              │
+│ Persistent host state                        │
+│ ├── /etc/nginx/{conf.d,sites-*}              │
+│ ├── /etc/blitzecdn/{compose.yml,nginx,tls}   │
+│ ├── /var/lib/blitzecdn/{acme,edge,empty}     │
+│ ├── /var/cache/nginx/blitzecdn               │
+│ ├── /usr/share/GeoIP                         │
+│ └── /var/log/nginx                           │
+└──────────────────────────────────────────────┘
+```
+
+Monitoring is deliberately absent. `node_exporter`, an Nginx exporter, Alloy,
+Prometheus, Loki, Grafana and Alertmanager are Phase 2 and arrive as their own
+containers. What they will read already exists: the `blitzecdn` access log
+format carrying the per-request cache outcome, and the loopback-bound
+`stub_status` endpoint.
+
+### What stopped being installed on the host
+
+`nginx`, `libnginx-mod-http-geoip2`, `libnginx-mod-http-brotli-filter`,
+`libnginx-mod-http-js` and `geoipupdate` are no longer installed on an edge.
+They live in images. The host installs Docker Engine, the Compose plugin,
+`containerd`, `ufw`, `fail2ban` and the handful of base packages the other
+roles need — and nothing that serves traffic.
+
+Everything else is unchanged. The control plane still renders every site from
+the same models through the same templates onto the same paths; the container
+mounts them. Origin proxying, SSL modes, automatic HTTPS, minimum TLS version,
+uploaded and requested certificates, cache policy, compression, visitor
+headers, GeoIP country rules, per-site firewall rules, Under Attack Mode,
+HTTP/3, origin SNI, origin `Host`, the catch-all default server, ACME
+challenges and the status endpoint all behave exactly as before.
+
+### The image
+
+```text
+ghcr.io/misaf/blitzecdn-edge:<version>
+```
+
+Built from [`docker/edge/`](docker/edge/) on `ubuntu:26.04` with the same four
+Ubuntu packages an edge used to install. BlitzeCDN treats Nginx and its dynamic
+modules as one ABI-compatible unit; Ubuntu expresses that by pinning every
+`libnginx-mod-*` package to an `nginx-abi-<version>` virtual package, so apt
+resolving all four in one transaction is the guarantee. The build then proves
+it: it loads all three modules and uses a directive from each, so an image that
+would fail `nginx -t` on a real edge fails in CI instead.
+
+Publishing is a separate workflow from CI
+([`.github/workflows/edge-image.yml`](.github/workflows/edge-image.yml)) and
+never upgrades a fleet by itself. A build that ran is not a build any edge is
+using until you say so.
+
+Build it locally with `just edge-image`.
+
+### Host networking
+
+The edge container uses `network_mode: host`. Every per-site source rule, the
+GeoIP2 country lookup and `BZ-Connecting-IP` read `$remote_addr`; behind
+Docker's bridge that would be a gateway address, and an edge would apply a
+country rule to itself. Host networking also means no NAT hop per packet and no
+published-port list to keep in step with the supported ports.
+
+All thirteen public TCP ports (80, 8080, 8880, 2052, 2082, 2086, 2095, 443,
+2053, 2083, 2087, 2096, 8443) and UDP/443 for HTTP/3 work exactly as they did
+natively.
+
+### Persistent state
+
+Containers are disposable; none of the following lives inside one.
+
+| Path | Holds | Mounted |
+| --- | --- | --- |
+| `/etc/nginx/conf.d` | Cache, GeoIP, status and Under Attack drop-ins | read-only |
+| `/etc/nginx/sites-available`, `sites-enabled` | Per-site virtual hosts and the catch-all | read-only |
+| `/etc/nginx/blitzecdn-managed-sites` | Managed-site registry (controller-owned) | not mounted |
+| `/etc/blitzecdn/compose.yml` | The Compose project | not mounted |
+| `/etc/blitzecdn/nginx` | The Under Attack Mode njs module | read-only |
+| `/etc/blitzecdn/tls` | Managed certificate chains and private keys | read-only |
+| `/etc/blitzecdn/geoipupdate.env` | MaxMind credentials, `0600` root | updater only |
+| `/var/lib/blitzecdn/acme` | ACME HTTP-01 challenge webroot | read-only |
+| `/var/lib/blitzecdn/edge/image` | The deployed image, for rollback | not mounted |
+| `/usr/share/GeoIP` | GeoLite2-Country database | read-only |
+| `/var/cache/nginx/blitzecdn` | Response cache | read-write |
+| `/var/log/nginx` | Access and error logs | read-write |
+
+Only the cache and the logs are writable to the edge. An edge has no business
+rewriting what the control plane rendered, and a container that cannot write
+its own configuration cannot be talked into persisting a change the next
+converge would silently revert. Private keys stay `0600` root in a `0700`
+directory and are read by the container's Nginx master at start and reload.
+
+Recreating or upgrading the container touches none of this.
+
+### Deploying configuration
+
+Unchanged:
+
+```bash
+blitzecdn record add example.com cdn --value origin.example.com --proxied
+blitzecdn deploy
+```
+
+The converge renders the tree, validates it by running `nginx -t` in a throwaway
+container with the same mounts and no network, and then signals the running
+container to reload. It does not replace the container: doing so would drop
+every connection in flight and empty the shared-memory cache zone for a change
+Nginx applies without dropping a request.
+
+If the rendered configuration fails `nginx -t`, the previous files are restored,
+the rollback is re-validated, and nothing is reloaded. The edge keeps serving
+what it was serving. A bad render costs a failed run, never an edge that cannot
+restart.
+
+### Upgrading the runtime
+
+The image version is fleet policy, not desired state. A customer adding a
+hostname must never be a candidate for an Nginx upgrade.
+
+```bash
+blitzecdn config set blitzecdn_edge_image_tag 2.8.0
+blitzecdn config set blitzecdn_edge_image_digest sha256:...   # optional, better
+blitzecdn deploy --limit edge-01                              # canary first
+blitzecdn deploy
+```
+
+Never `latest`. A floating tag makes "which build is this fleet running"
+unanswerable and rollback a guess. With a digest set, the pull, the
+configuration test and the running container are provably the same bytes.
+
+An upgrade pulls the image, pins it to its digest, validates the configuration
+this edge is *currently serving* against the new image, replaces the container,
+and then verifies it is serving. The play converges 25% of the fleet at a time
+and `any_errors_fatal` stops the rollout on the first batch that fails, so a
+broken build cannot reach the whole fleet.
+
+### Rollback
+
+Every successful converge records what it was asked for and what that resolved
+to, in `/var/lib/blitzecdn/edge/image`. When a new image fails validation or
+health, the edge is returned to that exact digest, restarted, and health-checked
+again — and the run still fails, so nobody mistakes a recovered edge for a
+successful upgrade. Restoring a *tag* would not do: by then it may point
+somewhere else, and "put the old one back" would install a third unknown
+version.
+
+An edge that has never served has nothing to return to, and says so rather than
+reporting itself rolled back.
+
+### Health checks
+
+"Running" is not health. Nginx keeps serving the configuration it loaded at
+start, so a container can look fine while the tree on disk is broken. A converge
+is not finished until:
+
+- the container is running, and Docker's own `HEALTHCHECK` reports healthy —
+  the configuration on disk parses, the master process is alive, and the
+  loopback status endpoint answers;
+- `nginx -t` succeeds inside the running container;
+- every supported public TCP port accepts a connection;
+- UDP/443 has a listener whenever HTTP/3 is enabled;
+- the status endpoint returns 200;
+- the GeoLite2 database is present whenever a site needs it.
+
+The UDP check is what keeps the firewall and the QUIC listener from silently
+disagreeing. The play already refuses to converge when the two desired states
+differ; this catches a QUIC bind that failed inside the container, which would
+otherwise leave UDP/443 open, `Alt-Svc` advertised, and nothing listening.
+
+### GeoIP
+
+Unchanged for operators, and still required in Phase 1. `BZ-IPCountry`,
+country-based firewall rules and the capability validation all work as before,
+and a site that asks for country filtering on an edge without GeoIP still fails
+the deploy rather than quietly serving the traffic it was told to block.
+
+Credentials stay in the controller's `.env`:
+
+```bash
+BLITZE_MAXMIND_ACCOUNT_ID=123456
+BLITZE_MAXMIND_LICENSE_KEY=...
+```
+
+They are forwarded into the Ansible environment and written to a `0600`
+root-owned `/etc/blitzecdn/geoipupdate.env` on the edge, which reaches the
+updater container as an `env_file` — never as a Compose `environment:` entry,
+where `docker inspect` would hand the key to anyone who can talk to the engine.
+They are never baked into an image and never committed.
+
+The updater is MaxMind's own container, pinned to a digest, run as a one-shot.
+Its *schedule* stays a host responsibility, for the same reason the firewall and
+the kernel do: a systemd timer gives the fleet a calendar and a randomised
+delay, so a hundred edges do not arrive at MaxMind on the same second.
+
+```bash
+systemctl list-timers blitzecdn-geoipupdate.timer
+systemctl start blitzecdn-geoipupdate.service     # refresh now
+```
+
+Nginx picks up a replaced database through `geoip2 auto_reload` with no reload.
+
+### Cache
+
+The cache is a host directory bind-mounted read-write into the container, so it
+survives a reload, a container replacement and a runtime upgrade. `blitzecdn
+cache purge` is unchanged: it computes the same MD5 cache-key paths under the
+same directory and deletes the files, which is still the only way to purge with
+open-source Nginx.
+
+### Troubleshooting
+
+```bash
+docker compose --file /etc/blitzecdn/compose.yml ps
+docker logs --tail 200 blitzecdn-edge
+docker inspect -f '{{.State.Health.Status}}' blitzecdn-edge
+docker exec blitzecdn-edge nginx -t
+docker exec blitzecdn-edge nginx -T        # the whole assembled configuration
+docker exec blitzecdn-edge nginx -s reload
+cat /var/lib/blitzecdn/edge/image          # what this edge is running, exactly
+tail -f /var/log/nginx/blitzecdn-access.log
+```
+
+The container's own output carries startup and error messages only; the request
+log is the bind-mounted file above.
+
+### Migrating an existing native edge
+
+A native Nginx and the edge container cannot share the public ports, and the
+failure is the worst kind: the container never binds, Docker restarts it
+forever, and the host keeps serving whatever the native Nginx last loaded, so
+every deploy afterwards reports success against a fleet running none of it.
+
+A converge therefore stops when it finds `/usr/sbin/nginx`, and says so.
+Preferred path: build fresh Ubuntu 26.04 edges, validate a small batch, shift
+traffic, retire the old ones. In place, once, per host:
+
+```bash
+blitzecdn deploy --limit edge-01   -e blitzecdn_edge_stack_migrate_from_native=true
+```
+
+That stops and disables the native Nginx and the native GeoIP timer, purges the
+five packages, confirms nothing is still listening, and only then starts the
+container. The configuration tree, the certificates, the ACME state and the
+cache are left exactly where they are — they are the same paths the container
+mounts.
+
+### Decommissioning
+
+Stopping the runtime and destroying what it was serving are separate
+operations, and `blitzecdn_teardown_remove_data` is the difference. The
+containers always go: they are disposable, and a stopped edge is one deploy
+away from serving again. TLS material, the configuration tree, ACME state, the
+GeoIP database, the cache and the managed-site registry go only when that is
+true, which is the default for `blitzecdn edge remove` and for the uninstaller
+— both of which mean the host is gone. Logs survive even then, because a
+decommissioned host is often decommissioned because something went wrong on it.
+
 ## Configuration
 
 Precedence is explicit:
@@ -649,18 +930,20 @@ stay available on TCP/443 as fallbacks. Enabled sites advertise
 `Alt-Svc: h3=":443"; ma=86400`; disabling the setting removes both that header
 and the managed UDP/443 firewall rule when no enabled site still needs it.
 
-UDP/443 must be reachable end to end. BlitzeCDN owns the edge Nginx stack and
-installs Ubuntu's `nginx`, `libnginx-mod-http-geoip2`, and
-`libnginx-mod-http-brotli-filter`, and `libnginx-mod-http-js` packages together.
-The role then requires
-Nginx 1.25.0+, `--with-http_v3_module`, loadable ABI-matched dynamic modules,
-and accepted Brotli directives before firewall or live configuration changes.
-It fails instead of silently dropping a capability. The static Brotli module
-is not installed because BlitzeCDN emits no `brotli_static` directive.
+UDP/443 must be reachable end to end. BlitzeCDN owns the edge Nginx stack as a
+container image built from Ubuntu's `nginx`, `libnginx-mod-http-geoip2`,
+`libnginx-mod-http-brotli-filter` and `libnginx-mod-http-js` packages, resolved
+in one apt transaction so they share an `nginx-abi`. Before any firewall or
+live configuration change, the converge starts a throwaway container from that
+image and requires Nginx 1.25.0+, `--with-http_v3_module`, an `--build=Ubuntu`
+binary, loadable dynamic modules and accepted Brotli and njs directives. It
+fails instead of silently dropping a capability. The static Brotli module is not
+installed because BlitzeCDN emits no `brotli_static` directive.
 
-Do not replace the managed binary or mix nginx.org packages with Ubuntu dynamic
+Do not build an edge image that mixes nginx.org packages with Ubuntu dynamic
 modules. For an existing fleet, provision fresh Ubuntu 26.04 edges, validate a
-small batch, then shift traffic and enable HTTP/3 per site.
+small batch, then shift traffic and enable HTTP/3 per site — see
+[Edge runtime](#edge-runtime).
 
 The complete clean-machine proof is intentionally separate from fast tests:
 
@@ -668,9 +951,14 @@ The complete clean-machine proof is intentionally separate from fast tests:
 just test-integration-http3
 ```
 
-It provisions `ubuntu:26.04`, tests two QUIC sites with `nginx -t`, and makes
-real HTTP/1.1, HTTP/2, HTTP/3-only, GeoIP2, and Brotli requests. To verify a
-deployed edge manually, use an HTTP/3-capable client:
+It provisions `ubuntu:26.04`, runs the real containerised edge on it, and makes
+real HTTP/1.1, HTTP/2, HTTP/3-only, GeoIP2, Brotli and Under Attack Mode
+requests against two QUIC sites — then proves a configuration change reloads
+without replacing the container, an image upgrade preserves the cache and the
+TLS material, a broken image is rolled back to the previous digest, the stack
+returns after the engine restarts, and a runtime teardown does not destroy
+customer state. To verify a deployed edge manually, use an HTTP/3-capable
+client:
 
 ```bash
 curl --http3-only -I https://cdn.example.com/
@@ -937,9 +1225,15 @@ again. A failure at any point leaves the services as it found them.
   `abandoned` only while holding the deployment lock.
 - Rollback first converges the selected snapshot; canonical desired state changes
   only after Ansible succeeds.
-- An invalid Nginx configuration fails `nginx -t` before reload, leaving the
-  running worker configuration active. Correct desired state and deploy again.
-- Ansible uses `serial: 25%` and `any_errors_fatal` to limit partial rollout.
+- An invalid Nginx configuration fails `nginx -t` — in a throwaway container
+  with the same mounts — before reload, leaving the running worker
+  configuration active. Correct desired state and deploy again.
+- An edge runtime image that fails validation or health is withdrawn and the
+  edge returned to the exact digest it was running, and the run still fails.
+- Ansible uses `serial: 25%` and `any_errors_fatal` to limit partial rollout,
+  so a broken image stops at the first batch instead of reaching the fleet.
+- The host keeps SSH, Docker, the firewall and kernel tuning natively, so an
+  edge whose containers are all broken is still reachable and repairable.
 
 SQLite and local locks support one control-plane node. Take a
 `blitzecdn backup create` before controller maintenance, and rerun

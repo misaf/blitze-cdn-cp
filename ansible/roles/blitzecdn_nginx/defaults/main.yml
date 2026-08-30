@@ -22,14 +22,43 @@ blitzecdn_nginx_https_ports: [443, 2053, 2083, 2087, 2096, 8443]
 # fixed to UDP/443; the alternate HTTPS ports remain TCP-only.
 blitzecdn_nginx_http3_enabled: false
 blitzecdn_nginx_http3_listener_owner: ''
-# Ubuntu 26.04 supplies all three from one archive and pins the dynamic modules
-# to nginx-abi-1.28.3-1. Brotli static is intentionally absent: BlitzeCDN only
-# compresses responses dynamically and emits no brotli_static directive.
-blitzecdn_nginx_packages:
-  - nginx
-  - libnginx-mod-http-geoip2
-  - libnginx-mod-http-brotli-filter
-  - libnginx-mod-http-js
+# The edge runtime image this role validates configuration against, and the
+# container it reloads. Nginx no longer runs on the host: it runs in the
+# container blitzecdn_edge_stack starts from this image, so `nginx -t` and
+# `nginx -s reload` here mean "in that container".
+#
+# The fleet value is composed in inventory/group_vars/blitzecdn_edges from
+# blitzecdn_edge_image_registry, _repository, _tag and _digest. The literal
+# below is only the standalone fallback for a playbook that runs this role
+# without that group, and it must equal blitzecdn_edge_stack's — validating a
+# configuration against one image and then serving it from another is exactly
+# the drift these two roles exist to prevent. tests/test_ansible_role_contracts
+# asserts they agree.
+blitzecdn_nginx_image_default: ghcr.io/misaf/blitzecdn-edge:2.7.0
+blitzecdn_nginx_image: >-
+  {{ blitzecdn_edge_image | default(blitzecdn_nginx_image_default, true) }}
+blitzecdn_nginx_container: blitzecdn-edge
+# Which image a configuration test runs under. Normally the image this edge
+# runs; blitzecdn_edge_stack overrides it to validate the current configuration
+# against a *new* image before replacing the container serving traffic.
+blitzecdn_nginx_config_test_image: "{{ blitzecdn_nginx_image }}"
+# The mounts a configuration test needs to see, in Compose's own
+# host:container:mode form. The same set the running container gets, minus
+# nothing: a test that cannot see a certificate or the GeoIP database passes
+# against a tree the real edge would refuse. Cache and log are writable because
+# `nginx -t` creates the proxy_cache_path levels and opens the error log.
+# tests/test_ansible_role_contracts.py asserts this matches the Compose file.
+blitzecdn_nginx_config_test_volumes:
+  - /etc/nginx/conf.d:/etc/nginx/conf.d:ro
+  - /etc/nginx/sites-available:/etc/nginx/sites-available:ro
+  - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro
+  - /etc/blitzecdn/nginx:/etc/blitzecdn/nginx:ro
+  - /etc/blitzecdn/tls:/etc/blitzecdn/tls:ro
+  - /var/lib/blitzecdn/acme:/var/lib/blitzecdn/acme:ro
+  - /var/lib/blitzecdn/empty:/var/lib/blitzecdn/empty:ro
+  - /usr/share/GeoIP:/usr/share/GeoIP:ro
+  - /var/cache/nginx/blitzecdn:/var/cache/nginx/blitzecdn:rw
+  - /var/log/nginx:/var/log/nginx:rw
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
@@ -51,7 +80,7 @@ blitzecdn_nginx_resolver_timeout: 5s
 blitzecdn_nginx_under_attack_enabled: false
 blitzecdn_nginx_under_attack_passage_seconds: 1800
 blitzecdn_nginx_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_SECRET') }}"
-blitzecdn_nginx_under_attack_js_file: /etc/nginx/blitzecdn/under-attack.js
+blitzecdn_nginx_under_attack_js_file: /etc/blitzecdn/nginx/under-attack.js
 blitzecdn_nginx_under_attack_conf_file: /etc/nginx/conf.d/blitzecdn-under-attack.conf
 blitzecdn_nginx_under_attack_empty_root: /var/lib/blitzecdn/empty
 
@@ -155,14 +184,12 @@ blitzecdn_nginx_geoip_license_key: ""
 # Country is all the firewall rules need. GeoLite2-City is far larger and buys
 # nothing here.
 blitzecdn_nginx_geoip_edition: GeoLite2-Country
-blitzecdn_nginx_geoip_updater_package: geoipupdate
-# Where the Debian and Ubuntu packages install it. Declared rather than looked
-# up so the systemd unit can be rendered before the package exists.
-blitzecdn_nginx_geoip_updater_binary: /usr/bin/geoipupdate
-blitzecdn_nginx_geoip_config_file: /etc/GeoIP.conf
 # MaxMind publishes GeoLite2 twice a week and rate-limits downloads, so the
 # converge fetches only when the database is missing and leaves refreshes to
-# this timer. nginx picks up a replaced file via `auto_reload`, with no reload.
+# the timer blitzecdn_edge_stack installs. nginx picks up a replaced file via
+# `auto_reload`, with no reload. The updater itself is a container now — see
+# blitzecdn_edge_stack — but the schedule stays here because it is fleet policy
+# an operator sets, and both roles read the same value.
 blitzecdn_nginx_geoip_update_enabled: true
 blitzecdn_nginx_geoip_update_calendar: Wed,Sat 03:00
 # Spreads a fleet's downloads across the morning instead of having every edge

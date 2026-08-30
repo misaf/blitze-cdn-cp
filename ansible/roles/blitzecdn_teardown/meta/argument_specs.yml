@@ -9,7 +9,10 @@ argument_specs:
         cache and status configuration, the managed-sites registry, the cache
         contents, the ACME webroot, and /etc/blitzecdn including private keys.
       - >-
-        Leaves shared packages installed, but withdraws the dedicated Nginx,
+        Stops and removes the Compose project first: a running edge holds the
+        configuration it loaded, including the key files this role deletes.
+      - >-
+        Leaves the container engine and shared packages installed, but withdraws the dedicated Nginx,
         firewall, resolver, SSH, Fail2Ban, kernel and GeoIP artifacts written by
         the edge roles. It does not alter unrelated administrator configuration.
       - >-
@@ -58,6 +61,25 @@ argument_specs:
         type: str
         required: true
         description: First line of every file this collection writes into /etc/nginx.
+      blitzecdn_teardown_compose_file:
+        type: path
+        required: true
+        description: Must equal blitzecdn_edge_stack_compose_file on the same host.
+      blitzecdn_teardown_project: {type: str, required: true}
+      blitzecdn_teardown_container: {type: str, required: true}
+      blitzecdn_teardown_runtime_path: {type: path, required: true}
+      blitzecdn_teardown_empty_root: {type: path, required: true}
+      blitzecdn_teardown_resolver_file: {type: path, required: true}
+      blitzecdn_teardown_remove_data:
+        type: bool
+        default: true
+        description: >-
+          Destroy the persistent state as well as the containers. The
+          containers always go — they are disposable by construction. TLS
+          material, the configuration tree, ACME state, the cache and the
+          managed-site registry go only when this is true, so "take the runtime
+          off this host" and "erase what this host was serving" cannot be
+          confused for each other.
       blitzecdn_teardown_remove_logs:
         type: bool
         default: false

@@ -40,41 +40,66 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_teardown_managed_sites_file }}"
     state: absent
+  when: blitzecdn_teardown_remove_data
 
-- name: Check whether Nginx is installed
+- name: Check whether this host has a Compose project
   ansible.builtin.stat:
-    path: /usr/sbin/nginx
-  register: blitzecdn_teardown_nginx_binary
+    path: "{{ blitzecdn_teardown_compose_file }}"
+  register: blitzecdn_teardown_compose
 
-# Reloaded here rather than through a handler, and before the certificates are
-# deleted below. A running Nginx still holds the old configuration until it is
-# told otherwise, and that configuration references key files this role is
-# about to remove — reloading afterwards would be a reload onto missing files.
-- name: Validate the remaining configuration
-  ansible.builtin.command:
-    argv: [nginx, -t]
-  changed_when: false
+# Stopped rather than reloaded, and before the certificates are deleted below.
+#
+# A running Nginx still holds the configuration it loaded until it is told
+# otherwise, and that configuration references key files this role is about to
+# remove. The pre-container releases reloaded here; there is nothing to reload
+# onto now, because the whole point of a teardown is that this host stops
+# serving. `down` also removes the containers, which is the half of a teardown
+# that must happen whether or not the data goes with it.
+- name: Stop and remove the edge stack
+  community.docker.docker_compose_v2:
+    project_src: "{{ blitzecdn_teardown_compose_file | dirname }}"
+    project_name: "{{ blitzecdn_teardown_project }}"
+    files: ["{{ blitzecdn_teardown_compose_file | basename }}"]
+    state: absent
+    # Never `remove_volumes`. Every persistent path is a host bind mount by
+    # design, so there is nothing for it to remove here — but the day someone
+    # adds a named volume, this must not be the task that quietly destroys it.
+    remove_volumes: false
+    remove_orphans: true
+  register: blitzecdn_teardown_stack_down
+  failed_when: false
   when:
-    - blitzecdn_teardown_nginx_binary.stat.exists
+    - blitzecdn_teardown_compose.stat.exists
     - not ansible_check_mode
 
-- name: Reload Nginx without the managed sites
-  ansible.builtin.systemd_service:
-    name: nginx
-    state: reloaded
-  when:
-    - blitzecdn_teardown_nginx_binary.stat.exists
-    - not ansible_check_mode
+# `down` above removes it in the ordinary case. This catches the host where the
+# compose file was already gone, or was unreadable, and a container is still
+# serving traffic the control plane believes has stopped.
+- name: Remove any surviving edge container
+  community.docker.docker_container:
+    name: "{{ blitzecdn_teardown_container }}"
+    state: absent
+    keep_volumes: true
+  failed_when: false
+  when: not ansible_check_mode
 
+# --- persistent state ------------------------------------------------------
+#
+# Everything below destroys data. It is gated on one variable so that "take the
+# runtime off this host" and "erase what this host was serving" cannot be
+# confused for each other, and so that a reader can see in one place exactly
+# which paths a destructive teardown removes.
 - name: Remove the ACME webroot
   ansible.builtin.file:
     path: "{{ blitzecdn_teardown_acme_root }}"
     state: absent
+  when: blitzecdn_teardown_remove_data
 
 - name: Remove cached responses
   ansible.builtin.file:
     path: "{{ blitzecdn_teardown_cache_path }}"
     state: absent
+  when: blitzecdn_teardown_remove_data
 
 - name: Inspect the managed firewall rule registry
   ansible.builtin.stat:
@@ -112,6 +137,20 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_teardown_state_path }}"
     state: absent
+  when: blitzecdn_teardown_remove_data
+
+# The recorded runtime image and the empty document root Under Attack Mode
+# dispatches through. Neither is customer data, but both describe a host that is
+# no longer an edge, and a stale image record would make a rebuilt host believe
+# it was already running something.
+- name: Remove edge runtime state
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ blitzecdn_teardown_runtime_path }}"
+    - "{{ blitzecdn_teardown_empty_root }}"
+  when: blitzecdn_teardown_remove_data
 
 - name: Stop and disable edge-owned timers and services
   ansible.builtin.systemd_service:
@@ -175,15 +214,18 @@
   register: blitzecdn_teardown_residue
   loop: >-
     {{
-      [blitzecdn_teardown_state_path,
-       blitzecdn_teardown_cache_path,
-       blitzecdn_teardown_acme_root,
-       blitzecdn_teardown_managed_sites_file,
-       blitzecdn_teardown_resolver_file,
+      [blitzecdn_teardown_resolver_file,
        blitzecdn_teardown_sshd_file,
        blitzecdn_teardown_fail2ban_file,
        blitzecdn_teardown_sysctl_file,
        blitzecdn_teardown_geoip_config_file]
+      + ([blitzecdn_teardown_state_path,
+          blitzecdn_teardown_cache_path,
+          blitzecdn_teardown_acme_root,
+          blitzecdn_teardown_managed_sites_file,
+          blitzecdn_teardown_runtime_path,
+          blitzecdn_teardown_empty_root]
+         if blitzecdn_teardown_remove_data else [])
       + ([blitzecdn_teardown_access_log_path] if blitzecdn_teardown_remove_logs else [])
       + (blitzecdn_teardown_geoip_units
          | map('regex_replace', '^', '/etc/systemd/system/') | list)

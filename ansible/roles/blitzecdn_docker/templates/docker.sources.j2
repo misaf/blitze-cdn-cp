@@ -1,0 +1,7 @@
+# Managed by BlitzeCDN. Local edits are overwritten.
+Types: deb
+URIs: {{ blitzecdn_docker_repository_url }}
+Suites: {{ ansible_facts.distribution_release }}
+Components: stable
+Architectures: {{ blitzecdn_docker_architecture }}
+Signed-By: {{ blitzecdn_docker_keyring }}

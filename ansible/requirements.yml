@@ -9,3 +9,9 @@ collections:
     version: "2.2.0"
   - name: community.general
     version: "11.4.0"
+  # Docker Engine, Compose projects, images and container exec. Pinned exactly
+  # for the same reason as the two above: these modules start, recreate and
+  # stop the process that serves every visitor, so a Galaxy release must not be
+  # able to change how that happens without a diff in this repository.
+  - name: community.docker
+    version: "5.2.2"

@@ -31,6 +31,8 @@ say() { printf '\n=== %s ===\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 
 in_container() { docker exec "${container}" bash -c "$1"; }
+# Same, but with stdin attached, for streaming an image into the host's engine.
+into_container() { docker exec -i "${container}" bash -c "$1"; }
 
 say "Starting ${IMAGE} with systemd"
 docker run -d --name "${container}" \
@@ -103,6 +105,33 @@ in_container 'systemctl is-active --quiet blitzecdn-worker.service' || fail "wor
 in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
 
+say "Seeding the edge runtime image this host will run"
+# The edge is a container now, so converging one needs an image before the
+# first deploy — and CI must test the commit under review rather than a
+# published image that lags it by definition. So: build it here, and load it
+# into the disposable host's own engine.
+#
+# Which needs an engine, before the converge that installs one. The repository
+# is therefore seeded exactly as blitzecdn_docker seeds it, into the same
+# deb822 file the role writes, so the converge that follows still finds
+# everything as it expects and reports no change on its second run. This is the
+# only step in this script that pre-empts a role, and it does so with that
+# role's own configuration.
+docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/docker/edge" >/dev/null
+
+in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null' ||
+  fail "could not install the Docker repository prerequisites"
+in_container 'install -d -m 0755 /etc/apt/keyrings && curl -fsSL --proto "=https" --tlsv1.2 https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && chmod 0644 /etc/apt/keyrings/docker.asc' ||
+  fail "could not fetch the Docker signing key"
+# shellcheck disable=SC2016
+in_container 'printf "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n" "$(. /etc/os-release && printf %s "${VERSION_CODENAME}")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources' ||
+  fail "could not configure the Docker repository"
+in_container 'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null' ||
+  fail "could not install Docker Engine"
+in_container 'systemctl enable --now docker' || fail "Docker did not start"
+docker save blitzecdn-edge:standalone | into_container 'docker load' >/dev/null ||
+  fail "could not load the edge runtime image into the disposable host"
+
 say "Converging this host as an edge"
 # The one place an edge role is ever executed. Everything else about the roles
 # is checked by shape — ansible-lint, --syntax-check, the argument-spec
@@ -115,6 +144,13 @@ say "Converging this host as an edge"
 # rather than creating a second inventory row for the same machine.
 in_container 'cd / && blitzecdn edge list --json | grep -q '"'"'"name": "edge-local"'"'"'' ||
   fail "the installer did not register the local edge"
+# Fleet policy, set the way an operator sets it: the image an edge runs is a
+# database-backed setting the inventory plugin publishes, not desired state.
+in_container 'cd / && blitzecdn config set blitzecdn_edge_image blitzecdn-edge:standalone' ||
+  fail "could not pin the edge runtime image"
+in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
+  fail "could not disable the registry pull"
+
 in_container 'cd / && blitzecdn domain add example.test' || fail "could not add a zone"
 in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1 --proxied' ||
   fail "could not add a proxied record"
@@ -130,10 +166,15 @@ in_container 'cd / && blitzecdn plan --json >/dev/null' || {
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "deploy failed"
 in_container 'test -f /etc/nginx/sites-enabled/cdn-example-test.conf' ||
   fail "the deploy did not enable the managed site"
-in_container 'nginx -t' || fail "the converged nginx configuration does not load"
+in_container 'docker exec blitzecdn-edge nginx -t' ||
+  fail "the converged nginx configuration does not load"
 in_container 'grep -q "^cdn-example-test$" /etc/nginx/blitzecdn-managed-sites' ||
   fail "the managed-site registry was not written"
-in_container 'systemctl is-active --quiet nginx' || fail "nginx is not running"
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx healthy' ||
+  fail "the edge container is not healthy"
+# The host must be left with no BlitzeCDN runtime packages of its own: a native
+# Nginx would compete with the container for every public port.
+in_container '! command -v nginx' || fail "a native nginx was installed on the host"
 
 # Converging twice must change nothing: the drift check is the assertion.
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"
@@ -150,7 +191,8 @@ in_container 'cd / && BLITZE_ALLOW_EMPTY_SITES=true blitzecdn deploy --yes --jso
   fail "withdrawing the last site failed"
 in_container 'test ! -e /etc/nginx/sites-enabled/cdn-example-test.conf' ||
   fail "the stale site was left enabled"
-in_container 'nginx -t' || fail "nginx does not load after the site was withdrawn"
+in_container 'docker exec blitzecdn-edge nginx -t' ||
+  fail "nginx does not load after the site was withdrawn"
 
 say "Backing up the control plane while the API is serving"
 in_container 'cd / && blitzecdn backup create' ||

@@ -1,0 +1,14 @@
+---
+- name: Render the Compose project
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ blitzecdn_edge_stack_compose_file }}"
+    owner: root
+    group: root
+    mode: "0644"
+    # Validated as YAML *and* as a Compose project before it replaces the file
+    # the running stack was created from. A compose file that will not parse is
+    # not merely a failed deploy: `docker compose down` reads it too, so a
+    # broken one takes away the ability to stop the stack it describes.
+    validate: docker compose --file %s config --quiet
+  register: blitzecdn_edge_stack_compose_rendered

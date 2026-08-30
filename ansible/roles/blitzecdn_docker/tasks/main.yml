@@ -1,0 +1,131 @@
+---
+# One guarded block rather than a `when` on every task, for the same reason
+# blitzecdn_firewall uses one: a task added here without its own guard would
+# otherwise install a container engine on a host that opted out.
+- name: Converge the host container engine
+  when: blitzecdn_docker_enabled
+  block:
+    - name: Install the Docker repository prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, curl, gnupg]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      register: blitzecdn_docker_prereq_apt
+      until: blitzecdn_docker_prereq_apt is success
+      retries: 3
+      delay: 5
+
+    - name: Create the apt keyring directory
+      ansible.builtin.file:
+        path: "{{ blitzecdn_docker_keyring | dirname }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0755"
+
+    # Fetched to a keyring of its own rather than into the global trusted set.
+    # A key in /etc/apt/trusted.gpg.d signs *every* repository as far as apt is
+    # concerned; scoped by Signed-By below, this key can only vouch for Docker.
+    - name: Install the Docker apt signing key
+      ansible.builtin.get_url:
+        url: "{{ blitzecdn_docker_gpg_url }}"
+        dest: "{{ blitzecdn_docker_keyring }}"
+        owner: root
+        group: root
+        mode: "0644"
+        force: false
+      register: blitzecdn_docker_key
+      until: blitzecdn_docker_key is success
+      retries: 3
+      delay: 5
+
+    # Ubuntu 26.04 is the supported fresh-edge platform and Docker publishes a
+    # suite per Ubuntu release, so the suite is the distribution codename. Taken
+    # from facts rather than written out: a hard-coded codename silently
+    # installs the wrong suite the day the platform moves.
+    - name: Configure the Docker apt repository
+      ansible.builtin.template:
+        src: docker.sources.j2
+        dest: "{{ blitzecdn_docker_list_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      register: blitzecdn_docker_repository
+
+    - name: Install Docker Engine and the Compose plugin
+      ansible.builtin.apt:
+        name: "{{ blitzecdn_docker_packages }}"
+        state: present
+        update_cache: true
+        # Forced when the source list just changed: apt's cache would otherwise
+        # still be the pre-Docker one and the install would fail on packages
+        # that are, by then, perfectly available.
+        cache_valid_time: "{{ 0 if blitzecdn_docker_repository is changed else 3600 }}"
+      register: blitzecdn_docker_apt
+      until: blitzecdn_docker_apt is success
+      retries: 3
+      delay: 5
+
+    - name: Install the container API client dependency
+      ansible.builtin.apt:
+        name: "{{ blitzecdn_docker_python_packages }}"
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+      register: blitzecdn_docker_python_apt
+      until: blitzecdn_docker_python_apt is success
+      retries: 3
+      delay: 5
+
+    - name: Configure the Docker daemon
+      ansible.builtin.template:
+        src: daemon.json.j2
+        dest: "{{ blitzecdn_docker_daemon_config_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Restart Docker
+
+    - name: Enable and start Docker
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+      when: not ansible_check_mode
+
+    # Before the probe below, and before the end of the play the handler would
+    # otherwise wait for: every role after this one talks to the daemon, so a
+    # pending configuration change has to have been applied by now.
+    - name: Apply pending Docker daemon changes
+      ansible.builtin.meta: flush_handlers
+
+    # Proof that the engine answers, not merely that a unit is active. A daemon
+    # that cannot apply daemon.json starts, logs, and refuses every API call —
+    # which would otherwise surface as an unexplained container failure in a
+    # later role.
+    - name: Verify the engine answers its API
+      community.docker.docker_host_info:
+      register: blitzecdn_docker_host
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Require a working Compose plugin
+      ansible.builtin.command:
+        argv: [docker, compose, version]
+      register: blitzecdn_docker_compose_version
+      changed_when: false
+      when: not ansible_check_mode
+
+    - name: Require a Compose plugin new enough for the edge stack
+      ansible.builtin.assert:
+        that:
+          - >-
+            blitzecdn_docker_compose_version.stdout
+            is regex('v?([2-9]|[1-9][0-9])\.')
+        fail_msg: >-
+          docker compose reported
+          {{ blitzecdn_docker_compose_version.stdout | default('nothing') }}.
+          The BlitzeCDN edge stack is a Compose v2 project; the retired
+          docker-compose v1 script cannot converge it.
+      when: not ansible_check_mode
