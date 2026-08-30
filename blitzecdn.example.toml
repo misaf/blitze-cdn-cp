@@ -13,6 +13,17 @@
 # Relative values are resolved from the project directory.
 database_path = ".state/control-plane.db"
 
+# Where `blitzecdn backup create` writes when given no destination. An archive
+# here holds every TLS private key and the whole audit trail, so the directory
+# is created 0700 and each archive 0600. An installed control plane is pointed
+# at /var/backups/blitzecdn, which is outside the directory an uninstall
+# removes; a checkout defaults to .state/backups.
+backup_dir = ".state/backups"
+
+# Installed controllers keep this under /etc/blitzecdn; checkouts use `.env`.
+# Restore preserves the fresh host's path while recovering portable secrets.
+environment_path = ".env"
+
 # Registration and expiry-notification email used when an ACME request does not
 # provide its own email address.
 acme_default_email = "admin@example.com"

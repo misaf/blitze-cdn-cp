@@ -7,6 +7,10 @@ blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn
 blitzecdn_controlplane_service_user: blitzecdn
 blitzecdn_controlplane_service_home: /var/lib/blitzecdn
+# Deliberately outside the installation directory: an uninstall removes
+# /opt/blitzecdn and everything in it, and the one thing that must survive
+# that is the backup taken before it.
+blitzecdn_controlplane_backup_dir: /var/backups/blitzecdn
 blitzecdn_controlplane_deploy_user: deploy
 blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy

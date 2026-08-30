@@ -15,12 +15,12 @@ import typer
 from pydantic import ValidationError
 
 from blitzecdn.cli import (
+    backup,
     bootstrap,
     cache,
     certs,
     common,
     configuration,
-    database,
     deploy,
     diagnostics,
     edges,
@@ -49,12 +49,13 @@ app.add_typer(edges.origin_app, name="origin")
 app.add_typer(cache.cache_app, name="cache")
 app.add_typer(tls.ssl_app, name="ssl")
 app.add_typer(configuration.config_app, name="config")
-app.add_typer(database.database_app, name="db")
+app.add_typer(backup.backup_app, name="backup")
 
 __all__ = [
     "ExitCode",
     "Settings",
     "app",
+    "backup",
     "bootstrap",
     "cache",
     "certs",
