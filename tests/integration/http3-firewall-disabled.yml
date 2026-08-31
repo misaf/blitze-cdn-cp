@@ -7,6 +7,10 @@
   vars:
     blitzecdn_firewall_enabled: true
     blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
-    blitzecdn_firewall_http3_enabled: false
+    blitzecdn_edge_http3_enabled: false
   roles:
+    # The contract, then the role that reads it. Both roles in one play, so the
+    # firewall withdraws UDP/443 from the same value the converge opened it
+    # with rather than from a second copy of it.
+    - role: blitzecdn_edge
     - role: blitzecdn_firewall

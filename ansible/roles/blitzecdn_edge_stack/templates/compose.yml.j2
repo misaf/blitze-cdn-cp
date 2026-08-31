@@ -8,7 +8,7 @@ name: {{ blitzecdn_edge_stack_project }}
 
 services:
   edge:
-    container_name: {{ blitzecdn_edge_stack_container }}
+    container_name: {{ blitzecdn_edge_runtime.container }}
     image: {{ blitzecdn_edge_stack_resolved_image }}
     # Host networking, deliberately.
     #
@@ -18,7 +18,7 @@ services:
     # per-site source rule. Behind Docker's bridge and its userland proxy it
     # would be a gateway address instead, and the edge would happily apply a
     # country rule to itself. Host networking also means no NAT hop per packet
-    # and no publish list to keep in step with blitzecdn_nginx_http_ports.
+    # and no publish list to keep in step with the contract's listener sets.
     network_mode: host
     restart: unless-stopped
     # Reaps the zombies an Nginx master would otherwise leave behind as PID 1.
@@ -35,31 +35,31 @@ services:
       # business rewriting what the control plane rendered, and a container that
       # cannot write its own configuration cannot be talked into persisting a
       # change that the next converge would silently revert.
-      - {{ blitzecdn_edge_stack_nginx_config_path }}/conf.d:{{ blitzecdn_edge_stack_nginx_config_path }}/conf.d:ro
-      - {{ blitzecdn_edge_stack_nginx_config_path }}/sites-available:{{ blitzecdn_edge_stack_nginx_config_path }}/sites-available:ro
-      - {{ blitzecdn_edge_stack_nginx_config_path }}/sites-enabled:{{ blitzecdn_edge_stack_nginx_config_path }}/sites-enabled:ro
-      - {{ blitzecdn_edge_stack_module_path }}:{{ blitzecdn_edge_stack_module_path }}:ro
+      - {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro
+      - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
+      - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro
+      - {{ blitzecdn_edge_runtime.paths.modules }}:{{ blitzecdn_edge_runtime.paths.modules }}:ro
       # Chains and private keys. Read-only, and the host keeps the directory
       # 0700 root with each key 0600 — the container's Nginx master reads them
       # as root at start and at every reload, and nothing else ever needs to.
-      - {{ blitzecdn_edge_stack_tls_path }}:{{ blitzecdn_edge_stack_tls_path }}:ro
+      - {{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro
       # HTTP-01 challenges, written by the acme-challenge playbook on the host
       # and served from here. Read-only for the same reason as the rest.
-      - {{ blitzecdn_edge_stack_acme_root }}:{{ blitzecdn_edge_stack_acme_root }}:ro
+      - {{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro
       # The empty document root Under Attack Mode dispatches through.
-      - {{ blitzecdn_edge_stack_empty_root }}:{{ blitzecdn_edge_stack_empty_root }}:ro
-{% if blitzecdn_edge_stack_geoip_enabled | bool %}
+      - {{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro
+{% if blitzecdn_edge_runtime.geoip.enabled | bool %}
       # Shared with the geoipupdate service below, which replaces the database
       # in place. Nginx picks the new file up through geoip2's auto_reload
       # without a reload of its own.
-      - {{ blitzecdn_edge_stack_geoip_path }}:{{ blitzecdn_edge_stack_geoip_path }}:ro
+      - {{ blitzecdn_edge_runtime.geoip.directory }}:{{ blitzecdn_edge_runtime.geoip.directory }}:ro
 {% endif %}
       # The two writable mounts, and the only two. Both hold data that must
       # outlive the container: the cache because refilling it from origins after
       # every upgrade is an outage in slow motion, the logs because they are the
       # record of what the edge did — and what Phase 2 monitoring will read.
-      - {{ blitzecdn_edge_stack_cache_path }}:{{ blitzecdn_edge_stack_cache_path }}:rw
-      - {{ blitzecdn_edge_stack_log_path }}:{{ blitzecdn_edge_stack_log_path }}:rw
+      - {{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw
+      - {{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw
     # Container stdout/stderr only — Nginx's request log is the bind-mounted
     # file above and is not affected. Bounded here as well as in daemon.json so
     # the stack carries its own limit onto a host whose engine was configured by
@@ -83,13 +83,13 @@ services:
         - "3"
         - --output
         - /dev/null
-        - "http://{{ blitzecdn_edge_stack_status_address }}:{{ blitzecdn_edge_stack_status_port }}{{ blitzecdn_edge_stack_status_path }}"
+        - "http://{{ blitzecdn_edge_runtime.status.address }}:{{ blitzecdn_edge_runtime.status.port }}{{ blitzecdn_edge_runtime.status.path }}"
       interval: 30s
       timeout: 5s
       start_period: 20s
       retries: 3
 
-{% if blitzecdn_edge_stack_geoip_enabled | bool %}
+{% if blitzecdn_edge_runtime.geoip.enabled | bool %}
   geoipupdate:
     container_name: blitzecdn-geoipupdate
     image: {{ blitzecdn_edge_stack_geoipupdate_image }}
@@ -105,11 +105,11 @@ services:
       - {{ blitzecdn_edge_stack_geoip_env_file }}
     environment:
       GEOIPUPDATE_EDITION_IDS: "{{ blitzecdn_edge_stack_geoip_edition }}"
-      GEOIPUPDATE_DB_DIR: "{{ blitzecdn_edge_stack_geoip_path }}"
+      GEOIPUPDATE_DB_DIR: "{{ blitzecdn_edge_runtime.geoip.directory }}"
       # One shot. The frequency loop is the container's alternative scheduler
       # and would drift a little further from MaxMind's publication window on
       # every converge.
       GEOIPUPDATE_FREQUENCY: "0"
     volumes:
-      - {{ blitzecdn_edge_stack_geoip_path }}:{{ blitzecdn_edge_stack_geoip_path }}:rw
+      - {{ blitzecdn_edge_runtime.geoip.directory }}:{{ blitzecdn_edge_runtime.geoip.directory }}:rw
 {% endif %}

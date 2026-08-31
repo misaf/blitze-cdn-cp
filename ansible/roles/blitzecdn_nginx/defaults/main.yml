@@ -5,43 +5,29 @@ blitzecdn_nginx_sites: []
 # Require an explicit controller setting for that transition. A fresh edge has
 # no registry and can still be hardened before its first site is added.
 blitzecdn_nginx_allow_empty_sites: false
-blitzecdn_nginx_cache_path: /var/cache/nginx/blitzecdn
 blitzecdn_nginx_cache_zone: blitzecdn_cache
 blitzecdn_nginx_cache_size: 100m
 blitzecdn_nginx_cache_max_size: 10g
 blitzecdn_nginx_cache_inactive: 60m
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
-blitzecdn_nginx_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
-# Cloudflare-compatible public proxy ports. Keeping HTTP and HTTPS separate is
-# important: every HTTPS listener must carry Nginx's ssl parameter, while the
-# HTTP listeners either proxy directly or redirect a TLS-enabled site.
-blitzecdn_nginx_http_ports: [80, 8080, 8880, 2052, 2082, 2086, 2095]
-blitzecdn_nginx_https_ports: [443, 2053, 2083, 2087, 2096, 8443]
-# Derived by the control plane from enabled sites. HTTP/3 is intentionally
-# fixed to UDP/443; the alternate HTTPS ports remain TCP-only.
-blitzecdn_nginx_http3_enabled: false
+blitzecdn_nginx_managed_sites_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/blitzecdn-managed-sites"
+# Which site carries `reuseport` on the QUIC listener. Nginx accepts it on
+# exactly one server block, so this names the owner rather than the capability
+# — the capability itself is blitzecdn_edge_runtime.listeners.http3, which the
+# firewall reads too. Derived by the control plane from enabled sites.
 blitzecdn_nginx_http3_listener_owner: ''
-# The edge runtime image this role validates configuration against, and the
-# container it reloads. Nginx no longer runs on the host: it runs in the
-# container blitzecdn_edge_stack starts from this image, so `nginx -t` and
-# `nginx -s reload` here mean "in that container".
-#
-# The fleet value is composed in inventory/group_vars/blitzecdn_edges from
-# blitzecdn_edge_image_registry, _repository, _tag and _digest. The literal
-# below is only the standalone fallback for a playbook that runs this role
-# without that group, and it must equal blitzecdn_edge_stack's — validating a
-# configuration against one image and then serving it from another is exactly
-# the drift these two roles exist to prevent. tests/test_ansible_role_contracts
-# asserts they agree.
-blitzecdn_nginx_image_default: ghcr.io/misaf/blitzecdn-edge:2.7.0
-blitzecdn_nginx_image: >-
-  {{ blitzecdn_edge_image | default(blitzecdn_nginx_image_default, true) }}
-blitzecdn_nginx_container: blitzecdn-edge
 # Which image a configuration test runs under. Normally the image this edge
-# runs; blitzecdn_edge_stack overrides it to validate the current configuration
-# against a *new* image before replacing the container serving traffic.
-blitzecdn_nginx_config_test_image: "{{ blitzecdn_nginx_image }}"
+# runs — blitzecdn_edge_runtime.image, the same one blitzecdn_edge_stack serves
+# from, because validating against one image and serving from another is the
+# drift the shared contract exists to prevent. blitzecdn_edge_stack overrides
+# this to validate the current configuration against a *new* image before
+# replacing the container serving traffic.
+#
+# Nginx no longer runs on the host: it runs in the container
+# blitzecdn_edge_stack starts, so `nginx -t` and `nginx -s reload` in this role
+# mean "in that container".
+blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
 # The mounts a configuration test needs to see, in Compose's own
 # host:container:mode form. The same set the running container gets, minus
 # nothing: a test that cannot see a certificate or the GeoIP database passes
@@ -49,22 +35,23 @@ blitzecdn_nginx_config_test_image: "{{ blitzecdn_nginx_image }}"
 # `nginx -t` creates the proxy_cache_path levels and opens the error log.
 # tests/test_ansible_role_contracts.py asserts this matches the Compose file.
 blitzecdn_nginx_config_test_volumes:
-  - /etc/nginx/conf.d:/etc/nginx/conf.d:ro
-  - /etc/nginx/sites-available:/etc/nginx/sites-available:ro
-  - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro
-  - /etc/blitzecdn/nginx:/etc/blitzecdn/nginx:ro
-  - /etc/blitzecdn/tls:/etc/blitzecdn/tls:ro
-  - /var/lib/blitzecdn/acme:/var/lib/blitzecdn/acme:ro
-  - /var/lib/blitzecdn/empty:/var/lib/blitzecdn/empty:ro
-  - /usr/share/GeoIP:/usr/share/GeoIP:ro
-  - /var/cache/nginx/blitzecdn:/var/cache/nginx/blitzecdn:rw
-  - /var/log/nginx:/var/log/nginx:rw
+  - "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro"
+  - >-
+    {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{
+      blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
+  - "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro"
+  - "{{ blitzecdn_edge_runtime.paths.modules }}:{{ blitzecdn_edge_runtime.paths.modules }}:ro"
+  - "{{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro"
+  - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
+  - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
+  - "{{ blitzecdn_edge_runtime.geoip.directory }}:{{ blitzecdn_edge_runtime.geoip.directory }}:ro"
+  - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
+  - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
 # Certificate paths become copy destinations written as root, so confine them to
 # directories that may legitimately hold certificates. Without this an operator
 # could aim a deploy at /etc/cron.d or ~root/.ssh. Referenced as a variable, so
 # the backslashes are literal rather than Jinja string escapes.
 blitzecdn_nginx_certificate_path_pattern: '^/(?!.*(?:^|/)\.\.(?:/|$))etc/(?:blitzecdn/tls|ssl|letsencrypt)/[^;{}]+$'
-blitzecdn_nginx_acme_root: /var/lib/blitzecdn/acme
 # Defaults to Ubuntu 26.04's systemd-resolved stub listener. Set to [] to pin
 # origin IPs at config-load time instead.
 blitzecdn_nginx_resolvers: [127.0.0.53]
@@ -80,9 +67,8 @@ blitzecdn_nginx_resolver_timeout: 5s
 blitzecdn_nginx_under_attack_enabled: false
 blitzecdn_nginx_under_attack_passage_seconds: 1800
 blitzecdn_nginx_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_SECRET') }}"
-blitzecdn_nginx_under_attack_js_file: /etc/blitzecdn/nginx/under-attack.js
-blitzecdn_nginx_under_attack_conf_file: /etc/nginx/conf.d/blitzecdn-under-attack.conf
-blitzecdn_nginx_under_attack_empty_root: /var/lib/blitzecdn/empty
+blitzecdn_nginx_under_attack_js_file: "{{ blitzecdn_edge_runtime.paths.modules }}/under-attack.js"
+blitzecdn_nginx_under_attack_conf_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-under-attack.conf"
 
 # Claims the default_server position for a block that serves ACME challenges and
 # answers everything else with 444. Without it, a request for a hostname no
@@ -90,7 +76,8 @@ blitzecdn_nginx_under_attack_empty_root: /var/lib/blitzecdn/empty
 # a shared edge is another customer's configuration. Turn off only on an edge
 # that is genuinely single-tenant and fronted by something else.
 blitzecdn_nginx_default_server: true
-blitzecdn_nginx_default_site_file: /etc/nginx/sites-available/blitzecdn-default.conf
+blitzecdn_nginx_default_site_file: >-
+  {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available/blitzecdn-default.conf
 
 # Collapses client Accept-Encoding into "", "gzip" or "br" and makes it part of
 # the cache key. Off, encodings share one cache entry per URI and a client can
@@ -162,39 +149,14 @@ blitzecdn_nginx_hsts_max_age: 31536000
 # (`visitor_headers.ip_country` on a site), which reads the same
 # $blitzecdn_country and fails the same assertion — an origin cannot tell a
 # header that was never sent from a visitor whose country is unknown.
-blitzecdn_nginx_geoip_enabled: false
-blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
+# Whether country rules may be rendered at all is blitzecdn_edge_runtime.geoip
+# .enabled: the database is provisioned by blitzecdn_edge_stack, mounted into
+# the container and probed by the deploy's health check, so the switch and the
+# path belong to the runtime rather than to this role. What stays here is how
+# this role writes the lookup into the Nginx configuration.
 blitzecdn_nginx_geoip_reload: 5m
-blitzecdn_nginx_geoip_file: /etc/nginx/conf.d/blitzecdn-geoip.conf
-
-# MaxMind GeoLite2 — free, but not anonymous. The edge-stack updater container
-# can provision the database once you supply an account and license key. Leave
-# them empty to manage the file yourself; this role then only checks it exists.
-#
-# The key is a secret. Do not commit it: set it from the controller's
-# environment in group_vars, e.g.
-#
-#   blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'MAXMIND_LICENSE_KEY') }}"
-#
-# blitzecdn_edge_stack writes it to /etc/blitzecdn/geoipupdate.env as root:root
-# mode 0600 and supplies that file only to the updater container. Every task
-# that handles it sets no_log.
-blitzecdn_nginx_geoip_account_id: ""
-blitzecdn_nginx_geoip_license_key: ""
-# Country is all the firewall rules need. GeoLite2-City is far larger and buys
-# nothing here.
-blitzecdn_nginx_geoip_edition: GeoLite2-Country
-# MaxMind publishes GeoLite2 twice a week and rate-limits downloads, so the
-# converge fetches only when the database is missing and leaves refreshes to
-# the timer blitzecdn_edge_stack installs. nginx picks up a replaced file via
-# `auto_reload`, with no reload. The updater itself is a container now — see
-# blitzecdn_edge_stack — but the schedule stays here because it is fleet policy
-# an operator sets, and both roles read the same value.
-blitzecdn_nginx_geoip_update_enabled: true
-blitzecdn_nginx_geoip_update_calendar: Wed,Sat 03:00
-# Spreads a fleet's downloads across the morning instead of having every edge
-# hit MaxMind on the same second.
-blitzecdn_nginx_geoip_update_splay: 3h
+blitzecdn_nginx_geoip_file: >-
+  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-geoip.conf
 
 # Observability.
 #
@@ -204,14 +166,16 @@ blitzecdn_nginx_geoip_update_splay: 3h
 # it can be counted, and the status endpoint exposes connection and request
 # totals for the same purpose.
 blitzecdn_nginx_access_log_enabled: true
-blitzecdn_nginx_access_log_path: /var/log/nginx/blitzecdn-access.log
+blitzecdn_nginx_access_log_path: >-
+  {{ blitzecdn_edge_runtime.paths.logs }}/blitzecdn-access.log
 blitzecdn_nginx_log_format_name: blitzecdn
 
-# Always served: the container healthcheck and health.yml both read it.
-# Unauthenticated, so the loopback bind and `blitzecdn_nginx_status_allow` are
-# two independent controls — never widen one without narrowing the other.
-blitzecdn_nginx_status_address: 127.0.0.1
-blitzecdn_nginx_status_port: 8090
-blitzecdn_nginx_status_path: /stub_status
+# Where the status endpoint listens is blitzecdn_edge_runtime.status: the
+# Compose healthcheck, health.yml and blitzecdn_stats all read the same
+# endpoint this role renders. The access list below is this role's half of the
+# control — stub_status has no authentication of its own, so the loopback bind
+# in the contract and this list are two independent controls, and neither
+# should be widened without narrowing the other.
 blitzecdn_nginx_status_allow: [127.0.0.1, "::1"]
-blitzecdn_nginx_status_file: /etc/nginx/conf.d/blitzecdn-status.conf
+blitzecdn_nginx_status_file: >-
+  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-status.conf

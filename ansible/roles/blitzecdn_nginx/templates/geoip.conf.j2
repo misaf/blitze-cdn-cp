@@ -12,7 +12,7 @@
 # an allowed_countries list. Both follow from the list the operator wrote:
 # "block these" cannot know an unknown address is one of them, and "only these"
 # cannot know it is not.
-geoip2 {{ blitzecdn_nginx_geoip_database }} {
+geoip2 {{ blitzecdn_edge_runtime.geoip.database }} {
     # Picks up a database replaced by the updater container without a reload.
     auto_reload {{ blitzecdn_nginx_geoip_reload }};
     $blitzecdn_country source=$remote_addr country iso_code;

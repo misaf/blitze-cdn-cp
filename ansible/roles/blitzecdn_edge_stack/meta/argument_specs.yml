@@ -13,21 +13,28 @@ argument_specs:
         read-only, which is what keeps a site change a reload rather than a
         container replacement.
       - >-
+        Everything it shares with blitzecdn_nginx and blitzecdn_firewall — the
+        Compose project and container names, the image, every mounted host
+        directory, the status endpoint, the public listener sets and the GeoIP
+        database — comes from the blitzecdn_edge role. It reads no variable
+        belonging to another role; it used to derive fifteen of its defaults
+        from blitzecdn_nginx_*.
+      - >-
         prepare.yml is a separate entry point, run before the firewall and
         before any configuration is rendered. The GeoLite2 database has to exist
         before a configuration that reads it is validated, and the image has to
         exist before anything can be validated against it, but the container
         must not start until the configuration has passed nginx -t.
     options:
-      blitzecdn_edge_stack_image:
-        type: str
+      blitzecdn_edge_runtime:
+        type: dict
         required: true
         description: >-
-          The edge runtime image, tag- or digest-pinned. Never `latest`: a
-          floating tag makes the running version unanswerable and rollback a
-          guess. Must equal blitzecdn_nginx_image, which validates
-          configuration against the same image.
-      blitzecdn_edge_stack_image_default: {type: str, required: true}
+          The shared edge runtime contract, owned and validated by the
+          blitzecdn_edge role. This role reads the image it serves, the
+          project and container it creates, the host directories it mounts,
+          the status endpoint and listeners it verifies, and the GeoIP
+          database it provisions.
       blitzecdn_edge_stack_image_pull:
         type: bool
         required: true
@@ -38,8 +45,6 @@ argument_specs:
       blitzecdn_edge_stack_image_reference: {type: str, required: true}
       blitzecdn_edge_stack_geoipupdate_image: {type: str, required: true}
       blitzecdn_edge_stack_project: {type: str, required: true}
-      blitzecdn_edge_stack_container: {type: str, required: true}
-      blitzecdn_edge_stack_state_path: {type: path, required: true}
       blitzecdn_edge_stack_compose_file: {type: path, required: true}
       blitzecdn_edge_stack_runtime_path: {type: path, required: true}
       blitzecdn_edge_stack_deployed_image_file:
@@ -49,20 +54,6 @@ argument_specs:
           What the last successful converge was asked for and what that
           resolved to. Reading it back is what tells a re-converge from an
           upgrade, and what gives a rollback an exact image to return to.
-      blitzecdn_edge_stack_nginx_config_path: {type: path, required: true}
-      blitzecdn_edge_stack_module_path: {type: path, required: true}
-      blitzecdn_edge_stack_tls_path: {type: path, required: true}
-      blitzecdn_edge_stack_cache_path: {type: path, required: true}
-      blitzecdn_edge_stack_acme_root: {type: path, required: true}
-      blitzecdn_edge_stack_empty_root: {type: path, required: true}
-      blitzecdn_edge_stack_log_path: {type: path, required: true}
-      blitzecdn_edge_stack_geoip_path: {type: path, required: true}
-      blitzecdn_edge_stack_status_address: {type: str, required: true}
-      blitzecdn_edge_stack_status_port: {type: int, required: true}
-      blitzecdn_edge_stack_status_path: {type: str, required: true}
-      blitzecdn_edge_stack_http_ports: {type: list, elements: int, required: true}
-      blitzecdn_edge_stack_https_ports: {type: list, elements: int, required: true}
-      blitzecdn_edge_stack_http3_enabled: {type: bool, required: true}
       blitzecdn_edge_stack_health_timeout:
         type: int
         required: true
@@ -77,10 +68,8 @@ argument_specs:
           Force a container replacement even when nothing about it changed. Off:
           a configuration deployment must not replace the process serving
           traffic.
-      blitzecdn_edge_stack_geoip_enabled: {type: bool, required: true}
-      blitzecdn_edge_stack_geoip_database: {type: path, required: true}
-      blitzecdn_edge_stack_geoip_edition: {type: str, required: true}
       blitzecdn_edge_stack_geoip_account_id: {type: str, required: true}
+      blitzecdn_edge_stack_geoip_edition: {type: str, required: true}
       blitzecdn_edge_stack_geoip_license_key:
         type: str
         required: true

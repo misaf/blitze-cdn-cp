@@ -20,26 +20,26 @@
         group: "{{ item.group | default('root') }}"
         mode: "{{ item.mode }}"
       loop:
-        - {path: "{{ blitzecdn_edge_stack_state_path }}", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.state }}", mode: "0755"}
         # Read-only in the container and root-only on the host: this is where
         # the njs implementation of Under Attack Mode lives, and it is signed
         # with a fleet secret.
-        - {path: "{{ blitzecdn_edge_stack_module_path }}", group: www-data, mode: "0750"}
-        - {path: "{{ blitzecdn_edge_stack_tls_path }}", mode: "0700"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.modules }}", group: www-data, mode: "0750"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.tls }}", mode: "0700"}
         - {path: "{{ blitzecdn_edge_stack_runtime_path }}", mode: "0700"}
         # The three configuration directories the container mounts. Created
         # here rather than by a package, because there is no longer a package:
         # a bind mount of a path that does not exist makes Docker create it as
         # an empty root-owned directory, and an edge would start with no
         # configuration at all and answer 404 for every site.
-        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}", mode: "0755"}
-        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}/conf.d", mode: "0755"}
-        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}/sites-available", mode: "0755"}
-        - {path: "{{ blitzecdn_edge_stack_nginx_config_path }}/sites-enabled", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.nginx }}", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available", mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled", mode: "0755"}
         # Nginx opens its logs as the root master process; adm is the group
         # Ubuntu gives log readers, and it is what a Phase 2 log shipper will
         # join rather than being given root.
-        - {path: "{{ blitzecdn_edge_stack_log_path }}", owner: www-data, group: adm, mode: "0755"}
+        - {path: "{{ blitzecdn_edge_runtime.paths.logs }}", owner: www-data, group: adm, mode: "0755"}
       loop_control:
         label: "{{ item.path }}"
 

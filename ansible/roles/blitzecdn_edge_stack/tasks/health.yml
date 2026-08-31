@@ -5,7 +5,7 @@
 # outage on its own, so each is asked separately.
 - name: Inspect the edge container
   community.docker.docker_container_info:
-    name: "{{ blitzecdn_edge_stack_container }}"
+    name: "{{ blitzecdn_edge_runtime.container }}"
   register: blitzecdn_edge_stack_container_state
   when: not ansible_check_mode
 
@@ -15,9 +15,9 @@
       - blitzecdn_edge_stack_container_state.exists
       - blitzecdn_edge_stack_container_state.container.State.Running
     fail_msg: >-
-      {{ blitzecdn_edge_stack_container }} is not running on
+      {{ blitzecdn_edge_runtime.container }} is not running on
       {{ inventory_hostname }}. Read its output with
-      `docker logs {{ blitzecdn_edge_stack_container }}`; the most common cause
+      `docker logs {{ blitzecdn_edge_runtime.container }}`; the most common cause
       on a first converge is another process already holding a public port.
   when: not ansible_check_mode
 
@@ -32,7 +32,7 @@
         blitzecdn_edge_stack_container_state.container.State.Health.Status
         | default('missing') == 'healthy'
     fail_msg: >-
-      Docker reports {{ blitzecdn_edge_stack_container }} as
+      Docker reports {{ blitzecdn_edge_runtime.container }} as
       {{ blitzecdn_edge_stack_container_state.container.State.Health.Status
          | default('unknown') }} on {{ inventory_hostname }}. The last probe
       said:
@@ -42,7 +42,7 @@
 
 - name: Confirm the running edge accepts its own configuration
   community.docker.docker_container_exec:
-    container: "{{ blitzecdn_edge_stack_container }}"
+    container: "{{ blitzecdn_edge_runtime.container }}"
     argv: [nginx, -t]
   register: blitzecdn_edge_stack_config_test
   changed_when: false
@@ -57,12 +57,18 @@
     state: started
     timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
   loop: >-
-    {{ (blitzecdn_edge_stack_http_ports | list)
-       + (blitzecdn_edge_stack_https_ports | list) }}
+    {{ (blitzecdn_edge_runtime.listeners.http | list)
+       + (blitzecdn_edge_runtime.listeners.https | list) }}
   when:
     - not ansible_check_mode
-    - blitzecdn_nginx_default_server | default(true) | bool
-      or blitzecdn_nginx_sites | default([]) | length > 0
+    # Published by blitzecdn_nginx, which is the role that decides whether any
+    # server block claims the public ports: the catch-all default server, or at
+    # least one *enabled* site. Read as a fact rather than by re-deriving it
+    # from that role's variables — an edge that binds nothing must not be made
+    # to wait out the timeout on every listener, and the derivation is the
+    # renderer's to make. `true` when this role runs without the nginx role,
+    # which is the safe direction: an unclaimed listener then fails loudly.
+    - blitzecdn_nginx_listeners_claimed | default(true) | bool
 
 # wait_for cannot ask about UDP, so HTTP/3 is confirmed from the kernel's
 # listener table. This proves the QUIC listener the firewall opened UDP/443 for
@@ -74,7 +80,7 @@
   changed_when: false
   when:
     - not ansible_check_mode
-    - blitzecdn_edge_stack_http3_enabled | bool
+    - blitzecdn_edge_runtime.listeners.http3 | bool
 
 - name: Require the HTTP/3 listener on UDP/443
   ansible.builtin.assert:
@@ -84,18 +90,18 @@
       HTTP/3 is enabled for {{ inventory_hostname }} and UDP/443 is open in the
       firewall, but nothing is listening on UDP/443. Visitors would negotiate
       h3 from the Alt-Svc header and time out. Check
-      `docker logs {{ blitzecdn_edge_stack_container }}` for a QUIC bind error.
+      `docker logs {{ blitzecdn_edge_runtime.container }}` for a QUIC bind error.
   when:
     - not ansible_check_mode
-    - blitzecdn_edge_stack_http3_enabled | bool
+    - blitzecdn_edge_runtime.listeners.http3 | bool
 
 # Proves requests are served rather than merely accepted. Read from the edge,
 # because the endpoint is bound to loopback there.
 - name: Read the local status endpoint
   ansible.builtin.uri:
     url: >-
-      http://{{ blitzecdn_edge_stack_status_address }}:{{
-        blitzecdn_edge_stack_status_port }}{{ blitzecdn_edge_stack_status_path }}
+      http://{{ blitzecdn_edge_runtime.status.address }}:{{
+        blitzecdn_edge_runtime.status.port }}{{ blitzecdn_edge_runtime.status.path }}
     return_content: true
     status_code: [200]
   register: blitzecdn_edge_stack_status
@@ -106,9 +112,9 @@
 # refuses to run one, covering a database removed after the config was written.
 - name: Require the GeoIP database the running configuration reads
   community.docker.docker_container_exec:
-    container: "{{ blitzecdn_edge_stack_container }}"
-    argv: [test, -s, "{{ blitzecdn_edge_stack_geoip_database }}"]
+    container: "{{ blitzecdn_edge_runtime.container }}"
+    argv: [test, -s, "{{ blitzecdn_edge_runtime.geoip.database }}"]
   changed_when: false
   when:
     - not ansible_check_mode
-    - blitzecdn_edge_stack_geoip_enabled | bool
+    - blitzecdn_edge_runtime.geoip.enabled | bool

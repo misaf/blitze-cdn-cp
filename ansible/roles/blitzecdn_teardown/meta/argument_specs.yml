@@ -24,7 +24,7 @@ argument_specs:
       blitzecdn_teardown_cache_path:
         type: path
         required: true
-        description: Must equal blitzecdn_nginx_cache_path on the same host.
+        description: Must equal blitzecdn_edge_runtime.paths.cache on the same host.
       blitzecdn_teardown_managed_sites_file:
         type: path
         required: true
@@ -32,7 +32,7 @@ argument_specs:
       blitzecdn_teardown_acme_root:
         type: path
         required: true
-        description: Must equal blitzecdn_nginx_acme_root on the same host.
+        description: Must equal blitzecdn_edge_runtime.paths.acme on the same host.
       blitzecdn_teardown_state_path:
         type: path
         required: true

@@ -77,14 +77,14 @@ argument_specs:
                 default: []
                 description: >-
                   ISO 3166-1 alpha-2 codes; every other country gets a 403.
-                  Requires blitzecdn_nginx_geoip_enabled.
+                  Requires the runtime contract's geoip.enabled.
               denied_countries:
                 type: list
                 elements: str
                 default: []
                 description: >-
                   ISO 3166-1 alpha-2 codes answered with 403. Requires
-                  blitzecdn_nginx_geoip_enabled.
+                  the runtime contract's geoip.enabled.
               denied_methods:
                 type: list
                 elements: str
@@ -117,13 +117,21 @@ argument_specs:
                 default: false
                 description: >-
                   Send BZ-IPCountry, the ISO 3166-1 alpha-2 code from
-                  $blitzecdn_country. Requires blitzecdn_nginx_geoip_enabled;
-                  a site asking for it without GeoIP fails validation rather
-                  than omitting the header.
+                  $blitzecdn_country. Requires the runtime contract's
+                  geoip.enabled; a site asking for it without GeoIP fails
+                  validation rather than omitting the header.
       blitzecdn_nginx_allow_empty_sites:
         type: bool
         required: true
-      blitzecdn_nginx_cache_path: {type: path, required: true}
+      blitzecdn_edge_runtime:
+        type: dict
+        required: true
+        description: >-
+          The shared edge runtime contract, owned and validated by the
+          blitzecdn_edge role. This role reads the paths it renders into,
+          the public listener sets, the status endpoint, the GeoIP database
+          and the image it validates against. It reads no variable belonging
+          to blitzecdn_edge_stack or blitzecdn_firewall.
       blitzecdn_nginx_cache_zone: {type: str, required: true}
       blitzecdn_nginx_cache_size: {type: str, required: true}
       blitzecdn_nginx_cache_max_size: {type: str, required: true}
@@ -131,23 +139,7 @@ argument_specs:
       blitzecdn_nginx_proxy_connect_timeout: {type: str, required: true}
       blitzecdn_nginx_proxy_read_timeout: {type: str, required: true}
       blitzecdn_nginx_managed_sites_file: {type: path, required: true}
-      blitzecdn_nginx_http_ports: {type: list, elements: int, required: true}
-      blitzecdn_nginx_https_ports: {type: list, elements: int, required: true}
-      blitzecdn_nginx_http3_enabled: {type: bool, required: true}
       blitzecdn_nginx_http3_listener_owner: {type: str, required: true}
-      blitzecdn_nginx_image:
-        type: str
-        required: true
-        description: >-
-          The edge runtime image holding the ABI-matched official Nginx,
-          GeoIP2, Brotli and njs stack. Must equal
-          blitzecdn_edge_stack_image: this role validates configuration against
-          it and that role serves from it.
-      blitzecdn_nginx_image_default: {type: str, required: true}
-      blitzecdn_nginx_container:
-        type: str
-        required: true
-        description: The container this role signals to reload Nginx.
       blitzecdn_nginx_config_test_image:
         type: str
         required: true
@@ -163,7 +155,6 @@ argument_specs:
           Compose-form mounts the configuration test container receives. The
           same set the running edge gets: a test that cannot see a certificate
           or the GeoIP database passes against a tree the real edge refuses.
-      blitzecdn_nginx_acme_root: {type: path, required: true}
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
       blitzecdn_nginx_resolver_valid: {type: str, required: true}
@@ -185,7 +176,6 @@ argument_specs:
           stored in desired state or the fleet settings database.
       blitzecdn_nginx_under_attack_js_file: {type: path, required: true}
       blitzecdn_nginx_under_attack_conf_file: {type: path, required: true}
-      blitzecdn_nginx_under_attack_empty_root: {type: path, required: true}
       blitzecdn_nginx_default_server: {type: bool, required: true}
       blitzecdn_nginx_default_site_file: {type: path, required: true}
       blitzecdn_nginx_normalize_accept_encoding: {type: bool, required: true}
@@ -203,39 +193,8 @@ argument_specs:
       blitzecdn_nginx_ssl_stapling: {type: bool, required: true}
       blitzecdn_nginx_hsts_enabled: {type: bool, required: true}
       blitzecdn_nginx_hsts_max_age: {type: int, required: true}
-      blitzecdn_nginx_geoip_enabled:
-        type: bool
-        required: true
-        description: >-
-          Define $blitzecdn_country from the managed GeoIP2 module and database,
-          without which per-site country rules cannot be honoured.
-      blitzecdn_nginx_geoip_database: {type: path, required: true}
       blitzecdn_nginx_geoip_reload: {type: str, required: true}
       blitzecdn_nginx_geoip_file: {type: path, required: true}
-      blitzecdn_nginx_geoip_account_id:
-        type: str
-        required: true
-        description: >-
-          MaxMind account ID. Empty means the operator installs the database
-          themselves and the role only checks it is present.
-      blitzecdn_nginx_geoip_license_key:
-        type: str
-        required: true
-        no_log: true
-        description: >-
-          MaxMind license key. A credential for the account, not a per-database
-          token: supply it from the environment, never a committed file.
-      blitzecdn_nginx_geoip_edition: {type: str, required: true}
-      blitzecdn_nginx_geoip_update_enabled:
-        type: bool
-        required: true
-        description: >-
-          Schedule refreshes of the database. GeoLite2 is republished twice a
-          week; without this the copy fetched at first converge ages
-          indefinitely. Read by blitzecdn_edge_stack, which owns the updater
-          container and the timer that runs it.
-      blitzecdn_nginx_geoip_update_calendar: {type: str, required: true}
-      blitzecdn_nginx_geoip_update_splay: {type: str, required: true}
       blitzecdn_nginx_access_log_enabled:
         type: bool
         required: true
@@ -247,9 +206,6 @@ argument_specs:
         type: str
         required: true
         description: Name of the http-context log_format the managed sites use.
-      blitzecdn_nginx_status_address: {type: str, required: true}
-      blitzecdn_nginx_status_port: {type: int, required: true}
-      blitzecdn_nginx_status_path: {type: str, required: true}
       blitzecdn_nginx_status_allow:
         type: list
         elements: str

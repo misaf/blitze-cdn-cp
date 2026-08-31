@@ -15,30 +15,26 @@
 # here keeps the failure inside the deploy rather than at the next reboot.
 - name: Inspect the GeoIP database
   ansible.builtin.stat:
-    path: "{{ blitzecdn_nginx_geoip_database }}"
+    path: "{{ blitzecdn_edge_runtime.geoip.database }}"
   register: blitzecdn_nginx_geoip_db
-  when: blitzecdn_nginx_geoip_enabled
+  when: blitzecdn_edge_runtime.geoip.enabled
 
 - name: Require the GeoIP database to be present
   ansible.builtin.assert:
     that:
       - blitzecdn_nginx_geoip_db.stat.exists or ansible_check_mode
     fail_msg: >-
-      blitzecdn_nginx_geoip_enabled is true but there is no database at
-      {{ blitzecdn_nginx_geoip_database }}.
-      {% if blitzecdn_nginx_geoip_license_key | length > 0 %}
-      The download ran and did not produce one — check the MaxMind account ID
-      and license key, and that this edge can reach updates.maxmind.com.
-      {% else %}
-      Configure the MaxMind account ID and license key so the edge-stack GeoIP
-      updater can provision GeoLite2, or provide the database yourself and
-      point the variable at it.
-      {% endif %}
-  when: blitzecdn_nginx_geoip_enabled
+      The edge runtime enables GeoIP but there is no database at
+      {{ blitzecdn_edge_runtime.geoip.database }}. Either the edge-stack
+      updater could not provision GeoLite2 — check the MaxMind account ID and
+      license key, and that this edge can reach updates.maxmind.com — or no
+      credentials were configured and no database was placed there by hand.
+      Country rules and the BZ-IPCountry header cannot be served without it.
+  when: blitzecdn_edge_runtime.geoip.enabled
 
 - name: Create cache directory
   ansible.builtin.file:
-    path: "{{ blitzecdn_nginx_cache_path }}"
+    path: "{{ blitzecdn_edge_runtime.paths.cache }}"
     state: directory
     owner: www-data
     group: www-data
@@ -46,7 +42,7 @@
 
 - name: Allow Nginx to traverse the ACME webroot parent
   ansible.builtin.file:
-    path: "{{ blitzecdn_nginx_acme_root | dirname }}"
+    path: "{{ blitzecdn_edge_runtime.paths.acme | dirname }}"
     state: directory
     mode: o+x
 
@@ -58,15 +54,15 @@
     group: "{{ item.group }}"
     mode: "{{ item.mode }}"
   loop:
-    - path: "{{ blitzecdn_nginx_acme_root }}"
+    - path: "{{ blitzecdn_edge_runtime.paths.acme }}"
       owner: root
       group: www-data
       mode: "0755"
-    - path: "{{ blitzecdn_nginx_acme_root }}/.well-known"
+    - path: "{{ blitzecdn_edge_runtime.paths.acme }}/.well-known"
       owner: root
       group: www-data
       mode: "0755"
-    - path: "{{ blitzecdn_nginx_acme_root }}/.well-known/acme-challenge"
+    - path: "{{ blitzecdn_edge_runtime.paths.acme }}/.well-known/acme-challenge"
       owner: root
       group: www-data
       mode: "0750"
@@ -117,7 +113,7 @@
 - name: Configure the shared cache
   ansible.builtin.template:
     src: cache.conf.j2
-    dest: /etc/nginx/conf.d/blitzecdn-cache.conf
+    dest: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-cache.conf"
     owner: root
     group: root
     mode: "0644"
@@ -134,7 +130,7 @@
     - path: "{{ blitzecdn_nginx_under_attack_js_file | dirname }}"
       group: www-data
       mode: "0750"
-    - path: "{{ blitzecdn_nginx_under_attack_empty_root }}"
+    - path: "{{ blitzecdn_edge_runtime.paths.empty }}"
       group: root
       mode: "0755"
   when: blitzecdn_nginx_under_attack_enabled
@@ -180,14 +176,14 @@
     owner: root
     group: root
     mode: "0644"
-  when: blitzecdn_nginx_geoip_enabled
+  when: blitzecdn_edge_runtime.geoip.enabled
   notify: Validate and reload Nginx
 
 - name: Withdraw the GeoIP country lookup
   ansible.builtin.file:
     path: "{{ blitzecdn_nginx_geoip_file }}"
     state: absent
-  when: not blitzecdn_nginx_geoip_enabled
+  when: not blitzecdn_edge_runtime.geoip.enabled
   notify: Validate and reload Nginx
 
 # Part of the edge runtime contract, so it is always rendered, and rendered
@@ -260,7 +256,7 @@
     - name: Render managed sites
       ansible.builtin.template:
         src: site.conf.j2
-        dest: "/etc/nginx/sites-available/{{ item.name }}.conf"
+        dest: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available/{{ item.name }}.conf"
         owner: root
         group: root
         mode: "0644"
@@ -290,7 +286,9 @@
     - name: Enable the catch-all default site
       ansible.builtin.file:
         src: "{{ blitzecdn_nginx_default_site_file }}"
-        dest: "/etc/nginx/sites-enabled/{{ blitzecdn_nginx_default_site_file | basename }}"
+        dest: >-
+          {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/{{
+            blitzecdn_nginx_default_site_file | basename }}
         state: link
         force: true
       when: blitzecdn_nginx_default_server
@@ -304,15 +302,15 @@
         path: "{{ item }}"
         state: absent
       loop:
-        - "/etc/nginx/sites-enabled/{{ blitzecdn_nginx_default_site_file | basename }}"
+        - "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/{{ blitzecdn_nginx_default_site_file | basename }}"
         - "{{ blitzecdn_nginx_default_site_file }}"
       when: not blitzecdn_nginx_default_server
       notify: Validate and reload Nginx
 
     - name: Enable desired sites
       ansible.builtin.file:
-        src: "/etc/nginx/sites-available/{{ item.name }}.conf"
-        dest: "/etc/nginx/sites-enabled/{{ item.name }}.conf"
+        src: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available/{{ item.name }}.conf"
+        dest: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/{{ item.name }}.conf"
         state: link
         force: true
       loop: "{{ blitzecdn_nginx_sites }}"
@@ -323,7 +321,7 @@
 
     - name: Disable explicitly disabled sites
       ansible.builtin.file:
-        path: "/etc/nginx/sites-enabled/{{ item.name }}.conf"
+        path: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/{{ item.name }}.conf"
         state: absent
       loop: "{{ blitzecdn_nginx_sites }}"
       loop_control:
@@ -333,7 +331,7 @@
 
     - name: Remove distribution default site
       ansible.builtin.file:
-        path: /etc/nginx/sites-enabled/default
+        path: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/default"
         state: absent
       notify: Validate and reload Nginx
 
@@ -410,14 +408,14 @@
 # only after every owned artifact has been withdrawn.
 - name: Remove stale enabled links
   ansible.builtin.file:
-    path: "/etc/nginx/sites-enabled/{{ item }}.conf"
+    path: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/{{ item }}.conf"
     state: absent
   loop: "{{ blitzecdn_nginx_stale_names }}"
   notify: Validate and reload Nginx
 
 - name: Remove stale configurations
   ansible.builtin.file:
-    path: "/etc/nginx/sites-available/{{ item }}.conf"
+    path: "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available/{{ item }}.conf"
     state: absent
   loop: "{{ blitzecdn_nginx_stale_names }}"
   notify: Validate and reload Nginx
@@ -431,9 +429,25 @@
 # never named for a site, so it cannot be selected here.
 - name: Remove stale managed TLS material
   ansible.builtin.file:
-    path: "/etc/blitzecdn/tls/{{ item }}"
+    path: "{{ blitzecdn_edge_runtime.paths.tls }}/{{ item }}"
     state: absent
   loop: "{{ blitzecdn_nginx_stale_tls_names }}"
+
+# Consumed by blitzecdn_edge_stack's health verification, which waits for every
+# public TCP listener to accept a connection. Whether any listener is claimed at
+# all is this role's decision — the catch-all default server, or an enabled site
+# — so this role states it rather than leaving the stack role to re-derive it
+# from these variables. Disabled sites do not count: their configuration is
+# rendered but never linked into sites-enabled, so they bind nothing.
+- name: Publish whether this edge claims the public listeners
+  ansible.builtin.set_fact:
+    blitzecdn_nginx_listeners_claimed: >-
+      {{
+        blitzecdn_nginx_default_server | bool
+        or (blitzecdn_nginx_sites | rejectattr('enabled', 'defined') | list
+            + blitzecdn_nginx_sites | selectattr('enabled', 'defined')
+              | selectattr('enabled') | list) | length > 0
+      }}
 
 - name: Record managed site names
   ansible.builtin.copy:

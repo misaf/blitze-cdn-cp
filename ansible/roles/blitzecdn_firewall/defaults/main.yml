@@ -2,27 +2,26 @@
 blitzecdn_firewall_enabled: true
 blitzecdn_firewall_ssh_port: 22
 blitzecdn_firewall_ssh_sources: []
-blitzecdn_firewall_http_ports:
-  - 80
-  - 8080
-  - 8880
-  - 2052
-  - 2082
-  - 2086
-  - 2095
-  - 443
-  - 2053
-  - 2083
-  - 2087
-  - 2096
-  - 8443
-blitzecdn_firewall_http3_enabled: false
+# Which public ports to open is not this role's to decide: it is
+# blitzecdn_edge_runtime.listeners, the same sets blitzecdn_nginx binds and
+# blitzecdn_edge_stack verifies. This role's job is the host policy that admits
+# them. It used to keep a second literal copy of both lists — not even coupled
+# to the Nginx role, just duplicated — and a listener added to one and not the
+# other is either an unreachable port or an open one that can never serve.
+#
+# HTTP/3 comes from the same place, as listeners.http3. It is fixed to UDP/443:
+# the alternate HTTPS ports stay TCP-only.
 
 # The rules this role installed on its last successful run, one per line as
 # `proto|port|source`. Without it the role can only add: ufw keeps every rule
 # it has ever been given, so dropping a CIDR from
 # blitzecdn_firewall_ssh_sources would change desired state and leave the host
 # still admitting that network. Reading back what we wrote is what makes a
-# removal a removal. Same idea as blitzecdn_nginx_managed_sites_file, and the
-# same reason: a converged resource has to be able to shrink.
-blitzecdn_firewall_registry_file: /etc/blitzecdn/firewall-rules
+# removal a removal. Same idea as the Nginx role's managed-site registry, and
+# the same reason: a converged resource has to be able to shrink.
+#
+# Under the contract's state path, which blitzecdn_teardown removes, so
+# decommissioning an edge takes the registry with it rather than leaving a file
+# that would make a rebuilt host withdraw rules it never had.
+blitzecdn_firewall_registry_file: >-
+  {{ blitzecdn_edge_runtime.paths.state }}/firewall-rules

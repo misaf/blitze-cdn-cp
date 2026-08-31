@@ -4,14 +4,14 @@
 # and independently: the loopback bind below, and the allow/deny list inside
 # the location. Relaxing one without the other exposes the edge's counters.
 server {
-    listen {{ blitzecdn_nginx_status_address }}:{{ blitzecdn_nginx_status_port }};
+    listen {{ blitzecdn_edge_runtime.status.address }}:{{ blitzecdn_edge_runtime.status.port }};
     server_name _;
 
     # Ours, not traffic: logging probes would inflate every rate computed
     # from the access log by the scrape interval.
     access_log off;
 
-    location = {{ blitzecdn_nginx_status_path }} {
+    location = {{ blitzecdn_edge_runtime.status.path }} {
 {% for source in blitzecdn_nginx_status_allow %}
         allow {{ source }};
 {% endfor %}

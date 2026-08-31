@@ -44,7 +44,7 @@
       - >-
         not (item.enabled | default(true)) or
         not (item.http3_enabled | default(false)) or
-        blitzecdn_nginx_http3_enabled
+        blitzecdn_edge_runtime.listeners.http3
       - >-
         item.certificate_mode | default('disabled') == 'disabled' or
         item.certificate_path is defined
@@ -85,7 +85,7 @@
   ansible.builtin.assert:
     that:
       - >-
-        not blitzecdn_nginx_http3_enabled or
+        not blitzecdn_edge_runtime.listeners.http3 or
         blitzecdn_nginx_sites
         | selectattr('enabled', 'undefined')
         | selectattr('http3_enabled', 'defined')
@@ -99,12 +99,12 @@
         | list | length > 0
       - >-
         blitzecdn_nginx_default_server or
-        not blitzecdn_nginx_http3_enabled or
+        not blitzecdn_edge_runtime.listeners.http3 or
         blitzecdn_nginx_http3_listener_owner in
         (blitzecdn_nginx_sites | map(attribute='name') | list)
     fail_msg: >-
       HTTP/3 shared listener state is inconsistent. Derive
-      blitzecdn_nginx_http3_enabled and blitzecdn_nginx_http3_listener_owner
+      blitzecdn_edge_runtime.listeners.http3 and blitzecdn_nginx_http3_listener_owner
       from the enabled HTTP/3 sites instead of editing them independently.
 
 # Defensive only — the control plane validates all of this before a site is
@@ -160,7 +160,7 @@
   ansible.builtin.assert:
     that:
       - >-
-        blitzecdn_nginx_geoip_enabled
+        blitzecdn_edge_runtime.geoip.enabled
         or blitzecdn_nginx_sites
         | selectattr('firewall', 'defined')
         | map(attribute='firewall')
@@ -168,7 +168,7 @@
         | selectattr('allowed_countries')
         | list | length == 0
       - >-
-        blitzecdn_nginx_geoip_enabled
+        blitzecdn_edge_runtime.geoip.enabled
         or blitzecdn_nginx_sites
         | selectattr('firewall', 'defined')
         | map(attribute='firewall')
@@ -176,7 +176,7 @@
         | selectattr('denied_countries')
         | list | length == 0
       - >-
-        blitzecdn_nginx_geoip_enabled
+        blitzecdn_edge_runtime.geoip.enabled
         or blitzecdn_nginx_sites
         | selectattr('visitor_headers', 'defined')
         | map(attribute='visitor_headers')
@@ -185,9 +185,9 @@
         | list | length == 0
     fail_msg: >-
       A site asks for country-based filtering or the BZ-IPCountry visitor
-      header, but blitzecdn_nginx_geoip_enabled is false on
-      {{ inventory_hostname }}. Install a MaxMind country database at
-      {{ blitzecdn_nginx_geoip_database }}, set the variable, and deploy again
+      header, but GeoIP is off on {{ inventory_hostname }}. Set
+      blitzecdn_edge_geoip_enabled and install a MaxMind country database at
+      {{ blitzecdn_edge_runtime.geoip.database }}, then deploy again
       — or turn the country rules and visitor_headers.ip_country off. Nothing
       was changed on this host.
 

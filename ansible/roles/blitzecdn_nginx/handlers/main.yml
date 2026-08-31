@@ -11,7 +11,7 @@
 
 - name: Inspect the running edge container
   community.docker.docker_container_info:
-    name: "{{ blitzecdn_nginx_container }}"
+    name: "{{ blitzecdn_edge_runtime.container }}"
   register: blitzecdn_nginx_running
   listen: Validate and reload Nginx
   when: not ansible_check_mode
@@ -21,7 +21,7 @@
 # configuration this handler just validated — later in the same play.
 - name: Reload Nginx after validation
   community.docker.docker_container_exec:
-    container: "{{ blitzecdn_nginx_container }}"
+    container: "{{ blitzecdn_edge_runtime.container }}"
     argv: [nginx, -s, reload]
   listen: Validate and reload Nginx
   when:

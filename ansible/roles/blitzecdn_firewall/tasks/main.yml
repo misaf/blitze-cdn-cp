@@ -38,12 +38,13 @@
                     'tcp|' ~ (blitzecdn_firewall_ssh_port | string) ~ '|\1')
               | list
             ) + (
-              blitzecdn_firewall_http_ports
+              (blitzecdn_edge_runtime.listeners.http
+               + blitzecdn_edge_runtime.listeners.https)
               | map('string')
               | map('regex_replace', '^(.+)$', 'tcp|\1|any')
               | list
             ) + (
-              ['udp|443|any'] if blitzecdn_firewall_http3_enabled else []
+              ['udp|443|any'] if blitzecdn_edge_runtime.listeners.http3 else []
             )
           }}
 
@@ -90,7 +91,9 @@
         proto: tcp
         port: "{{ item }}"
         comment: BlitzeCDN public traffic
-      loop: "{{ blitzecdn_firewall_http_ports }}"
+      loop: >-
+        {{ blitzecdn_edge_runtime.listeners.http
+           + blitzecdn_edge_runtime.listeners.https }}
 
     - name: Allow HTTP/3 visitor traffic
       community.general.ufw:
@@ -99,7 +102,7 @@
         proto: udp
         port: '443'
         comment: BlitzeCDN HTTP/3 visitor traffic
-      when: blitzecdn_firewall_http3_enabled
+      when: blitzecdn_edge_runtime.listeners.http3 | bool
 
     # Strictly after every rule above has been installed. Withdrawing first
     # would open a window with no SSH rule at all, and on a run that widens one
@@ -123,9 +126,6 @@
         policy: deny
         direction: incoming
 
-    # Under the state path blitzecdn_teardown removes, so decommissioning an
-    # edge takes the registry with it rather than leaving a file that would
-    # make a rebuilt host withdraw rules it never had.
     - name: Create the BlitzeCDN state directory
       ansible.builtin.file:
         path: "{{ blitzecdn_firewall_registry_file | dirname }}"

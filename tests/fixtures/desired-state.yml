@@ -1,7 +1,6 @@
 ---
-blitzecdn_firewall_http3_enabled: false
+blitzecdn_edge_http3_enabled: false
 blitzecdn_nginx_allow_empty_sites: false
-blitzecdn_nginx_http3_enabled: false
 blitzecdn_nginx_http3_listener_owner: ''
 blitzecdn_nginx_sites:
   - ssl_mode: 'off'

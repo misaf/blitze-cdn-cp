@@ -26,7 +26,7 @@
     msg: >-
       The edge runtime failed to come up on {{ inventory_hostname }} and there
       is no previously deployed image to fall back to — this host has never
-      served. Read `docker logs {{ blitzecdn_edge_stack_container }}` and
+      served. Read `docker logs {{ blitzecdn_edge_runtime.container }}` and
       `docker compose --file {{ blitzecdn_edge_stack_compose_file }} ps`.
       The configuration on disk was not changed by this role.
   when: blitzecdn_edge_stack_previous.resolved is not defined
@@ -69,9 +69,9 @@
     - name: Report the withdrawn edge runtime
       ansible.builtin.fail:
         msg: >-
-          {{ blitzecdn_edge_stack_image }} failed to serve on
+          {{ blitzecdn_edge_runtime.image }} failed to serve on
           {{ inventory_hostname }}, so this edge was returned to
           {{ blitzecdn_edge_stack_previous.resolved }} and is serving again.
           Nothing about the site configuration was changed. Read
-          `docker logs {{ blitzecdn_edge_stack_container }}` for what the new
+          `docker logs {{ blitzecdn_edge_runtime.container }}` for what the new
           image said before it was withdrawn.

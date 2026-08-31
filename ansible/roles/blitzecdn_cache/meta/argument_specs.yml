@@ -17,7 +17,7 @@ argument_specs:
       blitzecdn_cache_path:
         type: path
         required: true
-        description: Must equal blitzecdn_nginx_cache_path on the same host.
+        description: Must equal blitzecdn_edge_runtime.paths.cache on the same host.
       blitzecdn_cache_normalize_accept_encoding:
         type: bool
         required: true
