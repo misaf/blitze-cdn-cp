@@ -1,13 +1,38 @@
-"""Version 2 control-plane representations for operational resources."""
+"""Operational representations shared by every version of the HTTP API.
+
+A resource representation is versioned because its *shape* is a promise to
+clients: `CdnSite` gained fields in v2, so `v1_models` and `v2_models` describe
+it separately and `v1_models.V1Model._project` keeps the frozen version honest.
+These models are different in kind. They describe what an *operation* did — a
+run of Ansible, a queued deployment, a purge, a drift check, a workflow — and
+both published versions have always described it identically, character for
+character. The two files that said so were maintained by copying one into the
+other, which is not a version boundary; it is the same contract written twice,
+where a fix applied to one and forgotten in the other is invisible.
+
+So the shape lives here once, and both versions serve it.
+
+**How a version diverges from this.** It does not edit these classes. The
+version that needs the new field defines its own class, in its own module, with
+the version in the name — exactly what `v2_models.CdnSiteV2` does and for the
+same reason: FastAPI names a published component after the class, and pydantic
+disambiguates a collision by qualifying *both* sides with their module path, so
+a second `Deployment` would rename the other version's schema as a side effect.
+That version's routes then bind to the new class and the other version keeps
+pointing here, unchanged and unbroken.
+
+`tests/api/test_common.py` pins the shape each version actually publishes, so
+an edit here that changed one of them fails as a contract break rather than
+shipping as a shared-code cleanup.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, cast
 
-from pydantic import Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from blitzecdn.api.v2_models import V2Model
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import RunStatus, TaskOutcome
 from blitzecdn.features.cache.domain import PurgeEntry as DomainPurgeEntry
@@ -22,7 +47,18 @@ from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.site_domain import HttpScheme, SslMode
 
 
-class TaskResult(V2Model):
+class OperationModel(BaseModel):
+    """The base every operational representation shares.
+
+    Same configuration the versioned representation bases carry: unknown fields
+    are refused rather than ignored, and one schema is published per model
+    instead of a validation/serialization pair.
+    """
+
+    model_config = ConfigDict(extra="forbid", json_schema_mode_override="validation")
+
+
+class TaskResult(OperationModel):
     task: str
     action: str = ""
     outcome: TaskOutcome
@@ -30,7 +66,7 @@ class TaskResult(V2Model):
     role: str | None = None
 
 
-class HostRun(V2Model):
+class HostRun(OperationModel):
     host: str
     ok: int = 0
     changed: int = 0
@@ -44,7 +80,7 @@ class HostRun(V2Model):
     report: dict[str, object] | None = None
 
 
-class AnsibleRun(V2Model):
+class AnsibleRun(OperationModel):
     id: str
     playbook: str
     status: RunStatus
@@ -57,7 +93,7 @@ class AnsibleRun(V2Model):
     error: str | None = None
 
 
-class Deployment(V2Model):
+class Deployment(OperationModel):
     id: str
     status: DeploymentStatus
     operator: str
@@ -71,7 +107,7 @@ class Deployment(V2Model):
     result: AnsibleRun | None = None
 
 
-class DriftReport(V2Model):
+class DriftReport(OperationModel):
     deployment_id: str
     checked_at: datetime
     host_limit: str | None = None
@@ -79,13 +115,13 @@ class DriftReport(V2Model):
     unattempted: tuple[str, ...] = ()
 
 
-class WorkflowStep(V2Model):
+class WorkflowStep(OperationModel):
     name: str
     completed_at: datetime
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class Workflow(V2Model):
+class Workflow(OperationModel):
     id: str
     kind: WorkflowKind
     resource_id: str | None = None
@@ -97,7 +133,7 @@ class Workflow(V2Model):
     error: str | None = None
 
 
-class CertificateInfo(V2Model):
+class CertificateInfo(OperationModel):
     site: str
     source: CertificateSource
     domains: tuple[str, ...]
@@ -107,7 +143,7 @@ class CertificateInfo(V2Model):
     email: str | None = None
 
 
-class CertificateStatus(V2Model):
+class CertificateStatus(OperationModel):
     site: str
     source: CertificateSource
     domains: tuple[str, ...]
@@ -118,19 +154,19 @@ class CertificateStatus(V2Model):
     fingerprint_sha256: str
 
 
-class PreflightCheck(V2Model):
+class PreflightCheck(OperationModel):
     name: str
     passed: bool
     severity: PreflightSeverity
     detail: str
 
 
-class PreflightReport(V2Model):
+class PreflightReport(OperationModel):
     site: str
     checks: tuple[PreflightCheck, ...]
 
 
-class CertificateRequest(V2Model):
+class CertificateRequest(OperationModel):
     email: str | None = Field(default=None, max_length=254)
     skip_preflight: bool = False
 
@@ -140,20 +176,20 @@ class CertificateRequest(V2Model):
         return DomainCertificateRequest(email=value).email
 
 
-class RenewalResult(V2Model):
+class RenewalResult(OperationModel):
     renewed: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
 
 
-class ReconciliationResult(V2Model):
+class ReconciliationResult(OperationModel):
     issued: tuple[str, ...] = ()
     skipped: dict[str, str] = Field(default_factory=dict)
     failed: dict[str, str] = Field(default_factory=dict)
     deployment: Deployment | None = None
 
 
-class PurgeEntry(V2Model):
+class PurgeEntry(OperationModel):
     host: str
     uri: str
     scheme: HttpScheme = HttpScheme.HTTPS
@@ -170,7 +206,7 @@ class PurgeEntry(V2Model):
         return DomainPurgeEntry.model_validate(self.model_dump())
 
 
-class PurgeResult(V2Model):
+class PurgeResult(OperationModel):
     purged_at: datetime
     entries: tuple[PurgeEntry, ...] = ()
     purge_all: bool = False
@@ -180,12 +216,12 @@ class PurgeResult(V2Model):
     failed_hosts: tuple[str, ...]
 
 
-class SiteCacheStats(V2Model):
+class SiteCacheStats(OperationModel):
     site: str
     outcomes: dict[str, int] = Field(default_factory=dict)
 
 
-class EdgeStats(V2Model):
+class EdgeStats(OperationModel):
     host: str
     collected_at: datetime | None = None
     nginx_reachable: bool = False
@@ -194,13 +230,13 @@ class EdgeStats(V2Model):
     error: str | None = None
 
 
-class CacheStatsReport(V2Model):
+class CacheStatsReport(OperationModel):
     collected_at: datetime
     host_limit: str | None = None
     edges: tuple[EdgeStats, ...] = ()
 
 
-class OriginCheck(V2Model):
+class OriginCheck(OperationModel):
     site: str
     origin: str
     scheme: HttpScheme
@@ -213,20 +249,20 @@ class OriginCheck(V2Model):
     detail: str | None = None
 
 
-class EdgeOriginChecks(V2Model):
+class EdgeOriginChecks(OperationModel):
     host: str
     checked_at: datetime | None = None
     checks: tuple[OriginCheck, ...] = ()
     error: str | None = None
 
 
-class OriginReport(V2Model):
+class OriginReport(OperationModel):
     checked_at: datetime
     host_limit: str | None = None
     edges: tuple[EdgeOriginChecks, ...] = ()
 
 
-class AuditEvent(V2Model):
+class AuditEvent(OperationModel):
     id: int
     created_at: datetime
     operator: str
@@ -236,20 +272,20 @@ class AuditEvent(V2Model):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
-class SslAutomaticReconciliation(V2Model):
+class SslAutomaticReconciliation(OperationModel):
     scanned: tuple[str, ...] = ()
     upgraded: dict[str, SslMode] = Field(default_factory=dict)
     skipped: dict[str, str] = Field(default_factory=dict)
     deployment: Deployment | None = None
 
 
-class EdgeRemoval(V2Model):
+class EdgeRemoval(OperationModel):
     name: str
     decommissioned: bool
     hosts: tuple[HostRun, ...] = ()
 
 
-def as_v2[T: V2Model](model: object, target: type[T]) -> T:
+def as_operation[T: BaseModel](model: object, target: type[T]) -> T:
     """Map a domain model to its explicit HTTP representation."""
     if hasattr(model, "model_dump"):
         return target.model_validate(model.model_dump(mode="json"))
@@ -257,6 +293,7 @@ def as_v2[T: V2Model](model: object, target: type[T]) -> T:
 
 
 __all__ = [
+    "AnsibleRun",
     "AuditEvent",
     "CacheStatsReport",
     "CertificateInfo",
@@ -264,15 +301,23 @@ __all__ = [
     "CertificateStatus",
     "Deployment",
     "DriftReport",
+    "EdgeOriginChecks",
     "EdgeRemoval",
+    "EdgeStats",
     "HostRun",
+    "OperationModel",
+    "OriginCheck",
     "OriginReport",
+    "PreflightCheck",
     "PreflightReport",
     "PurgeEntry",
     "PurgeResult",
     "ReconciliationResult",
     "RenewalResult",
+    "SiteCacheStats",
     "SslAutomaticReconciliation",
+    "TaskResult",
     "Workflow",
-    "as_v2",
+    "WorkflowStep",
+    "as_operation",
 ]

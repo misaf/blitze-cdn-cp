@@ -1,10 +1,17 @@
-"""Request, response, and authentication state used by the HTTP adapter."""
+"""Request bodies shared by every version of the HTTP API.
+
+These describe the *input* to an operation — deploy, drift, purge, stats,
+origin check, renew, rollback — and every published version has always accepted
+the identical body. See :mod:`blitzecdn.api.operations` for why that makes them
+one definition rather than one per version, and for how a version that needs to
+diverge does so without renaming the other version's published schema.
+"""
 
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.api.v1_operations import PurgeEntry
+from blitzecdn.api.operations import PurgeEntry
 from blitzecdn.core.validation import EDGE_LIMIT
 from blitzecdn.features.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
