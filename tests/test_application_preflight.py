@@ -204,7 +204,7 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
         seen.append(yaml.safe_load(variables.read_text(encoding="utf-8")))
         return _purge_run()
 
-    monkeypatch.setattr(runner, "_execute", capture)
+    monkeypatch.setattr(runner._executor, "execute", capture)
 
     runner.run_cache_purge(
         entries=[PurgeEntry(host="cdn.example.com", uri="/a.js", scheme="http")],

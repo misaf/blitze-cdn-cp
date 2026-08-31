@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path, PurePosixPath
 
-from blitzecdn.core.ansible_mapping import site_to_ansible
+from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.features.certificates.ports import CertificateStore
 from blitzecdn.features.deployments.ports import YamlWriter
 from blitzecdn.features.deployments.snapshots import decode_snapshot

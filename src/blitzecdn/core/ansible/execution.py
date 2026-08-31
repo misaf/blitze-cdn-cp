@@ -1,0 +1,240 @@
+"""One invocation: launch it, keep its output, and say what it did.
+
+Everything about *how* Ansible is run lives here — the environment, the
+artifact tree, the operator log and its retention, and the mapping from
+Runner's result to a :class:`~blitzecdn.core.runs.AnsibleRun`. What to run and
+against which edges is :mod:`blitzecdn.core.ansible.runner`'s decision; by the
+time it reaches this module the playbook, the variables file and the resolved
+limit are all settled.
+"""
+
+from __future__ import annotations
+
+import os
+import shlex
+import shutil
+import tempfile
+from contextlib import suppress
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import uuid4
+
+import ansible_runner  # type: ignore[import-untyped]
+from ansible_runner import (
+    exceptions as runner_exceptions,
+)
+
+from blitzecdn.core.ansible.events import RunnerEvents
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import ExecutionError
+from blitzecdn.core.runs import AnsibleRun, HostRun, RunStatus
+
+__all__ = ["PlaybookExecutor"]
+
+#: Exit code recorded for a run killed at its timeout, matching the shell
+#: convention for a process ended by a signal after a deadline.
+_TIMEOUT_RETURN_CODE = 124
+
+
+class PlaybookExecutor:
+    """Runs one playbook and returns the structured account of what happened."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    def execute(
+        self,
+        *,
+        playbook: Path,
+        variables: Path,
+        limit: str,
+        timeout: int,
+        check: bool = False,
+        syntax_check: bool = False,
+        targeted: tuple[str, ...] = (),
+    ) -> AnsibleRun:
+        run_id = uuid4().hex
+        started_at = datetime.now(UTC)
+        log_path = self._settings.log_dir / f"{run_id}.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+
+        environment = self._environment()
+        events = RunnerEvents()
+        control_root = self._settings.state_dir / "ansible-control"
+        artifact_root = self._settings.state_dir / "ansible-runner"
+        control_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        artifact_root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        artifact_path = artifact_root / run_id
+        try:
+            with tempfile.TemporaryDirectory(dir=control_root) as control_path:
+                environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
+                result = self._run_ansible(
+                    run_id=run_id,
+                    artifact_root=artifact_root,
+                    playbook=playbook,
+                    variables=variables,
+                    limit=limit,
+                    environment=environment,
+                    timeout=timeout,
+                    check=check,
+                    syntax_check=syntax_check,
+                    event_handler=events,
+                )
+        except BaseException:
+            # Runner can create its artifact tree before failing to launch or
+            # before returning a result. Preserve its output, but never leave
+            # the potentially large event spool behind on an exception path.
+            self._keep_runner_output(artifact_path, log_path)
+            shutil.rmtree(artifact_path, ignore_errors=True)
+            self._prune_logs()
+            raise
+        self._keep_runner_output(artifact_path, log_path)
+        shutil.rmtree(artifact_path, ignore_errors=True)
+
+        status = (
+            RunStatus.TIMED_OUT
+            if result.status == "timeout"
+            else RunStatus.SUCCEEDED
+            if result.rc == 0
+            else RunStatus.FAILED
+        )
+        return_code = (
+            _TIMEOUT_RETURN_CODE if status is RunStatus.TIMED_OUT else result.rc
+        )
+        hosts = events.hosts()
+        self._prune_logs()
+        return AnsibleRun(
+            id=run_id,
+            playbook=playbook.name,
+            status=status,
+            return_code=return_code,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+            hosts=hosts,
+            targeted=targeted,
+            log_path=str(log_path),
+            error=self._unreported_detail(status, hosts, log_path),
+        )
+
+    def _run_ansible(
+        self,
+        *,
+        run_id: str,
+        artifact_root: Path,
+        playbook: Path,
+        variables: Path,
+        limit: str,
+        environment: dict[str, str],
+        timeout: int,
+        check: bool,
+        syntax_check: bool,
+        event_handler: RunnerEvents,
+    ) -> Any:
+        """Execute through Ansible Runner without exposing it above this adapter."""
+        options = ["--extra-vars", f"@{variables}"]
+        if syntax_check:
+            options.append("--syntax-check")
+        elif check:
+            options.extend(("--check", "--diff"))
+        # Supplying a custom binary puts Runner in raw execution mode, where it
+        # deliberately does not append its `playbook` parameter. Keep the
+        # configured executable support and make the playbook explicit.
+        options.append(str(playbook))
+        try:
+            return ansible_runner.run(
+                private_data_dir=str(self._settings.state_dir),
+                project_dir=str(self._settings.ansible_dir),
+                artifact_dir=str(artifact_root),
+                ident=run_id,
+                inventory=str(self._settings.inventory_path),
+                limit=limit,
+                binary=self._settings.ansible_playbook,
+                cmdline=shlex.join(options),
+                envvars=environment,
+                settings={"runner_mode": "subprocess"},
+                timeout=timeout,
+                quiet=True,
+                suppress_env_files=True,
+                rotate_artifacts=0,
+                event_handler=event_handler,
+            )
+        except (OSError, runner_exceptions.AnsibleRunnerException) as exc:
+            raise ExecutionError(f"unable to execute Ansible: {exc}") from exc
+
+    @staticmethod
+    def _keep_runner_output(artifact_path: Path, log_path: Path) -> None:
+        """Move Runner's combined stdout into the stable operator log path."""
+        stdout = artifact_path / "stdout"
+        try:
+            stdout.replace(log_path)
+        except OSError:
+            # Runner may fail before it creates stdout. Preserve the invariant
+            # that every attempted run still has a log path to inspect.
+            log_path.touch(mode=0o600, exist_ok=True)
+
+    def _environment(self) -> dict[str, str]:
+        environment = os.environ.copy()
+        environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
+        environment["ANSIBLE_LOCAL_TEMP"] = str(
+            self._settings.state_dir / "ansible-local"
+        )
+        Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
+            parents=True, exist_ok=True, mode=0o700
+        )
+        # Where the `blitzecdn` inventory plugin reads the fleet from. Absolute,
+        # because Ansible runs with cwd set to `ansible_dir` and the configured
+        # path may well be relative to the project root instead. This is the
+        # whole of the coupling between the control plane and its inventory:
+        # one environment variable naming one database.
+        environment["BLITZE_DATABASE_PATH"] = str(
+            self._settings.database_path.resolve()
+        )
+        # Always set, even when empty, so `lookup('env', ...)` in group_vars
+        # resolves deterministically instead of inheriting a stray value from
+        # the operator's shell.
+        environment["BLITZE_MAXMIND_ACCOUNT_ID"] = self._settings.maxmind_account_id
+        environment["BLITZE_MAXMIND_LICENSE_KEY"] = (
+            self._settings.maxmind_license_key.get_secret_value()
+        )
+        environment["BLITZE_UNDER_ATTACK_SECRET"] = (
+            self._settings.under_attack_secret.get_secret_value()
+        )
+        return environment
+
+    def _prune_logs(self) -> None:
+        """Keep the newest ``run_log_retention`` logs and drop the rest.
+
+        One file per invocation, and the drift timer alone produces one on
+        every firing, so this directory only ever grows. Pruning here rather
+        than on a timer of its own means retention cannot silently stop being
+        applied because a unit was never installed.
+        """
+        try:
+            logs = sorted(
+                self._settings.log_dir.glob("*.log"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return
+        for stale in logs[self._settings.run_log_retention :]:
+            # A log another process is reading, or has already removed, is not
+            # worth failing a completed run over.
+            with suppress(OSError):
+                stale.unlink()
+
+    @staticmethod
+    def _unreported_detail(
+        status: RunStatus, hosts: tuple[HostRun, ...], log_path: Path
+    ) -> str | None:
+        """Explain a run that finished badly without saying which host failed.
+
+        Ansible refusing an inventory, a playbook that will not parse, a
+        connection plugin that died — all end the process before any host is
+        reported. Point at the log rather than leaving the caller with a bare
+        exit code.
+        """
+        if hosts or status is RunStatus.SUCCEEDED:
+            return None
+        return f"Ansible reported no per-host result. The full output is at {log_path}."
