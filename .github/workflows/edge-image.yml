@@ -5,7 +5,8 @@
 # because the fleet consumes it by digest: a build that ran is not a build any
 # edge is using until somebody sets blitzecdn_edge_image_tag in the control
 # plane and deploys. That separation is deliberate — a merge to 2.x must not be
-# able to upgrade Nginx on a production fleet.
+# able to upgrade Nginx on a production fleet, and a merge to 3.x must not
+# either.
 #
 # On a pull request the image is built and probed but never pushed, so the
 # ABI invariant is checked on every change to docker/edge/ without publishing
@@ -18,7 +19,7 @@ name: Edge image
       - docker/edge/**
       - .github/workflows/edge-image.yml
   push:
-    branches: [2.x]
+    branches: [2.x, 3.x]
     paths:
       - docker/edge/**
       - .github/workflows/edge-image.yml
