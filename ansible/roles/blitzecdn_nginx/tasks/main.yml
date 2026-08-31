@@ -190,9 +190,9 @@
   when: not blitzecdn_nginx_geoip_enabled
   notify: Validate and reload Nginx
 
-# Rendered outside the site block below because it is independent of any
-# site: withdrawing it on a failed site render would take metrics away from an
-# edge whose traffic configuration was never touched.
+# Part of the edge runtime contract, so it is always rendered, and rendered
+# outside the site block below: a failed site render must not take the
+# endpoint the container healthcheck reads away with it.
 - name: Configure the status endpoint
   ansible.builtin.template:
     src: status.conf.j2
@@ -200,14 +200,6 @@
     owner: root
     group: root
     mode: "0644"
-  when: blitzecdn_nginx_status_enabled
-  notify: Validate and reload Nginx
-
-- name: Withdraw the status endpoint
-  ansible.builtin.file:
-    path: "{{ blitzecdn_nginx_status_file }}"
-    state: absent
-  when: not blitzecdn_nginx_status_enabled
   notify: Validate and reload Nginx
 
 - name: Inspect managed-site registry

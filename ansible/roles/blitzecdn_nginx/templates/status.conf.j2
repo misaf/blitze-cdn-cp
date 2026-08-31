@@ -1,17 +1,14 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
 #
-# nginx's own counters, for whatever scrapes this host. Unauthenticated by
-# design — stub_status has no auth of its own — so access is controlled twice
-# and independently: the listen address below binds loopback only, and the
-# allow/deny list inside the location refuses anything else even if the bind
-# address is later widened. Relaxing one without the other is the mistake this
-# arrangement exists to survive.
+# stub_status has no authentication of its own, so access is controlled twice
+# and independently: the loopback bind below, and the allow/deny list inside
+# the location. Relaxing one without the other exposes the edge's counters.
 server {
     listen {{ blitzecdn_nginx_status_address }}:{{ blitzecdn_nginx_status_port }};
     server_name _;
 
-    # These requests are ours, not traffic. Logging them would inflate every
-    # rate computed from the access log by the scrape interval.
+    # Ours, not traffic: logging probes would inflate every rate computed
+    # from the access log by the scrape interval.
     access_log off;
 
     location = {{ blitzecdn_nginx_status_path }} {
@@ -22,8 +19,7 @@ server {
         stub_status;
     }
 
-    # Anything else on this port is not part of the contract. 444 rather than
-    # 404 so a probe cannot tell this port apart from a closed one.
+    # 444 rather than 404, so a scan cannot tell this port from a closed one.
     location / {
         return 444;
     }

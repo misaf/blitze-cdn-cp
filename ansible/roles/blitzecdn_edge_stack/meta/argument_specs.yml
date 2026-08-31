@@ -19,7 +19,6 @@ argument_specs:
         exist before anything can be validated against it, but the container
         must not start until the configuration has passed nginx -t.
     options:
-      blitzecdn_edge_stack_enabled: {type: bool, required: true}
       blitzecdn_edge_stack_image:
         type: str
         required: true
@@ -58,15 +57,18 @@ argument_specs:
       blitzecdn_edge_stack_empty_root: {type: path, required: true}
       blitzecdn_edge_stack_log_path: {type: path, required: true}
       blitzecdn_edge_stack_geoip_path: {type: path, required: true}
-      blitzecdn_edge_stack_status_enabled: {type: bool, required: true}
       blitzecdn_edge_stack_status_address: {type: str, required: true}
       blitzecdn_edge_stack_status_port: {type: int, required: true}
       blitzecdn_edge_stack_status_path: {type: str, required: true}
       blitzecdn_edge_stack_http_ports: {type: list, elements: int, required: true}
       blitzecdn_edge_stack_https_ports: {type: list, elements: int, required: true}
       blitzecdn_edge_stack_http3_enabled: {type: bool, required: true}
-      blitzecdn_edge_stack_health_timeout: {type: int, required: true}
-      blitzecdn_edge_stack_require_container_health: {type: bool, required: true}
+      blitzecdn_edge_stack_health_timeout:
+        type: int
+        required: true
+        description: >-
+          How long a recreated edge is given to report healthy and open every
+          listener. Health is always required; only the deadline is tunable.
       blitzecdn_edge_stack_stop_grace_period: {type: str, required: true}
       blitzecdn_edge_stack_recreate:
         type: bool

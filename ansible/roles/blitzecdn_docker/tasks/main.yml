@@ -1,9 +1,5 @@
 ---
-# One guarded block rather than a `when` on every task, for the same reason
-# blitzecdn_firewall uses one: a task added here without its own guard would
-# otherwise install a container engine on a host that opted out.
 - name: Converge the host container engine
-  when: blitzecdn_docker_enabled
   block:
     - name: Install the Docker repository prerequisites
       ansible.builtin.apt:

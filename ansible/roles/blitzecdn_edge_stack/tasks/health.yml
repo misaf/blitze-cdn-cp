@@ -1,11 +1,8 @@
 ---
-# "Is the container running" is not a health check.
-#
-# Nginx keeps serving the configuration it loaded at start, so a container can
-# be up and healthy-looking while the tree on disk is broken; and it can be up
-# with a valid configuration and still not have bound a listener, because
-# something else on the host owns the port. Each question below has produced a
-# real outage on its own, so each is asked separately.
+# "Is the container running" is not a health check: Nginx keeps serving the
+# configuration it loaded at start, and a valid configuration can still fail to
+# bind a listener another process owns. Each question below has produced a real
+# outage on its own, so each is asked separately.
 - name: Inspect the edge container
   community.docker.docker_container_info:
     name: "{{ blitzecdn_edge_stack_container }}"
@@ -24,21 +21,16 @@
       on a first converge is another process already holding a public port.
   when: not ansible_check_mode
 
-# Docker's own verdict, computed by the Compose healthcheck: the running Nginx
-# answers a request on its loopback status endpoint. That is all it asks, and
-# it is asked continuously between deploys, which is why the deeper questions
-# below are asked here instead of being folded into it.
-#
-# Note that an unhealthy verdict is a report, not an action: `restart:
-# unless-stopped` restarts the container when its main process exits, and
-# Docker does not restart a still-running container for failing its health
-# check. This assertion is how an unhealthy edge fails a converge.
+# Docker's verdict, from the Compose healthcheck. An unhealthy verdict is a
+# report, not an action — Docker does not restart a still-running container for
+# failing its probe — so this assertion is how it fails a converge. Every edge
+# carries a healthcheck, so a missing verdict is itself a failure.
 - name: Require the container health check to pass
   ansible.builtin.assert:
     that:
       - >-
         blitzecdn_edge_stack_container_state.container.State.Health.Status
-        | default('healthy') == 'healthy'
+        | default('missing') == 'healthy'
     fail_msg: >-
       Docker reports {{ blitzecdn_edge_stack_container }} as
       {{ blitzecdn_edge_stack_container_state.container.State.Health.Status
@@ -46,9 +38,7 @@
       said:
       {{ (blitzecdn_edge_stack_container_state.container.State.Health.Log
           | default([]) | last | default({})).Output | default('nothing') }}
-  when:
-    - not ansible_check_mode
-    - blitzecdn_edge_stack_require_container_health | bool
+  when: not ansible_check_mode
 
 - name: Confirm the running edge accepts its own configuration
   community.docker.docker_container_exec:
@@ -58,9 +48,8 @@
   changed_when: false
   when: not ansible_check_mode
 
-# Every public TCP listener, not a sample. A missing alternate port is invisible
-# until a visitor arrives on it, and the catch-all default server means these
-# are open on a fresh edge with no sites at all.
+# Every public TCP listener, not a sample: a missing alternate port is
+# invisible until a visitor arrives on it.
 - name: Require every public TCP listener
   ansible.builtin.wait_for:
     host: 127.0.0.1
@@ -75,11 +64,9 @@
     - blitzecdn_nginx_default_server | default(true) | bool
       or blitzecdn_nginx_sites | default([]) | length > 0
 
-# wait_for cannot ask about UDP — there is nothing to connect to — so HTTP/3 is
-# confirmed from the kernel's own listener table. This is the check that keeps
-# the firewall's UDP/443 rule and the QUIC listener from silently disagreeing:
-# the play already refuses to converge when the two desired states differ, and
-# this proves the listener the firewall was opened for actually exists.
+# wait_for cannot ask about UDP, so HTTP/3 is confirmed from the kernel's
+# listener table. This proves the QUIC listener the firewall opened UDP/443 for
+# actually exists.
 - name: Read the kernel listener table
   ansible.builtin.command:
     argv: [ss, -H, -lnu]
@@ -102,8 +89,8 @@
     - not ansible_check_mode
     - blitzecdn_edge_stack_http3_enabled | bool
 
-# The one endpoint that proves requests are actually served rather than merely
-# accepted. Read from the edge, because it is bound to loopback there.
+# Proves requests are served rather than merely accepted. Read from the edge,
+# because the endpoint is bound to loopback there.
 - name: Read the local status endpoint
   ansible.builtin.uri:
     url: >-
@@ -113,14 +100,10 @@
     status_code: [200]
   register: blitzecdn_edge_stack_status
   changed_when: false
-  when:
-    - not ansible_check_mode
-    - blitzecdn_edge_stack_status_enabled | bool
+  when: not ansible_check_mode
 
-# Nothing may report an edge healthy while a site it serves asks for a country
-# rule the edge cannot evaluate. blitzecdn_nginx refuses to render that
-# combination; this refuses to run it, which covers a database removed from the
-# host after the configuration was written.
+# blitzecdn_nginx refuses to render a country rule without a database; this
+# refuses to run one, covering a database removed after the config was written.
 - name: Require the GeoIP database the running configuration reads
   community.docker.docker_container_exec:
     container: "{{ blitzecdn_edge_stack_container }}"

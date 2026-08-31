@@ -55,7 +55,7 @@
         build: never
         recreate: always
         remove_orphans: true
-        wait: "{{ blitzecdn_edge_stack_require_container_health | bool }}"
+        wait: true
         wait_timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
       when: not ansible_check_mode
 

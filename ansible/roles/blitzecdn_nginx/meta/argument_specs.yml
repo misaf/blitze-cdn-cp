@@ -247,10 +247,6 @@ argument_specs:
         type: str
         required: true
         description: Name of the http-context log_format the managed sites use.
-      blitzecdn_nginx_status_enabled:
-        type: bool
-        required: true
-        description: Serve nginx stub_status on a loopback-bound port.
       blitzecdn_nginx_status_address: {type: str, required: true}
       blitzecdn_nginx_status_port: {type: int, required: true}
       blitzecdn_nginx_status_path: {type: str, required: true}
