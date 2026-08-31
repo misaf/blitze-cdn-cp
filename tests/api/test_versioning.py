@@ -1,3 +1,7 @@
+import json
+import re
+from pathlib import Path
+
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
@@ -249,9 +253,11 @@ def test_openapi_schema_names_are_stable_across_versions(settings):
     So a v2 representation that diverges takes a version-qualified class name.
     This fails when the next one does not.
 
-    Scoped to the representation models on purpose: several of the operational
-    schemas in `*_operations.py` are already published module-qualified, which
-    is its own cleanup and not one to fold into an unrelated change.
+    Scoped to the representation models, which are the ones that version. The
+    operational schemas used to be published module-qualified for the opposite
+    reason — two identical copies of one contract, one per version — and are a
+    single shared definition now; `blitzecdn.api.operations` explains how a
+    version diverges from those without renaming the other's schema.
     """
     with TestClient(create_app(settings)) as client:
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
@@ -270,3 +276,187 @@ def test_openapi_schema_names_are_stable_across_versions(settings):
     for name in ("CdnSite", "DnsRecord", "RecordPatch"):
         assert name in schemas, f"v1 lost its published {name} schema"
         assert f"{name}V2" in schemas
+
+
+def _schemas(settings) -> dict[str, dict]:
+    with TestClient(create_app(settings)) as client:
+        return client.get("/openapi.json").json()["components"]["schemas"]
+
+
+def test_published_document_has_no_dangling_schema_references(settings):
+    """Every `$ref` resolves. A generated client is only as good as this.
+
+    It did not hold. `HostRun` pointed at `...TaskResult-Input__1`, a component
+    the document never defined, so any validator or client generator run over
+    it failed on a model at the centre of every deployment response. See the
+    `separate_input_output_schemas` comment in `api/app.py` for how a duplicate
+    schema pydantic later collapsed left the references behind.
+    """
+    with TestClient(create_app(settings)) as client:
+        document = client.get("/openapi.json").json()
+    defined = set(document["components"]["schemas"])
+    referenced = set(
+        re.findall(r'"#/components/schemas/([^"]+)"', json.dumps(document))
+    )
+    assert referenced - defined == set()
+
+
+def test_no_published_component_leaks_a_python_module_path(settings):
+    """Not scoped to the representation models any more, because it can be.
+
+    `*_operations.py` used to publish eight schemas per version under names
+    like `blitzecdn__api__v1_operations__Deployment`: two identical classes,
+    one per version, that pydantic had to disambiguate by module path. They are
+    one class now, so the whole document can be held to the rule the
+    representation models were already held to.
+    """
+    leaked = sorted(
+        name for name in _schemas(settings) if name.startswith("blitzecdn__")
+    )
+    assert leaked == []
+
+
+def test_operational_routes_publish_one_shape_for_both_versions(settings):
+    """The v1 and v2 halves of an operational route are the same contract.
+
+    Sharing one definition is what makes this true by construction rather than
+    by two files being kept in step by hand. The test is still worth having: it
+    is what fails if a version is diverged by editing the shared module, which
+    would change *both* versions rather than one.
+    """
+    schemas = _schemas(settings)
+
+    def resolve(node: object, seen: frozenset[str]) -> object:
+        if isinstance(node, dict):
+            reference = node.get("$ref")
+            if isinstance(reference, str) and set(node) == {"$ref"}:
+                name = reference.rsplit("/", 1)[1]
+                if name in seen:
+                    return {"$recursive": name}
+                return resolve(schemas[name], seen | {name})
+            return {key: resolve(value, seen) for key, value in node.items()}
+        if isinstance(node, list):
+            return [resolve(item, seen) for item in node]
+        return node
+
+    with TestClient(create_app(settings)) as client:
+        paths = client.get("/openapi.json").json()["paths"]
+
+    #: Where v2 deliberately says something v1 cannot: the resource
+    #: representations, and nothing else. A route joining this set means a
+    #: version has diverged, which is a decision rather than a detail.
+    diverged = {
+        "/dns/export",
+        "/domains/{domain}/records",
+        "/domains/{domain}/records/{name}",
+        "/sites",
+        "/sites/{name}",
+    }
+
+    compared = 0
+    for path in sorted(paths):
+        if not path.startswith("/v1/"):
+            continue
+        suffix = path.removeprefix("/v1")
+        if suffix in diverged or f"/v2{suffix}" not in paths:
+            continue
+        v1 = resolve(paths[path], frozenset())
+        v2 = resolve(paths[f"/v2{suffix}"], frozenset())
+        assert json.dumps(_unversioned(v1), sort_keys=True) == json.dumps(
+            _unversioned(v2), sort_keys=True
+        ), suffix
+        compared += 1
+    assert compared == 23, "the operational surface changed; check the route table"
+
+
+def _unversioned(node: object) -> object:
+    """Neutralise the parts of an operation that name its own version.
+
+    The path prefix, and the operation ids and titles FastAPI derives from the
+    endpoint function's name. What is left is the contract.
+    """
+    if isinstance(node, dict):
+        return {key: _unversioned(value) for key, value in node.items()}
+    if isinstance(node, list):
+        return [_unversioned(item) for item in node]
+    if isinstance(node, str):
+        return re.sub(
+            r"(?i)\bv[12]\b", "vN", node.replace("_v1_", "_vN_").replace("_v2_", "_vN_")
+        )
+    return node
+
+
+#: The operational contract v1 froze, as field names and required fields. The
+#: shapes live in one module now and both versions serve them, so this is what
+#: stands between "v2 needs another field on a deployment" and that field
+#: silently appearing on v1 as well. A version that has to diverge declares its
+#: own class instead — see the module docstring of `blitzecdn.api.operations`.
+FROZEN_V1_OPERATIONS = {
+    "AnsibleRun": (
+        "error finished_at hosts id log_path playbook return_code started_at "
+        "status targeted",
+        "finished_at id playbook started_at status",
+    ),
+    "AuditEvent": (
+        "action created_at details id operator resource_id resource_type",
+        "action created_at id operator resource_type",
+    ),
+    "Deployment": (
+        "canonical_digest check_mode created_at finished_at host_limit id "
+        "operator result rollback_of started_at status",
+        "check_mode created_at id operator status",
+    ),
+    "DriftReport": (
+        "checked_at deployment_id host_limit hosts unattempted",
+        "checked_at deployment_id",
+    ),
+    "EdgeRemoval": ("decommissioned hosts name", "decommissioned name"),
+    "HostRun": (
+        "changed changes failed failures host ignored ok report rescued "
+        "skipped unreachable",
+        "host",
+    ),
+    "PurgeResult": (
+        "complete entries failed_hosts host_limit hosts purge_all purged_at",
+        "complete failed_hosts purged_at",
+    ),
+    "ReconciliationResult": ("deployment failed issued skipped", ""),
+    "SslAutomaticReconciliation": (
+        "deployment scanned skipped upgraded",
+        "",
+    ),
+    "TaskResult": ("action message outcome role task", "outcome task"),
+    "Workflow": (
+        "created_at error id kind operator resource_id status steps updated_at",
+        "created_at id kind operator status updated_at",
+    ),
+}
+
+
+def test_frozen_v1_operational_shapes_are_unchanged(settings):
+    schemas = _schemas(settings)
+    actual = {
+        name: (
+            " ".join(sorted(schemas[name]["properties"])),
+            " ".join(sorted(schemas[name].get("required", ()))),
+        )
+        for name in FROZEN_V1_OPERATIONS
+        if name in schemas
+    }
+    assert actual == FROZEN_V1_OPERATIONS
+
+
+def test_neither_version_imports_the_other():
+    """A shared module is fine. A shared module is not v1 importing v2."""
+    root = Path(__file__).resolve().parents[2] / "src" / "blitzecdn"
+    offenders = []
+    for path in sorted(root.rglob("*.py")):
+        text = path.read_text(encoding="utf-8")
+        own = "v2" if "v2" in path.name else "v1" if "v1" in path.name else None
+        if own is None:
+            continue
+        other = "v1" if own == "v2" else "v2"
+        for module in (f"blitzecdn.api.{other}_models", f"blitzecdn.api.{other}_"):
+            if module in text:
+                offenders.append(f"{path.relative_to(root)} references {module}")
+    assert offenders == []

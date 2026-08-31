@@ -73,6 +73,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         docs_url="/docs",
         redoc_url="/redoc",
         lifespan=lifespan,
+        # One published component per model, rather than a validation and a
+        # serialization variant of each. The representation bases already ask
+        # for that per model with `json_schema_mode_override`, and asking for
+        # it here as well is not belt-and-braces: with only the per-model
+        # override, FastAPI still generated both variants, pydantic
+        # disambiguated the identical pair as `...TaskResult-Input__1`, and its
+        # definition remapping then collapsed the pair to `TaskResult` without
+        # rewriting the references inside `HostRun` — leaving two dangling
+        # `$ref`s in the published document that every schema validator and
+        # client generator rejects.
+        separate_input_output_schemas=False,
     )
     application.state.settings = resolved
 
