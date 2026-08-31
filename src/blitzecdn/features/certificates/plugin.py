@@ -4,7 +4,7 @@ The desired-state contribution is the interesting one. A site model can say
 which mode a host is in, but only this controller knows the fingerprinted file
 the material is actually stored under, so the two TLS paths projected from the
 model are *overridden* here rather than merged beside them. Saying so in
-`overrides` is what makes the merge order-independent: `dns` and `certificates`
+`overrides` is what makes the merge order-independent: `sites` and `certificates`
 can register in either order and the edge converges identically.
 """
 
@@ -26,11 +26,8 @@ from blitzecdn.core.plugins import (
 )
 from blitzecdn.features.certificates import cli, tls_cli
 from blitzecdn.features.certificates.api import v1, v2
-from blitzecdn.features.dns.site_domain import (
-    MANAGED_TLS_ROOT,
-    CdnSite,
-    CertificateMode,
-)
+from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.policy import MANAGED_TLS_ROOT, CertificateMode
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane

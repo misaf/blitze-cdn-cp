@@ -46,7 +46,8 @@ from blitzecdn.features.certificates.ports import (
     ZoneEditor,
 )
 from blitzecdn.features.deployments.domain import DeploymentRequirementKind
-from blitzecdn.features.dns.site_domain import CdnSite, CertificateMode
+from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.policy import CertificateMode
 
 _LOGGER = logging.getLogger(__name__)
 

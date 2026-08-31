@@ -24,7 +24,7 @@ from blitzecdn.features.certificates.domain import (
 )
 from blitzecdn.features.diagnostics import cli as diagnostics_cli
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 runner = CliRunner()
 

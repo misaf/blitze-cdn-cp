@@ -2,7 +2,7 @@
 
 Records are the source of truth. A site exists because a record is proxied, and
 ``DnsRecord.to_site`` is the whole of that mapping — which is why this module
-imports :mod:`blitzecdn.features.dns.site_domain` and never the other way round.
+imports :mod:`blitzecdn.features.sites.domain` and never the other way round.
 """
 
 from __future__ import annotations
@@ -16,14 +16,13 @@ from typing import Self, Union, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.core.validation import DNS_LABEL, hostname
-from blitzecdn.features.dns.site_domain import (
+from blitzecdn.features.sites.domain import CdnSite, SitePolicy
+from blitzecdn.features.sites.policy import (
     CacheQueryStringMode,
-    CdnSite,
     CertificateMode,
     CompressionMode,
     MinimumTlsVersion,
     SiteFirewall,
-    SitePolicy,
     SiteVisitorHeaders,
     SslAutomaticMode,
     SslMode,

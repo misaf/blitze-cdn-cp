@@ -33,7 +33,7 @@ from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
 from blitzecdn.features.dns.domain import DnsRecord, Domain
-from blitzecdn.features.dns.site_domain import (
+from blitzecdn.features.sites.domain import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     CacheQueryStringMode,

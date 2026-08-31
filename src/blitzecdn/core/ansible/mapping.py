@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from blitzecdn.features.cache.domain import PurgeEntry
-from blitzecdn.features.dns.site_domain import CdnSite
 from blitzecdn.features.edges.domain import Edge
+from blitzecdn.features.sites.domain import CdnSite
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:

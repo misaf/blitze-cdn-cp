@@ -21,7 +21,7 @@ from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFou
 from blitzecdn.core.filesystem import atomic_write_bytes
 from blitzecdn.core.process import terminate_process_group
 from blitzecdn.features.certificates.domain import CertificateInfo, CertificateSource
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 _MAX_CERTIFICATE_BYTES = 1_048_576
 _MAX_PRIVATE_KEY_BYTES = 262_144

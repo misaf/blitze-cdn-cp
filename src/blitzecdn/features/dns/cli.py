@@ -12,7 +12,7 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.features.dns.site_domain import (
+from blitzecdn.features.sites.policy import (
     CacheQueryStringMode,
     CompressionMode,
     MinimumTlsVersion,

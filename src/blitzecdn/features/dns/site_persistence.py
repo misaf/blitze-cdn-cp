@@ -9,7 +9,7 @@ from sqlalchemy.exc import IntegrityError
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import ProjectionStateRow, SiteRow
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 _SITE_COLUMNS = frozenset({"name", "server_names", "origin_host"})
 

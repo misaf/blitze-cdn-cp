@@ -13,7 +13,7 @@ from blitzecdn.features.deployments.domain import (
 )
 from blitzecdn.features.deployments.snapshots import decode_snapshot
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 
 def test_database_does_not_retain_idle_connections(settings):

@@ -5,7 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.features.deployments.domain import Deployment
-from blitzecdn.features.dns.site_domain import SslMode
+from blitzecdn.features.sites.policy import SslMode
 
 
 class SslAutomaticReconciliation(BaseModel):

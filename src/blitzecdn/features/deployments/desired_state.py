@@ -2,9 +2,9 @@
 
 This renderer knows how a desired-state document is *framed* — a list of site
 documents under one key, with fleet-wide variables beside it — and nothing at
-all about what goes in one. Every variable comes from a plugin: `dns` projects
+all about what goes in one. Every variable comes from a plugin: `sites` projects
 the site model, `certificates` replaces the two TLS paths with the files on this
-controller, `http3` decides whether the edges run QUIC.
+controller, and `sites` also derives the fleet-wide QUIC requirement.
 
 That is the point. Adding compression, a WAF, GeoIP or visitor headers used to
 mean editing this file, which made it the one place every future capability had

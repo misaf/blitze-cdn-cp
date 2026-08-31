@@ -28,8 +28,9 @@ from contextlib import suppress
 from typing import Any
 
 from blitzecdn.core.config import Settings
-from blitzecdn.features.dns.site_domain import DEFAULT_PORTS, CdnSite, HttpScheme
 from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.policy import DEFAULT_PORTS, HttpScheme
 
 
 class OriginProbe:

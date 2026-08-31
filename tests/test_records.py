@@ -18,7 +18,7 @@ from blitzecdn.features.dns.domain import (
     RecordType,
     derive_site_name,
 )
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 
 @pytest.mark.parametrize(

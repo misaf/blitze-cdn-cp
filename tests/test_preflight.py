@@ -21,9 +21,9 @@ from blitzecdn.features.certificates.preflight import (
     _ancestors,
     _permitted_issuers,
 )
-from blitzecdn.features.dns.site_domain import CdnSite
 from blitzecdn.features.edges.domain import Edge
 from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.features.sites.domain import CdnSite
 
 
 class FakeOriginProbe:

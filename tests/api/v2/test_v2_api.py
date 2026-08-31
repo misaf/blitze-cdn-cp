@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from blitzecdn.api import create_app
 from blitzecdn.api.v2_models import RecordPatchV2 as V2RecordPatch
 from blitzecdn.api.v2_models import SitePolicyV2
-from blitzecdn.features.dns.site_domain import SitePolicy
+from blitzecdn.features.sites.domain import SitePolicy
 
 
 def test_v2_carries_every_policy_field_the_domain_has():

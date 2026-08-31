@@ -61,10 +61,10 @@ _LOGGER = logging.getLogger(__name__)
 #: merging is deliberately order-independent (see `registry.merge_variables`),
 #: so moving a line in this tuple can never change what an edge converges to.
 BUILTIN_PLUGINS: tuple[str, ...] = (
+    "blitzecdn.features.sites.plugin",
     "blitzecdn.features.dns.plugin",
     "blitzecdn.features.edges.plugin",
     "blitzecdn.features.cache.plugin",
-    "blitzecdn.features.http3.plugin",
     "blitzecdn.features.deployments.plugin",
     "blitzecdn.features.certificates.plugin",
     "blitzecdn.features.automatic_ssl.plugin",

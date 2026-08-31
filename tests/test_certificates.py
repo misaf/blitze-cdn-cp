@@ -15,7 +15,7 @@ from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFou
 from blitzecdn.features.certificates import adapters as certificates_module
 from blitzecdn.features.certificates.adapters import CertbotIssuer, CertificateStore
 from blitzecdn.features.certificates.domain import CertificateSource
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 
 def test_store_validates_and_persists_managed_certificate(
