@@ -24,10 +24,15 @@
       on a first converge is another process already holding a public port.
   when: not ansible_check_mode
 
-# Docker's own verdict, computed by the image's HEALTHCHECK: the configuration
-# on disk parses, the master process is alive, and the loopback status endpoint
-# answers. Separate from the checks below because a container Docker calls
-# unhealthy is one it will keep restarting underneath us.
+# Docker's own verdict, computed by the Compose healthcheck: the running Nginx
+# answers a request on its loopback status endpoint. That is all it asks, and
+# it is asked continuously between deploys, which is why the deeper questions
+# below are asked here instead of being folded into it.
+#
+# Note that an unhealthy verdict is a report, not an action: `restart:
+# unless-stopped` restarts the container when its main process exits, and
+# Docker does not restart a still-running container for failing its health
+# check. This assertion is how an unhealthy edge fails a converge.
 - name: Require the container health check to pass
   ansible.builtin.assert:
     that:

@@ -142,8 +142,8 @@ def _edge_context(**overrides: Any) -> dict[str, Any]:
     return context
 
 
-def _compose_mounts(**overrides: Any) -> dict[str, str]:
-    """host path -> mode, for every bind mount the rendered edge service has."""
+def _render_compose(**overrides: Any) -> dict[str, Any]:
+    """The edge Compose project as Docker would read it, not as text."""
     context = _edge_context(**overrides)
     environment = _ansible_jinja(
         loader=jinja2.FileSystemLoader(STACK_ROLE_DIR / "templates"),
@@ -153,7 +153,12 @@ def _compose_mounts(**overrides: Any) -> dict[str, str]:
         blitzecdn_edge_stack_resolved_image="example/edge@sha256:" + "ab" * 32,
         **context,
     )
-    project = yaml.safe_load(rendered)
+    return yaml.safe_load(rendered)
+
+
+def _compose_mounts(**overrides: Any) -> dict[str, str]:
+    """host path -> mode, for every bind mount the rendered edge service has."""
+    project = _render_compose(**overrides)
     mounts: dict[str, str] = {}
     for entry in project["services"]["edge"]["volumes"]:
         source, _, mode = entry.split(":")
@@ -429,6 +434,11 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
         "blitzecdn_edge_stack_migrate_" + "from_native",
         "blitzecdn_edge_stack_native_" + "packages",
         "/etc/" + "GeoIP.conf",
+        # The standalone edge health check script and the variable that
+        # configured it. Docker's probe is now the Compose healthcheck, which
+        # reads the status endpoint straight from the role's variables.
+        "blitzecdn-" + "healthcheck",
+        "BLITZECDN_" + "HEALTH_URL",
     }
     ignored = {".git", ".venv", ".state", ".mypy_cache", ".pytest_cache"}
 
@@ -487,12 +497,161 @@ def test_nginx_logs_to_persistent_files_and_docker_streams():
 
     assert "error_log  /dev/stderr notice;" in dockerfile
     assert "access_log  /dev/stdout  main;" in dockerfile
-    assert site.count(
-        "access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};"
-    ) == 2
+    assert (
+        site.count("access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};") == 2
+    )
     assert "access_log {{ blitzecdn_nginx_access_log_path }}" in site
     assert 'max-size: "32m"' in COMPOSE_TEMPLATE
     assert 'max-file: "3"' in COMPOSE_TEMPLATE
+
+
+# ----------------------------------------------------------------------
+# Container health
+#
+# Docker answers one question about an edge — is this Nginx serving requests
+# right now — and Ansible answers the rest once per deploy. The tests below
+# hold that split in place: a Compose probe that grows a second question
+# duplicates work the converge already does, and an Ansible check folded into
+# the probe loses the failure that fails a deploy.
+# ----------------------------------------------------------------------
+
+
+def test_the_container_health_check_reads_the_configured_status_endpoint():
+    """Docker's probe is the deployment's URL, not a URL baked into an image.
+
+    The address, port and path are rendered by blitzecdn_nginx. A probe that
+    restated any of them would keep reporting healthy — or unhealthy — after an
+    operator moved the endpoint, which is exactly when the answer matters.
+    """
+    context = _edge_context()
+    service = _render_compose()["services"]["edge"]
+    healthcheck = service["healthcheck"]
+    url = (
+        f"http://{context['blitzecdn_edge_stack_status_address']}"
+        f":{context['blitzecdn_edge_stack_status_port']}"
+        f"{context['blitzecdn_edge_stack_status_path']}"
+    )
+
+    # Exec form: no shell in the container to quote the URL wrong.
+    assert healthcheck["test"][0] == "CMD"
+    assert healthcheck["test"][1] == "curl"
+    assert healthcheck["test"][-1] == url
+    # --fail is what makes a 404 or a 502 unhealthy rather than "curl exited 0
+    # having written a response body to /dev/null".
+    assert "--fail" in healthcheck["test"]
+    assert healthcheck["interval"] == "30s"
+    assert healthcheck["timeout"] == "5s"
+    assert healthcheck["start_period"] == "20s"
+    assert healthcheck["retries"] == 3
+    # The endpoint is loopback-bound and the container shares the host's
+    # network namespace. Neither the probe nor anything else publishes it.
+    assert context["blitzecdn_edge_stack_status_address"] == "127.0.0.1"
+    assert "network_mode: host" in COMPOSE_TEMPLATE
+
+
+def test_the_container_health_check_asks_nothing_ansible_asks_better():
+    """One question in Compose, the deep ones in health.yml.
+
+    `nginx -t` inside the probe cannot fail a deploy — Docker would simply mark
+    a running container unhealthy every thirty seconds — and it re-reads every
+    certificate and the GeoIP database each time. In health.yml the same
+    failure fails the converge and reaches the rescue path.
+    """
+    health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
+    edge = _render_compose(blitzecdn_edge_stack_geoip_enabled=True)["services"]["edge"]
+    healthcheck = edge["healthcheck"]
+
+    assert healthcheck["test"].count("CMD") == 1
+    for deeper in ("nginx", "-t", "ss", "kill", "test"):
+        assert deeper not in healthcheck["test"], deeper
+
+    assert "argv: [nginx, -t]" in health
+    # The status endpoint is verified a second time by Ansible, from the
+    # controller's side of the deploy, and separately from Docker's verdict.
+    assert "Read the local status endpoint" in health
+    assert "status_code: [200]" in health
+    assert "Require every public TCP listener" in health
+    assert "Require the HTTP/3 listener on UDP/443" in health
+    assert "Require the GeoIP database the running configuration reads" in health
+
+    # And Compose is still asked to wait for Docker's verdict before the
+    # converge continues into those checks.
+    tasks = (STACK_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    assert "community.docker.docker_compose_v2" in tasks
+    assert 'wait: "{{ blitzecdn_edge_stack_require_container_health | bool }}"' in tasks
+    assert tasks.index("docker_compose_v2") < tasks.index("import_tasks: health.yml")
+
+
+def test_the_health_check_follows_the_status_endpoint_it_probes():
+    """No endpoint, no probe — and never a probe aimed at a customer's site.
+
+    blitzecdn_nginx can be told not to serve stub_status. There is then no
+    unauthenticated local endpoint to ask, and probing a managed virtual host
+    instead would write a request into that site's access log and its cache
+    every thirty seconds. The container carries no health state in that
+    configuration, which health.yml's `default('healthy')` already tolerates.
+    """
+    without = _render_compose(blitzecdn_edge_stack_status_enabled=False)
+    with_status = _render_compose(blitzecdn_edge_stack_status_enabled=True)
+    assert "healthcheck" not in without["services"]["edge"]
+    assert "healthcheck" in with_status["services"]["edge"]
+
+    health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
+    assert "| default('healthy') == 'healthy'" in health
+
+
+def test_no_documentation_claims_docker_restarts_an_unhealthy_container():
+    """`restart: unless-stopped` reacts to the main process exiting, and only that.
+
+    Docker has no restart-on-unhealthy behaviour. A comment that says otherwise
+    invites the next reader to leave a wedged-but-running edge in place waiting
+    for a restart that never comes; the assertion in health.yml is what turns
+    that state into a failed deploy.
+    """
+    assert "restart: unless-stopped" in COMPOSE_TEMPLATE
+    health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
+    defaults = (STACK_ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8")
+
+    for document in (COMPOSE_TEMPLATE, health, defaults):
+        for claim in (
+            "will be restarted underneath us",
+            "keep restarting underneath us",
+            "restarted underneath",
+            "Docker will restart",
+        ):
+            assert claim not in document, claim
+
+    # Said outright rather than merely not said wrongly, so the next reader of
+    # either file learns what the health state is actually for.
+    assert "does not restart a still-running container" in health
+    assert "does not restart a running container" in defaults
+    assert "does not restart it" in COMPOSE_TEMPLATE
+
+
+def test_the_edge_image_carries_curl_and_no_health_check_script_of_its_own():
+    """The probe moved into Compose; the tool it runs stays in the image.
+
+    An image-level HEALTHCHECK would have to hard-code the status endpoint,
+    which the deployment owns. A helper script would be a third place to look
+    for what "healthy" means. curl is neither — it is the runtime dependency
+    the Compose probe execs, and removing it would report every edge unhealthy.
+    """
+    dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
+
+    assert not (PROJECT_DIR / ("healthcheck" + ".sh")).exists()
+    assert not (PROJECT_DIR / "docker/edge" / ("healthcheck" + ".sh")).exists()
+    # The instruction, not the word: the comment explaining its absence stays.
+    assert not any(line.startswith("HEALTHCHECK") for line in dockerfile.splitlines())
+    assert "healthcheck" + ".sh" not in dockerfile
+    assert "blitzecdn-" + "healthcheck" not in dockerfile
+    # In the runtime stage, not just the throwaway builder that also uses it.
+    assert "curl" in dockerfile.split("FROM ${NGINX_IMAGE}")[-1]
+
+    # Nothing anywhere else still reaches for the script or the environment
+    # variable that pointed it at a URL — see
+    # test_removed_host_compatibility_contracts_do_not_reappear, which walks
+    # the tree for both names.
+    assert "BLITZECDN_" + "HEALTH_URL" not in COMPOSE_TEMPLATE
 
 
 # ----------------------------------------------------------------------
