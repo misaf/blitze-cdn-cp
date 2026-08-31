@@ -21,14 +21,33 @@ collections := ".state/collections"
 default:
     @just --list
 
-# Install the project and its development group from the lockfile.
+# Install the whole workspace — the control plane and every optional
+# capability under `packages/` — plus the development group, from the lockfile.
+#
+# `--all-packages` is the workspace form of `uv sync`: without it, syncing the
+# root project installs `blitzecdn` alone and every optional distribution's
+# tests fail to import. Development wants all of them; a server does not have
+# to have any.
 install:
-    uv sync --frozen
+    uv sync --frozen --all-packages
     uv run ansible-galaxy collection install -r ansible/requirements.yml -p {{collections}}
 
-# Install exactly what a server gets: no development group.
+# Install exactly what a server gets: the control plane, the optional
+# capabilities a BlitzeCDN installation ships with, and no development group.
+#
+# The extras are the attach point. `install.sh` and the container image pass
+# the same two, so dropping one here is the supported way to build a controller
+# without that capability — and `uv sync --frozen --no-dev` with no extras at
+# all is a working control plane with neither.
 install-prod:
-    uv sync --frozen --no-dev
+    uv sync --frozen --no-dev --extra backup --extra cache
+
+# The control plane on its own: no optional distribution installed at all.
+#
+# What `test-core-only` runs against, and the configuration the acceptance
+# criteria call "BlitzeCDN root package works alone".
+install-core-only:
+    uv sync --frozen
 
 # Re-resolve dependencies and update uv.lock.
 lock:
@@ -61,19 +80,28 @@ uv-pin version:
 
 # --- the gates, in CI order ---------------------------------------------
 
-# Format and lint the Python.
+# Format and lint every distribution in the workspace.
 lint:
-    uv run ruff format --check src tests
-    uv run ruff check src tests
+    uv run ruff format --check src tests packages
+    uv run ruff check src tests packages
 
 # Rewrite what `lint` would complain about.
 fmt:
-    uv run ruff format src tests
-    uv run ruff check --fix src tests
+    uv run ruff format src tests packages
+    uv run ruff check --fix src tests packages
 
-# Strict type checking.
+# Strict type checking, across the whole workspace.
+#
+# Each distribution's `src` tree, and only those: the suite is not annotated
+# and never has been, and `packages` as a bare path would have swept the
+# packages' tests in while `src` leaves `tests/` out.
+#
+# The packages are checked against the core in *this* environment rather than
+# against a published release, which is the point of the workspace: a change to
+# a contract an optional capability depends on fails here rather than after a
+# release.
 types:
-    uv run mypy src
+    uv run mypy src packages/*/src
 
 # Lint the shell scripts that run as root.
 shell-lint:
@@ -108,8 +136,36 @@ test *args:
     uv run pytest -n auto --dist=worksteal {{args}}
 
 # The everyday inner loop: the whole suite, in parallel, coverage off.
+#
+# Deselects the packaging lifecycle, which builds wheels and installs them into
+# throwaway virtualenvs and costs minutes. `just test` — the gate — runs it.
 test-fast *args:
-    uv run pytest --no-cov -n auto --dist=worksteal {{args}}
+    uv run pytest --no-cov -n auto --dist=worksteal -m "not packaging" {{args}}
+
+# One optional distribution's own tests, against the workspace core.
+#
+#     just test-package blitzecdn-cache
+test-package package *args:
+    uv run --package {{package}} pytest --no-cov packages/{{package}}/tests {{args}}
+
+# The control plane with no optional distribution installed.
+#
+# The other half of the boundary, and not something the normal suite can prove:
+# a core test that imported an optional package would pass here only because
+# the developer happened to have it installed. This syncs it away first, so the
+# run really is core-only, and puts the workspace back afterwards.
+#
+# `tests/architecture/test_packages.py` and `test_lifecycle.py` are about the
+# packages and are deselected — the lifecycle suite builds its own core-only
+# environment and asserts the same property from the outside.
+test-core-only *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    trap 'uv sync --frozen --all-packages >/dev/null' EXIT
+    uv sync --frozen
+    uv run pytest --no-cov -n auto --dist=worksteal tests \
+        --ignore=tests/architecture/test_packages.py \
+        --ignore=tests/architecture/test_lifecycle.py {{args}}
 
 # Sequential and without coverage, because a subset would otherwise fail on the
 # global coverage floor rather than on the test, and because a handful of cases
@@ -159,12 +215,13 @@ ansible-check:
 
 # Static security analysis and a dependency vulnerability audit.
 audit:
-    uv run bandit -c pyproject.toml -r src
+    uv run bandit -c pyproject.toml -r src packages
     uv run pip-audit
 
-# Build the wheel and the source distribution.
+# Build every distribution in the workspace: the control plane and each
+# optional capability, as independently installable wheels and sdists.
 build:
-    uv build
+    uv build --all-packages
 
 # Fail if the published reference no longer describes this control plane.
 #
@@ -189,7 +246,7 @@ docs-check docs="../blitze-cdn-web":
         node "{{docs}}/scripts/check-api-surface.mjs" --strict
 
 # Everything CI runs. Run this before pushing.
-check: lock-check lint types shell-lint test ansible-check audit build docs-check
+check: lock-check lint types shell-lint test test-core-only ansible-check audit build docs-check
 
 # --- database -----------------------------------------------------------
 
@@ -206,4 +263,4 @@ serve port="8000":
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests ansible -name __pycache__ -type d -prune -exec rm -rf {} +
+    find src tests packages ansible -name __pycache__ -type d -prune -exec rm -rf {} +

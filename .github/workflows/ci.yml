@@ -62,6 +62,12 @@ jobs:
         run: just shell-lint
       - name: Tests and coverage
         run: just test --cov-report=xml
+      # The other half of the packaging boundary, and not something the run
+      # above can prove: it has every optional distribution installed, so a
+      # core test that imported one would pass there. This syncs them away,
+      # runs the control plane's own suite, and syncs them back.
+      - name: The control plane with no optional package installed
+        run: just test-core-only
       # The report was produced and then thrown away with the runner. Kept as
       # an artifact so a coverage question about a specific run can be answered
       # after the fact rather than by re-running the suite locally and hoping
@@ -102,8 +108,11 @@ jobs:
           enable-cache: true
       - name: Install Python
         run: uv python install ${{ matrix.python-version }}
-      - name: Install project
-        run: uv sync --frozen --python ${{ matrix.python-version }}
+      # `--all-packages` is the workspace form: a plain sync installs the
+      # control plane alone and leaves every optional distribution's tests
+      # unable to import.
+      - name: Install the workspace
+        run: uv sync --frozen --all-packages --python ${{ matrix.python-version }}
       - name: Run tests
         run: uv run --python ${{ matrix.python-version }} pytest --no-cov
 
@@ -143,10 +152,13 @@ jobs:
       - name: Install Python
         run: uv python install 3.14
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
-      # The check imports `blitzecdn`; the collections `just install` also
-      # fetches are not involved, so this is the narrower sync.
-      - name: Install the control plane
-        run: uv sync --frozen
+      # The check imports `blitzecdn` and reads the live OpenAPI document, so
+      # the optional distributions have to be installed: their routes and
+      # models are part of the surface the reference describes. The collections
+      # `just install` also fetches are not involved, so this stays narrower
+      # than that.
+      - name: Install the workspace
+        run: uv sync --frozen --all-packages
       - name: Check the reference against this control plane
         run: just docs-check docs-site
 
