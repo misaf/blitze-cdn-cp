@@ -8,27 +8,26 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-import blitzecdn.api.routes.v1.automatic_ssl as v1_automatic_ssl
-import blitzecdn.api.routes.v1.cache as v1_cache
-import blitzecdn.api.routes.v1.certificates as v1_certificates
-import blitzecdn.api.routes.v1.deployments as v1_deployments
-import blitzecdn.api.routes.v1.diagnostics as v1_diagnostics
-import blitzecdn.api.routes.v1.edges as v1_edges
-import blitzecdn.api.routes.v1.sites as v1_sites
-import blitzecdn.api.routes.v1.zones as v1_zones
-import blitzecdn.api.routes.v2.automatic_ssl as v2_automatic_ssl
-import blitzecdn.api.routes.v2.cache as v2_cache
-import blitzecdn.api.routes.v2.certificates as v2_certificates
-import blitzecdn.api.routes.v2.deployments as v2_deployments
-import blitzecdn.api.routes.v2.diagnostics as v2_diagnostics
-import blitzecdn.api.routes.v2.edges as v2_edges
-import blitzecdn.api.routes.v2.sites as v2_sites
-import blitzecdn.api.routes.v2.zones as v2_zones
+import blitzecdn.features.automatic_ssl.api.v1 as v1_automatic_ssl
+import blitzecdn.features.automatic_ssl.api.v2 as v2_automatic_ssl
+import blitzecdn.features.cache.api.v1 as v1_cache
+import blitzecdn.features.cache.api.v2 as v2_cache
+import blitzecdn.features.certificates.api.v1 as v1_certificates
+import blitzecdn.features.certificates.api.v2 as v2_certificates
+import blitzecdn.features.deployments.api.v1 as v1_deployments
+import blitzecdn.features.deployments.api.v2 as v2_deployments
+import blitzecdn.features.diagnostics.api.v1 as v1_diagnostics
+import blitzecdn.features.diagnostics.api.v2 as v2_diagnostics
+import blitzecdn.features.dns.api.v1 as v1_zones
+import blitzecdn.features.dns.api.v1_sites as v1_sites
+import blitzecdn.features.dns.api.v2 as v2_zones
+import blitzecdn.features.dns.api.v2_sites as v2_sites
+import blitzecdn.features.edges.api.v1 as v1_edges
+import blitzecdn.features.edges.api.v2 as v2_edges
 from blitzecdn import __version__
-from blitzecdn.api.routes import diagnostics
-from blitzecdn.config import Settings
 from blitzecdn.control_plane import build_control_plane
-from blitzecdn.exceptions import (
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import (
     BlitzeError,
     ConfigurationError,
     ConflictError,
@@ -36,6 +35,7 @@ from blitzecdn.exceptions import (
     ExecutionError,
     NotFoundError,
 )
+from blitzecdn.features.diagnostics.api import readiness as diagnostics
 from blitzecdn.scheduler import build_scheduler
 
 

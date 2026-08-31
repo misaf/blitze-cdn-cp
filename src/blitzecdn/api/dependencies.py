@@ -7,8 +7,8 @@ from typing import Annotated, cast
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 
-from blitzecdn.config import Settings
 from blitzecdn.control_plane import ControlPlane
+from blitzecdn.core.config import Settings
 
 
 def get_control_plane(request: Request) -> ControlPlane:

@@ -8,16 +8,18 @@ from typing import Any, cast
 from pydantic import Field, field_validator
 
 from blitzecdn.api.v1_models import V1Model
-from blitzecdn.domain.cache import PurgeEntry as DomainPurgeEntry
-from blitzecdn.domain.certificates import CertificateRequest as DomainCertificateRequest
-from blitzecdn.domain.certificates import (
+from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
+from blitzecdn.core.runs import RunStatus, TaskOutcome
+from blitzecdn.features.cache.domain import PurgeEntry as DomainPurgeEntry
+from blitzecdn.features.certificates.domain import (
+    CertificateRequest as DomainCertificateRequest,
+)
+from blitzecdn.features.certificates.domain import (
     CertificateSource,
     PreflightSeverity,
 )
-from blitzecdn.domain.deployments import DeploymentStatus
-from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus
-from blitzecdn.domain.runs import RunStatus, TaskOutcome
-from blitzecdn.domain.sites import HttpScheme, SslMode
+from blitzecdn.features.deployments.domain import DeploymentStatus
+from blitzecdn.features.dns.site_domain import HttpScheme, SslMode
 
 
 class TaskResult(V1Model):

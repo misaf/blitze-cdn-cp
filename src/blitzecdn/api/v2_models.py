@@ -7,13 +7,11 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from blitzecdn.domain.dns import DnsRecord as DomainDnsRecord
-from blitzecdn.domain.dns import Domain as DomainDomain
-from blitzecdn.domain.dns import RecordPatch as DomainRecordPatch
-from blitzecdn.domain.dns import RecordType as DomainRecordType
-from blitzecdn.domain.edges import Edge as DomainEdge
-from blitzecdn.domain.edges import EdgePatch as DomainEdgePatch
-from blitzecdn.domain.sites import (
+from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
+from blitzecdn.features.dns.domain import Domain as DomainDomain
+from blitzecdn.features.dns.domain import RecordPatch as DomainRecordPatch
+from blitzecdn.features.dns.domain import RecordType as DomainRecordType
+from blitzecdn.features.dns.site_domain import (
     CacheQueryStringMode,
     CertificateMode,
     CompressionMode,
@@ -21,9 +19,11 @@ from blitzecdn.domain.sites import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.domain.sites import (
+from blitzecdn.features.dns.site_domain import (
     CdnSite as DomainCdnSite,
 )
+from blitzecdn.features.edges.domain import Edge as DomainEdge
+from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
 
 
 class V2Model(BaseModel):
