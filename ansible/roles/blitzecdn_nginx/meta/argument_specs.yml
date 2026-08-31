@@ -139,9 +139,10 @@ argument_specs:
         type: str
         required: true
         description: >-
-          The edge runtime image holding the ABI-matched Ubuntu Nginx, GeoIP2,
-          Brotli and njs stack. Must equal blitzecdn_edge_stack_image: this role
-          validates configuration against it and that role serves from it.
+          The edge runtime image holding the ABI-matched official Nginx,
+          GeoIP2, Brotli and njs stack. Must equal
+          blitzecdn_edge_stack_image: this role validates configuration against
+          it and that role serves from it.
       blitzecdn_nginx_image_default: {type: str, required: true}
       blitzecdn_nginx_container:
         type: str
@@ -238,7 +239,9 @@ argument_specs:
       blitzecdn_nginx_access_log_enabled:
         type: bool
         required: true
-        description: Write a per-request access log carrying the cache outcome.
+        description: >-
+          Write each request and its cache outcome to the persistent access log
+          and the container stdout stream.
       blitzecdn_nginx_access_log_path: {type: path, required: true}
       blitzecdn_nginx_log_format_name:
         type: str

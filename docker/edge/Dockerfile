@@ -1,24 +1,51 @@
 # BlitzeCDN edge runtime.
 #
-# Everything a BlitzeCDN edge needs to serve traffic, and nothing else. The host
-# keeps Linux, SSH, Docker, the firewall and kernel tuning; this image keeps
-# Nginx and its dynamic modules.
-#
-# Ubuntu 26.04 provides the Nginx binary and the three dynamic modules below as
-# one archive-supported runtime. The edge image is the only place these
-# traffic-serving packages are installed.
-#
-# BlitzeCDN treats Nginx and its dynamic modules as one ABI-compatible unit.
-# Ubuntu expresses that by pinning every libnginx-mod-* package to an
-# nginx-abi-<version> virtual package, so apt resolving all four in one
-# transaction is the guarantee. The probe at the end of this build is the proof:
-# it loads all three modules and uses a directive from each, so an image that
-# would fail `nginx -t` on a real edge fails here instead.
-ARG UBUNTU_VERSION=26.04
-FROM ubuntu:${UBUNTU_VERSION}
+# Start with the official, versioned Nginx image and add only the third-party
+# modules and runtime files BlitzeCDN needs. GeoIP2 and Brotli are built with
+# Nginx's own pkg-oss tooling against this exact base image, keeping the binary
+# and dynamic modules ABI-compatible.
+ARG NGINX_IMAGE=nginx:1.31.4-alpine
+FROM ${NGINX_IMAGE} AS module-builder
 
-# Recorded into the image so `docker inspect` on an edge answers "which build is
-# this" without consulting the control plane. Supplied by the release workflow.
+ARG ENABLED_MODULES="geoip2 brotli"
+
+SHELL ["/bin/ash", "-exo", "pipefail", "-c"]
+
+# This is the module build flow maintained for the official Nginx image. The
+# pkg-oss branch is derived from the version and package release recorded in
+# the base image, so it cannot accidentally build against another Nginx ABI.
+RUN test -n "${ENABLED_MODULES}" \
+    && apk add --no-cache \
+        abuild \
+        alpine-sdk \
+        coreutils \
+        curl \
+        git \
+        libxml2-utils \
+        linux-headers \
+        openssl \
+        openssl-dev \
+        pcre2-dev \
+        xz \
+        zlib-dev \
+    && printf '#!/bin/sh\nSETFATTR=true /usr/bin/abuild -F "$@"\n' > /usr/local/bin/abuild \
+    && chmod 0755 /usr/local/bin/abuild \
+    && git clone --depth 1 --branch "${NGINX_VERSION}-${PKG_RELEASE}" \
+        https://github.com/nginx/pkg-oss.git /pkg-oss \
+    && mkdir /tmp/packages \
+    && for module in ${ENABLED_MODULES}; do \
+        make -C /pkg-oss/alpine "abuild-module-${module}" \
+            BASE_VERSION="${NGINX_VERSION}" NGINX_VERSION="${NGINX_VERSION}"; \
+        apk add $(. "/pkg-oss/alpine/abuild-module-${module}/APKBUILD"; echo ${makedepends}); \
+        make -C /pkg-oss/alpine "module-${module}" \
+            BASE_VERSION="${NGINX_VERSION}" NGINX_VERSION="${NGINX_VERSION}"; \
+        find /root/packages -type f -name '*.apk' -exec mv -v {} /tmp/packages/ \;; \
+      done
+
+FROM ${NGINX_IMAGE}
+
+# Recorded into the image so `docker inspect` on an edge answers which build is
+# running without consulting the control plane. Supplied by the release job.
 ARG BLITZECDN_EDGE_VERSION=dev
 ARG BLITZECDN_EDGE_REVISION=unknown
 
@@ -29,63 +56,40 @@ LABEL org.opencontainers.image.title="BlitzeCDN edge" \
       org.opencontainers.image.version="${BLITZECDN_EDGE_VERSION}" \
       org.opencontainers.image.revision="${BLITZECDN_EDGE_REVISION}"
 
-# One transaction, so apt resolves the binary and all three modules against a
-# single nginx-abi. Splitting them across RUN layers is exactly how an
-# ABI-mismatched stack gets built without anyone noticing.
-#
-# ca-certificates is not optional: proxy_ssl_verify under SSL mode Full (strict)
-# reads /etc/ssl/certs/ca-certificates.crt from inside this container.
-# curl is here for the health check, which asks Nginx a question over HTTP
-# rather than trusting that a process exists.
+# Install the two packages produced against this exact official base. njs ships
+# in the official image; tzdata supports the configured edge timezone.
+RUN --mount=type=bind,target=/tmp/packages,source=/tmp/packages,from=module-builder \
+    apk add --no-cache --allow-untrusted \
+        /tmp/packages/nginx-module-geoip2-${NGINX_VERSION}*.apk \
+        /tmp/packages/nginx-module-brotli-${NGINX_VERSION}*.apk \
+        tzdata
+
+# BlitzeCDN owns the default server, not the example bundled with the image.
+# Keep the official persistent log destinations and add Docker's stdout/stderr
+# streams at the same configuration level. Managed sites declare their own
+# access logs below this level and therefore add stdout in site.conf.j2 too.
 RUN set -eux; \
-    export DEBIAN_FRONTEND=noninteractive; \
-    apt-get update; \
-    apt-get install --no-install-recommends -y \
-        nginx \
-        libnginx-mod-http-geoip2 \
-        libnginx-mod-http-brotli-filter \
-        libnginx-mod-http-js \
-        ca-certificates \
-        curl \
-        tzdata; \
-    rm -rf /var/lib/apt/lists/*
+    rm -f /etc/nginx/conf.d/default.conf; \
+    sed -i '/^error_log .*notice;$/a\error_log  /dev/stderr notice;' /etc/nginx/nginx.conf; \
+    sed -i '/^    access_log .*main;$/a\    access_log  /dev/stdout  main;' /etc/nginx/nginx.conf; \
+    grep -q '^error_log  /dev/stderr notice;$' /etc/nginx/nginx.conf; \
+    grep -q '^    access_log  /dev/stdout  main;$' /etc/nginx/nginx.conf
 
-# The distribution's own example site claims the default_server position, which
-# on a BlitzeCDN edge belongs to the catch-all the control plane renders. The
-# host's sites-enabled is mounted over this directory at run time, so the link
-# would be masked anyway — removing it means the image alone is never a source
-# of a second default_server.
-RUN rm -f /etc/nginx/sites-enabled/default
-
-# Build-time proof of the invariant this image exists to hold. Loading the three
-# modules is not enough on its own: a module can load and still not register the
-# directives BlitzeCDN renders, so the probe uses one from each.
+# Prove HTTP/3 and every dynamic module directive before publishing the image.
 COPY module-probe.conf /usr/share/blitzecdn/module-probe.conf
 RUN set -eux; \
     nginx -v; \
     nginx -V 2>&1 | grep -q -- '--with-http_v3_module'; \
-    nginx -V 2>&1 | grep -q -- '--build=Ubuntu'; \
     nginx -t -c /usr/share/blitzecdn/module-probe.conf
 
 COPY healthcheck.sh /usr/local/bin/blitzecdn-healthcheck
 RUN chmod 0755 /usr/local/bin/blitzecdn-healthcheck
 
-# Deliberately no VOLUME declarations. Every directory that must survive the
-# container is a host bind mount named in the Compose file, so an operator can
-# see and back up the whole of an edge's state with `ls`, and a `docker compose
-# down -v` cannot take a customer's TLS material or cache with it.
-
-# start-period covers the seconds Nginx spends opening thirteen listeners and
-# reading every site, and is what makes `docker compose up --wait` usable as the
-# gate on a recreated edge. The interval is not shorter than this because the
-# probe re-parses the whole configuration, which on an edge with hundreds of
-# sites is real work to repeat.
+# Persistent configuration, TLS, cache, logs and GeoIP data are explicit host
+# bind mounts in Compose; the image intentionally declares no volumes.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
     CMD ["/usr/local/bin/blitzecdn-healthcheck"]
 
 STOPSIGNAL SIGQUIT
 
-# Foreground, because the container *is* the process. `daemon off` rather than
-# the package's init script: Docker restarts a dead container, and an Nginx that
-# forks away leaves the engine supervising nothing.
 CMD ["nginx", "-g", "daemon off;"]

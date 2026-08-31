@@ -408,23 +408,15 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
             assert obsolete not in document, f"{source} contains {obsolete}"
 
 
-def test_the_edge_image_installs_the_abi_matched_stack_in_one_transaction():
-    """Splitting the packages across layers is how an ABI mismatch gets built.
-
-    Ubuntu pins every libnginx-mod-* package to an nginx-abi-<version> virtual
-    package, so apt resolving all four at once is the guarantee. The build then
-    proves it by loading all three modules and using a directive from each.
-    """
+def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modules():
+    """Third-party modules must be built against the exact runtime image."""
     dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
-    install = dockerfile[dockerfile.index("apt-get install") :]
-    install = install[: install.index("rm -rf")]
-    for package in (
-        "nginx",
-        "libnginx-mod-http-geoip2",
-        "libnginx-mod-http-brotli-filter",
-        "libnginx-mod-http-js",
-    ):
-        assert package in install, package
+    assert "ARG NGINX_IMAGE=nginx:1.31.4-alpine" in dockerfile
+    assert dockerfile.count("FROM ${NGINX_IMAGE}") == 2
+    assert 'ARG ENABLED_MODULES="geoip2 brotli"' in dockerfile
+    assert '"${NGINX_VERSION}-${PKG_RELEASE}"' in dockerfile
+    assert "nginx-module-geoip2-${NGINX_VERSION}*.apk" in dockerfile
+    assert "nginx-module-brotli-${NGINX_VERSION}*.apk" in dockerfile
     assert "--with-http_v3_module" in dockerfile
     assert "module-probe.conf" in dockerfile
 
@@ -439,6 +431,27 @@ def test_the_edge_image_installs_the_abi_matched_stack_in_one_transaction():
     # a working one until an edge configuration uses it.
     assert "brotli off;" in probe
     assert "js_path" in probe
+
+    capabilities = (
+        STACK_ROLE_DIR.parent / "blitzecdn_nginx/tasks/capabilities.yml"
+    ).read_text(encoding="utf-8")
+    assert "read_only: true" in capabilities
+    assert "/var/log/nginx:rw,noexec,nosuid,size=8m" in capabilities
+
+
+def test_nginx_logs_to_persistent_files_and_docker_streams():
+    """Docker logs supplement the retained files consumed by edge tooling."""
+    dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
+    site = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
+
+    assert "error_log  /dev/stderr notice;" in dockerfile
+    assert "access_log  /dev/stdout  main;" in dockerfile
+    assert site.count(
+        "access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};"
+    ) == 2
+    assert "access_log {{ blitzecdn_nginx_access_log_path }}" in site
+    assert 'max-size: "32m"' in COMPOSE_TEMPLATE
+    assert 'max-file: "3"' in COMPOSE_TEMPLATE
 
 
 # ----------------------------------------------------------------------

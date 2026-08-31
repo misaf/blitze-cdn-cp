@@ -352,6 +352,7 @@ server {
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
+    access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
 {{ compression_filters() }}
     location ^~ /.well-known/acme-challenge/ {
@@ -388,6 +389,7 @@ server {
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
+    access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
 {{ compression_filters() }}
     ssl_certificate {{ item.certificate_path }};
