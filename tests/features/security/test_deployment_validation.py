@@ -13,7 +13,7 @@ no record derives is not in the snapshot the validator reads.
 import json
 
 import pytest
-from conftest import FakeRunner, ansible_run, host_run
+from control_plane_fixtures import FakeRunner, ansible_run, host_run
 from pydantic import SecretStr
 from typer.testing import CliRunner
 

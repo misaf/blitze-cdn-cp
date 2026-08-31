@@ -3,20 +3,22 @@ import sys
 
 import pytest
 from click.utils import strip_ansi
-from conftest import (
+from control_plane_fixtures import (
     FakePreflight,
     FakeRunner,
     ansible_run,
+    cli_control_plane,
     host_run,
     origin_report,
+    repository_on,
 )
 from typer.testing import CliRunner
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
+from blitzecdn.core.plugins import PluginRejection
 from blitzecdn.core.runs import RunStatus
-from blitzecdn.features.cache.domain import PurgeEntry
 from blitzecdn.features.diagnostics import cli as diagnostics_cli
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.sites.domain import CdnSite
@@ -546,26 +548,11 @@ def test_interactive_deploy_validates_previews_and_applies(
 
 
 def _control(settings, monkeypatch, runner_double=None, preflight=None):
-    control = ControlPlane(
-        settings=settings,
-        repository=Repository(settings.database_path),
-        runner=runner_double or FakeRunner(),
-        preflight=preflight or FakePreflight(),
-    )  # type: ignore[arg-type]
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
-    monkeypatch.setattr(cli.common, "settings", lambda: settings)
-    return control
+    return cli_control_plane(settings, monkeypatch, runner_double, preflight)
 
 
 def _store(settings):
-    """A repository on the same database, for seeding and for reading back.
-
-    The control plane does not hand out its stores — that is the point of the
-    layering rule — so a test that wants to plant a derived site or read the
-    audit trail straight from SQLite opens its own handle on the same file
-    rather than reaching through the object under test.
-    """
-    return Repository(settings.database_path)
+    return repository_on(settings)
 
 
 def _seed_certificate(control, certificate_pair, *, days):
@@ -1485,210 +1472,6 @@ def test_cert_renew_without_the_site_option_considers_everything(settings, monke
     assert seen["sites"] is None
 
 
-# ----------------------------------------------------------------------
-# cache purge / stats
-# ----------------------------------------------------------------------
-
-
-def _purge_ok():
-    return ansible_run(host_run("edge-a", changed=1))
-
-
-def _purgeable_site(settings):
-    """A site serving TLS, because these tests purge `https://` URLs.
-
-    The scheme leads the cache key, so the control plane refuses a purge for a
-    scheme the site never serves. A site without TLS caches nothing under
-    https.
-    """
-    _store(settings).sites.create_site(
-        CdnSite.model_validate(
-            {
-                "name": "cdn-example-com",
-                "server_names": ["cdn.example.com"],
-                "origin_host": "o.example.com",
-                "ssl_mode": "flexible",
-                "certificate_mode": "existing",
-                "certificate_path": "/etc/ssl/certs/cdn.pem",
-                "certificate_key_path": "/etc/ssl/private/cdn.key",
-            }
-        )
-    )
-
-
-def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch):
-    fake = FakeRunner([_purge_ok()])
-    _control(settings, monkeypatch, fake)
-    _purgeable_site(settings)
-
-    result = runner.invoke(
-        cli.app, ["cache", "purge", "--url", "https://cdn.example.com/app.js"]
-    )
-
-    assert result.exit_code == 0
-    assert fake.purges[0][0] == (
-        PurgeEntry(host="cdn.example.com", uri="/app.js", scheme="https"),
-    )
-
-
-def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
-    """It is part of $request_uri, so '/a' and '/a?v=2' are different entries."""
-    fake = FakeRunner([_purge_ok()])
-    _control(settings, monkeypatch, fake)
-    _purgeable_site(settings)
-
-    runner.invoke(cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a?v=2"])
-
-    assert fake.purges[0][0][0].uri == "/a?v=2"
-
-
-def test_cache_purge_defaults_a_bare_url_to_https_and_root(settings, monkeypatch):
-    fake = FakeRunner([_purge_ok()])
-    _control(settings, monkeypatch, fake)
-    _purgeable_site(settings)
-
-    runner.invoke(cli.app, ["cache", "purge", "--url", "cdn.example.com"])
-
-    assert fake.purges[0][0] == (
-        PurgeEntry(host="cdn.example.com", uri="/", scheme="https"),
-    )
-
-
-def test_cache_purge_rejects_a_url_with_no_hostname(settings, monkeypatch):
-    _control(settings, monkeypatch)
-    result = runner.invoke(cli.app, ["cache", "purge", "--url", "https:///app.js"])
-    assert result.exit_code != 0
-
-
-def test_cache_purge_all_asks_before_emptying_the_cache(settings, monkeypatch):
-    fake = FakeRunner([_purge_ok()])
-    _control(settings, monkeypatch, fake)
-
-    declined = runner.invoke(cli.app, ["cache", "purge", "--all"], input="n\n")
-
-    assert declined.exit_code == 1
-    assert fake.purges == []
-
-
-def test_cache_purge_all_proceeds_with_yes(settings, monkeypatch):
-    fake = FakeRunner([_purge_ok()])
-    _control(settings, monkeypatch, fake)
-
-    result = runner.invoke(cli.app, ["cache", "purge", "--all", "--yes"])
-
-    assert result.exit_code == 0
-    assert fake.purges[0][1] is True
-
-
-def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch):
-    """A partial purge must not read as success to a script."""
-    partial = ansible_run(
-        host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
-    )
-    _control(settings, monkeypatch, FakeRunner([partial]))
-    _purgeable_site(settings)
-
-    result = runner.invoke(
-        cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a.js"]
-    )
-
-    assert result.exit_code == cli.ExitCode.DEPLOYMENT_FAILED
-    assert "edge-b did not purge" in result.output
-
-
-def test_cache_purge_reports_an_unserved_host_without_a_traceback(
-    settings, monkeypatch
-):
-    _control(settings, monkeypatch, FakeRunner([_purge_ok()]))
-    _purgeable_site(settings)
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        ["blitzecdn", "cache", "purge", "--url", "https://nope.example.com/x"],
-    )
-
-    with pytest.raises(SystemExit) as exit_info:
-        cli.run()
-
-    assert exit_info.value.code == cli.ExitCode.NOT_FOUND
-
-
-def _stats_runner(*hosts):
-    """Counters arrive on the run itself, published by the role as a fact."""
-    return FakeRunner([ansible_run(*hosts)])
-
-
-_EDGE_REPORT = {
-    "host": "edge-a",
-    "collected_at": "2026-08-09T01:00:00Z",
-    "nginx_reachable": True,
-    "connections": {"active": 3},
-    "cache": [
-        {"site": "cdn.example.com", "outcome": "HIT", "requests": 3},
-        {"site": "cdn.example.com", "outcome": "MISS", "requests": 1},
-    ],
-}
-
-
-def test_stats_reports_the_fleet_hit_ratio(settings, monkeypatch):
-    _control(
-        settings,
-        monkeypatch,
-        _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
-    )
-
-    result = runner.invoke(cli.app, ["stats", "--json"])
-
-    assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert payload["hit_ratio"] == 0.75
-    assert payload["edges"][0]["host"] == "edge-a"
-    assert "sites" not in payload
-
-
-def test_stats_by_site_breaks_the_numbers_down(settings, monkeypatch):
-    _control(
-        settings,
-        monkeypatch,
-        _stats_runner(host_run("edge-a", ok=5, report=_EDGE_REPORT)),
-    )
-
-    payload = json.loads(
-        runner.invoke(cli.app, ["stats", "--by-site", "--json"]).stdout
-    )
-
-    assert payload["sites"][0]["site"] == "cdn.example.com"
-    assert payload["sites"][0]["hit_ratio"] == 0.75
-
-
-def test_stats_says_so_when_there_is_no_cacheable_traffic_yet(settings, monkeypatch):
-    """A fresh edge must not be reported as a cache that is failing."""
-    quiet = {**_EDGE_REPORT, "cache": [{"site": "a", "outcome": "NONE", "requests": 4}]}
-    _control(
-        settings, monkeypatch, _stats_runner(host_run("edge-a", ok=5, report=quiet))
-    )
-
-    result = runner.invoke(cli.app, ["stats"])
-
-    assert result.exit_code == 0
-    assert "no hit ratio yet" in result.output
-
-
-def test_stats_names_an_edge_that_reported_nothing(settings, monkeypatch):
-    _control(
-        settings,
-        monkeypatch,
-        _stats_runner(
-            host_run("edge-a", ok=5, report=_EDGE_REPORT),
-            host_run("edge-b", ok=0, unreachable=1),
-        ),
-    )
-
-    result = runner.invoke(cli.app, ["stats"])
-
-    assert "edge-b reported nothing: unreachable" in result.output
-
-
 def test_cert_preflight_reports_each_check_and_exits_zero_when_ready(
     settings, monkeypatch, certificate_pair
 ):
@@ -1800,3 +1583,58 @@ def test_group_help_mentions_the_derived_site_model():
     result = runner.invoke(cli.app, ["--help"])
 
     assert "You do not create virtual hosts" in strip_ansi(result.output)
+
+
+def test_plugins_lists_what_is_installed_and_why_something_is_not(
+    settings, monkeypatch
+):
+    """The command an operator runs after `pip install` and sees no new routes.
+
+    A required capability that failed would have stopped the process, so the
+    interesting half is the other one: an optional package that was installed,
+    did not load, and was skipped by design. The reason is kept on the registry
+    precisely so it can be answered here rather than only in a startup log line
+    that has scrolled away.
+    """
+    control = _control(settings, monkeypatch)
+    control.plugins.rejected = (
+        PluginRejection("waf (blitzecdn_waf.plugin)", "import failed: no module"),
+    )
+
+    result = runner.invoke(cli.app, ["plugins", "--json"])
+    document = json.loads(result.stdout)
+
+    assert {"sites", "dns", "deployments"} <= {
+        plugin["name"] for plugin in document["plugins"]
+    }
+    # `required` is what separates a capability this distribution ships from
+    # one installed beside it, which is the first thing an operator wants to
+    # read off this table.
+    by_name = {plugin["name"]: plugin for plugin in document["plugins"]}
+    assert by_name["sites"]["required"] is True
+    assert by_name["sites"]["capabilities"] == ["sites"]
+    assert "sites" in document["capabilities"]
+    assert document["rejected"] == [
+        {
+            "source": "waf (blitzecdn_waf.plugin)",
+            "reason": "import failed: no module",
+        }
+    ]
+
+
+def test_plugins_names_a_skipped_package_on_stderr(settings, monkeypatch):
+    """Not only in `--json`: the human output has to say it too.
+
+    The whole reason a rejection is kept is that a warning at startup is not
+    somewhere an operator can look afterwards. Printing the table and staying
+    silent about the package that did not load would recreate that.
+    """
+    control = _control(settings, monkeypatch)
+    control.plugins.rejected = (
+        PluginRejection("waf (blitzecdn_waf.plugin)", "import failed: no module"),
+    )
+
+    result = runner.invoke(cli.app, ["plugins"])
+
+    assert "waf (blitzecdn_waf.plugin) was not registered" in result.output
+    assert "import failed: no module" in result.output

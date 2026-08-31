@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-from conftest import FakeRunner
+from control_plane_fixtures import FakeRunner
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.database import Repository
