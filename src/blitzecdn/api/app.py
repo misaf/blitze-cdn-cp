@@ -8,24 +8,8 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
-import blitzecdn.features.automatic_ssl.api.v1 as v1_automatic_ssl
-import blitzecdn.features.automatic_ssl.api.v2 as v2_automatic_ssl
-import blitzecdn.features.cache.api.v1 as v1_cache
-import blitzecdn.features.cache.api.v2 as v2_cache
-import blitzecdn.features.certificates.api.v1 as v1_certificates
-import blitzecdn.features.certificates.api.v2 as v2_certificates
-import blitzecdn.features.deployments.api.v1 as v1_deployments
-import blitzecdn.features.deployments.api.v2 as v2_deployments
-import blitzecdn.features.diagnostics.api.v1 as v1_diagnostics
-import blitzecdn.features.diagnostics.api.v2 as v2_diagnostics
-import blitzecdn.features.dns.api.v1 as v1_zones
-import blitzecdn.features.dns.api.v1_sites as v1_sites
-import blitzecdn.features.dns.api.v2 as v2_zones
-import blitzecdn.features.dns.api.v2_sites as v2_sites
-import blitzecdn.features.edges.api.v1 as v1_edges
-import blitzecdn.features.edges.api.v2 as v2_edges
 from blitzecdn import __version__
-from blitzecdn.control_plane import build_control_plane
+from blitzecdn.bootstrap import build_control_plane
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -35,24 +19,39 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
     NotFoundError,
 )
-from blitzecdn.features.diagnostics.api import readiness as diagnostics
+from blitzecdn.core.plugins import PluginRegistry, ProcessKind, load_plugins
 from blitzecdn.scheduler import build_scheduler
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None, plugins: PluginRegistry | None = None
+) -> FastAPI:
     resolved = settings or Settings.from_environment()
+    # Discovered once and used twice: the routers below need no services, and
+    # the control plane the lifespan builds is handed the same registry rather
+    # than repeating discovery. `plugins` is injectable so a test can serve an
+    # app built from exactly the plugins the test is about.
+    registry = plugins if plugins is not None else load_plugins()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        control = build_control_plane(resolved, pool_connections=True)
+        control = build_control_plane(
+            resolved,
+            pool_connections=True,
+            process=ProcessKind.API,
+            plugins=registry,
+        )
         renewal_pool = ThreadPoolExecutor(
             max_workers=resolved.certificate_renewal_workers,
             thread_name_prefix="blitzecdn-renewal",
         )
         application.state.control_plane = control
         application.state.renewal_pool = renewal_pool
-        control.deployments.initialize()
-        scheduler = build_scheduler(resolved)
+        # Republishing queued deployments is a plugin's startup contribution
+        # now, not a line here: what a process owes at startup is the plugin's
+        # business, and `RuntimeContext.process` is how it knows this is the API.
+        control.start()
+        scheduler = build_scheduler(resolved, control.jobs)
         if scheduler is not None:
             scheduler.start()
         try:
@@ -61,6 +60,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             if scheduler is not None:
                 scheduler.shutdown(wait=True)
             renewal_pool.shutdown(wait=True)
+            control.stop()
             control.close()
 
     application = FastAPI(
@@ -88,25 +88,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.settings = resolved
 
     _register_exception_handlers(application)
-    for router in (
-        diagnostics.router,
-        v1_diagnostics.router,
-        v1_sites.router,
-        v1_zones.router,
-        v1_edges.router,
-        v1_cache.router,
-        v1_certificates.router,
-        v1_automatic_ssl.router,
-        v1_deployments.router,
-        v2_diagnostics.router,
-        v2_sites.router,
-        v2_zones.router,
-        v2_edges.router,
-        v2_cache.router,
-        v2_certificates.router,
-        v2_automatic_ssl.router,
-        v2_deployments.router,
-    ):
+    # The application does not know which features exist. Every router is a
+    # plugin's contribution, in registration order, so a separately installed
+    # package adds routes without a line changing here.
+    for router in registry.api_routers():
         application.include_router(router)
     return application
 

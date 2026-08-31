@@ -1,16 +1,21 @@
 """The worker entry point: the Dramatiq actors, and nothing else.
 
-This module is what ``dramatiq blitzecdn.worker`` imports. It is an entry
-point in exactly the sense the CLI and the API are: it builds a control plane
-and calls a service on it, and it is allowed to know both halves because
-nothing imports it back.
+This module is what ``dramatiq blitzecdn.worker`` imports. It is an entry point
+in exactly the sense the CLI and the API are: it builds a control plane and
+calls a service on it, and it is allowed to know both halves because nothing
+imports it back.
+
+There are two actors and there will not be more. One converges a queued
+deployment; the other runs a scheduled job *by name*, resolving that name
+against the plugin registry in this process. That indirection is what lets a
+separately installed plugin contribute recurring work: ``blitzecdn-waf`` can
+add a "refresh rule set" job without an actor being declared for it here, which
+is the whole point of the registration mechanism.
 
 The broker itself — connecting to Redis, publishing a message, the
-single-flight key that keeps one scheduled operation in flight — lives in
-:mod:`blitzecdn.core.broker`, which is where the composition root
-reaches for it. A publisher never imports this module, so a Dramatiq message
-carries an actor *name* and the worker resolves it against the actors declared
-below.
+single-flight key that keeps one scheduled job in flight — lives in
+:mod:`blitzecdn.core.broker`, which is where the composition root reaches for
+it. A publisher never imports this module.
 """
 
 from __future__ import annotations
@@ -27,7 +32,7 @@ from blitzecdn.core.broker import (
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import DeploymentBusyError
-from blitzecdn.core.operations import MaintenanceOperation
+from blitzecdn.core.plugins import ProcessKind
 
 _LOGGER = logging.getLogger(__name__)
 _DEPLOYMENT_LOCK_RETRIES = 260
@@ -55,10 +60,10 @@ def _retry_locked_deployment(retries: int, exception: BaseException) -> bool:
 )
 def run_deployment(deployment_id: str) -> None:
     """Converge one already-recorded queued deployment."""
-    from blitzecdn.control_plane import build_control_plane
+    from blitzecdn.bootstrap import build_control_plane
 
     settings = Settings.from_environment()
-    control = build_control_plane(settings)
+    control = build_control_plane(settings, process=ProcessKind.WORKER)
     try:
         control.deployments.run_queued(deployment_id)
     except Exception:
@@ -68,36 +73,17 @@ def run_deployment(deployment_id: str) -> None:
         control.close()
 
 
-def _run_control_plane(operation: str, token: str) -> None:
-    """Run one scheduled operation in the worker process."""
-    from blitzecdn.control_plane import build_control_plane
+@dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
+def run_scheduled_job(job: str, token: str) -> None:
+    """Run one plugin-contributed scheduled job in the worker process."""
+    from blitzecdn.bootstrap import build_control_plane
 
     settings = Settings.from_environment()
-    control = build_control_plane(settings)
+    control = build_control_plane(settings, process=ProcessKind.WORKER)
     try:
-        control.maintenance.run(MaintenanceOperation(operation))
+        control.maintenance.run(job)
     finally:
         try:
             control.close()
         finally:
-            release_schedule_key(str(settings.redis_url), operation, token)
-
-
-@dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
-def reconcile_certificates(token: str) -> None:
-    _run_control_plane(MaintenanceOperation.RECONCILE_CERTIFICATES, token)
-
-
-@dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
-def reconcile_automatic_ssl(token: str) -> None:
-    _run_control_plane(MaintenanceOperation.RECONCILE_AUTOMATIC_SSL, token)
-
-
-@dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
-def renew_certificates(token: str) -> None:
-    _run_control_plane(MaintenanceOperation.RENEW_CERTIFICATES, token)
-
-
-@dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
-def check_drift(token: str) -> None:
-    _run_control_plane(MaintenanceOperation.CHECK_DRIFT, token)
+            release_schedule_key(str(settings.redis_url), job, token)

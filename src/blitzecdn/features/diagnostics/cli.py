@@ -9,14 +9,17 @@ import uvicorn
 
 from blitzecdn.api import create_app
 from blitzecdn.cli import common
-from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.features.cache.domain import CacheStatsReport
 from blitzecdn.features.certificates import check_resolver
 from blitzecdn.features.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
+#: Root-level verbs, like the deployment group: `blitzecdn status`, not
+#: `blitzecdn diagnostics status`.
+diagnostics_app = typer.Typer()
 
-@app.command()
+
+@diagnostics_app.command()
 def audit(
     limit: Annotated[int, typer.Option(min=1, max=500)] = 100,
     json_output: Annotated[bool, typer.Option("--json")] = False,
@@ -28,7 +31,7 @@ def audit(
     )
 
 
-@app.command()
+@diagnostics_app.command()
 def doctor(
     json_output: Annotated[bool, typer.Option("--json")] = False,
     resolver_check: Annotated[
@@ -84,7 +87,7 @@ def doctor(
         raise typer.Exit(ExitCode.CONFIGURATION)
 
 
-@app.command()
+@diagnostics_app.command()
 def stats(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     by_site: Annotated[
@@ -150,7 +153,7 @@ def _stats_document(report: CacheStatsReport, *, by_site: bool) -> dict[str, Any
     return document
 
 
-@app.command()
+@diagnostics_app.command()
 def serve(
     host: Annotated[str, typer.Option(help="Bind address.")] = "127.0.0.1",
     port: Annotated[int, typer.Option(min=1, max=65535)] = 8000,

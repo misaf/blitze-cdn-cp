@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
-from blitzecdn.control_plane import ControlPlane, build_control_plane
+from blitzecdn.bootstrap import ControlPlane, build_control_plane
 from blitzecdn.core.config import Settings
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.edges.domain import Edge, EdgePatch

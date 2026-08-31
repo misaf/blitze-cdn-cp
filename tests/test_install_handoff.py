@@ -3,7 +3,7 @@ import subprocess
 
 from conftest import FakeRunner
 
-from blitzecdn.control_plane import ControlPlane
+from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.database import Repository
 from blitzecdn.install_handoff import finalize_standalone, install_wrapper
 

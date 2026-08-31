@@ -15,7 +15,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.cli import common
-from blitzecdn.cli.app import app
+from blitzecdn.cli.root import app
 
 
 def _environment_file_body() -> str:

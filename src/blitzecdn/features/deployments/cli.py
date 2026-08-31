@@ -7,12 +7,16 @@ from typing import Annotated
 import typer
 
 from blitzecdn.cli import common
-from blitzecdn.cli.app import app
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.features.deployments.domain import DeploymentStatus
 
+#: Root-level verbs. They are contributed with no sub-command name, so an
+#: operator types `blitzecdn deploy` rather than `blitzecdn deployment deploy`:
+#: the registration mechanism should not be visible in the interface.
+deployment_app = typer.Typer()
 
-@app.command()
+
+@deployment_app.command()
 def validate(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
     """Validate configuration, desired state, inventory, and playbook syntax."""
     errors = common.control_plane().deployments.validate()
@@ -21,7 +25,7 @@ def validate(json_output: Annotated[bool, typer.Option("--json")] = False) -> No
         raise typer.Exit(ExitCode.CONFIGURATION)
 
 
-@app.command()
+@deployment_app.command()
 def plan(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
@@ -35,7 +39,7 @@ def plan(
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
 
-@app.command()
+@deployment_app.command()
 def deploy(
     yes: Annotated[
         bool,
@@ -118,7 +122,7 @@ def deploy(
         )
 
 
-@app.command()
+@deployment_app.command()
 def rollback(
     deployment_id: Annotated[
         str | None,
@@ -149,7 +153,7 @@ def rollback(
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
 
-@app.command()
+@deployment_app.command()
 def drift(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
@@ -196,7 +200,7 @@ def drift(
         raise typer.Exit(ExitCode.DRIFT_DETECTED)
 
 
-@app.command()
+@deployment_app.command()
 def status(
     deployment_id: Annotated[str | None, typer.Argument()] = None,
     limit: Annotated[int, typer.Option(min=1, max=100)] = 20,

@@ -20,8 +20,8 @@ import pytest
 from conftest import FakeRunner
 from typer.testing import CliRunner
 
+from blitzecdn.bootstrap import ControlPlane, build_backup_service
 from blitzecdn.cli import main as cli
-from blitzecdn.control_plane import ControlPlane, build_backup_service
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.features.backup.adapters import (

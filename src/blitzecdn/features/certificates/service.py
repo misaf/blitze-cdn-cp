@@ -11,6 +11,7 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from pathlib import Path
 from time import monotonic
 from typing import Literal
 
@@ -358,6 +359,18 @@ class CertificateService:
     def certificate(self, name: str) -> CertificateInfo:
         self.persistence.sites.get_site(name)
         return self.persistence.certificates.get(name)
+
+    def installed_sources(self, name: str) -> tuple[Path, Path]:
+        """Where this controller keeps the material it will ship to the edges.
+
+        Public because rendering desired state needs it: the site model can say
+        a host is in a controller-managed mode, but only this feature knows the
+        fingerprinted filenames the material is stored under. The alternative —
+        handing the certificate *store* to whoever renders — would put an
+        install-and-list capability in the hands of a caller that wants two
+        paths.
+        """
+        return self.persistence.certificates.sources(name)
 
     def certificate_statuses(self) -> list[CertificateStatus]:
         """Every managed certificate against the clock, soonest expiry first."""

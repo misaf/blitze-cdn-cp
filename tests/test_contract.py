@@ -29,7 +29,7 @@ import yaml
 # contract-test modules rather than reimplemented here.
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
 
-from blitzecdn.control_plane import ControlPlane
+from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
 from blitzecdn.features.dns.domain import DnsRecord, Domain

@@ -98,6 +98,13 @@ sudo /opt/blitzecdn/install.sh update [--ref REF] [--yes]
 
 Run `install.sh update --help` before changing release lines.
 
+## Extending BlitzeCDN
+
+Features register themselves through `pluggy`, and a separately installed
+package can contribute routes, commands, scheduled jobs, health checks and
+desired state without a line of this repository changing. See
+[PLUGINS.md](PLUGINS.md).
+
 ## Development
 
 Dependencies are managed with [uv](https://docs.astral.sh/uv/) and tasks with

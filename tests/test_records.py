@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from conftest import FakeRunner
 
-from blitzecdn.control_plane import ControlPlane
+from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.features.deployments.snapshots import (

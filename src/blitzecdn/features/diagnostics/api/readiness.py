@@ -12,15 +12,26 @@ _METRICS_WINDOW = 100
 
 @router.get("/health")
 def health(response: Response, control: ControlPlaneDependency) -> dict[str, str]:
-    """Whether this controller can actually answer, not merely respond."""
-    try:
-        control.workflow_history.list_workflows(1)
-        if not control.broker_ready():
-            raise ConnectionError("Redis did not answer PING")
-    except Exception as exc:
-        _LOGGER.exception("health check failed")
-        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
-        return {"status": "unavailable", "detail": type(exc).__name__}
+    """Whether this controller can actually answer, not merely respond.
+
+    Every check is a plugin's contribution, this feature's two included, so a
+    feature with its own liveness question adds it without editing this
+    endpoint. The first failure decides: an unhealthy node is unhealthy, and
+    running the rest would only delay the answer a load balancer is waiting on.
+    The failing check is named in the body, because "unavailable" without it
+    sends an operator to the logs of whichever replica happened to answer.
+    """
+    for check in control.health_checks():
+        try:
+            check.check()
+        except Exception as exc:
+            _LOGGER.exception("health check %s failed", check.name)
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {
+                "status": "unavailable",
+                "check": check.name,
+                "detail": type(exc).__name__,
+            }
     return {"status": "ok"}
 
 

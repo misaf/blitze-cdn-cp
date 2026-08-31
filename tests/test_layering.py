@@ -8,7 +8,10 @@ from pathlib import Path
 
 import pytest
 
+from blitzecdn.core.plugins import BUILTIN_PLUGINS
+
 _SOURCE = Path(__file__).resolve().parents[1] / "src" / "blitzecdn"
+_COMPOSITION_ROOT = "blitzecdn.bootstrap"
 _FEATURES = _SOURCE / "features"
 _IO_IMPORTS = (
     "fastapi",
@@ -57,6 +60,33 @@ def _imports(path: Path) -> set[str]:
     return found
 
 
+def _runtime_imports(path: Path) -> set[str]:
+    """Imports that actually execute, ignoring `if TYPE_CHECKING:` blocks.
+
+    An annotation-only import cannot create a cycle and cannot pull a package
+    into a process, so where the rule is about *runtime* direction — what the
+    plugin machinery loads, what a module makes the interpreter import — this
+    is the honest question to ask. Where the rule is about knowledge rather than
+    loading, `_imports` still counts every one.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    typing_only = {
+        node
+        for branch in ast.walk(tree)
+        if isinstance(branch, ast.If) and ast.unparse(branch.test) == "TYPE_CHECKING"
+        for node in ast.walk(branch)
+    }
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if node in typing_only:
+            continue
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.add(node.module)
+    return found
+
+
 def _banned(imported: str, forbidden: tuple[str, ...]) -> bool:
     root = imported.split(".")[0]
     return any(
@@ -90,6 +120,7 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "diagnostics",
         "dns",
         "edges",
+        "http3",
         "maintenance",
     ],
 )
@@ -109,7 +140,7 @@ def test_feature_domains_are_framework_and_io_independent():
                 *_IO_IMPORTS,
                 "blitzecdn.api",
                 "blitzecdn.cli",
-                "blitzecdn.control_plane",
+                "blitzecdn.bootstrap",
                 "blitzecdn.core.ansible",
                 "blitzecdn.core.broker",
                 "blitzecdn.core.database",
@@ -134,7 +165,7 @@ def test_feature_services_depend_on_contracts_not_concrete_adapters():
         *_IO_IMPORTS,
         "blitzecdn.api",
         "blitzecdn.cli",
-        "blitzecdn.control_plane",
+        "blitzecdn.bootstrap",
         "blitzecdn.core.ansible",
         "blitzecdn.core.broker",
         "blitzecdn.core.database",
@@ -163,7 +194,7 @@ def test_feature_adapters_never_import_entry_layers_or_composition():
             (
                 "blitzecdn.api",
                 "blitzecdn.cli",
-                "blitzecdn.control_plane",
+                "blitzecdn.bootstrap",
                 "blitzecdn.worker",
             ),
         )
@@ -230,7 +261,7 @@ def test_cross_feature_imports_use_contract_modules():
 
 
 def test_control_plane_is_the_only_production_composition_root():
-    imports = _imports(_SOURCE / "control_plane.py")
+    imports = _imports(_SOURCE / "bootstrap.py")
     assert any(name.startswith("blitzecdn.features") for name in imports)
     assert any(name.startswith("blitzecdn.core") for name in imports)
     assert not any(name.startswith("blitzecdn.worker") for name in imports)
@@ -247,12 +278,12 @@ _CONCRETE_ADAPTERS = {
     "Repository",
 }
 
-#: `control_plane` is the composition root for the control plane. `acme_hook`
+#: `bootstrap` is the composition root for the control plane. `acme_hook`
 #: is a second, deliberate one: certbot runs it as a one-shot subprocess with
 #: no control plane in the picture, and it builds the two adapters an HTTP-01
 #: challenge needs and nothing else. Named here so a third does not appear
 #: quietly beside them.
-_COMPOSITION_MODULES = {"control_plane.py", "acme_hook.py"}
+_COMPOSITION_MODULES = {"bootstrap.py", "acme_hook.py"}
 
 
 def test_only_a_composition_root_names_a_concrete_adapter():
@@ -297,7 +328,7 @@ def test_core_carries_no_cross_feature_application_service():
 
 
 def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
-    assert "blitzecdn.control_plane" in _imports(_SOURCE / "worker.py")
+    assert "blitzecdn.bootstrap" in _imports(_SOURCE / "worker.py")
     offenders = [
         str(path.relative_to(_SOURCE))
         for path in _SOURCE.rglob("*.py")
@@ -307,7 +338,7 @@ def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
     assert offenders == []
     broker_imports = _imports(_SOURCE / "core/broker.py")
     assert not any(
-        name.startswith(("blitzecdn.worker", "blitzecdn.control_plane"))
+        name.startswith(("blitzecdn.worker", "blitzecdn.bootstrap"))
         for name in broker_imports
     )
 
@@ -407,9 +438,55 @@ ALLOWED_FEATURE_DEPENDENCIES = {
     "deployments": {"dns"},
     "diagnostics": {"cache", "certificates"},
     "dns": set(),
+    "http3": {"dns"},
     "maintenance": {"automatic_ssl", "certificates", "deployments"},
     "edges": {"dns"},
 }
+
+#: Which `ControlPlane` attribute belongs to which feature. A `plugin.py` that
+#: reads one is depending on that feature just as surely as an import would, so
+#: `_feature_graph` counts both — otherwise moving a call from a service into a
+#: registration hook would be a way to leave the declared graph.
+_PLATFORM_SERVICES = {
+    "automatic_ssl": "automatic_ssl",
+    "backup": "backup",
+    "cache": "cache",
+    "certificates": "certificates",
+    "deployments": "deployments",
+    "dns": "dns",
+    "edges": "edges",
+    "maintenance": "maintenance",
+}
+
+#: What every plugin may read off the platform without that being a dependency
+#: on a feature: configuration, the cross-cutting journals, and the registry's
+#: own accessors.
+_PLATFORM_COMMON = {
+    "audit",
+    "broker_ready",
+    "close",
+    "events",
+    "health_checks",
+    "jobs",
+    "plugins",
+    "process",
+    "settings",
+    "start",
+    "stop",
+    "workflow_history",
+    "workflows",
+}
+
+
+def _platform_reads(path: Path) -> set[str]:
+    """Every `platform.<name>` this module reads."""
+    return {
+        node.attr
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id == "platform"
+    }
 
 
 def _feature_graph() -> dict[str, set[str]]:
@@ -426,6 +503,12 @@ def _feature_graph() -> dict[str, set[str]]:
             # Any form counts, `from blitzecdn.features.x import y` included:
             # importing another feature's package is depending on it.
             if depends_on != owner:
+                graph[owner].add(depends_on)
+    for path in _FEATURES.glob("*/plugin.py"):
+        owner = _feature_name(path)
+        for attribute in _platform_reads(path):
+            depends_on = _PLATFORM_SERVICES.get(attribute)
+            if depends_on is not None and depends_on != owner:
                 graph[owner].add(depends_on)
     return graph
 
@@ -496,5 +579,130 @@ def test_no_feature_port_declares_another_feature_s_playbook():
         if isinstance(node, ast.FunctionDef)
         for owner in [owners.get(node.name)]
         if owner is not None and owner != _feature_name(path)
+    ]
+    assert offenders == []
+
+
+def test_every_feature_registers_itself_through_a_plugin_module():
+    """A feature the plugin manager has never heard of is a feature nothing runs.
+
+    Both directions: a package without a `plugin.py` contributes nothing, and a
+    `plugin.py` missing from `BUILTIN_PLUGINS` is never imported — either way
+    the routes and commands quietly are not there, which is exactly the failure
+    a discovery mechanism is supposed to make impossible.
+    """
+    packages = {
+        path.name
+        for path in _FEATURES.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    }
+    assert {path.parent.name for path in _FEATURES.glob("*/plugin.py")} == packages
+    assert set(BUILTIN_PLUGINS) == {
+        f"blitzecdn.features.{name}.plugin" for name in packages
+    }
+
+
+def test_only_a_plugin_module_may_name_the_composition_root():
+    """Registration may know the platform. Everything else in a feature may not.
+
+    `plugin.py` is handed the built control plane so it can say which service a
+    scheduled job calls and which one a health check probes. That is the whole
+    of the allowance: a service, a domain module or an adapter that reached for
+    it would be resolving its collaborators at call time instead of receiving
+    them, which is the service-locator architecture this design refuses.
+
+    A feature's *entry* modules are outside the rule for the same reason
+    `cli/common.py` is: a command has to get a control plane from somewhere.
+    `backup/cli.py` is the pointed case — it builds a backup service directly,
+    because restore has to work on a host where the control plane cannot start.
+    """
+    entry = set(_entry_files())
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _feature_files()
+        if path.name != "plugin.py" and path not in entry
+        for imported in sorted(_imports(path))
+        if imported.startswith(_COMPOSITION_ROOT)
+    ]
+    assert offenders == []
+
+
+def test_a_plugin_module_names_the_composition_root_only_for_typing():
+    """And even there, never at runtime.
+
+    A feature importing the composition root for real would point the arrow
+    back at the thing that builds it. `plugin.py` needs the *type* to annotate
+    its hooks, which `TYPE_CHECKING` gives it without an import ever executing.
+    """
+    offenders: list[str] = []
+    for path in _FEATURES.glob("*/plugin.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        guarded = {
+            node
+            for branch in ast.walk(tree)
+            if isinstance(branch, ast.If)
+            and ast.unparse(branch.test) == "TYPE_CHECKING"
+            for node in ast.walk(branch)
+        }
+        offenders.extend(
+            f"{path.relative_to(_SOURCE)}:{node.lineno} imports the composition root"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.ImportFrom)
+            and (node.module or "").startswith(_COMPOSITION_ROOT)
+            and node not in guarded
+        )
+    assert offenders == []
+
+
+def test_a_plugin_reads_only_the_platform_services_its_graph_declares():
+    """`platform.x` in a registration hook is a declared dependency or a bug."""
+    offenders = [
+        f"{path.relative_to(_SOURCE)} reads platform.{attribute}"
+        for path in _FEATURES.glob("*/plugin.py")
+        for attribute in sorted(_platform_reads(path))
+        if attribute not in _PLATFORM_COMMON
+        and _PLATFORM_SERVICES.get(attribute)
+        not in {
+            _feature_name(path),
+            *ALLOWED_FEATURE_DEPENDENCIES[_feature_name(path)],
+        }
+    ]
+    assert offenders == []
+
+
+def test_the_entry_layers_import_no_feature_at_all():
+    """The point of the whole exercise, asserted where it can be checked.
+
+    `api/app.py` used to name seventeen router modules and `cli/main.py` eleven
+    command groups, so adding a feature meant editing both. They ask the plugin
+    registry now, and a feature that appears in neither list is a feature that
+    forgot to contribute — not one somebody forgot to wire.
+
+    Only these two modules. `api/v1_models.py` projects domain values into the
+    frozen HTTP representations and has to name them; that is a *translation*,
+    and it is the assembly that had to stop knowing the feature list.
+    """
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in (_SOURCE / "api/app.py", _SOURCE / "cli/main.py")
+        for imported in sorted(_imports(path))
+        if imported.startswith("blitzecdn.features")
+    ]
+    assert offenders == []
+
+
+def test_the_plugin_infrastructure_depends_on_no_feature():
+    """`core.plugins` is the mechanism, not a participant in it.
+
+    Runtime imports only. The hookspecs annotate their arguments with the
+    control plane and with `CdnSite`, because a specification with untyped
+    parameters would be no specification at all — but nothing is imported to
+    do it, so the direction the interpreter actually takes stays one way.
+    """
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in (_SOURCE / "core/plugins").rglob("*.py")
+        for imported in sorted(_runtime_imports(path))
+        if imported.startswith(("blitzecdn.features", _COMPOSITION_ROOT))
     ]
     assert offenders == []
