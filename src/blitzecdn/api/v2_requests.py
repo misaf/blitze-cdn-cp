@@ -5,8 +5,8 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.api.v2_operations import PurgeEntry
-from blitzecdn.domain.certificates import CERTIFICATE_RENEWAL_DAYS
-from blitzecdn.domain.validation import EDGE_LIMIT
+from blitzecdn.core.validation import EDGE_LIMIT
+from blitzecdn.features.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
 
 class _RequestModel(BaseModel):
