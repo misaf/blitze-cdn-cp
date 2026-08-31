@@ -21,7 +21,7 @@ certificate's desired state needs the store that knows where the key is on this
 controller. That is registration-time access to a typed object, and it is the
 only reason a plugin ever sees it. Reaching for a service *inside* a request is
 the service-locator shape this deliberately does not offer, and
-``tests/test_layering.py`` refuses ``platform`` anywhere but ``plugin.py``.
+``tests/architecture/test_layering.py`` refuses ``platform`` anywhere but ``plugin.py``.
 """
 
 from __future__ import annotations

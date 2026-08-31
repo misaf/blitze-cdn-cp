@@ -16,14 +16,13 @@ from typing import Self, Union, get_args, get_origin
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.core.validation import DNS_LABEL, hostname
+from blitzecdn.features.compression.policy import CompressionMode
+from blitzecdn.features.security.policy import SiteFirewall
 from blitzecdn.features.sites.domain import CdnSite, SitePolicy
-from blitzecdn.features.sites.policy import (
-    CacheQueryStringMode,
+from blitzecdn.features.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
+from blitzecdn.features.tls.policy import (
     CertificateMode,
-    CompressionMode,
     MinimumTlsVersion,
-    SiteFirewall,
-    SiteVisitorHeaders,
     SslAutomaticMode,
     SslMode,
 )

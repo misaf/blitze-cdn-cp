@@ -1,12 +1,18 @@
-"""The edge virtual host and flat site-policy contract.
+"""The edge virtual host: one composition of every capability's site policy.
 
 ``CdnSite`` is the whole of what the control plane asks an edge to serve. DNS
 records currently derive it, but the site contract does not depend on DNS.
 
+This module *composes*; it does not own. Compression, HTTP protocol, security
+and TLS policy each belong to the capability of the same name and are imported
+from there. What lives here is what only exists once the fragments are on one
+model: the rules that read across two capabilities at once — HTTP/3 needing
+edge TLS, a certificate mode agreeing with its two paths, GeoIP being required
+by either a country rule or a visitor header — and the site's identity.
+
 The public model deliberately remains flat: API v1/v2, persisted policy JSON,
-deployment snapshots, and Ansible all consume that shape. Cohesive value types
-and policy fragments live under :mod:`blitzecdn.features.sites.policy`; this
-module composes them and owns cross-policy validation.
+deployment snapshots, and Ansible all consume that shape. Composition is by
+inheritance rather than by nesting for that reason alone.
 """
 
 from __future__ import annotations
@@ -16,48 +22,27 @@ from typing import Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.core.validation import SITE_NAME, hostname
-from blitzecdn.features.sites.policy import (
-    CERTIFICATE_ROOTS,
+from blitzecdn.features.compression.policy import CompressionPolicy
+from blitzecdn.features.http.policy import (
     DEFAULT_PORTS,
-    HTTP_PROXY_PORTS,
-    HTTPS_PROXY_PORTS,
-    MANAGED_TLS_ROOT,
-    CachePolicy,
-    CacheQueryStringMode,
-    CertificateMode,
-    CompressionMode,
-    CompressionPolicy,
-    HeaderPolicy,
     HttpScheme,
-    MinimumTlsVersion,
-    OriginPolicy,
     ProtocolPolicy,
-    SecurityPolicy,
-    SiteFirewall,
-    SiteVisitorHeaders,
-    SslAutomaticMode,
-    SslMode,
+)
+from blitzecdn.features.security.policy import SecurityPolicy
+from blitzecdn.features.sites.policy import (
+    CachePolicy,
+    HeaderPolicy,
+    OriginPolicy,
+)
+from blitzecdn.features.tls.policy import (
+    CERTIFICATE_ROOTS,
+    MANAGED_TLS_ROOT,
+    CertificateMode,
     TlsPolicy,
     managed_certificate_paths,
 )
 
-__all__ = [
-    "HTTPS_PROXY_PORTS",
-    "HTTP_PROXY_PORTS",
-    "MANAGED_TLS_ROOT",
-    "CacheQueryStringMode",
-    "CdnSite",
-    "CertificateMode",
-    "CompressionMode",
-    "HttpScheme",
-    "MinimumTlsVersion",
-    "SiteFirewall",
-    "SitePolicy",
-    "SiteVisitorHeaders",
-    "SslAutomaticMode",
-    "SslMode",
-    "managed_certificate_paths",
-]
+__all__ = ["CdnSite", "SitePolicy"]
 
 
 class SitePolicy(

@@ -29,7 +29,7 @@ written down rather than assumed.
 The queue is reached through :mod:`blitzecdn.core.broker` and never
 through :mod:`blitzecdn.worker`. The worker is an entry point that builds a
 control plane, so importing it from here would point the arrow both ways;
-``tests/test_layering.py`` refuses that import by name.
+``tests/architecture/test_layering.py`` refuses that import by name.
 """
 
 from __future__ import annotations
@@ -54,7 +54,6 @@ from blitzecdn.core.plugins import (
     load_plugins,
 )
 from blitzecdn.core.workflows import WorkflowCoordinator
-from blitzecdn.features.automatic_ssl import AutomaticSslService
 from blitzecdn.features.backup.adapters import (
     AcmeComponent,
     AlembicSchemaVersions,
@@ -68,18 +67,6 @@ from blitzecdn.features.backup.adapters import (
 from blitzecdn.features.backup.service import BackupPolicy, BackupService
 from blitzecdn.features.cache import CacheService
 from blitzecdn.features.cache.ports import CacheRunner
-from blitzecdn.features.certificates.adapters import CertbotIssuer, CertificateStore
-from blitzecdn.features.certificates.ports import (
-    CertificateStore as CertificateStorePort,
-)
-from blitzecdn.features.certificates.ports import Issuer, Preflight
-from blitzecdn.features.certificates.preflight import CertificatePreflight
-from blitzecdn.features.certificates.service import (
-    CertificateExecution,
-    CertificatePersistence,
-    CertificatePolicy,
-    CertificateService,
-)
 from blitzecdn.features.deployments.desired_state import DesiredStateRenderer
 from blitzecdn.features.deployments.ports import (
     DeploymentRunner,
@@ -99,6 +86,19 @@ from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
 from blitzecdn.features.maintenance import MaintenanceService
 from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.tls.automatic_ssl import AutomaticSslService
+from blitzecdn.features.tls.certificates.adapters import CertbotIssuer, CertificateStore
+from blitzecdn.features.tls.certificates.ports import (
+    CertificateStore as CertificateStorePort,
+)
+from blitzecdn.features.tls.certificates.ports import Issuer, Preflight
+from blitzecdn.features.tls.certificates.preflight import CertificatePreflight
+from blitzecdn.features.tls.certificates.service import (
+    CertificateExecution,
+    CertificatePersistence,
+    CertificatePolicy,
+    CertificateService,
+)
 
 
 class FleetRunner(DeploymentRunner, CacheRunner, EdgeRunner, Protocol):

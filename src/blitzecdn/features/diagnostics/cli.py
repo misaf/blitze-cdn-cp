@@ -11,8 +11,8 @@ from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.features.cache.domain import CacheStatsReport
-from blitzecdn.features.certificates import check_resolver
-from blitzecdn.features.certificates.domain import CERTIFICATE_RENEWAL_DAYS
+from blitzecdn.features.tls.certificates import check_resolver
+from blitzecdn.features.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
 #: Root-level verbs, like the deployment group: `blitzecdn status`, not
 #: `blitzecdn diagnostics status`.

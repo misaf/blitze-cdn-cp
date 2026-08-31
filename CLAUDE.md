@@ -30,15 +30,19 @@ Work happens on `3.x`, not `master`.
 
 ## Architecture
 
-A **plugin-first package-by-feature modular monolith** with **ports and adapters** inside each feature, **`pluggy` for registration**, and an **explicit composition root**, **enforced by tests, not by convention** — `tests/test_layering.py` walks the real source tree and will fail your change if you cross a boundary. Read it, and [PLUGINS.md](PLUGINS.md), before restructuring anything.
+A **plugin-first, capability-oriented modular monolith** with **ports and adapters** inside each feature, **`pluggy` for registration**, and an **explicit composition root**, **enforced by tests, not by convention** — `tests/architecture/test_layering.py` walks the real source tree and will fail your change if you cross a boundary. Read it, and [PLUGINS.md](PLUGINS.md), before restructuring anything.
 
 ```
 src/blitzecdn/
-├── features/          # one package per meaningful business or operational
-│   │                  # capability, with only the layers it actually needs
-│   ├── automatic_ssl/  backup/  cache/  certificates/  deployments/
-│   ├── diagnostics/    dns/     edges/  maintenance/  sites/
-│   └── sites/policy/  # cohesive site switches; not standalone plugins
+├── features/          # one package per real product or operational
+│   │                  # CAPABILITY, with only the layers it actually needs
+│   ├── compression/   #   policy.py — gzip and Brotli are strategies, not features
+│   ├── http/          #   policy.py + plugin.py — HTTP/1, /2, /3 and the listeners
+│   ├── security/      #   policy.py + plugin.py — firewall and Under Attack Mode
+│   ├── tls/           #   policy.py + certificates/ + automatic_ssl/
+│   ├── sites/         #   domain.py composes every contract; policy/ holds its own
+│   ├── cache/  dns/  edges/  deployments/
+│   └── backup/  diagnostics/  maintenance/
 ├── core/              # shared runtime and infrastructure implementations:
 │   │                  # SQLite, Ansible, Certbot, filesystem, process, config
 │   └── plugins/       # hookspecs, discovery, manager, registry
@@ -51,14 +55,16 @@ src/blitzecdn/
 
 The rules that shape it:
 
-- **Features own their business logic.** A feature's `domain.py` (plus `sites/policy/`, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). `sites` owns `CdnSite` and flat site-serving policy; DNS owns records and may derive sites from those public contracts, never the reverse.
+- **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `gzip`, `http3`, `certificates` or `under_attack` package by name. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
+- **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
+- **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
 - **The consumer owns the port.** A feature's `ports.py` holds the narrow `Protocol` interfaces *that feature* calls. A port belongs to whoever calls it, never to whoever implements it — a port describing a run some other feature performs is what forces a cycle, and `test_no_feature_port_declares_another_feature_s_playbook` refuses it.
 - **Concrete infrastructure implements those ports.** `core/` and a feature's own `adapters/` supply the implementations. A feature *service* (`service.py`, `rollback.py`, `reporting.py`) names its ports and never a concrete adapter.
 - **`bootstrap.py` is the production composition root.** It builds every adapter, injects it into the services, loads the plugins, and hands each plugin the finished control plane. Production wiring exists nowhere else, and it is the only module that knows one `AnsibleRunner` satisfies `CacheRunner`, `EdgeRunner`, `DeploymentRunner` and `DeploymentLocker` alike. The order is the architecture: **adapters → services → plugins → contributions**, and nothing flows back.
 - **Pluggy registers; it never carries business calls.** A feature's `plugin.py` contributes routers, CLI groups, scheduled jobs, health checks, desired-state fragments, deployment checks and lifecycle work. Business communication stays an explicit call on a constructor-injected service — `certificate_service.issue(...)`, never `hook.issue_certificate(...)`. There is no global plugin manager and no service lookup in a request path; `platform.<service>` appears in `plugin.py` and nowhere else, and a layering test refuses it anywhere else.
 - **`api/app.py` and `cli/main.py` import no feature.** Both ask the plugin registry. Adding an extension-style feature means writing its `plugin.py` and adding one line to `BUILTIN_PLUGINS`; a separately installed distribution needs neither, only an entry point in the `blitzecdn.plugins` group.
-- **Desired state is contributed, not centralised.** `DesiredStateRenderer` frames the document and knows nothing about what goes in it: `sites` projects the site model and fleet QUIC requirement, while `certificates` overrides the two TLS paths. Contributions are typed and merged order-independently — two plugins writing one variable is an error unless exactly one declares it in `overrides`. Never concatenate configuration text through a hook.
-- **A CDN switch is not automatically a feature.** HTTP/3, compression, minimum TLS, redirects, cache policy, site firewall rules, visitor headers, and origin behavior belong under `sites/policy/`. Keep edge runtime/build capability separate, and keep cache operations and certificate workflows in their top-level operational features.
+- **Desired state is contributed, not centralised.** `DesiredStateRenderer` frames the document and knows nothing about what goes in it: `sites` projects the site model, `http` derives the fleet QUIC requirement and its single `reuseport` listener owner, and `tls` overrides the two certificate paths. Contributions are typed and merged order-independently — two plugins writing one variable is an error unless exactly one declares it in `overrides`. Never concatenate configuration text through a hook.
+- **A CDN switch is not automatically a feature — it belongs to the capability that owns its behavior.** Compression, HTTP protocol, security and TLS policy live with their capabilities. Cache policy, visitor headers and origin identity stay under `sites/policy/` because nothing outside a site's own configuration reads them: the `cache` capability owns purge and statistics *operations*, and moving `CachePolicy` under it would make `sites` depend on a feature that already depends on `sites`. Keep edge runtime/build capability separate.
 - **Cross-feature dependencies follow the declared graph.** See `ALLOWED_FEATURE_DEPENDENCIES` below.
 - **Entry layers (`api/`, `cli/`) never touch persistence or an adapter directly.** They call services on `ControlPlane`.
 
@@ -90,7 +96,7 @@ Rules that the layering tests exist to defend, each guarding a failure that is i
 - **`ControlPlane` forwards no calls.** Entry layers reach the owning service (`control_plane.dns.create_record(...)`); adding a passthrough method that restates a service signature is a step backwards.
 - **The API must not construct adapters.** `create_app` asks the composition root for a `ControlPlane` rather than building one, so the adapter choice stays in a single place.
 - **Never reason from Ansible's textual output.** Raw output is retained per run for operators only; the control plane decides from structured Runner events (`core.runs.AnsibleRun`) and nothing else. Reading `.stdout`/`.stderr` or matching on `PLAY RECAP` in a feature's domain or service modules fails the suite. `core/filesystem.py` owns the one reader; a service may reach it through the `LogReader` port to quote a log into a message.
-- **Feature-to-feature dependencies are declared, not discovered.** `ALLOWED_FEATURE_DEPENDENCIES` in `tests/test_layering.py` is the graph, enforced in both directions and required to stay acyclic. A new edge is a decision you write down. The usual way one appears by accident is a port: a feature declaring a run that another feature performs forces that feature to import this one, which is how four cycles got in. Each feature declares the slice it calls (`CacheRunner`, `EdgeRunner`, `DeploymentRunner`, `DeploymentLocker`), and `control_plane.FleetRunner` is the only place that knows one `AnsibleRunner` satisfies them all.
+- **Feature-to-feature dependencies are declared, not discovered.** `ALLOWED_FEATURE_DEPENDENCIES` in `tests/architecture/test_layering.py` is the graph, enforced in both directions and required to stay acyclic. A new edge is a decision you write down. The usual way one appears by accident is a port: a feature declaring a run that another feature performs forces that feature to import this one, which is how four cycles got in. Each feature declares the slice it calls (`CacheRunner`, `EdgeRunner`, `DeploymentRunner`, `DeploymentLocker`), and `control_plane.FleetRunner` is the only place that knows one `AnsibleRunner` satisfies them all.
 - **No outbox pattern and no `ThreadBackgroundRunner`.** Both were removed; a test refuses their return by name. There is one queue (Dramatiq over Redis), and two actors: one deployment, one scheduled job. A job's *name* travels in the message and the worker resolves it against the plugin registry, so a plugin can contribute recurring work without an actor being declared for it.
 - **Every feature has a `plugin.py`, and every `plugin.py` is in `BUILTIN_PLUGINS`.** Both directions are tested: a feature the plugin manager never hears of contributes no routes and no commands, and the failure is silent absence rather than an error.
 

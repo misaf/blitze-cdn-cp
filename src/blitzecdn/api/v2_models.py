@@ -7,6 +7,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from blitzecdn.features.compression.policy import CompressionMode
 from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.features.dns.domain import Domain as DomainDomain
 from blitzecdn.features.dns.domain import RecordPatch as DomainRecordPatch
@@ -14,10 +15,9 @@ from blitzecdn.features.dns.domain import RecordType as DomainRecordType
 from blitzecdn.features.edges.domain import Edge as DomainEdge
 from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
 from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
-from blitzecdn.features.sites.policy import (
-    CacheQueryStringMode,
+from blitzecdn.features.sites.policy import CacheQueryStringMode
+from blitzecdn.features.tls.policy import (
     CertificateMode,
-    CompressionMode,
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,

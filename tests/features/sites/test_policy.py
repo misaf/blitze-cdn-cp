@@ -1,30 +1,33 @@
-"""Ownership and composition tests for site-serving policy."""
+"""Composition tests for the site model: what it owns, and what it borrows."""
 
 import pytest
 from pydantic import ValidationError
 
+from blitzecdn.features.compression.policy import CompressionMode
+from blitzecdn.features.security.policy import SiteFirewall
 from blitzecdn.features.sites.domain import CdnSite, SitePolicy
-from blitzecdn.features.sites.plugin import blitzecdn_fleet_desired_state
-from blitzecdn.features.sites.policy import (
-    CacheQueryStringMode,
-    CompressionMode,
-    SiteFirewall,
-    SiteVisitorHeaders,
-    SslMode,
-    managed_certificate_paths,
-)
+from blitzecdn.features.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
+from blitzecdn.features.tls.policy import SslMode
 
 
-def test_policy_concepts_are_owned_by_cohesive_site_modules():
-    assert CompressionMode.__module__.endswith(".sites.policy.compression")
-    assert CacheQueryStringMode.__module__.endswith(".sites.policy.cache")
-    assert SslMode.__module__.endswith(".sites.policy.tls")
-    assert SiteFirewall.__module__.endswith(".sites.policy.security")
-    assert SiteVisitorHeaders.__module__.endswith(".sites.policy.headers")
+def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
+    """The ownership rule, asserted on the values themselves.
+
+    ``__module__`` is where a class was defined, not where it was imported
+    from, so this fails if a capability's contract is redefined or aliased into
+    ``sites`` rather than composed from its owner.
+    """
+    assert CompressionMode.__module__ == "blitzecdn.features.compression.policy"
+    assert SslMode.__module__ == "blitzecdn.features.tls.policy"
+    assert SiteFirewall.__module__ == "blitzecdn.features.security.policy"
+    # The two that stay: nothing outside a site's own configuration reads them.
+    assert CacheQueryStringMode.__module__ == "blitzecdn.features.sites.policy.cache"
+    assert SiteVisitorHeaders.__module__ == "blitzecdn.features.sites.policy.headers"
     assert [mode.value for mode in CompressionMode] == ["off", "gzip", "brotli"]
 
 
 def test_composed_site_policy_keeps_the_flat_persisted_contract():
+    """Composition changed owners, not the shape anything downstream reads."""
     document = SitePolicy().model_dump(mode="json")
 
     assert document["compression"] == "brotli"
@@ -41,12 +44,14 @@ def test_composed_site_policy_keeps_the_flat_persisted_contract():
             "security",
             "headers",
             "origin",
+            "compression_policy",
         }
         & document.keys()
     )
 
 
-def test_cross_policy_http3_validation_stays_on_site_policy():
+def test_cross_capability_rules_stay_on_the_site_that_composes_them():
+    """HTTP/3 needing edge TLS reads two capabilities, so neither can own it."""
     with pytest.raises(ValidationError, match="http3_enabled=True requires ssl_mode"):
         SitePolicy(http3_enabled=True)
 
@@ -59,27 +64,19 @@ def test_geoip_requirement_combines_security_and_header_policy():
     assert not SitePolicy().requires_geoip
 
 
-def test_sites_plugin_projects_http3_fleet_requirement_and_one_owner():
-    def site(name: str, *, enabled: bool = True) -> CdnSite:
-        chain, key = managed_certificate_paths(name)
-        return CdnSite(
-            name=name,
-            server_names=(f"{name}.example.com",),
-            origin_host="198.51.100.10",
-            enabled=enabled,
-            ssl_mode="full",
-            certificate_mode="requested",
-            certificate_path=chain,
-            certificate_key_path=key,
-            http3_enabled=True,
-        )
+def test_site_package_re_exports_only_what_sites_owns():
+    """Importing another capability's contract from `sites` must not work."""
+    import blitzecdn.features.sites as sites
 
-    contribution = blitzecdn_fleet_desired_state(
-        (site("bravo"), site("alpha"), site("disabled", enabled=False)), object()
-    )
-
-    assert contribution.plugin == "sites"
-    assert contribution.variables == {
-        "blitzecdn_edge_http3_enabled": True,
-        "blitzecdn_nginx_http3_listener_owner": "alpha",
+    assert set(sites.__all__) == {
+        "CachePolicy",
+        "CacheQueryStringMode",
+        "CdnSite",
+        "HeaderPolicy",
+        "OriginPolicy",
+        "SitePolicy",
+        "SiteVisitorHeaders",
     }
+    for borrowed in ("CompressionMode", "SslMode", "SiteFirewall", "HttpScheme"):
+        assert not hasattr(sites, borrowed), borrowed
+    assert issubclass(CdnSite, SitePolicy)

@@ -61,13 +61,17 @@ _LOGGER = logging.getLogger(__name__)
 #: merging is deliberately order-independent (see `registry.merge_variables`),
 #: so moving a line in this tuple can never change what an edge converges to.
 BUILTIN_PLUGINS: tuple[str, ...] = (
+    # The capability contracts first: nothing they contribute depends on
+    # another feature being registered, and `sites` composes their policy.
+    "blitzecdn.features.compression.plugin",
+    "blitzecdn.features.http.plugin",
+    "blitzecdn.features.security.plugin",
     "blitzecdn.features.sites.plugin",
     "blitzecdn.features.dns.plugin",
     "blitzecdn.features.edges.plugin",
     "blitzecdn.features.cache.plugin",
     "blitzecdn.features.deployments.plugin",
-    "blitzecdn.features.certificates.plugin",
-    "blitzecdn.features.automatic_ssl.plugin",
+    "blitzecdn.features.tls.plugin",
     "blitzecdn.features.backup.plugin",
     "blitzecdn.features.maintenance.plugin",
     "blitzecdn.features.diagnostics.plugin",

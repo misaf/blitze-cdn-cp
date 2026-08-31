@@ -20,7 +20,7 @@ from blitzecdn.features.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.sites.policy import (
+from blitzecdn.features.tls.policy import (
     CertificateMode,
     SslAutomaticMode,
     SslMode,

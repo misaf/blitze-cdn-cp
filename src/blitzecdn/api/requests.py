@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.api.operations import PurgeEntry
 from blitzecdn.core.validation import EDGE_LIMIT
-from blitzecdn.features.certificates.domain import CERTIFICATE_RENEWAL_DAYS
+from blitzecdn.features.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
 
 class _RequestModel(BaseModel):

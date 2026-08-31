@@ -290,7 +290,7 @@ class FakePreflight:
         self.calls: list[tuple[str, bool, int | None]] = []
 
     def check(self, site, *, deployed: bool, record_ttl: int | None = None):
-        from blitzecdn.features.certificates.domain import (
+        from blitzecdn.features.tls.certificates.domain import (
             PreflightCheck,
             PreflightReport,
             PreflightSeverity,

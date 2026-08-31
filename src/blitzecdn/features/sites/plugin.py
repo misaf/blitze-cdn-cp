@@ -1,21 +1,22 @@
-"""Register site-serving desired-state contributions."""
+"""Register the site-serving composition and the document the edges converge on.
+
+One contribution, and it is the important one: the flat site document every
+edge role reads. The QUIC listener state used to be derived here too and is now
+``http``'s, which is the ownership rule applied to the one case where it made a
+difference — a fleet fact about a protocol was being computed by the feature
+that merely composes that protocol's switch.
+"""
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from blitzecdn import __version__
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.plugins import (
-    FleetStateContribution,
     PluginMetadata,
     SiteStateContribution,
     hookimpl,
 )
 from blitzecdn.features.sites.domain import CdnSite
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from blitzecdn.bootstrap import ControlPlane
 
 
 @hookimpl
@@ -24,7 +25,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
         name="sites",
         version=__version__,
         required=True,
-        summary="Site-serving policy and its edge desired state.",
+        summary="The virtual host: every capability's site policy on one model.",
     )
 
 
@@ -32,18 +33,3 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 def blitzecdn_site_desired_state(site: CdnSite) -> SiteStateContribution:
     """Project the stable flat site contract consumed by the edge roles."""
     return SiteStateContribution(plugin="sites", variables=site_to_ansible(site))
-
-
-@hookimpl
-def blitzecdn_fleet_desired_state(
-    sites: tuple[CdnSite, ...], platform: ControlPlane
-) -> FleetStateContribution:
-    """Enable QUIC fleet-wide and select exactly one Nginx listener owner."""
-    enabled = sorted(site.name for site in sites if site.enabled and site.http3_enabled)
-    return FleetStateContribution(
-        plugin="sites",
-        variables={
-            "blitzecdn_edge_http3_enabled": bool(enabled),
-            "blitzecdn_nginx_http3_listener_owner": enabled[0] if enabled else "",
-        },
-    )

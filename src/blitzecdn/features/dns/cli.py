@@ -11,16 +11,11 @@ from typing import Annotated
 import typer
 
 from blitzecdn.cli import common
+from blitzecdn.features.compression.policy import CompressionMode
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.features.sites.policy import (
-    CacheQueryStringMode,
-    CompressionMode,
-    MinimumTlsVersion,
-    SiteFirewall,
-    SiteVisitorHeaders,
-    SslAutomaticMode,
-    SslMode,
-)
+from blitzecdn.features.security.policy import SiteFirewall
+from blitzecdn.features.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
+from blitzecdn.features.tls.policy import MinimumTlsVersion, SslAutomaticMode, SslMode
 
 site_app = typer.Typer(
     no_args_is_help=True,

@@ -90,6 +90,11 @@ packages = ["src/blitzecdn"]
 addopts = "--strict-config --strict-markers --cov=blitzecdn --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = ["error"]
 testpaths = ["tests"]
+# Tests live in per-capability directories now, so the shared helpers beside
+# `conftest.py` are no longer guaranteed onto `sys.path` by a top-level test
+# module. Name the directory rather than relying on where the first collected
+# file happens to sit.
+pythonpath = ["tests"]
 
 [tool.coverage.run]
 branch = true
