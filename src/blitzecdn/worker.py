@@ -7,7 +7,7 @@ nothing imports it back.
 
 The broker itself — connecting to Redis, publishing a message, the
 single-flight key that keeps one scheduled operation in flight — lives in
-:mod:`blitzecdn.infrastructure.broker`, which is where the composition root
+:mod:`blitzecdn.core.broker`, which is where the composition root
 reaches for it. A publisher never imports this module, so a Dramatiq message
 carries an actor *name* and the worker resolves it against the actors declared
 below.
@@ -19,15 +19,15 @@ import logging
 
 import dramatiq
 
-from blitzecdn.config import Settings
-from blitzecdn.domain.operations import MaintenanceOperation
-from blitzecdn.exceptions import DeploymentBusyError
-from blitzecdn.infrastructure.broker import (
+from blitzecdn.core.broker import (
     DEPLOYMENT_QUEUE,
     SCHEDULED_QUEUE,
     configure_broker,
     release_schedule_key,
 )
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import DeploymentBusyError
+from blitzecdn.core.operations import MaintenanceOperation
 
 _LOGGER = logging.getLogger(__name__)
 _DEPLOYMENT_LOCK_RETRIES = 260

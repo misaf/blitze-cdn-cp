@@ -15,7 +15,7 @@ from alembic import op
 # that defines them has to be importable here. Without this line every
 # migration touching a timestamp column fails on a NameError at upgrade time —
 # on a server, mid-install.
-import blitzecdn.infrastructure.models  # noqa: F401
+import blitzecdn.core.database_models  # noqa: F401
 ${imports if imports else ""}
 
 revision = ${repr(up_revision)}

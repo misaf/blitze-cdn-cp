@@ -4,9 +4,9 @@ import os
 import re
 import sys
 
-from blitzecdn.config import Settings
-from blitzecdn.infrastructure.ansible import AnsibleRunner
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.core.ansible import AnsibleRunner
+from blitzecdn.core.config import Settings
+from blitzecdn.core.database import Repository
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
 _VALIDATION = re.compile(r"^[A-Za-z0-9_.-]{1,2048}$")

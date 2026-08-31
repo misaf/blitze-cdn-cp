@@ -1,8 +1,8 @@
 """The composition root.
 
-This is the one module that knows both halves: it builds the concrete adapters
-from :mod:`blitzecdn.infrastructure` and injects them into the pure services in
-:mod:`blitzecdn.application`. Production wiring lives here and nowhere else, so
+This is the one module that knows both halves: it builds concrete adapters from
+:mod:`blitzecdn.core` and the feature packages, then injects them into feature
+services. Production wiring lives here and nowhere else, so
 "what does a real control plane consist of" is answerable by reading one
 constructor.
 
@@ -18,7 +18,7 @@ reach it would be one import away from calling SQLite directly, which is easy
 to do by accident in a read path and invisible in review — so the rule is
 written down rather than assumed.
 
-The queue is reached through :mod:`blitzecdn.infrastructure.broker` and never
+The queue is reached through :mod:`blitzecdn.core.broker` and never
 through :mod:`blitzecdn.worker`. The worker is an entry point that builds a
 control plane, so importing it from here would point the arrow both ways;
 ``tests/test_layering.py`` refuses that import by name.
@@ -29,37 +29,16 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from blitzecdn import __version__
-from blitzecdn.application import (
-    AutomaticSslService,
-    CacheService,
-    CertificateExecution,
-    CertificatePersistence,
-    CertificateService,
-    DeploymentExecution,
-    DeploymentPersistence,
-    DeploymentService,
-    DnsService,
-    EdgeOperationsService,
-)
-from blitzecdn.application.backup import BackupPolicy, BackupService
-from blitzecdn.application.certificates import CertificatePolicy
-from blitzecdn.application.deployments import DeploymentPolicy
-from blitzecdn.application.maintenance import MaintenanceService
-from blitzecdn.application.ports.certificates import (
-    CertificateStore as CertificateStorePort,
-)
-from blitzecdn.application.ports.certificates import Issuer, Preflight
-from blitzecdn.application.ports.deployments import (
-    DeploymentRunner,
-    QueueBackgroundRunner,
-)
-from blitzecdn.application.ports.edges import EdgeStore as EdgeStorePort
-from blitzecdn.application.ports.edges import OriginProbe as OriginProbePort
-from blitzecdn.application.ports.operations import AuditTrail
-from blitzecdn.application.workflows import WorkflowCoordinator
-from blitzecdn.config import Settings
-from blitzecdn.infrastructure.ansible import AnsibleRunner
-from blitzecdn.infrastructure.backup import (
+from blitzecdn.core.ansible import AnsibleRunner
+from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
+from blitzecdn.core.config import Settings
+from blitzecdn.core.database import Repository
+from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
+from blitzecdn.core.maintenance import MaintenanceService
+from blitzecdn.core.operation_ports import AuditTrail
+from blitzecdn.core.workflows import WorkflowCoordinator
+from blitzecdn.features.automatic_ssl import AutomaticSslService
+from blitzecdn.features.backup.adapters import (
     AcmeComponent,
     AlembicSchemaVersions,
     ComposeRestoreGuard,
@@ -69,13 +48,36 @@ from blitzecdn.infrastructure.backup import (
     TemporaryWorkspace,
     TlsComponent,
 )
-from blitzecdn.infrastructure.broker import DramatiqBackgroundRunner, redis_ready
-from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
-from blitzecdn.infrastructure.database import Repository
-from blitzecdn.infrastructure.desired_state import DesiredStateRenderer
-from blitzecdn.infrastructure.filesystem import atomic_write_yaml, read_log_tail
-from blitzecdn.infrastructure.origins import OriginProbe
-from blitzecdn.infrastructure.preflight import CertificatePreflight
+from blitzecdn.features.backup.service import BackupPolicy, BackupService
+from blitzecdn.features.cache import CacheService
+from blitzecdn.features.certificates.adapters import CertbotIssuer, CertificateStore
+from blitzecdn.features.certificates.ports import (
+    CertificateStore as CertificateStorePort,
+)
+from blitzecdn.features.certificates.ports import Issuer, Preflight
+from blitzecdn.features.certificates.preflight import CertificatePreflight
+from blitzecdn.features.certificates.service import (
+    CertificateExecution,
+    CertificatePersistence,
+    CertificatePolicy,
+    CertificateService,
+)
+from blitzecdn.features.deployments.desired_state import DesiredStateRenderer
+from blitzecdn.features.deployments.ports import (
+    DeploymentRunner,
+    QueueBackgroundRunner,
+)
+from blitzecdn.features.deployments.service import (
+    DeploymentExecution,
+    DeploymentPersistence,
+    DeploymentPolicy,
+    DeploymentService,
+)
+from blitzecdn.features.dns import DnsService
+from blitzecdn.features.edges import EdgeOperationsService
+from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
+from blitzecdn.features.edges.probe import OriginProbe
 
 
 class ControlPlane:

@@ -1,6 +1,6 @@
 """Alembic environment for the control-plane database.
 
-The database URL comes from :class:`blitzecdn.config.Settings`, not from
+The database URL comes from :class:`blitzecdn.core.config.Settings`, not from
 ``alembic.ini``. An installed controller keeps its state wherever
 ``blitzecdn.toml`` or ``BLITZE_DATABASE_PATH`` says, and a migration that ran
 against a path in a config file nobody edits would upgrade the wrong file — or
@@ -14,8 +14,8 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine
 
-from blitzecdn.config import Settings
-from blitzecdn.infrastructure.models import Base
+from blitzecdn.core.config import Settings
+from blitzecdn.core.database_models import Base
 
 config = context.config
 

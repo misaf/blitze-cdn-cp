@@ -79,7 +79,7 @@ plugin: blitzecdn
 #: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
-#: Mirrors ``blitzecdn.domain.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
+#: Mirrors ``blitzecdn.core.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
 #: step by ``tests/test_inventory.py``.
 #:
 #: The control plane refuses to store a setting under one of these names, so a
@@ -276,7 +276,7 @@ def _default_database(source):
 def _host_variables(edge):
     """Ansible connection variables for one edge.
 
-    Mirrors ``blitzecdn.infrastructure.ansible_mapping.edge_to_inventory``. The two are kept in
+    Mirrors ``blitzecdn.core.ansible_mapping.edge_to_inventory``. The two are kept in
     step by ``tests/test_inventory.py``, which runs this module against a
     database the model wrote and compares the result — the only honest way to
     check an agreement between a pydantic model and a file that cannot import
