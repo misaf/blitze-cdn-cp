@@ -101,6 +101,19 @@ in_edge "install -d -m 0755 /usr/share/GeoIP && curl -fsSL --proto '=https' --tl
 in_edge "install -d -m 0700 /etc/blitzecdn/tls && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=site-one.test' -addext 'subjectAltName=DNS:site-one.test,DNS:site-two.test' -keyout /etc/blitzecdn/tls/integration.key -out /etc/blitzecdn/tls/integration.pem >/dev/null 2>&1 && chmod 0600 /etc/blitzecdn/tls/integration.key"
 in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0600 /run/blitzecdn-under-attack-secret"
 
+# The images were saved on the outer host and mounted at /images, and the edge
+# playbook is told not to pull, so they have to reach this host's own engine
+# before anything asks for them. `docker load` needs that engine, and the
+# engine is installed by the very converge that then requires the image — so
+# the engine goes in first, on its own.
+say "Installing the container engine and loading the edge runtime images"
+in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/docker-engine.yml"
+in_edge 'docker load -i /images/edge-images.tar'
+for tag in "${EDGE_TAG}" "${EDGE_TAG_NEXT}" "${EDGE_TAG_BROKEN}"; do
+  in_edge "docker image inspect ${tag} >/dev/null" ||
+    fail "${tag} did not reach the edge host's engine"
+done
+
 # --------------------------------------------------------------------------
 # Fresh installation
 # --------------------------------------------------------------------------

@@ -143,6 +143,8 @@ ansible-check:
     uv run ansible-playbook -i localhost, \
         tests/integration/edge-teardown.yml --syntax-check
     uv run ansible-playbook -i localhost, \
+        tests/integration/docker-engine.yml --syntax-check
+    uv run ansible-playbook -i localhost, \
         ansible/playbooks/control-plane.yml --syntax-check
     uv run ansible-playbook -i localhost, \
         ansible/playbooks/uninstall.yml --syntax-check
@@ -153,7 +155,7 @@ ansible-check:
         ansible/playbooks/cache-purge.yml ansible/playbooks/stats.yml \
         ansible/playbooks/origin-check.yml tests/integration/http3-edge.yml \
         tests/integration/http3-firewall-disabled.yml \
-        tests/integration/edge-teardown.yml
+        tests/integration/edge-teardown.yml tests/integration/docker-engine.yml
 
 # Static security analysis and a dependency vulnerability audit.
 audit:
