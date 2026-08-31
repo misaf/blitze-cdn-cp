@@ -143,11 +143,7 @@ class InventoryModule(BaseInventoryPlugin):
         # setting it per group here would leave `blitzecdn edge add
         # --ssh-source` silently doing nothing.
         sources = sorted(
-            {
-                source
-                for edge in edges
-                for source in edge["ssh_sources"]
-            },
+            {source for edge in edges for source in edge["ssh_sources"]},
             key=_source_order,
         )
 
@@ -237,7 +233,8 @@ def _json_list(value, edge_name, column):
     """Decode one required JSON list column."""
     if value is None:
         raise AnsibleParserError(
-            f"edge {edge_name!r} has a null {column}; the current schema requires a list"
+            f"edge {edge_name!r} has a null {column}; "
+            "the current schema requires a list"
         )
     try:
         decoded = json.loads(value)
