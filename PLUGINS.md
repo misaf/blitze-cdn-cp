@@ -140,6 +140,8 @@ beside them — and nothing about what goes in one:
   projected, because only this controller knows the fingerprinted filenames
 * `http` projects HTTP/3 policy into the fleet-wide QUIC switch and the single
   Nginx listener owner required by `reuseport`
+* `security` contributes no state, but refuses a deployment whose site asks for
+  Under Attack Mode on a controller with no challenge secret
 
 This projection does not make site policy an edge capability. A site may ask
 for Brotli or HTTP/3; deployment validation and the edge roles remain
