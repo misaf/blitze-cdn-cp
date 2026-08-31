@@ -859,7 +859,7 @@ cmd_fresh() {
   remote_url=$(require_upstream_origin)
 
   # Preserve the source identity of the running checkout. An exact release tag
-  # stays on that release, the supported 2.x line stays attached to that branch,
+  # stays on that release, the supported 3.x line stays attached to that branch,
   # and any other development checkout is pinned to its exact commit. All of
   # this is read before the cleanup, because the cleanup deletes the checkout.
   local revision
@@ -867,7 +867,7 @@ cmd_fresh() {
   local named_revision=1
   if [[ -z ${revision} ]]; then
     revision=$(repo_git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    if [[ ${revision} != "2.x" ]]; then
+    if [[ ${revision} != "3.x" ]]; then
       revision=$(repo_git rev-parse HEAD)
       named_revision=0
     fi

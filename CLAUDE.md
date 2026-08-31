@@ -26,7 +26,7 @@ Things that are not guessable:
 - **`just docs-check`** validates this control plane against the published reference in the sibling `../blitze-cdn-web` checkout. It skips when that directory is absent; CI checks it out, so it never skips there. A new route, CLI command, setting, env var, or model needs a counterpart on the docs side.
 - **`just lock-check`** fails when `pyproject.toml` and the committed `uv.lock` have drifted. Editing dependencies means running `just lock`.
 
-Work happens on `2.x`, not `master`.
+Work happens on `3.x`, not `master`.
 
 ## Architecture
 
