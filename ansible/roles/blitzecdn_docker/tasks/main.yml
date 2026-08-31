@@ -85,6 +85,10 @@
         owner: root
         group: root
         mode: "0644"
+        # Validate the temporary render before replacing the live file. Docker
+        # treats every top-level JSON key as a daemon option, so syntactically
+        # valid JSON can still make the service impossible to start.
+        validate: /usr/bin/dockerd --validate --config-file %s
       notify: Restart Docker
 
     - name: Enable and start Docker
