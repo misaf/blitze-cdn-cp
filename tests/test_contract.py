@@ -30,7 +30,7 @@ import yaml
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
 
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.core.ansible_mapping import site_to_ansible
+from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
 from blitzecdn.features.dns.domain import DnsRecord, Domain
 from blitzecdn.features.dns.site_domain import (

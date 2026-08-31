@@ -456,7 +456,9 @@ def test_neither_version_imports_the_other():
         if own is None:
             continue
         other = "v1" if own == "v2" else "v2"
-        for module in (f"blitzecdn.api.{other}_models", f"blitzecdn.api.{other}_"):
-            if module in text:
-                offenders.append(f"{path.relative_to(root)} references {module}")
+        offenders.extend(
+            f"{path.relative_to(root)} references {module}"
+            for module in (f"blitzecdn.api.{other}_models", f"blitzecdn.api.{other}_")
+            if module in text
+        )
     assert offenders == []

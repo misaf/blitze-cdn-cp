@@ -9,6 +9,9 @@ from conftest import FakeEdgeStore, edge
 from pydantic import SecretStr
 
 from blitzecdn.core import ansible
+from blitzecdn.core.ansible import execution as ansible_execution
+from blitzecdn.core.ansible import runner as ansible_runner_module
+from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
@@ -164,7 +167,7 @@ def test_runner_builds_a_check_command_and_keeps_the_raw_log(settings, monkeypat
             kwargs, output=b"TASK [something] ***\nchanged: [edge-a]\n"
         )
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     run = runner.run(check=True)
 
     assert "--check" in captured and "--diff" in captured
@@ -184,7 +187,7 @@ def test_a_run_that_reports_nothing_says_where_to_look(settings, monkeypatch):
             kwargs, rc=4, output=b"ERROR! the inventory could not be read\n"
         )
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert run.status is RunStatus.FAILED
@@ -201,7 +204,7 @@ def test_run_logs_are_pruned_to_the_retention_limit(settings, monkeypatch):
         _runner_events(kwargs, [{"host": "edge-a"}])
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     runner = ansible.AnsibleRunner(bounded, FakeEdgeStore())
     for _ in range(14):
         runner.run(check=True)
@@ -217,7 +220,7 @@ def test_each_run_uses_an_isolated_ssh_control_path(settings, monkeypatch):
         assert Path(control_paths[-1]).is_dir()
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     runner.run(check=True)
     runner.run(check=True)
@@ -230,7 +233,7 @@ def test_runner_maps_its_timeout_status_to_the_domain(settings, monkeypatch):
     def fake_run(**kwargs):
         return _runner_result(kwargs, rc=254, status="timeout")
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert run.status is RunStatus.TIMED_OUT
@@ -241,7 +244,7 @@ def test_runner_translates_os_errors(settings, monkeypatch):
     def fail(**_kwargs):
         raise OSError("missing")
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fail)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fail)
     with pytest.raises(ExecutionError, match="unable to execute"):
         ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
@@ -258,7 +261,7 @@ def test_runner_preserves_output_and_removes_artifacts_when_launch_fails(
         _runner_result(kwargs, output=b"runner failed after creating output\n")
         raise OSError("missing")
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fail)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fail)
     with pytest.raises(ExecutionError):
         ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
@@ -344,7 +347,7 @@ def test_runner_builds_acme_challenge_command(settings, monkeypatch):
         captured.extend(_runner_command(kwargs))
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     result = ansible.AnsibleRunner(settings, FakeEdgeStore()).run_acme_challenge(
         action="present",
         domain="cdn.example.com",
@@ -372,37 +375,42 @@ def _with_edges(*names: str) -> FakeEdgeStore:
     )
 
 
-def test_a_run_without_a_limit_targets_the_whole_edge_group(settings):
-    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
-    assert runner._limit(None) == "blitzecdn_edges"
-    assert runner._limit("  ") == "blitzecdn_edges"
+def test_a_run_without_a_limit_targets_the_whole_edge_group():
+    assert resolve_limit(FakeEdgeStore(), None) == "blitzecdn_edges"
+    assert resolve_limit(FakeEdgeStore(), "  ") == "blitzecdn_edges"
 
 
-def test_a_limit_resolves_to_the_matching_edges(settings):
-    runner = ansible.AnsibleRunner(settings, _with_edges("edge-a", "edge-b", "other"))
-    assert runner._limit("edge-a") == "edge-a"
-    assert runner._limit("edge-a,other") == "edge-a,other"
-    assert runner._limit("edge-*") == "edge-a,edge-b"
+def test_a_limit_resolves_to_the_matching_edges():
+    edges = _with_edges("edge-a", "edge-b", "other")
+    assert resolve_limit(edges, "edge-a") == "edge-a"
+    assert resolve_limit(edges, "edge-a,other") == "edge-a,other"
+    assert resolve_limit(edges, "edge-*") == "edge-a,edge-b"
 
 
-def test_a_run_records_the_edges_it_aimed_at(settings):
+def test_a_run_records_the_edges_it_aimed_at():
     """`hosts` alone cannot say what a stopped play never got to.
 
     A limit resolves to names here, from the same rows Ansible is handed, so
     the run carries what it targeted rather than leaving the reader to
     reconstruct it from an inventory that may have changed since.
     """
-    runner = ansible.AnsibleRunner(settings, _with_edges("edge-a", "edge-b", "other"))
-    assert runner._targeted(None) == ("edge-a", "edge-b", "other")
-    assert runner._targeted("edge-*") == ("edge-a", "edge-b")
+    edges = _with_edges("edge-a", "edge-b", "other")
+    assert targeted_hosts(edges, resolve_limit(edges, None)) == (
+        "edge-a",
+        "edge-b",
+        "other",
+    )
+    assert targeted_hosts(edges, resolve_limit(edges, "edge-*")) == (
+        "edge-a",
+        "edge-b",
+    )
 
 
-def test_a_limit_cannot_reach_a_host_outside_the_edge_group(settings):
+def test_a_limit_cannot_reach_a_host_outside_the_edge_group():
     """The whole point of resolving against the inventory rather than passing
     a pattern through: an unknown name is refused, not silently targeted."""
-    runner = ansible.AnsibleRunner(settings, _with_edges("edge-a"))
     with pytest.raises(ConfigurationError, match="matches none of the configured"):
-        runner._limit("database-1")
+        resolve_limit(_with_edges("edge-a"), "database-1")
 
 
 @pytest.mark.parametrize(
@@ -432,9 +440,9 @@ def test_the_limit_reaches_the_ansible_command_line(settings, monkeypatch):
         captured.append(_runner_command(kwargs))
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     monkeypatch.setattr(
-        ansible.shutil, "which", lambda _name: "/usr/bin/ansible-playbook"
+        ansible_runner_module.shutil, "which", lambda _name: "/usr/bin/ansible-playbook"
     )
     ansible.AnsibleRunner(settings, _with_edges("edge-a")).run(
         check=True, host_limit="edge-a"
@@ -481,7 +489,7 @@ def test_runner_events_become_per_host_results(settings, monkeypatch):
         _runner_events(kwargs, _RESULT["hosts"])
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     hosts = {host.host: host for host in run.hosts}
@@ -504,7 +512,7 @@ def test_a_change_is_named_not_merely_counted(settings, monkeypatch):
         _runner_events(kwargs, _RESULT["hosts"])
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert [change.task for change in run.host("edge-a").changes] == [
@@ -527,7 +535,7 @@ def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypa
         )
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     run = ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert run.host("edge-a").report == {"nginx_reachable": True}
@@ -550,7 +558,7 @@ def test_maxmind_credentials_reach_ansible_through_the_environment(
         captured.update(kwargs["envvars"])
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
 
     assert captured["BLITZE_MAXMIND_ACCOUNT_ID"] == "123456"
@@ -572,7 +580,7 @@ def test_under_attack_secret_reaches_ansible_only_through_the_environment(
         captured_argv.extend(_runner_command(kwargs))
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
 
     assert captured_env["BLITZE_UNDER_ATTACK_SECRET"] == sentinel
@@ -594,7 +602,7 @@ def test_maxmind_credentials_never_become_command_arguments(settings, monkeypatc
         captured.extend(_runner_command(kwargs))
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
 
     assert captured
@@ -619,7 +627,7 @@ def test_the_credential_environment_is_set_even_when_unconfigured(
         captured.update(kwargs["envvars"])
         return _runner_result(kwargs)
 
-    monkeypatch.setattr(ansible.ansible_runner, "run", fake_run)
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == ""
