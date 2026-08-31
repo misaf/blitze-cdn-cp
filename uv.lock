@@ -7,6 +7,13 @@ resolution-markers = [
     "python_full_version < '3.14'",
 ]
 
+[manifest]
+members = [
+    "blitzecdn",
+    "blitzecdn-backup",
+    "blitzecdn-cache",
+]
+
 [[package]]
 name = "alembic"
 version = "1.19.1"
@@ -282,6 +289,18 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+all = [
+    { name = "blitzecdn-backup" },
+    { name = "blitzecdn-cache" },
+]
+backup = [
+    { name = "blitzecdn-backup" },
+]
+cache = [
+    { name = "blitzecdn-cache" },
+]
+
 [package.dev-dependencies]
 dev = [
     { name = "ansible-lint" },
@@ -307,6 +326,10 @@ requires-dist = [
     { name = "ansible-core", specifier = ">=2.21,<2.22" },
     { name = "ansible-runner", specifier = ">=2.4,<3" },
     { name = "apscheduler", specifier = ">=3.11,<4" },
+    { name = "blitzecdn-backup", marker = "extra == 'all'", editable = "packages/blitzecdn-backup" },
+    { name = "blitzecdn-backup", marker = "extra == 'backup'", editable = "packages/blitzecdn-backup" },
+    { name = "blitzecdn-cache", marker = "extra == 'all'", editable = "packages/blitzecdn-cache" },
+    { name = "blitzecdn-cache", marker = "extra == 'cache'", editable = "packages/blitzecdn-cache" },
     { name = "cryptography", specifier = ">=45,<51" },
     { name = "dnspython", specifier = ">=2.7,<3" },
     { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.0,<3" },
@@ -320,6 +343,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.16,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3,<1" },
 ]
+provides-extras = ["backup", "cache", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -339,6 +363,28 @@ dev = [
     { name = "types-pyyaml", specifier = ">=6.0.12,<7" },
     { name = "yamllint", specifier = ">=1.37,<2" },
 ]
+
+[[package]]
+name = "blitzecdn-backup"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-backup" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-cache"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-cache" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "boolean-py"

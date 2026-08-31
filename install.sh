@@ -436,13 +436,26 @@ if sys.version_info[:2] < (3, 12):
   # effect without reinstalling. Production standalone/update calls use
   # ansible-only: dependencies still include ansible-core, but the BlitzeCDN
   # project and its CLI are not installed on the host.
+  #
+  # BLITZECDN_CAPABILITIES lists the optional capabilities this controller
+  # installs, as extras on the root project. They are separate distributions
+  # under packages/ that the control plane discovers through entry points, so
+  # dropping one from this list produces a working controller without that
+  # capability and nothing else changes. `backup` is in the default because
+  # `update` takes a database backup before it changes anything; a controller
+  # installed without it cannot be updated in place.
   local -a sync_flags=(--frozen --python "${python_command}")
+  local -a capability_flags=()
+  local capability
+  for capability in ${BLITZECDN_CAPABILITIES:-backup cache}; do
+    capability_flags+=(--extra "${capability}")
+  done
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
-    "${uv}" sync "${sync_flags[@]}"
+    "${uv}" sync "${sync_flags[@]}" --all-packages
   elif [[ ${mode} == ansible-only ]]; then
     "${uv}" sync "${sync_flags[@]}" --no-dev --no-install-project
   else
-    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
+    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable "${capability_flags[@]}"
   fi
 
   [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||
