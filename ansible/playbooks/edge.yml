@@ -14,7 +14,21 @@
   # returns to its previous image on its own, but only the play can stop the
   # next batch from being handed the same broken build.
   any_errors_fatal: true
-  serial: "25%"
+  # A canary, then widening batches. `any_errors_fatal` above is what makes the
+  # first entry worth having: a runtime upgrade that fails to serve stops after
+  # one edge instead of a quarter of the fleet, and each failing edge returns to
+  # its previous image on its own while the play stops the next batch from being
+  # handed the same broken build.
+  #
+  # The percentages are of the whole fleet, not of what is left, and Ansible
+  # stops consuming the list once the hosts run out — so a two-edge fleet is
+  # simply 1 then 1, and a single-edge fleet is one batch. Nothing here needs a
+  # minimum fleet size.
+  serial:
+    - 1
+    - "10%"
+    - "25%"
+    - "100%"
   pre_tasks:
     - name: Validate supported operating system
       ansible.builtin.assert:
