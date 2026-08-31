@@ -118,10 +118,17 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
 
 
 def test_a_plugin_may_implement_only_the_hooks_it_cares_about(builtins):
-    """`backup` contributes commands and no routes, and that is not an error."""
-    assert "backup" in builtins
+    """`compression` contributes neither routes nor commands, and that is fine.
+
+    A capability registers so it can be named — in `blitzecdn plugins`, in a
+    failure, in the answer to "where does Brotli live" — and contributing an
+    empty router to satisfy a shape would be the universal feature base class
+    this mechanism exists to avoid.
+    """
+    assert "compression" in builtins
+    assert not any(group.name == "compression" for group in builtins.cli_commands())
     assert builtins.api_routers()
-    assert any(group.name == "backup" for group in builtins.cli_commands())
+    assert builtins.cli_commands()
 
 
 # --- built-in discovery -----------------------------------------------------
@@ -273,7 +280,7 @@ def test_a_plugin_from_a_later_hook_contract_is_refused_by_version(builtins):
 def test_two_plugins_cannot_claim_one_name(builtins, platform):
     """A duplicate makes every later diagnostic ambiguous, so it is refused.
 
-    Built-ins register first, so the impostor collides with `cache` rather than
+    Built-ins register first, so the impostor collides with `dns` rather than
     displacing it — an installed package must not be able to take a built-in
     feature's identity and quietly answer for it.
     """
@@ -283,7 +290,68 @@ def test_two_plugins_cannot_claim_one_name(builtins, platform):
 
     assert found.plugins == ()
     assert "already registered" in str(found.rejected[0])
-    assert "cache" in builtins
+    assert "dns" in builtins
+
+
+def test_two_installed_packages_cannot_claim_one_name(builtins):
+    """The same rule between two *optional* distributions, neither built in.
+
+    Worth its own case because the collision an operator actually hits is this
+    one: an optional capability was extracted into `blitzecdn-cache`, and a
+    third-party package that also calls itself `cache` is now installable
+    beside it. Neither has a built-in to lose to, so nothing about the
+    registration order decides it — the second is refused with its source, and
+    the first keeps the name and keeps working.
+    """
+    first = register_external(
+        builtins._manager, points=[entry_point("waf", "external")]
+    )
+    second = register_external(
+        builtins._manager, points=[entry_point("waf-again", "external")]
+    )
+
+    assert [plugin.name for plugin in first.plugins] == ["waf"]
+    assert second.plugins == ()
+    assert "already registered" in str(second.rejected[0])
+    assert "waf-again" in str(second.rejected[0])
+
+
+def test_a_capability_token_says_what_a_configuration_may_depend_on(builtins):
+    """`provides` is separate from `name`, and defaults to it.
+
+    A plugin identifies itself with `name`; a *configuration* depends on a
+    capability. Almost always they are the same word, so `provides` defaults to
+    empty and `capabilities` folds the name in — but the two are allowed to
+    differ, which is what lets a replacement implementation answer for a token
+    another package used to supply, under its own name.
+    """
+    assert "sites" in builtins.capabilities
+    assert builtins.missing(["sites", "waf"]) == ("waf",)
+
+    register_external(builtins._manager, points=[entry_point("waf", "external")])
+    metadata = PluginMetadata(
+        name="acme-waf", version="1.0", provides=frozenset({"waf", "ratelimit"})
+    )
+    assert metadata.capabilities == {"acme-waf", "waf", "ratelimit"}
+
+
+def test_requiring_a_capability_nothing_provides_names_it(builtins):
+    """The message an operator reads when a package they need is not installed.
+
+    It has to name the missing token *and* what is installed: "backup is not
+    available" without the second half leaves an operator unable to tell a
+    typo from an uninstalled package.
+    """
+    builtins.require(["sites"], subject="a test")
+
+    with pytest.raises(PluginError) as failure:
+        builtins.require(["sites", "waf"], subject="this installation")
+
+    message = str(failure.value)
+    assert "waf" in message
+    assert "this installation" in message
+    assert "sites" in message
+    assert "compression" not in message.split("Installed capabilities:")[0]
 
 
 def test_one_broken_plugin_does_not_stop_the_others(builtins):
@@ -321,7 +389,7 @@ def test_contributions_come_back_in_registration_order(builtins):
     register_external(builtins._manager, points=[entry_point("waf", "external")])
     names = [group.name for group in builtins.cli_commands()]
 
-    assert names.index("site") < names.index("cache") < names.index("waf")
+    assert names.index("site") < names.index("edge") < names.index("waf")
 
 
 # --- merging desired state --------------------------------------------------
@@ -498,7 +566,7 @@ def test_a_registry_reports_what_is_installed_and_what_was_refused(builtins):
     )
 
     assert "waf" in registry
-    assert "cache" in registry
+    assert "dns" in registry
     assert [rejection.reason for rejection in registry.rejected] != []
 
 

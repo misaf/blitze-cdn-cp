@@ -63,10 +63,29 @@ class PluginMetadata:
     required: bool = False
     api_version: int = HOOK_API_VERSION
     summary: str = ""
+    #: The capability tokens this plugin supplies, for configuration that has
+    #: to say what it depends on. Empty means "just my own name", which is the
+    #: right answer for almost every plugin: `backup` provides `backup`.
+    #:
+    #: It is separate from `name` because the two answer different questions.
+    #: `name` identifies the *plugin* — it is how a duplicate is detected and a
+    #: failure attributed — while a token names a *capability*, which is what a
+    #: site or a fleet setting actually depends on. One plugin may supply
+    #: several, and a replacement implementation may supply a token another
+    #: package used to, under its own name.
+    provides: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.replace("_", "").replace("-", "").isalnum():
             raise ValueError(f"plugin name {self.name!r} must be alphanumeric")
+        for token in self.provides:
+            if not token or not token.replace("_", "").replace("-", "").isalnum():
+                raise ValueError(f"capability {token!r} must be alphanumeric")
+
+    @property
+    def capabilities(self) -> frozenset[str]:
+        """Every capability token this plugin answers for, its name included."""
+        return self.provides | {self.name}
 
 
 class ProcessKind(StrEnum):

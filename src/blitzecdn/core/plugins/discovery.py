@@ -69,10 +69,8 @@ BUILTIN_PLUGINS: tuple[str, ...] = (
     "blitzecdn.features.sites.plugin",
     "blitzecdn.features.dns.plugin",
     "blitzecdn.features.edges.plugin",
-    "blitzecdn.features.cache.plugin",
     "blitzecdn.features.deployments.plugin",
     "blitzecdn.features.tls.plugin",
-    "blitzecdn.features.backup.plugin",
     "blitzecdn.features.maintenance.plugin",
     "blitzecdn.features.diagnostics.plugin",
 )

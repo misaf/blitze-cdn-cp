@@ -3,18 +3,16 @@
 from __future__ import annotations
 
 import shutil
-from collections.abc import Sequence
+from collections.abc import Mapping
 from pathlib import Path
 
 from blitzecdn.core.ansible.execution import PlaybookExecutor
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.ansible.lock import DeploymentLock
-from blitzecdn.core.ansible.mapping import purge_entry_to_ansible
 from blitzecdn.core.ansible.variables import run_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.runs import AnsibleRun
-from blitzecdn.features.cache.domain import PurgeEntry
 from blitzecdn.features.edges.ports import EdgeStore
 
 __all__ = ["AnsibleRunner"]
@@ -107,34 +105,6 @@ class AnsibleRunner:
                 timeout=_PARSE_TIMEOUT,
             )
 
-    def run_cache_purge(
-        self,
-        *,
-        entries: Sequence[PurgeEntry],
-        purge_all: bool,
-        host_limit: str | None = None,
-    ) -> AnsibleRun:
-        """Remove cached responses across the edges in scope.
-
-        Not taken under the deployment lock. A purge writes no desired state
-        and changes no configuration, and the case that matters most — a bad
-        object being served while a deploy is midway through the fleet — is
-        exactly when the lock would make it wait.
-        """
-        with run_variables(
-            self._settings.run_dir,
-            "cache-purge",
-            {
-                "blitzecdn_cache_purge_entries": [
-                    purge_entry_to_ansible(entry) for entry in entries
-                ],
-                "blitzecdn_cache_purge_all": purge_all,
-            },
-        ) as variables:
-            return self._playbook_run(
-                self._settings.cache_purge_playbook_path, variables, host_limit
-            )
-
     def run_origin_check(
         self, *, sites: list[dict[str, object]], host_limit: str | None = None
     ) -> AnsibleRun:
@@ -152,19 +122,6 @@ class AnsibleRunner:
                 self._settings.origin_check_playbook_path, vars_, host_limit
             )
 
-    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
-        """Collect cache and connection counters from the edges in scope.
-
-        The counters come back through Runner events: ``blitzecdn_stats``
-        publishes them as the ``blitzecdn_report`` fact and they arrive on
-        ``HostRun.report``. Nothing is written to or read from the controller's
-        filesystem, so a stats run leaves nothing behind to go stale.
-        """
-        with run_variables(self._settings.run_dir, "stats", {}) as variables:
-            return self._playbook_run(
-                self._settings.stats_playbook_path, variables, host_limit
-            )
-
     def run_decommission(self, *, host_limit: str) -> AnsibleRun:
         """Strip BlitzeCDN configuration and TLS material from one edge.
 
@@ -178,6 +135,32 @@ class AnsibleRunner:
             return self._playbook_run(
                 self._settings.decommission_playbook_path, variables, host_limit
             )
+
+    def run_playbook(
+        self,
+        *,
+        name: str,
+        playbook: Path,
+        variables: Mapping[str, object],
+        host_limit: str | None = None,
+    ) -> AnsibleRun:
+        """Run one named play with variables the caller supplies.
+
+        The primitive an installed capability reaches for. Purging a cache and
+        collecting statistics were methods on this class while `cache` was a
+        package inside this distribution, which meant core knew what a
+        `PurgeEntry` was — a feature's domain type in the adapter every other
+        feature also uses. They are the cache package's business now, and what
+        core still owns is the part that is genuinely its own: which hosts a
+        limit expands to, where the variables file is staged, and the timeout.
+
+        Deliberately does not take the deployment lock. Everything reached this
+        way is an *operation* rather than a convergence — it writes no desired
+        state — and the moment an operation is most needed is the moment a
+        deploy is most likely to already be running.
+        """
+        with run_variables(self._settings.run_dir, name, dict(variables)) as staged:
+            return self._playbook_run(playbook, staged, host_limit)
 
     # -- Command construction ------------------------------------------
 

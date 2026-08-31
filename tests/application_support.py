@@ -9,7 +9,7 @@ from dataclasses import replace
 
 import pytest
 import yaml
-from conftest import (
+from control_plane_fixtures import (
     FakeEdgeStore,
     FakePreflight,
     FakeRunner,
@@ -30,7 +30,6 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import HostRun, RunStatus
-from blitzecdn.features.cache.domain import PurgeEntry
 from blitzecdn.features.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,

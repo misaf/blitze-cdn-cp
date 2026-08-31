@@ -10,10 +10,11 @@ Registration goes through a service rather than straight to the store so that
 both entry points reach it the same way and every change is audited: "who added
 this edge, and when" is a question the audit trail can answer.
 
-What is *stored* on the edges is a different question and lives in
-:mod:`blitzecdn.features.cache.service`. Purging and cache statistics were here only
-because they also reach the fleet, which describes the transport rather than
-the work.
+What is *stored* on the edges is a different question, and it is not this
+distribution's: purging and cache statistics are the installed
+``blitzecdn-cache`` package. They were here once because they also reach the
+fleet, which describes the transport rather than the work — and being able to
+detach them without touching this service is what that separation bought.
 """
 
 from __future__ import annotations

@@ -100,7 +100,6 @@ _STRATEGIES_OWNED_BY_A_CAPABILITY = {
     "letsencrypt": "tls",
     "origin": "sites",
     "protocols": "http",
-    "purge": "cache",
     "quic": "http",
     "ssl": "tls",
     "under_attack": "security",
@@ -138,6 +137,38 @@ def _runtime_imports(path: Path) -> set[str]:
     found: set[str] = set()
     for node in ast.walk(tree):
         if node in typing_only:
+            continue
+        if isinstance(node, ast.Import):
+            found.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+            found.add(node.module)
+    return found
+
+
+def _module_scope_imports(path: Path) -> set[str]:
+    """Only the imports the interpreter runs while importing this module.
+
+    An import inside a function body executes when that function is *called*,
+    so it cannot produce a circular import at load time — it is the documented
+    way to break one, and `worker.py` and `core.schema` both use it
+    deliberately. Counting it as an edge would make the cycle test refuse the
+    remedy for the problem it exists to detect.
+
+    Narrower than `_runtime_imports`, which only drops `TYPE_CHECKING`: this
+    also drops anything nested in a `def`, `async def` or `class` body.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    deferred = {
+        node
+        for scope in ast.walk(tree)
+        if isinstance(scope, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef))
+        or (isinstance(scope, ast.If) and ast.unparse(scope.test) == "TYPE_CHECKING")
+        for node in ast.walk(scope)
+        if node is not scope
+    }
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if node in deferred:
             continue
         if isinstance(node, ast.Import):
             found.update(alias.name for alias in node.names)
@@ -191,8 +222,6 @@ def test_legacy_layer_first_packages_have_no_source_modules():
 @pytest.mark.parametrize(
     "feature",
     [
-        "backup",
-        "cache",
         "compression",
         "deployments",
         "diagnostics",
@@ -452,6 +481,13 @@ def test_entry_layers_cannot_reach_private_control_plane_adapters_or_stores():
 
 
 def test_no_internal_module_dependency_cycles():
+    """No module in this distribution can fail to import because of another.
+
+    Module-scope imports only. A deferred import is how a genuine two-way
+    dependency is made safe — `core.schema` owns the migration tree that
+    `core.database_engine` migrates with, and reaches back for the engine
+    inside the one method that runs one — and the loader never sees a loop.
+    """
     modules = {
         "blitzecdn." + ".".join(path.relative_to(_SOURCE).with_suffix("").parts): path
         for path in _SOURCE.rglob("*.py")
@@ -459,7 +495,9 @@ def test_no_internal_module_dependency_cycles():
     }
     graph: dict[str, set[str]] = defaultdict(set)
     for module, path in modules.items():
-        graph[module].update(name for name in _imports(path) if name in modules)
+        graph[module].update(
+            name for name in _module_scope_imports(path) if name in modules
+        )
     visiting: list[str] = []
     visited: set[str] = set()
 
@@ -517,11 +555,9 @@ def test_removed_subsystems_do_not_return():
 #: is what a feature is allowed to build on without that counting as knowing
 #: another feature.
 ALLOWED_FEATURE_DEPENDENCIES = {
-    "backup": set(),
-    "cache": {"dns", "sites"},
     "compression": set(),
     "deployments": {"dns", "sites"},
-    "diagnostics": {"cache", "tls"},
+    "diagnostics": {"tls"},
     "dns": {"sites"},
     "edges": {"dns", "sites"},
     "http": {"sites"},
@@ -541,8 +577,6 @@ ALLOWED_FEATURE_DEPENDENCIES = {
 #: their `plugin.py` annotates a hook with `CdnSite`, which is knowledge of
 #: `sites` even under `TYPE_CHECKING` and is declared rather than excused.
 ALLOWED_POLICY_DEPENDENCIES = {
-    "backup": set(),
-    "cache": {"http", "sites"},
     "compression": set(),
     "deployments": set(),
     "diagnostics": set(),
@@ -653,8 +687,6 @@ _PLATFORM_SERVICES = {
     # Two attributes, one owner. `certificates` and `automatic_ssl` are parts
     # of the TLS capability, so a plugin reading either is depending on `tls`.
     "automatic_ssl": "tls",
-    "backup": "backup",
-    "cache": "cache",
     "certificates": "tls",
     "deployments": "deployments",
     "dns": "dns",
@@ -670,11 +702,19 @@ _PLATFORM_COMMON = {
     "broker_ready",
     "close",
     "events",
+    # The two contracts an installed distribution builds itself from. Both are
+    # ports rather than services, and neither belongs to a capability: `fleet`
+    # runs a named play and knows nothing about what any play is for, and
+    # `sites` is the read side of the model every capability already consumes.
+    # A plugin reading either is not depending on a feature, which is the whole
+    # reason they are shaped this way.
+    "fleet",
     "health_checks",
     "jobs",
     "plugins",
     "process",
     "settings",
+    "sites",
     "start",
     "stop",
     "workflow_history",

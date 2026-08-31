@@ -27,6 +27,7 @@ from sqlalchemy.pool import NullPool, QueuePool
 from sqlmodel import Session, create_engine
 
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.schema import MIGRATIONS_PATH
 
 
 def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
@@ -214,7 +215,7 @@ class Database:
             config = Config(stdout=StringIO())
             config.set_main_option(
                 "script_location",
-                str(Path(__file__).parents[1] / "migrations"),
+                str(MIGRATIONS_PATH),
             )
             config.set_main_option(
                 "sqlalchemy.url",
