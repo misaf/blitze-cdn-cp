@@ -27,12 +27,15 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
     )
     if not Path(ansible).exists():
         pytest.skip("ansible-playbook is not installed")
+    # A contract input is applied before the contract is composed; anything
+    # else is an ordinary variable override on top of it.
+    inputs, plain = _split_runtime(overrides)
     variables = (
-        _role_defaults()
+        _role_defaults(**inputs)
         | {
             "blitzecdn_nginx_sites": sites,
         }
-        | overrides
+        | plain
     )
     ansible_local = tmp_path / "ansible-local"
     ansible_local.mkdir(exist_ok=True)
@@ -183,12 +186,12 @@ def test_role_refuses_country_rules_without_geoip(desired_state, tmp_path):
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
     sites[0] = sites[0] | {"firewall": {"denied_countries": ["RU"]}}
 
-    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
+    result = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=False)
 
     assert result.returncode != 0
-    assert "blitzecdn_nginx_geoip_enabled" in result.stdout
+    assert "blitzecdn_edge_geoip_enabled" in result.stdout
 
-    allowed = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=True)
+    allowed = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=True)
     assert allowed.returncode == 0, allowed.stdout
 
 
@@ -205,13 +208,13 @@ def test_role_refuses_the_country_header_without_geoip(desired_state, tmp_path):
         "visitor_headers": {"connecting_ip": True, "ip_country": True}
     }
 
-    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
+    result = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=False)
 
     assert result.returncode != 0
-    assert "blitzecdn_nginx_geoip_enabled" in result.stdout
+    assert "blitzecdn_edge_geoip_enabled" in result.stdout
     assert "BZ-IPCountry" in result.stdout
 
-    allowed = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=True)
+    allowed = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=True)
     assert allowed.returncode == 0, allowed.stdout
 
 
@@ -222,7 +225,7 @@ def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_
         "visitor_headers": {"connecting_ip": True, "ip_country": False}
     }
 
-    result = _run_validation(sites, tmp_path, blitzecdn_nginx_geoip_enabled=False)
+    result = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=False)
 
     assert result.returncode == 0, result.stdout
 
@@ -299,15 +302,17 @@ def test_maxmind_credentials_never_reach_an_nginx_config():
         keep_trailing_newline=True,
     )
     environment.filters["dirname"] = os.path.dirname
-    context = _role_defaults() | {
-        "blitzecdn_nginx_geoip_enabled": True,
-        "blitzecdn_nginx_geoip_account_id": "123456",
-        "blitzecdn_nginx_geoip_license_key": "SENTINELKEY",
+    # The credentials are blitzecdn_edge_stack's — the role that runs the
+    # updater — and are handed in here only to prove they cannot reach a
+    # template that never had any business with them.
+    context = _role_defaults(blitzecdn_edge_geoip_enabled=True) | {
+        "blitzecdn_edge_stack_geoip_account_id": "123456",
+        "blitzecdn_edge_stack_geoip_license_key": "SENTINELKEY",
     }
     nginx_side = environment.get_template("geoip.conf.j2").render(**context)
     assert "SENTINELKEY" not in nginx_side
     assert "123456" not in nginx_side
-    assert context["blitzecdn_nginx_geoip_database"] in nginx_side
+    assert context["blitzecdn_edge_runtime"]["geoip"]["database"] in nginx_side
 
     # …and it does reach the file that is supposed to carry it. The updater is
     # a container now, so the credential travels as a 0600 env_file rather than

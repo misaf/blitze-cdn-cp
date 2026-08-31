@@ -12,17 +12,18 @@
     blitzecdn_edge_stack_image_pull: false
     # The runner has no MaxMind credentials, and the test installs a MaxMind
     # sample database by hand. Without this the role would try to fetch one.
-    blitzecdn_nginx_geoip_account_id: ''
-    blitzecdn_nginx_geoip_license_key: ''
+    blitzecdn_edge_stack_geoip_account_id: ''
+    blitzecdn_edge_stack_geoip_license_key: ''
     blitzecdn_firewall_enabled: true
     blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
-    blitzecdn_firewall_http3_enabled: true
     blitzecdn_nginx_allow_empty_sites: false
-    blitzecdn_nginx_http3_enabled: true
+    # One switch for the QUIC listener, the UDP/443 firewall rule and the
+    # deploy's own listener check. The play used to set it three times.
+    blitzecdn_edge_http3_enabled: true
     blitzecdn_nginx_http3_listener_owner: site-one-test
-    blitzecdn_nginx_geoip_enabled: true
-    blitzecdn_nginx_geoip_update_enabled: false
-    blitzecdn_nginx_geoip_database: /usr/share/GeoIP/GeoIP2-Country-Test.mmdb
+    blitzecdn_edge_geoip_enabled: true
+    blitzecdn_edge_stack_geoip_update_enabled: false
+    blitzecdn_edge_geoip_database: /usr/share/GeoIP/GeoIP2-Country-Test.mmdb
     blitzecdn_nginx_under_attack_enabled: true
     blitzecdn_nginx_under_attack_secret: >-
       {{ lookup('file', '/run/blitzecdn-under-attack-secret') }}
@@ -88,6 +89,9 @@
           connecting_ip: true
           ip_country: true
   pre_tasks:
+    - name: Establish the shared edge runtime contract
+      ansible.builtin.import_role:
+        name: blitzecdn_edge
     - name: Install and verify the host container engine
       ansible.builtin.import_role:
         name: blitzecdn_docker
@@ -101,7 +105,8 @@
         tasks_from: verify-runtime.yml
       vars:
         blitzecdn_nginx_config_test_image: >-
-          {{ blitzecdn_edge_stack_resolved_image | default(blitzecdn_nginx_image) }}
+          {{ blitzecdn_edge_stack_resolved_image
+             | default(blitzecdn_edge_runtime.image) }}
   roles:
     - role: blitzecdn_firewall
     - role: blitzecdn_nginx

@@ -1,0 +1,121 @@
+---
+# The edge runtime contract.
+#
+# One description of the environment every edge role converges against: where
+# the runtime keeps its files, which ports it listens on, where its health can
+# be read, and which GeoIP database it reads. blitzecdn_nginx renders a
+# configuration for it, blitzecdn_edge_stack runs a container inside it and
+# blitzecdn_firewall opens the host to it — three roles that need the same
+# answers and previously got them by reaching into each other's defaults.
+#
+# The rule for what belongs here is narrow: a value earns a place only if more
+# than one role needs it *and* it describes the shared runtime rather than one
+# role's policy. Cache sizing, TLS ciphers, compression and the site list are
+# all Nginx policy and stay in blitzecdn_nginx; the health timeout and the
+# rollback record are stack policy and stay in blitzecdn_edge_stack.
+#
+# Roles read `blitzecdn_edge_runtime` and never each other. tests/
+# test_ansible_role_contracts.py asserts that, so a new sibling reference fails
+# the suite rather than quietly re-creating the coupling this replaces.
+
+# --- inputs --------------------------------------------------------------
+#
+# The parts of the contract that are not fixed layout. They are flat on purpose:
+# desired state and `blitzecdn config set` reach Ansible as top-level variables
+# — extra-vars and host vars respectively — and neither can override one member
+# of a dictionary without restating the whole thing. So the knob is flat and the
+# contract composes it below, which keeps one authoritative resolved value while
+# leaving it overridable at every precedence the configuration model promises.
+
+# Derived by the control plane from the enabled sites, written into desired
+# state as this one key. It used to be written twice — once for Nginx and once
+# for the firewall — and the play asserted the two copies agreed. One value
+# cannot disagree with itself.
+blitzecdn_edge_http3_enabled: false
+
+# Per-hostname country filtering. Off until an operator provides a database:
+# blitzecdn_nginx refuses to render a country rule without one, rather than
+# rendering a configuration that quietly admits every country.
+blitzecdn_edge_geoip_enabled: false
+blitzecdn_edge_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
+
+# The fleet value is composed in inventory/group_vars/blitzecdn_edges from
+# blitzecdn_edge_image_registry, _repository, _tag and _digest. The literal
+# below is only the standalone fallback for a playbook that runs these roles
+# without that group — the integration tests do exactly that.
+#
+# Never `latest`. A floating tag makes "which build is this fleet running"
+# unanswerable and makes rollback a guess; both are things an edge fleet cannot
+# afford.
+blitzecdn_edge_runtime_image_default: ghcr.io/misaf/blitzecdn-edge:2.7.0
+
+# --- the contract --------------------------------------------------------
+blitzecdn_edge_runtime:
+  # The container serving traffic. blitzecdn_nginx names it to run `nginx -t`
+  # and `nginx -s reload` inside it; blitzecdn_edge_stack names it to create
+  # and inspect it. The Compose *project* is not here: only the stack role has
+  # any use for it, and a contract member with one reader is a variable that
+  # escaped its owner.
+  container: blitzecdn-edge
+  # Validated against by blitzecdn_nginx and served from by
+  # blitzecdn_edge_stack. Validating a configuration against one image and then
+  # serving it from another is exactly the drift a single value cannot produce.
+  image: >-
+    {{ blitzecdn_edge_image | default(blitzecdn_edge_runtime_image_default, true) }}
+
+  # Host directories, every one of them. Containers stay disposable: replacing
+  # the edge container, or upgrading it to a new image, touches nothing here.
+  paths:
+    # Controller-written edge state. blitzecdn_teardown removes this whole
+    # tree, so anything under it is decommissioned with the host.
+    state: /etc/blitzecdn
+    # The configuration tree blitzecdn_nginx writes and the container mounts
+    # read-only.
+    nginx: /etc/nginx
+    # njs modules — the Under Attack Mode implementation, signed with a fleet
+    # secret, which is why it is root-owned and 0750 rather than world-readable.
+    modules: /etc/blitzecdn/nginx
+    # Chains and private keys.
+    tls: /etc/blitzecdn/tls
+    cache: /var/cache/nginx/blitzecdn
+    logs: /var/log/nginx
+    # HTTP-01 challenges, written by the acme-challenge playbook on the host and
+    # served from the edge. If the writer and the server ever disagree, HTTP-01
+    # validation fails with no useful error.
+    acme: /var/lib/blitzecdn/acme
+    # The empty document root Under Attack Mode dispatches through.
+    empty: /var/lib/blitzecdn/empty
+
+  # Always served, and read from three places: the Compose healthcheck, the
+  # deploy's own health verification, and blitzecdn_stats. Unauthenticated, so
+  # the loopback bind here and blitzecdn_nginx_status_allow are two independent
+  # controls — never widen one without narrowing the other.
+  status:
+    address: 127.0.0.1
+    port: 8090
+    path: /stub_status
+
+  # Cloudflare-compatible public proxy ports. Keeping HTTP and HTTPS separate
+  # matters: every HTTPS listener must carry Nginx's ssl parameter, while the
+  # HTTP listeners either proxy directly or redirect a TLS-enabled site. They
+  # are two independent sets and not pairs — 8080 is an HTTP port and 8443 an
+  # HTTPS one, and neither is the other's counterpart.
+  listeners:
+    http: [80, 8080, 8880, 2052, 2082, 2086, 2095]
+    https: [443, 2053, 2083, 2087, 2096, 8443]
+    # HTTP/3 is intentionally fixed to UDP/443; the alternate HTTPS ports stay
+    # TCP-only. tasks/main.yml refuses the combination where 443 is not an
+    # HTTPS listener, because the firewall would then open UDP/443 for a
+    # listener no site can own.
+    http3: "{{ blitzecdn_edge_http3_enabled | bool }}"
+
+  geoip:
+    enabled: "{{ blitzecdn_edge_geoip_enabled | bool }}"
+    database: "{{ blitzecdn_edge_geoip_database }}"
+    # The directory the updater container writes and the edge mounts. Derived
+    # once, here, rather than each consumer applying `| dirname` to the path
+    # and one of them forgetting.
+    #
+    # Which GeoLite2 *edition* is downloaded is not here either: it is the
+    # updater's business, and the updater is blitzecdn_edge_stack's.
+    directory: "{{ blitzecdn_edge_geoip_database | dirname }}"

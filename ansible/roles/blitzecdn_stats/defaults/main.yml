@@ -1,8 +1,10 @@
 ---
-# Must match the blitzecdn_nginx values of the same name. The control plane's
-# tests/test_contract.py asserts they agree: pointed at the wrong log this role
-# reports a hit ratio of zero, which looks like a broken cache rather than a
-# misconfigured reader.
+# The access log blitzecdn_nginx writes and the status endpoint the edge
+# runtime contract fixes. This role runs in its own read-only playbook and is
+# told them rather than reading the contract; the control plane's
+# tests/test_ansible_role_contracts.py asserts they agree, because pointed at
+# the wrong log this role reports a hit ratio of zero, which looks like a
+# broken cache rather than a misconfigured reader.
 blitzecdn_stats_access_log_path: /var/log/nginx/blitzecdn-access.log
 blitzecdn_stats_status_address: 127.0.0.1
 blitzecdn_stats_status_port: 8090

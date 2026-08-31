@@ -24,6 +24,11 @@ from typing import Any
 import pytest
 import yaml
 
+# The nginx role renders from its own defaults *and* the shared edge runtime
+# contract, so the loader that builds that namespace is shared with the other
+# contract-test modules rather than reimplemented here.
+from contract_support import _role_defaults, _runtime_defaults, _split_runtime
+
 from blitzecdn.control_plane import ControlPlane
 from blitzecdn.domain.dns import DnsRecord, Domain
 from blitzecdn.domain.sites import (
@@ -91,8 +96,12 @@ def _role_spec() -> dict[str, Any]:
     return document["argument_specs"]["main"]["options"]
 
 
-def _role_defaults() -> dict[str, Any]:
-    return yaml.safe_load((ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8"))
+def _contract(*path: str) -> Any:
+    """One member of the resolved edge runtime contract."""
+    value: Any = _runtime_defaults()["blitzecdn_edge_runtime"]
+    for key in path:
+        value = value[key]
+    return value
 
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:
@@ -328,27 +337,32 @@ def test_geoip_is_off_until_an_operator_turns_it_on():
     moment someone wrote a country rule, so the role asserts instead. That is
     only true while the default stays false.
     """
-    assert _role_defaults()["blitzecdn_nginx_geoip_enabled"] is False
+    assert _contract("geoip", "enabled") is False
 
 
 def test_public_ports_match_cloudflare_and_the_firewall():
     """A listener without a firewall rule is unreachable, and the reverse
-    exposes a port that can never serve traffic. Keep both role defaults in
-    lockstep with the Cloudflare-compatible proxy port sets.
+    exposes a port that can never serve traffic.
+
+    Both roles read one contract member now, so the two cannot fall out of
+    lockstep — what is still worth pinning is that the member holds the
+    Cloudflare-compatible proxy port sets, and that the domain's copy agrees.
     """
-    nginx = _role_defaults()
     http_ports = [80, 8080, 8880, 2052, 2082, 2086, 2095]
     https_ports = [443, 2053, 2083, 2087, 2096, 8443]
-    firewall = _defaults_of(_role("blitzecdn_firewall"))
 
-    assert nginx["blitzecdn_nginx_http_ports"] == http_ports
-    assert nginx["blitzecdn_nginx_https_ports"] == https_ports
-    # The domain holds the third copy, because Flexible's origin scheme now
-    # depends on which set a listener belongs to.
+    assert _contract("listeners", "http") == http_ports
+    assert _contract("listeners", "https") == https_ports
+    assert _contract("listeners", "http3") is False
+    # The domain holds the second copy, because Flexible's origin scheme now
+    # depends on which set a listener belongs to. It is the last one: the Nginx
+    # role binds these ports and the firewall opens them from the same contract
+    # member, so a listener without a rule is no longer possible to write.
     assert list(HTTP_PROXY_PORTS) == http_ports
     assert list(HTTPS_PROXY_PORTS) == https_ports
-    assert firewall["blitzecdn_firewall_http_ports"] == http_ports + https_ports
-    assert firewall["blitzecdn_firewall_http3_enabled"] is False
+    firewall = _defaults_of(_role("blitzecdn_firewall"))
+    assert "blitzecdn_firewall_http_ports" not in firewall
+    assert "blitzecdn_firewall_http3_enabled" not in firewall
 
 
 def test_default_server_claims_every_public_listener():
@@ -359,12 +373,13 @@ def test_default_server_claims_every_public_listener():
         keep_trailing_newline=True,
     )
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     rendered = environment.get_template("default.conf.j2").render(**defaults)
 
-    for port in defaults["blitzecdn_nginx_http_ports"]:
+    for port in runtime["listeners"]["http"]:
         assert f"listen {port} default_server;" in rendered
         assert f"listen [::]:{port} default_server;" in rendered
-    for port in defaults["blitzecdn_nginx_https_ports"]:
+    for port in runtime["listeners"]["https"]:
         assert f"listen {port} ssl default_server;" in rendered
         assert f"listen [::]:{port} ssl default_server;" in rendered
 
@@ -375,8 +390,12 @@ def _render(site: dict[str, Any], **overrides: Any) -> str:
         undefined=jinja2.StrictUndefined,
         keep_trailing_newline=True,
     )
+    # A contract input has to be applied before the contract is composed, so
+    # `blitzecdn_edge_geoip_enabled=True` reaches the template as
+    # `blitzecdn_edge_runtime.geoip.enabled`, not as a stray extra variable.
+    inputs, plain = _split_runtime(overrides)
     return environment.get_template("site.conf.j2").render(
-        **(_role_defaults() | overrides), item=site
+        **(_role_defaults(**inputs) | plain), item=site
     )
 
 
@@ -428,7 +447,7 @@ def test_http3_disabled_emits_neither_quic_nor_alt_svc():
 
 
 def test_default_server_owns_reuseport_once_for_many_http3_sites():
-    defaults = _role_defaults() | {"blitzecdn_nginx_http3_enabled": True}
+    defaults = _role_defaults(blitzecdn_edge_http3_enabled=True)
     environment = jinja2.Environment(
         loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
         undefined=jinja2.StrictUndefined,
@@ -481,8 +500,12 @@ def test_desired_state_derives_http3_firewall_and_listener_ownership(
     control.deployments.write_desired_state(repository.snapshot(), output)
     document = yaml.safe_load(output.read_text(encoding="utf-8"))
 
-    assert document["blitzecdn_firewall_http3_enabled"] is True
-    assert document["blitzecdn_nginx_http3_enabled"] is True
+    # One key, not two. The firewall's UDP/443 rule and the QUIC listener read
+    # the same contract member, so desired state states HTTP/3 once and the
+    # edge play no longer has to assert that two copies of it agree.
+    assert document["blitzecdn_edge_http3_enabled"] is True
+    assert "blitzecdn_nginx_http3_enabled" not in document
+    assert "blitzecdn_firewall_http3_enabled" not in document
     assert document["blitzecdn_nginx_http3_listener_owner"] == "alpha-example-com"
 
 
@@ -533,7 +556,7 @@ def test_the_acme_challenge_path_is_never_filtered():
             }
         )
     )
-    rendered = _render(site, blitzecdn_nginx_geoip_enabled=True)
+    rendered = _render(site, blitzecdn_edge_geoip_enabled=True)
     challenge = rendered.index("location ^~ /.well-known/acme-challenge/ {")
     block_end = rendered.index("}", rendered.index("try_files $uri =404;"))
     challenge_block = rendered[challenge:block_end]
@@ -565,7 +588,7 @@ def test_an_allow_country_list_refuses_addresses_the_database_cannot_place():
             }
         )
     )
-    rendered = _render(site, blitzecdn_nginx_geoip_enabled=True)
+    rendered = _render(site, blitzecdn_edge_geoip_enabled=True)
     assert 'if ($blitzecdn_country !~ "^(DE|FR)$")' in rendered
 
 
@@ -657,7 +680,7 @@ def test_connecting_ip_disabled_clears_the_header_rather_than_forwarding_it():
 def test_ip_country_enabled_reuses_the_one_geoip_variable():
     """The same $blitzecdn_country the firewall rules test, not a second lookup."""
     rendered = _render(
-        _with_visitor_headers(ip_country=True), blitzecdn_nginx_geoip_enabled=True
+        _with_visitor_headers(ip_country=True), blitzecdn_edge_geoip_enabled=True
     )
 
     assert "proxy_set_header BZ-IPCountry $blitzecdn_country;" in rendered
@@ -687,12 +710,12 @@ def test_a_spoofed_bz_header_is_replaced_in_every_state():
         {"connecting_ip": False, "ip_country": False},
     ):
         rendered = _render(
-            _with_visitor_headers(**headers), blitzecdn_nginx_geoip_enabled=True
+            _with_visitor_headers(**headers), blitzecdn_edge_geoip_enabled=True
         )
         for header in ("BZ-Connecting-IP", "BZ-IPCountry"):
             # Once per server block: the HTTP listeners, and no TLS here.
             emitted = rendered.count(f"proxy_set_header {header} ")
-            assert emitted == len(_role_defaults()["blitzecdn_nginx_http_ports"]), (
+            assert emitted == len(_contract("listeners", "http")), (
                 f"{header} is not written on every listener for {headers}"
             )
 
@@ -705,7 +728,7 @@ def test_visitor_headers_never_reach_the_cache_key():
     """
     rendered = _render(
         _with_visitor_headers(connecting_ip=True, ip_country=True),
-        blitzecdn_nginx_geoip_enabled=True,
+        blitzecdn_edge_geoip_enabled=True,
     )
 
     for line in rendered.splitlines():
@@ -728,7 +751,7 @@ def test_the_acme_challenge_location_carries_no_visitor_headers():
     """It is served from disk; there is no origin request to annotate."""
     rendered = _render(
         _with_visitor_headers(connecting_ip=True, ip_country=True),
-        blitzecdn_nginx_geoip_enabled=True,
+        blitzecdn_edge_geoip_enabled=True,
     )
     challenge = rendered.index("location ^~ /.well-known/acme-challenge/ {")
     block_end = rendered.index("}", rendered.index("try_files $uri =404;"))
@@ -807,22 +830,17 @@ def _server_blocks(
     in the file" is exactly the assertion that let an origin TLS directive sit
     in a plaintext location unnoticed.
     """
+    runtime = defaults["blitzecdn_edge_runtime"]
     blocks = ["server {" + part for part in rendered.split("server {")[1:]]
     http = [
         block
         for block in blocks
-        if any(
-            f"listen {port};" in block
-            for port in defaults["blitzecdn_nginx_http_ports"]
-        )
+        if any(f"listen {port};" in block for port in runtime["listeners"]["http"])
     ]
     https = [
         block
         for block in blocks
-        if any(
-            f"listen {port} ssl;" in block
-            for port in defaults["blitzecdn_nginx_https_ports"]
-        )
+        if any(f"listen {port} ssl;" in block for port in runtime["listeners"]["https"])
     ]
     assert len(http) + len(https) == len(blocks), "a server block matched neither set"
     return http, https
@@ -871,12 +889,12 @@ def _expected_upstreams(
     host: str = "origin.example.com",
 ) -> set[str]:
     """Every upstream a site in one mode must emit, keyed by listener."""
+    runtime = defaults["blitzecdn_edge_runtime"]
     expected = {
-        f"{http_origin}://{host}:{port}"
-        for port in defaults["blitzecdn_nginx_http_ports"]
+        f"{http_origin}://{host}:{port}" for port in runtime["listeners"]["http"]
     }
     if serves_tls:
-        for port in defaults["blitzecdn_nginx_https_ports"]:
+        for port in runtime["listeners"]["https"]:
             scheme = canonical_origin if port == 443 else alternate_origin
             expected.add(f"{scheme}://{host}:{port}")
     return expected
@@ -896,11 +914,12 @@ def test_every_ssl_mode_renders_its_transport(
     """Every listener proxies to its own port, over the mode's scheme for it."""
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
 
-    for port in defaults["blitzecdn_nginx_http_ports"]:
+    for port in runtime["listeners"]["http"]:
         assert f"listen {port};" in rendered
         assert f"listen [::]:{port};" in rendered
-    for port in defaults["blitzecdn_nginx_https_ports"]:
+    for port in runtime["listeners"]["https"]:
         assert (f"listen {port} ssl;" in rendered) is serves_tls
         assert (f"listen [::]:{port} ssl;" in rendered) is serves_tls
 
@@ -924,10 +943,11 @@ def test_the_visitor_port_is_preserved_toward_the_origin(
     """
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     ports = {int(upstream.rsplit(":", 1)[1]) for upstream in _upstreams(rendered)}
-    listeners = set(defaults["blitzecdn_nginx_http_ports"])
+    listeners = set(runtime["listeners"]["http"])
     if serves_tls:
-        listeners |= set(defaults["blitzecdn_nginx_https_ports"])
+        listeners |= set(runtime["listeners"]["https"])
     assert ports == listeners
 
 
@@ -994,13 +1014,14 @@ def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
     """
     rendered = _render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True)))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, _ = _server_blocks(rendered, defaults)
 
     for block in http_blocks:
         assert "proxy_ssl_" not in block
     assert "proxy_ssl_" not in _https_block(rendered, defaults, 443)
 
-    for port in defaults["blitzecdn_nginx_https_ports"]:
+    for port in runtime["listeners"]["https"]:
         if port == 443:
             continue
         block = _https_block(rendered, defaults, port)
@@ -1016,8 +1037,9 @@ def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
 def test_full_strict_verifies_on_every_https_listener_including_alternates():
     rendered = _render(site_to_ansible(_mode_site(SslMode.FULL_STRICT, True)))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
 
-    for port in defaults["blitzecdn_nginx_https_ports"]:
+    for port in runtime["listeners"]["https"]:
         block = _https_block(rendered, defaults, port)
         assert f"https://origin.example.com:{port}" in block
         assert "proxy_ssl_verify on;" in block
@@ -1048,12 +1070,11 @@ def test_the_template_agrees_with_the_domains_scheme_rule(
     """
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
-    listeners = [
-        (HttpScheme.HTTP, port) for port in defaults["blitzecdn_nginx_http_ports"]
-    ]
+    runtime = defaults["blitzecdn_edge_runtime"]
+    listeners = [(HttpScheme.HTTP, port) for port in runtime["listeners"]["http"]]
     if serves_tls:
         listeners += [
-            (HttpScheme.HTTPS, port) for port in defaults["blitzecdn_nginx_https_ports"]
+            (HttpScheme.HTTPS, port) for port in runtime["listeners"]["https"]
         ]
     assert _upstreams(rendered) == {
         f"{mode.origin_scheme_for(visitor_scheme, port).value}"
@@ -1107,14 +1128,11 @@ def test_an_ipv6_origin_is_bracketed_on_every_listener_port():
     site = _mode_site(SslMode.FULL, serves_tls=True, origin_host="2001:db8::10")
     rendered = _render(site_to_ansible(site))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
 
     assert _upstreams(rendered) == {
-        f"http://[2001:db8::10]:{port}"
-        for port in defaults["blitzecdn_nginx_http_ports"]
-    } | {
-        f"https://[2001:db8::10]:{port}"
-        for port in defaults["blitzecdn_nginx_https_ports"]
-    }
+        f"http://[2001:db8::10]:{port}" for port in runtime["listeners"]["http"]
+    } | {f"https://[2001:db8::10]:{port}" for port in runtime["listeners"]["https"]}
     # No unbracketed form anywhere, which would parse as host 2001 port db8.
     assert "//2001:db8::10:" not in rendered
 
@@ -1128,13 +1146,10 @@ def test_a_pinned_resolver_free_edge_still_preserves_the_listener_port():
     assert "set $blitzecdn_upstream" not in rendered
     passes = set(re.findall(r"proxy_pass (\S+);", rendered))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     assert passes == {
-        f"http://origin.example.com:{port}"
-        for port in defaults["blitzecdn_nginx_http_ports"]
-    } | {
-        f"https://origin.example.com:{port}"
-        for port in defaults["blitzecdn_nginx_https_ports"]
-    }
+        f"http://origin.example.com:{port}" for port in runtime["listeners"]["http"]
+    } | {f"https://origin.example.com:{port}" for port in runtime["listeners"]["https"]}
 
 
 def test_the_origin_request_host_override_survives_port_preservation():
@@ -1169,9 +1184,8 @@ def test_the_acme_challenge_path_never_proxies_on_any_listener():
     origin request on its own port."""
     rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
     defaults = _role_defaults()
-    expected = len(defaults["blitzecdn_nginx_http_ports"]) + len(
-        defaults["blitzecdn_nginx_https_ports"]
-    )
+    runtime = defaults["blitzecdn_edge_runtime"]
+    expected = len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
     assert rendered.count("location ^~ /.well-known/acme-challenge/ {") == expected
     for block in re.findall(
         r"location \^~ /\.well-known/acme-challenge/ \{(.*?)\n    \}",
@@ -1179,7 +1193,7 @@ def test_the_acme_challenge_path_never_proxies_on_any_listener():
         re.S,
     ):
         assert "proxy_pass" not in block
-        assert f"root {defaults['blitzecdn_nginx_acme_root']};" in block
+        assert f"root {runtime['paths']['acme']};" in block
 
 
 def test_origin_port_is_not_part_of_the_edge_site_contract():
@@ -1239,12 +1253,11 @@ def test_always_use_https_redirects_every_http_listener_without_its_port():
     site = _mode_site(SslMode.FULL, serves_tls=True, always_use_https=True)
     rendered = _render(site_to_ansible(site))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, https_blocks = _server_blocks(rendered, defaults)
 
-    ports = (
-        defaults["blitzecdn_nginx_http_ports"] + defaults["blitzecdn_nginx_https_ports"]
-    )
-    assert len(http_blocks) == len(defaults["blitzecdn_nginx_http_ports"])
+    ports = runtime["listeners"]["http"] + runtime["listeners"]["https"]
+    assert len(http_blocks) == len(runtime["listeners"]["http"])
     for block in http_blocks:
         assert "return 301 https://$host$request_uri;" in block
         assert "proxy_pass" not in block
@@ -1254,10 +1267,9 @@ def test_always_use_https_redirects_every_http_listener_without_its_port():
             assert f"https://$host:{port}" not in block
     # The HTTPS listeners still proxy, each to its own port.
     assert _upstreams(rendered) == {
-        f"https://origin.example.com:{port}"
-        for port in defaults["blitzecdn_nginx_https_ports"]
+        f"https://origin.example.com:{port}" for port in runtime["listeners"]["https"]
     }
-    assert len(https_blocks) == len(defaults["blitzecdn_nginx_https_ports"])
+    assert len(https_blocks) == len(runtime["listeners"]["https"])
 
 
 def _redirects(rendered: str) -> bool:
@@ -1303,6 +1315,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     site = _mode_site(SslMode.OFF, serves_tls=False, always_use_https=True)
     rendered = _render(site_to_ansible(site))
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, https_blocks = _server_blocks(rendered, defaults)
 
     assert site.always_use_https is True
@@ -1312,8 +1325,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     assert not _redirects(rendered)
     # Every HTTP listener still proxies, over HTTP, to its own port.
     assert _upstreams(rendered) == {
-        f"http://origin.example.com:{port}"
-        for port in defaults["blitzecdn_nginx_http_ports"]
+        f"http://origin.example.com:{port}" for port in runtime["listeners"]["http"]
     }
     for block in http_blocks:
         assert "proxy_pass" in block
@@ -1335,6 +1347,7 @@ def test_under_attack_mode_redirects_permanently_on_every_challenge_path():
     )
     rendered = _render(site_to_ansible(site), blitzecdn_nginx_under_attack_enabled=True)
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, _ = _server_blocks(rendered, defaults)
 
     assert "return 308" not in rendered
@@ -1343,8 +1356,7 @@ def test_under_attack_mode_redirects_permanently_on_every_challenge_path():
         # challenge, verify, and the guarded fall-through, per HTTP listener.
         assert block.count("return 301 https://$host$request_uri;") == 3
     assert _upstreams(rendered) == {
-        f"https://origin.example.com:{port}"
-        for port in defaults["blitzecdn_nginx_https_ports"]
+        f"https://origin.example.com:{port}" for port in runtime["listeners"]["https"]
     }
 
 
@@ -1525,7 +1537,7 @@ def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
     assert "blitzecdn_nginx_packages" not in _role_defaults()
     assert (
         "ghcr.io/misaf/blitzecdn-edge"
-        in _role_defaults()["blitzecdn_nginx_image_default"]
+        in _runtime_defaults()["blitzecdn_edge_runtime_image_default"]
     )
 
 
@@ -1558,11 +1570,11 @@ def test_under_attack_mode_is_absent_from_the_disabled_request_flow():
 
 def test_under_attack_mode_renders_before_redirect_and_proxy_on_http_and_https():
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
 
     assert rendered.count("auth_request /.blitzecdn/internal/under-attack-guard;") == (
-        len(defaults["blitzecdn_nginx_http_ports"])
-        + len(defaults["blitzecdn_nginx_https_ports"])
+        len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
     )
     assert "try_files /__blitzecdn_https_dispatch__" in rendered
     assert "proxy_pass" in rendered
@@ -1592,10 +1604,9 @@ def test_under_attack_reserved_endpoints_are_edge_only_and_uncached():
 
 def test_acme_bypasses_under_attack_mode_in_every_server_block():
     defaults = _role_defaults()
+    runtime = defaults["blitzecdn_edge_runtime"]
     rendered = _render(_under_attack_site(), blitzecdn_nginx_under_attack_enabled=True)
-    expected = len(defaults["blitzecdn_nginx_http_ports"]) + len(
-        defaults["blitzecdn_nginx_https_ports"]
-    )
+    expected = len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
 
     assert rendered.count("location ^~ /.well-known/acme-challenge/ {") == expected
     acme_blocks = rendered.split("location ^~ /.well-known/acme-challenge/ {")[1:]

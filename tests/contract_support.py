@@ -51,6 +51,98 @@ def _role(name: str) -> Path:
 
 ROLE_DIR = _role("blitzecdn_nginx")
 
+#: The role that owns the shared edge runtime contract. blitzecdn_nginx,
+#: blitzecdn_edge_stack and blitzecdn_firewall all read `blitzecdn_edge_runtime`
+#: from here and none of them reads the others, so every test that renders one
+#: of those roles needs the contract resolved first.
+RUNTIME_ROLE_DIR = _role("blitzecdn_edge")
+
+
+def _ansible_jinja(**kwargs: Any) -> Any:
+    """A Jinja environment with the handful of Ansible filters the edge uses.
+
+    Rendering the real templates and resolving the real defaults is the point:
+    a compose file asserted on as text cannot tell a mount from a comment, and
+    a contract asserted on before its expressions are evaluated is a dict of
+    Jinja source.
+    """
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined, **kwargs)
+    environment.filters["dirname"] = os.path.dirname
+    environment.filters["basename"] = os.path.basename
+    environment.filters["regex_replace"] = lambda value, pattern, replacement="": (
+        re.sub(pattern, replacement, value)
+    )
+    environment.filters["bool"] = lambda value: (
+        value
+        if isinstance(value, bool)
+        else str(value).strip().lower() in {"true", "yes", "on", "1"}
+    )
+    # `lookup('env', ...)` is Ansible's, not Jinja's. The defaults that use it
+    # are secrets read from the controller's environment and are none of these
+    # tests' business.
+    environment.globals["lookup"] = lambda *_args, **_kwargs: ""
+    return environment
+
+
+def _resolve(value: Any, context: dict[str, Any], environment: Any) -> Any:
+    """Render every Jinja expression nested anywhere inside ``value``.
+
+    Ansible evaluates a default lazily, wherever it is used, so a contract
+    member written as an expression is a real value by the time a role reads
+    it. These tests have to do the same or they assert on template source.
+    """
+    if isinstance(value, str):
+        if "{{" not in value:
+            return value
+        rendered = environment.from_string(value).render(**context).strip()
+        return {"True": True, "False": False}.get(rendered, rendered)
+    if isinstance(value, dict):
+        return {
+            key: _resolve(item, context, environment) for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_resolve(item, context, environment) for item in value]
+    return value
+
+
+def _runtime_source() -> dict[str, Any]:
+    return yaml.safe_load(
+        (RUNTIME_ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8")
+    )
+
+
+#: The contract's flat inputs — the members that are not fixed runtime layout.
+#: They are flat because desired state and `blitzecdn config set` reach Ansible
+#: as top-level variables and neither can override one member of a dictionary.
+RUNTIME_INPUTS = frozenset(_runtime_source()) - {"blitzecdn_edge_runtime"}
+
+
+def _runtime_defaults(**inputs: Any) -> dict[str, Any]:
+    """The contract as a role sees it: every expression already evaluated."""
+    source = _runtime_source() | inputs
+    environment = _ansible_jinja()
+    return source | {
+        "blitzecdn_edge_runtime": _resolve(
+            source["blitzecdn_edge_runtime"], source, environment
+        )
+    }
+
+
+def _split_runtime(overrides: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate contract inputs from ordinary variable overrides.
+
+    A contract input has to be applied before the contract is composed —
+    setting `blitzecdn_edge_geoip_enabled` after the fact would leave
+    `blitzecdn_edge_runtime.geoip.enabled` reading the default, which is
+    precisely the two-copies bug the contract exists to remove.
+    """
+    inputs = {
+        name: value for name, value in overrides.items() if name in RUNTIME_INPUTS
+    }
+    return inputs, {
+        name: value for name, value in overrides.items() if name not in RUNTIME_INPUTS
+    }
+
 
 class _IndentedDumper(yaml.SafeDumper):
     """Indent sequences under their key, which is what yamllint expects."""
@@ -66,8 +158,36 @@ def _role_spec() -> dict[str, Any]:
     return document["argument_specs"]["main"]["options"]
 
 
-def _role_defaults() -> dict[str, Any]:
-    return yaml.safe_load((ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8"))
+def _role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
+    """blitzecdn_nginx's defaults on top of the resolved runtime contract.
+
+    Which is the variable namespace the role actually renders from: it declares
+    `blitzecdn_edge_runtime` as a required option and reads the paths, the
+    listener sets, the status endpoint and the GeoIP database from it.
+    """
+    context = _runtime_defaults(**runtime_inputs) | yaml.safe_load(
+        (ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8")
+    )
+    # Resolved, because Ansible resolves: a default written as an expression
+    # over the contract — the status file's path, the access log's — is a real
+    # value by the time a template reads it, and a test comparing template
+    # source against a literal proves nothing.
+    environment = _ansible_jinja()
+    for _ in range(len(context)):
+        resolved = {
+            name: value
+            for name, value in context.items()
+            if name != "blitzecdn_edge_runtime"
+        }
+        resolved = _resolve(resolved, context, environment)
+        if resolved == {
+            name: value
+            for name, value in context.items()
+            if name != "blitzecdn_edge_runtime"
+        }:
+            break
+        context |= resolved
+    return context
 
 
 CACHE_ROLE_DIR = _role("blitzecdn_cache")

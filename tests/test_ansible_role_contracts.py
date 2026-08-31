@@ -7,14 +7,20 @@ def test_http3_uses_the_firewall_registry_for_udp_443():
     tasks = (role / "tasks/main.yml").read_text(encoding="utf-8")
     play = (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
 
-    assert "['udp|443|any'] if blitzecdn_firewall_http3_enabled else []" in tasks
+    assert "['udp|443|any'] if blitzecdn_edge_runtime.listeners.http3 else []" in tasks
     assert "proto: udp" in tasks
-    assert "when: blitzecdn_firewall_http3_enabled" in tasks
+    assert "when: blitzecdn_edge_runtime.listeners.http3 | bool" in tasks
     assert "^(tcp|udp)\\|" in tasks
     assert "difference(blitzecdn_firewall_desired_rules)" in tasks
     assert play.index("tasks_from: verify-runtime.yml") < play.index(
         "role: blitzecdn_firewall"
     )
+    # And it opens exactly the ports the Nginx role binds, because both read
+    # one list. There is no second copy left to keep in step.
+    assert "blitzecdn_firewall_http_ports" not in tasks
+    assert "blitzecdn_firewall_http_ports" not in (
+        role / "defaults/main.yml"
+    ).read_text(encoding="utf-8")
 
 
 def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
@@ -28,7 +34,7 @@ def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
     """
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
     assert "ss" in health and "-lnu" in health
-    assert "blitzecdn_edge_stack_http3_enabled" in health
+    assert "blitzecdn_edge_runtime.listeners.http3" in health
     assert "search(':443" in health
 
 
@@ -87,40 +93,17 @@ COMPOSE_TEMPLATE = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(
 )
 
 
-def _ansible_jinja(**kwargs: Any) -> Any:
-    """A Jinja environment with the handful of Ansible filters the edge uses.
-
-    Rendering the real templates is the point: a compose file asserted on as
-    text cannot tell a mount from a comment, and the mounts are what these
-    tests are about.
-    """
-    environment = jinja2.Environment(undefined=jinja2.StrictUndefined, **kwargs)
-    environment.filters["dirname"] = os.path.dirname
-    environment.filters["regex_replace"] = lambda value, pattern, replacement="": (
-        re.sub(pattern, replacement, value)
-    )
-    environment.filters["bool"] = lambda value: (
-        value
-        if isinstance(value, bool)
-        else str(value).strip().lower() in {"true", "yes", "on", "1"}
-    )
-    # `lookup('env', ...)` is Ansible's, not Jinja's. The two defaults that use
-    # it are secrets read from the controller's environment and are none of
-    # these tests' business.
-    environment.globals["lookup"] = lambda *_args, **_kwargs: ""
-    return environment
-
-
 def _edge_context(**overrides: Any) -> dict[str, Any]:
     """The variables the edge stack renders from, with references resolved.
 
-    Several of blitzecdn_edge_stack's defaults are deliberately references to
-    blitzecdn_nginx's — one definition of where an edge keeps its cache, not two
-    that agree until somebody changes one. Resolving them here is what lets
-    these tests read the *paths*, which is what the mounts actually are.
+    The paths, the image and the status endpoint are blitzecdn_edge_runtime's;
+    what remains in blitzecdn_edge_stack's defaults derives from them. Resolving
+    both here is what lets these tests read the *paths*, which is what the
+    mounts actually are.
     """
+    inputs, plain = _split_runtime(overrides)
     context: dict[str, Any] = (
-        _role_defaults() | _defaults_of(STACK_ROLE_DIR) | overrides
+        _role_defaults(**inputs) | _defaults_of(STACK_ROLE_DIR) | plain
     )
     environment = _ansible_jinja()
     for _ in range(len(context)):
@@ -176,13 +159,15 @@ def test_the_configuration_test_sees_what_the_running_edge_sees():
     """
     probe = {
         entry.split(":")[0]: entry.split(":")[2]
-        for entry in _role_defaults()["blitzecdn_nginx_config_test_volumes"]
+        for entry in _edge_context(blitzecdn_edge_geoip_enabled=True)[
+            "blitzecdn_nginx_config_test_volumes"
+        ]
     }
     # Rendered with GeoIP on, because the probe mounts the database
     # unconditionally and this has to compare the full set. The other direction
     # is the safe one: a probe that always sees the database can never miss one
     # the edge has.
-    compose = _compose_mounts(blitzecdn_edge_stack_geoip_enabled=True)
+    compose = _compose_mounts(blitzecdn_edge_geoip_enabled=True)
     assert compose == probe, (
         "the configuration test container and the running edge disagree about "
         "their mounts; a test that cannot see a file the edge reads passes "
@@ -197,11 +182,9 @@ def test_only_cache_and_logs_are_writable_to_the_edge():
     container that cannot write its own configuration cannot be talked into
     persisting a change the next converge would silently revert.
     """
+    runtime = _role_defaults()["blitzecdn_edge_runtime"]
     writable = {path for path, mode in _compose_mounts().items() if mode == "rw"}
-    assert writable == {
-        _role_defaults()["blitzecdn_nginx_cache_path"],
-        "/var/log/nginx",
-    }
+    assert writable == {runtime["paths"]["cache"], runtime["paths"]["logs"]}
 
 
 def test_every_mounted_path_is_created_before_the_container_starts():
@@ -219,16 +202,28 @@ def test_every_mounted_path_is_created_before_the_container_starts():
             ROLE_DIR / "tasks/main.yml",
         )
     )
-    context = _edge_context(blitzecdn_edge_stack_geoip_enabled=True)
-    # A path may be named outright or reached through the variable that holds
-    # it. Both count; what must not happen is neither.
-    aliases: dict[str, set[str]] = {}
-    for name, value in context.items():
+    context = _edge_context(blitzecdn_edge_geoip_enabled=True)
+    # Paths are almost never written out in a task: they are composed from the
+    # contract, as `{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d`. So the
+    # task text is substituted before it is searched, which is what lets this
+    # compare directories rather than variable names — and keeps it honest when
+    # a path is half literal and half contract.
+    substitutions: dict[str, str] = {}
+
+    def collect(prefix: str, value: Any) -> None:
         if isinstance(value, str) and value.startswith("/"):
-            aliases.setdefault(value, set()).add(name)
-    for path in _compose_mounts(blitzecdn_edge_stack_geoip_enabled=True):
-        named = any(alias in created for alias in aliases.get(path, set()))
-        assert path in created or named, (
+            substitutions[prefix] = value
+        elif isinstance(value, dict):
+            for key, item in value.items():
+                collect(f"{prefix}.{key}" if prefix else str(key), item)
+
+    for name, value in context.items():
+        collect(name, value)
+    for name, value in sorted(substitutions.items(), key=lambda item: -len(item[0])):
+        created = created.replace("{{ " + name + " }}", value)
+
+    for path in _compose_mounts(blitzecdn_edge_geoip_enabled=True):
+        assert path in created, (
             f"{path} is mounted into the edge container but nothing creates it; "
             "Docker would make it an empty directory and the edge would serve "
             "nothing from it"
@@ -540,9 +535,9 @@ def test_the_container_health_check_reads_the_configured_status_endpoint():
     service = _render_compose()["services"]["edge"]
     healthcheck = service["healthcheck"]
     url = (
-        f"http://{context['blitzecdn_edge_stack_status_address']}"
-        f":{context['blitzecdn_edge_stack_status_port']}"
-        f"{context['blitzecdn_edge_stack_status_path']}"
+        f"http://{context['blitzecdn_edge_runtime']['status']['address']}"
+        f":{context['blitzecdn_edge_runtime']['status']['port']}"
+        f"{context['blitzecdn_edge_runtime']['status']['path']}"
     )
 
     # Exec form: no shell in the container to quote the URL wrong.
@@ -558,7 +553,7 @@ def test_the_container_health_check_reads_the_configured_status_endpoint():
     assert healthcheck["retries"] == 3
     # The endpoint is loopback-bound and the container shares the host's
     # network namespace. Neither the probe nor anything else publishes it.
-    assert context["blitzecdn_edge_stack_status_address"] == "127.0.0.1"
+    assert context["blitzecdn_edge_runtime"]["status"]["address"] == "127.0.0.1"
     assert "network_mode: host" in COMPOSE_TEMPLATE
 
 
@@ -571,7 +566,7 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     failure fails the converge and reaches the rescue path.
     """
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
-    edge = _render_compose(blitzecdn_edge_stack_geoip_enabled=True)["services"]["edge"]
+    edge = _render_compose(blitzecdn_edge_geoip_enabled=True)["services"]["edge"]
     healthcheck = edge["healthcheck"]
 
     assert healthcheck["test"].count("CMD") == 1
@@ -734,7 +729,7 @@ def test_the_status_endpoint_is_loopback_only():
     switch that publishes it.
     """
     defaults = _role_defaults()
-    assert defaults["blitzecdn_nginx_status_address"] == "127.0.0.1"
+    assert defaults["blitzecdn_edge_runtime"]["status"]["address"] == "127.0.0.1"
     assert defaults["blitzecdn_nginx_status_allow"] == ["127.0.0.1", "::1"]
 
     status = (ROLE_DIR / "templates/status.conf.j2").read_text(encoding="utf-8")
@@ -784,18 +779,23 @@ def test_no_edge_image_reference_floats():
     )
     assert group_vars["blitzecdn_edge_image_tag"] not in ("latest", "", None)
 
+    runtime = _runtime_source()
     defaults = _defaults_of(STACK_ROLE_DIR)
-    for name in (
-        "blitzecdn_edge_stack_image_default",
-        "blitzecdn_edge_stack_geoipupdate_image",
+    for source, name in (
+        (runtime, "blitzecdn_edge_runtime_image_default"),
+        (defaults, "blitzecdn_edge_stack_geoipupdate_image"),
     ):
-        reference = str(defaults[name]).strip()
+        reference = str(source[name]).strip()
         assert not reference.endswith(":latest"), name
         assert re.search(r"(@sha256:[0-9a-f]{64}|:\d+\.\d+)", reference), reference
-    assert (
-        _role_defaults()["blitzecdn_nginx_image_default"].strip()
-        == str(defaults["blitzecdn_edge_stack_image_default"]).strip()
-    )
+    # The two roles used to carry identical fallback literals, and a test
+    # asserted they agreed. There is one now: blitzecdn_edge_runtime.image,
+    # which blitzecdn_nginx validates against and blitzecdn_edge_stack serves
+    # from, so agreeing is no longer something either role can fail at.
+    assert "image" not in _defaults_of(STACK_ROLE_DIR).get("blitzecdn_edge_stack", {})
+    for role_dir in (ROLE_DIR, STACK_ROLE_DIR):
+        source = (role_dir / "defaults/main.yml").read_text(encoding="utf-8")
+        assert "ghcr.io/misaf/blitzecdn-edge" not in source, role_dir.name
 
     # The pull resolves to a digest, and Compose is forbidden from pulling
     # again — a floating tag resolved twice in one run can resolve twice.
@@ -917,40 +917,56 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
     return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
 
 
+def _contract_value(*path: str) -> Any:
+    value: Any = _runtime_defaults()["blitzecdn_edge_runtime"]
+    for key in path:
+        value = value[key]
+    return value
+
+
 @pytest.mark.parametrize(
-    ("cache_key", "nginx_key"),
+    ("cache_key", "expected"),
     [
-        ("blitzecdn_cache_path", "blitzecdn_nginx_cache_path"),
-        (
-            "blitzecdn_cache_normalize_accept_encoding",
-            "blitzecdn_nginx_normalize_accept_encoding",
-        ),
-        ("blitzecdn_cache_purge_http_ports", "blitzecdn_nginx_http_ports"),
-        ("blitzecdn_cache_purge_https_ports", "blitzecdn_nginx_https_ports"),
+        ("blitzecdn_cache_path", ("paths", "cache")),
+        ("blitzecdn_cache_purge_http_ports", ("listeners", "http")),
+        ("blitzecdn_cache_purge_https_ports", ("listeners", "https")),
     ],
 )
-def test_purge_role_agrees_with_the_nginx_role(cache_key, nginx_key):
-    """A purge computes file paths from these; a mismatch purges nothing."""
-    assert _defaults_of(CACHE_ROLE_DIR)[cache_key] == _role_defaults()[nginx_key], (
-        f"{cache_key} in blitzecdn_cache disagrees with {nginx_key} in "
-        "blitzecdn_nginx. Purge would delete paths nginx never wrote to and "
-        "report success."
+def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
+    """A purge computes file paths from these; a mismatch purges nothing.
+
+    blitzecdn_cache runs in its own play — `blitzecdn cache purge` converges
+    nothing else — so it keeps its own defaults rather than reading the
+    contract. That leaves these literals as the only guard, and they are
+    compared against the contract because the contract is what the edge was
+    built from.
+    """
+    assert _defaults_of(CACHE_ROLE_DIR)[cache_key] == _contract_value(*expected), (
+        f"{cache_key} in blitzecdn_cache disagrees with blitzecdn_edge_runtime."
+        f"{'.'.join(expected)}. Purge would delete paths nginx never wrote to "
+        "and report success."
+    )
+
+
+def test_purge_role_agrees_with_the_nginx_role():
+    """Encoding normalization is Nginx policy, so it is compared to that role."""
+    assert (
+        _defaults_of(CACHE_ROLE_DIR)["blitzecdn_cache_normalize_accept_encoding"]
+        == _role_defaults()["blitzecdn_nginx_normalize_accept_encoding"]
     )
 
 
 def test_stats_role_reads_the_log_the_nginx_role_writes():
     stats = _defaults_of(STATS_ROLE_DIR)
-    nginx = _role_defaults()
     assert (
         stats["blitzecdn_stats_access_log_path"]
-        == nginx["blitzecdn_nginx_access_log_path"]
+        == _role_defaults()["blitzecdn_nginx_access_log_path"]
     )
-    assert (
-        stats["blitzecdn_stats_status_address"]
-        == nginx["blitzecdn_nginx_status_address"]
+    assert stats["blitzecdn_stats_status_address"] == _contract_value(
+        "status", "address"
     )
-    assert stats["blitzecdn_stats_status_port"] == nginx["blitzecdn_nginx_status_port"]
-    assert stats["blitzecdn_stats_status_path"] == nginx["blitzecdn_nginx_status_path"]
+    assert stats["blitzecdn_stats_status_port"] == _contract_value("status", "port")
+    assert stats["blitzecdn_stats_status_path"] == _contract_value("status", "path")
 
 
 def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
@@ -1100,3 +1116,348 @@ def test_the_image_is_settable_as_ordinary_fleet_policy():
         "blitzecdn_edge_stack_image_pull",
     ):
         assert validate_setting_name(name) == name
+
+
+# ----------------------------------------------------------------------
+# The shared edge runtime contract
+#
+# blitzecdn_nginx, blitzecdn_edge_stack and blitzecdn_firewall converge the
+# same machine and need the same answers about it: where its files live, which
+# ports it listens on, where its health can be read. They used to get those
+# answers by reaching into each other — blitzecdn_edge_stack derived fifteen of
+# its defaults from blitzecdn_nginx_*, and blitzecdn_firewall did not couple at
+# all and kept a second literal copy of the port lists instead. The tests below
+# hold the replacement in place: one contract, read by all three, and no
+# sibling reads left to grow back.
+# ----------------------------------------------------------------------
+
+#: The roles that converge an edge and share its runtime.
+EDGE_ROLES = ("blitzecdn_nginx", "blitzecdn_edge_stack", "blitzecdn_firewall")
+
+#: The one reference across those roles that is not a contract member.
+#:
+#: blitzecdn_edge_stack overrides blitzecdn_nginx_config_test_image when it asks
+#: that role to validate the running configuration against a *new* image. That
+#: is a parameter passed to a task file, which is what an entry point is for —
+#: not a read of another role's state — and blitzecdn_nginx declares it.
+#:
+#: blitzecdn_nginx_listeners_claimed goes the other way: the Nginx role decides
+#: whether any server block claims the public ports and publishes the answer,
+#: and health.yml reads that rather than re-deriving it from the site list. A
+#: published output is a contract of its own; the defaults file is not.
+SIBLING_EXCEPTIONS = {
+    "blitzecdn_nginx_config_test_image",
+    "blitzecdn_nginx_listeners_claimed",
+}
+
+
+def test_no_edge_role_reads_another_edge_roles_variables():
+    """The coupling this contract replaced must not grow back.
+
+    A sibling read is invisible in review and expensive in production: it makes
+    the role that runs the container depend on the role that writes
+    configuration, for reasons that have nothing to do with configuration, and
+    it means a value can be changed in one place and silently disagree in
+    another. Everything genuinely shared is blitzecdn_edge_runtime's.
+    """
+    for role in EDGE_ROLES:
+        others = [f"{other}_" for other in EDGE_ROLES if other != role]
+        for source in sorted((ROLES_DIR / role).rglob("*")):
+            if source.suffix not in {".yml", ".j2"} or not source.is_file():
+                continue
+            document = source.read_text(encoding="utf-8")
+            for line in document.splitlines():
+                # Prose is where these roles explain themselves to each other,
+                # and naming a sibling there is the point.
+                if line.lstrip().startswith("#"):
+                    continue
+                for prefix in others:
+                    for word in re.findall(rf"{re.escape(prefix)}[a-z0-9_]+", line):
+                        assert word in SIBLING_EXCEPTIONS, (
+                            f"{source.relative_to(PROJECT_DIR)} reads {word}, "
+                            "which belongs to another edge role. Shared runtime "
+                            "values are blitzecdn_edge_runtime's."
+                        )
+
+
+def test_every_edge_role_declares_the_contract_it_reads():
+    """An undeclared contract is an undefined-variable error mid-converge.
+
+    Declaring it makes a play that forgot blitzecdn_edge fail in argument
+    validation, before the role has changed anything.
+    """
+    for role in EDGE_ROLES:
+        spec = yaml.safe_load(
+            (ROLES_DIR / role / "meta/argument_specs.yml").read_text(encoding="utf-8")
+        )["argument_specs"]["main"]["options"]
+        assert spec["blitzecdn_edge_runtime"]["required"] is True, role
+        assert spec["blitzecdn_edge_runtime"]["type"] == "dict", role
+
+
+def test_the_contract_holds_no_value_only_one_role_uses():
+    """Every member has to be read by at least two of the three roles.
+
+    Otherwise the contract becomes the place variables go to escape their
+    owner, and "shared runtime" stops meaning anything. Nginx policy — cache
+    sizing, ciphers, compression — stays in blitzecdn_nginx; the health timeout
+    and the rollback record stay in blitzecdn_edge_stack.
+    """
+    runtime = _runtime_defaults()["blitzecdn_edge_runtime"]
+    sources = {
+        role: "\n".join(
+            source.read_text(encoding="utf-8")
+            for source in sorted((ROLES_DIR / role).rglob("*"))
+            if source.suffix in {".yml", ".j2"} and source.is_file()
+        )
+        for role in EDGE_ROLES
+    }
+
+    def members(prefix: str, value: Any):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                yield from members(f"{prefix}.{key}", item)
+        else:
+            yield prefix
+
+    for member in members("blitzecdn_edge_runtime", runtime):
+        readers = [role for role, text in sources.items() if member in text]
+        assert len(readers) >= 2, (
+            f"{member} is read only by {readers or 'nothing'}. A value one role "
+            "owns belongs in that role's defaults, not in the shared contract."
+        )
+
+
+def test_the_shared_runtime_is_defined_in_exactly_one_place():
+    """One authoritative value, which is the whole point of the exercise.
+
+    The literals below used to appear in two and three role defaults at once,
+    held together by tests asserting the copies agreed. Agreement is not
+    something a single definition can fail at.
+    """
+    duplicated = (
+        "/var/cache/nginx/blitzecdn",
+        "/var/lib/blitzecdn/acme",
+        "/var/lib/blitzecdn/empty",
+        "/stub_status",
+        "8090",
+        "2052, 2082, 2086, 2095",
+        "2053, 2083, 2087, 2096",
+    )
+    for role in EDGE_ROLES:
+        defaults = (ROLES_DIR / role / "defaults/main.yml").read_text(encoding="utf-8")
+        body = "\n".join(
+            line for line in defaults.splitlines() if not line.lstrip().startswith("#")
+        )
+        for literal in duplicated:
+            assert literal not in body, (
+                f"{role} restates {literal!r}, which blitzecdn_edge owns. Two "
+                "copies of a runtime value agree until the day one is changed."
+            )
+
+
+def _run_contract(
+    tmp_path: Path, contract: dict[str, Any] | None = None, **inputs: Any
+):
+    """Execute the contract role, which is where its invariants live.
+
+    Reading the assertions as data would prove they are written, not that they
+    fire: a `when:` or an expression that raises at run time passes
+    --syntax-check and ansible-lint alike.
+    """
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+    variables: dict[str, Any] = dict(inputs)
+    if contract is not None:
+        variables["blitzecdn_edge_runtime"] = contract
+    ansible_local = tmp_path / "ansible-local"
+    ansible_local.mkdir(exist_ok=True)
+    playbook = tmp_path / "contract.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "connection": "local",
+                    "gather_facts": False,
+                    "vars": variables,
+                    "roles": ["blitzecdn_edge"],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        env={
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith(("COV_CORE", "COVERAGE"))
+        }
+        | {
+            "ANSIBLE_LOCALHOST_WARNING": "False",
+            "ANSIBLE_LOCAL_TEMP": str(ansible_local),
+            "ANSIBLE_ROLES_PATH": str(ROLES_DIR),
+        },
+        check=False,
+    )
+
+
+def test_the_shipped_contract_converges(tmp_path):
+    """The defaults this collection ships have to pass their own validation."""
+    result = _run_contract(tmp_path)
+    assert result.returncode == 0, result.stdout
+
+
+def test_the_shipped_contract_converges_with_http3_on(tmp_path):
+    """HTTP/3 is the one input desired state writes on every deploy."""
+    result = _run_contract(tmp_path, blitzecdn_edge_http3_enabled=True)
+    assert result.returncode == 0, result.stdout
+
+
+@pytest.mark.parametrize(
+    ("change", "message"),
+    [
+        pytest.param(
+            {"listeners": {"http": [], "https": [443], "http3": False}},
+            "no HTTP listeners",
+            id="no-http-listeners",
+        ),
+        pytest.param(
+            {"listeners": {"http": [80], "https": [], "http3": False}},
+            "no HTTPS listeners",
+            id="no-https-listeners",
+        ),
+        pytest.param(
+            {"listeners": {"http": [80, 8443], "https": [443, 8443], "http3": False}},
+            "both the HTTP and the HTTPS listener set",
+            id="port-in-both-sets",
+        ),
+        pytest.param(
+            {"listeners": {"http": [80], "https": [8443], "http3": True}},
+            "443 is not an HTTPS listener",
+            id="http3-without-443",
+        ),
+        pytest.param(
+            {"status": {"address": "127.0.0.1", "port": 443, "path": "/stub_status"}},
+            "not a usable loopback endpoint",
+            id="status-on-a-public-listener",
+        ),
+        pytest.param(
+            {"status": {"address": "127.0.0.1", "port": 8090, "path": "stub_status"}},
+            "not a usable loopback endpoint",
+            id="status-path-without-a-slash",
+        ),
+        pytest.param(
+            {"paths": {"nginx": "etc/nginx"}},
+            "is not an absolute path",
+            id="relative-path",
+        ),
+    ],
+)
+def test_the_contract_refuses_an_edge_that_could_not_serve(tmp_path, change, message):
+    """Each of these is well-typed, passes the argument spec, and cannot serve.
+
+    Which is why they are assertions rather than spec entries: the argument
+    spec checks shape, and these are relationships between values.
+    """
+    contract = _runtime_defaults()["blitzecdn_edge_runtime"]
+    contract = {
+        key: (value | change[key] if key in change else value)
+        if isinstance(value, dict)
+        else value
+        for key, value in contract.items()
+    }
+
+    result = _run_contract(tmp_path, contract)
+
+    assert result.returncode != 0, result.stdout
+    assert message in result.stdout, result.stdout
+
+
+def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path):
+    """Executed, not read: this is the rule set ufw is actually handed.
+
+    A listener with no rule is an unreachable port and a rule with no listener
+    is an open port that can never serve. Both roles read one contract member
+    now, so the failure this guards is a rendering mistake rather than a
+    disagreement — the port list reaching ufw has to be the contract's, in full,
+    with UDP/443 present exactly when HTTP/3 is on.
+    """
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+
+    firewall = _role("blitzecdn_firewall")
+    tasks = yaml.safe_load((firewall / "tasks/main.yml").read_text(encoding="utf-8"))
+    compose = next(
+        task
+        for task in tasks[0]["block"]
+        if task["name"] == "Compose the rule set this role manages"
+    )
+
+    def rules(http3: bool) -> set[str]:
+        runtime = _runtime_defaults(blitzecdn_edge_http3_enabled=http3)
+        computed = tmp_path / f"rules-{http3}.json"
+        playbook = tmp_path / f"rules-{http3}.yml"
+        playbook.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "hosts": "localhost",
+                        "connection": "local",
+                        "gather_facts": False,
+                        "vars": _defaults_of(firewall)
+                        | {
+                            "blitzecdn_edge_runtime": runtime["blitzecdn_edge_runtime"],
+                            "blitzecdn_firewall_ssh_port": 22,
+                            "blitzecdn_firewall_ssh_sources": ["198.51.100.0/24"],
+                        },
+                        "tasks": [
+                            compose,
+                            {
+                                "copy": {
+                                    "content": (
+                                        "{{ blitzecdn_firewall_desired_rules "
+                                        "| to_json }}"
+                                    ),
+                                    "dest": str(computed),
+                                    "mode": "0600",
+                                }
+                            },
+                        ],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            env={
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith(("COV_CORE", "COVERAGE"))
+            }
+            | {"ANSIBLE_LOCALHOST_WARNING": "False"},
+            check=False,
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        return set(yaml.safe_load(computed.read_text(encoding="utf-8")))
+
+    listeners = _runtime_defaults()["blitzecdn_edge_runtime"]["listeners"]
+    expected = {"tcp|22|198.51.100.0/24"} | {
+        f"tcp|{port}|any" for port in listeners["http"] + listeners["https"]
+    }
+
+    assert rules(http3=False) == expected
+    assert rules(http3=True) == expected | {"udp|443|any"}

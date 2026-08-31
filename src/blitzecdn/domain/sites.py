@@ -64,9 +64,9 @@ class HttpScheme(StrEnum):
 #: HTTPS one, and neither is the other's counterpart. Nothing here maps one onto
 #: the other, and ``always_use_https`` deliberately does not either.
 #:
-#: These are the same lists as ``blitzecdn_nginx_http_ports`` and
-#: ``blitzecdn_nginx_https_ports`` in the Nginx role; ``test_contract.py`` holds
-#: the two copies together.
+#: These are the same lists as ``blitzecdn_edge_runtime.listeners.http`` and
+#: ``.https`` in the edge runtime contract, which the Nginx role binds and the
+#: firewall opens; ``test_contract.py`` holds the two copies together.
 HTTP_PROXY_PORTS = (80, 8080, 8880, 2052, 2082, 2086, 2095)
 HTTPS_PROXY_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 
@@ -276,7 +276,7 @@ class SiteFirewall(BaseModel):
     allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
     deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
     #: ISO 3166-1 alpha-2, resolved from the client address by ngx_http_geoip2.
-    #: Requires ``blitzecdn_nginx_geoip_enabled`` on the edge; the role refuses
+    #: Requires ``blitzecdn_edge_geoip_enabled`` on the edge; the role refuses
     #: to converge a site that asks for country rules without it rather than
     #: rendering a config that silently admits everyone.
     allowed_countries: tuple[str, ...] = Field(default=(), max_length=250)

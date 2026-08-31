@@ -62,7 +62,7 @@
     - name: Record the deployed edge runtime image
       ansible.builtin.copy:
         content: |
-          {{ {'requested': blitzecdn_edge_stack_image,
+          {{ {'requested': blitzecdn_edge_runtime.image,
               'resolved': blitzecdn_edge_stack_resolved_image} | to_nice_json }}
         dest: "{{ blitzecdn_edge_stack_deployed_image_file }}"
         owner: root

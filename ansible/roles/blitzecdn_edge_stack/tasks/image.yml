@@ -26,7 +26,7 @@
   register: blitzecdn_edge_stack_local_image
   when:
     - blitzecdn_edge_stack_deployed.resolved is defined
-    - blitzecdn_edge_stack_deployed.requested | default('') == blitzecdn_edge_stack_image
+    - blitzecdn_edge_stack_deployed.requested | default('') == blitzecdn_edge_runtime.image
     - not ansible_check_mode
 
 # Reusing the recorded digest is the whole point of the record: it is what makes
@@ -43,7 +43,7 @@
   block:
     - name: Pull the edge runtime image
       community.docker.docker_image_pull:
-        name: "{{ blitzecdn_edge_stack_image }}"
+        name: "{{ blitzecdn_edge_runtime.image }}"
       register: blitzecdn_edge_stack_pull
       until: blitzecdn_edge_stack_pull is success
       # Longer between attempts than the package tasks use, for the same reason
@@ -57,7 +57,7 @@
 
     - name: Inspect the pulled image
       community.docker.docker_image_info:
-        name: "{{ blitzecdn_edge_stack_image }}"
+        name: "{{ blitzecdn_edge_runtime.image }}"
       register: blitzecdn_edge_stack_pulled_info
       when: not ansible_check_mode
 
@@ -66,7 +66,7 @@
         that:
           - blitzecdn_edge_stack_pulled_info.images | default([]) | length > 0
         fail_msg: >-
-          {{ blitzecdn_edge_stack_image }} is not available on
+          {{ blitzecdn_edge_runtime.image }} is not available on
           {{ inventory_hostname }}
           {{ 'and could not be pulled'
              if blitzecdn_edge_stack_image_pull
@@ -85,7 +85,7 @@
           {{ (blitzecdn_edge_stack_pulled_info.images[0].RepoDigests | default([]))
              | select('match', '^' ~ (blitzecdn_edge_stack_image_reference | regex_escape) ~ '@')
              | list | first
-             | default(blitzecdn_edge_stack_image, true) }}
+             | default(blitzecdn_edge_runtime.image, true) }}
         blitzecdn_edge_stack_upgrading: true
       when: not ansible_check_mode
 
@@ -94,6 +94,6 @@
     # the compose file is rendered from a tag.
     - name: Preview the requested image
       ansible.builtin.set_fact:
-        blitzecdn_edge_stack_resolved_image: "{{ blitzecdn_edge_stack_image }}"
+        blitzecdn_edge_stack_resolved_image: "{{ blitzecdn_edge_runtime.image }}"
         blitzecdn_edge_stack_upgrading: false
       when: ansible_check_mode

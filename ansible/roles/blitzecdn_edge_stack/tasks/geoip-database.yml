@@ -7,12 +7,12 @@
 # the Compose file that names them.
 - name: Manage the MaxMind GeoLite2 database
   when:
-    - blitzecdn_edge_stack_geoip_enabled | bool
+    - blitzecdn_edge_runtime.geoip.enabled | bool
     - blitzecdn_edge_stack_geoip_license_key | length > 0
   block:
     - name: Check whether the database has been downloaded
       ansible.builtin.stat:
-        path: "{{ blitzecdn_edge_stack_geoip_database }}"
+        path: "{{ blitzecdn_edge_runtime.geoip.database }}"
       register: blitzecdn_edge_stack_geoip_present
 
     # Only when absent. MaxMind publishes GeoLite2 twice a week and rate-limits

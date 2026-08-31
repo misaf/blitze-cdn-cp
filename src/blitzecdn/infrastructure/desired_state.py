@@ -46,9 +46,17 @@ class DesiredStateRenderer:
         self.write_yaml(
             path,
             {
-                "blitzecdn_firewall_http3_enabled": bool(http3_sites),
+                # The edge runtime contract's input, and the only place HTTP/3
+                # is stated. It used to be written twice — once for the Nginx
+                # listener and once for the firewall's UDP/443 rule — with the
+                # edge play asserting the two copies agreed. One value cannot
+                # disagree with itself, so the assertion went with the copy.
+                "blitzecdn_edge_http3_enabled": bool(http3_sites),
                 "blitzecdn_nginx_allow_empty_sites": self.allow_empty_sites,
-                "blitzecdn_nginx_http3_enabled": bool(http3_sites),
+                # Which site carries `reuseport` on the QUIC listener, which
+                # nginx accepts on exactly one server block. Still the Nginx
+                # role's: it is a rendering detail, not a runtime fact the
+                # firewall or the stack has any use for.
                 "blitzecdn_nginx_http3_listener_owner": (
                     http3_sites[0] if http3_sites else ""
                 ),

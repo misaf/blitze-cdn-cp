@@ -1,10 +1,12 @@
 ---
-# Where blitzecdn_nginx told nginx to keep the cache, and how it keys entries.
-# These three MUST match the blitzecdn_nginx values of the same name: this role
-# computes the on-disk location of a cached response from them, and a mismatch
-# means a purge that reports success having deleted nothing. The control
-# plane's tests/test_contract.py asserts the two roles agree, because nothing
-# at run time can tell "no such entry cached" apart from "wrong directory".
+# Where nginx keeps the cache, and how it keys entries. This role runs in its
+# own playbook, against a host it does not converge, so it is told these rather
+# than reading the edge runtime contract — but they MUST equal what that
+# contract and blitzecdn_nginx converged with: this role computes the on-disk
+# location of a cached response from them, and a mismatch means a purge that
+# reports success having deleted nothing. The control plane's
+# tests/test_ansible_role_contracts.py asserts they agree, because nothing at
+# run time can tell "no such entry cached" apart from "wrong directory".
 blitzecdn_cache_path: /var/cache/nginx/blitzecdn
 blitzecdn_cache_normalize_accept_encoding: true
 

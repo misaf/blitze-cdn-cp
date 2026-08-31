@@ -31,7 +31,7 @@ def _environment_file_body() -> str:
         "\n"
         "# MaxMind GeoLite2, for per-hostname country filtering. Free, but the\n"
         "# download is authenticated: create an account, generate a license key,\n"
-        "# and set blitzecdn_nginx_geoip_enabled in group_vars. The license key\n"
+        "# and set blitzecdn_edge_geoip_enabled in group_vars. The license key\n"
         "# is an account credential — this file is 0600 and must stay uncommitted.\n"
         "# BLITZE_MAXMIND_ACCOUNT_ID=\n"
         "# BLITZE_MAXMIND_LICENSE_KEY=\n"

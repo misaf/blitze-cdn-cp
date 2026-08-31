@@ -1,0 +1,87 @@
+---
+argument_specs:
+  main:
+    short_description: Establish and validate the shared edge runtime contract.
+    description:
+      - >-
+        Converges nothing. It declares the environment blitzecdn_nginx,
+        blitzecdn_edge_stack and blitzecdn_firewall all converge against — the
+        host paths, the public listener sets, the status endpoint, the runtime
+        image and the GeoIP database — and refuses a combination of them that
+        no edge could serve.
+      - >-
+        It exists because those three roles used to read each other's
+        variables. blitzecdn_edge_stack derived fifteen of its own defaults
+        from blitzecdn_nginx_*, which made the role that runs the container
+        depend on the role that writes configuration for reasons that had
+        nothing to do with configuration; blitzecdn_firewall did not couple at
+        all and kept a second literal copy of the port lists instead.
+      - >-
+        Run it first in the play. The argument spec below is checked when the
+        role executes, so putting it ahead of blitzecdn_docker means a
+        malformed contract fails before anything on the host has changed.
+    options:
+      blitzecdn_edge_http3_enabled:
+        type: bool
+        required: true
+        description: >-
+          Whether any enabled site serves HTTP/3. Derived by the control plane
+          from desired state. One value for the Nginx listener, the firewall's
+          UDP/443 rule and the deploy's listener check, so the three cannot
+          disagree.
+      blitzecdn_edge_geoip_enabled: {type: bool, required: true}
+      blitzecdn_edge_geoip_database: {type: path, required: true}
+      blitzecdn_edge_runtime_image_default:
+        type: str
+        required: true
+        description: >-
+          Standalone fallback for a play that runs the edge roles outside the
+          blitzecdn_edges group, which is where the fleet's image is composed.
+      blitzecdn_edge_runtime:
+        type: dict
+        required: true
+        description: >-
+          The resolved contract. Consumers read this; nothing writes to it but
+          this role's defaults.
+        options:
+          container: {type: str, required: true}
+          image:
+            type: str
+            required: true
+            description: >-
+              The edge runtime image, tag- or digest-pinned. Never `latest`.
+              blitzecdn_nginx validates configuration against it and
+              blitzecdn_edge_stack serves from it, so it must be one value.
+          paths:
+            type: dict
+            required: true
+            options:
+              state: {type: path, required: true}
+              nginx: {type: path, required: true}
+              modules: {type: path, required: true}
+              tls: {type: path, required: true}
+              cache: {type: path, required: true}
+              logs: {type: path, required: true}
+              acme: {type: path, required: true}
+              empty: {type: path, required: true}
+          status:
+            type: dict
+            required: true
+            options:
+              address: {type: str, required: true}
+              port: {type: int, required: true}
+              path: {type: str, required: true}
+          listeners:
+            type: dict
+            required: true
+            options:
+              http: {type: list, elements: int, required: true}
+              https: {type: list, elements: int, required: true}
+              http3: {type: bool, required: true}
+          geoip:
+            type: dict
+            required: true
+            options:
+              enabled: {type: bool, required: true}
+              database: {type: path, required: true}
+              directory: {type: path, required: true}

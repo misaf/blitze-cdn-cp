@@ -13,11 +13,16 @@ argument_specs:
       blitzecdn_firewall_enabled: {type: bool, required: true}
       blitzecdn_firewall_ssh_port: {type: int, required: true}
       blitzecdn_firewall_ssh_sources: {type: list, elements: str, required: true}
-      blitzecdn_firewall_http_ports: {type: list, elements: int, required: true}
-      blitzecdn_firewall_http3_enabled:
-        type: bool
+      blitzecdn_edge_runtime:
+        type: dict
         required: true
-        description: Allow visitor QUIC on UDP/443 in addition to TCP HTTPS.
+        description: >-
+          The shared edge runtime contract, owned and validated by the
+          blitzecdn_edge role. This role reads listeners.http and
+          listeners.https — the TCP ports it admits — and listeners.http3,
+          which adds visitor QUIC on UDP/443. Reading the same value the Nginx
+          role binds is what makes an unreachable listener, or an open port
+          nothing serves, impossible rather than merely tested for.
       blitzecdn_firewall_registry_file:
         type: path
         required: true

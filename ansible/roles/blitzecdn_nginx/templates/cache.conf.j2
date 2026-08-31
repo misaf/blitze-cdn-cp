@@ -1,5 +1,5 @@
 # Managed by BlitzeCDN.
-proxy_cache_path {{ blitzecdn_nginx_cache_path }}
+proxy_cache_path {{ blitzecdn_edge_runtime.paths.cache }}
     levels=1:2
     keys_zone={{ blitzecdn_nginx_cache_zone }}:{{ blitzecdn_nginx_cache_size }}
     max_size={{ blitzecdn_nginx_cache_max_size }}

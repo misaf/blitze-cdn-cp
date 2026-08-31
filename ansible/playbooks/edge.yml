@@ -23,15 +23,21 @@
           - ansible_facts.distribution_version == '26.04'
         fail_msg: BlitzeCDN edges for this release require Ubuntu 26.04 LTS.
       tags: [always]
-    - name: Validate requested HTTP/3 capability before changing the edge
-      ansible.builtin.assert:
-        that:
-          - blitzecdn_firewall_http3_enabled == blitzecdn_nginx_http3_enabled
-        fail_msg: >-
-          HTTP/3 firewall and Nginx desired state disagree. Regenerate the
-          desired-state document; UDP/443 and the QUIC listener must converge
-          together.
-      tags: [always, firewall, nginx]
+    # Establishes and validates the shared edge runtime contract: the host
+    # paths, the public listener sets, the status endpoint, the runtime image
+    # and the GeoIP database that blitzecdn_nginx, blitzecdn_edge_stack and
+    # blitzecdn_firewall all converge against. First, and before anything on
+    # the host changes, so a contract no edge could serve fails a play that has
+    # not yet touched the machine.
+    #
+    # This replaced a pairwise assertion here that blitzecdn_firewall's and
+    # blitzecdn_nginx's HTTP/3 desired state agreed. There is one value now, so
+    # they cannot disagree — and the contract asserts the part that assertion
+    # could not: that 443 is actually an HTTPS listener for QUIC to attach to.
+    - name: Establish the shared edge runtime contract
+      ansible.builtin.import_role:
+        name: blitzecdn_edge
+      tags: [always, firewall, nginx, edge_stack]
     # The container engine, and then everything the edge runtime needs to exist
     # before a configuration is rendered: the persistent directories, the
     # runtime image, the Compose project and the GeoLite2 database.
@@ -57,7 +63,8 @@
         # The digest prepare.yml just pinned, not the tag it was asked for. The
         # image that is probed has to be the image that will serve.
         blitzecdn_nginx_config_test_image: >-
-          {{ blitzecdn_edge_stack_resolved_image | default(blitzecdn_nginx_image) }}
+          {{ blitzecdn_edge_stack_resolved_image
+             | default(blitzecdn_edge_runtime.image) }}
       tags: [always, nginx]
   roles:
     - role: blitzecdn_base

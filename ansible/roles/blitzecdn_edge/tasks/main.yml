@@ -1,0 +1,88 @@
+---
+# The argument spec above this file has already checked shape and type. What is
+# left are the relationships between the values — the combinations that are
+# well-typed and still describe an edge that cannot serve.
+#
+# Deliberately short. An assertion for a state the argument spec already refuses
+# is noise that trains the next reader to skim this file, and every check here
+# has to be one an operator or a desired-state document can actually produce.
+- name: Require public listeners on both schemes
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_edge_runtime.listeners.http | length > 0
+      - blitzecdn_edge_runtime.listeners.https | length > 0
+    fail_msg: >-
+      The edge runtime declares no {{ 'HTTP' if blitzecdn_edge_runtime.listeners.http
+      | length == 0 else 'HTTPS' }} listeners. An edge with an empty listener set
+      opens no ports, serves nothing, and still reports a successful converge.
+
+- name: Require every declared listener to be a usable privileged-or-high port
+  ansible.builtin.assert:
+    that:
+      - item | int >= 1
+      - item | int <= 65535
+    fail_msg: "{{ item }} is not a TCP port an edge can listen on."
+  loop: >-
+    {{ blitzecdn_edge_runtime.listeners.http + blitzecdn_edge_runtime.listeners.https }}
+
+# A port in both sets renders twice in one server block, which nginx refuses as
+# a duplicate listen — and the firewall would open it once and think it managed
+# one rule where the configuration has two.
+- name: Refuse a port that is both an HTTP and an HTTPS listener
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_edge_runtime.listeners.http
+        | intersect(blitzecdn_edge_runtime.listeners.https) | length == 0
+    fail_msg: >-
+      {{ blitzecdn_edge_runtime.listeners.http
+         | intersect(blitzecdn_edge_runtime.listeners.https) | join(', ') }}
+      appears in both the HTTP and the HTTPS listener set. Nginx cannot listen
+      on one port both with and without its ssl parameter.
+
+# HTTP/3 is fixed to UDP/443: the firewall opens exactly that port and the
+# site template attaches `quic` to exactly that listener. Without 443 in the
+# HTTPS set the firewall would open a UDP port for a listener no site can own,
+# and the deploy's own UDP check would then fail on every edge.
+- name: Require the HTTP/3 listener to have a TLS listener to attach to
+  ansible.builtin.assert:
+    that:
+      - 443 in blitzecdn_edge_runtime.listeners.https
+    fail_msg: >-
+      HTTP/3 is enabled but 443 is not an HTTPS listener. QUIC is bound to
+      UDP/443 only, so the firewall would open a port nothing can serve and
+      visitors would negotiate h3 from Alt-Svc and time out.
+  when: blitzecdn_edge_runtime.listeners.http3 | bool
+
+# stub_status is served by the same Nginx as the public listeners. Reusing a
+# public port would silently move the endpoint behind a customer's server block
+# — or refuse to load — and the container healthcheck would report every edge
+# unhealthy.
+- name: Require a status endpoint that is reachable and not a public listener
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_edge_runtime.status.port | int >= 1
+      - blitzecdn_edge_runtime.status.port | int <= 65535
+      - >-
+        blitzecdn_edge_runtime.status.port | int not in
+        (blitzecdn_edge_runtime.listeners.http + blitzecdn_edge_runtime.listeners.https)
+      - blitzecdn_edge_runtime.status.path is match('^/')
+    fail_msg: >-
+      The status endpoint at
+      {{ blitzecdn_edge_runtime.status.address }}:{{ blitzecdn_edge_runtime.status.port }}{{
+        blitzecdn_edge_runtime.status.path }}
+      is not a usable loopback endpoint on a port of its own. The Compose
+      healthcheck, the deploy's health verification and blitzecdn_stats all
+      read it.
+
+# Every one of these becomes a bind mount, a copy destination or a recursive
+# removal, all as root. A relative path would be resolved against whatever
+# directory the module happened to run in.
+- name: Require absolute runtime paths
+  ansible.builtin.assert:
+    that:
+      - item.value is match('^/')
+    fail_msg: "blitzecdn_edge_runtime.paths.{{ item.key }} is not an absolute path."
+  loop: "{{ blitzecdn_edge_runtime.paths | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"

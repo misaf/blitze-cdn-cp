@@ -3,11 +3,13 @@
 # `blitzecdn config set` so they are validated, audited, and backed up. The
 # inventory plugin publishes database overrides at host precedence.
 # Keys without a database override fall through to the values here.
-# Single source of truth for the ACME webroot. The nginx role serves challenges
-# from it and the acme-challenge playbook writes them into it; if the two ever
-# disagree, HTTP-01 validation fails with no useful error.
-blitzecdn_acme_root: /var/lib/blitzecdn/acme
-blitzecdn_nginx_acme_root: "{{ blitzecdn_acme_root }}"
+#
+# The ACME webroot, the cache and log directories, the public listener sets,
+# the status endpoint and the container names are no longer set here. They are
+# the blitzecdn_edge role's, in ansible/roles/blitzecdn_edge/defaults —
+# one contract read by blitzecdn_nginx, blitzecdn_edge_stack and
+# blitzecdn_firewall alike, rather than values composed here for roles that
+# then reached into each other for the rest.
 
 blitzecdn_base_timezone: Asia/Tehran
 
@@ -29,8 +31,9 @@ blitzecdn_edge_image_registry: ghcr.io
 blitzecdn_edge_image_repository: misaf/blitzecdn-edge
 blitzecdn_edge_image_tag: "2.7.0"
 blitzecdn_edge_image_digest: ""
-# Composed here so both blitzecdn_nginx, which validates configuration against
-# the image, and blitzecdn_edge_stack, which serves from it, read one value.
+# Composed here and consumed as blitzecdn_edge_runtime.image, so the role that
+# validates a configuration against the image and the role that serves from it
+# read one value.
 blitzecdn_edge_image: >-
   {{ blitzecdn_edge_image_registry }}/{{ blitzecdn_edge_image_repository }}{{
     '@' ~ blitzecdn_edge_image_digest
@@ -76,9 +79,12 @@ blitzecdn_sshd_allow_users: []
 #
 # The control plane forwards them into the Ansible environment, so they are
 # read here rather than written here — this file is committed, `.env` is 0600
-# and is not. blitzecdn_edge_stack writes the key to the root-owned 0600
-# /etc/blitzecdn/geoipupdate.env file and supplies it only to the updater
-# container; every task that handles the credential sets no_log.
-blitzecdn_nginx_geoip_enabled: false
-blitzecdn_nginx_geoip_account_id: "{{ lookup('env', 'BLITZE_MAXMIND_ACCOUNT_ID') }}"
-blitzecdn_nginx_geoip_license_key: "{{ lookup('env', 'BLITZE_MAXMIND_LICENSE_KEY') }}"
+# and is not. blitzecdn_edge_stack owns the updater, so it owns the credential:
+# it writes the key to the root-owned 0600 /etc/blitzecdn/geoipupdate.env file
+# and supplies it only to the updater container, and every task that handles it
+# sets no_log. Whether country filtering is on at all is the runtime
+# contract's, because blitzecdn_nginx renders the lookup that reads the same
+# database this role provisions.
+blitzecdn_edge_geoip_enabled: false
+blitzecdn_edge_stack_geoip_account_id: "{{ lookup('env', 'BLITZE_MAXMIND_ACCOUNT_ID') }}"
+blitzecdn_edge_stack_geoip_license_key: "{{ lookup('env', 'BLITZE_MAXMIND_LICENSE_KEY') }}"

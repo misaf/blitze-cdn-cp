@@ -6,7 +6,7 @@
 # answering for a hostname it was never configured for, and it makes an edge IP
 # enumerable by host-header probing. This block claims that position instead.
 server {
-{% for port in blitzecdn_nginx_http_ports %}
+{% for port in blitzecdn_edge_runtime.listeners.http %}
     listen {{ port }} default_server;
     listen [::]:{{ port }} default_server;
 {% endfor %}
@@ -16,7 +16,7 @@ server {
     # to pass HTTP-01 validation before its own site exists, and refusing the
     # challenge here would make first issuance impossible.
     location ^~ /.well-known/acme-challenge/ {
-        root {{ blitzecdn_nginx_acme_root }};
+        root {{ blitzecdn_edge_runtime.paths.acme }};
         default_type text/plain;
         try_files $uri =404;
     }
@@ -30,11 +30,11 @@ server {
 }
 
 server {
-{% for port in blitzecdn_nginx_https_ports %}
+{% for port in blitzecdn_edge_runtime.listeners.https %}
     listen {{ port }} ssl default_server;
     listen [::]:{{ port }} ssl default_server;
 {% endfor %}
-{% if blitzecdn_nginx_http3_enabled %}
+{% if blitzecdn_edge_runtime.listeners.http3 %}
     # This catch-all owns the shared UDP sockets and their one-time reuseport
     # option. Enabled HTTP/3 sites join the sockets without redeclaring it.
     listen 443 quic reuseport default_server;
