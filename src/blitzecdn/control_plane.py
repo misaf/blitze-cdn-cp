@@ -27,6 +27,7 @@ control plane, so importing it from here would point the arrow both ways;
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Protocol
 
 from blitzecdn import __version__
 from blitzecdn.core.ansible import AnsibleRunner
@@ -50,6 +51,7 @@ from blitzecdn.features.backup.adapters import (
 )
 from blitzecdn.features.backup.service import BackupPolicy, BackupService
 from blitzecdn.features.cache import CacheService
+from blitzecdn.features.cache.ports import CacheRunner
 from blitzecdn.features.certificates.adapters import CertbotIssuer, CertificateStore
 from blitzecdn.features.certificates.ports import (
     CertificateStore as CertificateStorePort,
@@ -75,9 +77,22 @@ from blitzecdn.features.deployments.service import (
 )
 from blitzecdn.features.dns import DnsService
 from blitzecdn.features.edges import EdgeOperationsService
+from blitzecdn.features.edges.ports import EdgeRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
+
+
+class FleetRunner(DeploymentRunner, CacheRunner, EdgeRunner, Protocol):
+    """Every playbook capability one Ansible adapter happens to provide.
+
+    Each feature declares the slice it actually uses — ``DeploymentRunner``,
+    ``CacheRunner``, ``EdgeRunner``, ``DeploymentLocker`` — and none of them
+    knows the others exist. That one object satisfies all four is a fact about
+    the adapter, so it is stated here, where knowing which concrete thing is
+    wired in is the entire job, and nowhere else. A test that injects a fake
+    runner is the other implementer.
+    """
 
 
 class ControlPlane:
@@ -88,7 +103,7 @@ class ControlPlane:
         *,
         settings: Settings,
         repository: Repository | None = None,
-        runner: DeploymentRunner | None = None,
+        runner: FleetRunner | None = None,
         certificate_store: CertificateStorePort | None = None,
         issuer: Issuer | None = None,
         origin_probe: OriginProbePort | None = None,
@@ -120,7 +135,7 @@ class ControlPlane:
         self,
         *,
         store: Repository,
-        runner: DeploymentRunner | None,
+        runner: FleetRunner | None,
         certificate_store: CertificateStorePort | None,
         issuer: Issuer | None,
         origin_probe: OriginProbePort | None,

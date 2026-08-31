@@ -25,11 +25,10 @@ from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.runs import HostRun
-from blitzecdn.features.deployments.ports import DeploymentRunner
 from blitzecdn.features.dns.ports import SiteStore
 from blitzecdn.features.edges.domain import Edge, EdgePatch
 from blitzecdn.features.edges.origins import OriginReport
-from blitzecdn.features.edges.ports import EdgeStore, OriginProbe
+from blitzecdn.features.edges.ports import EdgeRunner, EdgeStore, OriginProbe
 from blitzecdn.features.edges.reporting import edge_origins
 
 
@@ -41,7 +40,7 @@ class EdgeOperationsService:
         *,
         sites: SiteStore,
         events: EventRecorder,
-        runner: DeploymentRunner,
+        runner: EdgeRunner,
         origin_probe: OriginProbe,
         edges: EdgeStore,
         uow: UnitOfWork,

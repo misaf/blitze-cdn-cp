@@ -35,8 +35,8 @@ from blitzecdn.features.certificates.domain import (
 from blitzecdn.features.certificates.ports import (
     CertificateStore,
     DeploymentGateway,
+    DeploymentLocker,
     DeploymentRequirements,
-    DeploymentRunner,
     EventRecorder,
     Issuer,
     Preflight,
@@ -71,7 +71,7 @@ class CertificatePersistence:
 class CertificateExecution:
     """External capabilities used while managing certificates."""
 
-    runner: DeploymentRunner
+    runner: DeploymentLocker
     issuer: Issuer
     preflight: Preflight
 

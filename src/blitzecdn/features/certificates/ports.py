@@ -12,8 +12,8 @@ from blitzecdn.features.certificates.domain import (
 )
 from blitzecdn.features.deployments.ports import (
     DeploymentGateway,
+    DeploymentLocker,
     DeploymentRequirements,
-    DeploymentRunner,
 )
 from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
 from blitzecdn.features.dns.site_domain import CdnSite
@@ -50,8 +50,8 @@ class Preflight(Protocol):
 __all__ = [
     "CertificateStore",
     "DeploymentGateway",
+    "DeploymentLocker",
     "DeploymentRequirements",
-    "DeploymentRunner",
     "EventRecorder",
     "Issuer",
     "Preflight",

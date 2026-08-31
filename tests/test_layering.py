@@ -315,3 +315,115 @@ def test_removed_subsystems_do_not_return():
         or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+#: Which feature may know that another exists. Derived from the graph the code
+#: actually has, and enforced both ways: an undeclared edge fails, and so does
+#: a declared edge nothing uses any more.
+#:
+#: The direction is the point. Everything flows towards `dns`, which owns the
+#: zone records and the `CdnSite` projection every other feature reads and none
+#: of them writes. `deployments` converges what `dns` declares; `certificates`
+#: and `automatic_ssl` sit above both because issuing and upgrading are
+#: decisions taken about a deployed site; `diagnostics` reports on the rest and
+#: is depended on by nothing.
+#:
+#: Shared foundations under `core` are deliberately outside this graph: `core`
+#: is what a feature is allowed to build on without that counting as knowing
+#: another feature.
+ALLOWED_FEATURE_DEPENDENCIES = {
+    "automatic_ssl": {"deployments", "dns", "edges"},
+    "backup": set(),
+    "cache": {"dns"},
+    "certificates": {"deployments", "dns", "edges"},
+    "deployments": {"dns"},
+    "diagnostics": {"cache", "certificates"},
+    "dns": set(),
+    "edges": {"dns"},
+}
+
+
+def _feature_graph() -> dict[str, set[str]]:
+    prefix = "blitzecdn.features."
+    graph: dict[str, set[str]] = {name: set() for name in ALLOWED_FEATURE_DEPENDENCIES}
+    for path in _feature_files():
+        owner = _feature_name(path)
+        if owner not in graph:
+            continue
+        for imported in _imports(path):
+            if not imported.startswith(prefix):
+                continue
+            parts = imported.removeprefix(prefix).split(".")
+            if parts[0] != owner and len(parts) > 1:
+                graph[owner].add(parts[0])
+    return graph
+
+
+def test_every_feature_package_is_in_the_declared_graph():
+    packages = {
+        path.name
+        for path in _FEATURES.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    }
+    assert packages == set(ALLOWED_FEATURE_DEPENDENCIES)
+
+
+def test_feature_dependencies_match_what_is_declared():
+    assert _feature_graph() == ALLOWED_FEATURE_DEPENDENCIES
+
+
+def test_the_feature_dependency_graph_is_acyclic():
+    """A cycle between features is a modular monolith turning back into a ball.
+
+    There were four, and every one of them ran through a single fat port:
+    `DeploymentRunner` used to declare the purge, stats, origin-check and
+    decommission plays as well as the deploy, so `cache` and `edges` had to
+    import the deployment package to reach their own playbook, while
+    `deployments` imported `cache.domain` for the purge entries it named and
+    `certificates.ports` for two certificate paths. Each feature declares the
+    slice it uses now, the composition root is the only place that knows one
+    adapter satisfies all of them, and the graph is a DAG.
+    """
+    graph = _feature_graph()
+    visiting: list[str] = []
+    done: set[str] = set()
+
+    def visit(feature: str) -> None:
+        if feature in visiting:
+            cycle = [*visiting[visiting.index(feature) :], feature]
+            pytest.fail("feature dependency cycle: " + " -> ".join(cycle))
+        if feature in done:
+            return
+        visiting.append(feature)
+        for dependency in sorted(graph[feature]):
+            visit(dependency)
+        visiting.pop()
+        done.add(feature)
+
+    for feature in sorted(graph):
+        visit(feature)
+
+
+def test_no_feature_port_declares_another_feature_s_playbook():
+    """The rule that keeps the graph a DAG rather than merely making it one.
+
+    A port belongs to whoever calls it. The moment one feature's port module
+    describes a run another feature performs, that other feature has to import
+    this one to type its own collaborator — which is exactly how the cycles got
+    there.
+    """
+    owners = {
+        "run_cache_purge": "cache",
+        "run_stats": "cache",
+        "run_origin_check": "edges",
+        "run_decommission": "edges",
+    }
+    offenders = [
+        f"{path.relative_to(_SOURCE)} declares {node.name}, which belongs to {owner}"
+        for path in _FEATURES.glob("*/ports.py")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.FunctionDef)
+        for owner in [owners.get(node.name)]
+        if owner is not None and owner != _feature_name(path)
+    ]
+    assert offenders == []

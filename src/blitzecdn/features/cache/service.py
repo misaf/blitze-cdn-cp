@@ -29,7 +29,7 @@ from blitzecdn.features.cache.domain import (
     PurgeResult,
     SiteCacheStats,
 )
-from blitzecdn.features.deployments.ports import DeploymentRunner
+from blitzecdn.features.cache.ports import CacheRunner
 from blitzecdn.features.dns.ports import SiteStore
 from blitzecdn.features.dns.site_domain import CacheQueryStringMode, CdnSite, HttpScheme
 
@@ -42,7 +42,7 @@ class CacheService:
         *,
         sites: SiteStore,
         events: EventRecorder,
-        runner: DeploymentRunner,
+        runner: CacheRunner,
     ) -> None:
         #: Read to decide which hostnames may be purged. This service never
         #: writes a site; purging is not a change to desired state.
