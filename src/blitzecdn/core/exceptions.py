@@ -23,3 +23,12 @@ class DeploymentBusyError(ConflictError):
 
 class ExecutionError(BlitzeError):
     """An infrastructure command could not be executed."""
+
+
+class PluginError(BlitzeError):
+    """A plugin could not be discovered, registered, or used.
+
+    Distinct from `ConfigurationError` because the two are fixed in different
+    places: a configuration error is a value an operator can change, while this
+    one is a package that is installed, broken, or incompatible.
+    """

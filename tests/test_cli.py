@@ -12,8 +12,8 @@ from conftest import (
 )
 from typer.testing import CliRunner
 
+from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.cli import main as cli
-from blitzecdn.control_plane import ControlPlane
 from blitzecdn.core.database import Repository
 from blitzecdn.core.runs import RunStatus
 from blitzecdn.features.cache.domain import PurgeEntry
@@ -22,6 +22,7 @@ from blitzecdn.features.certificates.domain import (
     PreflightSeverity,
     RenewalResult,
 )
+from blitzecdn.features.diagnostics import cli as diagnostics_cli
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.dns.site_domain import CdnSite
 
@@ -1117,7 +1118,7 @@ def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
     monkeypatch.setattr(cli.common, "settings", lambda: unauthenticated)
     started = []
     monkeypatch.setattr(
-        cli.diagnostics.uvicorn, "run", lambda *a, **k: started.append(a)
+        diagnostics_cli.uvicorn, "run", lambda *a, **k: started.append(a)
     )
 
     result = runner.invoke(cli.app, ["serve"])
@@ -1732,7 +1733,7 @@ def test_cert_preflight_emits_json_for_a_machine_caller(
 def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
     _control(settings, monkeypatch)
     monkeypatch.setattr(
-        cli.diagnostics,
+        diagnostics_cli,
         "check_resolver",
         lambda _settings: PreflightCheck(
             name="resolver",
@@ -1754,7 +1755,7 @@ def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
     def explode(_settings):
         raise AssertionError("the probe must not run with --no-resolver")
 
-    monkeypatch.setattr(cli.diagnostics, "check_resolver", explode)
+    monkeypatch.setattr(diagnostics_cli, "check_resolver", explode)
 
     result = runner.invoke(cli.app, ["doctor", "--no-resolver"])
 

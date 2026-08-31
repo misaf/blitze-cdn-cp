@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 import yaml
 
-from blitzecdn.control_plane import ControlPlane
+from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
 from blitzecdn.features.dns.domain import DnsRecord, Domain

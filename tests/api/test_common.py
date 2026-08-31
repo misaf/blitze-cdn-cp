@@ -33,11 +33,15 @@ def test_health_is_public_and_controls_require_auth(settings):
 
 
 def test_health_reports_redis_unavailable(settings, monkeypatch):
-    monkeypatch.setattr("blitzecdn.control_plane.redis_ready", lambda _url: False)
+    monkeypatch.setattr("blitzecdn.bootstrap.redis_ready", lambda _url: False)
     with TestClient(create_app(settings)) as client:
         response = client.get("/health")
     assert response.status_code == 503
-    assert response.json() == {"status": "unavailable", "detail": "ConnectionError"}
+    assert response.json() == {
+        "status": "unavailable",
+        "check": "broker",
+        "detail": "ConnectionError",
+    }
 
 
 def test_api_service_runs_certificate_reconciliation_on_its_interval(
@@ -48,8 +52,8 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
         update={"certificate_reconcile_interval_seconds": 1}
     )
 
-    def enqueue(_url, operation, *, ttl_seconds):
-        assert operation == "reconcile-certificates"
+    def enqueue(_url, job, *, ttl_seconds):
+        assert job == "certificate-reconciliation"
         assert ttl_seconds >= 2
         called.set()
         return True
@@ -71,8 +75,8 @@ def test_api_service_runs_automatic_ssl_scans_on_their_interval(settings, monkey
         }
     )
 
-    def enqueue(_url, operation, *, ttl_seconds):
-        assert operation == "reconcile-automatic-ssl"
+    def enqueue(_url, job, *, ttl_seconds):
+        assert job == "automatic-ssl-scan"
         assert ttl_seconds >= 2
         called.set()
         return True

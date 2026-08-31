@@ -36,6 +36,13 @@ SCHEDULED_QUEUE = "scheduled"
 #: The actor that converges one already-recorded queued deployment.
 RUN_DEPLOYMENT_ACTOR = "run_deployment"
 
+#: The actor that runs one scheduled job, whichever plugin contributed it.
+#: One actor rather than one per job on purpose: a job's name arrives in the
+#: message and the worker resolves it against the plugin registry in its own
+#: process, so a plugin this repository has never heard of can contribute a
+#: scheduled job without an actor being declared here for it.
+RUN_SCHEDULED_JOB_ACTOR = "run_scheduled_job"
+
 _SCHEDULE_KEY_PREFIX = "blitzecdn:scheduled:"
 _REDIS_OPERATION_TIMEOUT_SECONDS = 5.0
 _RELEASE_IF_OWNER = """
@@ -46,16 +53,6 @@ return 0
 """
 
 _broker_url: str | None = None
-
-
-def scheduled_actor_name(operation: str) -> str:
-    """The actor that runs one maintenance operation.
-
-    Operations are spelled with hyphens because they are a
-    :class:`~blitzecdn.core.operations.MaintenanceOperation` value; actors are
-    Python functions. This is the whole of the translation between them.
-    """
-    return operation.replace("-", "_")
 
 
 def configure_broker(redis_url: str) -> None:
@@ -119,16 +116,16 @@ def _client(redis_url: str) -> Redis:
     )
 
 
-def enqueue_scheduled_once(redis_url: str, operation: str, *, ttl_seconds: int) -> bool:
-    """Atomically publish at most one queued/running copy of an operation."""
+def enqueue_scheduled_once(redis_url: str, job: str, *, ttl_seconds: int) -> bool:
+    """Atomically publish at most one queued/running copy of a scheduled job."""
     client = _client(redis_url)
-    key = f"{_SCHEDULE_KEY_PREFIX}{operation}"
+    key = f"{_SCHEDULE_KEY_PREFIX}{job}"
     token = uuid4().hex
     try:
         if not client.set(key, token, nx=True, ex=ttl_seconds):
             return False
         try:
-            publish(scheduled_actor_name(operation), SCHEDULED_QUEUE, token)
+            publish(RUN_SCHEDULED_JOB_ACTOR, SCHEDULED_QUEUE, job, token)
         except BaseException:
             client.eval(_RELEASE_IF_OWNER, 1, key, token)
             raise
@@ -137,14 +134,14 @@ def enqueue_scheduled_once(redis_url: str, operation: str, *, ttl_seconds: int) 
         client.close()
 
 
-def release_schedule_key(redis_url: str, operation: str, token: str) -> None:
+def release_schedule_key(redis_url: str, job: str, token: str) -> None:
     """Release the single-flight key, but only if this run still owns it."""
     client = _client(redis_url)
     try:
         client.eval(
             _RELEASE_IF_OWNER,
             1,
-            f"{_SCHEDULE_KEY_PREFIX}{operation}",
+            f"{_SCHEDULE_KEY_PREFIX}{job}",
             token,
         )
     finally:

@@ -6,6 +6,14 @@ services. Production wiring lives here and nowhere else, so
 "what does a real control plane consist of" is answerable by reading one
 constructor.
 
+Then it loads the plugins. The order matters and is the whole architecture in
+four lines: adapters, services, plugins, contributions. Services are built with
+explicit constructor injection and know nothing about plugins; plugins are given
+the finished control plane and use it to register what they contribute — routes,
+commands, jobs, health checks, desired state. Nothing flows the other way, and
+no service is ever *looked up*: `platform.cache` in a `plugin.py` is a typed
+attribute read once at registration, not a resolution step in a request.
+
 ``ControlPlane`` is that constructor and nothing else. It holds the feature
 services and the ports the entry layers read through, and it forwards no calls:
 the CLI and the API reach the service that owns the work —
@@ -36,6 +44,15 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
 from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.core.operation_ports import AuditTrail
+from blitzecdn.core.plugins import (
+    HealthCheck,
+    PluginRegistry,
+    ProcessKind,
+    RuntimeContext,
+    ScheduledJob,
+    ValidationResult,
+    load_plugins,
+)
 from blitzecdn.core.workflows import WorkflowCoordinator
 from blitzecdn.features.automatic_ssl import AutomaticSslService
 from blitzecdn.features.backup.adapters import (
@@ -75,6 +92,7 @@ from blitzecdn.features.deployments.service import (
     DeploymentService,
 )
 from blitzecdn.features.dns import DnsService
+from blitzecdn.features.dns.site_domain import CdnSite
 from blitzecdn.features.edges import EdgeOperationsService
 from blitzecdn.features.edges.ports import EdgeRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
@@ -112,8 +130,13 @@ class ControlPlane:
         background: QueueBackgroundRunner | None = None,
         broker_ready: Callable[[str], bool] | None = None,
         pool_connections: bool = False,
+        plugins: PluginRegistry | None = None,
+        process: ProcessKind = ProcessKind.CLI,
     ) -> None:
         self.settings = settings
+        #: Which process this control plane is being built for. Lifecycle
+        #: contributions branch on it; nothing else does.
+        self.process = process
         store = repository or Repository(
             settings.database_path, pool_connections=pool_connections
         )
@@ -129,6 +152,11 @@ class ControlPlane:
             background=background,
             broker_ready=broker_ready,
         )
+        # Plugins last, and given the finished object. A plugin registering a
+        # scheduled job needs the service that job will call, so there is
+        # nothing for it to be handed until every service exists.
+        self.plugins = plugins if plugins is not None else load_plugins()
+        self._jobs: dict[str, ScheduledJob] | None = None
         self._wire_services(store)
 
     def _wire_adapters(
@@ -196,9 +224,12 @@ class ControlPlane:
 
     def _wire_feature_services(self, store: Repository) -> None:
         """Build deployment, certificate, edge, and cache capabilities."""
+        # Every variable in a desired-state document comes from a plugin. This
+        # is the one place that knows the plugin registry can answer for all of
+        # them, which is what keeps `features/deployments` free of it.
         renderer = DesiredStateRenderer(
             allow_empty_sites=self.settings.allow_empty_sites,
-            certificates=self._certificate_store,
+            contributors=self.plugins.contributions_for(self),
             write_yaml=atomic_write_yaml,
         )
         self.deployments = DeploymentService(
@@ -220,6 +251,7 @@ class ControlPlane:
                 background=self._background,
                 read_log=read_log_tail,
                 renderer=renderer,
+                validator=_SiteValidator(self.plugins, self),
             ),
             events=self.events,
             dns=self.dns,
@@ -268,11 +300,40 @@ class ControlPlane:
         )
         self.backup = build_backup_service(self.settings)
         self.maintenance = MaintenanceService(
-            certificates=self.certificates,
-            automatic_ssl=self.automatic_ssl,
+            jobs=lambda: self.jobs,
             deployments=self.deployments,
             requirements=store.deployment_requirements,
-            renewal_budget_seconds=self.settings.certificate_renewal_budget_seconds,
+        )
+
+    @property
+    def jobs(self) -> dict[str, ScheduledJob]:
+        """Every scheduled job the installed plugins contribute, by name.
+
+        Resolved on first use rather than in the constructor, because a plugin
+        contributing a job is handed this object to build it from — and one of
+        those plugins contributes a job that reaches two services this object is
+        still in the middle of building. Resolved once and kept: a job's
+        callable closes over services, so re-resolving would quietly hand out
+        two closures over the same thing.
+        """
+        if self._jobs is None:
+            self._jobs = self.plugins.scheduled_jobs(self)
+        return self._jobs
+
+    def health_checks(self) -> tuple[HealthCheck, ...]:
+        """Every reason the installed plugins have to call this node unhealthy."""
+        return self.plugins.health_checks(self)
+
+    def start(self) -> None:
+        """Let every plugin do what it owes the process that is starting."""
+        self.plugins.startup(
+            RuntimeContext(process=self.process, settings=self.settings), self
+        )
+
+    def stop(self) -> None:
+        """The mirror of :meth:`start`, before adapters are released."""
+        self.plugins.shutdown(
+            RuntimeContext(process=self.process, settings=self.settings), self
         )
 
     def broker_ready(self) -> bool:
@@ -316,10 +377,33 @@ def build_backup_service(settings: Settings) -> BackupService:
     )
 
 
+class _SiteValidator:
+    """The deployment service's view of "what do the plugins object to".
+
+    A two-line class rather than a lambda so the deployment service is handed
+    something that reads like the port it declared, and so the binding of a
+    registry to a platform stays here in the composition root.
+    """
+
+    def __init__(self, plugins: PluginRegistry, platform: ControlPlane) -> None:
+        self._plugins = plugins
+        self._platform = platform
+
+    def validate_site(self, site: CdnSite) -> ValidationResult:
+        return self._plugins.validate_site(site, self._platform)
+
+
 def build_control_plane(
     settings: Settings,
     *,
     pool_connections: bool = False,
+    process: ProcessKind = ProcessKind.CLI,
+    plugins: PluginRegistry | None = None,
 ) -> ControlPlane:
-    """Build a control plane wired to the real adapters."""
-    return ControlPlane(settings=settings, pool_connections=pool_connections)
+    """Build a control plane wired to the real adapters and the real plugins."""
+    return ControlPlane(
+        settings=settings,
+        pool_connections=pool_connections,
+        process=process,
+        plugins=plugins,
+    )

@@ -7,8 +7,8 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.bootstrap import build_backup_service
 from blitzecdn.cli import common
-from blitzecdn.control_plane import build_backup_service
 from blitzecdn.features.backup.domain import BackupComponent
 
 backup_app = typer.Typer(

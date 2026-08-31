@@ -24,28 +24,16 @@ from blitzecdn.core.runs import (
 )
 from blitzecdn.features.cache.domain import PurgeEntry
 from blitzecdn.features.edges.domain import Edge
-from blitzecdn.worker import (
-    check_drift,
-    reconcile_automatic_ssl,
-    reconcile_certificates,
-    renew_certificates,
-    run_deployment,
-)
+from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
 @pytest.fixture(autouse=True)
 def dramatiq_stub_broker(monkeypatch):
     """Keep unit and API tests independent of an external Redis process."""
     broker = StubBroker()
-    monkeypatch.setattr("blitzecdn.control_plane.redis_ready", lambda _url: True)
+    monkeypatch.setattr("blitzecdn.bootstrap.redis_ready", lambda _url: True)
     previous_broker = dramatiq.get_broker()
-    actors = (
-        run_deployment,
-        reconcile_certificates,
-        reconcile_automatic_ssl,
-        renew_certificates,
-        check_drift,
-    )
+    actors = (run_deployment, run_scheduled_job)
     previous_actor_brokers = [actor.broker for actor in actors]
     dramatiq.set_broker(broker)
     for actor in actors:
@@ -399,7 +387,7 @@ def seeded(settings):
     """
 
     def build(runner=None):
-        from blitzecdn.control_plane import ControlPlane
+        from blitzecdn.bootstrap import ControlPlane
         from blitzecdn.core.database import Repository
         from blitzecdn.features.dns.domain import DnsRecord, Domain
 

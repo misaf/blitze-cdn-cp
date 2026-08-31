@@ -30,6 +30,7 @@ from uuid import uuid4
 from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 from blitzecdn.core.operations import WorkflowKind
+from blitzecdn.core.plugins import Severity
 from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.core.validation import validate_edge_limit
 from blitzecdn.core.workflows import WorkflowCoordinator
@@ -49,6 +50,7 @@ from blitzecdn.features.deployments.ports import (
     EventRecorder,
     LogReader,
     QueueBackgroundRunner,
+    SiteValidator,
     UnitOfWork,
     ZoneEditor,
     ZoneStore,
@@ -91,6 +93,11 @@ class DeploymentExecution:
     background: QueueBackgroundRunner
     read_log: LogReader
     renderer: DesiredStateRenderer
+    #: What the installed plugins know about a site that should stop a deploy.
+    #: A collaborator rather than policy: which plugins are installed is a
+    #: composition decision, and this service asks the question without knowing
+    #: who answers it.
+    validator: SiteValidator
 
 
 class DeploymentService:
@@ -166,10 +173,10 @@ class DeploymentService:
         """
         errors = self.policy.runtime_errors()
         errors.extend(self.dns.validation_errors())
+        snapshot = self.persistence.deployments.snapshot()
+        errors.extend(self._plugin_errors(snapshot))
         if not errors:
-            with self._scratch_desired_state(
-                self.persistence.deployments.snapshot()
-            ) as variables:
+            with self._scratch_desired_state(snapshot) as variables:
                 run = self.execution.runner.validate(variables)
             if not run.succeeded:
                 # The one place a log is read back. `--syntax-check` executes no
@@ -182,6 +189,24 @@ class DeploymentService:
                     )
                     or run.summary()
                 )
+        return errors
+
+    def _plugin_errors(self, snapshot: str) -> list[str]:
+        """Ask every installed plugin what it knows about each site.
+
+        A blocking issue refuses the deployment; a warning is logged and
+        converged anyway. Both are attributed to the plugin that raised them,
+        because the operator reading the refusal may have installed it
+        yesterday and has to know which package is objecting.
+        """
+        errors: list[str] = []
+        for site in decode_snapshot(snapshot):
+            for issue in self.execution.validator.validate_site(site).issues:
+                message = f"{issue.plugin}: {issue.site}: {issue.message}"
+                if issue.severity is Severity.BLOCKING:
+                    errors.append(message)
+                else:
+                    _LOGGER.warning("%s", message)
         return errors
 
     @contextmanager

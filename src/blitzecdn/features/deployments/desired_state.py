@@ -1,13 +1,22 @@
-"""Publish immutable snapshots in the format consumed by Ansible."""
+"""Publish immutable snapshots in the format consumed by Ansible.
+
+This renderer knows how a desired-state document is *framed* — a list of site
+documents under one key, with fleet-wide variables beside it — and nothing at
+all about what goes in one. Every variable comes from a plugin: `dns` projects
+the site model, `certificates` replaces the two TLS paths with the files on this
+controller, `http3` decides whether the edges run QUIC.
+
+That is the point. Adding compression, a WAF, GeoIP or visitor headers used to
+mean editing this file, which made it the one place every future capability had
+to meet. Now it is the one place none of them do.
+"""
 
 from __future__ import annotations
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
-from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.features.deployments.ports import CertificateSources, YamlWriter
+from blitzecdn.features.deployments.ports import StateContributors, YamlWriter
 from blitzecdn.features.deployments.snapshots import decode_snapshot
-from blitzecdn.features.dns.site_domain import MANAGED_TLS_ROOT, CertificateMode
 
 
 class DesiredStateRenderer:
@@ -15,50 +24,25 @@ class DesiredStateRenderer:
         self,
         *,
         allow_empty_sites: bool,
-        certificates: CertificateSources,
+        contributors: StateContributors,
         write_yaml: YamlWriter,
     ) -> None:
+        #: Whether an edge may converge to serving nothing. Renderer policy
+        #: rather than a plugin contribution: it is a statement about this
+        #: document being complete, not about any capability in it.
         self.allow_empty_sites = allow_empty_sites
-        self.certificates = certificates
+        self.contributors = contributors
         self.write_yaml = write_yaml
 
     def render(self, snapshot: str, path: Path) -> None:
-        documents: list[dict[str, object]] = []
-        for site in decode_snapshot(snapshot):
-            document = site_to_ansible(site)
-            if site.certificate_mode in {
-                CertificateMode.UPLOADED,
-                CertificateMode.REQUESTED,
-            }:
-                certificate, private_key = self.certificates.sources(site.name)
-                document["certificate_source_path"] = str(certificate)
-                document["certificate_key_source_path"] = str(private_key)
-                destination = PurePosixPath(MANAGED_TLS_ROOT, site.name)
-                document["certificate_path"] = str(destination / certificate.name)
-                document["certificate_key_path"] = str(destination / private_key.name)
-            documents.append(document)
-        http3_sites = sorted(
-            str(document["name"])
-            for document in documents
-            if document.get("enabled", True) and document.get("http3_enabled", False)
-        )
+        sites = tuple(decode_snapshot(snapshot))
         self.write_yaml(
             path,
             {
-                # The edge runtime contract's input, and the only place HTTP/3
-                # is stated. It used to be written twice — once for the Nginx
-                # listener and once for the firewall's UDP/443 rule — with the
-                # edge play asserting the two copies agreed. One value cannot
-                # disagree with itself, so the assertion went with the copy.
-                "blitzecdn_edge_http3_enabled": bool(http3_sites),
+                **self.contributors.fleet_variables(sites),
                 "blitzecdn_nginx_allow_empty_sites": self.allow_empty_sites,
-                # Which site carries `reuseport` on the QUIC listener, which
-                # nginx accepts on exactly one server block. Still the Nginx
-                # role's: it is a rendering detail, not a runtime fact the
-                # firewall or the stack has any use for.
-                "blitzecdn_nginx_http3_listener_owner": (
-                    http3_sites[0] if http3_sites else ""
-                ),
-                "blitzecdn_nginx_sites": documents,
+                "blitzecdn_nginx_sites": [
+                    self.contributors.site_variables(site) for site in sites
+                ],
             },
         )

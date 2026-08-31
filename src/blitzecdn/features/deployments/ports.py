@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Protocol
 
 from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.plugins import StateValue, ValidationResult
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.features.deployments.domain import (
@@ -13,6 +15,7 @@ from blitzecdn.features.deployments.domain import (
     DeploymentStatus,
 )
 from blitzecdn.features.dns.ports import ZoneEditor, ZoneStore
+from blitzecdn.features.dns.site_domain import CdnSite
 
 
 class DeploymentRequirements(Protocol):
@@ -159,21 +162,33 @@ class DesiredStateRenderer(Protocol):
     def render(self, snapshot: str, path: Path) -> None: ...
 
 
-class CertificateSources(Protocol):
-    """Where a site's installed certificate and key are on this controller.
+class StateContributors(Protocol):
+    """Every plugin's share of a desired-state document, already merged.
 
-    Declared here rather than imported from ``certificates.ports`` for the
-    ordinary reason a port is declared by its consumer: rendering desired state
-    needs two paths, not the install-and-list store the certificate feature
-    owns. It also settles a direction — the certificate feature already depends
-    on this one, and importing its port back made the two mutually dependent.
+    Declared here rather than imported from the plugin registry for the
+    ordinary reason a port is declared by its consumer: the renderer needs two
+    mappings, not a plugin manager. It also keeps this feature testable with a
+    hand-built pair of dictionaries and no plugins registered anywhere.
     """
 
-    def sources(self, site_name: str) -> tuple[Path, Path]: ...
+    def site_variables(self, site: CdnSite) -> Mapping[str, StateValue]: ...
+
+    def fleet_variables(
+        self, sites: tuple[CdnSite, ...]
+    ) -> Mapping[str, StateValue]: ...
+
+
+class SiteValidator(Protocol):
+    """What the installed plugins know that should stop a deployment.
+
+    Asked once per site before anything is rendered, so refusing costs nothing:
+    no desired-state file is written and no playbook starts.
+    """
+
+    def validate_site(self, site: CdnSite) -> ValidationResult: ...
 
 
 __all__ = [
-    "CertificateSources",
     "DeploymentGateway",
     "DeploymentLocker",
     "DeploymentRequirements",
@@ -183,6 +198,8 @@ __all__ = [
     "EventRecorder",
     "LogReader",
     "QueueBackgroundRunner",
+    "SiteValidator",
+    "StateContributors",
     "UnitOfWork",
     "YamlWriter",
     "ZoneEditor",

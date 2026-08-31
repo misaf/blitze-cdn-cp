@@ -17,15 +17,10 @@ from dramatiq.brokers.stub import StubBroker
 
 from blitzecdn import worker
 from blitzecdn.core import broker as queue
-from blitzecdn.core.exceptions import DeploymentBusyError
+from blitzecdn.core.exceptions import DeploymentBusyError, NotFoundError
+from blitzecdn.core.plugins import ScheduledJob
 from blitzecdn.features.maintenance import MaintenanceService
-from blitzecdn.worker import (
-    check_drift,
-    reconcile_automatic_ssl,
-    reconcile_certificates,
-    renew_certificates,
-    run_deployment,
-)
+from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
 class FakeRedis:
@@ -52,43 +47,34 @@ class FakeRedis:
 
 
 def test_actors_publish_to_the_expected_queues():
+    """Two actors, and every scheduled job of every plugin goes through one.
+
+    A job's name travels in the message rather than in the actor name, which is
+    what lets a plugin this repository has never heard of contribute recurring
+    work: there is nothing to declare here for it.
+    """
     broker = StubBroker()
     dramatiq.set_broker(broker)
-    actors = (
-        run_deployment,
-        reconcile_certificates,
-        reconcile_automatic_ssl,
-        renew_certificates,
-        check_drift,
-    )
+    actors = (run_deployment, run_scheduled_job)
     previous = [actor.broker for actor in actors]
     try:
         for actor in actors:
             actor.broker = broker
             broker.declare_actor(actor)
         run_deployment.send("deployment-id")
-        reconcile_certificates.send("reconcile-token")
-        reconcile_automatic_ssl.send("automatic-ssl-token")
-        renew_certificates.send("renew-token")
-        check_drift.send("drift-token")
+        run_scheduled_job.send("check-drift", "drift-token")
+        run_scheduled_job.send("waf-rule-refresh", "waf-token")
 
         deployment = dramatiq.Message.decode(broker.queues["deployments"].get_nowait())
         scheduled = [
             dramatiq.Message.decode(broker.queues["scheduled"].get_nowait())
-            for _ in range(4)
+            for _ in range(2)
         ]
         assert deployment.args == ("deployment-id",)
-        assert {message.actor_name for message in scheduled} == {
-            "reconcile_certificates",
-            "reconcile_automatic_ssl",
-            "renew_certificates",
-            "check_drift",
-        }
+        assert {message.actor_name for message in scheduled} == {"run_scheduled_job"}
         assert {message.args for message in scheduled} == {
-            ("reconcile-token",),
-            ("automatic-ssl-token",),
-            ("renew-token",),
-            ("drift-token",),
+            ("check-drift", "drift-token"),
+            ("waf-rule-refresh", "waf-token"),
         }
     finally:
         for actor, original in zip(actors, previous, strict=True):
@@ -106,23 +92,8 @@ def test_the_published_names_match_the_actors_that_consume_them():
     """
     assert run_deployment.actor_name == queue.RUN_DEPLOYMENT_ACTOR
     assert run_deployment.queue_name == queue.DEPLOYMENT_QUEUE
-    scheduled = (
-        reconcile_certificates,
-        reconcile_automatic_ssl,
-        renew_certificates,
-        check_drift,
-    )
-    for actor in scheduled:
-        assert actor.queue_name == queue.SCHEDULED_QUEUE
-    assert {actor.actor_name for actor in scheduled} == {
-        queue.scheduled_actor_name(operation)
-        for operation in (
-            "reconcile-certificates",
-            "reconcile-automatic-ssl",
-            "renew-certificates",
-            "check-drift",
-        )
-    }
+    assert run_scheduled_job.actor_name == queue.RUN_SCHEDULED_JOB_ACTOR
+    assert run_scheduled_job.queue_name == queue.SCHEDULED_QUEUE
 
 
 def test_the_broker_is_installed_once_per_process(monkeypatch):
@@ -225,9 +196,12 @@ def test_scheduled_enqueue_is_atomic_and_passes_ownership_token(monkeypatch):
     )
     assert len(sent) == 1
     actor_name, queue_name, args = sent[0]
-    assert actor_name == "check_drift"
+    assert actor_name == queue.RUN_SCHEDULED_JOB_ACTOR
     assert queue_name == queue.SCHEDULED_QUEUE
-    assert args == (FakeRedis.values[f"{queue._SCHEDULE_KEY_PREFIX}check-drift"],)
+    assert args == (
+        "check-drift",
+        FakeRedis.values[f"{queue._SCHEDULE_KEY_PREFIX}check-drift"],
+    )
 
 
 def test_failed_scheduled_publish_releases_its_key(monkeypatch):
@@ -288,66 +262,66 @@ def test_scheduled_redis_calls_have_finite_network_timeouts(monkeypatch):
     ]
 
 
-def test_first_certificate_reconciliation_immediately_scans_automatic_ssl(
-    monkeypatch,
-):
-    calls: list[tuple[str, str]] = []
-    certificates = SimpleNamespace(
-        reconcile_certificates=lambda operator: (
-            calls.append(("certificates", operator))
-            or SimpleNamespace(issued=("cdn-example-com",))
-        ),
-        renew_certificates=lambda _operator, **_kwargs: None,
-    )
-    automatic_ssl = SimpleNamespace(
-        reconcile=lambda operator: calls.append(("automatic-ssl", operator))
-    )
-    deployments = SimpleNamespace(
-        submit_deployment=lambda _operator: None,
-        check_drift=lambda _operator: None,
-    )
-    control = SimpleNamespace(
-        maintenance=MaintenanceService(
-            certificates=certificates,
-            automatic_ssl=automatic_ssl,
-            deployments=deployments,
-            requirements=SimpleNamespace(pending=lambda _kind: False),
-            renewal_budget_seconds=300,
-        ),
-        close=lambda: None,
-    )
-    monkeypatch.setattr(
-        "blitzecdn.control_plane.build_control_plane", lambda _settings: control
-    )
-    monkeypatch.setattr(worker, "release_schedule_key", lambda *_args: None)
+def test_a_maintenance_run_converges_what_it_left_owing(monkeypatch):
+    """The one rule that holds across every scheduled job, whoever wrote it.
 
-    worker._run_control_plane("reconcile-certificates", "token")
+    A job that changed something the fleet has not seen raises a deployment
+    requirement, and the run that raised it is the run that should pay it off —
+    otherwise the change sits in the database until an operator happens to
+    deploy for an unrelated reason.
+    """
+    calls: list[str] = []
+    service = MaintenanceService(
+        jobs=lambda: {
+            "renew-certificates": ScheduledJob(
+                name="renew-certificates",
+                interval_seconds=60,
+                run=lambda operator: calls.append(f"renewed by {operator}"),
+            )
+        },
+        deployments=SimpleNamespace(
+            submit_deployment=lambda operator: calls.append(f"deployed by {operator}")
+        ),
+        requirements=SimpleNamespace(pending=lambda _kind: True),
+    )
 
-    assert calls == [
-        ("certificates", "scheduler"),
-        ("automatic-ssl", "scheduler"),
-    ]
+    service.run("renew-certificates")
+
+    assert calls == ["renewed by scheduler", "deployed by scheduler"]
+
+
+def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
+    """A message can outlive the plugin that published it."""
+    service = MaintenanceService(
+        jobs=lambda: {},
+        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
+        requirements=SimpleNamespace(pending=lambda _kind: False),
+    )
+
+    with pytest.raises(NotFoundError, match="no scheduled job named 'check-drift'"):
+        service.run("check-drift")
 
 
 def test_a_scheduled_actor_always_releases_its_key(monkeypatch):
-    """A failing operation must not block the next tick for the key's whole TTL."""
+    """A failing job must not block the next tick for the key's whole TTL."""
     released: list[tuple[str, str]] = []
     control = SimpleNamespace(
         maintenance=SimpleNamespace(
-            run=lambda _operation: (_ for _ in ()).throw(RuntimeError("drift failed"))
+            run=lambda _job: (_ for _ in ()).throw(RuntimeError("drift failed"))
         ),
         close=lambda: None,
     )
     monkeypatch.setattr(
-        "blitzecdn.control_plane.build_control_plane", lambda _settings: control
+        "blitzecdn.bootstrap.build_control_plane",
+        lambda _settings, **_kwargs: control,
     )
     monkeypatch.setattr(
         worker,
         "release_schedule_key",
-        lambda _url, operation, token: released.append((operation, token)),
+        lambda _url, job, token: released.append((job, token)),
     )
 
     with pytest.raises(RuntimeError, match="drift failed"):
-        worker._run_control_plane("check-drift", "token")
+        worker.run_scheduled_job("check-drift", "token")
 
     assert released == [("check-drift", "token")]

@@ -1,12 +1,25 @@
 """The `blitzecdn` command line.
 
-Importing this package is what assembles the CLI: each command module registers
-its commands on the root ``app`` as a side effect of being imported, and the
-sub-app registrations below are the one place the command tree is described.
+The command tree is assembled from what the installed plugins contribute, not
+from a list of imports here. A feature's commands appear because its plugin
+returns a :class:`~blitzecdn.core.plugins.CliCommandGroup`, so a separately
+installed package adds `blitzecdn waf ...` without this module changing.
 
-``run`` is the console-script entry point. It lives here rather than in
-:mod:`blitzecdn.cli.app` — by the time it
-is called every command module must already have been imported.
+Two things stay here because they are the command line itself rather than a
+feature: the root callback in :mod:`blitzecdn.cli.root` with the global options,
+and `config`, `init` and `setup`, which configure the control plane that
+features are then loaded into.
+
+Discovery does not build a control plane. The tree has to exist before an
+argument is parsed, and a command resolves its services when it runs — otherwise
+`blitzecdn --help` would create and migrate the database.
+
+Importing this module assembles the command tree, exactly as it did when the
+tree was a list of imports: discovery is cheap, and a `blitzecdn.cli.main` that
+had been imported but had no commands on it would be a trap for every caller
+that reaches for `app` — the console script, the tests, and `--help`.
+
+``run`` is the console-script entry point.
 """
 
 from __future__ import annotations
@@ -14,13 +27,9 @@ from __future__ import annotations
 import typer
 from pydantic import ValidationError
 
-from blitzecdn.cli import (
-    bootstrap,
-    common,
-    configuration,
-)
-from blitzecdn.cli.app import app, main
+from blitzecdn.cli import bootstrap, common, configuration
 from blitzecdn.cli.common import ExitCode, control_plane, emit, settings
+from blitzecdn.cli.root import app, main
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -30,47 +39,41 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
     NotFoundError,
 )
-from blitzecdn.features.backup import cli as backup
-from blitzecdn.features.cache import cli as cache
-from blitzecdn.features.certificates import cli as certs
-from blitzecdn.features.certificates import tls_cli as tls
-from blitzecdn.features.deployments import cli as deploy
-from blitzecdn.features.diagnostics import cli as diagnostics
-from blitzecdn.features.dns import cli as zones
-from blitzecdn.features.edges import cli as edges
+from blitzecdn.core.plugins import PluginRegistry, load_plugins
 
-app.add_typer(zones.site_app, name="site")
-app.add_typer(edges.edge_app, name="edge")
-app.add_typer(zones.domain_app, name="domain")
-app.add_typer(zones.record_app, name="record")
-app.add_typer(zones.dns_app, name="dns")
-app.add_typer(certs.cert_app, name="cert")
-app.add_typer(edges.origin_app, name="origin")
-app.add_typer(cache.cache_app, name="cache")
-app.add_typer(tls.ssl_app, name="ssl")
 app.add_typer(configuration.config_app, name="config")
-app.add_typer(backup.backup_app, name="backup")
+
+
+def register_commands(registry: PluginRegistry, root: typer.Typer = app) -> None:
+    """Graft every contributed command group onto the root application.
+
+    A group with no name contributes root-level verbs — `deploy`, `plan`,
+    `status` — by handing over its commands rather than nesting them under a
+    noun invented to satisfy the registration mechanism.
+    """
+    for group in registry.cli_commands():
+        if group.name is None:
+            root.registered_commands.extend(group.app.registered_commands)
+        else:
+            root.add_typer(group.app, name=group.name)
+
+
+register_commands(load_plugins())
+
 
 __all__ = [
     "ExitCode",
     "Settings",
     "app",
-    "backup",
     "bootstrap",
-    "cache",
-    "certs",
     "common",
     "configuration",
     "control_plane",
-    "deploy",
-    "diagnostics",
-    "edges",
     "emit",
     "main",
+    "register_commands",
     "run",
     "settings",
-    "tls",
-    "zones",
 ]
 
 

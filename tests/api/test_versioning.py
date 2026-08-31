@@ -462,3 +462,18 @@ def test_neither_version_imports_the_other():
             if module in text
         )
     assert offenders == []
+
+
+def test_openapi_generation_is_deterministic(settings):
+    """The same source must publish byte-identical documents.
+
+    `docs-check` compares the reference pages against a freshly generated
+    document, and client generators diff one build against the last. Both treat
+    a reordered `components` block or a renamed disambiguated schema as a real
+    change. Schema generation walks sets and dicts of models, so a document
+    that shuffles between builds would turn either into noise that hides the
+    one change that mattered.
+    """
+    first = json.dumps(_schemas(settings), sort_keys=False)
+    second = json.dumps(_schemas(settings), sort_keys=False)
+    assert first == second

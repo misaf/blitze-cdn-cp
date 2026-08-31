@@ -34,6 +34,9 @@ dependencies = [
   # dependency that is really required has to say so here.
   "ansible-core>=2.21,<2.22",
   "pydantic-settings>=2.12,<3",
+  # The extension mechanism. Features register through it; business calls never
+  # go through it. See src/blitzecdn/core/plugins/__init__.py.
+  "pluggy>=1.6,<2",
   "apscheduler>=3.11,<4",
   "sqlmodel>=0.0.31,<0.1",
   "dramatiq[redis]>=2.2.0,<3",
@@ -112,6 +115,13 @@ max-statements = 60
 python_version = "3.12"
 strict = true
 packages = ["blitzecdn"]
+
+# Hook specifications are declarations, not implementations: pluggy never calls
+# the spec, only the implementations registered against it. A body would be
+# unreachable code that looked like a default.
+[[tool.mypy.overrides]]
+module = "blitzecdn.core.plugins.hooks"
+disable_error_code = ["empty-body"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]
