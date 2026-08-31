@@ -130,3 +130,23 @@ allow_empty_sites = false
 # permits issuance. An empty list uses the host resolver. Use public resolver IPs
 # when split-horizon DNS or internal forwarding gives a different view.
 preflight_dns_servers = []
+
+# |--------------------------------------------------------------------------
+# | Required Optional Capabilities
+# |--------------------------------------------------------------------------
+#
+# Optional capabilities are separate distributions — blitzecdn-backup,
+# blitzecdn-cache — that the control plane discovers through their installed
+# entry points. Their absence is normal and silent, because attaching and
+# detaching them is a supported operation.
+#
+# This list is how an installation says it depends on one anyway. The control
+# plane refuses to start while a capability named here is not installed, naming
+# the missing token rather than coming up and behaving as though the capability
+# had simply been configured off.
+#
+
+# Capability tokens this controller must have installed. Empty is right for a
+# fresh install. Set this only for a capability the installation genuinely
+# depends on, such as "backup" on a controller that is updated in place.
+required_capabilities = []

@@ -100,19 +100,38 @@ Run `install.sh update --help` before changing release lines.
 
 ## Extending BlitzeCDN
 
-Features register themselves through `pluggy`, and a separately installed
-package can contribute routes, commands, scheduled jobs, health checks and
-desired state without a line of this repository changing. See
-[PLUGINS.md](PLUGINS.md).
+Capabilities register themselves through `pluggy`. Some are required parts of
+the control plane; others are ordinary Python distributions that install beside
+it and are found only through their entry points:
+
+```bash
+pip install blitzecdn                # the control plane alone
+pip install blitzecdn-cache          # + purge and cache reporting
+pip install 'blitzecdn[all]'         # + every optional capability
+pip uninstall blitzecdn-cache        # the capability disappears; core keeps working
+```
+
+A package can contribute routes, commands, scheduled jobs, health checks,
+deployment checks and desired state without a line of this repository changing —
+including one this repository has never heard of. See [PLUGINS.md](PLUGINS.md).
 
 ## Development
 
-Dependencies are managed with [uv](https://docs.astral.sh/uv/) and tasks with
-[just](https://just.systems/):
+The repository is a [uv](https://docs.astral.sh/uv/) workspace: the root project
+is `blitzecdn`, and each optional capability under `packages/` builds as its own
+wheel. Tasks run through [just](https://just.systems/):
 
 ```bash
-just install
-just check
+just install       # the whole workspace, including every optional capability
+just check         # every CI gate, in CI order
+```
+
+Focused commands:
+
+```bash
+just test-package blitzecdn-cache   # one distribution's own tests
+just test-core-only                 # the suite with no optional package installed
+just build                          # every wheel and sdist
 ```
 
 `just check` runs the same formatting, linting, type, test, Ansible, security,

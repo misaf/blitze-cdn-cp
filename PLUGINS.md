@@ -2,8 +2,74 @@
 
 BlitzeCDN is a package-by-feature modular monolith whose features register
 themselves. `pluggy` is the mechanism. This page is the contract: what it is
-used for, what it must never be used for, and how to add a feature — inside this
-repository or as a package installed beside it.
+used for, what it must never be used for, and how to add a capability — as a
+required part of the control plane, or as a distribution installed beside it.
+
+## Three categories, and the difference between them
+
+Everything in this repository is exactly one of these, and the distinction is
+load-bearing rather than descriptive:
+
+| | where it lives | how it registers | can it be absent? |
+| --- | --- | --- | --- |
+| **1. Core** | `src/blitzecdn/core/` | it *is* the control plane | no |
+| **2. Built-in required capabilities** | `src/blitzecdn/features/` | `BUILTIN_PLUGINS` | no — a failure is fatal |
+| **3. Installable optional capabilities** | `packages/blitzecdn-*/` | the `blitzecdn.plugins` entry-point group | yes, and that is normal |
+
+The third category is a real Python distribution. `blitzecdn-backup` and
+`blitzecdn-cache` are wheels that install beside the control plane and are found
+through their installed metadata:
+
+```
+install the package  →  pluggy discovers the feature  →  the capability exists
+remove the package   →  pluggy discovers nothing      →  core still works
+```
+
+No line of core is edited either way. Nothing in `blitzecdn` imports
+`blitzecdn_backup` or `blitzecdn_cache`, and nothing anywhere asks whether they
+are installed — `tests/architecture/test_packages.py` fails the suite if either
+appears, and `tests/architecture/test_lifecycle.py` builds the wheels, installs
+them into throwaway virtualenvs, and asserts the cycle above end to end.
+
+### What is *not* a package
+
+A **strategy**, a **protocol version**, a **mode** and a **single switch** stay
+inside the capability that owns them, and no amount of "it can be turned off"
+changes that:
+
+```
+capability
+└── feature internals
+    └── strategy / mode / option
+```
+
+gzip and Brotli are values of `CompressionMode` inside `compression`, not
+`blitzecdn-gzip` and `blitzecdn-brotli`. HTTP/1.1, HTTP/2 and HTTP/3 are
+versions of one protocol inside `http`. Under Attack Mode is a switch on
+`security`. The minimum TLS version, the cache TTL, the visitor-IP header and
+the origin SNI option are fields on a site.
+
+The test for a package is not "can this be disabled" but:
+
+> Can BlitzeCDN operate coherently with this capability *not installed*, and
+> does removing it remove meaningful implementation, dependencies, registration
+> or operational behavior?
+
+### Why the site-policy capabilities are built in
+
+`compression`, `http`, `security` and the TLS *policy* cannot be extracted, and
+the reason is worth writing down because it will come up again. `CdnSite`
+composes `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy` and `TlsPolicy`
+**by inheritance** into one flat, frozen model, and that model is consumed by
+the v1 and v2 HTTP schemas, by persisted policy JSON, by the versioned
+deployment snapshots, and by every edge role. Assembling it from whichever
+plugins happen to be installed would make the published schema and the on-disk
+snapshot depend on the installation, and would leave Ansible parsing a desired
+state whose shape it cannot predict.
+
+So they stay. What *can* leave is a capability that owns operations rather than
+site policy: `backup` owns archives, `cache` owns purging and reporting, and
+neither appears in a site document.
 
 ## Core versus features
 
@@ -14,28 +80,22 @@ and process adapters, and the plugin infrastructure itself. Core owns no
 business capability. `tests/architecture/test_layering.py` fails a `core` module that imports
 a feature's `service` or `adapters`.
 
-**Features** (`src/blitzecdn/features/`) are product or operational
-**capabilities**: `sites`, `dns`, `http`, `tls`, `compression`, `security`,
-`cache`, `deployments`, `edges`, `backup`, `diagnostics`, `maintenance`. A
-feature owns the layers its actual behavior needs and the `plugin.py` that tells
-the control plane it exists. Small features need not invent service, repository,
-or adapter layers merely to match a directory template.
+**Features** (`src/blitzecdn/features/`) are the **required** product or
+operational capabilities this distribution ships: `sites`, `dns`, `http`, `tls`,
+`compression`, `security`, `deployments`, `edges`, `diagnostics`,
+`maintenance`. A feature owns the layers its actual behavior needs and the
+`plugin.py` that tells the control plane it exists. Small features need not
+invent service, repository, or adapter layers merely to match a directory
+template.
 
-One top-level package is one capability. A strategy, a protocol version, a mode
-or a single switch is not:
+**Optional capabilities** (`packages/`) are the same shape one directory out,
+and are covered in [Installable optional capabilities](#installable-optional-capabilities).
 
-```
-capability
-└── feature internals
-    └── strategy / mode / option
-```
-
-So gzip and Brotli are values of `CompressionMode` inside `compression`;
-HTTP/1.1, HTTP/2 and HTTP/3 live in `http`; Under Attack Mode is a switch on
-`security`; and certificate issuance and the Automatic SSL/TLS scan are
-`tls/certificates` and `tls/automatic_ssl`, two parts of one capability rather
-than two features. `tests/architecture/test_layering.py` refuses a top-level
-`gzip`, `http3`, `certificates` or `under_attack` package by name.
+One top-level package is one capability, and certificate issuance and the
+Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl` — two
+parts of one capability rather than two features.
+`tests/architecture/test_layering.py` refuses a top-level `gzip`, `http3`,
+`certificates` or `under_attack` package by name.
 
 Each capability splits in two:
 
@@ -51,8 +111,11 @@ and force every setting back into `sites`, which is the shape this replaced.
 The rule that keeps the layers ordered is asserted directly: a contract never
 imports an implementation.
 
-Operational cache purge and statistics remain in `features/cache`, and
-runtime/build capability remains an edge concern.
+Cache *policy* — a site's TTLs and its query-string mode — is `CachePolicy`
+under `sites/policy/`, because nothing outside a site's own configuration reads
+it. Cache *operations* — purging, and reading how well the cache is working —
+are the `blitzecdn-cache` distribution. Edge runtime and build capability
+remains an edge concern.
 
 **`bootstrap.py`** is the composition root, and the only place production wiring
 lives. It builds adapters, injects them into services through constructors,
@@ -117,9 +180,11 @@ arguments; every other hook takes `platform`, the built control plane.
 | `blitzecdn_startup` | `context`, `platform` | `None` |
 | `blitzecdn_shutdown` | `context`, `platform` | `None` |
 
-A plugin implements only the hooks it has something to say through. `backup`
-contributes commands and no routes; `sites` contributes the site document and
-the fleet variables derived from site protocol policy.
+A plugin implements only the hooks it has something to say through.
+`compression` contributes neither routes nor commands and that is not an error;
+the installed `blitzecdn-backup` contributes commands and no routes; `sites`
+contributes the site document and the fleet variables derived from site protocol
+policy.
 
 `RuntimeContext.process` is `api`, `cli`, `worker` or `scheduler`. It exists
 because what a process owes at startup differs: republishing queued deployments
@@ -159,7 +224,10 @@ So `BUILTIN_PLUGINS` can be reordered freely and no edge converges differently.
 Never concatenate configuration text through a hook — contribute typed values
 and let the edge roles render them.
 
-## Adding a built-in feature
+## Adding a built-in required capability
+
+First answer: should this be optional instead? A capability BlitzeCDN can
+operate coherently without belongs in `packages/`, not here. Then:
 
 1. Create `src/blitzecdn/features/<name>/` with only the domain, service, ports,
    and entry adapters its existing responsibilities require. Keep it small — do
@@ -183,10 +251,305 @@ plane *is* these features, so resolving them through installation metadata would
 turn a broken editable install into a node that starts happily and serves an
 empty fleet.
 
+## Installable optional capabilities
+
+An optional capability is an ordinary Python distribution in `packages/`, a
+member of the uv workspace, resolved from the same `uv.lock` and built as its
+own wheel:
+
+```
+packages/blitzecdn-cache/
+├── pyproject.toml
+├── README.md
+├── src/blitzecdn_cache/
+│   ├── __init__.py
+│   ├── plugin.py          # the hooks — the only module the entry point names
+│   ├── composition.py     # this package's own composition root
+│   ├── domain.py  policy.py  ports.py  service.py  adapters/  api/  cli.py
+└── tests/                 # its tests, which travel with it
+```
+
+### How it registers
+
+The installed metadata, and nothing else:
+
+```toml
+[project]
+name = "blitzecdn-cache"
+version = "3.0.0"
+requires-python = ">=3.12"
+dependencies = ["blitzecdn>=3.0.0,<4"]
+
+[project.entry-points."blitzecdn.plugins"]
+cache = "blitzecdn_cache.plugin"
+```
+
+The group is the one external plugins have always used — `blitzecdn-waf` from
+outside this repository declares itself the same way — which is what makes the
+extracted case and the third-party case the same case. There is no second
+registry, no import list in core, no filesystem scan and no `sys.path`
+manipulation.
+
+`required=False` in the metadata is the failure policy that goes with it: a
+broken optional package is reported by name and skipped, and the node still
+serves. `provides` is the set of capability *tokens* the package supplies, which
+is what configuration depends on; it defaults to the plugin's own name.
+
+```python
+@hookimpl
+def blitzecdn_plugin_metadata() -> PluginMetadata:
+    return PluginMetadata(
+        name="cache",
+        version=__version__,
+        required=False,
+        provides=frozenset({"cache"}),
+        summary="Purge cached responses and read cache effectiveness.",
+    )
+```
+
+### How it declares dependencies
+
+One dependency, pointing inward, with an explicit compatibility range. The
+upper bound is not decoration: `HOOK_API_VERSION` may only move in a major, and
+a plugin written against v1 that installed beside a v2 control plane would be
+refused at registration.
+
+Optional-to-optional dependencies are **avoided**. If one genuinely needs
+another, declare it as a real dependency in `pyproject.toml` so pip installs
+both — never rely on an import that happens to work because both are installed
+today, and never on plugin initialization order. The graph stays acyclic and
+`tests/architecture/test_packages.py` enforces it.
+
+### The public SDK boundary
+
+A package may import only what core intends to publish:
+
+```python
+from blitzecdn.core.plugins import (
+    PluginMetadata,
+    SiteStateContribution,
+    ValidationIssue,
+    hookimpl,
+)
+from blitzecdn.core.config import Settings          # configuration
+from blitzecdn.core.operation_ports import PlaybookRunner  # ports it is handed
+from blitzecdn.api.operations import OperationModel # to build a router
+from blitzecdn.cli.common import ExitCode           # to build a command
+from blitzecdn.features.sites import CdnSite        # a public capability contract
+```
+
+and never:
+
+```
+blitzecdn.bootstrap          # the control plane composes itself; a package composes itself
+blitzecdn.api.app            # the application composition
+blitzecdn.cli.main           # the command-line composition
+blitzecdn.core.database*     # storage implementations, reached through ports
+blitzecdn.core.ansible       # the concrete runner, reached through `platform.fleet`
+*.persistence, *._private    # another distribution's internals
+```
+
+The allowlist is written out in `_PUBLIC_SDK_PREFIXES` in
+`tests/architecture/test_packages.py`; adding to it is a deliberate decision
+about what BlitzeCDN promises an installed capability. There is no separate
+`blitzecdn-sdk` distribution, and there should not be one until something
+concretely needs it.
+
+### How it composes itself
+
+`bootstrap.py` builds the control plane's *required* services and knows nothing
+about what is installed beside it, so a package builds its own service in its
+own `composition.py`, from what the control plane publishes:
+
+```python
+def build_cache_service(platform: ControlPlane) -> CacheService:
+    return CacheService(
+        sites=platform.sites,     # the read side of the site model, as a port
+        events=platform.events,   # the domain-event recorder
+        runner=CachePlaybooks(platform.settings, platform.fleet),
+    )
+```
+
+`platform.fleet` is a `PlaybookRunner`: "run this named play with these
+variables against these hosts", and nothing feature-shaped. Core stages the
+variables file, expands the host limit and applies the timeout; what a purge
+document looks like is the cache package's business, in its own adapter. That
+is why `run_cache_purge` is no longer a method on core's `AnsibleRunner`.
+
+### How it owns its tests
+
+They live in `packages/<name>/tests/` and run with the rest of the workspace.
+The package is the unit of modularity, so removing the directory removes the
+implementation *and* its tests in one move. Core's suite keeps only core
+behavior, the plugin contracts, the architecture rules, cross-package contract
+tests and integration tests — and
+`test_the_control_plane_suite_names_no_optional_package` fails if a core test
+imports one, because core's tests must pass with nothing optional installed.
+
+The control plane's shared fixtures are reachable from a package's tests through
+`control_plane_fixtures`, registered as a pytest plugin by the workspace's root
+`conftest.py`.
+
+### Attaching and detaching
+
+In the workspace:
+
+```bash
+uv sync --all-packages                  # everything, for development
+uv sync                                 # the control plane alone
+uv sync --extra backup --extra cache    # the control plane plus named capabilities
+
+uv add --package blitzecdn blitzecdn-cache      # attach
+uv remove --package blitzecdn blitzecdn-cache   # detach
+```
+
+Beside an installed control plane:
+
+```bash
+pip install blitzecdn-cache      # attach
+pip uninstall blitzecdn-cache    # detach
+pip install 'blitzecdn[all]'     # the control plane and every optional capability
+pip install blitzecdn            # the control plane and none of them
+```
+
+`pip install blitzecdn` pulls in no optional distribution: they are extras, not
+dependencies. `install.sh` and the container image both pass
+`--extra backup --extra cache`, and `BLITZECDN_CAPABILITIES` overrides that list
+for a controller that should ship without one. Keep `backup` installed on a
+controller you intend to update in place — `install.sh update` takes a database
+backup before it changes anything.
+
+Testing:
+
+```bash
+just install                       # uv sync --frozen --all-packages
+just test                          # the whole workspace, the gate
+just test-package blitzecdn-cache  # one distribution's own tests
+just test-core-only                # the suite with nothing optional installed
+just build                         # every wheel and sdist
+```
+
+`just test-core-only` syncs the optional packages away, runs the control plane's
+suite, and syncs them back. It is part of `just check`.
+
+### Installed, enabled, configured
+
+Three different things, and collapsing any two of them is a bug:
+
+```
+blitzecdn-cache installed      →  the capability exists on this controller
+site.cache_enabled = false     →  it exists, and this site does not use it
+site.cache_valid_success = 10m →  it exists, this site uses it, tuned this way
+```
+
+Removing a package is **not** the same as configuring the capability off.
+Detaching `blitzecdn-cache` does not stop the edges caching — `CachePolicy` is
+site configuration in the control plane and every edge renders it exactly as
+before. What disappears is the ability to *ask* the edges to drop something, or
+to report on what they kept.
+
+### Seeing what is installed
+
+```bash
+blitzecdn plugins          # every capability, and anything that failed to load
+blitzecdn plugins --json
+```
+
+The answer to "I installed `blitzecdn-cache` and there is no `cache purge`". A
+*required* capability that failed would have stopped the process; an optional
+one is reported and skipped by design, and a warning that scrolled past at
+startup is not somewhere an operator can look afterwards — so the reason is kept
+on `registry.rejected` and printed here.
+
+`required` separates a capability this distribution ships from one installed
+beside it, and `capabilities` are the tokens `required_capabilities` matches
+against.
+
+### When a package is absent
+
+Absence on its own is silent, because detaching is a supported operation and a
+control plane that warned about every capability nobody installed would warn
+about every capability that does not exist.
+
+An installation that has *decided* it depends on one says so, and then absence
+is fatal:
+
+```toml
+# blitzecdn.toml
+[blitzecdn]
+required_capabilities = ["cache", "backup"]
+```
+
+```bash
+# or, taking precedence over the file
+BLITZE_REQUIRED_CAPABILITIES=cache,backup
+```
+
+It is a `Settings` value, so it follows the normal configuration precedence —
+environment over `blitzecdn.toml`. It is deliberately *not* a `blitzecdn config
+set` key: that command manages fleet-wide Ansible policy published to the edges,
+and which capabilities this controller must have is a fact about the controller.
+
+Startup then refuses, naming the missing token and listing what is installed:
+
+```
+this installation's `required_capabilities` requires the capability cache,
+which no installed plugin provides. Installed capabilities: backup,
+compression, deployments, ... Install the distribution that supplies it, or
+remove it from `required_capabilities`.
+```
+
+The mechanism is generic. The tokens come from configuration, the answer comes
+from `PluginMetadata.provides`, and nothing between them names a feature — there
+is no `if feature == "cache":` anywhere, and a capability this repository has
+never heard of is checked identically.
+
+### Persistence and detachment
+
+Detaching is **non-destructive**. Neither optional package owns a table or a
+migration: `backup` writes archives to the filesystem and reads the control
+plane's database through core's `DatabaseSchema`, and `cache` persists nothing
+at all. Re-attaching restores the capability with no migration and no data loss.
+
+An optional capability that genuinely needed its own persistence would have to
+define an install/upgrade/uninstall policy first — and uninstalling must never
+destroy its data. Do not build a general migration framework for a hypothetical
+one.
+
+### Ansible stays where it is
+
+Ansible remains the provisioning authority. The `cache-purge.yml` and
+`stats.yml` playbooks are in the control plane's Ansible tree, not inside
+`blitzecdn-cache`, and the edge roles are unchanged. Detaching a Python package
+removes the code that *asks* for an operation, never the role that would carry
+one out, and it can never leave Ansible parsing a desired state whose shape it
+cannot predict — which is the other reason no site-policy capability was
+extracted. There is no runtime downloading of roles from plugin packages.
+
+## Adding an optional capability
+
+1. Decide it really is one. Answer the two questions in [What is *not* a
+   package](#what-is-not-a-package). If it owns a field on `CdnSite`, stop: it
+   is a built-in capability or a setting on one.
+2. Create `packages/blitzecdn-<name>/` with a `pyproject.toml` declaring
+   `dependencies = ["blitzecdn>=3.0.0,<4"]`, the `blitzecdn.plugins` entry
+   point, and `[tool.uv.sources] blitzecdn = { workspace = true }`.
+3. Write `src/blitzecdn_<name>/plugin.py` with
+   `blitzecdn_plugin_metadata` (`required=False`, `provides={...}`) and the
+   hooks it contributes through, and `composition.py` if it needs a service.
+4. Put its tests in `packages/blitzecdn-<name>/tests/`.
+5. Add the extra to `[project.optional-dependencies]` in the root
+   `pyproject.toml`, the workspace source to `[tool.uv.sources]`, and the test
+   path to `testpaths`.
+6. `uv lock && uv sync --all-packages`.
+
+Nothing in `src/blitzecdn/` changes. There is no step that registers it.
+
 ## Adding an external plugin
 
-A separately installable distribution — `blitzecdn-waf`, `blitzecdn-geoip`,
-`blitzecdn-monitoring` — declares itself in the entry-point group:
+A distribution from outside this repository — `blitzecdn-waf`,
+`blitzecdn-geoip`, `blitzecdn-monitoring` — is the same thing without step 5:
+it declares itself in the entry-point group
 
 ```toml
 [project.entry-points."blitzecdn.plugins"]
@@ -216,7 +579,7 @@ def blitzecdn_scheduled_jobs(platform):
 
 Nothing in this repository changes. A working example lives in
 `tests/external_plugins/external.py` and is exercised through the real
-entry-point machinery by `tests/test_plugins.py`.
+entry-point machinery by `tests/architecture/test_plugins.py`.
 
 A scheduled job needs no actor: the scheduler publishes the job's *name* and the
 worker resolves it against the registry in its own process.
@@ -242,6 +605,10 @@ claiming a built-in's name collides with it rather than displacing it.
 
 ## Dependency rules
 
+* An **optional package** may depend only on the public SDK above, on public
+  capability contracts, and on its own modules — never on another optional
+  package's internals, and never on `bootstrap`, the entry-layer compositions,
+  or the storage implementations.
 * A feature may depend on core contracts, on ports it declares itself, and on
   another feature's public contract modules (`domain`, `policy`, `origins`,
   `ports`, `reporting`, `snapshots`). `sites` depends on no other feature; DNS
@@ -257,4 +624,9 @@ claiming a built-in's name collides with it rather than displacing it.
   be resolving collaborators instead of receiving them.
 * `api/app.py` and `cli/main.py` import no feature at all.
 
-Every one of these is a test in `tests/architecture/test_layering.py`, not a convention.
+Every one of these is a test in `tests/architecture/test_layering.py` (the
+control plane's internal boundaries) or `tests/architecture/test_packages.py`
+(the distribution boundary), not a convention. The packaging lifecycle itself —
+build, install, discover, uninstall, and the deterministic failure when a
+required capability is absent — is `tests/architecture/test_lifecycle.py`,
+marked `packaging` because it builds real wheels.
