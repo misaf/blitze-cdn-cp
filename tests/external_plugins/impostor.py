@@ -7,4 +7,4 @@ from blitzecdn.core.plugins import PluginMetadata, hookimpl
 
 @hookimpl
 def blitzecdn_plugin_metadata() -> PluginMetadata:
-    return PluginMetadata(name="cache", version="0.1")
+    return PluginMetadata(name="dns", version="0.1")

@@ -1,5 +1,6 @@
 import threading
 
+from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
@@ -14,12 +15,12 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
         raise AssertionError("construction must happen in lifespan")
 
     monkeypatch.setattr("blitzecdn.api.app.build_control_plane", build)
-    create_app(settings)
+    control_plane_app(settings)
     assert built == []
 
 
 def test_health_is_public_and_controls_require_auth(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/metrics").status_code == 401
         assert client.get("/v1/sites").status_code == 401
@@ -34,7 +35,7 @@ def test_health_is_public_and_controls_require_auth(settings):
 
 def test_health_reports_redis_unavailable(settings, monkeypatch):
     monkeypatch.setattr("blitzecdn.bootstrap.redis_ready", lambda _url: False)
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.get("/health")
     assert response.status_code == 503
     assert response.json() == {
@@ -94,7 +95,7 @@ def test_openapi_declares_the_api_key_as_a_security_scheme(settings):
     collection-level credential when the operations reference a security
     scheme, so a regression back to `Header(...)` has to fail here.
     """
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         schema = client.get("/openapi.json").json()
 
     schemes = schema["components"]["securitySchemes"]
@@ -138,7 +139,7 @@ def test_health_reports_unavailable_when_persistence_will_not_answer(
     schema this release refuses — still reported healthy to whatever was
     watching. 503 rather than an error body: the caller reads the status.
     """
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/health").status_code == 200
 
         def refuse(_self, _limit=100):
@@ -153,7 +154,7 @@ def test_health_reports_unavailable_when_persistence_will_not_answer(
 
 def test_metrics_are_authenticated_and_readable(settings):
     """Gauges read out of SQLite at scrape time — no in-memory counters."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/metrics").status_code == 401
         response = client.get("/metrics", headers=_HEADERS)
 

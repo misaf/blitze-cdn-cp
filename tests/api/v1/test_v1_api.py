@@ -2,10 +2,12 @@ import threading
 import time
 
 import pytest
-from conftest import FakeRunner, ansible_run, host_run
+from control_plane_fixtures import (
+    control_plane_app,
+    host_run,
+)
 from fastapi.testclient import TestClient
 
-from blitzecdn.api import create_app
 from blitzecdn.api.v1_models import CdnSite as V1CdnSite
 from blitzecdn.api.v1_models import DnsRecord as V1DnsRecord
 from blitzecdn.api.v1_models import RecordPatch as V1RecordPatch
@@ -109,7 +111,7 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
         "interrupted", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
     )
 
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/v1/workflows").status_code == 401
         response = client.get("/v1/workflows", headers={"X-API-Key": "x" * 32})
         detail = client.get(
@@ -123,7 +125,7 @@ def test_interrupted_workflows_are_recovered_and_visible(settings):
 
 def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payload):
     headers = {"X-API-Key": "x" * 32}
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert (
             client.post("/v1/domains", json=domain_payload, headers=headers).status_code
             == 201
@@ -208,7 +210,7 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
 def test_sites_are_read_only(settings, site_payload):
     """Sites are derived, so the mutation routes must not exist."""
     headers = {"X-API-Key": "x" * 32}
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert (
             client.post("/v1/sites", json=site_payload, headers=headers).status_code
             == 405
@@ -222,7 +224,7 @@ def test_dns_export_omits_addresses_for_proxied_records(
 ):
     """A proxied name must resolve to an edge, and edge IPs are not ours."""
     headers = {"X-API-Key": "x" * 32}
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=headers)
         client.post(
             "/v1/domains/example.com/records", json=record_payload, headers=headers
@@ -246,7 +248,7 @@ def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
 ):
     """A convergence can outlast any HTTP client, so the request must not block."""
     headers = {"X-API-Key": "x" * 32}
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
         assert (
             client.post(
@@ -273,7 +275,7 @@ def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
 def test_certificate_upload_and_metadata_api(settings, site_payload, certificate_pair):
     headers = {"X-API-Key": "x" * 32}
     certificate, key = certificate_pair()
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
         assert (
             client.post(
@@ -308,7 +310,7 @@ _HEADERS = {"X-API-Key": "x" * 32}
 
 
 def test_a_deploy_can_be_narrowed_to_some_edges(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         accepted = client.post(
             "/v1/deployments",
             json={"check": True, "host_limit": "edge-a"},
@@ -320,7 +322,7 @@ def test_a_deploy_can_be_narrowed_to_some_edges(settings):
 
 def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
     """Rejected at the schema, so no deployment row is created to explain."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         for pattern in ("edge-a:database-1", "edge-a:!edge-b", "@/etc/passwd"):
             response = client.post(
                 "/v1/deployments",
@@ -332,7 +334,7 @@ def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
 
 
 def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         queued = client.post("/v1/drift", json={}, headers=_HEADERS)
         assert queued.status_code == 202
         assert queued.json()["check_mode"] is True
@@ -350,7 +352,7 @@ def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
 
 
 def test_an_applied_deployment_is_not_readable_as_drift(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         queued = client.post("/v1/deployments", json={"check": False}, headers=_HEADERS)
         deployment_id = queued.json()["id"]
         response = client.get(
@@ -363,7 +365,7 @@ def test_certificates_are_readable(settings):
     # Origins are no longer among these: the check runs a playbook across the
     # fleet now, so it is a POST like the cache-statistics route rather than a
     # read the controller can answer by itself.
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/v1/certificates", headers=_HEADERS).json() == []
         assert (
             client.get("/v1/certificates?expiring_in=30", headers=_HEADERS).json() == []
@@ -377,7 +379,7 @@ def test_certificates_are_readable(settings):
 
 
 def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payload):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
         client.post(
             "/v1/domains/example.com/records",
@@ -397,7 +399,7 @@ def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payl
 
 
 def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post(
             "/v1/ssl/automatic/reconcile",
             headers=_HEADERS,
@@ -415,7 +417,7 @@ def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
 def test_removed_origin_scheme_is_rejected_on_create(
     settings, domain_payload, record_payload
 ):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
         response = client.post(
             "/v1/domains/example.com/records",
@@ -428,7 +430,7 @@ def test_removed_origin_scheme_is_rejected_on_create(
 def test_removed_origin_scheme_is_rejected_on_patch(
     settings, domain_payload, record_payload
 ):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
         client.post(
             "/v1/domains/example.com/records",
@@ -447,7 +449,7 @@ def test_removed_origin_scheme_is_rejected_on_patch(
 def test_removed_origin_port_is_rejected_on_create(
     settings, domain_payload, record_payload
 ):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
         response = client.post(
             "/v1/domains/example.com/records",
@@ -460,7 +462,7 @@ def test_removed_origin_port_is_rejected_on_create(
 def test_removed_origin_port_is_rejected_on_patch(
     settings, domain_payload, record_payload
 ):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
         client.post(
             "/v1/domains/example.com/records",
@@ -477,12 +479,12 @@ def test_removed_origin_port_is_rejected_on_patch(
 
 
 def test_an_unknown_site_is_a_404(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/v1/sites/absent", headers=_HEADERS).status_code == 404
 
 
 def test_renewal_can_be_narrowed_to_named_sites(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post(
             "/v1/certificates/renew",
             json={"sites": ["absent-example-com"]},
@@ -495,132 +497,11 @@ def test_renewal_can_be_narrowed_to_named_sites(settings):
 
 def test_an_empty_renewal_selector_is_a_422(settings):
     """`[]` would otherwise mean 'renew nothing' while reading as a filter."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post(
             "/v1/certificates/renew", json={"sites": []}, headers=_HEADERS
         )
         assert response.status_code == 422
-
-
-def _proxied_site(client, domain_payload, record_payload):
-    client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
-    client.post(
-        "/v1/domains/example.com/records",
-        json={**record_payload, "proxied": True},
-        headers=_HEADERS,
-    )
-    return client.get("/v1/sites", headers=_HEADERS).json()[0]["server_names"][0]
-
-
-def test_purging_a_hostname_no_site_serves_is_a_404(settings):
-    with TestClient(create_app(settings)) as client:
-        response = client.post(
-            "/v1/cache/purge",
-            json={"entries": [{"host": "nothing.example.com", "uri": "/x"}]},
-            headers=_HEADERS,
-        )
-        assert response.status_code == 404
-
-
-def test_an_empty_purge_request_is_a_409(settings):
-    """Neither entries nor purge_all: refused rather than reported as done."""
-    with TestClient(create_app(settings)) as client:
-        response = client.post("/v1/cache/purge", json={}, headers=_HEADERS)
-        assert response.status_code == 409
-
-
-def test_purging_everything_and_entries_at_once_is_a_409(settings):
-    with TestClient(create_app(settings)) as client:
-        response = client.post(
-            "/v1/cache/purge",
-            json={
-                "purge_all": True,
-                "entries": [{"host": "cdn.example.com", "uri": "/x"}],
-            },
-            headers=_HEADERS,
-        )
-        assert response.status_code == 409
-
-
-def test_a_purge_uri_that_is_not_a_path_is_a_422(settings):
-    with TestClient(create_app(settings)) as client:
-        response = client.post(
-            "/v1/cache/purge",
-            json={"entries": [{"host": "cdn.example.com", "uri": "app.js"}]},
-            headers=_HEADERS,
-        )
-        assert response.status_code == 422
-
-
-def test_a_purge_host_limit_that_could_widen_is_a_422(settings):
-    with TestClient(create_app(settings)) as client:
-        response = client.post(
-            "/v1/cache/purge",
-            json={"purge_all": True, "host_limit": "edge-a:!edge-b"},
-            headers=_HEADERS,
-        )
-        assert response.status_code == 422
-
-
-def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
-    settings, seeded, monkeypatch
-):
-    """The dangerous outcome has to stay machine-readable.
-
-    A partial purge is exactly when a caller needs the detail — which edges
-    dropped the object and which are still serving it — so the 409 carries the
-    same PurgeResult a success would, rather than replacing it with prose to be
-    parsed under time pressure.
-    """
-    control, _ = seeded(
-        FakeRunner(
-            [ansible_run(host_run("edge-a"), host_run("edge-b", failure="rm failed"))]
-        )
-    )
-    monkeypatch.setattr(
-        "blitzecdn.api.app.build_control_plane", lambda _settings, **_kwargs: control
-    )
-
-    with TestClient(create_app(settings)) as client:
-        response = client.post(
-            "/v1/cache/purge",
-            # The derived site has no certificate, so it serves http and only
-            # an http entry could have been cached.
-            json={
-                "entries": [
-                    {"host": "cdn.example.com", "uri": "/app.js", "scheme": "http"}
-                ]
-            },
-            headers=_HEADERS,
-        )
-
-    assert response.status_code == 409
-    body = response.json()
-    assert body["complete"] is False
-    assert body["failed_hosts"] == ["edge-b"]
-    assert {host["host"] for host in body["hosts"]} == {"edge-a", "edge-b"}
-
-
-def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
-    control, _ = seeded(FakeRunner([ansible_run(host_run("edge-a"))]))
-    monkeypatch.setattr(
-        "blitzecdn.api.app.build_control_plane", lambda _settings, **_kwargs: control
-    )
-
-    with TestClient(create_app(settings)) as client:
-        response = client.post(
-            "/v1/cache/purge",
-            json={
-                "entries": [
-                    {"host": "cdn.example.com", "uri": "/app.js", "scheme": "http"}
-                ]
-            },
-            headers=_HEADERS,
-        )
-
-    assert response.status_code == 200
-    assert response.json()["complete"] is True
-    assert response.json()["failed_hosts"] == []
 
 
 # ----------------------------------------------------------------------
@@ -639,7 +520,7 @@ def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch)
             ConfigurationError("no edges configured")
         ),
     )
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post("/v1/origins/check", json={}, headers=_HEADERS)
     assert response.status_code == 400
     assert response.json()["detail"] == "no edges configured"
@@ -653,7 +534,7 @@ def test_an_execution_error_is_a_502(settings, monkeypatch):
             ExecutionError("ansible would not start")
         ),
     )
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post("/v1/origins/check", json={}, headers=_HEADERS)
     assert response.status_code == 502
 
@@ -665,7 +546,7 @@ def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkey
         raise DeploymentBusyError("another deployment is already running")
 
     monkeypatch.setattr(DeploymentService, "submit_deployment", busy)
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post("/v1/deployments", json={}, headers=_HEADERS)
     assert response.status_code == 409
     assert response.headers["Retry-After"] == "30"
@@ -682,7 +563,7 @@ def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
 
     configured = settings.model_copy(update={"certificate_renewal_budget_seconds": 42})
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
-    with TestClient(create_app(configured)) as client:
+    with TestClient(control_plane_app(configured)) as client:
         response = client.post("/v1/certificates/renew", json={}, headers=_HEADERS)
 
     assert response.status_code == 200
@@ -703,7 +584,7 @@ def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkey
         return {"renewed": [], "skipped": [], "failed": []}
 
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert (
             client.post("/v1/certificates/renew", json={}, headers=_HEADERS).status_code
             == 200
@@ -754,7 +635,7 @@ def _stub_preflight(monkeypatch, *failures: str) -> None:
 
 def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
     _stub_preflight(monkeypatch)
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         _seed_proxied_record(client)
 
         response = client.get(
@@ -767,7 +648,7 @@ def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
 
 def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
     _stub_preflight(monkeypatch)
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert (
             client.get("/v1/sites/cdn-example-com/certificate/preflight").status_code
             == 401
@@ -776,7 +657,7 @@ def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
 
 def test_a_blocked_preflight_makes_a_request_a_409(settings, monkeypatch):
     _stub_preflight(monkeypatch, "dns")
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         _seed_proxied_record(client)
 
         response = client.post(
@@ -792,7 +673,7 @@ def test_a_blocked_preflight_makes_a_request_a_409(settings, monkeypatch):
 def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):
     """`extra="forbid"` plus a typed field: a typo cannot silently disable this."""
     _stub_preflight(monkeypatch, "dns")
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         _seed_proxied_record(client)
 
         assert (
@@ -819,7 +700,7 @@ _EDGE = {
 
 
 def test_edge_crud_over_http(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/v1/edges", headers=_HEADERS).json() == []
 
         created = client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
@@ -863,7 +744,7 @@ def test_an_edge_patch_cannot_rename_the_host(settings):
     the boundary rather than a silently ignored key — which would leave the
     caller believing a rename had happened.
     """
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
 
         response = client.patch(
@@ -875,7 +756,7 @@ def test_an_edge_patch_cannot_rename_the_host(settings):
 
 def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
     """Validation is the model's, so the API rejects exactly what the CLI does."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         response = client.post(
             "/v1/edges",
             json={**_EDGE, "ssh_sources": ["anywhere"]},
@@ -893,7 +774,7 @@ def test_removing_an_edge_without_decommissioning_says_so(settings):
     key on the host. A 204 could not distinguish that from a real teardown, so
     the body reports which one happened.
     """
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
 
         response = client.delete(
@@ -923,7 +804,7 @@ def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
             ExecutionError("teardown of edge-01 failed")
         ),
     )
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
 
         response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
@@ -936,7 +817,7 @@ def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
 
 def test_registering_an_edge_is_audited(settings):
     """Unanswerable before: edges never went through a service, so never a bus."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
         client.patch("/v1/edges/edge-01", json={"port": 7845}, headers=_HEADERS)
 
@@ -951,7 +832,7 @@ def test_registering_an_edge_is_audited(settings):
 
 def test_edge_routes_require_authentication(settings):
     """Every edge route is a control route; none may be read unauthenticated."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/v1/edges").status_code == 401
         assert client.post("/v1/edges", json=_EDGE).status_code == 401
         assert client.patch("/v1/edges/edge-01", json={"port": 22}).status_code == 401
@@ -972,7 +853,7 @@ def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
             host_run("edge-01", changes=("remove /etc/blitzecdn",)),
         ),
     )
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
 
         response = client.delete("/v1/edges/edge-01", headers=_HEADERS)

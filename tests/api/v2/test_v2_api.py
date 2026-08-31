@@ -1,6 +1,6 @@
+from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
-from blitzecdn.api import create_app
 from blitzecdn.api.v2_models import RecordPatchV2 as V2RecordPatch
 from blitzecdn.api.v2_models import SitePolicyV2
 from blitzecdn.features.sites.domain import SitePolicy
@@ -23,7 +23,7 @@ def test_v2_carries_every_policy_field_the_domain_has():
 def test_no_cloudflare_header_name_is_published_by_the_api(settings):
     """The BZ- namespace is the whole surface; CF- and True-Client-IP are not
     ours to define and must not appear as fields, defaults, or descriptions."""
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         document = client.get("/openapi.json").text
 
     for foreign in ("CF-Connecting-IP", "cf_connecting_ip", "True-Client-IP"):
@@ -43,7 +43,7 @@ def test_http3_create_read_patch_and_validation(settings):
         "certificate_path": "/etc/ssl/certs/edge.pem",
         "certificate_key_path": "/etc/ssl/private/edge.key",
     }
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         created_domain = client.post(
             "/v2/domains", json={"name": "example.com"}, headers=headers
         )
@@ -88,7 +88,7 @@ def test_http3_create_read_patch_and_validation(settings):
 
 def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
     headers = {"X-API-Key": "x" * 32}
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         schema = client.get("/openapi.json").json()
         property_schema = schema["components"]["schemas"]["RecordPatchV2"][
             "properties"

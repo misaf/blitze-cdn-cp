@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from conftest import FakeEdgeStore, edge
+from control_plane_fixtures import FakeEdgeStore, edge
 from paths import REPO_ROOT
 from pydantic import SecretStr
 

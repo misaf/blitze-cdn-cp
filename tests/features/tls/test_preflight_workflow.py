@@ -185,68 +185,41 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
 
 
 def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
-    """Purge, stats and decommission all skip the deployment lock.
+    """Purge, stats, origin check and decommission all skip the deployment lock.
 
     They therefore overlap routinely. A fixed filename per playbook made the
     document shared mutable state: the second writer won, so a two-URL purge
     could find `purge_all: true` in the file by the time its own playbook read
     it and empty the cache on every edge.
+
+    Asserted against the generic primitive rather than against any one play.
+    `run_playbook` is what core offers an installed capability, so the
+    isolation has to hold for a play this repository has never seen — which is
+    also why the two calls below are deliberately the same play with different
+    variables, the exact shape that used to collide.
     """
     from blitzecdn.core import ansible
 
-    settings.cache_purge_playbook_path.write_text(
-        "- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8"
-    )
+    settings.state_dir.mkdir(parents=True, exist_ok=True)
+    playbook = settings.state_dir / "operation.yml"
+    playbook.write_text("- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8")
     runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
     seen: list[dict[str, object]] = []
 
     def capture(*, variables, **_kwargs):
         seen.append(yaml.safe_load(variables.read_text(encoding="utf-8")))
-        return _purge_run()
+        return ansible_run(host_run("edge-a", changed=1))
 
     monkeypatch.setattr(runner._executor, "execute", capture)
 
-    runner.run_cache_purge(
-        entries=[PurgeEntry(host="cdn.example.com", uri="/a.js", scheme="http")],
-        purge_all=False,
+    runner.run_playbook(
+        name="operation", playbook=playbook, variables={"blitzecdn_scope": "one"}
     )
-    runner.run_cache_purge(entries=[], purge_all=True)
+    runner.run_playbook(
+        name="operation", playbook=playbook, variables={"blitzecdn_scope": "every"}
+    )
 
-    assert seen[0]["blitzecdn_cache_purge_all"] is False
-    assert seen[1]["blitzecdn_cache_purge_all"] is True
+    assert seen[0]["blitzecdn_scope"] == "one"
+    assert seen[1]["blitzecdn_scope"] == "every"
     # Nothing is left behind for a later run to pick up.
     assert list((settings.state_dir / "runs").iterdir()) == []
-
-
-def test_a_collection_reads_only_its_own_run(settings):
-    """Two overlapping collections cannot answer each other's questions.
-
-    They used to share one controller-side directory that each emptied before
-    collecting, so a run could wipe the other's reports and read the whole fleet
-    as silent. Counters now arrive attached to the run that asked for them, so
-    the failure has no way to occur — this pins that property rather than the
-    directory bookkeeping that used to approximate it.
-    """
-    repository = Repository(settings.database_path)
-    fake = FakeRunner(
-        [
-            ansible_run(
-                _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 1}])
-            ),
-            ansible_run(
-                _reporting("edge-a", [{"site": "a", "outcome": "HIT", "requests": 99}]),
-                _reporting("edge-b", [{"site": "a", "outcome": "MISS", "requests": 5}]),
-            ),
-        ]
-    )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-
-    first = control.cache.cache_stats("alice")
-    second = control.cache.cache_stats("alice")
-
-    assert first.requests == 1
-    assert [edge.host for edge in first.reporting] == ["edge-a"]
-    assert second.requests == 104
-    assert [edge.host for edge in second.reporting] == ["edge-a", "edge-b"]
-    # Nothing on the controller's filesystem is involved any more.
-    assert not (settings.state_dir / "stats").exists()

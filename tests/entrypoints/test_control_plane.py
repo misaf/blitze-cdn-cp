@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from dataclasses import replace
 
 import pytest
-from conftest import (
+from control_plane_fixtures import (
     FakePreflight,
     FakeRunner,
     RecordingBackgroundQueue,

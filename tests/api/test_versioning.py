@@ -1,15 +1,13 @@
 import json
 import re
 
+from control_plane_fixtures import control_plane_app
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from paths import SOURCE
 
 from blitzecdn import __version__
-from blitzecdn.api import create_app
 from blitzecdn.api.dependencies import get_control_plane
-from blitzecdn.features.cache.api import v1 as v1_cache
-from blitzecdn.features.cache.api import v2 as v2_cache
 from blitzecdn.features.deployments.api import v1 as v1_deployments
 from blitzecdn.features.deployments.api import v2 as v2_deployments
 from blitzecdn.features.diagnostics.api import readiness as diagnostics
@@ -25,19 +23,25 @@ from blitzecdn.features.tls.certificates.api import v2 as v2_certificates
 
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
+    """Every router this *distribution* ships, and where its endpoints live.
+
+    Scoped to the control plane's own routers on purpose. An optional
+    distribution's routes are its own to hold — `packages/blitzecdn-cache`
+    asserts the identical properties over `/v1/cache/*` — and a core test that
+    named them would fail the moment the package it was asserting about was
+    detached, which is the supported operation this whole boundary exists for.
+    """
     routers = (
         diagnostics,
         v1_sites,
         v1_zones,
         v1_edges,
-        v1_cache,
         v1_certificates,
         v1_deployments,
         v1_diagnostics,
         v2_sites,
         v2_zones,
         v2_edges,
-        v2_cache,
         v2_certificates,
         v2_deployments,
         v2_diagnostics,
@@ -56,14 +60,12 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
     }
     assert modules == {
         "blitzecdn.features.diagnostics.api.readiness",
-        "blitzecdn.features.cache.api.v1",
         "blitzecdn.features.tls.certificates.api.v1",
         "blitzecdn.features.deployments.api.v1",
         "blitzecdn.features.diagnostics.api.v1",
         "blitzecdn.features.edges.api.v1",
         "blitzecdn.features.dns.api.v1_sites",
         "blitzecdn.features.dns.api.v1",
-        "blitzecdn.features.cache.api.v2",
         "blitzecdn.features.tls.certificates.api.v2",
         "blitzecdn.features.deployments.api.v2",
         "blitzecdn.features.diagnostics.api.v2",
@@ -89,7 +91,7 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
 
 
 def test_openapi_documents_control_and_certificate_workflows(settings):
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         assert client.get("/docs").status_code == 200
         assert client.get("/redoc").status_code == 200
         schema = client.get("/openapi.json").json()
@@ -109,7 +111,7 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
 
 def test_v1_is_preserved_while_v2_is_available(settings):
     headers = {"X-API-Key": "x" * 32}
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         v1 = client.get("/v1/sites", headers=headers)
         v2 = client.get("/v2/sites", headers=headers)
 
@@ -127,7 +129,7 @@ def test_v2_exposes_compression_and_v1_does_not(settings):
         "proxied": True,
     }
 
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
         created = client.post(
             "/v2/domains/example.com/records", json=payload, headers=headers
@@ -178,7 +180,7 @@ def test_v2_exposes_visitor_headers_and_v1_does_not(settings):
         "proxied": True,
     }
 
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
         created = client.post(
             "/v2/domains/example.com/records", json=payload, headers=headers
@@ -259,7 +261,7 @@ def test_openapi_schema_names_are_stable_across_versions(settings):
     single shared definition now; `blitzecdn.api.operations` explains how a
     version diverges from those without renaming the other's schema.
     """
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         schemas = client.get("/openapi.json").json()["components"]["schemas"]
 
     mangled = sorted(
@@ -279,7 +281,7 @@ def test_openapi_schema_names_are_stable_across_versions(settings):
 
 
 def _schemas(settings) -> dict[str, dict]:
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         return client.get("/openapi.json").json()["components"]["schemas"]
 
 
@@ -292,7 +294,7 @@ def test_published_document_has_no_dangling_schema_references(settings):
     `separate_input_output_schemas` comment in `api/app.py` for how a duplicate
     schema pydantic later collapsed left the references behind.
     """
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         document = client.get("/openapi.json").json()
     defined = set(document["components"]["schemas"])
     referenced = set(
@@ -339,7 +341,7 @@ def test_operational_routes_publish_one_shape_for_both_versions(settings):
             return [resolve(item, seen) for item in node]
         return node
 
-    with TestClient(create_app(settings)) as client:
+    with TestClient(control_plane_app(settings)) as client:
         paths = client.get("/openapi.json").json()["paths"]
 
     #: Where v2 deliberately says something v1 cannot: the resource
@@ -366,7 +368,11 @@ def test_operational_routes_publish_one_shape_for_both_versions(settings):
             _unversioned(v2), sort_keys=True
         ), suffix
         compared += 1
-    assert compared == 23, "the operational surface changed; check the route table"
+    # The routes this distribution publishes. An installed capability adds its
+    # own v1/v2 pair and counts it in its own suite — the app here is built
+    # without discovery, so the number is a fact about core rather than about
+    # the environment the suite happened to run in.
+    assert compared == 21, "the operational surface changed; check the route table"
 
 
 def _unversioned(node: object) -> object:
@@ -415,10 +421,6 @@ FROZEN_V1_OPERATIONS = {
         "changed changes failed failures host ignored ok report rescued "
         "skipped unreachable",
         "host",
-    ),
-    "PurgeResult": (
-        "complete entries failed_hosts host_limit hosts purge_all purged_at",
-        "complete failed_hosts purged_at",
     ),
     "ReconciliationResult": ("deployment failed issued skipped", ""),
     "SslAutomaticReconciliation": (
