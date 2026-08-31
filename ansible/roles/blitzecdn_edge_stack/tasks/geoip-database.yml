@@ -48,7 +48,7 @@
         group: root
         mode: "0644"
       loop: [service, timer]
-      register: blitzecdn_edge_stack_geoip_units
+      register: blitzecdn_edge_stack_geoip_units_rendered
       when: blitzecdn_edge_stack_geoip_update_enabled | bool
 
     - name: Enable the refresh timer
@@ -56,7 +56,7 @@
         name: blitzecdn-geoipupdate.timer
         enabled: true
         state: started
-        daemon_reload: "{{ blitzecdn_edge_stack_geoip_units is changed }}"
+        daemon_reload: "{{ blitzecdn_edge_stack_geoip_units_rendered is changed }}"
       when:
         - blitzecdn_edge_stack_geoip_update_enabled | bool
         - not ansible_check_mode
