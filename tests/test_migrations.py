@@ -21,10 +21,10 @@ from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine
 
-from blitzecdn.domain.dns import DnsRecord, Domain
-from blitzecdn.exceptions import ConfigurationError
-from blitzecdn.infrastructure.database import Repository
-from blitzecdn.infrastructure.engine import Database
+from blitzecdn.core.database import Repository
+from blitzecdn.core.database_engine import Database
+from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.features.dns.domain import DnsRecord, Domain
 
 
 def _config(path) -> Config:

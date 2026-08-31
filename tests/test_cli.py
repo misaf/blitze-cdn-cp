@@ -14,16 +14,16 @@ from typer.testing import CliRunner
 
 from blitzecdn.cli import main as cli
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.cache import PurgeEntry
-from blitzecdn.domain.certificates import (
+from blitzecdn.core.database import Repository
+from blitzecdn.core.runs import RunStatus
+from blitzecdn.features.cache.domain import PurgeEntry
+from blitzecdn.features.certificates.domain import (
     PreflightCheck,
     PreflightSeverity,
     RenewalResult,
 )
-from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
-from blitzecdn.domain.runs import RunStatus
-from blitzecdn.domain.sites import CdnSite
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.features.dns.site_domain import CdnSite
 
 runner = CliRunner()
 

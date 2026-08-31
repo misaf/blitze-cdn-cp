@@ -1132,7 +1132,7 @@ def test_the_image_is_settable_as_ordinary_fleet_policy():
     is one of them — so a name like `blitzecdn_edge_image_key` would be
     rejected by the store and the documented upgrade would not work.
     """
-    from blitzecdn.domain.validation import validate_setting_name
+    from blitzecdn.core.validation import validate_setting_name
 
     for name in (
         "blitzecdn_edge_image",

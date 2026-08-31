@@ -10,20 +10,18 @@ from blitzecdn.api.v1_models import CdnSite as V1CdnSite
 from blitzecdn.api.v1_models import DnsRecord as V1DnsRecord
 from blitzecdn.api.v1_models import RecordPatch as V1RecordPatch
 from blitzecdn.api.v1_models import SitePolicyV1
-from blitzecdn.application import (
-    CertificateService,
-    DeploymentService,
-    EdgeOperationsService,
-)
-from blitzecdn.domain.dns import DnsRecord as DomainDnsRecord
-from blitzecdn.domain.operations import WorkflowKind
-from blitzecdn.domain.sites import SitePolicy
-from blitzecdn.exceptions import (
+from blitzecdn.core.database import Repository
+from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
     ExecutionError,
 )
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.core.operations import WorkflowKind
+from blitzecdn.features.certificates import CertificateService
+from blitzecdn.features.deployments import DeploymentService
+from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
+from blitzecdn.features.dns.site_domain import SitePolicy
+from blitzecdn.features.edges import EdgeOperationsService
 
 #: Exactly the policy fields version 1 shipped with. This is a frozen list, not
 #: a derived one: the whole point is that it stops tracking `SitePolicy`.
@@ -730,12 +728,12 @@ def _seed_proxied_record(client) -> None:
 
 def _stub_preflight(monkeypatch, *failures: str) -> None:
     """Replace the real checks, which would resolve names and probe an origin."""
-    from blitzecdn.domain.certificates import (
+    from blitzecdn.features.certificates.domain import (
         PreflightCheck,
         PreflightReport,
         PreflightSeverity,
     )
-    from blitzecdn.infrastructure.preflight import CertificatePreflight
+    from blitzecdn.features.certificates.preflight import CertificatePreflight
 
     def check(self, site, *, deployed, record_ttl=None):
         return PreflightReport(

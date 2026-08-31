@@ -192,7 +192,7 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     could find `purge_all: true` in the file by the time its own playbook read
     it and empty the cache on every edge.
     """
-    from blitzecdn.infrastructure import ansible
+    from blitzecdn.core import ansible
 
     settings.cache_purge_playbook_path.write_text(
         "- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8"

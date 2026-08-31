@@ -8,9 +8,13 @@ import pytest
 from conftest import FakeEdgeStore, edge
 from pydantic import SecretStr
 
-from blitzecdn.domain.runs import RunStatus
-from blitzecdn.exceptions import ConfigurationError, DeploymentBusyError, ExecutionError
-from blitzecdn.infrastructure import ansible
+from blitzecdn.core import ansible
+from blitzecdn.core.exceptions import (
+    ConfigurationError,
+    DeploymentBusyError,
+    ExecutionError,
+)
+from blitzecdn.core.runs import RunStatus
 
 #: The package under test, for the subprocess in the lock test below.
 PROJECT_SRC = Path(__file__).resolve().parent.parent / "src"
@@ -124,8 +128,8 @@ def test_the_lock_is_held_against_a_genuinely_separate_process(settings):
             "import sys",
             f"sys.path.insert(0, {str(PROJECT_SRC)!r})",
             "from pathlib import Path",
-            "from blitzecdn.infrastructure.ansible import DeploymentLock",
-            "from blitzecdn.exceptions import DeploymentBusyError",
+            "from blitzecdn.core.ansible import DeploymentLock",
+            "from blitzecdn.core.exceptions import DeploymentBusyError",
             "try:",
             f"    with DeploymentLock(Path({str(settings.deployment_lock_path)!r})):",
             "        print('acquired')",

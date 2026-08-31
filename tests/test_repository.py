@@ -4,16 +4,16 @@ from datetime import UTC, datetime
 import pytest
 from sqlalchemy.pool import NullPool, QueuePool
 
-from blitzecdn.domain.deployments import (
+from blitzecdn.core.database import Repository
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.operations import WorkflowKind, WorkflowStatus, WorkflowStep
+from blitzecdn.features.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
-from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
-from blitzecdn.domain.sites import CdnSite
-from blitzecdn.domain.snapshots import decode_snapshot
-from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.features.deployments.snapshots import decode_snapshot
+from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.features.dns.site_domain import CdnSite
 
 
 def test_database_does_not_retain_idle_connections(settings):

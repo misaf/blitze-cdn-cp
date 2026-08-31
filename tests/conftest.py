@@ -13,17 +13,17 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from dramatiq.brokers.stub import StubBroker
 
-from blitzecdn.config import Settings
-from blitzecdn.domain.cache import PurgeEntry
-from blitzecdn.domain.edges import Edge
-from blitzecdn.domain.runs import (
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.runs import (
     AnsibleRun,
     HostRun,
     RunStatus,
     TaskOutcome,
     TaskResult,
 )
-from blitzecdn.exceptions import ConflictError, NotFoundError
+from blitzecdn.features.cache.domain import PurgeEntry
+from blitzecdn.features.edges.domain import Edge
 from blitzecdn.worker import (
     check_drift,
     reconcile_automatic_ssl,
@@ -302,7 +302,7 @@ class FakePreflight:
         self.calls: list[tuple[str, bool, int | None]] = []
 
     def check(self, site, *, deployed: bool, record_ttl: int | None = None):
-        from blitzecdn.domain.certificates import (
+        from blitzecdn.features.certificates.domain import (
             PreflightCheck,
             PreflightReport,
             PreflightSeverity,
@@ -400,8 +400,8 @@ def seeded(settings):
 
     def build(runner=None):
         from blitzecdn.control_plane import ControlPlane
-        from blitzecdn.domain.dns import DnsRecord, Domain
-        from blitzecdn.infrastructure.database import Repository
+        from blitzecdn.core.database import Repository
+        from blitzecdn.features.dns.domain import DnsRecord, Domain
 
         repository = Repository(settings.database_path)
         control = ControlPlane(

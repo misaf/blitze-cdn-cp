@@ -9,7 +9,7 @@ from typing import Any
 import jinja2
 import yaml
 
-from blitzecdn.infrastructure import broker
+from blitzecdn.core import broker
 
 ROOT = Path(__file__).resolve().parent.parent
 ROLE = ROOT / "ansible/roles/blitzecdn_controlplane"

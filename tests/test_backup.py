@@ -20,10 +20,18 @@ import pytest
 from conftest import FakeRunner
 from typer.testing import CliRunner
 
-from blitzecdn.application.backup import BackupPolicy, BackupService
 from blitzecdn.cli import main as cli
 from blitzecdn.control_plane import ControlPlane, build_backup_service
-from blitzecdn.domain.backup import (
+from blitzecdn.core.database import Repository
+from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
+from blitzecdn.features.backup.adapters import (
+    AlembicSchemaVersions,
+    TarArchive,
+    TemporaryWorkspace,
+)
+from blitzecdn.features.backup.adapters.components import DATABASE_MEMBER
+from blitzecdn.features.backup.adapters.services import ComposeRestoreGuard
+from blitzecdn.features.backup.domain import (
     BACKUP_FORMAT_VERSION,
     BackupComponent,
     backup_filename,
@@ -31,16 +39,8 @@ from blitzecdn.domain.backup import (
     parse_manifest,
     unsafe_member,
 )
-from blitzecdn.domain.dns import DnsRecord, Domain, RecordType
-from blitzecdn.exceptions import ConfigurationError, ExecutionError, NotFoundError
-from blitzecdn.infrastructure.backup import (
-    AlembicSchemaVersions,
-    TarArchive,
-    TemporaryWorkspace,
-)
-from blitzecdn.infrastructure.backup.components import DATABASE_MEMBER
-from blitzecdn.infrastructure.backup.services import ComposeRestoreGuard
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.features.backup.service import BackupPolicy, BackupService
+from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 
 runner = CliRunner()
 
@@ -1050,7 +1050,7 @@ def test_an_archive_entry_outside_a_component_is_refused():
 
 def test_container_restore_requires_the_host_compose_wrapper(monkeypatch):
     monkeypatch.setattr(
-        "blitzecdn.infrastructure.backup.services.Path.exists", lambda _path: True
+        "blitzecdn.features.backup.adapters.services.Path.exists", lambda _path: True
     )
     monkeypatch.delenv("COMPOSE_RESTORE_OFFLINE", raising=False)
     with (
@@ -1062,7 +1062,7 @@ def test_container_restore_requires_the_host_compose_wrapper(monkeypatch):
 
 def test_container_restore_accepts_the_offline_boundary(monkeypatch):
     monkeypatch.setattr(
-        "blitzecdn.infrastructure.backup.services.Path.exists", lambda _path: True
+        "blitzecdn.features.backup.adapters.services.Path.exists", lambda _path: True
     )
     monkeypatch.setenv("COMPOSE_RESTORE_OFFLINE", "1")
     with ComposeRestoreGuard().stopped():
@@ -1071,7 +1071,7 @@ def test_container_restore_accepts_the_offline_boundary(monkeypatch):
 
 def test_checkout_restore_needs_no_container_lifecycle(monkeypatch):
     monkeypatch.setattr(
-        "blitzecdn.infrastructure.backup.services.Path.exists", lambda _path: False
+        "blitzecdn.features.backup.adapters.services.Path.exists", lambda _path: False
     )
     monkeypatch.delenv("COMPOSE_RESTORE_OFFLINE", raising=False)
     with ComposeRestoreGuard().stopped():

@@ -13,22 +13,22 @@ from conftest import (
 )
 
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.certificates import CertificateSource
-from blitzecdn.domain.deployments import DeploymentStatus
-from blitzecdn.domain.dns import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.domain.operations import WorkflowKind, WorkflowStatus
-from blitzecdn.domain.runs import HostRun, RunStatus
-from blitzecdn.domain.sites import (
+from blitzecdn.core.database import Repository
+from blitzecdn.core.exceptions import (
+    ConflictError,
+    DeploymentBusyError,
+)
+from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
+from blitzecdn.core.runs import HostRun, RunStatus
+from blitzecdn.features.certificates.domain import CertificateSource
+from blitzecdn.features.deployments.domain import DeploymentStatus
+from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.features.dns.site_domain import (
     CdnSite,
     CertificateMode,
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.exceptions import (
-    ConflictError,
-    DeploymentBusyError,
-)
-from blitzecdn.infrastructure.database import Repository
 
 
 def _seed_proxied_record(control: ControlPlane) -> DnsRecord:

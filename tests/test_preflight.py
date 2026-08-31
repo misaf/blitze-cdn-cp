@@ -14,16 +14,16 @@ import dns.resolver
 import pytest
 from conftest import FakeEdgeStore
 
-from blitzecdn.domain.certificates import PreflightSeverity
-from blitzecdn.domain.edges import Edge
-from blitzecdn.domain.origins import OriginCheck
-from blitzecdn.domain.sites import CdnSite
-from blitzecdn.infrastructure import preflight as preflight_module
-from blitzecdn.infrastructure.preflight import (
+from blitzecdn.features.certificates import preflight as preflight_module
+from blitzecdn.features.certificates.domain import PreflightSeverity
+from blitzecdn.features.certificates.preflight import (
     CertificatePreflight,
     _ancestors,
     _permitted_issuers,
 )
+from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.edges.domain import Edge
+from blitzecdn.features.edges.origins import OriginCheck
 
 
 class FakeOriginProbe:

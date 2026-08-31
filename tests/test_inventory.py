@@ -29,10 +29,10 @@ from pathlib import Path
 
 import pytest
 
-from blitzecdn.domain.edges import EDGE_GROUP, Edge, firewall_sources
-from blitzecdn.domain.validation import RESERVED_ANSIBLE_SETTINGS
-from blitzecdn.infrastructure.ansible_mapping import edge_to_inventory
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.core.ansible_mapping import edge_to_inventory
+from blitzecdn.core.database import Repository
+from blitzecdn.core.validation import RESERVED_ANSIBLE_SETTINGS
+from blitzecdn.features.edges.domain import EDGE_GROUP, Edge, firewall_sources
 
 PROJECT_DIR = Path(__file__).resolve().parent.parent
 ANSIBLE_DIR = PROJECT_DIR / "ansible"

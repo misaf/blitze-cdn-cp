@@ -502,7 +502,7 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
     standalone = _section("standalone")
     assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
     assert "blitzecdn_nginx_allow_empty_sites" in (
-        PROJECT_DIR / "src/blitzecdn/infrastructure/desired_state.py"
+        PROJECT_DIR / "src/blitzecdn/features/deployments/desired_state.py"
     ).read_text(encoding="utf-8")
 
 

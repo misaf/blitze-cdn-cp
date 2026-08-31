@@ -15,10 +15,10 @@ from contextlib import contextmanager
 import pytest
 from pydantic import ValidationError
 
-import blitzecdn.infrastructure.origins as origins_module
-from blitzecdn.domain.origins import OriginCheck
-from blitzecdn.domain.sites import CdnSite, HttpScheme, SslMode
-from blitzecdn.infrastructure.origins import OriginProbe
+import blitzecdn.features.edges.probe as origins_module
+from blitzecdn.features.dns.site_domain import CdnSite, HttpScheme, SslMode
+from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.features.edges.probe import OriginProbe
 
 
 def _site(**overrides) -> CdnSite:
