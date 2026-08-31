@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.features.cache.domain import PurgeEntry
 from blitzecdn.features.edges.domain import Edge
 from blitzecdn.features.sites.domain import CdnSite
 
@@ -14,10 +13,6 @@ def site_to_ansible(site: CdnSite) -> dict[str, Any]:
     if site.firewall.empty:
         del document["firewall"]
     return document
-
-
-def purge_entry_to_ansible(entry: PurgeEntry) -> dict[str, str]:
-    return {"host": entry.host, "uri": entry.uri, "scheme": entry.scheme.value}
 
 
 def edge_to_inventory(edge: Edge) -> dict[str, Any]:

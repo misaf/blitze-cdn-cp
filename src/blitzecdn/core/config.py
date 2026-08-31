@@ -98,6 +98,7 @@ _PROJECT_KEYS = {
     *(spec[2] for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)),
     "acme_default_email",
     "preflight_dns_servers",
+    "required_capabilities",
 }
 
 # Disaster recovery moves portable policy and non-regenerable identity onto a
@@ -122,6 +123,7 @@ PORTABLE_ENVIRONMENT_KEYS = frozenset(
         *(spec[1] for spec in _VALUE_SETTINGS),
         "BLITZE_ACME_DEFAULT_EMAIL",
         "BLITZE_PREFLIGHT_DNS_SERVERS",
+        "BLITZE_REQUIRED_CAPABILITIES",
         "BLITZE_MAXMIND_ACCOUNT_ID",
         "BLITZE_MAXMIND_LICENSE_KEY",
         "BLITZE_UNDER_ATTACK_SECRET",
@@ -194,6 +196,23 @@ class Settings(BaseSettings):
     #: back to the host resolver, which is right for an air-gapped controller
     #: with its own view of public DNS.
     preflight_dns_servers: tuple[str, ...] = ()
+    #: Capabilities this installation's configuration depends on, by token.
+    #:
+    #: The deliberate answer to "an optional package was uninstalled while
+    #: something still needed it". Optional capabilities are real distributions
+    #: that can be attached and detached, so their absence is normal and must
+    #: not be an error by itself — but an installation that has *decided* it
+    #: needs one says so here, and the control plane then refuses to start
+    #: without it rather than coming up and behaving as though the capability
+    #: had simply been configured off.
+    #:
+    #: Generic on purpose. These are tokens matched against what the installed
+    #: plugins declare in `PluginMetadata.provides`; core resolves them without
+    #: knowing which distribution supplies any of them, so a capability nothing
+    #: in this repository has heard of is checked exactly like `backup`.
+    #:
+    #: Empty by default: a fresh install requires no optional capability.
+    required_capabilities: tuple[str, ...] = ()
     #: MaxMind credentials for the edge GeoLite2 download, forwarded to Ansible
     #: as environment variables rather than extra-vars.
     #:
@@ -420,6 +439,9 @@ class Settings(BaseSettings):
             preflight_dns_servers=cls._read_dns_servers(
                 value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
             ),
+            required_capabilities=cls._read_capabilities(
+                value("BLITZE_REQUIRED_CAPABILITIES", "required_capabilities", ())
+            ),
             # Secrets are intentionally environment-only; committed TOML keys
             # with either name remain rejected by `_read_project_config`.
             maxmind_account_id=env.get("BLITZE_MAXMIND_ACCOUNT_ID", ""),
@@ -485,6 +507,26 @@ class Settings(BaseSettings):
                 f"unknown project configuration: {', '.join(sorted(unknown))}"
             )
         return raw
+
+    @staticmethod
+    def _read_capabilities(raw: object) -> tuple[str, ...]:
+        """Parse capability tokens from a comma-separated string or a list."""
+        if isinstance(raw, str):
+            parts: list[str] = [part.strip() for part in raw.split(",")]
+        elif isinstance(raw, (list, tuple)):
+            parts = [str(part).strip() for part in raw]
+        else:
+            raise ValueError("required_capabilities must be a list or comma-separated")
+        tokens: list[str] = []
+        for part in filter(None, parts):
+            if not part.replace("_", "").replace("-", "").isalnum():
+                raise ValueError(
+                    f"required capability {part!r} must be alphanumeric, "
+                    "such as 'backup'"
+                )
+            if part not in tokens:
+                tokens.append(part)
+        return tuple(tokens)
 
     @staticmethod
     def _read_dns_servers(raw: object) -> tuple[str, ...]:

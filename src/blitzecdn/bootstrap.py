@@ -37,13 +37,12 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from blitzecdn import __version__
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
 from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
-from blitzecdn.core.operation_ports import AuditTrail
+from blitzecdn.core.operation_ports import AuditTrail, PlaybookRunner
 from blitzecdn.core.plugins import (
     HealthCheck,
     PluginRegistry,
@@ -54,19 +53,6 @@ from blitzecdn.core.plugins import (
     load_plugins,
 )
 from blitzecdn.core.workflows import WorkflowCoordinator
-from blitzecdn.features.backup.adapters import (
-    AcmeComponent,
-    AlembicSchemaVersions,
-    ComposeRestoreGuard,
-    ConfigComponent,
-    DatabaseComponent,
-    TarArchive,
-    TemporaryWorkspace,
-    TlsComponent,
-)
-from blitzecdn.features.backup.service import BackupPolicy, BackupService
-from blitzecdn.features.cache import CacheService
-from blitzecdn.features.cache.ports import CacheRunner
 from blitzecdn.features.deployments.desired_state import DesiredStateRenderer
 from blitzecdn.features.deployments.ports import (
     DeploymentRunner,
@@ -79,6 +65,7 @@ from blitzecdn.features.deployments.service import (
     DeploymentService,
 )
 from blitzecdn.features.dns import DnsService
+from blitzecdn.features.dns.ports import SiteStore as SiteReader
 from blitzecdn.features.edges import EdgeOperationsService
 from blitzecdn.features.edges.ports import EdgeRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
@@ -101,15 +88,24 @@ from blitzecdn.features.tls.certificates.service import (
 )
 
 
-class FleetRunner(DeploymentRunner, CacheRunner, EdgeRunner, Protocol):
+class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
     """Every playbook capability one Ansible adapter happens to provide.
 
     Each feature declares the slice it actually uses — ``DeploymentRunner``,
-    ``CacheRunner``, ``EdgeRunner``, ``DeploymentLocker`` — and none of them
-    knows the others exist. That one object satisfies all four is a fact about
-    the adapter, so it is stated here, where knowing which concrete thing is
-    wired in is the entire job, and nowhere else. A test that injects a fake
-    runner is the other implementer.
+    ``EdgeRunner``, ``DeploymentLocker`` — and none of them knows the others
+    exist. That one object satisfies all of them is a fact about the adapter,
+    so it is stated here, where knowing which concrete thing is wired in is the
+    entire job, and nowhere else. A test that injects a fake runner is the
+    other implementer.
+
+    ``PlaybookRunner`` is the odd one out and deliberately so. It is not a
+    feature's port but core's own, published as ``ControlPlane.fleet``, and it
+    is what an *installed* capability is handed: the generic "run this play"
+    and nothing feature-shaped. A detachable package declares its own narrow
+    port over it — ``blitzecdn_cache.ports.CacheRunner`` — which is why no
+    ``CacheRunner`` appears in this list any more. That is the difference
+    between a built-in, whose port core may name, and a distribution core has
+    never heard of.
     """
 
 
@@ -156,6 +152,17 @@ class ControlPlane:
         # scheduled job needs the service that job will call, so there is
         # nothing for it to be handed until every service exists.
         self.plugins = plugins if plugins is not None else load_plugins()
+        # Before anything is wired: an optional capability this installation
+        # says it depends on has to actually be installed. Detaching a package
+        # is a supported operation, so its absence is not an error on its own —
+        # but a configuration that still asks for it must fail here, with the
+        # token named, rather than start and behave as if the capability had
+        # been switched off. The tokens are configuration and the answer is
+        # plugin metadata; nothing in between names a feature.
+        self.plugins.require(
+            self.settings.required_capabilities,
+            subject="this installation's `required_capabilities`",
+        )
         self._jobs: dict[str, ScheduledJob] | None = None
         self._wire_services(store)
 
@@ -200,6 +207,19 @@ class ControlPlane:
         # Entry layers receive only the read side of the audit trail, so they
         # cannot manufacture an event for an action no service performed.
         self.audit: AuditTrail = store.audit_log
+
+        # The two contracts an installed capability builds itself from, both
+        # typed as ports rather than as the concrete things behind them.
+        #
+        # `sites` is the read side of the site model. It is a port for the same
+        # reason `audit` is: a reader is not a repository, and a package handed
+        # one can answer "which hostnames does the fleet serve" without being
+        # able to write a site or reach SQLite. `fleet` runs a named play
+        # across the edges in scope and knows nothing about what any play is
+        # for. Between them they are the whole of what an optional package
+        # needs and deliberately less than what a built-in service receives.
+        self.sites: SiteReader = store.sites
+        self.fleet: PlaybookRunner = self._runner
 
         # The same audit adapter is exposed read-only to entry layers and as an
         # event recorder to services. There is one durable consumer, so a
@@ -290,15 +310,6 @@ class ControlPlane:
             dns=self.dns,
             deployments=self.deployments,
         )
-        # Reads sites to decide what may be purged and never writes one, so it
-        # is handed the store rather than the zone editor: purging is not a
-        # change to desired state and must not be able to become one.
-        self.cache = CacheService(
-            sites=store.sites,
-            events=self.events,
-            runner=self._runner,
-        )
-        self.backup = build_backup_service(self.settings)
         self.maintenance = MaintenanceService(
             jobs=lambda: self.jobs,
             deployments=self.deployments,
@@ -350,31 +361,6 @@ class ControlPlane:
         repository, self._owned_repository = self._owned_repository, None
         if repository is not None:
             repository.close()
-
-
-def build_backup_service(settings: Settings) -> BackupService:
-    """Wire backup and restore, which need no repository and open none.
-
-    Separate from ``ControlPlane`` because it has to work on a host where the
-    control plane cannot start: a fresh install with an empty database, or one
-    whose configuration was lost with the disk. Opening a repository to restore
-    a database would create and migrate the very file about to be replaced.
-    """
-    return BackupService(
-        policy=BackupPolicy(backup_dir=settings.backup_dir, version=__version__),
-        components=(
-            DatabaseComponent(settings),
-            TlsComponent(settings),
-            AcmeComponent(settings),
-            ConfigComponent(settings),
-        ),
-        archive=TarArchive(),
-        schema=AlembicSchemaVersions(settings),
-        services=ComposeRestoreGuard(),
-        # Staged under the state directory rather than /tmp: a staged backup is
-        # a complete copy of the database and every private key.
-        workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),
-    )
 
 
 class _SiteValidator:

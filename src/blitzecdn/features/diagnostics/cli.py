@@ -1,4 +1,10 @@
-"""Read-only reporting: doctor, audit, stats, and the API server."""
+"""Read-only reporting: doctor, audit, and the API server.
+
+`stats` was here and is not any more. It reads the cache capability's report,
+so it belongs to the distribution that produces one — this feature was
+importing `CacheStatsReport` to format a document it did not own, which is the
+exact edge that would have made `cache` undetachable.
+"""
 
 from __future__ import annotations
 
@@ -10,13 +16,55 @@ import uvicorn
 from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.features.cache.domain import CacheStatsReport
 from blitzecdn.features.tls.certificates import check_resolver
 from blitzecdn.features.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
 #: Root-level verbs, like the deployment group: `blitzecdn status`, not
 #: `blitzecdn diagnostics status`.
 diagnostics_app = typer.Typer()
+
+
+@diagnostics_app.command()
+def plugins(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List the capabilities this controller has, and any that failed to load.
+
+    The answer to "I installed blitzecdn-cache and there is no `cache purge`".
+    A required capability that failed would have stopped the process, but an
+    optional one is reported and skipped by design, and a warning that scrolled
+    past at startup is not somewhere an operator can look afterwards — so the
+    reason is kept on the registry and printed here.
+
+    `required` distinguishes a capability this distribution ships from one
+    installed beside it. `capabilities` are the tokens configuration depends on
+    through `required_capabilities`, which is usually just the plugin's name.
+    """
+    registry = common.control_plane().plugins
+    document: dict[str, Any] = {
+        "plugins": [
+            {
+                "name": plugin.name,
+                "version": plugin.version,
+                "required": plugin.required,
+                "capabilities": sorted(plugin.capabilities),
+                "summary": plugin.summary,
+            }
+            for plugin in registry.plugins
+        ],
+        "capabilities": sorted(registry.capabilities),
+        "rejected": [
+            {"source": rejection.source, "reason": rejection.reason}
+            for rejection in registry.rejected
+        ],
+    }
+    common.emit(document, json_output=json_output)
+    if json_output:
+        return
+    for rejection in registry.rejected:
+        typer.echo(
+            f"\n{rejection.source} was not registered: {rejection.reason}", err=True
+        )
 
 
 @diagnostics_app.command()
@@ -85,72 +133,6 @@ def doctor(
         )
     if report["configuration_errors"]:
         raise typer.Exit(ExitCode.CONFIGURATION)
-
-
-@diagnostics_app.command()
-def stats(
-    limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    by_site: Annotated[
-        bool,
-        typer.Option("--by-site", help="Break the numbers down by virtual host."),
-    ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
-) -> None:
-    """Report cache effectiveness across the edges.
-
-    Reads the access log and nginx's own counters on each edge. Changes
-    nothing, so it is safe to run at any time, including during a deploy.
-
-    The hit ratio counts only requests that consulted the cache. Redirects,
-    errors nginx served itself, and sites with caching disabled are excluded
-    rather than scored as misses.
-    """
-    report = common.control_plane().cache.cache_stats("cli", host_limit=limit)
-    if json_output:
-        common.emit(_stats_document(report, by_site=by_site), json_output=True)
-        return
-    common.emit(_stats_document(report, by_site=by_site), json_output=False)
-    for edge in report.silent:
-        typer.echo(f"\n{edge.host} reported nothing: {edge.error}", err=True)
-    if report.hit_ratio is None:
-        typer.echo(
-            "\nNo cacheable requests in the window read, so there is no hit "
-            "ratio yet. A fresh edge or a quiet one both look like this."
-        )
-
-
-def _stats_document(report: CacheStatsReport, *, by_site: bool) -> dict[str, Any]:
-    """One shape for both outputs, so --json is never a different answer."""
-    document: dict[str, Any] = {
-        "collected_at": report.collected_at.isoformat(),
-        "hit_ratio": report.hit_ratio,
-        "hits": report.hits,
-        "cacheable_requests": report.cacheable_requests,
-        "requests": report.requests,
-        "edges": [
-            {
-                "host": edge.host,
-                "hit_ratio": edge.hit_ratio,
-                "requests": edge.requests,
-                "nginx_reachable": edge.nginx_reachable,
-                "connections": edge.connections,
-                "error": edge.error,
-            }
-            for edge in report.edges
-        ],
-    }
-    if by_site:
-        document["sites"] = [
-            {
-                "site": site.site,
-                "hit_ratio": site.hit_ratio,
-                "hits": site.hits,
-                "cacheable_requests": site.cacheable_requests,
-                "requests": site.requests,
-            }
-            for site in report.by_site()
-        ]
-    return document
 
 
 @diagnostics_app.command()

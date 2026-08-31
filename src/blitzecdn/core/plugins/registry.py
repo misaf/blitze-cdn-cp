@@ -155,6 +155,41 @@ class PluginRegistry:
     def __contains__(self, name: str) -> bool:
         return any(plugin.name == name for plugin in self.plugins)
 
+    @property
+    def capabilities(self) -> frozenset[str]:
+        """Every capability token the installed plugins answer for.
+
+        The union of what each plugin declared, and the only thing anything in
+        core asks about "is that capability here?". Core never learns which
+        distribution supplied a token, which is what keeps
+        `if compression_installed:` from being writable in the first place.
+        """
+        return frozenset().union(*(plugin.capabilities for plugin in self.plugins))
+
+    def missing(self, required: Iterable[str]) -> tuple[str, ...]:
+        """Which of ``required`` no installed plugin provides, sorted."""
+        return tuple(sorted(set(required) - self.capabilities))
+
+    def require(self, required: Iterable[str], *, subject: str) -> None:
+        """Refuse to continue while a named capability is not installed.
+
+        Deterministic and generic: the tokens come from configuration, the
+        answer comes from plugin metadata, and nothing between them names a
+        feature. Detaching a package that a configuration still asks for is a
+        startup failure with the token in it, not a control plane that comes up
+        and quietly serves the capability's absence as if it were its default.
+        """
+        absent = self.missing(required)
+        if absent:
+            installed = ", ".join(sorted(self.capabilities)) or "none"
+            raise PluginError(
+                f"{subject} requires the "
+                f"{'capabilities' if len(absent) > 1 else 'capability'} "
+                f"{', '.join(absent)}, which no installed plugin provides. "
+                f"Installed capabilities: {installed}. Install the distribution "
+                "that supplies it, or remove it from `required_capabilities`."
+            )
+
     # --- registration-time contributions ---------------------------------
 
     def api_routers(self) -> tuple[APIRouter, ...]:

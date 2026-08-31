@@ -29,13 +29,12 @@ shipping as a shared-code cleanup.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, cast
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import RunStatus, TaskOutcome
-from blitzecdn.features.cache.domain import PurgeEntry as DomainPurgeEntry
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.http.policy import HttpScheme
 from blitzecdn.features.tls.certificates.domain import (
@@ -190,53 +189,6 @@ class ReconciliationResult(OperationModel):
     deployment: Deployment | None = None
 
 
-class PurgeEntry(OperationModel):
-    host: str
-    uri: str
-    scheme: HttpScheme = HttpScheme.HTTPS
-
-    @field_validator("host", "uri")
-    @classmethod
-    def valid_entry_field(cls, value: str, info: Any) -> str:
-        payload = {"host": "example.com", "uri": "/", info.field_name: value}
-        return cast(
-            "str", getattr(DomainPurgeEntry.model_validate(payload), info.field_name)
-        )
-
-    def to_domain(self) -> DomainPurgeEntry:
-        return DomainPurgeEntry.model_validate(self.model_dump())
-
-
-class PurgeResult(OperationModel):
-    purged_at: datetime
-    entries: tuple[PurgeEntry, ...] = ()
-    purge_all: bool = False
-    host_limit: str | None = None
-    hosts: tuple[HostRun, ...] = ()
-    complete: bool
-    failed_hosts: tuple[str, ...]
-
-
-class SiteCacheStats(OperationModel):
-    site: str
-    outcomes: dict[str, int] = Field(default_factory=dict)
-
-
-class EdgeStats(OperationModel):
-    host: str
-    collected_at: datetime | None = None
-    nginx_reachable: bool = False
-    connections: dict[str, int] = Field(default_factory=dict)
-    sites: tuple[SiteCacheStats, ...] = ()
-    error: str | None = None
-
-
-class CacheStatsReport(OperationModel):
-    collected_at: datetime
-    host_limit: str | None = None
-    edges: tuple[EdgeStats, ...] = ()
-
-
 class OriginCheck(OperationModel):
     site: str
     origin: str
@@ -296,7 +248,6 @@ def as_operation[T: BaseModel](model: object, target: type[T]) -> T:
 __all__ = [
     "AnsibleRun",
     "AuditEvent",
-    "CacheStatsReport",
     "CertificateInfo",
     "CertificateRequest",
     "CertificateStatus",
@@ -304,18 +255,14 @@ __all__ = [
     "DriftReport",
     "EdgeOriginChecks",
     "EdgeRemoval",
-    "EdgeStats",
     "HostRun",
     "OperationModel",
     "OriginCheck",
     "OriginReport",
     "PreflightCheck",
     "PreflightReport",
-    "PurgeEntry",
-    "PurgeResult",
     "ReconciliationResult",
     "RenewalResult",
-    "SiteCacheStats",
     "SslAutomaticReconciliation",
     "TaskResult",
     "Workflow",

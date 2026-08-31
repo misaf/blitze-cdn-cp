@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blitzecdn-cache"
+version = "3.0.0"
+description = "Cache purge and cache-effectiveness reporting for the BlitzeCDN control plane"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+# Points inward, and only inward. `CachePolicy` — TTLs, the query-string mode —
+# is not here: it is site configuration that every edge renders whether or not
+# this package is installed, and it stays in `blitzecdn.features.sites.policy`.
+# What this distribution owns is the *operations*: purging, and reading how well
+# the cache is working.
+dependencies = ["blitzecdn>=3.0.0,<4"]
+
+[project.entry-points."blitzecdn.plugins"]
+cache = "blitzecdn_cache.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blitzecdn_cache"]
+
+# Checkout-local; see packages/blitzecdn-backup/pyproject.toml.
+[tool.uv.sources]
+blitzecdn = { workspace = true }
