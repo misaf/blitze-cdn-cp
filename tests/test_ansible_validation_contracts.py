@@ -385,7 +385,7 @@ def test_the_stats_role_publishes_through_the_agreed_report_fact():
     reporting success — the silent-no-op failure this suite exists to catch.
     """
     tasks = (STATS_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    adapter = (PROJECT_DIR / "src/blitzecdn/infrastructure/ansible.py").read_text(
+    adapter = (PROJECT_DIR / "src/blitzecdn/core/ansible.py").read_text(
         encoding="utf-8"
     )
 

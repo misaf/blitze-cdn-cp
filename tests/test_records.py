@@ -6,16 +6,19 @@ import pytest
 from conftest import FakeRunner
 
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.dns import (
+from blitzecdn.core.database import Repository
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.features.deployments.snapshots import (
+    decode_snapshot,
+    decode_snapshot_zones,
+)
+from blitzecdn.features.dns.domain import (
     DnsRecord,
     Domain,
     RecordType,
     derive_site_name,
 )
-from blitzecdn.domain.sites import CdnSite
-from blitzecdn.domain.snapshots import decode_snapshot, decode_snapshot_zones
-from blitzecdn.exceptions import ConflictError, NotFoundError
-from blitzecdn.infrastructure.database import Repository
+from blitzecdn.features.dns.site_domain import CdnSite
 
 
 @pytest.mark.parametrize(

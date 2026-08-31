@@ -1,28 +1,16 @@
-"""The layering rule, enforced instead of merely documented.
-
-``domain`` knows nothing but itself. ``application/ports`` declares the
-interfaces over the outside world and may see the domain. ``application``
-orchestrates the domain through those ports and must never reach for a concrete
-adapter. Only the composition root and the entry points — the CLI, the API, and
-the worker — are allowed to know both halves.
-
-This used to be a convention kept by review. Reviews miss a single import, and
-the failure is invisible until someone tries to test a service without a
-database — so it is checked here, over the real source tree.
-"""
+"""Executable boundaries for the package-by-feature modular monolith."""
 
 from __future__ import annotations
 
 import ast
+from collections import defaultdict
 from pathlib import Path
 
 import pytest
 
-_SOURCE = Path(__file__).resolve().parent.parent / "src" / "blitzecdn"
-
-#: Packages that carry an I/O concern. A domain or application module importing
-#: one of these has reached past its layer.
-_ADAPTERS = (
+_SOURCE = Path(__file__).resolve().parents[1] / "src" / "blitzecdn"
+_FEATURES = _SOURCE / "features"
+_IO_IMPORTS = (
     "fastapi",
     "starlette",
     "typer",
@@ -34,18 +22,31 @@ _ADAPTERS = (
     "certbot",
     "cryptography",
     "yaml",
+    "redis",
+    "dramatiq",
+    "sqlalchemy",
+    "sqlmodel",
 )
-
-
-def _modules(package: str) -> list[Path]:
-    root = _SOURCE / package
-    if root.is_dir():
-        return sorted(root.rglob("*.py"))
-    return [_SOURCE / f"{package}.py"]
+_DOMAIN_FILES = {"domain.py", "site_domain.py", "origins.py", "snapshots.py"}
+_ADAPTER_PARTS = {
+    "adapters",
+    "persistence.py",
+    "site_persistence.py",
+    "probe.py",
+    "preflight.py",
+    "desired_state.py",
+}
+_PUBLIC_CROSS_FEATURE_MODULES = {
+    "domain",
+    "site_domain",
+    "origins",
+    "ports",
+    "reporting",
+    "snapshots",
+}
 
 
 def _imports(path: Path) -> set[str]:
-    """Every module this file imports, as dotted names."""
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: set[str] = set()
     for node in ast.walk(tree):
@@ -56,215 +57,194 @@ def _imports(path: Path) -> set[str]:
     return found
 
 
-def _violations(package: str, forbidden: tuple[str, ...]) -> list[str]:
-    def banned(imported: str) -> bool:
-        root = imported.split(".")[0]
-        return any(
-            root == name or imported == name or imported.startswith(f"{name}.")
-            for name in forbidden
-        )
-
-    return [
-        f"{path.name} imports {imported}"
-        for path in _modules(package)
-        for imported in sorted(_imports(path))
-        if banned(imported)
-    ]
-
-
-def test_domain_imports_nothing_but_itself():
-    """The domain is provider-independent: no I/O, no adapters, no framework."""
-    assert (
-        _violations(
-            "domain",
-            (
-                *_ADAPTERS,
-                "blitzecdn.infrastructure",
-                "blitzecdn.application",
-                "blitzecdn.control_plane",
-                "blitzecdn.api",
-                "blitzecdn.cli",
-                "blitzecdn.config",
-            ),
-        )
-        == []
+def _banned(imported: str, forbidden: tuple[str, ...]) -> bool:
+    root = imported.split(".")[0]
+    return any(
+        root == name or imported == name or imported.startswith(f"{name}.")
+        for name in forbidden
     )
 
 
-def test_canonical_ports_only_face_the_domain_and_other_ports():
-    assert (
-        _violations(
-            "application/ports",
-            (
-                *_ADAPTERS,
-                "blitzecdn.infrastructure",
-                "blitzecdn.control_plane",
-                "blitzecdn.api",
-                "blitzecdn.cli",
-                "blitzecdn.config",
-            ),
-        )
-        == []
-    )
+def _feature_files() -> list[Path]:
+    return sorted(_FEATURES.rglob("*.py"))
 
 
-def test_application_never_touches_a_concrete_adapter():
-    """Services depend on ports. A concrete adapter here re-couples the layers."""
-    assert (
-        _violations(
-            "application",
-            (
-                *_ADAPTERS,
-                "blitzecdn.infrastructure",
-                "blitzecdn.control_plane",
-                "blitzecdn.api",
-                "blitzecdn.cli",
-                "blitzecdn.config",
-            ),
-        )
-        == []
-    )
+def _feature_name(path: Path) -> str:
+    return path.relative_to(_FEATURES).parts[0]
 
 
-def test_infrastructure_does_not_depend_on_the_application():
-    """Adapters implement ports but never import application services."""
+def test_legacy_layer_first_packages_have_no_source_modules():
+    for package in ("domain", "application", "infrastructure"):
+        assert not list((_SOURCE / package).rglob("*.py"))
+    assert not list((_SOURCE / "api/routes").rglob("*.py"))
+
+
+@pytest.mark.parametrize(
+    "feature",
+    [
+        "automatic_ssl",
+        "backup",
+        "cache",
+        "certificates",
+        "deployments",
+        "diagnostics",
+        "dns",
+        "edges",
+    ],
+)
+def test_required_feature_packages_exist(feature: str):
+    assert (_FEATURES / feature / "__init__.py").is_file()
+
+
+def test_feature_domains_are_framework_and_io_independent():
     offenders = [
-        f"{path.name} imports {imported}"
-        for path in _modules("infrastructure")
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _feature_files()
+        if path.name in _DOMAIN_FILES
         for imported in sorted(_imports(path))
-        if imported.startswith("blitzecdn.application.")
-        and not imported.startswith("blitzecdn.application.ports.")
+        if _banned(
+            imported,
+            (
+                *_IO_IMPORTS,
+                "blitzecdn.api",
+                "blitzecdn.cli",
+                "blitzecdn.control_plane",
+                "blitzecdn.core.ansible",
+                "blitzecdn.core.broker",
+                "blitzecdn.core.database",
+                "blitzecdn.core.database_engine",
+                "blitzecdn.core.database_models",
+                "blitzecdn.core.filesystem",
+                "blitzecdn.core.process",
+            ),
+        )
     ]
     assert offenders == []
-    assert (
-        _violations("infrastructure", ("blitzecdn.control_plane", "blitzecdn.api"))
-        == []
+
+
+def test_feature_services_depend_on_contracts_not_concrete_adapters():
+    forbidden = (
+        *_IO_IMPORTS,
+        "blitzecdn.api",
+        "blitzecdn.cli",
+        "blitzecdn.control_plane",
+        "blitzecdn.core.ansible",
+        "blitzecdn.core.broker",
+        "blitzecdn.core.database",
+        "blitzecdn.core.database_engine",
+        "blitzecdn.core.database_models",
     )
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _FEATURES.glob("*/service.py")
+        for imported in sorted(_imports(path))
+        if _banned(imported, forbidden)
+        or any(part in imported for part in (".adapters", ".persistence", ".probe"))
+    ]
+    assert offenders == []
 
 
-@pytest.mark.parametrize("module", ["control_plane", "cli", "acme_hook"], ids=str)
-def test_the_wiring_modules_do_wire(module):
-    """A sanity check on the rule above.
-
-    If one of these stops importing infrastructure the layering tests would
-    start passing for the wrong reason — nothing left to couple — so the list
-    of modules that legitimately know both halves is kept honest here.
-    """
-    imports: set[str] = set()
-    for path in _modules(module):
-        imports |= _imports(path)
-    assert any(name.startswith("blitzecdn.infrastructure") for name in imports)
-
-
-def test_worker_is_an_explicit_control_plane_entry_point():
-    imports = _imports(_SOURCE / "worker.py")
-    assert "blitzecdn.control_plane" in imports
-
-
-def test_the_composition_root_never_imports_the_worker():
-    """The queue arrow points one way.
-
-    ``worker.py`` is an entry point: it builds a control plane and calls a
-    service on it, exactly as the CLI does. The composition root used to import
-    the Redis broker and the background runner back out of it, which made the
-    two modules mutually dependent — survivable only because the actors imported
-    the control plane lazily, inside the function body, which is the kind of
-    fix that hides the problem instead of stating it.
-
-    The broker now lives in ``infrastructure/broker.py``, so the composition
-    root reaches an adapter like it reaches every other one. This refuses the
-    old edge by name.
-    """
-    offenders = sorted(
-        name
-        for name in _imports(_SOURCE / "control_plane.py")
-        if name == "blitzecdn.worker" or name.startswith("blitzecdn.worker.")
-    )
-    assert offenders == [], (
-        "control_plane reaches the queue through infrastructure.broker; the "
-        "worker imports the control plane and never the other way round"
-    )
+def test_feature_adapters_never_import_entry_layers_or_composition():
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _feature_files()
+        if any(part in _ADAPTER_PARTS for part in path.parts)
+        for imported in sorted(_imports(path))
+        if _banned(
+            imported,
+            (
+                "blitzecdn.api",
+                "blitzecdn.cli",
+                "blitzecdn.control_plane",
+                "blitzecdn.worker",
+            ),
+        )
+    ]
+    assert offenders == []
 
 
-def test_nothing_but_the_worker_process_imports_the_worker():
-    """A publisher enqueues by name and never imports an actor.
+def _entry_files() -> list[Path]:
+    candidates = [
+        *_feature_files(),
+        *(_SOURCE / "api").rglob("*.py"),
+        *(_SOURCE / "cli").rglob("*.py"),
+    ]
+    names = {
+        "cli.py",
+        "tls_cli.py",
+        "v1.py",
+        "v2.py",
+        "v1_sites.py",
+        "v2_sites.py",
+        "readiness.py",
+    }
+    return [
+        path
+        for path in candidates
+        if path.name in names
+        or _SOURCE / "api" in path.parents
+        or _SOURCE / "cli" in path.parents
+    ]
 
-    The API and the scheduler publish into Redis without loading the actors,
-    which is what keeps the actors' dependencies — a control plane per message —
-    out of the web process. Importing ``blitzecdn.worker`` anywhere but the
-    worker itself would quietly undo that.
-    """
+
+def test_entry_adapters_never_reach_persistence_or_database_directly():
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _entry_files()
+        for imported in sorted(_imports(path))
+        if _banned(
+            imported,
+            (
+                "blitzecdn.core.database",
+                "blitzecdn.core.database_engine",
+                "blitzecdn.core.database_models",
+            ),
+        )
+        or ".persistence" in imported
+    ]
+    assert offenders == []
+
+
+def test_cross_feature_imports_use_contract_modules():
+    offenders: list[str] = []
+    prefix = "blitzecdn.features."
+    for path in _feature_files():
+        owner = _feature_name(path)
+        for imported in sorted(_imports(path)):
+            if not imported.startswith(prefix):
+                continue
+            parts = imported.removeprefix(prefix).split(".")
+            if parts[0] == owner or len(parts) == 1:
+                continue
+            if len(parts) > 1 and parts[1] not in _PUBLIC_CROSS_FEATURE_MODULES:
+                offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
+    assert offenders == []
+
+
+def test_control_plane_is_the_only_production_composition_root():
+    imports = _imports(_SOURCE / "control_plane.py")
+    assert any(name.startswith("blitzecdn.features") for name in imports)
+    assert any(name.startswith("blitzecdn.core") for name in imports)
+    assert not any(name.startswith("blitzecdn.worker") for name in imports)
+
+
+def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
+    assert "blitzecdn.control_plane" in _imports(_SOURCE / "worker.py")
     offenders = [
         str(path.relative_to(_SOURCE))
         for path in _SOURCE.rglob("*.py")
         if path.name != "worker.py"
-        and any(
-            name == "blitzecdn.worker" or name.startswith("blitzecdn.worker.")
-            for name in _imports(path)
-        )
+        and any(name.startswith("blitzecdn.worker") for name in _imports(path))
     ]
     assert offenders == []
+    broker_imports = _imports(_SOURCE / "core/broker.py")
+    assert not any(
+        name.startswith(("blitzecdn.worker", "blitzecdn.control_plane"))
+        for name in broker_imports
+    )
 
 
-def test_the_broker_adapter_publishes_without_importing_actors():
-    """The broker is an adapter, so it faces outward only.
-
-    It implements ``QueueBackgroundRunner`` structurally and knows the queue and
-    actor *names*; knowing the actor objects would be the import cycle again in
-    a different direction.
-    """
-    imports = _imports(_SOURCE / "infrastructure/broker.py")
-    assert not any(name.startswith("blitzecdn.worker") for name in imports)
-    assert not any(name.startswith("blitzecdn.application") for name in imports)
-    assert not any(name.startswith("blitzecdn.control_plane") for name in imports)
-
-
-def test_the_api_reaches_infrastructure_only_through_the_control_plane():
-    """The HTTP layer builds nothing itself.
-
-    ``create_app`` used to construct a ``ControlPlane``, which meant the API
-    module transitively chose a database and a runner. It now asks the
-    composition root, so the whole adapter choice lives in one place.
-    """
-    assert _violations("api", ("blitzecdn.infrastructure",)) == []
-
-
-def test_api_routes_expose_only_api_owned_models():
-    """Domain models may be mapped by DTOs but never published by a route."""
-    assert _violations("api/routes", ("blitzecdn.domain",)) == []
-
-
-def test_persistence_is_physically_split_by_feature():
-    assert {
-        path.stem for path in (_SOURCE / "infrastructure/persistence").glob("*.py")
-    } >= {"audit", "configuration", "deployments", "dns", "edges", "sites", "workflows"}
-
-
-def test_removed_subsystems_do_not_return():
-    """The fresh schema has one queue and no dormant integration machinery."""
-    offenders = [
-        str(path.relative_to(_SOURCE))
-        for path in _SOURCE.rglob("*.py")
-        if "outbox" in path.read_text(encoding="utf-8").lower()
-        or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
-    ]
-    assert offenders == []
-
-
-def test_domain_models_do_not_render_adapter_documents():
-    """Import purity is not enough if adapter field names live in methods."""
-    forbidden = {"to_ansible", "to_inventory", "to_api", "to_http"}
-    offenders = [
-        f"{path.name}:{node.lineno} defines {node.name}"
-        for path in _modules("domain")
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and node.name in forbidden
-    ]
-    assert offenders == []
-
-
-def test_entry_layers_cannot_reach_private_control_plane_adapters():
+def test_entry_layers_cannot_reach_private_control_plane_adapters_or_stores():
     forbidden = {
         "_runner",
         "_issuer",
@@ -273,96 +253,65 @@ def test_entry_layers_cannot_reach_private_control_plane_adapters():
         "_certificate_store",
         "_origin_probe",
         "_edges_store",
+        "repository",
+        "database",
+        "audit_log",
     }
     offenders = [
-        f"{path.name}:{node.lineno} reads .{node.attr}"
-        for layer in ("api", "cli")
-        for path in _modules(layer)
+        f"{path.relative_to(_SOURCE)}:{node.lineno} reads .{node.attr}"
+        for path in _entry_files()
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Attribute) and node.attr in forbidden
     ]
     assert offenders == []
 
 
-def test_the_entry_layers_never_reach_through_to_a_store():
-    """Reads go through a service or a port, the same as writes.
-
-    The write path was always disciplined — a command, a service, a port — while
-    the read endpoints quietly did ``control_plane.repository.list_sites()``,
-    which is the HTTP layer calling an infrastructure adapter directly. Both
-    halves of that are now gone: ``ControlPlane`` exposes no ``repository``, and
-    this refuses the attribute by name so a future one cannot be reintroduced
-    under a different route.
-
-    Named rather than typed, because ``ControlPlane`` is built by a factory the
-    entry layers call at runtime; mypy would catch a missing attribute on the
-    class, and this catches ``getattr`` and anything reached through a local.
-    """
-    offenders = [
-        f"{path.name}:{node.lineno} reads .{node.attr}"
-        for layer in ("api", "cli")
-        for path in _modules(layer)
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Attribute)
-        and node.attr in {"repository", "database", "audit_log"}
-    ]
-    assert offenders == [], (
-        "the entry layers read through the services and the ports on "
-        "ControlPlane, never through a store: " + "; ".join(offenders)
-    )
-
-
-def test_no_application_logic_reads_ansible_output():
-    """The rule that replaced recap parsing, enforced rather than remembered.
-
-    Raw Ansible output is kept per run for operators to read; the control plane
-    decides from structured Runner events and nothing else. The failure
-    this guards against is quiet — someone reaches for a log to answer a
-    question the result already answers, and the answer starts depending on
-    Ansible's wording again.
-
-    `infrastructure/filesystem.py` owns the one reader, and `application` may
-    call it through the `LogReader` port to quote a log into a message. Reaching
-    past that is what this refuses.
-    """
-    offenders = []
-    for layer in ("domain", "application"):
-        for path in _modules(layer):
-            offenders.extend(f"{path.name}: {use}" for use in _output_uses(path))
-    assert offenders == [], (
-        "the control plane reasons from domain.runs.AnsibleRun, not from what "
-        "Ansible printed: " + "; ".join(offenders)
-    )
-
-
-def _output_uses(path: Path) -> list[str]:
-    """Reads of Ansible's raw output, in code rather than in prose.
-
-    Docstrings are skipped deliberately — `domain/runs.py` explains at length
-    why `PLAY RECAP` is not parsed, and a check that cannot tell the
-    explanation from the practice would push that reasoning out of the code.
-    """
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    # A bare string expression is a docstring or a no-op; either way it is
-    # prose. `body` is a list on modules, classes and functions, and a single
-    # node on expressions like a conditional, hence the isinstance guard.
-    prose = {
-        id(node.value)
-        for parent in ast.walk(tree)
-        for node in (
-            parent.body if isinstance(getattr(parent, "body", None), list) else []
-        )
-        if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+def test_no_internal_module_dependency_cycles():
+    modules = {
+        "blitzecdn." + ".".join(path.relative_to(_SOURCE).with_suffix("").parts): path
+        for path in _SOURCE.rglob("*.py")
+        if "migrations" not in path.parts
     }
-    found = []
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and node.attr in {"stdout", "stderr"}:
-            found.append(f"reads .{node.attr}")
-        elif (
-            isinstance(node, ast.Constant)
-            and isinstance(node.value, str)
-            and "PLAY RECAP" in node.value
-            and id(node) not in prose
-        ):
-            found.append("matches on PLAY RECAP")
-    return found
+    graph: dict[str, set[str]] = defaultdict(set)
+    for module, path in modules.items():
+        graph[module].update(name for name in _imports(path) if name in modules)
+    visiting: list[str] = []
+    visited: set[str] = set()
+
+    def visit(module: str) -> None:
+        if module in visiting:
+            cycle = [*visiting[visiting.index(module) :], module]
+            pytest.fail("internal import cycle: " + " -> ".join(cycle))
+        if module in visited:
+            return
+        visiting.append(module)
+        for dependency in sorted(graph[module]):
+            visit(dependency)
+        visiting.pop()
+        visited.add(module)
+
+    for module in sorted(modules):
+        visit(module)
+
+
+def test_domain_models_do_not_render_adapter_documents():
+    forbidden = {"to_ansible", "to_inventory", "to_api", "to_http"}
+    offenders = [
+        f"{path.relative_to(_SOURCE)}:{node.lineno} defines {node.name}"
+        for path in _feature_files()
+        if path.name in _DOMAIN_FILES
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        and node.name in forbidden
+    ]
+    assert offenders == []
+
+
+def test_removed_subsystems_do_not_return():
+    offenders = [
+        str(path.relative_to(_SOURCE))
+        for path in _SOURCE.rglob("*.py")
+        if "outbox" in path.read_text(encoding="utf-8").lower()
+        or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
+    ]
+    assert offenders == []

@@ -5,28 +5,29 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.domain.cache import (
+from blitzecdn.core.runs import HostRun
+from blitzecdn.features.cache.domain import (
     CacheStatsReport,
     EdgeStats,
     PurgeEntry,
     PurgeResult,
     SiteCacheStats,
 )
-from blitzecdn.domain.certificates import (
+from blitzecdn.features.certificates.domain import (
     CertificateInfo,
     CertificateSource,
     CertificateStatus,
 )
-from blitzecdn.domain.deployments import (
+from blitzecdn.features.deployments.domain import (
     DEPLOYMENT_TRANSITIONS,
     TERMINAL_STATUSES,
     DeploymentStatus,
     is_terminal,
     require_transition,
 )
-from blitzecdn.domain.dns import DnsRecord, RecordPatch
-from blitzecdn.domain.runs import HostRun
-from blitzecdn.domain.sites import (
+from blitzecdn.features.deployments.snapshots import decode_snapshot, encode_snapshot
+from blitzecdn.features.dns.domain import DnsRecord, RecordPatch
+from blitzecdn.features.dns.site_domain import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
@@ -40,7 +41,6 @@ from blitzecdn.domain.sites import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.domain.snapshots import decode_snapshot, encode_snapshot
 
 
 def test_site_normalizes_safe_hostnames(site_payload):

@@ -3,7 +3,7 @@ import threading
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
-from blitzecdn.infrastructure.persistence.workflows import WorkflowStore
+from blitzecdn.core.persistence.workflows import WorkflowStore
 
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):

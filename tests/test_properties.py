@@ -3,9 +3,12 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from blitzecdn.domain.dns import DnsRecord, Domain
-from blitzecdn.domain.snapshots import decode_snapshot_zones, encode_snapshot
-from blitzecdn.domain.validation import hostname
+from blitzecdn.core.validation import hostname
+from blitzecdn.features.deployments.snapshots import (
+    decode_snapshot_zones,
+    encode_snapshot,
+)
+from blitzecdn.features.dns.domain import DnsRecord, Domain
 
 _LABEL = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=20

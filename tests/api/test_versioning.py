@@ -4,49 +4,20 @@ from fastapi.testclient import TestClient
 from blitzecdn import __version__
 from blitzecdn.api import create_app
 from blitzecdn.api.dependencies import get_control_plane
-from blitzecdn.api.routes import diagnostics
-from blitzecdn.api.routes.v1 import (
-    cache as v1_cache,
-)
-from blitzecdn.api.routes.v1 import (
-    certificates as v1_certificates,
-)
-from blitzecdn.api.routes.v1 import (
-    deployments as v1_deployments,
-)
-from blitzecdn.api.routes.v1 import (
-    diagnostics as v1_diagnostics,
-)
-from blitzecdn.api.routes.v1 import (
-    edges as v1_edges,
-)
-from blitzecdn.api.routes.v1 import (
-    sites as v1_sites,
-)
-from blitzecdn.api.routes.v1 import (
-    zones as v1_zones,
-)
-from blitzecdn.api.routes.v2 import (
-    cache as v2_cache,
-)
-from blitzecdn.api.routes.v2 import (
-    certificates as v2_certificates,
-)
-from blitzecdn.api.routes.v2 import (
-    deployments as v2_deployments,
-)
-from blitzecdn.api.routes.v2 import (
-    diagnostics as v2_diagnostics,
-)
-from blitzecdn.api.routes.v2 import (
-    edges as v2_edges,
-)
-from blitzecdn.api.routes.v2 import (
-    sites as v2_sites,
-)
-from blitzecdn.api.routes.v2 import (
-    zones as v2_zones,
-)
+from blitzecdn.features.cache.api import v1 as v1_cache
+from blitzecdn.features.cache.api import v2 as v2_cache
+from blitzecdn.features.certificates.api import v1 as v1_certificates
+from blitzecdn.features.certificates.api import v2 as v2_certificates
+from blitzecdn.features.deployments.api import v1 as v1_deployments
+from blitzecdn.features.deployments.api import v2 as v2_deployments
+from blitzecdn.features.diagnostics.api import readiness as diagnostics
+from blitzecdn.features.diagnostics.api import v1 as v1_diagnostics
+from blitzecdn.features.diagnostics.api import v2 as v2_diagnostics
+from blitzecdn.features.dns.api import v1 as v1_zones
+from blitzecdn.features.dns.api import v1_sites, v2_sites
+from blitzecdn.features.dns.api import v2 as v2_zones
+from blitzecdn.features.edges.api import v1 as v1_edges
+from blitzecdn.features.edges.api import v2 as v2_edges
 
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
@@ -80,21 +51,21 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
         or route.path.startswith(("/v1/", "/v2/"))
     }
     assert modules == {
-        "blitzecdn.api.routes.diagnostics",
-        "blitzecdn.api.routes.v1.cache",
-        "blitzecdn.api.routes.v1.certificates",
-        "blitzecdn.api.routes.v1.deployments",
-        "blitzecdn.api.routes.v1.diagnostics",
-        "blitzecdn.api.routes.v1.edges",
-        "blitzecdn.api.routes.v1.sites",
-        "blitzecdn.api.routes.v1.zones",
-        "blitzecdn.api.routes.v2.cache",
-        "blitzecdn.api.routes.v2.certificates",
-        "blitzecdn.api.routes.v2.deployments",
-        "blitzecdn.api.routes.v2.diagnostics",
-        "blitzecdn.api.routes.v2.edges",
-        "blitzecdn.api.routes.v2.sites",
-        "blitzecdn.api.routes.v2.zones",
+        "blitzecdn.features.diagnostics.api.readiness",
+        "blitzecdn.features.cache.api.v1",
+        "blitzecdn.features.certificates.api.v1",
+        "blitzecdn.features.deployments.api.v1",
+        "blitzecdn.features.diagnostics.api.v1",
+        "blitzecdn.features.edges.api.v1",
+        "blitzecdn.features.dns.api.v1_sites",
+        "blitzecdn.features.dns.api.v1",
+        "blitzecdn.features.cache.api.v2",
+        "blitzecdn.features.certificates.api.v2",
+        "blitzecdn.features.deployments.api.v2",
+        "blitzecdn.features.diagnostics.api.v2",
+        "blitzecdn.features.edges.api.v2",
+        "blitzecdn.features.dns.api.v2_sites",
+        "blitzecdn.features.dns.api.v2",
     }
 
     def dependency_calls(route: APIRoute) -> set[object]:

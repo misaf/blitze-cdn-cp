@@ -301,7 +301,7 @@ def test_request_certificate_requires_email(settings, site_payload):
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
-    from blitzecdn.exceptions import ConflictError
+    from blitzecdn.core.exceptions import ConflictError
 
     with pytest.raises(ConflictError, match="email"):
         control.certificates.request_certificate("cdn-example-com", "alice")
@@ -325,7 +325,7 @@ def test_certificate_upload_holds_deployment_lock(
         def install(self, site, certificate, key, *, source, email=None):
             assert events == ["locked"]
             events.append("installed")
-            from blitzecdn.infrastructure.certificates import CertificateStore
+            from blitzecdn.features.certificates.adapters import CertificateStore
 
             return CertificateStore(settings).install(
                 site, certificate, key, source=source, email=email
@@ -620,7 +620,7 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
     # Time runs out the moment the first site has been renewed.
     clock = iter([0.0, 0.0, 1000.0, 1000.0, 1000.0])
     monkeypatch.setattr(
-        "blitzecdn.application.certificates.monotonic", lambda: next(clock)
+        "blitzecdn.features.certificates.service.monotonic", lambda: next(clock)
     )
 
     result = control.certificates.renew_certificates(

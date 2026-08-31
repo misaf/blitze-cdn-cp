@@ -2,8 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from blitzecdn.config import Settings
-from blitzecdn.exceptions import ConfigurationError
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import ConfigurationError
 
 
 def test_environment_configuration_and_precedence(tmp_path: Path):

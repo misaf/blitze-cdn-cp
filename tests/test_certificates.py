@@ -11,11 +11,11 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 
-from blitzecdn.domain.certificates import CertificateSource
-from blitzecdn.domain.sites import CdnSite
-from blitzecdn.exceptions import ConfigurationError, ExecutionError, NotFoundError
-from blitzecdn.infrastructure import certificates as certificates_module
-from blitzecdn.infrastructure.certificates import CertbotIssuer, CertificateStore
+from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
+from blitzecdn.features.certificates import adapters as certificates_module
+from blitzecdn.features.certificates.adapters import CertbotIssuer, CertificateStore
+from blitzecdn.features.certificates.domain import CertificateSource
+from blitzecdn.features.dns.site_domain import CdnSite
 
 
 def test_store_validates_and_persists_managed_certificate(

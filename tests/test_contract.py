@@ -30,8 +30,10 @@ import yaml
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
 
 from blitzecdn.control_plane import ControlPlane
-from blitzecdn.domain.dns import DnsRecord, Domain
-from blitzecdn.domain.sites import (
+from blitzecdn.core.ansible_mapping import site_to_ansible
+from blitzecdn.core.database import Repository
+from blitzecdn.features.dns.domain import DnsRecord, Domain
+from blitzecdn.features.dns.site_domain import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     CacheQueryStringMode,
@@ -46,8 +48,6 @@ from blitzecdn.domain.sites import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.infrastructure.ansible_mapping import site_to_ansible
-from blitzecdn.infrastructure.database import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 
