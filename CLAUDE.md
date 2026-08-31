@@ -40,9 +40,16 @@ A hexagonal layering that is **enforced by tests, not by convention** — `tests
 - `cli/`, `api/` — entry points, split along matching feature boundaries. They call services on `ControlPlane`.
 
 Adapter document shapes do not belong on domain models. Keep Ansible and
-inventory mappings in `infrastructure/ansible_mapping.py`. Keep the frozen HTTP
-v1 representations in `api/v1_models.py` and `api/v1_operations.py`, and evolve
-v2 independently in `api/v2_models.py` and `api/v2_operations.py`. Persisted deployment snapshots are a
+inventory mappings in `core/ansible/mapping.py`. Keep the frozen HTTP v1
+*resource* representations — sites, records, edges — in `api/v1_models.py` and
+evolve v2 independently in `api/v2_models.py`; the *operational* ones (runs,
+deployments, drift, purge, workflows) are identical in both versions and live
+once in `api/operations.py`, with `api/requests.py` for the bodies. A version
+that has to diverge from a shared shape defines its own class with the version
+in the name (`CdnSiteV2`) rather than editing the shared one — pydantic
+disambiguates a name collision by qualifying *both* sides with their module
+path, so a second `Deployment` would rename the other version's published
+schema. Persisted deployment snapshots are a
 versioned compatibility contract; add an upcaster and a legacy fixture before
 changing their shape. Application services own their small policy dataclasses
 and receive those rather than the global `Settings` model.
@@ -52,7 +59,8 @@ Rules that the layering tests exist to defend, each guarding a failure that is i
 - **`ControlPlane` exposes no `repository`, `database`, or `audit_log` attribute**, and the entry layers may not reference those names at all. Reads go through a service or a port exactly like writes — a read endpoint calling a store directly is the regression this refuses.
 - **`ControlPlane` forwards no calls.** Entry layers reach the owning service (`control_plane.dns.create_record(...)`); adding a passthrough method that restates a service signature is a step backwards.
 - **The API must not import `infrastructure`.** `create_app` asks the composition root rather than constructing a control plane, so the adapter choice stays in one place.
-- **Never reason from Ansible's textual output.** Raw output is retained per run for operators only; the control plane decides from structured Runner events (`domain.runs.AnsibleRun`) and nothing else. Reading `.stdout`/`.stderr` or matching on `PLAY RECAP` in `domain/` or `application/` fails the suite. `infrastructure/filesystem.py` owns the one reader; `application` may reach it through the `LogReader` port to quote a log into a message.
+- **Never reason from Ansible's textual output.** Raw output is retained per run for operators only; the control plane decides from structured Runner events (`domain.runs.AnsibleRun`) and nothing else. Reading `.stdout`/`.stderr` or matching on `PLAY RECAP` in `domain/` or `application/` fails the suite. `core/filesystem.py` owns the one reader; a service may reach it through the `LogReader` port to quote a log into a message.
+- **Feature-to-feature dependencies are declared, not discovered.** `ALLOWED_FEATURE_DEPENDENCIES` in `tests/test_layering.py` is the graph, enforced in both directions and required to stay acyclic. A new edge is a decision you write down. The usual way one appears by accident is a port: a feature declaring a run that another feature performs forces that feature to import this one, which is how four cycles got in. Each feature declares the slice it calls (`CacheRunner`, `EdgeRunner`, `DeploymentRunner`, `DeploymentLocker`), and `control_plane.FleetRunner` is the only place that knows one `AnsibleRunner` satisfies them all.
 - **No outbox pattern and no `ThreadBackgroundRunner`.** Both were removed; a test refuses their return by name. There is one queue (Dramatiq over Redis).
 
 ## Configuration
