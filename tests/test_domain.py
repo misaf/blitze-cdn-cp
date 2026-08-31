@@ -27,7 +27,7 @@ from blitzecdn.features.deployments.domain import (
 )
 from blitzecdn.features.deployments.snapshots import decode_snapshot, encode_snapshot
 from blitzecdn.features.dns.domain import DnsRecord, RecordPatch
-from blitzecdn.features.dns.site_domain import (
+from blitzecdn.features.sites.domain import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,

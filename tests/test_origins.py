@@ -16,9 +16,9 @@ import pytest
 from pydantic import ValidationError
 
 import blitzecdn.features.edges.probe as origins_module
-from blitzecdn.features.dns.site_domain import CdnSite, HttpScheme, SslMode
 from blitzecdn.features.edges.origins import OriginCheck
 from blitzecdn.features.edges.probe import OriginProbe
+from blitzecdn.features.sites.domain import CdnSite, HttpScheme, SslMode
 
 
 def _site(**overrides) -> CdnSite:

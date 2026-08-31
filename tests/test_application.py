@@ -23,7 +23,7 @@ from blitzecdn.core.runs import HostRun, RunStatus
 from blitzecdn.features.certificates.domain import CertificateSource
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.features.dns.site_domain import (
+from blitzecdn.features.sites.domain import (
     CdnSite,
     CertificateMode,
     SslAutomaticMode,

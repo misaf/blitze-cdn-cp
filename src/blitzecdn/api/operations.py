@@ -44,7 +44,7 @@ from blitzecdn.features.certificates.domain import (
     PreflightSeverity,
 )
 from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.dns.site_domain import HttpScheme, SslMode
+from blitzecdn.features.sites.policy import HttpScheme, SslMode
 
 
 class OperationModel(BaseModel):

@@ -31,7 +31,8 @@ from blitzecdn.features.cache.domain import (
 )
 from blitzecdn.features.cache.ports import CacheRunner
 from blitzecdn.features.dns.ports import SiteStore
-from blitzecdn.features.dns.site_domain import CacheQueryStringMode, CdnSite, HttpScheme
+from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.policy import CacheQueryStringMode, HttpScheme
 
 
 class CacheService:

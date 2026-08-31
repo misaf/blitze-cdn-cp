@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from blitzecdn.features.dns.domain import DnsRecord, Domain
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 SNAPSHOT_SCHEMA_VERSION = 1
 

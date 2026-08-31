@@ -108,7 +108,7 @@ class DnsRecordRow(Base, table=True):
 
     ``value``, ``ttl`` and ``proxied`` are columns because they are the answer
     DNS gives and the switch that decides whether a site exists at all. The
-    inherited :class:`~blitzecdn.features.dns.site_domain.SitePolicy` fields —
+    inherited :class:`~blitzecdn.features.sites.domain.SitePolicy` fields —
     cache rules, firewall, headers, certificate mode — stay in ``policy``:
     nothing queries
     inside them, and they are validated by the domain model on the way out.

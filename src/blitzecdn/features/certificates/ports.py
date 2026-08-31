@@ -16,7 +16,7 @@ from blitzecdn.features.deployments.ports import (
     DeploymentRequirements,
 )
 from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 
 class Issuer(Protocol):

@@ -3,9 +3,9 @@ from __future__ import annotations
 from typing import Protocol
 
 from blitzecdn.core.runs import AnsibleRun
-from blitzecdn.features.dns.site_domain import CdnSite
 from blitzecdn.features.edges.domain import Edge
 from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.features.sites.domain import CdnSite
 
 
 class OriginCheckRunner(Protocol):

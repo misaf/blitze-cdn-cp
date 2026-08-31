@@ -36,9 +36,9 @@ from blitzecdn.features.certificates.domain import (
     PreflightReport,
     PreflightSeverity,
 )
-from blitzecdn.features.dns.site_domain import CdnSite
 from blitzecdn.features.edges import OriginProbeAdapter
 from blitzecdn.features.edges.ports import EdgeStore, OriginProbe
+from blitzecdn.features.sites.domain import CdnSite
 
 #: CAA property tags we understand. ``issue`` governs ordinary issuance,
 #: ``issuewild`` wildcard issuance; RFC 8659 says a wildcard order consults

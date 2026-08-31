@@ -19,8 +19,8 @@ from blitzecdn.features.dns.ports import (
     UnitOfWork,
     ZoneStore,
 )
-from blitzecdn.features.dns.site_domain import (
-    CdnSite,
+from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.policy import (
     CertificateMode,
     SslAutomaticMode,
     SslMode,

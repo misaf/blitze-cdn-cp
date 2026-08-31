@@ -20,8 +20,8 @@ from blitzecdn.core.operations import WorkflowKind
 from blitzecdn.features.certificates import CertificateService
 from blitzecdn.features.deployments import DeploymentService
 from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
-from blitzecdn.features.dns.site_domain import SitePolicy
 from blitzecdn.features.edges import EdgeOperationsService
+from blitzecdn.features.sites.domain import SitePolicy
 
 #: Exactly the policy fields version 1 shipped with. This is a frozen list, not
 #: a derived one: the whole point is that it stops tracking `SitePolicy`.

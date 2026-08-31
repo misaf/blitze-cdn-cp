@@ -40,7 +40,7 @@ from blitzecdn.core.plugins import (
     register,
     register_external,
 )
-from blitzecdn.features.dns.site_domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite
 
 _FIXTURES = "external_plugins"
 
@@ -134,6 +134,13 @@ def test_every_built_in_feature_registers_and_declares_itself_required(builtins)
     }
     assert all(plugin.required for plugin in builtins.plugins)
     assert builtins.rejected == ()
+
+
+def test_http3_is_site_policy_not_a_standalone_plugin(builtins):
+    assert "sites" in builtins
+    assert "http3" not in builtins
+    assert "blitzecdn.features.sites.plugin" in BUILTIN_PLUGINS
+    assert "blitzecdn.features.http3.plugin" not in BUILTIN_PLUGINS
 
 
 def test_a_built_in_that_cannot_be_imported_stops_the_process():
@@ -303,7 +310,9 @@ def test_contributions_come_back_in_registration_order(builtins):
 
 
 def test_a_declared_override_wins_wherever_it_registered():
-    base = SiteStateContribution(plugin="dns", variables={"certificate_path": "/model"})
+    base = SiteStateContribution(
+        plugin="sites", variables={"certificate_path": "/model"}
+    )
     override = SiteStateContribution(
         plugin="certificates",
         variables={"certificate_path": "/real"},
@@ -356,7 +365,7 @@ def test_an_override_of_a_variable_nobody_else_writes_is_allowed():
 
 def test_fleet_variables_merge_under_the_same_rule():
     contributions = [
-        FleetStateContribution(plugin="http3", variables={"a": True}),
+        FleetStateContribution(plugin="sites", variables={"a": True}),
         FleetStateContribution(plugin="waf", variables={"b": False}),
     ]
 

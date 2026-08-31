@@ -11,7 +11,10 @@ from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.features.dns.domain import Domain as DomainDomain
 from blitzecdn.features.dns.domain import RecordPatch as DomainRecordPatch
 from blitzecdn.features.dns.domain import RecordType as DomainRecordType
-from blitzecdn.features.dns.site_domain import (
+from blitzecdn.features.edges.domain import Edge as DomainEdge
+from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
+from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
+from blitzecdn.features.sites.policy import (
     CacheQueryStringMode,
     CertificateMode,
     CompressionMode,
@@ -19,11 +22,6 @@ from blitzecdn.features.dns.site_domain import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.features.dns.site_domain import (
-    CdnSite as DomainCdnSite,
-)
-from blitzecdn.features.edges.domain import Edge as DomainEdge
-from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
 
 
 class V2Model(BaseModel):

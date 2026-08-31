@@ -30,7 +30,7 @@ _IO_IMPORTS = (
     "sqlalchemy",
     "sqlmodel",
 )
-_DOMAIN_FILES = {"domain.py", "site_domain.py", "origins.py", "snapshots.py"}
+_DOMAIN_FILES = {"domain.py", "origins.py", "snapshots.py"}
 _ADAPTER_PARTS = {
     "adapters",
     "persistence.py",
@@ -41,8 +41,8 @@ _ADAPTER_PARTS = {
 }
 _PUBLIC_CROSS_FEATURE_MODULES = {
     "domain",
-    "site_domain",
     "origins",
+    "policy",
     "ports",
     "reporting",
     "snapshots",
@@ -120,8 +120,8 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "diagnostics",
         "dns",
         "edges",
-        "http3",
         "maintenance",
+        "sites",
     ],
 )
 def test_required_feature_packages_exist(feature: str):
@@ -132,7 +132,7 @@ def test_feature_domains_are_framework_and_io_independent():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _feature_files()
-        if path.name in _DOMAIN_FILES
+        if path.name in _DOMAIN_FILES or "policy" in path.relative_to(_FEATURES).parts
         for imported in sorted(_imports(path))
         if _banned(
             imported,
@@ -420,28 +420,36 @@ def test_removed_subsystems_do_not_return():
 #: actually has, and enforced both ways: an undeclared edge fails, and so does
 #: a declared edge nothing uses any more.
 #:
-#: The direction is the point. Everything flows towards `dns`, which owns the
-#: zone records and the `CdnSite` projection every other feature reads and none
-#: of them writes. `deployments` converges what `dns` declares; `certificates`
-#: and `automatic_ssl` sit above both because issuing and upgrading are
-#: decisions taken about a deployed site; `diagnostics` reports on the rest and
-#: is depended on by nothing.
+#: The direction is the point. `sites` owns the site-serving contract and knows
+#: no other feature. DNS derives sites from records; cache, certificates,
+#: deployments, and edges consume public site contracts without reaching into
+#: DNS persistence or adapters. Diagnostics reports on capabilities above them.
 #:
 #: Shared foundations under `core` are deliberately outside this graph: `core`
 #: is what a feature is allowed to build on without that counting as knowing
 #: another feature.
 ALLOWED_FEATURE_DEPENDENCIES = {
-    "automatic_ssl": {"deployments", "dns", "edges"},
+    "automatic_ssl": {"deployments", "dns", "edges", "sites"},
     "backup": set(),
-    "cache": {"dns"},
-    "certificates": {"deployments", "dns", "edges"},
-    "deployments": {"dns"},
+    "cache": {"dns", "sites"},
+    "certificates": {"deployments", "dns", "edges", "sites"},
+    "deployments": {"dns", "sites"},
     "diagnostics": {"cache", "certificates"},
-    "dns": set(),
-    "http3": {"dns"},
+    "dns": {"sites"},
     "maintenance": {"automatic_ssl", "certificates", "deployments"},
-    "edges": {"dns"},
+    "edges": {"dns", "sites"},
+    "sites": set(),
 }
+
+
+def test_sites_is_the_dependency_base_for_site_serving_policy():
+    graph = _feature_graph()
+    assert graph["sites"] == set()
+    assert "sites" in graph["dns"]
+    assert all(
+        "dns" not in imported for imported in _imports(_FEATURES / "sites/domain.py")
+    )
+
 
 #: Which `ControlPlane` attribute belongs to which feature. A `plugin.py` that
 #: reads one is depending on that feature just as surely as an import would, so
