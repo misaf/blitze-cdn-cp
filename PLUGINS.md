@@ -14,11 +14,18 @@ and process adapters, and the plugin infrastructure itself. Core owns no
 business capability. `tests/test_layering.py` fails a `core` module that imports
 a feature's `service` or `adapters`.
 
-**Features** (`src/blitzecdn/features/`) are the capabilities: `dns`,
-`certificates`, `automatic_ssl`, `cache`, `deployments`, `edges`, `http3`,
-`backup`, `diagnostics`, `maintenance`. A feature owns its domain, its service,
-the ports it calls through, and its own entry adapters — and it owns the
-`plugin.py` that tells the control plane it exists.
+**Features** (`src/blitzecdn/features/`) are independently meaningful business
+or operational capabilities: `sites`, `dns`, `certificates`, `automatic_ssl`,
+`cache`, `deployments`, `edges`, `backup`, `diagnostics`, `maintenance`. A
+feature owns the layers its actual behavior needs and the `plugin.py` that tells
+the control plane it exists. Small features need not invent service, repository,
+or adapter layers merely to match a directory template.
+
+Individual CDN switches are not features. TLS, HTTP protocols, compression,
+cache policy, request security, visitor headers, and origin behavior are
+cohesive modules under `features/sites/policy/`. Operational cache purge and
+statistics remain in `features/cache`; certificate issuance and storage remain
+in `features/certificates`; runtime/build capability remains an edge concern.
 
 **`bootstrap.py`** is the composition root, and the only place production wiring
 lives. It builds adapters, injects them into services through constructors,
@@ -50,11 +57,11 @@ Business communication. A caller that wants work done calls the service that
 owns it, through a constructor-injected reference:
 
 ```python
-certificate_service.issue(...)          # yes
-deployment_service.deploy(...)          # yes
-dns_service.create_record(...)          # yes
+certificate_service.issue(...)  # yes
+deployment_service.deploy(...)  # yes
+dns_service.create_record(...)  # yes
 
-plugin_manager.hook.issue_certificate(...)   # no
+plugin_manager.hook.issue_certificate(...)  # no
 ```
 
 A service call has one implementation, a return value, a type, and a stack trace
@@ -84,8 +91,8 @@ arguments; every other hook takes `platform`, the built control plane.
 | `blitzecdn_shutdown` | `context`, `platform` | `None` |
 
 A plugin implements only the hooks it has something to say through. `backup`
-contributes commands and no routes; `http3` contributes two fleet variables and
-nothing else.
+contributes commands and no routes; `sites` contributes the site document and
+the fleet variables derived from site protocol policy.
 
 `RuntimeContext.process` is `api`, `cli`, `worker` or `scheduler`. It exists
 because what a process owes at startup differs: republishing queued deployments
@@ -101,10 +108,16 @@ Deployment rendering is contributed, not centralised. `DesiredStateRenderer`
 knows how a document is framed — site documents under one key, fleet variables
 beside them — and nothing about what goes in one:
 
-* `dns` contributes the base site document, projected from `CdnSite`
+* `sites` contributes the base site document, projected from `CdnSite`
 * `certificates` contributes the TLS paths, and **overrides** the two the model
   projected, because only this controller knows the fingerprinted filenames
-* `http3` contributes the fleet-wide QUIC switch and the listener owner
+* `sites` projects HTTP/3 policy into the fleet-wide QUIC switch and the single
+  Nginx listener owner required by `reuseport`
+
+This projection does not make site policy an edge capability. A site may ask
+for Brotli or HTTP/3; deployment validation and the edge roles remain
+responsible for proving that the image, Nginx modules, runtime, and firewall can
+honor that request.
 
 Contributions are typed (`SiteStateContribution`, `FleetStateContribution`) and
 merged order-independently:
@@ -119,9 +132,9 @@ and let the edge roles render them.
 
 ## Adding a built-in feature
 
-1. Create `src/blitzecdn/features/<name>/` with `domain.py`, `service.py`,
-   `ports.py`, and whatever entry adapters it needs. Keep it small — do not
-   build a `domain/application/infrastructure` tree for four functions.
+1. Create `src/blitzecdn/features/<name>/` with only the domain, service, ports,
+   and entry adapters its existing responsibilities require. Keep it small — do
+   not build a `domain/application/infrastructure` tree for four functions.
 2. Write `plugin.py` with `blitzecdn_plugin_metadata` (`required=True`) and the
    hooks it contributes through.
 3. Add the module path to `BUILTIN_PLUGINS` in `core/plugins/discovery.py`.
@@ -149,13 +162,16 @@ and ships a module of `@hookimpl` functions:
 ```python
 from blitzecdn.core.plugins import PluginMetadata, ScheduledJob, hookimpl
 
+
 @hookimpl
 def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(name="waf", version="1.2.0", summary="Rule enforcement.")
 
+
 @hookimpl
 def blitzecdn_api_routers():
     return (router,)
+
 
 @hookimpl
 def blitzecdn_scheduled_jobs(platform):
@@ -191,8 +207,9 @@ claiming a built-in's name collides with it rather than displacing it.
 ## Dependency rules
 
 * A feature may depend on core contracts, on ports it declares itself, and on
-  another feature's public contract modules (`domain`, `site_domain`, `origins`,
-  `ports`, `reporting`, `snapshots`).
+  another feature's public contract modules (`domain`, `policy`, `origins`,
+  `ports`, `reporting`, `snapshots`). `sites` depends on no other feature; DNS
+  and operational features may depend on public `sites` contracts.
 * A feature may never import another feature's adapters, persistence, internal
   models, or private helpers.
 * Cross-feature edges are declared in `ALLOWED_FEATURE_DEPENDENCIES` and

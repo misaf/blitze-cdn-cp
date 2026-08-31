@@ -34,11 +34,11 @@ A **plugin-first package-by-feature modular monolith** with **ports and adapters
 
 ```
 src/blitzecdn/
-├── features/          # one package per business capability, owning its
-│   │                  # domain, its service, its ports — and the plugin.py
-│   │                  # through which it registers itself
+├── features/          # one package per meaningful business or operational
+│   │                  # capability, with only the layers it actually needs
 │   ├── automatic_ssl/  backup/  cache/  certificates/  deployments/
-│   └── diagnostics/    dns/     edges/  http3/  maintenance/
+│   ├── diagnostics/    dns/     edges/  maintenance/  sites/
+│   └── sites/policy/  # cohesive site switches; not standalone plugins
 ├── core/              # shared runtime and infrastructure implementations:
 │   │                  # SQLite, Ansible, Certbot, filesystem, process, config
 │   └── plugins/       # hookspecs, discovery, manager, registry
@@ -51,13 +51,14 @@ src/blitzecdn/
 
 The rules that shape it:
 
-- **Features own their business logic.** A feature's `domain.py` (and `site_domain.py`, `origins.py`, `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml).
+- **Features own their business logic.** A feature's `domain.py` (plus `sites/policy/`, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). `sites` owns `CdnSite` and flat site-serving policy; DNS owns records and may derive sites from those public contracts, never the reverse.
 - **The consumer owns the port.** A feature's `ports.py` holds the narrow `Protocol` interfaces *that feature* calls. A port belongs to whoever calls it, never to whoever implements it — a port describing a run some other feature performs is what forces a cycle, and `test_no_feature_port_declares_another_feature_s_playbook` refuses it.
 - **Concrete infrastructure implements those ports.** `core/` and a feature's own `adapters/` supply the implementations. A feature *service* (`service.py`, `rollback.py`, `reporting.py`) names its ports and never a concrete adapter.
 - **`bootstrap.py` is the production composition root.** It builds every adapter, injects it into the services, loads the plugins, and hands each plugin the finished control plane. Production wiring exists nowhere else, and it is the only module that knows one `AnsibleRunner` satisfies `CacheRunner`, `EdgeRunner`, `DeploymentRunner` and `DeploymentLocker` alike. The order is the architecture: **adapters → services → plugins → contributions**, and nothing flows back.
 - **Pluggy registers; it never carries business calls.** A feature's `plugin.py` contributes routers, CLI groups, scheduled jobs, health checks, desired-state fragments, deployment checks and lifecycle work. Business communication stays an explicit call on a constructor-injected service — `certificate_service.issue(...)`, never `hook.issue_certificate(...)`. There is no global plugin manager and no service lookup in a request path; `platform.<service>` appears in `plugin.py` and nowhere else, and a layering test refuses it anywhere else.
 - **`api/app.py` and `cli/main.py` import no feature.** Both ask the plugin registry. Adding an extension-style feature means writing its `plugin.py` and adding one line to `BUILTIN_PLUGINS`; a separately installed distribution needs neither, only an entry point in the `blitzecdn.plugins` group.
-- **Desired state is contributed, not centralised.** `DesiredStateRenderer` frames the document and knows nothing about what goes in it: `dns` projects the site model, `certificates` overrides the two TLS paths, `http3` sets the fleet QUIC switch. Contributions are typed and merged order-independently — two plugins writing one variable is an error unless exactly one declares it in `overrides`. Never concatenate configuration text through a hook.
+- **Desired state is contributed, not centralised.** `DesiredStateRenderer` frames the document and knows nothing about what goes in it: `sites` projects the site model and fleet QUIC requirement, while `certificates` overrides the two TLS paths. Contributions are typed and merged order-independently — two plugins writing one variable is an error unless exactly one declares it in `overrides`. Never concatenate configuration text through a hook.
+- **A CDN switch is not automatically a feature.** HTTP/3, compression, minimum TLS, redirects, cache policy, site firewall rules, visitor headers, and origin behavior belong under `sites/policy/`. Keep edge runtime/build capability separate, and keep cache operations and certificate workflows in their top-level operational features.
 - **Cross-feature dependencies follow the declared graph.** See `ALLOWED_FEATURE_DEPENDENCIES` below.
 - **Entry layers (`api/`, `cli/`) never touch persistence or an adapter directly.** They call services on `ControlPlane`.
 
