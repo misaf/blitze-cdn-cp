@@ -2,9 +2,39 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.features.dns.site_domain import CdnSite
 from blitzecdn.features.edges.domain import Edge
 from blitzecdn.features.edges.origins import OriginCheck
+
+
+class OriginCheckRunner(Protocol):
+    """Asks each edge in scope to connect to the origins it proxies to.
+
+    ``sites`` is passed rather than read from the desired-state file: this
+    takes no deployment lock, so that file may belong to a deploy in flight,
+    and the check is a question about what is configured *now* rather than
+    about what is being converged.
+
+    Its own port rather than the deployment runner's method, because the
+    automatic-SSL feature needs exactly this to decide whether an origin can be
+    upgraded, and giving it the deployment runner would give it ``run``.
+    """
+
+    def run_origin_check(
+        self, *, sites: list[dict[str, object]], host_limit: str | None = None
+    ) -> AnsibleRun: ...
+
+
+class EdgeRunner(OriginCheckRunner, Protocol):
+    """Everything edge operations run against the fleet.
+
+    ``host_limit`` is required on the teardown and never defaulted: the other
+    runs treat an absent limit as "every edge", which for a decommission would
+    empty the fleet.
+    """
+
+    def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
 
 
 class EdgeStore(Protocol):
@@ -52,4 +82,4 @@ class OriginProbe(Protocol):
     def check(self, site: CdnSite) -> OriginCheck: ...
 
 
-__all__ = ["EdgeStore", "OriginProbe"]
+__all__ = ["EdgeRunner", "EdgeStore", "OriginCheckRunner", "OriginProbe"]

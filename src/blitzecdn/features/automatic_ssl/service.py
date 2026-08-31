@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from blitzecdn.features.automatic_ssl.domain import SslAutomaticReconciliation
-from blitzecdn.features.deployments.ports import DeploymentGateway, DeploymentRunner
+from blitzecdn.features.deployments.ports import DeploymentGateway
 from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
 from blitzecdn.features.dns.site_domain import (
     CdnSite,
@@ -14,7 +14,7 @@ from blitzecdn.features.dns.site_domain import (
     SslMode,
 )
 from blitzecdn.features.edges.origins import OriginCheck, OriginReport
-from blitzecdn.features.edges.ports import OriginProbe
+from blitzecdn.features.edges.ports import OriginCheckRunner, OriginProbe
 from blitzecdn.features.edges.reporting import edge_origins
 
 
@@ -33,7 +33,7 @@ class AutomaticSslService:
         self,
         *,
         sites: SiteStore,
-        runner: DeploymentRunner,
+        runner: OriginCheckRunner,
         origin_probe: OriginProbe,
         dns: ZoneEditor,
         deployments: DeploymentGateway,

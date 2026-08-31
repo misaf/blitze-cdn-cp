@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path, PurePosixPath
 
 from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.features.certificates.ports import CertificateStore
-from blitzecdn.features.deployments.ports import YamlWriter
+from blitzecdn.features.deployments.ports import CertificateSources, YamlWriter
 from blitzecdn.features.deployments.snapshots import decode_snapshot
 from blitzecdn.features.dns.site_domain import MANAGED_TLS_ROOT, CertificateMode
 
@@ -16,7 +15,7 @@ class DesiredStateRenderer:
         self,
         *,
         allow_empty_sites: bool,
-        certificates: CertificateStore,
+        certificates: CertificateSources,
         write_yaml: YamlWriter,
     ) -> None:
         self.allow_empty_sites = allow_empty_sites

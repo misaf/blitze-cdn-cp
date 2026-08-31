@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import Any, Protocol
 
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
@@ -14,9 +13,6 @@ from blitzecdn.features.deployments.domain import (
     DeploymentStatus,
 )
 from blitzecdn.features.dns.ports import ZoneEditor, ZoneStore
-
-if TYPE_CHECKING:
-    from blitzecdn.features.cache.domain import PurgeEntry
 
 
 class DeploymentRequirements(Protocol):
@@ -95,39 +91,38 @@ class QueueBackgroundRunner(Protocol):
     def enqueue(self, deployment_id: str) -> None: ...
 
 
-class DeploymentRunner(Protocol):
-    """Runs Ansible and owns the cross-process deployment lock.
+class DeploymentLocker(Protocol):
+    """Holds the fleet-wide "one deployment at a time" lock.
 
-    Every method answers with an :class:`~blitzecdn.core.runs.AnsibleRun`,
-    which is the whole of what the application layer learns about a run. There
-    is deliberately no way through this port to reach the raw output.
+    Separate from :class:`DeploymentRunner` because certificate issuance needs
+    exactly this and no way to run a playbook: it takes the lock so an ACME
+    challenge cannot land halfway through a convergence, and a port that also
+    offered ``run`` would let it start one.
     """
 
     def lock(self) -> AbstractContextManager[Any]: ...
+
+
+class DeploymentRunner(DeploymentLocker, Protocol):
+    """Converges the fleet, under the lock it inherits.
+
+    Both methods answer with an :class:`~blitzecdn.core.runs.AnsibleRun`, which
+    is the whole of what the application layer learns about a run. There is
+    deliberately no way through this port to reach the raw output.
+
+    Narrow on purpose. One adapter runs every playbook the control plane has,
+    but the purge, stats, origin-check and decommission plays are not
+    deployment concerns and are declared by the features that do own them —
+    ``cache.ports.CacheRunner``, ``edges.ports.EdgeRunner``. Naming them all
+    here made every one of those features depend on this package to reach its
+    own playbook, which is how the feature graph came to have cycles in it.
+    """
 
     #: ``variables`` is supplied rather than assumed so validation never writes
     #: over the desired-state file a concurrent deploy is converging.
     def validate(self, variables: Path) -> AnsibleRun: ...
 
     def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun: ...
-
-    def run_cache_purge(
-        self,
-        *,
-        entries: Sequence[PurgeEntry],
-        purge_all: bool,
-        host_limit: str | None = None,
-    ) -> AnsibleRun: ...
-
-    def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun: ...
-
-    #: ``sites`` is passed rather than read from the desired-state file: this
-    #: takes no deployment lock, so that file may belong to a deploy in flight.
-    def run_origin_check(
-        self, *, sites: list[dict[str, object]], host_limit: str | None = None
-    ) -> AnsibleRun: ...
-
-    def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
 
 
 class LogReader(Protocol):
@@ -164,8 +159,23 @@ class DesiredStateRenderer(Protocol):
     def render(self, snapshot: str, path: Path) -> None: ...
 
 
+class CertificateSources(Protocol):
+    """Where a site's installed certificate and key are on this controller.
+
+    Declared here rather than imported from ``certificates.ports`` for the
+    ordinary reason a port is declared by its consumer: rendering desired state
+    needs two paths, not the install-and-list store the certificate feature
+    owns. It also settles a direction — the certificate feature already depends
+    on this one, and importing its port back made the two mutually dependent.
+    """
+
+    def sources(self, site_name: str) -> tuple[Path, Path]: ...
+
+
 __all__ = [
+    "CertificateSources",
     "DeploymentGateway",
+    "DeploymentLocker",
     "DeploymentRequirements",
     "DeploymentRunner",
     "DeploymentStore",
