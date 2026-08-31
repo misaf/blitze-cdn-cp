@@ -90,6 +90,7 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "diagnostics",
         "dns",
         "edges",
+        "maintenance",
     ],
 )
 def test_required_feature_packages_exist(feature: str):
@@ -122,6 +123,12 @@ def test_feature_domains_are_framework_and_io_independent():
     assert offenders == []
 
 
+#: Application policy that lives beside a service rather than inside it. Held
+#: to the service rule, because moving code out of `service.py` must not be a
+#: way to escape it.
+_APPLICATION_MODULES = {"service.py", "rollback.py", "reporting.py"}
+
+
 def test_feature_services_depend_on_contracts_not_concrete_adapters():
     forbidden = (
         *_IO_IMPORTS,
@@ -136,7 +143,8 @@ def test_feature_services_depend_on_contracts_not_concrete_adapters():
     )
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _FEATURES.glob("*/service.py")
+        for path in _feature_files()
+        if path.name in _APPLICATION_MODULES
         for imported in sorted(_imports(path))
         if _banned(imported, forbidden)
         or any(part in imported for part in (".adapters", ".persistence", ".probe"))
@@ -226,6 +234,66 @@ def test_control_plane_is_the_only_production_composition_root():
     assert any(name.startswith("blitzecdn.features") for name in imports)
     assert any(name.startswith("blitzecdn.core") for name in imports)
     assert not any(name.startswith("blitzecdn.worker") for name in imports)
+
+
+#: The classes that reach the outside world: a subprocess, a socket, a
+#: database file, a private key on disk. Choosing one is composition, not
+#: application logic.
+_CONCRETE_ADAPTERS = {
+    "AnsibleRunner",
+    "CertbotIssuer",
+    "CertificatePreflight",
+    "DramatiqBackgroundRunner",
+    "Repository",
+}
+
+#: `control_plane` is the composition root for the control plane. `acme_hook`
+#: is a second, deliberate one: certbot runs it as a one-shot subprocess with
+#: no control plane in the picture, and it builds the two adapters an HTTP-01
+#: challenge needs and nothing else. Named here so a third does not appear
+#: quietly beside them.
+_COMPOSITION_MODULES = {"control_plane.py", "acme_hook.py"}
+
+
+def test_only_a_composition_root_names_a_concrete_adapter():
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {name}"
+        for path in _SOURCE.rglob("*.py")
+        if path.name not in _COMPOSITION_MODULES
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.ImportFrom)
+        and node.module
+        and node.module.startswith("blitzecdn.")
+        and node.module != f"blitzecdn.{path.parent.name}.{path.stem}"
+        for name in (alias.name for alias in node.names)
+        if name in _CONCRETE_ADAPTERS
+        # A package re-exporting its own adapter is that package's public face,
+        # not a second place that chose it.
+        and not node.module.startswith(
+            "blitzecdn." + ".".join(path.relative_to(_SOURCE).parts[:-1])
+        )
+    ]
+    assert offenders == []
+
+
+def test_core_carries_no_cross_feature_application_service():
+    """`core` is what a feature builds on, not a place to put a workflow.
+
+    `MaintenanceService` lived here and orchestrated three features, which
+    pointed the arrow back from the foundation into the tree it supports and
+    hid a genuine vertical slice where nobody would look for it. It is
+    `features/maintenance` now. Persistence is the deliberate exception:
+    `core.database` bundles the feature stores because there is one SQLite
+    file, and it imports their `persistence` modules to do it.
+    """
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in (_SOURCE / "core").rglob("*.py")
+        for imported in sorted(_imports(path))
+        if imported.startswith("blitzecdn.features.")
+        and imported.endswith((".service", ".adapters"))
+    ]
+    assert offenders == []
 
 
 def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
@@ -339,6 +407,7 @@ ALLOWED_FEATURE_DEPENDENCIES = {
     "deployments": {"dns"},
     "diagnostics": {"cache", "certificates"},
     "dns": set(),
+    "maintenance": {"automatic_ssl", "certificates", "deployments"},
     "edges": {"dns"},
 }
 
@@ -353,9 +422,11 @@ def _feature_graph() -> dict[str, set[str]]:
         for imported in _imports(path):
             if not imported.startswith(prefix):
                 continue
-            parts = imported.removeprefix(prefix).split(".")
-            if parts[0] != owner and len(parts) > 1:
-                graph[owner].add(parts[0])
+            depends_on = imported.removeprefix(prefix).split(".")[0]
+            # Any form counts, `from blitzecdn.features.x import y` included:
+            # importing another feature's package is depending on it.
+            if depends_on != owner:
+                graph[owner].add(depends_on)
     return graph
 
 
