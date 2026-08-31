@@ -293,6 +293,8 @@
       - --entrypoint
       - ssh
       - blitzecdn-cli
+      - -F
+      - "{{ blitzecdn_controlplane_install_dir }}/.state/.ssh/config"
       - -o
       - BatchMode=yes
       - "{{ blitzecdn_controlplane_deploy_user }}@localhost"

@@ -15,6 +15,7 @@ blitzecdn_controlplane_deploy_user: deploy
 blitzecdn_controlplane_cli_wrapper: /usr/local/bin/blitzecdn
 blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
+blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 blitzecdn_controlplane_image: blitzecdn-control-plane:local
 blitzecdn_controlplane_redis_image: redis:8.2-alpine
 

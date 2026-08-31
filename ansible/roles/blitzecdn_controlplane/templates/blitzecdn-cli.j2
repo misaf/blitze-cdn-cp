@@ -26,11 +26,11 @@ if [[ ${1-} == backup && ${2-} == restore ]]; then
     esac
   done < <("${compose[@]}" ps --status running --services)
 
-  if (( ${#running[@]} )); then
+  if [[ -n ${running[0]+x} ]]; then
     "${compose[@]}" stop "${running[@]}"
   fi
   restore_running() {
-    if (( ${#running[@]} )); then
+    if [[ -n ${running[0]+x} ]]; then
       "${compose[@]}" up --detach "${running[@]}"
     fi
   }
