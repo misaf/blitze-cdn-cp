@@ -24,6 +24,7 @@ def _compose() -> dict[str, Any]:
     rendered = environment.from_string(
         (ROLE / "templates/compose.yml.j2").read_text(encoding="utf-8")
     ).render(
+        blitzecdn_controlplane_compose_project="blitzecdn-control-plane",
         blitzecdn_controlplane_image="blitzecdn-control-plane:test",
         blitzecdn_controlplane_install_dir="/opt/blitzecdn",
         blitzecdn_controlplane_config_dir="/etc/blitzecdn",
@@ -32,6 +33,10 @@ def _compose() -> dict[str, Any]:
         blitzecdn_controlplane_redis_image="redis:test",
     )
     return yaml.safe_load(rendered)
+
+
+def test_control_plane_uses_a_project_name_distinct_from_the_edge_stack():
+    assert _compose()["name"] == "blitzecdn-control-plane"
 
 
 def test_api_worker_and_redis_are_dedicated_persistent_services():
@@ -107,12 +112,38 @@ def test_control_plane_mounts_only_the_required_writable_state():
 
 def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
     wrapper = (ROLE / "templates/blitzecdn-cli.j2").read_text(encoding="utf-8")
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    environment.filters["quote"] = str
+    rendered = environment.from_string(wrapper).render(
+        blitzecdn_controlplane_compose_file="/etc/blitzecdn/control-plane.yml"
+    )
+
     assert "docker compose --file" in wrapper
     assert "run --rm" in wrapper
+    assert "${#" not in wrapper
+    assert "readonly compose_file=/etc/blitzecdn/control-plane.yml" in rendered
     assert 'stop "${running[@]}"' in wrapper
     assert 'up --detach "${running[@]}"' in wrapper
     assert "COMPOSE_RESTORE_OFFLINE=1" in wrapper
     assert "docker exec" not in wrapper
+
+
+def test_container_ssh_uses_the_mounted_controller_configuration():
+    config = (ROOT / "ansible/ansible.cfg").read_text(encoding="utf-8")
+    tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+    probe = next(
+        task
+        for task in tasks
+        if task.get("name")
+        == "Verify the container can reach this host as the deployment account"
+    )
+    controller_config = "/opt/blitzecdn/.state/.ssh/config"
+
+    assert f"ssh_args = -F {controller_config} " in config
+    argv = probe["ansible.builtin.command"]["argv"]
+    assert argv[argv.index("-F") + 1] == (
+        "{{ blitzecdn_controlplane_install_dir }}/.state/.ssh/config"
+    )
 
 
 def test_upgrade_recreates_containers_and_uninstall_removes_the_project():
