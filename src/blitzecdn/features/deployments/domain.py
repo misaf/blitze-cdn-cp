@@ -7,8 +7,9 @@ finished — the :class:`~blitzecdn.core.runs.AnsibleRun` it produced. A
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
+from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
@@ -78,6 +79,31 @@ DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
         }
     ),
 }
+
+
+def aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
+    """A result for a deployment that never got a run of its own.
+
+    The runner raised before Ansible reported anything — a misconfiguration
+    it refused to start with, or the process being interrupted. There are no
+    hosts to describe, so this records why in the same shape every other
+    outcome uses rather than leaving ``result`` empty and making every
+    reader handle a second way of saying "it failed".
+    """
+    now = datetime.now(UTC)
+    return AnsibleRun(
+        id=uuid4().hex,
+        playbook="",
+        status=RunStatus.UNSTARTED,
+        return_code=None,
+        started_at=now,
+        finished_at=now,
+        error=(
+            f"deployment interrupted: {type(exc).__name__}"
+            if interrupted
+            else f"deployment runner error: {type(exc).__name__}: {exc}"
+        ),
+    )
 
 
 def is_terminal(status: DeploymentStatus) -> bool:
