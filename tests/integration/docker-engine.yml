@@ -1,0 +1,25 @@
+---
+# The edge host's container engine, and nothing else.
+#
+# tests/http3-edge-integration.sh builds the edge runtime images on the outer
+# host and hands them to this host as a tarball, because the test has to prove
+# the image *this repository* produces rather than whatever the registry
+# currently publishes — which is also why http3-edge.yml sets
+# blitzecdn_edge_stack_image_pull to false.
+#
+# That leaves an ordering problem the main playbook cannot solve on its own:
+# `docker load` needs an engine, and the engine is installed by the same
+# converge that goes on to require the image a few tasks later. So the script
+# runs this play first, loads the tarball into the engine it installed, and the
+# fresh converge that follows finds the images already present.
+#
+# blitzecdn_docker is deliberately the only role here. Running it twice is not
+# a cost: the main converge runs it again and must report no changes, which is
+# one more idempotency assertion rather than a wasted step.
+- name: Install the edge host container engine
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  roles:
+    - role: blitzecdn_docker
