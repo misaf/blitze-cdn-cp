@@ -6,7 +6,7 @@ from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.sites.policy import CertificateMode, SslMode
+from blitzecdn.features.tls.policy import CertificateMode, SslMode
 
 
 class SiteStore(Protocol):

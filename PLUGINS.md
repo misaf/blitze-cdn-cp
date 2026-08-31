@@ -11,21 +11,48 @@ repository or as a package installed beside it.
 configuration, persistence and its transaction boundary, the event and audit
 journals, the workflow coordinator, the queue, Ansible execution, the filesystem
 and process adapters, and the plugin infrastructure itself. Core owns no
-business capability. `tests/test_layering.py` fails a `core` module that imports
+business capability. `tests/architecture/test_layering.py` fails a `core` module that imports
 a feature's `service` or `adapters`.
 
-**Features** (`src/blitzecdn/features/`) are independently meaningful business
-or operational capabilities: `sites`, `dns`, `certificates`, `automatic_ssl`,
+**Features** (`src/blitzecdn/features/`) are product or operational
+**capabilities**: `sites`, `dns`, `http`, `tls`, `compression`, `security`,
 `cache`, `deployments`, `edges`, `backup`, `diagnostics`, `maintenance`. A
 feature owns the layers its actual behavior needs and the `plugin.py` that tells
 the control plane it exists. Small features need not invent service, repository,
 or adapter layers merely to match a directory template.
 
-Individual CDN switches are not features. TLS, HTTP protocols, compression,
-cache policy, request security, visitor headers, and origin behavior are
-cohesive modules under `features/sites/policy/`. Operational cache purge and
-statistics remain in `features/cache`; certificate issuance and storage remain
-in `features/certificates`; runtime/build capability remains an edge concern.
+One top-level package is one capability. A strategy, a protocol version, a mode
+or a single switch is not:
+
+```
+capability
+└── feature internals
+    └── strategy / mode / option
+```
+
+So gzip and Brotli are values of `CompressionMode` inside `compression`;
+HTTP/1.1, HTTP/2 and HTTP/3 live in `http`; Under Attack Mode is a switch on
+`security`; and certificate issuance and the Automatic SSL/TLS scan are
+`tls/certificates` and `tls/automatic_ssl`, two parts of one capability rather
+than two features. `tests/architecture/test_layering.py` refuses a top-level
+`gzip`, `http3`, `certificates` or `under_attack` package by name.
+
+Each capability splits in two:
+
+* **`policy.py` — the contract.** Pure values describing how the capability is
+  configured. It imports `core` and other capabilities' contracts, and nothing
+  else. `sites` composes every contract into the one flat `CdnSite`.
+* **everything else — the implementation.** Services, adapters, routers,
+  commands. These consume `CdnSite`, so they sit *above* the contract layer.
+
+That split is why the layering test declares two graphs. Counting a contract
+edge and an implementation edge as one kind would make `sites` ↔ `tls` a cycle
+and force every setting back into `sites`, which is the shape this replaced.
+The rule that keeps the layers ordered is asserted directly: a contract never
+imports an implementation.
+
+Operational cache purge and statistics remain in `features/cache`, and
+runtime/build capability remains an edge concern.
 
 **`bootstrap.py`** is the composition root, and the only place production wiring
 lives. It builds adapters, injects them into services through constructors,
@@ -109,9 +136,9 @@ knows how a document is framed — site documents under one key, fleet variables
 beside them — and nothing about what goes in one:
 
 * `sites` contributes the base site document, projected from `CdnSite`
-* `certificates` contributes the TLS paths, and **overrides** the two the model
+* `tls` contributes the certificate paths, and **overrides** the two the model
   projected, because only this controller knows the fingerprinted filenames
-* `sites` projects HTTP/3 policy into the fleet-wide QUIC switch and the single
+* `http` projects HTTP/3 policy into the fleet-wide QUIC switch and the single
   Nginx listener owner required by `reuseport`
 
 This projection does not make site policy an edge capability. A site may ask
@@ -140,7 +167,14 @@ and let the edge roles render them.
 3. Add the module path to `BUILTIN_PLUGINS` in `core/plugins/discovery.py`.
 4. Build the service in `bootstrap.py` with explicit constructor injection.
 5. Add the feature to `ALLOWED_FEATURE_DEPENDENCIES` in
-   `tests/test_layering.py`, declaring every other feature it depends on.
+   `tests/architecture/test_layering.py`, declaring every other feature it
+   depends on — and to `ALLOWED_POLICY_DEPENDENCIES` if it has a `policy.py`
+   contract or composes another capability's.
+
+Before step 1, answer the question the structure exists to make obvious:
+**which existing capability owns this?** A new top-level feature is the
+exception. An option, a strategy, an encoding, a protocol version or a mode
+belongs inside the capability that already owns its behavior.
 
 Built-ins are an explicit tuple rather than entry points on purpose: the control
 plane *is* these features, so resolving them through installation metadata would
@@ -221,4 +255,4 @@ claiming a built-in's name collides with it rather than displacing it.
   be resolving collaborators instead of receiving them.
 * `api/app.py` and `cli/main.py` import no feature at all.
 
-Every one of these is a test in `tests/test_layering.py`, not a convention.
+Every one of these is a test in `tests/architecture/test_layering.py`, not a convention.

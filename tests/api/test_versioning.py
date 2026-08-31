@@ -1,17 +1,15 @@
 import json
 import re
-from pathlib import Path
 
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from paths import SOURCE
 
 from blitzecdn import __version__
 from blitzecdn.api import create_app
 from blitzecdn.api.dependencies import get_control_plane
 from blitzecdn.features.cache.api import v1 as v1_cache
 from blitzecdn.features.cache.api import v2 as v2_cache
-from blitzecdn.features.certificates.api import v1 as v1_certificates
-from blitzecdn.features.certificates.api import v2 as v2_certificates
 from blitzecdn.features.deployments.api import v1 as v1_deployments
 from blitzecdn.features.deployments.api import v2 as v2_deployments
 from blitzecdn.features.diagnostics.api import readiness as diagnostics
@@ -22,6 +20,8 @@ from blitzecdn.features.dns.api import v1_sites, v2_sites
 from blitzecdn.features.dns.api import v2 as v2_zones
 from blitzecdn.features.edges.api import v1 as v1_edges
 from blitzecdn.features.edges.api import v2 as v2_edges
+from blitzecdn.features.tls.certificates.api import v1 as v1_certificates
+from blitzecdn.features.tls.certificates.api import v2 as v2_certificates
 
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
@@ -57,14 +57,14 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
     assert modules == {
         "blitzecdn.features.diagnostics.api.readiness",
         "blitzecdn.features.cache.api.v1",
-        "blitzecdn.features.certificates.api.v1",
+        "blitzecdn.features.tls.certificates.api.v1",
         "blitzecdn.features.deployments.api.v1",
         "blitzecdn.features.diagnostics.api.v1",
         "blitzecdn.features.edges.api.v1",
         "blitzecdn.features.dns.api.v1_sites",
         "blitzecdn.features.dns.api.v1",
         "blitzecdn.features.cache.api.v2",
-        "blitzecdn.features.certificates.api.v2",
+        "blitzecdn.features.tls.certificates.api.v2",
         "blitzecdn.features.deployments.api.v2",
         "blitzecdn.features.diagnostics.api.v2",
         "blitzecdn.features.edges.api.v2",
@@ -448,7 +448,7 @@ def test_frozen_v1_operational_shapes_are_unchanged(settings):
 
 def test_neither_version_imports_the_other():
     """A shared module is fine. A shared module is not v1 importing v2."""
-    root = Path(__file__).resolve().parents[2] / "src" / "blitzecdn"
+    root = SOURCE
     offenders = []
     for path in sorted(root.rglob("*.py")):
         text = path.read_text(encoding="utf-8")

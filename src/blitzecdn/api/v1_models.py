@@ -14,8 +14,8 @@ from blitzecdn.features.dns.domain import RecordType as DomainRecordType
 from blitzecdn.features.edges.domain import Edge as DomainEdge
 from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
 from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
-from blitzecdn.features.sites.policy import (
-    CacheQueryStringMode,
+from blitzecdn.features.sites.policy import CacheQueryStringMode
+from blitzecdn.features.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,

@@ -20,7 +20,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.features.sites.policy import HttpScheme, SslMode
+from blitzecdn.features.http.policy import HttpScheme
+from blitzecdn.features.tls.policy import SslMode
 
 
 class OriginCheck(BaseModel):

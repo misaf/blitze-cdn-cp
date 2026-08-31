@@ -14,26 +14,26 @@ from typing import Any
 
 import pytest
 import yaml
+from paths import FIXTURES, REPO_ROOT
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
 from blitzecdn.features.dns.domain import DnsRecord, Domain
-from blitzecdn.features.sites.domain import (
-    CacheQueryStringMode,
-    CdnSite,
+from blitzecdn.features.security.policy import SiteFirewall
+from blitzecdn.features.sites.domain import CdnSite, SitePolicy
+from blitzecdn.features.sites.policy import CacheQueryStringMode
+from blitzecdn.features.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
-    SiteFirewall,
-    SitePolicy,
     SslAutomaticMode,
     SslMode,
 )
 
 jinja2 = pytest.importorskip("jinja2")
 
-PROJECT_DIR = Path(__file__).resolve().parent.parent
-FIXTURE = Path(__file__).resolve().parent / "fixtures/desired-state.yml"
+PROJECT_DIR = REPO_ROOT
+FIXTURE = FIXTURES / "desired-state.yml"
 
 
 #: The roles ship with this control plane, so there is no install step to get

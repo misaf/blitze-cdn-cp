@@ -36,15 +36,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import RunStatus, TaskOutcome
 from blitzecdn.features.cache.domain import PurgeEntry as DomainPurgeEntry
-from blitzecdn.features.certificates.domain import (
+from blitzecdn.features.deployments.domain import DeploymentStatus
+from blitzecdn.features.http.policy import HttpScheme
+from blitzecdn.features.tls.certificates.domain import (
     CertificateRequest as DomainCertificateRequest,
 )
-from blitzecdn.features.certificates.domain import (
+from blitzecdn.features.tls.certificates.domain import (
     CertificateSource,
     PreflightSeverity,
 )
-from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.sites.policy import HttpScheme, SslMode
+from blitzecdn.features.tls.policy import SslMode
 
 
 class OperationModel(BaseModel):
