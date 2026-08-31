@@ -478,14 +478,19 @@ def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modul
     assert "nginx-module-brotli-${NGINX_VERSION}*.apk" in dockerfile
     assert "--with-http_v3_module" in dockerfile
     assert "module-probe.conf" in dockerfile
+    assert "COPY modules.conf /etc/nginx/modules.conf" in dockerfile
+    assert "include /etc/nginx/modules.conf;" in dockerfile
+    assert "include /etc/nginx/sites-enabled/" in dockerfile
 
     probe = (PROJECT_DIR / "docker/edge/module-probe.conf").read_text(encoding="utf-8")
+    modules = (PROJECT_DIR / "docker/edge/modules.conf").read_text(encoding="utf-8")
+    assert "include /etc/nginx/modules.conf;" in probe
     for module in (
         "ngx_http_geoip2_module.so",
         "ngx_http_brotli_filter_module.so",
         "ngx_http_js_module.so",
     ):
-        assert module in probe, module
+        assert module in modules, module
     # A module that loads but registers no directive is indistinguishable from
     # a working one until an edge configuration uses it.
     assert "brotli off;" in probe

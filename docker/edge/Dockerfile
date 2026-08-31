@@ -71,12 +71,17 @@ RUN --mount=type=bind,target=/tmp/packages,source=/tmp/packages,from=module-buil
 # Keep the official persistent log destinations and add Docker's stdout/stderr
 # streams at the same configuration level. Managed sites declare their own
 # access logs below this level and therefore add stdout in site.conf.j2 too.
+COPY modules.conf /etc/nginx/modules.conf
 RUN set -eux; \
     rm -f /etc/nginx/conf.d/default.conf; \
+    sed -i '1i\include /etc/nginx/modules.conf;' /etc/nginx/nginx.conf; \
     sed -i '/^error_log .*notice;$/a\error_log  /dev/stderr notice;' /etc/nginx/nginx.conf; \
     sed -i '/^    access_log .*main;$/a\    access_log  /dev/stdout  main;' /etc/nginx/nginx.conf; \
+    sed -i '/include \/etc\/nginx\/conf.d\/\*.conf;/a\    include /etc/nginx/sites-enabled/*;' /etc/nginx/nginx.conf; \
+    grep -q '^include /etc/nginx/modules.conf;$' /etc/nginx/nginx.conf; \
     grep -q '^error_log  /dev/stderr notice;$' /etc/nginx/nginx.conf; \
-    grep -q '^    access_log  /dev/stdout  main;$' /etc/nginx/nginx.conf
+    grep -q '^    access_log  /dev/stdout  main;$' /etc/nginx/nginx.conf; \
+    grep -q '^    include /etc/nginx/sites-enabled/\*;$' /etc/nginx/nginx.conf
 
 # Prove HTTP/3 and every dynamic module directive before publishing the image.
 COPY module-probe.conf /usr/share/blitzecdn/module-probe.conf
