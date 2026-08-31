@@ -77,7 +77,7 @@ types:
 
 # Lint the shell scripts that run as root.
 shell-lint:
-    uv run shellcheck install.sh docker/edge/healthcheck.sh \
+    uv run shellcheck install.sh \
         tests/container-install.sh tests/http3-edge-integration.sh
 
 # Build the edge runtime image locally, the way CI and the integration test do.

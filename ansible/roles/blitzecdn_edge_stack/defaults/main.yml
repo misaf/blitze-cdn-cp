@@ -81,6 +81,14 @@ blitzecdn_edge_stack_geoip_path: "{{ blitzecdn_nginx_geoip_database | dirname }}
 # Read from the blitzecdn_nginx values rather than restated: a status endpoint
 # moved on one side and not the other would leave the container health check
 # probing a closed port and reporting an edge unhealthy that is serving fine.
+#
+# blitzecdn_edge_stack_status_enabled follows blitzecdn_nginx_status_enabled,
+# and turning the endpoint off withdraws the Compose healthcheck with it. There
+# is then no unauthenticated local endpoint to probe, and the alternative —
+# asking a customer's virtual host — would put a probe every thirty seconds
+# into that site's access log and its cache. The container simply carries no
+# health state in that configuration; health.yml still asks every other
+# question, and `wait` still waits for the stack to come up.
 blitzecdn_edge_stack_status_enabled: "{{ blitzecdn_nginx_status_enabled }}"
 blitzecdn_edge_stack_status_address: "{{ blitzecdn_nginx_status_address }}"
 blitzecdn_edge_stack_status_port: "{{ blitzecdn_nginx_status_port }}"
@@ -92,10 +100,13 @@ blitzecdn_edge_stack_http3_enabled: "{{ blitzecdn_nginx_http3_enabled }}"
 # reads thirteen listeners and every managed site before it accepts the first
 # connection, and a cold edge on a busy fleet is doing that while pulling.
 blitzecdn_edge_stack_health_timeout: 90
-# Docker's own health state, which the image's HEALTHCHECK computes. Waited on
-# separately from the listener probes below because it answers a different
-# question — "does Nginx think its own configuration is loadable" — and because
-# a container Docker itself calls unhealthy will be restarted underneath us.
+# Docker's own health state, which the Compose healthcheck computes by reading
+# the loopback status endpoint. Waited on separately from the listener probes
+# below because it answers a different question — "is this Nginx serving
+# requests right now" — and because it is the only one of these that keeps
+# being asked after the converge has finished. Nothing acts on the answer on
+# its own: Docker does not restart a running container for being unhealthy, so
+# this is what turns an unhealthy edge into a failed deploy.
 blitzecdn_edge_stack_require_container_health: true
 # Graceful stop. SIGQUIT lets Nginx finish in-flight requests; anything shorter
 # turns every container replacement into a burst of visitor errors.

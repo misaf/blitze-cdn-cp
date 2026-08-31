@@ -57,11 +57,14 @@ LABEL org.opencontainers.image.title="BlitzeCDN edge" \
       org.opencontainers.image.revision="${BLITZECDN_EDGE_REVISION}"
 
 # Install the two packages produced against this exact official base. njs ships
-# in the official image; tzdata supports the configured edge timezone.
+# in the official image; tzdata supports the configured edge timezone; curl is
+# what the Compose healthcheck runs, so it is a runtime dependency of the image
+# rather than a convenience — dropping it turns every edge unhealthy.
 RUN --mount=type=bind,target=/tmp/packages,source=/tmp/packages,from=module-builder \
     apk add --no-cache --allow-untrusted \
         /tmp/packages/nginx-module-geoip2-${NGINX_VERSION}*.apk \
         /tmp/packages/nginx-module-brotli-${NGINX_VERSION}*.apk \
+        curl \
         tzdata
 
 # BlitzeCDN owns the default server, not the example bundled with the image.
@@ -82,14 +85,15 @@ RUN set -eux; \
     nginx -V 2>&1 | grep -q -- '--with-http_v3_module'; \
     nginx -t -c /usr/share/blitzecdn/module-probe.conf
 
-COPY healthcheck.sh /usr/local/bin/blitzecdn-healthcheck
-RUN chmod 0755 /usr/local/bin/blitzecdn-healthcheck
-
 # Persistent configuration, TLS, cache, logs and GeoIP data are explicit host
 # bind mounts in Compose; the image intentionally declares no volumes.
-HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD ["/usr/local/bin/blitzecdn-healthcheck"]
-
+#
+# No HEALTHCHECK here, deliberately. What "healthy" means for an edge is a
+# property of the deployment, not of the image: the status endpoint's address,
+# port and path are rendered by blitzecdn_nginx, so the probe that reads them
+# belongs in the Compose file rendered from the same variables. The image would
+# otherwise carry a baked-in URL that silently stops matching the moment an
+# operator moves the endpoint.
 STOPSIGNAL SIGQUIT
 
 CMD ["nginx", "-g", "daemon off;"]

@@ -112,7 +112,9 @@ def test_control_plane_mounts_only_the_required_writable_state():
 
 def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
     wrapper = (ROLE / "templates/blitzecdn-cli.j2").read_text(encoding="utf-8")
-    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    environment = jinja2.Environment(  # noqa: S701 - renders a shell script, not HTML
+        undefined=jinja2.StrictUndefined
+    )
     environment.filters["quote"] = str
     rendered = environment.from_string(wrapper).render(
         blitzecdn_controlplane_compose_file="/etc/blitzecdn/control-plane.yml"
