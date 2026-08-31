@@ -1100,6 +1100,31 @@ def test_the_edge_lifecycle_order_holds():
     assert play.index("role: blitzecdn_edge_stack") < play.index("role: blitzecdn_sshd")
 
 
+def test_the_fleet_rollout_starts_with_one_edge():
+    """A canary batch, and `any_errors_fatal` to make it mean something.
+
+    Both halves are load-bearing. Widening batches without the fatal flag would
+    roll a broken image over the whole fleet one batch at a time; the fatal flag
+    without a first batch of one would take a quarter of the fleet down before
+    anything stopped. `max_fail_percentage` is deliberately absent — it states
+    the same policy in a second dialect and invites a later reader to change one
+    believing they changed the rule.
+    """
+    play = yaml.safe_load(
+        (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+    )[0]
+
+    assert play["any_errors_fatal"] is True
+    assert "max_fail_percentage" not in play
+    assert play["serial"][0] == 1, (
+        "the edge rollout no longer starts with a single canary edge"
+    )
+    assert play["serial"][-1] == "100%"
+    # Monotonic, so a batch is never smaller than the one that preceded it.
+    widths = [1] + [int(str(step).rstrip("%")) for step in play["serial"][1:]]
+    assert widths == sorted(widths), play["serial"]
+
+
 def test_the_image_is_settable_as_ordinary_fleet_policy():
     """The README tells operators to roll out an image with `config set`.
 
