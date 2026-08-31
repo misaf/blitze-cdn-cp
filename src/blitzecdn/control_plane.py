@@ -35,7 +35,6 @@ from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
 from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
-from blitzecdn.core.maintenance import MaintenanceService
 from blitzecdn.core.operation_ports import AuditTrail
 from blitzecdn.core.workflows import WorkflowCoordinator
 from blitzecdn.features.automatic_ssl import AutomaticSslService
@@ -81,6 +80,7 @@ from blitzecdn.features.edges.ports import EdgeRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
+from blitzecdn.features.maintenance import MaintenanceService
 
 
 class FleetRunner(DeploymentRunner, CacheRunner, EdgeRunner, Protocol):

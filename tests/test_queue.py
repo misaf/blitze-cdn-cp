@@ -18,7 +18,7 @@ from dramatiq.brokers.stub import StubBroker
 from blitzecdn import worker
 from blitzecdn.core import broker as queue
 from blitzecdn.core.exceptions import DeploymentBusyError
-from blitzecdn.core.maintenance import MaintenanceService
+from blitzecdn.features.maintenance import MaintenanceService
 from blitzecdn.worker import (
     check_drift,
     reconcile_automatic_ssl,
