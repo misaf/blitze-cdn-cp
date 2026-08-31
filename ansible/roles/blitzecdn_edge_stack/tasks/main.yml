@@ -1,6 +1,8 @@
 ---
+# One block with one rescue: every task that changes the runtime is inside it,
+# so a failure anywhere lands on rollback.yml rather than leaving a half-
+# converged edge.
 - name: Converge the edge runtime stack
-  when: blitzecdn_edge_stack_enabled
   block:
     # The edge playbook runs prepare.yml as a pre-task, before the firewall
     # opens the public ports and before blitzecdn_nginx renders a line of
@@ -46,7 +48,7 @@
         build: never
         recreate: "{{ 'always' if blitzecdn_edge_stack_recreate | bool else 'auto' }}"
         remove_orphans: true
-        wait: "{{ blitzecdn_edge_stack_require_container_health | bool }}"
+        wait: true
         wait_timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
       register: blitzecdn_edge_stack_up
       when: not ansible_check_mode

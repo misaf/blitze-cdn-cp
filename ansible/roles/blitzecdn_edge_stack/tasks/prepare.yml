@@ -8,7 +8,6 @@
 # the configuration is written and has passed `nginx -t`. So: this file first,
 # the Nginx role next, main.yml last.
 - name: Prepare the edge runtime
-  when: blitzecdn_edge_stack_enabled
   block:
     - name: Validate the fresh edge host
       ansible.builtin.import_tasks: validate-host.yml

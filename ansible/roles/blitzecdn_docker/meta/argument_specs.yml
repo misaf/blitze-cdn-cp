@@ -14,7 +14,6 @@ argument_specs:
         Compose plugin is published only there, and the edge stack is a Compose
         project.
     options:
-      blitzecdn_docker_enabled: {type: bool, required: true}
       blitzecdn_docker_repository_url: {type: str, required: true}
       blitzecdn_docker_gpg_url: {type: str, required: true}
       blitzecdn_docker_keyring: {type: path, required: true}

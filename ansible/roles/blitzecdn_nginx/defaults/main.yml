@@ -207,12 +207,9 @@ blitzecdn_nginx_access_log_enabled: true
 blitzecdn_nginx_access_log_path: /var/log/nginx/blitzecdn-access.log
 blitzecdn_nginx_log_format_name: blitzecdn
 
-# ngx_http_stub_status_module, which Debian's and Ubuntu's nginx packages
-# build in. Bound to loopback because it is unauthenticated and describes the
-# edge's load; scrape it from an agent on the host, or over an SSH tunnel.
-# `blitzecdn_nginx_status_allow` is the second, redundant control — do not
-# widen the bind address without narrowing that, or the reverse.
-blitzecdn_nginx_status_enabled: true
+# Always served: the container healthcheck and health.yml both read it.
+# Unauthenticated, so the loopback bind and `blitzecdn_nginx_status_allow` are
+# two independent controls — never widen one without narrowing the other.
 blitzecdn_nginx_status_address: 127.0.0.1
 blitzecdn_nginx_status_port: 8090
 blitzecdn_nginx_status_path: /stub_status

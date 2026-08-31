@@ -27,7 +27,6 @@
     blitzecdn_nginx_under_attack_secret: >-
       {{ lookup('file', '/run/blitzecdn-under-attack-secret') }}
     blitzecdn_nginx_resolvers: []
-    blitzecdn_nginx_status_enabled: false
     blitzecdn_nginx_sites:
       - name: site-one-test
         server_names: [site-one.test]

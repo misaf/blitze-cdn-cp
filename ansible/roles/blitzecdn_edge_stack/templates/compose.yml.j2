@@ -69,27 +69,9 @@ services:
       options:
         max-size: "32m"
         max-file: "3"
-{% if blitzecdn_edge_stack_status_enabled | bool %}
-    # One question, and only one: can this Nginx serve a request right now?
-    #
-    # The loopback status endpoint is the cheapest request that proves it —
-    # unauthenticated, never logged, and never a customer's virtual host, so a
-    # probe every thirty seconds cannot pollute an access log or the cache. It
-    # is bound to {{ blitzecdn_edge_stack_status_address }} and the container
-    # shares the host's network namespace, so this reaches it without the port
-    # being reachable from anywhere else.
-    #
-    # Anything deeper — `nginx -t`, every public listener, the UDP/443 QUIC
-    # listener, the GeoIP database the running configuration reads — is asked
-    # once per deploy by the role's health.yml, where a failure can fail the
-    # converge and hand the rescue path a rollback. Repeating it here would buy
-    # nothing and would fork the configuration every thirty seconds.
-    #
-    # A failing probe marks the container unhealthy; it does not restart it.
-    # `restart: unless-stopped` reacts to the main process exiting, and Docker
-    # has no restart-on-unhealthy behaviour of its own. What this state is for
-    # is `docker_compose_v2` with `wait`, which refuses to call a deploy
-    # finished until the edge answers here.
+    # Probe the loopback-only Nginx status endpoint: can this Nginx serve a
+    # request right now? Deep deployment checks remain in health.yml. A failing
+    # probe marks the container unhealthy; it does not restart it.
     healthcheck:
       test:
         - CMD
@@ -106,7 +88,6 @@ services:
       timeout: 5s
       start_period: 20s
       retries: 3
-{% endif %}
 
 {% if blitzecdn_edge_stack_geoip_enabled | bool %}
   geoipupdate:

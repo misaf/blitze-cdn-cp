@@ -4,7 +4,10 @@
 # edge runtime never has to touch the role that owns the host's container
 # engine, and a host whose engine is broken fails here rather than three roles
 # later with a confusing error about a container.
-blitzecdn_docker_enabled: true
+#
+# Not optional, and no switch offers to skip it: every BlitzeCDN process on
+# both an edge and the control plane is a container, so a host without a
+# working engine has nothing to run.
 
 # Docker's own apt repository rather than the distribution's docker.io. The
 # Compose *plugin* (`docker compose`, not the retired `docker-compose` script)
