@@ -7,15 +7,26 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Tasks run through `just` (recipes are in `justfile`) and every recipe wraps `uv run`, so no shell needs the virtualenv activated.
 
 ```bash
-just install       # uv sync --frozen + install the Ansible collections into .state/
+just install       # uv sync --frozen --all-packages + the Ansible collections into .state/
 just check         # every CI gate, in CI order — run before pushing
 just test-fast     # the whole suite across every core, coverage off — the inner loop
-just test-one tests/test_domain.py -k some_case        # a single case
+just test-one tests/features/sites/test_domain.py -k some_case   # a single case
+just test-package blitzecdn-cache   # one optional distribution's own tests
+just test-core-only                 # the suite with no optional package installed
+just build                          # every wheel and sdist in the workspace
 ```
 
 `just check` is the contract with CI: `.github/workflows/ci.yml` calls these same recipes rather than repeating commands, so a gate added to the justfile is a gate CI picks up with no second edit. Don't add a CI step that bypasses it.
 
 Things that are not guessable:
+
+- **This is a uv workspace, not one distribution.** The root project is
+  `blitzecdn`; every directory under `packages/` is an optional capability that
+  builds and installs as its own wheel. `uv sync` installs the control plane
+  *alone*, which is why `just install` passes `--all-packages` — a plain sync
+  leaves `packages/*/tests` unable to import and looks like a broken checkout.
+  `just test-core-only` uses the plain sync deliberately, and syncs the packages
+  back on the way out.
 
 - **`--no-cov` when running a subset.** `pyproject.toml` sets `--cov-fail-under=85` globally, so any run narrower than the full suite fails on coverage rather than on the test. `just test-one` already passes it.
 - **The suite runs in parallel.** `just test` — the gate, and what `just check` calls — is `pytest -n auto --dist=worksteal`, and pytest-cov combines the workers' data, so the floor is measured against the same total a sequential run produces. Workers are separate processes and every fixture is per-test, so a test that needs a port binds `:0`, a test that needs a path takes `tmp_path`, and a test that shells out to Ansible gives the child its own `ANSIBLE_LOCAL_TEMP`. A new test that reaches for a fixed port, a fixed path outside `tmp_path`, or a shared temp directory breaks under `-n` and not sequentially.
@@ -23,6 +34,12 @@ Things that are not guessable:
 - **`BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov`** regenerates the control-plane/edge contract fixture. Do this only after an *intended* change to `CdnSite` or the Nginx role.
 - **Contract tests skip silently when the Ansible collections aren't installed.** Check the outcome, not the exit code: a `tests/test_contract.py` run that reports skips rather than passes means the collections are missing, and it exits `0` either way. Run `just install` (or `./install.sh`) first.
 - **Ansible needs two env vars** — `ANSIBLE_CONFIG=ansible/ansible.cfg` and `ANSIBLE_LOCAL_TEMP=.state/ansible-local`. The justfile exports both; a manual `ansible-playbook` invocation must too. `-i` is deliberately omitted: `ansible.cfg` points at the `blitzecdn` dynamic inventory plugin, which reads the fleet from the control-plane database.
+- **Optional capabilities are attached with extras, not dependencies.**
+  `pip install blitzecdn` installs neither `blitzecdn-backup` nor
+  `blitzecdn-cache`; `install.sh` and the container image pass
+  `--extra backup --extra cache`, and `BLITZECDN_CAPABILITIES` overrides that
+  list. Keep `backup` on any controller that will be updated in place —
+  `install.sh update` takes a database backup before it changes anything.
 - **`just docs-check`** validates this control plane against the published reference in the sibling `../blitze-cdn-web` checkout. It skips when that directory is absent; CI checks it out, so it never skips there. A new route, CLI command, setting, env var, or model needs a counterpart on the docs side.
 - **`just lock-check`** fails when `pyproject.toml` and the committed `uv.lock` have drifted. Editing dependencies means running `just lock`.
 
@@ -33,28 +50,57 @@ Work happens on `3.x`, not `master`.
 A **plugin-first, capability-oriented modular monolith** with **ports and adapters** inside each feature, **`pluggy` for registration**, and an **explicit composition root**, **enforced by tests, not by convention** — `tests/architecture/test_layering.py` walks the real source tree and will fail your change if you cross a boundary. Read it, and [PLUGINS.md](PLUGINS.md), before restructuring anything.
 
 ```
-src/blitzecdn/
-├── features/          # one package per real product or operational
-│   │                  # CAPABILITY, with only the layers it actually needs
-│   ├── compression/   #   policy.py — gzip and Brotli are strategies, not features
-│   ├── http/          #   policy.py + plugin.py — HTTP/1, /2, /3 and the listeners
-│   ├── security/      #   policy.py + plugin.py — firewall and Under Attack Mode
-│   ├── tls/           #   policy.py + certificates/ + automatic_ssl/
-│   ├── sites/         #   domain.py composes every contract; policy/ holds its own
-│   ├── cache/  dns/  edges/  deployments/
-│   └── backup/  diagnostics/  maintenance/
-├── core/              # shared runtime and infrastructure implementations:
-│   │                  # SQLite, Ansible, Certbot, filesystem, process, config
-│   └── plugins/       # hookspecs, discovery, manager, registry
-├── api/               # FastAPI entry point
-├── cli/               # Typer entry point
-├── bootstrap.py       # the sole production composition root
-├── scheduler.py       # APScheduler entry point
-└── worker.py          # Dramatiq entry point
+blitze-cdn-cp/
+├── pyproject.toml          # the `blitzecdn` distribution + [tool.uv.workspace]
+├── src/blitzecdn/
+│   ├── features/           # one package per REQUIRED product or operational
+│   │   │                   # capability, with only the layers it actually needs
+│   │   ├── compression/    #   policy.py — gzip and Brotli are strategies
+│   │   ├── http/           #   policy.py + plugin.py — HTTP/1, /2, /3, listeners
+│   │   ├── security/       #   policy.py + plugin.py — firewall, Under Attack Mode
+│   │   ├── tls/            #   policy.py + certificates/ + automatic_ssl/
+│   │   ├── sites/          #   domain.py composes every contract; policy/ its own
+│   │   └── dns/  edges/  deployments/  diagnostics/  maintenance/
+│   ├── core/               # shared runtime and infrastructure implementations:
+│   │   │                   # SQLite, Ansible, Certbot, filesystem, process, config
+│   │   └── plugins/        # hookspecs, discovery, manager, registry
+│   ├── api/                # FastAPI entry point
+│   ├── cli/                # Typer entry point
+│   ├── bootstrap.py        # the sole production composition root
+│   ├── scheduler.py        # APScheduler entry point
+│   └── worker.py           # Dramatiq entry point
+├── packages/               # OPTIONAL capabilities: real, separate wheels
+│   ├── blitzecdn-backup/   #   archive and restore the control plane's state
+│   └── blitzecdn-cache/    #   purge, and cache-effectiveness reporting
+└── tests/                  # core behavior, plugin contracts, architecture,
+                            # cross-package contracts, integration
 ```
 
 The rules that shape it:
 
+- **A capability is required, optional, or not a capability.** A *required*
+  capability is a package under `features/` listed in `BUILTIN_PLUGINS`; its
+  failure is fatal. An *optional* capability is a distribution under `packages/`
+  found only through its `blitzecdn.plugins` entry point; installing it makes
+  the capability appear and removing it makes it disappear, with no line of core
+  edited either way. A strategy, a mode or a switch is neither. **The core
+  distribution must never import an optional package and must never ask whether
+  one is installed** — `tests/architecture/test_packages.py` refuses both, and
+  `tests/architecture/test_lifecycle.py` builds the real wheels and proves the
+  cycle. Before extracting anything, read the "Why the site-policy capabilities
+  are built in" section of [PLUGINS.md](PLUGINS.md): `CdnSite` composes
+  `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy` and `TlsPolicy` by
+  inheritance into one flat frozen model that the v1/v2 schemas, the persisted
+  policy JSON, the deployment snapshots and every edge role consume, so none of
+  those four can leave.
+- **An optional package composes itself.** `bootstrap.py` builds the *required*
+  services and knows nothing about what is installed beside it. A package builds
+  its service in its own `composition.py` from what the control plane publishes:
+  `platform.settings`, `platform.events`, `platform.sites` (the read side of the
+  site model, typed as a port) and `platform.fleet` (a `PlaybookRunner`: run
+  this named play with these variables against these hosts, and nothing
+  feature-shaped). Core's `AnsibleRunner` therefore has no `run_cache_purge`
+  any more — building a purge document is the cache package's business.
 - **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `gzip`, `http3`, `certificates` or `under_attack` package by name. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
 - **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
@@ -76,8 +122,12 @@ Adapter document shapes do not belong on domain models. Keep Ansible and
 inventory mappings in `core/ansible/mapping.py`. Keep the frozen HTTP v1
 *resource* representations — sites, records, edges — in `api/v1_models.py` and
 evolve v2 independently in `api/v2_models.py`; the *operational* ones (runs,
-deployments, drift, purge, workflows) are identical in both versions and live
-once in `api/operations.py`, with `api/requests.py` for the bodies. A version
+deployments, drift, workflows) are identical in both versions and live
+once in `api/operations.py`, with `api/requests.py` for the bodies. An optional
+capability's operational shapes are its own — `PurgeResult` and
+`CacheStatsReport` are in `blitzecdn_cache/api/models.py`, built on core's
+`OperationModel` and `as_operation`, because core cannot carry a shape for a
+capability that may not be installed. A version
 that has to diverge from a shared shape defines its own class with the version
 in the name (`CdnSiteV2`) rather than editing the shared one — pydantic
 disambiguates a name collision by qualifying *both* sides with their module
@@ -98,7 +148,8 @@ Rules that the layering tests exist to defend, each guarding a failure that is i
 - **Never reason from Ansible's textual output.** Raw output is retained per run for operators only; the control plane decides from structured Runner events (`core.runs.AnsibleRun`) and nothing else. Reading `.stdout`/`.stderr` or matching on `PLAY RECAP` in a feature's domain or service modules fails the suite. `core/filesystem.py` owns the one reader; a service may reach it through the `LogReader` port to quote a log into a message.
 - **Feature-to-feature dependencies are declared, not discovered.** `ALLOWED_FEATURE_DEPENDENCIES` in `tests/architecture/test_layering.py` is the graph, enforced in both directions and required to stay acyclic. A new edge is a decision you write down. The usual way one appears by accident is a port: a feature declaring a run that another feature performs forces that feature to import this one, which is how four cycles got in. Each feature declares the slice it calls (`CacheRunner`, `EdgeRunner`, `DeploymentRunner`, `DeploymentLocker`), and `control_plane.FleetRunner` is the only place that knows one `AnsibleRunner` satisfies them all.
 - **No outbox pattern and no `ThreadBackgroundRunner`.** Both were removed; a test refuses their return by name. There is one queue (Dramatiq over Redis), and two actors: one deployment, one scheduled job. A job's *name* travels in the message and the worker resolves it against the plugin registry, so a plugin can contribute recurring work without an actor being declared for it.
-- **Every feature has a `plugin.py`, and every `plugin.py` is in `BUILTIN_PLUGINS`.** Both directions are tested: a feature the plugin manager never hears of contributes no routes and no commands, and the failure is silent absence rather than an error.
+- **Every feature has a `plugin.py`, and every `plugin.py` is in `BUILTIN_PLUGINS`.** Both directions are tested: a feature the plugin manager never hears of contributes no routes and no commands, and the failure is silent absence rather than an error. An optional package is the mirror image: it must **not** be in `BUILTIN_PLUGINS`, it declares `required=False`, and its entry point is the whole of how it is found. Registering one both ways collides on its own name at startup.
+- **A configuration may depend on an optional capability, and then its absence is fatal.** `required_capabilities` — a `Settings` field, so `BLITZE_REQUIRED_CAPABILITIES` or a `blitzecdn.toml` key, **not** `blitzecdn config set`, which manages fleet Ansible policy — lists capability *tokens*; `ControlPlane` refuses to start while one is unprovided, naming it and listing what is installed. The tokens come from configuration and the answer from `PluginMetadata.provides` — there is no `if feature == "cache":` anywhere, and a capability this repository has never heard of is checked identically. Absence *without* such a declaration is silent and correct: detaching is a supported operation.
 
 ## Configuration
 
