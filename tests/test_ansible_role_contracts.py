@@ -70,6 +70,18 @@ def test_docker_daemon_configuration_uses_only_supported_directives():
 # nothing creates, a runtime removal that takes a customer's keys with it.
 # ----------------------------------------------------------------------
 
+
+def test_geoip_task_result_does_not_overwrite_the_role_input():
+    """The role is imported twice, so registered results must preserve inputs."""
+    defaults = _defaults_of(STACK_ROLE_DIR)
+    tasks = (STACK_ROLE_DIR / "tasks/geoip-database.yml").read_text(encoding="utf-8")
+
+    assert isinstance(defaults["blitzecdn_edge_stack_geoip_units"], list)
+    assert "register: blitzecdn_edge_stack_geoip_units\n" not in tasks
+    assert "register: blitzecdn_edge_stack_geoip_units_rendered\n" in tasks
+    assert "blitzecdn_edge_stack_geoip_units_rendered is changed" in tasks
+
+
 COMPOSE_TEMPLATE = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(
     encoding="utf-8"
 )
