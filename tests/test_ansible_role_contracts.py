@@ -32,6 +32,35 @@ def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
     assert "search(':443" in health
 
 
+def test_docker_daemon_configuration_uses_only_supported_directives():
+    """A JSON pseudo-comment is a real key that makes dockerd refuse to start."""
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
+    environment.filters["bool"] = bool
+    rendered = environment.from_string(
+        (DOCKER_ROLE_DIR / "templates/daemon.json.j2").read_text(encoding="utf-8")
+    ).render(
+        blitzecdn_docker_log_driver="json-file",
+        blitzecdn_docker_log_max_size="32m",
+        blitzecdn_docker_log_max_file=3,
+        blitzecdn_docker_live_restore=True,
+    )
+    configuration = yaml.safe_load(rendered)
+
+    assert set(configuration) == {"log-driver", "log-opts", "live-restore"}
+
+    tasks = yaml.safe_load(
+        (DOCKER_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    )
+    configure = next(
+        task
+        for task in tasks[0]["block"]
+        if task["name"] == "Configure the Docker daemon"
+    )
+    assert configure["ansible.builtin.template"]["validate"] == (
+        "/usr/bin/dockerd --validate --config-file %s"
+    )
+
+
 # ----------------------------------------------------------------------
 # The containerised runtime
 #
