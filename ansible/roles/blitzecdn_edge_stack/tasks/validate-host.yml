@@ -11,7 +11,7 @@
     that:
       - not blitzecdn_edge_stack_host_nginx.stat.exists
     fail_msg: >-
-      BlitzeCDN 2.x requires a fresh Ubuntu 26.04 LTS edge. A native Nginx
+      BlitzeCDN 3.x requires a fresh Ubuntu 26.04 LTS edge. A native Nginx
       installation was detected at /usr/sbin/nginx. BlitzeCDN does not migrate
       or purge pre-existing Nginx installations. Rebuild the host from a fresh
       supported Ubuntu installation. Nothing was changed on this host.

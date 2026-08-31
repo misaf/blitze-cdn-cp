@@ -19,7 +19,7 @@ lives in [blitze-cdn-web](https://github.com/misaf/blitze-cdn-web). Use
 Install an independent control plane and edge on a fresh server:
 
 ```bash
-sudo git clone --branch 2.x \
+sudo git clone --branch 3.x \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install.sh standalone \
   --admin-cidr 203.0.113.8/32 \
