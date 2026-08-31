@@ -21,13 +21,12 @@
       {{ (blitzecdn_nginx_build_output
           | regex_findall('nginx/([0-9]+\.[0-9]+\.[0-9]+)') | first) }}
 
-- name: Require the HTTP/3-capable Ubuntu Nginx build
+- name: Require an HTTP/3-capable Nginx build
   ansible.builtin.assert:
     that:
       - blitzecdn_nginx_installed_version is version('1.25.0', '>=')
       - "'--with-http_v3_module' in blitzecdn_nginx_build_output"
-      - "'--build=Ubuntu' in blitzecdn_nginx_build_output"
     fail_msg: >-
       {{ blitzecdn_nginx_config_test_image }} is not a supported BlitzeCDN edge
-      build. Ubuntu Nginx 1.25.0+ with --with-http_v3_module is required;
+      build. Nginx 1.25.0+ with --with-http_v3_module is required;
       HTTP/3 will not be silently disabled.

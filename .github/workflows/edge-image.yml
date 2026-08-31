@@ -65,7 +65,7 @@ jobs:
         with:
           context: docker/edge
           # amd64 and arm64, because an edge fleet is rarely one architecture
-          # and the Ubuntu package set is published for both.
+          # and the official Alpine image and module builds support both.
           platforms: linux/amd64,linux/arm64
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}

@@ -132,7 +132,7 @@ def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
 
 def test_nginx_invariant_accepts_a_capable_build(tmp_path):
     result = _run_nginx_build_capability(
-        tmp_path, "--with-http_v3_module --with-http_ssl_module --build=Ubuntu"
+        tmp_path, "--with-http_v3_module --with-http_ssl_module"
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

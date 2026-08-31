@@ -19,9 +19,14 @@
     cleanup: true
     network_mode: none
     read_only: true
-    # nginx -t writes a pid file and may buffer to a temporary directory, and
-    # the probe must not be the reason a read-only container fails.
-    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m", "/run:rw,noexec,nosuid,size=8m"]
+    # nginx -t writes a pid file, opens the package-default log paths, and may
+    # buffer to a temporary directory. Keep those writes isolated in memory so
+    # the probe can retain a read-only root filesystem without failing before
+    # it reaches the module checks.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=8m
+      - /run:rw,noexec,nosuid,size=8m
+      - /var/log/nginx:rw,noexec,nosuid,size=8m
     state: started
   register: blitzecdn_nginx_module_probe
   changed_when: false
