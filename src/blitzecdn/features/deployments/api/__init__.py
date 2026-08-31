@@ -1,0 +1,1 @@
+"""Versioned deployment HTTP adapters."""

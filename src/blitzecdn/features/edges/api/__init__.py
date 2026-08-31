@@ -1,0 +1,1 @@
+"""Versioned edge HTTP adapters."""

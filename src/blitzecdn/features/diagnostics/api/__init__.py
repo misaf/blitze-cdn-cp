@@ -1,0 +1,1 @@
+"""Versioned diagnostics HTTP adapters."""

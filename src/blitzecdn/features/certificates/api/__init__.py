@@ -1,0 +1,1 @@
+"""Versioned certificate HTTP adapters."""

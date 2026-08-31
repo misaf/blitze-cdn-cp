@@ -1,0 +1,1 @@
+"""Versioned cache HTTP adapters."""
