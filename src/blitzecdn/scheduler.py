@@ -9,8 +9,8 @@ from apscheduler.schedulers.background import (  # type: ignore[import-untyped]
     BackgroundScheduler,
 )
 
-from blitzecdn.config import Settings
-from blitzecdn.infrastructure.broker import enqueue_scheduled_once
+from blitzecdn.core.broker import enqueue_scheduled_once
+from blitzecdn.core.config import Settings
 
 
 def build_scheduler(settings: Settings) -> BackgroundScheduler | None:
