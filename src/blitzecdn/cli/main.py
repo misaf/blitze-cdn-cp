@@ -15,22 +15,14 @@ import typer
 from pydantic import ValidationError
 
 from blitzecdn.cli import (
-    backup,
     bootstrap,
-    cache,
-    certs,
     common,
     configuration,
-    deploy,
-    diagnostics,
-    edges,
-    tls,
-    zones,
 )
 from blitzecdn.cli.app import app, main
 from blitzecdn.cli.common import ExitCode, control_plane, emit, settings
-from blitzecdn.config import Settings
-from blitzecdn.exceptions import (
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import (
     BlitzeError,
     ConfigurationError,
     ConflictError,
@@ -38,6 +30,14 @@ from blitzecdn.exceptions import (
     ExecutionError,
     NotFoundError,
 )
+from blitzecdn.features.backup import cli as backup
+from blitzecdn.features.cache import cli as cache
+from blitzecdn.features.certificates import cli as certs
+from blitzecdn.features.certificates import tls_cli as tls
+from blitzecdn.features.deployments import cli as deploy
+from blitzecdn.features.diagnostics import cli as diagnostics
+from blitzecdn.features.dns import cli as zones
+from blitzecdn.features.edges import cli as edges
 
 app.add_typer(zones.site_app, name="site")
 app.add_typer(edges.edge_app, name="edge")
