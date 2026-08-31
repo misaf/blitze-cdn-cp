@@ -526,7 +526,7 @@ ALLOWED_FEATURE_DEPENDENCIES = {
     "edges": {"dns", "sites"},
     "http": {"sites"},
     "maintenance": {"deployments", "tls"},
-    "security": set(),
+    "security": {"sites"},
     "sites": set(),
     "tls": {"deployments", "dns", "edges", "sites"},
 }
@@ -537,9 +537,9 @@ ALLOWED_FEATURE_DEPENDENCIES = {
 #: contracts, while those capabilities' implementations consume the `CdnSite`
 #: that composition produces.
 #:
-#: `http` appears in both. Its contract depends on nothing; its `plugin.py`
-#: annotates a hook with `CdnSite`, which is knowledge of `sites` even under
-#: `TYPE_CHECKING` and is declared rather than excused.
+#: `http` and `security` appear in both. Their contracts depend on nothing;
+#: their `plugin.py` annotates a hook with `CdnSite`, which is knowledge of
+#: `sites` even under `TYPE_CHECKING` and is declared rather than excused.
 ALLOWED_POLICY_DEPENDENCIES = {
     "backup": set(),
     "cache": {"http", "sites"},
