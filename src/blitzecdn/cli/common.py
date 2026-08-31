@@ -15,9 +15,9 @@ from typing import Any
 import typer
 import yaml
 
-from blitzecdn.config import Settings
 from blitzecdn.control_plane import ControlPlane, build_control_plane
-from blitzecdn.domain.runs import HostRun
+from blitzecdn.core.config import Settings
+from blitzecdn.core.runs import HostRun
 
 
 class ExitCode(IntEnum):
