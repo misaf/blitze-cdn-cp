@@ -4,6 +4,17 @@ Everything here is about turning a stored snapshot into a run of Ansible and
 recording what happened. Nothing here decides *what* should be deployed; that
 is the zone editor's job, and this service reads its output through
 ``DnsService.sync_sites`` only when a rollback rewrites canonical state.
+
+One service rather than several, deliberately. Deploy, queued deploy, rollback,
+drift and recovery look like five use cases, but they are one run of Ansible
+reached five ways: each has to take the same cross-process lock, move the same
+record through the same transition table, and finalise inside the same
+transaction. Splitting them into handlers would hand each a copy of the same
+four collaborators and leave the lock ordering — the part that is actually
+difficult — spread across the pieces rather than stated once. What *has* been
+lifted out is the policy that has its own reason to change and does not touch
+the lock: :mod:`blitzecdn.features.deployments.rollback` owns what rolling back
+means, and ``domain.aborted_run`` is a pure value.
 """
 
 from __future__ import annotations
@@ -19,14 +30,16 @@ from uuid import uuid4
 from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConflictError, DeploymentBusyError, ExecutionError
 from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.core.runs import AnsibleRun, RunStatus
+from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.core.validation import validate_edge_limit
 from blitzecdn.core.workflows import WorkflowCoordinator
+from blitzecdn.features.deployments import rollback as rollback_policy
 from blitzecdn.features.deployments.domain import (
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
     DriftReport,
+    aborted_run,
 )
 from blitzecdn.features.deployments.ports import (
     DeploymentRequirements,
@@ -42,7 +55,6 @@ from blitzecdn.features.deployments.ports import (
 )
 from blitzecdn.features.deployments.snapshots import (
     decode_snapshot,
-    decode_snapshot_zones,
     snapshot_digest,
 )
 
@@ -82,7 +94,12 @@ class DeploymentExecution:
 
 
 class DeploymentService:
-    """Runs Ansible against a recorded snapshot and owns the deployment lock."""
+    """Runs Ansible against a recorded snapshot and owns the deployment lock.
+
+    The feature's public face: the API, the CLI, the scheduler and the Dramatiq
+    worker all reach convergence through here and through nothing else, which
+    is what makes "who may start a deployment" a question with one answer.
+    """
 
     def __init__(
         self,
@@ -426,17 +443,9 @@ class DeploymentService:
     def _queue_rollback(
         self, operator: str, deployment_id: str | None, *, check: bool
     ) -> Deployment:
-        target = (
-            self.persistence.deployments.get_deployment(deployment_id)
-            if deployment_id
-            else self.persistence.deployments.successful_rollback_target(
-                self.persistence.deployments.snapshot()
-            )
+        target = rollback_policy.select_target(
+            self.persistence.deployments, deployment_id
         )
-        if target.check_mode or target.status is not DeploymentStatus.SUCCEEDED:
-            raise ConflictError(
-                "rollback target must be a successful applied deployment"
-            )
         return self._queue(
             operator,
             check=check,
@@ -467,7 +476,7 @@ class DeploymentService:
                         DeploymentStatus.QUEUED,
                         DeploymentStatus.FAILED,
                         finished_at=datetime.now(UTC),
-                        result=self._aborted_run(exc, interrupted=False),
+                        result=aborted_run(exc, interrupted=False),
                     )
                     self.events.record(
                         domain_event(
@@ -480,35 +489,6 @@ class DeploymentService:
                     )
                 raise
         return deployment
-
-    def _require_unchanged_canonical(self, deployment: Deployment) -> None:
-        """Refuse to restore wholesale over a change made while we converged.
-
-        ``replace_all_records`` deletes every zone and record and writes the
-        snapshot's back, so anything created since the rollback was queued is
-        gone — and record writes deliberately do not take the deployment lock,
-        which means an ordinary ``blitzecdn record create`` during a
-        minutes-long fleet rollback is enough. Nothing conflicted, nothing
-        failed, and the audit trail showed the record being created and never
-        being removed.
-
-        Read inside the adoption transaction, which is ``BEGIN IMMEDIATE``, so
-        no writer can slip between this comparison and the restore. Raising
-        here aborts that transaction and the run finalises as FAILED: the edges
-        are converged to the old snapshot but canonical state is untouched, so
-        an operator can retry the rollback deliberately once they have seen
-        what changed.
-        """
-        if deployment.canonical_digest is None:
-            return
-        current = snapshot_digest(self.persistence.deployments.snapshot())
-        if current != deployment.canonical_digest:
-            raise ConflictError(
-                "desired state changed while this rollback was converging, so "
-                "adopting the older snapshot would delete whatever was written. "
-                "The edges were converged to it; canonical records were left "
-                "alone. Review the change and roll back again if it should go."
-            )
 
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
         """Run Ansible for a queued deployment. Callers must hold the lock."""
@@ -555,10 +535,12 @@ class DeploymentService:
         )
         with self.persistence.uow.transaction():
             if adopts_rollback:
-                self._require_unchanged_canonical(deployment)
-                domains, records = decode_snapshot_zones(snapshot)
-                self.persistence.zones.replace_all_records(domains, records)
-                self.dns.sync_sites()
+                rollback_policy.require_unchanged_canonical(
+                    self.persistence.deployments, deployment
+                )
+                rollback_policy.adopt_snapshot(
+                    self.persistence.zones, self.dns, snapshot
+                )
             deployment = self.persistence.deployments.transition(
                 deployment.id,
                 DeploymentStatus.RUNNING,
@@ -607,7 +589,7 @@ class DeploymentService:
                 DeploymentStatus.RUNNING,
                 status,
                 finished_at=datetime.now(UTC),
-                result=self._aborted_run(exc, interrupted=interrupted),
+                result=aborted_run(exc, interrupted=interrupted),
             )
             self.events.record(
                 domain_event(
@@ -619,31 +601,6 @@ class DeploymentService:
                 )
             )
         return deployment, interrupted
-
-    @staticmethod
-    def _aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
-        """A result for a deployment that never got a run of its own.
-
-        The runner raised before Ansible reported anything — a misconfiguration
-        it refused to start with, or the process being interrupted. There are no
-        hosts to describe, so this records why in the same shape every other
-        outcome uses rather than leaving ``result`` empty and making every
-        reader handle a second way of saying "it failed".
-        """
-        now = datetime.now(UTC)
-        return AnsibleRun(
-            id=uuid4().hex,
-            playbook="",
-            status=RunStatus.UNSTARTED,
-            return_code=None,
-            started_at=now,
-            finished_at=now,
-            error=(
-                f"deployment interrupted: {type(exc).__name__}"
-                if interrupted
-                else f"deployment runner error: {type(exc).__name__}: {exc}"
-            ),
-        )
 
     def write_desired_state(self, snapshot: str, path: Path) -> None:
         """Render a snapshot as the document Ansible reads with ``--extra-vars``.
