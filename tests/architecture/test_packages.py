@@ -546,3 +546,106 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     assert "http3_enabled" in ProtocolPolicy.model_fields
     assert "http3_enabled" in CdnSite.model_fields
     assert ProtocolPolicy.__module__.startswith("blitzecdn.features.http")
+
+
+# --- GeoIP is optional; the settings that ask for a country are not ---------
+
+
+#: The three stable fields that ask the edge which country a visitor is in.
+#: Two belong to `SecurityPolicy` and one to the site's own header policy —
+#: different owners, one capability behind them, which is why there is one
+#: wheel rather than one per consumer.
+_COUNTRY_SETTINGS = ("allowed_countries", "denied_countries", "ip_country")
+
+
+def test_geoip_ships_as_an_optional_distribution_and_no_consumer_of_it_does():
+    """One capability for the lookup, and no package per thing that wants it.
+
+    A `blitzecdn-country-headers` beside a `blitzecdn-country-firewall` would
+    be two wheels for one MaxMind database and one Nginx module, and an
+    operator would have to know which of them a given site needed.
+    """
+    distributions = {package.name for package in _packages()}
+
+    assert "blitzecdn-geoip" in distributions
+    assert (
+        not {
+            "blitzecdn-maxmind",
+            "blitzecdn-mmdb",
+            "blitzecdn-nginx-geoip",
+            "blitzecdn-geoip-database",
+            "blitzecdn-country",
+        }
+        & distributions
+    )
+
+
+def test_the_geoip_capability_is_reached_only_through_its_entry_point():
+    """Attached and detached are both real, and neither touches core."""
+    builtins = load_plugins(entry_point_group=None)
+    installed = load_plugins()
+
+    assert "geoip" not in builtins.capabilities
+    assert "geoip" in installed.capabilities
+    assert "geoip" not in {metadata.name for metadata in builtins.plugins}
+    assert not any("geoip" in module for module in BUILTIN_PLUGINS)
+
+
+def test_the_site_contract_keeps_every_country_setting_in_core():
+    """The fields may not follow the implementation out.
+
+    `CdnSite` composes them by inheritance into the flat shape the v1/v2
+    schemas, the persisted policy JSON and the deployment snapshots consume.
+    Moving one into the package would make that shape depend on what is
+    installed, and a stored site asking for a country would stop loading on a
+    controller that had detached it.
+    """
+    from blitzecdn.features.security.policy import SiteFirewall
+    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.features.sites.policy.headers import SiteVisitorHeaders
+
+    assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
+    assert "ip_country" in SiteVisitorHeaders.model_fields
+    assert {"firewall", "visitor_headers"} <= set(CdnSite.model_fields)
+    assert SiteFirewall.__module__.startswith("blitzecdn.features.security")
+    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.features.sites")
+
+
+def test_the_country_settings_derive_their_token_generically_in_core():
+    """The derivation is core's, and it is not written as a GeoIP special case.
+
+    `capability_requirements` maps every stable setting onto the token it needs
+    the same way, so `geoip` arrives by the same path as `compression` or
+    `http3`. What this refuses is the shape the acceptance criteria warn about:
+    a `registry.require("geoip")` sprinkled through unrelated services.
+    """
+    offenders = [
+        f"{path.relative_to(SOURCE)} names the geoip token"
+        for path in sorted(SOURCE.rglob("*.py"))
+        if path != SOURCE / "features/sites/domain.py"
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant) and node.value == "geoip"
+    ]
+    assert offenders == []
+
+
+def test_security_depends_on_the_geoip_token_and_never_on_its_implementation():
+    """The country firewall needs a lookup; it may not import the wheel.
+
+    Held over both distributions at once, because the coupling this refuses is
+    the tempting one: `blitzecdn-security` owns the rule, `blitzecdn-geoip`
+    owns the lookup, and an import between them would make detaching either
+    break the other.
+    """
+    security = next(p for p in _packages() if p.name == "blitzecdn-security")
+    geoip = next(p for p in _packages() if p.name == "blitzecdn-geoip")
+
+    pairs = ((security, "blitzecdn_geoip"), (geoip, "blitzecdn_security"))
+    for package, forbidden in pairs:
+        offenders = [
+            f"{path.name} imports {imported}"
+            for path in _source_files(package)
+            for imported in sorted(_imports(path))
+            if imported.split(".")[0] == forbidden
+        ]
+        assert offenders == []

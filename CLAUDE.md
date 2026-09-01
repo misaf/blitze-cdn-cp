@@ -75,6 +75,8 @@ blitze-cdn-cp/
 │   ├── blitzecdn-cache/    #   purge, and cache-effectiveness reporting
 │   ├── blitzecdn-certificates/  # issuance, renewal, Automatic SSL/TLS
 │   ├── blitzecdn-compression/   # the gzip and Brotli implementation
+│   ├── blitzecdn-geoip/    #   visitor country lookup: the BZ-IPCountry header
+│   │                       #   and country firewall rules both need it
 │   ├── blitzecdn-http3/    #   QUIC listener state; HTTP/1.1 and /2 stay core
 │   └── blitzecdn-security/ #   site firewall and Under Attack validation
 └── tests/                  # core behavior, plugin contracts, architecture,

@@ -110,6 +110,7 @@ pip install 'blitzecdn[compression]' # + gzip and Brotli implementation
 pip install 'blitzecdn[certificates]'# + certificate management and Automatic SSL
 pip install 'blitzecdn[security]'    # + site security implementation
 pip install 'blitzecdn[http3]'       # + HTTP/3 over QUIC (HTTP/1.1 and HTTP/2 are baseline)
+pip install 'blitzecdn[geoip]'       # + visitor country lookup (headers and country rules)
 pip install 'blitzecdn[all]'         # + every optional capability
 pip uninstall blitzecdn-compression  # the capability disappears; core keeps working
 ```
@@ -120,11 +121,13 @@ including one this repository has never heard of. See [PLUGINS.md](PLUGINS.md).
 
 The stable `CdnSite` configuration remains part of core whether an implementation
 wheel is installed or not. A site with compression off, unmanaged TLS, and the
-default security settings works with core alone, and is served over HTTP/1.1
-and HTTP/2 — baseline protocol support needs no optional wheel. Requesting
-gzip/Brotli, uploaded/requested certificates, Automatic SSL for active TLS,
-Under Attack Mode, site firewall rules, or HTTP/3 without its provider fails
-validation explicitly; it is never silently ignored or downgraded.
+default security and visitor-header settings works with core alone, and is
+served over HTTP/1.1 and HTTP/2 — baseline protocol support needs no optional
+wheel. Requesting gzip/Brotli, uploaded/requested certificates, Automatic SSL
+for active TLS, Under Attack Mode, site firewall rules, HTTP/3, the BZ-IPCountry
+visitor header or country firewall rules without their provider fails
+validation explicitly, naming the capability and the setting that asked for it;
+it is never silently ignored or downgraded.
 
 ## Development
 

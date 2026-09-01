@@ -17,6 +17,7 @@ inheritance rather than by nesting for that reason alone.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Self
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -75,26 +76,55 @@ class SitePolicy(
     enabled: bool = True
 
     @property
-    def required_capabilities(self) -> frozenset[str]:
-        """Optional implementation tokens requested by the stable schema."""
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """Optional capability tokens, and the settings that asked for each.
+
+        The single place a site's dependency on a detachable implementation is
+        derived. One generic mechanism for every capability — there is no
+        ``if capability == "geoip":`` anywhere downstream, and a token this
+        repository has never heard of would travel the same path — so a new
+        capability is one entry here rather than a check in a service.
+
+        The settings travel with the token because "capability 'geoip' is not
+        installed" alone leaves an operator hunting for which of two unrelated
+        switches asked for it. Names are the stable schema's own field names,
+        so what the message says to change is what a patch would set.
+
+        A disabled site converges no server block, so it requests nothing.
+        """
         if not self.enabled:
-            return frozenset()
-        required: set[str] = set()
+            return {}
+        requested: dict[str, list[str]] = {}
+
+        def request(capability: str, setting: str) -> None:
+            requested.setdefault(capability, []).append(setting)
+
         if self.compression is not CompressionMode.OFF:
-            required.add("compression")
-        if self.under_attack_mode or not self.firewall.empty:
-            required.add("security")
-        if self.http3_enabled:
-            required.add("http3")
+            request("compression", "compression")
+        if self.under_attack_mode:
+            request("security", "under_attack_mode")
+        if not self.firewall.empty:
+            request("security", "firewall")
         if self.certificate_mode in {
             CertificateMode.UPLOADED,
             CertificateMode.REQUESTED,
-        } or (
+        }:
+            request("certificates", "certificate_mode")
+        elif (
             self.certificate_mode is not CertificateMode.DISABLED
             and self.ssl_automatic_mode is SslAutomaticMode.AUTO
         ):
-            required.add("certificates")
-        return frozenset(required)
+            request("certificates", "ssl_automatic_mode")
+        if self.http3_enabled:
+            request("http3", "http3_enabled")
+        for setting in self.geoip_settings:
+            request("geoip", setting)
+        return {name: tuple(settings) for name, settings in requested.items()}
+
+    @property
+    def required_capabilities(self) -> frozenset[str]:
+        """Optional implementation tokens requested by the stable schema."""
+        return frozenset(self.capability_requirements)
 
     @model_validator(mode="after")
     def validate_http3_requires_edge_tls(self) -> Self:
@@ -103,16 +133,40 @@ class SitePolicy(
         return self
 
     @property
+    def geoip_settings(self) -> tuple[str, ...]:
+        """Which settings on this site ask the edge to resolve a country.
+
+        The one list, and the only place a country-aware setting is named.
+        Country firewall rules were the first thing to need the GeoIP2 lookup
+        and ``BZ-IPCountry`` is the second, so both consumers read this rather
+        than asking again: ``requires_geoip`` is whether it is non-empty, and
+        ``capability_requirements`` quotes it into the message an operator
+        reads. A third consumer extends this tuple and gets both for free.
+
+        Ordered as declared rather than as configured, so the message a fleet
+        produces does not depend on which switch happened to be set first.
+        """
+        return tuple(
+            name
+            for name, requested in (
+                ("firewall.allowed_countries", bool(self.firewall.allowed_countries)),
+                ("firewall.denied_countries", bool(self.firewall.denied_countries)),
+                ("visitor_headers.ip_country", self.visitor_headers.ip_country),
+            )
+            if requested
+        )
+
+    @property
     def requires_geoip(self) -> bool:
         """Whether serving this site needs ``$blitzecdn_country`` to exist.
 
-        The single question the edge role's validation asks. Country firewall
-        rules were the first thing to need the GeoIP2 lookup and
-        ``BZ-IPCountry`` is the second, so the answer is composed here rather
-        than asked twice — a third consumer must extend this property, not add
-        a parallel condition to the role.
+        The single question the edge role's validation asks, and the same one
+        ``capability_requirements`` turns into the ``geoip`` token — so the
+        control plane refuses such a site before a playbook runs when the
+        capability is not installed, and the role's assertion is the second
+        line, for a desired state that did not come from here.
         """
-        return self.firewall.requires_geoip or self.visitor_headers.requires_geoip
+        return bool(self.geoip_settings)
 
 
 class CdnSite(SitePolicy):

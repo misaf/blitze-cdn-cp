@@ -18,7 +18,8 @@ load-bearing rather than descriptive:
 
 The third category is a real Python distribution. The official optional wheels
 are `blitzecdn-backup`, `blitzecdn-cache`, `blitzecdn-compression`,
-`blitzecdn-certificates`, `blitzecdn-security`, and `blitzecdn-http3`. They install beside the
+`blitzecdn-certificates`, `blitzecdn-security`, `blitzecdn-http3` and
+`blitzecdn-geoip`. They install beside the
 control plane and are found through their installed metadata:
 
 ```
@@ -74,8 +75,10 @@ state whose shape it cannot predict.
 The contracts therefore stay. Their implementation can still leave:
 `blitzecdn-compression` supplies gzip/Brotli capability,
 `blitzecdn-certificates` owns managed certificate operations and Automatic SSL,
-`blitzecdn-security` owns site-level security deployment validation, and
-`blitzecdn-http3` owns the QUIC listener the `http3_enabled` switch asks for.
+`blitzecdn-security` owns site-level security deployment validation,
+`blitzecdn-http3` owns the QUIC listener the `http3_enabled` switch asks for,
+and `blitzecdn-geoip` owns the visitor country lookup that the `BZ-IPCountry`
+header and the two firewall country lists both ask for.
 Core can deserialize every site without them and then report an unavailable
 capability deterministically.
 
@@ -224,6 +227,9 @@ beside them — and nothing about what goes in one:
   Nginx listener owner required by `reuseport`
 * `blitzecdn-security` contributes no state, but refuses a deployment whose site asks for
   Under Attack Mode on a controller with no challenge secret
+* `blitzecdn-geoip` contributes no state at all: whether an edge resolves
+  countries is fleet Ansible policy an operator sets, not something the control
+  plane derives, so the document is identical whether or not it is installed
 
 This projection does not make site policy an edge capability. A site may ask
 for Brotli or HTTP/3; deployment validation and the edge roles remain
@@ -416,6 +422,7 @@ uv sync --all-packages                  # everything, for development
 uv sync                                 # the control plane alone
 uv sync --extra compression --extra security  # core plus selected capabilities
 uv sync --extra http3                   # core plus HTTP/3 over QUIC
+uv sync --extra geoip                   # core plus visitor country lookup
 
 uv add --package blitzecdn blitzecdn-cache      # attach
 uv remove --package blitzecdn blitzecdn-cache   # detach
@@ -462,8 +469,11 @@ site.compression = brotli       → this site requests the available capability
 
 Removing a package is **not** the same as configuring the capability off.
 The site contract remains readable after detachment. A requested implementation
-then fails deployment validation with `capability '<token>' is not installed`;
-it is not ignored and its policy is not rewritten.
+then fails deployment validation with `capability '<token>' is not installed,
+and this site's <setting> requests it`; it is not ignored and its policy is not
+rewritten. The token comes from the site's own `capability_requirements` and the
+answer from plugin metadata — one generic mechanism for `compression`, `http3`,
+`geoip` and a capability this repository has never heard of alike.
 
 The official site-level absence rules are:
 
@@ -473,6 +483,7 @@ The official site-level absence rules are:
 | `blitzecdn-certificates` | TLS disabled, or `certificate_mode = existing` with `ssl_automatic_mode = custom` | uploaded/requested material, or Automatic SSL on active TLS |
 | `blitzecdn-security` | Under Attack off and an empty site firewall | Under Attack Mode or any site firewall rule |
 | `blitzecdn-http3` | `http3_enabled = false` — the site is still served over HTTP/1.1 and HTTP/2 | `http3_enabled = true` |
+| `blitzecdn-geoip` | no country header and no country rules — every other firewall rule is unaffected | `visitor_headers.ip_country`, `firewall.allowed_countries` or `firewall.denied_countries` |
 
 TLS policy itself always stays core. Certificate routes, `cert`/`ssl` commands,
 certificate jobs, issuance, renewal, upload, and Automatic SSL scans appear only
@@ -519,6 +530,65 @@ UDP/443 rule, the Nginx module capability probe, the edge image build and the
 integration harness all stay in the roles. The package owns whether the
 capability is offered at all, the two fleet variables, the validation that
 refuses a site without it, and its own tests.
+
+### Visitor country lookup
+
+`blitzecdn-geoip` is optional. Sites that do not request country-aware behavior
+do not need it, and that is most sites: serving a hostname, filtering by source
+address, method or path, compression, TLS and every HTTP version work with
+nothing installed beside the control plane. Enabling a country header or
+country-based policy requires the `geoip` capability.
+
+Exactly three stable settings ask the edge which country a visitor is in:
+
+| setting | owner | what it asks for |
+| --- | --- | --- |
+| `visitor_headers.ip_country` | site header policy | the `BZ-IPCountry` request header written to the origin |
+| `firewall.allowed_countries` | `SecurityPolicy` | serve only these countries; everything else gets a 403 |
+| `firewall.denied_countries` | `SecurityPolicy` | answer these countries with a 403 |
+
+Two owners, one capability. They resolve the same question against the same
+GeoIP2 database and the same Nginx module, so there is one distribution rather
+than one per consumer — and a fourth consumer (analytics, geographical routing)
+attaches to the same token rather than adding a wheel.
+
+| `blitzecdn-geoip` | the site asks for a country | What happens |
+| --- | --- | --- |
+| absent | no | Served normally. Nothing is missing, nothing is reported. This is an ordinary installation. |
+| absent | yes | The site still **loads** — the fields are core's. The deployment is refused at validation naming the `geoip` capability *and* the setting that requested it, before any playbook runs. No country header is silently omitted and no country rule is silently dropped. |
+| installed | yes | The site deploys, and the edge resolves the visitor address against its GeoIP2 database. |
+| installed | no | Identical to the detached fleet document. Installing the package converges nothing on its own. |
+
+A firewall country list requires **two** capabilities: `security` for the rule
+and `geoip` for the lookup. They are reported separately, because detaching
+either one is a different problem. `blitzecdn-security` does not import
+`blitzecdn_geoip` and never will — it depends on the *token*, which is what
+lets a different distribution answer for `geoip` one day.
+
+Attach it with `uv sync --extra geoip` in a checkout, `pip install
+'blitzecdn[geoip]'` beside an installed control plane, or by adding `geoip` to
+`BLITZECDN_CAPABILITIES` for `install.sh` and the container image. It is **not**
+in the default installation: country lookup is opt-in, and adding it by default
+would make an ordinary site depend on a MaxMind account.
+
+This package contributes no desired state, and that is deliberate. Whether an
+edge resolves countries at all is fleet Ansible policy —
+`blitzecdn_edge_geoip_enabled`, set with `blitzecdn config set` or in group vars
+— not a variable the control plane derives per deployment, so turning it into a
+contribution would silently override what an operator configured. The rendered
+document is byte-identical with and without the package installed.
+
+Ansible remains the provisioning authority for how the edge realizes the
+lookup. The MaxMind credentials, the `geoipupdate` image, the GeoLite2-Country
+database and the systemd timer that refreshes it, the mount into the Nginx
+container, the `geoip2` directive and its `auto_reload`, and the
+`ngx_http_geoip2` module probe all stay in `blitzecdn_edge`,
+`blitzecdn_edge_stack` and `blitzecdn_nginx`. The database refresh is a
+provisioning lifecycle rather than recurring control-plane behavior, so the
+package contributes no scheduled job and performs no network download. The
+role's own assertion — refusing a country-dependent site on an edge with GeoIP
+off — stays too: it is the second line, for a desired state that did not come
+from this control plane.
 
 ### Seeing what is installed
 
@@ -618,7 +688,7 @@ Nothing in `src/blitzecdn/` changes. There is no step that registers it.
 ## Adding an external plugin
 
 A distribution from outside this repository — `blitzecdn-waf`,
-`blitzecdn-geoip`, `blitzecdn-monitoring` — is the same thing without step 5:
+`blitzecdn-ratelimit`, `blitzecdn-monitoring` — is the same thing without step 5:
 it declares itself in the entry-point group
 
 ```toml

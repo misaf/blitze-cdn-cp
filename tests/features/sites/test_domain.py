@@ -526,6 +526,88 @@ def test_country_firewall_rules_still_require_geoip_by_themselves(site_payload):
         assert site.requires_geoip is True
 
 
+def test_every_country_setting_requests_the_geoip_capability(site_payload):
+    """The token a detached `blitzecdn-geoip` makes missing, derived here.
+
+    Core owns the derivation because core owns the fields: a controller with
+    the capability detached still reads the site back and then refuses to
+    deploy it. What the package owns is whether anything answers for the token.
+    """
+    plain = site_payload | {"compression": "off"}
+    header = CdnSite.model_validate(plain | {"visitor_headers": {"ip_country": True}})
+    allowed = CdnSite.model_validate(
+        plain | {"firewall": {"allowed_countries": ["DE"]}}
+    )
+    denied = CdnSite.model_validate(plain | {"firewall": {"denied_countries": ["RU"]}})
+
+    assert header.required_capabilities == frozenset({"geoip"})
+    # A country rule is a rule and a lookup: two capabilities, named separately
+    # so detaching either is reported for what it is.
+    assert allowed.required_capabilities == frozenset({"geoip", "security"})
+    assert denied.required_capabilities == frozenset({"geoip", "security"})
+
+
+def test_an_ordinary_site_requests_no_geoip_capability(site_payload):
+    """Every firewall rule that is not geographical leaves the lookup out.
+
+    This is the case that must keep working with nothing optional installed
+    beyond the firewall itself, so it is asserted rather than assumed.
+    """
+    site = CdnSite.model_validate(
+        site_payload
+        | {
+            "compression": "off",
+            "visitor_headers": {"connecting_ip": True, "ip_country": False},
+            "firewall": {
+                "deny_sources": ["203.0.113.0/24"],
+                "denied_paths": ["/admin"],
+            },
+        }
+    )
+
+    assert site.requires_geoip is False
+    assert site.required_capabilities == frozenset({"security"})
+
+
+def test_capability_requirements_name_the_settings_that_asked(site_payload):
+    """Which setting, not only which token.
+
+    "capability 'geoip' is not installed" leaves an operator hunting across
+    two unrelated policy blocks. The names are the schema's own, so what the
+    message says to change is what a patch would set.
+    """
+    site = CdnSite.model_validate(
+        site_payload
+        | {
+            "compression": "brotli",
+            "visitor_headers": {"ip_country": True},
+            "firewall": {"allowed_countries": ["DE"], "denied_countries": ["RU"]},
+        }
+    )
+
+    assert site.capability_requirements["geoip"] == (
+        "firewall.allowed_countries",
+        "firewall.denied_countries",
+        "visitor_headers.ip_country",
+    )
+    assert site.capability_requirements["compression"] == ("compression",)
+    assert site.capability_requirements["security"] == ("firewall",)
+    assert frozenset(site.capability_requirements) == site.required_capabilities
+
+
+def test_a_disabled_site_names_no_capability_and_no_setting(site_payload):
+    """A disabled site converges no server block, so it asks for nothing."""
+    site = CdnSite.model_validate(
+        site_payload | {"enabled": False, "visitor_headers": {"ip_country": True}}
+    )
+
+    assert site.capability_requirements == {}
+    assert site.required_capabilities == frozenset()
+    # `requires_geoip` is the *edge role's* question and is deliberately not
+    # gated on `enabled`: the role asks it of whatever it was handed.
+    assert site.requires_geoip is True
+
+
 def test_a_patch_replaces_the_whole_visitor_header_block():
     """Like the firewall, and for the same reason: partial merges cannot
     express turning the last switch off."""
