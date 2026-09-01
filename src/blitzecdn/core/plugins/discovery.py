@@ -63,9 +63,7 @@ _LOGGER = logging.getLogger(__name__)
 BUILTIN_PLUGINS: tuple[str, ...] = (
     # The capability contracts first: nothing they contribute depends on
     # another feature being registered, and `sites` composes their policy.
-    "blitzecdn.features.compression.plugin",
     "blitzecdn.features.http.plugin",
-    "blitzecdn.features.security.plugin",
     "blitzecdn.features.sites.plugin",
     "blitzecdn.features.dns.plugin",
     "blitzecdn.features.edges.plugin",

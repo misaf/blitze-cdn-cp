@@ -76,7 +76,7 @@ _PUBLIC_CROSS_FEATURE_MODULES = {
 #: it shares its parent's node in both dependency graphs. TLS is the only one,
 #: and it exists because issuing material and deciding when to upgrade a mode
 #: are genuinely different jobs on the same capability.
-_SUB_CAPABILITIES = {"tls": {"automatic_ssl", "certificates"}}
+_SUB_CAPABILITIES: dict[str, set[str]] = {}
 
 #: Names that must never become a top-level feature package. Each is a
 #: strategy, a protocol version, a mode or an implementation detail of a
@@ -557,14 +557,14 @@ def test_removed_subsystems_do_not_return():
 ALLOWED_FEATURE_DEPENDENCIES = {
     "compression": set(),
     "deployments": {"dns", "sites"},
-    "diagnostics": {"tls"},
+    "diagnostics": set(),
     "dns": {"sites"},
     "edges": {"dns", "sites"},
     "http": {"sites"},
-    "maintenance": {"deployments", "tls"},
-    "security": {"sites"},
+    "maintenance": {"deployments"},
+    "security": set(),
     "sites": set(),
-    "tls": {"deployments", "dns", "edges", "sites"},
+    "tls": set(),
 }
 
 #: Which capability's *contract* another may compose. Separate from the graph
@@ -864,9 +864,12 @@ def test_every_feature_registers_itself_through_a_plugin_module():
         for path in _FEATURES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
-    assert {path.parent.name for path in _FEATURES.glob("*/plugin.py")} == packages
+    contract_only = {"compression", "security"}
+    assert {path.parent.name for path in _FEATURES.glob("*/plugin.py")} == (
+        packages - contract_only
+    )
     assert set(BUILTIN_PLUGINS) == {
-        f"blitzecdn.features.{name}.plugin" for name in packages
+        f"blitzecdn.features.{name}.plugin" for name in packages - contract_only
     }
 
 

@@ -242,6 +242,8 @@ _PUBLIC_SDK_PREFIXES = (
     "blitzecdn.core.schema",
     "blitzecdn.core.validation",
     "blitzecdn.core.filesystem",
+    "blitzecdn.core.ports",
+    "blitzecdn.core.process",
     "blitzecdn.api.dependencies",
     "blitzecdn.api.operations",
     "blitzecdn.api.requests",
@@ -257,6 +259,11 @@ _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.features.sites",
     "blitzecdn.features.http.policy",
     "blitzecdn.features.dns.ports",
+    "blitzecdn.features.deployments.domain",
+    "blitzecdn.features.deployments.ports",
+    "blitzecdn.features.edges.origins",
+    "blitzecdn.features.edges.ports",
+    "blitzecdn.features.tls.policy",
 )
 
 _FORBIDDEN_SDK_MODULES = (

@@ -52,9 +52,12 @@ from blitzecdn.core.plugins import (
     ValidationResult,
     load_plugins,
 )
+from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.workflows import WorkflowCoordinator
 from blitzecdn.features.deployments.desired_state import DesiredStateRenderer
 from blitzecdn.features.deployments.ports import (
+    DeploymentLocker,
+    DeploymentRequirements,
     DeploymentRunner,
     QueueBackgroundRunner,
 )
@@ -67,7 +70,7 @@ from blitzecdn.features.deployments.service import (
 from blitzecdn.features.dns import DnsService
 from blitzecdn.features.dns.ports import SiteStore as SiteReader
 from blitzecdn.features.edges import EdgeOperationsService
-from blitzecdn.features.edges.ports import EdgeRunner
+from blitzecdn.features.edges.ports import EdgeRunner, OriginCheckRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
@@ -185,6 +188,7 @@ class ControlPlane:
         # take it so that "which edges exist" has exactly one answer, whoever is
         # asking and whichever process they are in.
         self._edges_store = edges_store or store.edges
+        self.edge_inventory: EdgeStorePort = self._edges_store
         self.ansible_settings = store.ansible_settings
         self._runner = runner or AnsibleRunner(self.settings, self._edges_store)
         self._certificate_store = certificate_store or CertificateStore(self.settings)
@@ -193,6 +197,9 @@ class ControlPlane:
         self._preflight = preflight or CertificatePreflight(
             self.settings, self._edges_store, origin_probe=self._origin_probe
         )
+        self.origin_probe: OriginProbePort = self._origin_probe
+        self.deployment_lock: DeploymentLocker = self._runner
+        self.origin_checks: OriginCheckRunner = self._runner
         self._background = background or DramatiqBackgroundRunner(
             str(self.settings.redis_url)
         )
@@ -220,6 +227,10 @@ class ControlPlane:
         # needs and deliberately less than what a built-in service receives.
         self.sites: SiteReader = store.sites
         self.fleet: PlaybookRunner = self._runner
+        self.transactions: UnitOfWork = store
+        self.deployment_requirements: DeploymentRequirements = (
+            store.deployment_requirements
+        )
 
         # The same audit adapter is exposed read-only to entry layers and as an
         # event recorder to services. There is one durable consumer, so a

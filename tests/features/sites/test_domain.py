@@ -39,6 +39,19 @@ def test_site_normalizes_safe_hostnames(site_payload):
     assert site.origin_host == "origin.example.com"
 
 
+def test_a_disabled_site_requires_no_optional_implementation(site_payload):
+    site = CdnSite.model_validate(
+        {
+            **site_payload,
+            "enabled": False,
+            "compression": "brotli",
+            "under_attack_mode": True,
+        }
+    )
+
+    assert site.required_capabilities == frozenset()
+
+
 @pytest.mark.parametrize(
     "snapshot",
     [
