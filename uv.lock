@@ -12,6 +12,9 @@ members = [
     "blitzecdn",
     "blitzecdn-backup",
     "blitzecdn-cache",
+    "blitzecdn-certificates",
+    "blitzecdn-compression",
+    "blitzecdn-security",
 ]
 
 [[package]]
@@ -293,12 +296,24 @@ dependencies = [
 all = [
     { name = "blitzecdn-backup" },
     { name = "blitzecdn-cache" },
+    { name = "blitzecdn-certificates" },
+    { name = "blitzecdn-compression" },
+    { name = "blitzecdn-security" },
 ]
 backup = [
     { name = "blitzecdn-backup" },
 ]
 cache = [
     { name = "blitzecdn-cache" },
+]
+certificates = [
+    { name = "blitzecdn-certificates" },
+]
+compression = [
+    { name = "blitzecdn-compression" },
+]
+security = [
+    { name = "blitzecdn-security" },
 ]
 
 [package.dev-dependencies]
@@ -330,6 +345,12 @@ requires-dist = [
     { name = "blitzecdn-backup", marker = "extra == 'backup'", editable = "packages/blitzecdn-backup" },
     { name = "blitzecdn-cache", marker = "extra == 'all'", editable = "packages/blitzecdn-cache" },
     { name = "blitzecdn-cache", marker = "extra == 'cache'", editable = "packages/blitzecdn-cache" },
+    { name = "blitzecdn-certificates", marker = "extra == 'all'", editable = "packages/blitzecdn-certificates" },
+    { name = "blitzecdn-certificates", marker = "extra == 'certificates'", editable = "packages/blitzecdn-certificates" },
+    { name = "blitzecdn-compression", marker = "extra == 'all'", editable = "packages/blitzecdn-compression" },
+    { name = "blitzecdn-compression", marker = "extra == 'compression'", editable = "packages/blitzecdn-compression" },
+    { name = "blitzecdn-security", marker = "extra == 'all'", editable = "packages/blitzecdn-security" },
+    { name = "blitzecdn-security", marker = "extra == 'security'", editable = "packages/blitzecdn-security" },
     { name = "cryptography", specifier = ">=45,<51" },
     { name = "dnspython", specifier = ">=2.7,<3" },
     { name = "dramatiq", extras = ["redis"], specifier = ">=2.2.0,<3" },
@@ -343,7 +364,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.16,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3,<1" },
 ]
-provides-extras = ["backup", "cache", "all"]
+provides-extras = ["backup", "cache", "compression", "certificates", "security", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -379,6 +400,39 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 name = "blitzecdn-cache"
 version = "3.0.0"
 source = { editable = "packages/blitzecdn-cache" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-certificates"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-certificates" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-compression"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-compression" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-security"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-security" }
 dependencies = [
     { name = "blitzecdn" },
 ]
