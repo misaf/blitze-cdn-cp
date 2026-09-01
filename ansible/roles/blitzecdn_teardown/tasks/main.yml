@@ -146,21 +146,37 @@
   loop:
     - "{{ blitzecdn_teardown_runtime_path }}"
     - "{{ blitzecdn_teardown_empty_root }}"
+    - "{{ blitzecdn_teardown_data_path }}"
   when: blitzecdn_teardown_remove_data
+
+# Found rather than listed. The units on an edge are whichever ones the
+# installed capabilities wrote, and this role has no way to know — and no
+# business knowing — which packages the controller that converged this host had
+# attached. Everything we install is named `blitzecdn-*`, and nothing else is.
+- name: Find edge-owned timers and service units
+  ansible.builtin.find:
+    paths: /etc/systemd/system
+    patterns: "{{ blitzecdn_teardown_unit_prefix }}*.service,{{ blitzecdn_teardown_unit_prefix }}*.timer"
+    file_type: file
+  register: blitzecdn_teardown_units
 
 - name: Stop and disable edge-owned timers and services
   ansible.builtin.systemd_service:
-    name: "{{ item }}"
+    name: "{{ item.path | basename }}"
     state: stopped
     enabled: false
-  loop: "{{ blitzecdn_teardown_geoip_units }}"
+  loop: "{{ blitzecdn_teardown_units.files }}"
+  loop_control:
+    label: "{{ item.path | basename }}"
   failed_when: false
 
 - name: Remove edge-owned timers and service units
   ansible.builtin.file:
-    path: "/etc/systemd/system/{{ item }}"
+    path: "{{ item.path }}"
     state: absent
-  loop: "{{ blitzecdn_teardown_geoip_units }}"
+  loop: "{{ blitzecdn_teardown_units.files }}"
+  loop_control:
+    label: "{{ item.path }}"
   notify: Reload systemd after edge teardown
 
 - name: Remove edge security configuration
@@ -218,11 +234,11 @@
           blitzecdn_teardown_acme_root,
           blitzecdn_teardown_managed_sites_file,
           blitzecdn_teardown_runtime_path,
-          blitzecdn_teardown_empty_root]
+          blitzecdn_teardown_empty_root,
+          blitzecdn_teardown_data_path]
          if blitzecdn_teardown_remove_data else [])
       + ([blitzecdn_teardown_access_log_path] if blitzecdn_teardown_remove_logs else [])
-      + (blitzecdn_teardown_geoip_units
-         | map('regex_replace', '^', '/etc/systemd/system/') | list)
+      + (blitzecdn_teardown_units.files | map(attribute='path') | list)
     }}
 
 - name: Fail if anything survived

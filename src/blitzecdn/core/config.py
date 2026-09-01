@@ -118,20 +118,42 @@ MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
         "BLITZE_REDIS_URL",
     }
 )
-PORTABLE_ENVIRONMENT_KEYS = frozenset(
+#: Every `BLITZE_*` name core reads for itself. Its complement is what an
+#: optional capability may claim, which is why the set is written out rather
+#: than derived loosely: a name here is core's and is never forwarded to a
+#: subprocess as somebody else's configuration.
+_CORE_ENVIRONMENT_KEYS = frozenset(
     {
-        *(spec[1] for spec in _VALUE_SETTINGS),
+        *(
+            spec[1]
+            for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)
+        ),
+        "BLITZE_PROJECT_DIR",
+        "BLITZE_CONFIG",
         "BLITZE_ACME_DEFAULT_EMAIL",
         "BLITZE_PREFLIGHT_DNS_SERVERS",
         "BLITZE_REQUIRED_CAPABILITIES",
-        "BLITZE_MAXMIND_ACCOUNT_ID",
-        "BLITZE_MAXMIND_LICENSE_KEY",
-        "BLITZE_UNDER_ATTACK_SECRET",
+        # Controller authentication. Deliberately core-only and deliberately
+        # never forwarded: no edge has any business holding the key that
+        # authenticates to the control plane's own API.
         "BLITZE_API_KEY",
         "BLITZE_API_KEYS",
     }
-    - MACHINE_SPECIFIC_ENVIRONMENT_KEYS
 )
+
+
+def is_portable_environment_key(name: str) -> bool:
+    """Whether this environment setting survives a restore onto a fresh host.
+
+    A predicate rather than the allow-list it replaces, because the list can no
+    longer be written down: an optional capability owns its own `BLITZE_*`
+    names, and a controller may have capabilities installed that this
+    repository has never heard of. Naming `BLITZE_MAXMIND_LICENSE_KEY` here to
+    keep it portable would put a capability's name back in core to answer a
+    question core can answer generically — everything but the handful of
+    settings that describe *this machine* is portable.
+    """
+    return name.startswith("BLITZE_") and name not in MACHINE_SPECIFIC_ENVIRONMENT_KEYS
 
 
 class Settings(BaseSettings):
@@ -168,9 +190,10 @@ class Settings(BaseSettings):
     #: archives here hold private keys and the whole audit trail, so the
     #: directory is created `0700` and each archive `0600`.
     backup_dir: Path
-    acme_challenge_playbook_path: Path
-    cache_purge_playbook_path: Path
-    stats_playbook_path: Path
+    #: The plays core itself owns. A capability's play is not here: it ships
+    #: inside that capability's wheel and reaches ``run_playbook`` as a path
+    #: the package resolved for itself, so detaching the package takes the
+    #: play with it and leaves no setting behind pointing at nothing.
     origin_check_playbook_path: Path
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
@@ -213,26 +236,27 @@ class Settings(BaseSettings):
     #:
     #: Empty by default: a fresh install requires no optional capability.
     required_capabilities: tuple[str, ...] = ()
-    #: MaxMind credentials for the edge GeoLite2 download, forwarded to Ansible
-    #: as environment variables rather than extra-vars.
+    #: Every `BLITZE_*` variable this controller was configured with that core
+    #: itself does not consume, forwarded into the Ansible subprocess.
     #:
-    #: They live here so they can be set in `.env` alongside everything else an
-    #: operator configures, instead of having to be exported into the shell
-    #: before every deploy. `AnsibleRunner` puts them in the subprocess
-    #: environment and `group_vars` reads them with `lookup('env', ...)`, which
-    #: keeps the key off the command line — `--extra-vars` would put it in the
-    #: process table for every user on the controller — and out of any file the
-    #: control plane writes.
-    maxmind_account_id: str = ""
-    #: `SecretStr` so a traceback or a debugger that reprs `Settings` prints
-    #: `**********`. It is a MaxMind account credential, not a database token,
-    #: and like the API keys it is readable from the environment only — never
-    #: from the committed `blitzecdn.toml`.
-    maxmind_license_key: SecretStr = SecretStr("")
-    #: Fleet-wide HMAC key for stateless Under Attack Mode challenges and
-    #: clearance cookies. Environment-only so it never enters TOML, desired
-    #: state, the settings database, or an Ansible command line.
-    under_attack_secret: SecretStr = SecretStr("")
+    #: The generic answer to "an optional capability needs a credential". A
+    #: MaxMind license key and an Under Attack signing secret used to be fields
+    #: on this model, which meant core carried the name of a capability that
+    #: may not be installed — and a package this repository has never heard of
+    #: had no way to be configured at all. Now core carries neither name: it
+    #: forwards what it was given and the owning package's role reads its own
+    #: key with `lookup('env', ...)`.
+    #:
+    #: `SecretStr` because core cannot know which of these are credentials, and
+    #: the safe assumption for a value it cannot interpret is that it is one:
+    #: a traceback or a debugger that reprs `Settings` prints `**********`.
+    #: Environment-only, like the API keys — `_read_project_config` refuses an
+    #: unknown key, so none of these can come from the committed TOML.
+    #:
+    #: Core's own names are excluded, which keeps `BLITZE_API_KEY` and
+    #: `BLITZE_API_KEYS` — controller authentication, no edge's business — out
+    #: of every subprocess the control plane starts.
+    capability_environment: dict[str, SecretStr] = Field(default_factory=dict)
     #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
@@ -297,9 +321,6 @@ class Settings(BaseSettings):
         "certificate_dir",
         "environment_path",
         "backup_dir",
-        "acme_challenge_playbook_path",
-        "cache_purge_playbook_path",
-        "stats_playbook_path",
         "origin_check_playbook_path",
         "decommission_playbook_path",
         mode="before",
@@ -349,16 +370,6 @@ class Settings(BaseSettings):
             )
         return candidate
 
-    @field_validator("under_attack_secret")
-    @classmethod
-    def validate_under_attack_secret(cls, value: SecretStr) -> SecretStr:
-        secret = value.get_secret_value()
-        if secret and len(secret.encode("utf-8")) < 32:
-            raise ValueError(
-                "BLITZE_UNDER_ATTACK_SECRET must contain at least 32 bytes"
-            )
-        return value
-
     @classmethod
     def from_environment(
         cls,
@@ -407,12 +418,8 @@ class Settings(BaseSettings):
             "ansible_dir": root / "ansible",
             "inventory_path": root / "ansible/inventory/blitzecdn.yml",
             "playbook_path": root / "ansible/playbooks/edge.yml",
-            "cache_purge_playbook_path": root / "ansible/playbooks/cache-purge.yml",
-            "stats_playbook_path": root / "ansible/playbooks/stats.yml",
             "origin_check_playbook_path": root / "ansible/playbooks/origin-check.yml",
             "decommission_playbook_path": root / "ansible/playbooks/decommission.yml",
-            "acme_challenge_playbook_path": root
-            / "ansible/playbooks/acme-challenge.yml",
             "generated_vars_path": state / "desired-state.yml",
             "deployment_lock_path": state / "deployment.lock",
             "certificate_dir": state / "certificates",
@@ -442,11 +449,7 @@ class Settings(BaseSettings):
             required_capabilities=cls._read_capabilities(
                 value("BLITZE_REQUIRED_CAPABILITIES", "required_capabilities", ())
             ),
-            # Secrets are intentionally environment-only; committed TOML keys
-            # with either name remain rejected by `_read_project_config`.
-            maxmind_account_id=env.get("BLITZE_MAXMIND_ACCOUNT_ID", ""),
-            maxmind_license_key=SecretStr(env.get("BLITZE_MAXMIND_LICENSE_KEY", "")),
-            under_attack_secret=SecretStr(env.get("BLITZE_UNDER_ATTACK_SECRET", "")),
+            capability_environment=cls._read_capability_environment(env),
             api_keys=cls._read_api_keys(env),
         )
         return values
@@ -551,6 +554,27 @@ class Settings(BaseSettings):
                 ) from exc
             servers.append(part)
         return tuple(servers)
+
+    @staticmethod
+    def _read_capability_environment(env: Mapping[str, str]) -> dict[str, SecretStr]:
+        """The `BLITZE_*` variables core does not consume, kept for Ansible.
+
+        Read from the *merged* environment, so a value in the controller's
+        `.env` reaches a deploy without an operator having to export it into
+        every shell — which is the whole reason this is collected here rather
+        than left to `os.environ` in the executor.
+
+        Nothing interprets these. Core does not know which capability owns
+        which name, whether a name is a credential or a tuning value, or
+        whether the package that reads it is installed at all, and that is the
+        property worth keeping: adding a capability with its own setting
+        requires no edit here.
+        """
+        return {
+            name: SecretStr(value)
+            for name, value in sorted(env.items())
+            if name.startswith("BLITZE_") and name not in _CORE_ENVIRONMENT_KEYS
+        }
 
     @staticmethod
     def _read_api_keys(env: Mapping[str, str]) -> dict[str, SecretStr]:

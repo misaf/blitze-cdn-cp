@@ -181,83 +181,22 @@ def test_role_accepts_only_immutable_managed_certificate_destinations(
     assert "Invalid CDN site" in rejected.stdout
 
 
-def test_role_refuses_country_rules_without_geoip(desired_state, tmp_path):
-    """The deploy must stop, and say which variable turns the feature on."""
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {"firewall": {"denied_countries": ["RU"]}}
-
-    result = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=False)
-
-    assert result.returncode != 0
-    assert "blitzecdn_edge_geoip_enabled" in result.stdout
-
-    allowed = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=True)
-    assert allowed.returncode == 0, allowed.stdout
-
-
-def test_role_refuses_the_country_header_without_geoip(desired_state, tmp_path):
-    """`ip_country` must fail the deploy, not be quietly dropped.
-
-    An origin cannot tell a header that was never sent from a visitor whose
-    country the database could not place, so omitting BZ-IPCountry would hand
-    it a wrong answer rather than no answer. Country firewall rules already
-    stop the deploy for the same reason; this shares their assertion.
-    """
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {
-        "visitor_headers": {"connecting_ip": True, "ip_country": True}
-    }
-
-    result = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=False)
-
-    assert result.returncode != 0
-    assert "blitzecdn_edge_geoip_enabled" in result.stdout
-    assert "BZ-IPCountry" in result.stdout
-
-    allowed = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=True)
-    assert allowed.returncode == 0, allowed.stdout
-
-
 def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_path):
-    """It reads the connection, not the database; GeoIP is irrelevant to it."""
+    """It reads the connection, not a database, so no capability gates it.
+
+    Kept in core although its GeoIP sibling moved: this asserts that
+    `blitzecdn_nginx` renders the header *without* consulting anything an
+    optional distribution provides, which is a statement about core's role and
+    would be untestable from a package that may not be installed.
+    """
     sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
     sites[0] = sites[0] | {
         "visitor_headers": {"connecting_ip": True, "ip_country": False}
     }
 
-    result = _run_validation(sites, tmp_path, blitzecdn_edge_geoip_enabled=False)
+    result = _run_validation(sites, tmp_path)
 
     assert result.returncode == 0, result.stdout
-
-
-def test_role_refuses_under_attack_mode_without_capability_or_secret(
-    desired_state, tmp_path
-):
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {"under_attack_mode": True}
-
-    unsupported = _run_validation(
-        sites, tmp_path, blitzecdn_nginx_under_attack_enabled=False
-    )
-    assert unsupported.returncode != 0
-    assert "blitzecdn_nginx_under_attack_enabled is false" in unsupported.stdout
-
-    missing_secret = _run_validation(
-        sites,
-        tmp_path,
-        blitzecdn_nginx_under_attack_enabled=True,
-        blitzecdn_nginx_under_attack_secret="",
-    )
-    assert missing_secret.returncode != 0
-    assert "BLITZE_UNDER_ATTACK_SECRET" in missing_secret.stdout
-
-    supported = _run_validation(
-        sites,
-        tmp_path,
-        blitzecdn_nginx_under_attack_enabled=True,
-        blitzecdn_nginx_under_attack_secret="s" * 32,
-    )
-    assert supported.returncode == 0, supported.stdout
 
 
 def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp_path):
@@ -289,125 +228,17 @@ def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):
     assert "Invalid CDN site" in result.stdout
 
 
-def test_maxmind_credentials_never_reach_an_nginx_config():
-    """The license key belongs in one 0600 file and nowhere else.
-
-    /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only
-    the database path. A key that leaked into a template here would be
-    disclosed to every account on the edge.
-    """
-    environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
-        undefined=jinja2.StrictUndefined,
-        keep_trailing_newline=True,
-    )
-    environment.filters["dirname"] = os.path.dirname
-    # The credentials are blitzecdn_edge_stack's — the role that runs the
-    # updater — and are handed in here only to prove they cannot reach a
-    # template that never had any business with them.
-    context = _role_defaults(blitzecdn_edge_geoip_enabled=True) | {
-        "blitzecdn_edge_stack_geoip_account_id": "123456",
-        "blitzecdn_edge_stack_geoip_license_key": "SENTINELKEY",
-    }
-    nginx_side = environment.get_template("geoip.conf.j2").render(**context)
-    assert "SENTINELKEY" not in nginx_side
-    assert "123456" not in nginx_side
-    assert context["blitzecdn_edge_runtime"]["geoip"]["database"] in nginx_side
-
-    # …and it does reach the file that is supposed to carry it. The updater is
-    # a container now, so the credential travels as a 0600 env_file rather than
-    # a geoipupdate(8) configuration — and never through the Compose file, where
-    # `docker inspect` would hand it to anyone who can talk to the engine.
-    stack = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(STACK_ROLE_DIR / "templates"),
-        undefined=jinja2.StrictUndefined,
-        keep_trailing_newline=True,
-    )
-    credentials = stack.get_template("geoipupdate.env.j2").render(
-        blitzecdn_edge_stack_geoip_account_id="123456",
-        blitzecdn_edge_stack_geoip_license_key="SENTINELKEY",
-    )
-    assert "GEOIPUPDATE_LICENSE_KEY=SENTINELKEY" in credentials
-
-    compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
-    assert "GEOIPUPDATE_LICENSE_KEY" not in compose
-    assert "blitzecdn_edge_stack_geoip_license_key" not in compose
-
-
-def test_the_credentials_file_is_written_private_and_unlogged():
-    """Mode and no_log are the whole protection; assert them, not the intent."""
-    tasks = yaml.safe_load(
-        (STACK_ROLE_DIR / "tasks/geoip-credentials.yml").read_text(encoding="utf-8")
-    )
-
-    def walk(items):
-        for task in items:
-            yield task
-            for key in ("block", "rescue", "always"):
-                if key in task:
-                    yield from walk(task[key])
-
-    writer = next(
-        task
-        for task in walk(tasks)
-        if task.get("ansible.builtin.template", {}).get("src") == "geoipupdate.env.j2"
-    )
-    assert writer["ansible.builtin.template"]["mode"] == "0600"
-    assert writer["ansible.builtin.template"]["owner"] == "root"
-    assert writer["no_log"] is True
-
-
-def test_under_attack_secret_file_is_private_and_unlogged():
-    tasks = yaml.safe_load((ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8"))
-    writer = next(
-        task
-        for task in tasks
-        if task.get("ansible.builtin.template", {}).get("src") == "under-attack.js.j2"
-    )
-
-    assert writer["ansible.builtin.template"]["mode"] == "0640"
-    assert writer["ansible.builtin.template"]["owner"] == "root"
-    assert writer["ansible.builtin.template"]["group"] == "www-data"
-    assert writer["no_log"] is True
-
-    option = _role_spec()["blitzecdn_nginx_under_attack_secret"]
-    assert option["no_log"] is True
-    assert _role_defaults()["blitzecdn_nginx_under_attack_enabled"] is False
-    assert _role_defaults()["blitzecdn_nginx_under_attack_passage_seconds"] == 1800
-
-
-def test_the_stats_role_publishes_through_the_agreed_report_fact():
-    """The channel a role returns a payload on is a contract like any other.
-
-    `blitzecdn_stats` is the only role that returns data rather than an
-    outcome, and the control plane finds it by looking for one fact name. If
-    the role renamed it, every collection would come back empty with every edge
-    reporting success — the silent-no-op failure this suite exists to catch.
-    """
-    tasks = (STATS_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    adapter = (PROJECT_DIR / "src/blitzecdn/core/ansible/events.py").read_text(
-        encoding="utf-8"
-    )
-
-    assert 'get("blitzecdn_report")' in adapter, (
-        "the Runner event adapter no longer collects blitzecdn_report; the stats "
-        "role publishes it and nothing else would carry the counters back"
-    )
-    assert "blitzecdn_report:" in tasks, (
-        "blitzecdn_stats must publish its document as the blitzecdn_report "
-        "fact consumed by the Runner event adapter"
-    )
-
-
-def test_the_stats_role_no_longer_wants_a_controller_directory():
-    """Its report travels with the run, so there is no path to hand it.
-
-    A resurrected `blitzecdn_stats_output_dir` would be a required option the
-    control plane never sets, and role argument validation would fail every
-    collection.
-    """
-    spec = yaml.safe_load(
-        (STATS_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )["argument_specs"]["main"]["options"]
-
-    assert "blitzecdn_stats_output_dir" not in spec
+# Three suites that used to be here are not any more, and their absence is the
+# point rather than a gap:
+#
+#   * that the role refuses country rules and the BZ-IPCountry header without
+#     GeoIP, and that a MaxMind key never reaches an Nginx configuration —
+#     both now in `packages/blitzecdn-geoip/tests/`, executed against that
+#     distribution's own role;
+#   * that the role refuses Under Attack Mode without the challenge capability,
+#     and that the signed njs module is written 0640 under `no_log` — now in
+#     `packages/blitzecdn-security/tests/`.
+#
+# They moved with the implementation. A capability's refusal is asserted by the
+# capability that makes it, so uninstalling the distribution takes the rule,
+# the role and the test away together.

@@ -5,6 +5,7 @@ import re
 import sys
 
 from blitzecdn.cli import common
+from blitzecdn_certificates import ansible
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
 _VALIDATION = re.compile(r"^[A-Za-z0-9_.-]{1,2048}$")
@@ -26,7 +27,7 @@ def main() -> int:
     try:
         run = control.fleet.run_playbook(
             name="acme-challenge",
-            playbook=control.settings.acme_challenge_playbook_path,
+            playbook=ansible.ACME_CHALLENGE_PLAYBOOK,
             variables={
                 "blitzecdn_acme_action": action,
                 "blitzecdn_acme_domain": domain,

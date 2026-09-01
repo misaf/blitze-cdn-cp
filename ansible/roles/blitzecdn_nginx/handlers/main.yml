@@ -1,4 +1,18 @@
 ---
+# The one way anything on an edge asks for its configuration change to take
+# effect — core's own tasks and an installed capability's role alike. A
+# capability that writes a snippet into conf.d or an njs module under the
+# modules path notifies "Validate and reload Nginx" by name; Ansible registers
+# every role's handlers when the play starts, so the notification resolves even
+# though blitzecdn_capabilities runs before this role does, and handlers flush
+# at the end of the play, by which time the whole tree has been rendered.
+#
+# That last part is why the capability slot is a role in the play's `roles:`
+# list and not a pre-task: handlers flush between pre-tasks and roles, so a
+# capability notifying from there would run `nginx -t` against a tree
+# blitzecdn_nginx had not written yet, and a first converge would fail with a
+# configuration error that named nothing real.
+#
 # Validate, then reload — and reload by signalling the running container rather
 # than replacing it. A site change is a configuration deployment, not a runtime
 # upgrade: replacing the container would drop every connection in flight and

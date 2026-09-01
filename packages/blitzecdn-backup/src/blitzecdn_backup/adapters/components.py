@@ -23,8 +23,8 @@ from sqlalchemy import create_engine
 from blitzecdn.core.config import (
     MACHINE_SPECIFIC_CONFIG_KEYS,
     PORTABLE_CONFIG_KEYS,
-    PORTABLE_ENVIRONMENT_KEYS,
     Settings,
+    is_portable_environment_key,
 )
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.filesystem import atomic_write_bytes
@@ -392,7 +392,7 @@ class ConfigComponent:
             return True
         environment = self._files["env"]
         if environment.is_file() and any(
-            key in PORTABLE_ENVIRONMENT_KEYS
+            is_portable_environment_key(key)
             for key in _environment_assignments(environment.read_bytes())
         ):
             return True
@@ -421,7 +421,7 @@ class ConfigComponent:
                         {
                             key: value
                             for key, value in assignments.items()
-                            if key in PORTABLE_ENVIRONMENT_KEYS
+                            if is_portable_environment_key(key)
                         }
                     )
                 atomic_write_bytes(staging / name, payload)
@@ -457,7 +457,9 @@ class ConfigComponent:
         environment = staging / "env"
         if environment.is_file():
             keys = set(_environment_assignments(environment.read_bytes()))
-            unknown_env = sorted(keys - PORTABLE_ENVIRONMENT_KEYS)
+            unknown_env = sorted(
+                key for key in keys if not is_portable_environment_key(key)
+            )
             if unknown_env:
                 raise ConfigurationError(
                     "config/env contains non-portable keys: " + ", ".join(unknown_env)

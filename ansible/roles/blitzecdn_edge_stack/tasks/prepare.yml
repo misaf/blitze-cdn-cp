@@ -2,11 +2,11 @@
 # Everything the edge needs in place *before* its configuration is rendered.
 #
 # Split out of main.yml because the ordering is forced from two directions. The
-# GeoIP database has to exist before blitzecdn_nginx validates a configuration
-# that reads it, and the runtime image has to exist before anything can be
-# validated against it at all — but the container itself must not start until
-# the configuration is written and has passed `nginx -t`. So: this file first,
-# the Nginx role next, main.yml last.
+# runtime image has to exist before anything can be validated against it, and
+# the persistent directories before anything writes into them — but the
+# container itself must not start until the configuration is written and has
+# passed `nginx -t`. So: this file first, then the installed capabilities'
+# roles, then the Nginx role, and main.yml last.
 - name: Prepare the edge runtime
   block:
     - name: Validate the fresh edge host
@@ -40,20 +40,22 @@
         # Ubuntu gives log readers, and it is what a Phase 2 log shipper will
         # join rather than being given root.
         - {path: "{{ blitzecdn_edge_runtime.paths.logs }}", owner: www-data, group: adm, mode: "0755"}
+        # Where an installed capability leaves data the edge reads — a lookup
+        # database, a table. Created here because the container mounts it and
+        # a bind mount of a missing path becomes an empty root-owned directory;
+        # what goes in it is the contributing capability's role's business, and
+        # an installation with no such capability simply mounts it empty.
+        - {path: "{{ blitzecdn_edge_runtime.paths.data }}", mode: "0755"}
+        # The empty document root a location can dispatch through without
+        # serving a file. Created here for the same reason as the rest: the
+        # container mounts it, and Docker turns a missing bind source into an
+        # empty root-owned directory rather than failing.
+        - {path: "{{ blitzecdn_edge_runtime.paths.empty }}", mode: "0755"}
       loop_control:
         label: "{{ item.path }}"
 
     - name: Resolve the edge runtime image
       ansible.builtin.import_tasks: image.yml
 
-    # Before the Compose file, which names the credentials file the geoipupdate
-    # service reads: `docker compose config` validates the rendered project and
-    # fails on an env_file that does not exist yet.
-    - name: Provide the MaxMind credentials
-      ansible.builtin.import_tasks: geoip-credentials.yml
-
     - name: Render the Compose project
       ansible.builtin.import_tasks: compose.yml
-
-    - name: Provide the GeoLite2 database
-      ansible.builtin.import_tasks: geoip-database.yml

@@ -22,17 +22,18 @@ from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn_security.config import SECRET_VARIABLE
 
 runner = CliRunner()
 
-#: Long enough to satisfy `Settings.validate_under_attack_secret`.
+#: Long enough for this capability to sign a clearance with.
 _SECRET = SecretStr("s" * 32)
 
 _REFUSAL = (
     "security: cdn-example-com: under_attack_mode is on but "
-    "BLITZE_UNDER_ATTACK_SECRET is not set on this controller, so the edge "
-    "challenge capability cannot be enabled and the deployment would fail "
-    "on every edge."
+    f"{SECRET_VARIABLE} is not set to at least 32 bytes on this controller, so "
+    "the edge challenge capability cannot be enabled and the deployment would "
+    "fail on every edge."
 )
 
 
@@ -60,12 +61,14 @@ def _control_serving(settings, runner_stub, **patch):
 @pytest.fixture
 def unprovisioned(settings):
     """A controller with no challenge secret — the configuration under test."""
-    return settings.model_copy(update={"under_attack_secret": SecretStr("")})
+    return settings.model_copy(update={"capability_environment": {}})
 
 
 @pytest.fixture
 def provisioned(settings):
-    return settings.model_copy(update={"under_attack_secret": _SECRET})
+    return settings.model_copy(
+        update={"capability_environment": {SECRET_VARIABLE: _SECRET}}
+    )
 
 
 def test_invalid_security_configuration_is_rejected_before_ansible_runs(unprovisioned):

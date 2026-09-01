@@ -1,8 +1,8 @@
 // Managed by BlitzeCDN. Contains an edge secret; keep this file root-owned.
 import crypto from 'crypto';
 
-const SECRET = {{ blitzecdn_nginx_under_attack_secret | to_json }};
-const PASSAGE_SECONDS = {{ blitzecdn_nginx_under_attack_passage_seconds | int }};
+const SECRET = {{ blitzecdn_security_under_attack_secret | to_json }};
+const PASSAGE_SECONDS = {{ blitzecdn_security_under_attack_passage_seconds | int }};
 const CHALLENGE_SECONDS = 300;
 const MAX_TARGET_BYTES = 4096;
 const MAX_TOKEN_BYTES = 6144;

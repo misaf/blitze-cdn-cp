@@ -35,12 +35,6 @@ blitzecdn_edge_stack_image_pull: true
 blitzecdn_edge_stack_image_reference: >-
   {{ blitzecdn_edge_runtime.image | regex_replace('(@sha256:[0-9a-f]+|:[^/:]+)$', '') }}
 
-# MaxMind's own updater, pinned by tag and digest. Never built here: it is one
-# statically linked Go binary whose whole job is talking to MaxMind, and
-# rebuilding it would only add a supply chain BlitzeCDN would then have to own.
-blitzecdn_edge_stack_geoipupdate_image: >-
-  ghcr.io/maxmind/geoipupdate:v7.1.1@sha256:faecdca22579730ab0b7dea5aa9af350bb3c93cb9d39845c173639ead30346d2
-
 # --- project layout ------------------------------------------------------
 #
 # The container name and every host directory the container mounts are
@@ -87,51 +81,3 @@ blitzecdn_edge_stack_stop_grace_period: 30s
 # nginx role reloads instead, and only an image change recreates. Set true for a
 # deliberate `docker compose up --force-recreate`, never as routine policy.
 blitzecdn_edge_stack_recreate: false
-
-# --- GeoIP ---------------------------------------------------------------
-#
-# The updater is a container; its *schedule* is a host responsibility, for the
-# same reason the firewall and the kernel are. A systemd timer with a calendar
-# and a randomised delay is what keeps a fleet from arriving at MaxMind on the
-# same second, and Compose has no equivalent — the alternative, a long-running
-# container sleeping between updates, restarts its interval every time the stack
-# is converged and drifts a little further from the publication window each time.
-#
-# Whether GeoIP is on at all, which database file, and which edition are the
-# contract's: blitzecdn_nginx renders a lookup that reads the same file this
-# role provisions. The credentials and the schedule are this role's own — it
-# owns the updater container and the timer that runs it, and blitzecdn_nginx
-# never reads either. They lived in blitzecdn_nginx's defaults purely because
-# this role used to read that role's variables.
-#
-# The key is a secret. Do not commit it: set it from the controller's
-# environment in group_vars, e.g.
-#
-#   blitzecdn_edge_stack_geoip_license_key: "{{ lookup('env', 'MAXMIND_LICENSE_KEY') }}"
-#
-# It is written to the env file below as root:root mode 0600 and supplied only
-# to the updater container. Every task that handles it sets no_log.
-blitzecdn_edge_stack_geoip_account_id: ""
-blitzecdn_edge_stack_geoip_license_key: ""
-# Country is all the firewall rules need, and only the updater cares which
-# edition it downloads — blitzecdn_nginx reads the resulting file, by path.
-# GeoLite2-City is far larger and buys nothing here.
-blitzecdn_edge_stack_geoip_edition: GeoLite2-Country
-# MaxMind publishes GeoLite2 twice a week and rate-limits downloads, so the
-# converge fetches only when the database is missing and leaves refreshes to
-# the timer this role installs. nginx picks up a replaced file via
-# `auto_reload`, with no reload.
-blitzecdn_edge_stack_geoip_update_enabled: true
-blitzecdn_edge_stack_geoip_update_calendar: Wed,Sat 03:00
-# Spreads a fleet's downloads across the morning instead of having every edge
-# hit MaxMind on the same second.
-blitzecdn_edge_stack_geoip_update_splay: 3h
-# 0600 root: the license key authenticates to a MaxMind account, so it is a
-# credential and not a database identifier. It reaches the container as an
-# env_file rather than an `environment:` entry, so it never appears in
-# `docker inspect`, in the compose file, or in this repository.
-blitzecdn_edge_stack_geoip_env_file: >-
-  {{ blitzecdn_edge_runtime.paths.state }}/geoipupdate.env
-blitzecdn_edge_stack_geoip_units:
-  - blitzecdn-geoipupdate.service
-  - blitzecdn-geoipupdate.timer

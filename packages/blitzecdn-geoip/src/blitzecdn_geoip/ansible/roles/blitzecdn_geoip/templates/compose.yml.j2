@@ -1,0 +1,34 @@
+# Managed by BlitzeCDN. Local edits are overwritten.
+#
+# The GeoIP updater, in a Compose project of its own rather than a profile
+# inside the edge's. It is a one-shot that talks to MaxMind and nothing local:
+# it shares no network, no lifecycle and no restart policy with the process
+# serving traffic, and keeping it here means core's Compose template carries no
+# service that exists only because this distribution is installed.
+name: {{ blitzecdn_geoip_project }}
+
+services:
+  geoipupdate:
+    container_name: blitzecdn-geoipupdate
+    image: {{ blitzecdn_geoip_updater_image }}
+    # It runs, replaces the database, and exits. The schedule is a systemd
+    # timer on the host, which is what gives a fleet a calendar and a
+    # randomised delay instead of every edge waking on the same second.
+    restart: "no"
+    # Default bridge networking, not host: this talks to MaxMind and nothing
+    # local, and it has no reason to see the edge's listeners.
+    env_file:
+      - {{ blitzecdn_geoip_env_file }}
+    environment:
+      GEOIPUPDATE_EDITION_IDS: "{{ blitzecdn_geoip_edition }}"
+      GEOIPUPDATE_DB_DIR: "{{ blitzecdn_geoip_directory }}"
+      # One shot. The frequency loop is the container's alternative scheduler
+      # and would drift a little further from MaxMind's publication window on
+      # every converge.
+      GEOIPUPDATE_FREQUENCY: "0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    volumes:
+      - {{ blitzecdn_geoip_directory }}:{{ blitzecdn_geoip_directory }}:rw

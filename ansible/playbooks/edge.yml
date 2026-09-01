@@ -39,8 +39,8 @@
       tags: [always]
     # Establishes and validates the shared edge runtime contract: the host
     # paths, the public listener sets, the status endpoint, the runtime image
-    # and the GeoIP database that blitzecdn_nginx, blitzecdn_edge_stack and
-    # blitzecdn_firewall all converge against. First, and before anything on
+    # and the capability data directory that blitzecdn_nginx,
+    # blitzecdn_edge_stack and blitzecdn_firewall all converge against. First, and before anything on
     # the host changes, so a contract no edge could serve fails a play that has
     # not yet touched the machine.
     #
@@ -54,7 +54,7 @@
       tags: [always, firewall, nginx, edge_stack]
     # The container engine, and then everything the edge runtime needs to exist
     # before a configuration is rendered: the persistent directories, the
-    # runtime image, the Compose project and the GeoLite2 database.
+    # runtime image and the Compose project.
     #
     # Both run before the firewall: opening the public ports on a host that
     # cannot serve them advertises an edge that is not there. The container
@@ -89,6 +89,21 @@
       tags: [base, resolver]
     - role: blitzecdn_kernel
       tags: [kernel]
+    # Every installed capability's own edge role, in one slot.
+    #
+    # The control plane composes the list from the plugins it discovered —
+    # `blitzecdn_capability_roles` arrives as an extra-var on every run — so
+    # this play names no capability and needs no edit when one is attached or
+    # detached. An installation with none runs nothing here.
+    #
+    # The position is the contract. After the pre-tasks above, because a
+    # capability role may need the container engine, the runtime image or the
+    # persistent directories they establish; and before blitzecdn_firewall and
+    # blitzecdn_nginx, because what a capability puts on an edge is something
+    # the rendered configuration then depends on, and blitzecdn_nginx proves
+    # the whole tree loads before the edge serves from it.
+    - role: blitzecdn_capabilities
+      tags: [capabilities, nginx]
     - role: blitzecdn_firewall
       tags: [firewall]
     # Renders the whole configuration tree onto the host filesystem and proves

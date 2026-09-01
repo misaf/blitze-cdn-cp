@@ -6,32 +6,6 @@
   ansible.builtin.import_tasks: verify-runtime.yml
   when: not (blitzecdn_nginx_stack_ready | default(false) | bool)
 
-# The GeoLite2 database itself is provided by blitzecdn_edge_stack, whose
-# prepare tasks run before this role: the updater is a container now, so
-# fetching the database needs the Compose project that defines it. This role
-# still owns the *decision* — the assertion below refuses to converge an edge
-# whose configuration reads a database that is not there.
-# Without the file nginx fails to start — not merely to reload — so catching it
-# here keeps the failure inside the deploy rather than at the next reboot.
-- name: Inspect the GeoIP database
-  ansible.builtin.stat:
-    path: "{{ blitzecdn_edge_runtime.geoip.database }}"
-  register: blitzecdn_nginx_geoip_db
-  when: blitzecdn_edge_runtime.geoip.enabled
-
-- name: Require the GeoIP database to be present
-  ansible.builtin.assert:
-    that:
-      - blitzecdn_nginx_geoip_db.stat.exists or ansible_check_mode
-    fail_msg: >-
-      The edge runtime enables GeoIP but there is no database at
-      {{ blitzecdn_edge_runtime.geoip.database }}. Either the edge-stack
-      updater could not provision GeoLite2 — check the MaxMind account ID and
-      license key, and that this edge can reach updates.maxmind.com — or no
-      credentials were configured and no database was placed there by hand.
-      Country rules and the BZ-IPCountry header cannot be served without it.
-  when: blitzecdn_edge_runtime.geoip.enabled
-
 - name: Create cache directory
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_runtime.paths.cache }}"
@@ -117,73 +91,6 @@
     owner: root
     group: root
     mode: "0644"
-  notify: Validate and reload Nginx
-
-- name: Create Under Attack Mode runtime directories
-  ansible.builtin.file:
-    path: "{{ item.path }}"
-    state: directory
-    owner: root
-    group: "{{ item.group }}"
-    mode: "{{ item.mode }}"
-  loop:
-    - path: "{{ blitzecdn_nginx_under_attack_js_file | dirname }}"
-      group: www-data
-      mode: "0750"
-    - path: "{{ blitzecdn_edge_runtime.paths.empty }}"
-      group: root
-      mode: "0755"
-  when: blitzecdn_nginx_under_attack_enabled
-
-- name: Install the Under Attack Mode njs implementation
-  ansible.builtin.template:
-    src: under-attack.js.j2
-    dest: "{{ blitzecdn_nginx_under_attack_js_file }}"
-    owner: root
-    group: www-data
-    mode: "0640"
-  when: blitzecdn_nginx_under_attack_enabled
-  no_log: true
-  notify: Validate and reload Nginx
-
-- name: Configure the Under Attack Mode njs module
-  ansible.builtin.template:
-    src: under-attack.conf.j2
-    dest: "{{ blitzecdn_nginx_under_attack_conf_file }}"
-    owner: root
-    group: root
-    mode: "0644"
-  when: blitzecdn_nginx_under_attack_enabled
-  notify: Validate and reload Nginx
-
-- name: Withdraw the Under Attack Mode njs module
-  ansible.builtin.file:
-    path: "{{ item }}"
-    state: absent
-  loop:
-    - "{{ blitzecdn_nginx_under_attack_conf_file }}"
-    - "{{ blitzecdn_nginx_under_attack_js_file }}"
-  when: not blitzecdn_nginx_under_attack_enabled
-  notify: Validate and reload Nginx
-
-# Defines $blitzecdn_country in the http context. Written before the sites that
-# test it, and withdrawn only once no site needs it — the assertion above is
-# what guarantees the two cannot be out of step in the dangerous direction.
-- name: Configure the GeoIP country lookup
-  ansible.builtin.template:
-    src: geoip.conf.j2
-    dest: "{{ blitzecdn_nginx_geoip_file }}"
-    owner: root
-    group: root
-    mode: "0644"
-  when: blitzecdn_edge_runtime.geoip.enabled
-  notify: Validate and reload Nginx
-
-- name: Withdraw the GeoIP country lookup
-  ansible.builtin.file:
-    path: "{{ blitzecdn_nginx_geoip_file }}"
-    state: absent
-  when: not blitzecdn_edge_runtime.geoip.enabled
   notify: Validate and reload Nginx
 
 # Part of the edge runtime contract, so it is always rendered, and rendered

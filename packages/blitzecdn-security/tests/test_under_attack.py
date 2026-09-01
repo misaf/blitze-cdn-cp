@@ -6,9 +6,9 @@ lives. What core keeps — the `under_attack_mode` switch and the firewall rule
 contract that a detached controller must still be able to read back — is
 asserted beside the contract, in `tests/features/security/test_security_policy.py`.
 
-The template belongs to the `blitzecdn_nginx` role, which is core's: Ansible is
-the authoritative deployment mechanism and no wheel ships roles. Owning the
-capability means owning the *assertion* about what the role renders for it.
+The template belongs to the `blitzecdn_security` role, which ships inside this
+wheel beside the plugin that declares the capability — so the module under test
+here is read from the same path a deployment resolves it by.
 """
 
 from __future__ import annotations
@@ -19,19 +19,21 @@ import subprocess
 from pathlib import Path
 
 import jinja2
-from contract_support import ROLE_DIR
+from blitzecdn_security import ansible
+
+TEMPLATES = ansible.ROLES_PATH / ansible.EDGE_ROLE / "templates"
 
 
 def _render_module() -> str:
     environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
+        loader=jinja2.FileSystemLoader(TEMPLATES),
         undefined=jinja2.StrictUndefined,
         autoescape=jinja2.select_autoescape(disabled_extensions=("j2",)),
     )
     environment.filters["to_json"] = json.dumps
     return environment.get_template("under-attack.js.j2").render(
-        blitzecdn_nginx_under_attack_secret="edge-test-secret-" + "x" * 32,
-        blitzecdn_nginx_under_attack_passage_seconds=1800,
+        blitzecdn_security_under_attack_secret="edge-test-secret-" + "x" * 32,
+        blitzecdn_security_under_attack_passage_seconds=1800,
     )
 
 

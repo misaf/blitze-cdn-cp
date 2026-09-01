@@ -46,8 +46,9 @@ jobs:
       # the justfile is a gate this workflow picks up without a second edit,
       # and a contributor running `just check` locally runs this pipeline.
       #
-      # Every BlitzeCDN role lives in ansible/roles/ and is checked out with
-      # this repository, so only third-party dependencies are installed here.
+      # Every BlitzeCDN role is checked out with this repository — core's in
+      # ansible/roles/ and each optional capability's inside its own package —
+      # so only third-party collections are installed here.
       - name: Install project and collection dependencies
         run: just install
       - name: Lockfile is current

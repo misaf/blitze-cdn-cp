@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import shutil
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 from blitzecdn.core.ansible.execution import PlaybookExecutor
@@ -38,10 +38,24 @@ class AnsibleRunner:
     the only place that knows one object satisfies all of them.
     """
 
-    def __init__(self, settings: Settings, edges: EdgeStore) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        edges: EdgeStore,
+        roles_path: Sequence[Path] | None = None,
+        capability_roles: Sequence[str] = (),
+    ) -> None:
         self._settings = settings
         self._edges = edges
-        self._executor = PlaybookExecutor(settings)
+        # Core's roles alone, and no capability roles, when nobody says
+        # otherwise. The composition root resolves both from the installed
+        # plugins and passes them; a test that only runs core's plays needs
+        # neither the registry nor a plugin manager to build a runner.
+        self._executor = PlaybookExecutor(
+            settings,
+            roles_path if roles_path is not None else (settings.ansible_dir / "roles",),
+            capability_roles,
+        )
 
     def lock(self) -> DeploymentLock:
         return DeploymentLock(self._settings.deployment_lock_path)
@@ -78,32 +92,6 @@ class AnsibleRunner:
             check=check,
             targeted=targeted_hosts(self._edges, limit),
         )
-
-    def run_acme_challenge(
-        self, *, action: str, domain: str, token: str, validation: str = ""
-    ) -> AnsibleRun:
-        self._validate_paths()
-        playbook = self._settings.acme_challenge_playbook_path
-        if not playbook.is_file():
-            raise ConfigurationError(
-                f"ACME challenge playbook does not exist: {playbook}"
-            )
-        with run_variables(
-            self._settings.run_dir,
-            "acme-challenge",
-            {
-                "blitzecdn_acme_action": action,
-                "blitzecdn_acme_domain": domain,
-                "blitzecdn_acme_token": token,
-                "blitzecdn_acme_validation": validation,
-            },
-        ) as variables:
-            return self._executor.execute(
-                playbook=playbook,
-                variables=variables,
-                limit=self._limit(None),
-                timeout=_PARSE_TIMEOUT,
-            )
 
     def run_origin_check(
         self, *, sites: list[dict[str, object]], host_limit: str | None = None

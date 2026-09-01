@@ -201,7 +201,7 @@ a typed attribute read once, at registration.
 
 ## The hooks
 
-Ten, all prefixed `blitzecdn_`. A hook whose contribution is static takes no
+Eleven, all prefixed `blitzecdn_`. A hook whose contribution is static takes no
 arguments; every other hook takes `platform`, the built control plane.
 
 | hook | arguments | returns |
@@ -209,6 +209,7 @@ arguments; every other hook takes `platform`, the built control plane.
 | `blitzecdn_plugin_metadata` | – | `PluginMetadata` (required of every plugin) |
 | `blitzecdn_api_routers` | – | `Sequence[APIRouter]` |
 | `blitzecdn_cli_commands` | – | `Sequence[CliCommandGroup]` |
+| `blitzecdn_ansible_contributions` | – | `Sequence[AnsibleContribution]` |
 | `blitzecdn_health_checks` | `platform` | `Sequence[HealthCheck]` |
 | `blitzecdn_scheduled_jobs` | `platform` | `Sequence[ScheduledJob]` |
 | `blitzecdn_site_desired_state` | `site`, `platform` | `SiteStateContribution \| None` |
@@ -372,11 +373,11 @@ from blitzecdn.core.plugins import (
     ValidationIssue,
     hookimpl,
 )
-from blitzecdn.core.config import Settings          # configuration
+from blitzecdn.core.config import Settings  # configuration
 from blitzecdn.core.operation_ports import PlaybookRunner  # ports it is handed
-from blitzecdn.api.operations import OperationModel # to build a router
-from blitzecdn.cli.common import ExitCode           # to build a command
-from blitzecdn.features.sites import CdnSite        # a public capability contract
+from blitzecdn.api.operations import OperationModel  # to build a router
+from blitzecdn.cli.common import ExitCode  # to build a command
+from blitzecdn.features.sites import CdnSite  # a public capability contract
 ```
 
 and never:
@@ -405,8 +406,8 @@ own `composition.py`, from what the control plane publishes:
 ```python
 def build_cache_service(platform: ControlPlane) -> CacheService:
     return CacheService(
-        sites=platform.sites,     # the read side of the site model, as a port
-        events=platform.events,   # the domain-event recorder
+        sites=platform.sites,  # the read side of the site model, as a port
+        events=platform.events,  # the domain-event recorder
         runner=CachePlaybooks(platform.settings, platform.fleet),
     )
 ```
@@ -675,14 +676,55 @@ define an install/upgrade/uninstall policy first — and uninstalling must never
 destroy its data. Do not build a general migration framework for a hypothetical
 one.
 
-### Ansible stays where it is
+### Ansible ownership follows capability ownership
 
-Ansible remains the provisioning authority. Playbooks, Nginx templates,
-certificate-file deployment, module/runtime probes, firewall application, and
-edge roles remain in the control plane's Ansible tree. Detaching a Python
-package removes availability, validation, or operational contributions, never
-the role that realizes stable desired state. There is no runtime downloading of
-roles from plugin packages.
+Ansible remains the provisioning authority. What changed is *whose* tree a role
+lives in.
+
+Core owns the platform: the base host, the kernel and resolver, Docker, SSH and
+Fail2Ban, the firewall, the shared edge runtime contract, the edge stack, and
+`blitzecdn_nginx` — the role that renders a site's whole configuration from the
+merged desired-state document. Those are not one capability's implementation.
+`blitzecdn_nginx` in particular renders whatever the document contains, so an
+absent capability contributes no variables and its block simply is not there;
+splitting the template per capability would mean concatenating configuration
+text through a hook, which this architecture does not do.
+
+An optional capability owns the roles and plays that exist *because* it is
+installed. `blitzecdn-cache` ships `blitzecdn_cache` and `blitzecdn_stats`
+inside its wheel, with the two plays that run them; `blitzecdn-certificates`
+ships the ACME challenge play. A package locates its own files with
+`importlib.resources` — never a repository-relative path, a working directory,
+or an editable checkout — and answers `blitzecdn_ansible_contributions` with the
+directory its roles landed in:
+
+```python
+@hookimpl
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    return (AnsibleContribution(plugin="cache", roles_path=ansible.ROLES_PATH),)
+```
+
+`AnsibleContribution` carries a plugin name and a roles directory, and nothing
+else. The search path is the one Ansible input that is global — one
+process-wide list every play resolves a role name against — so core has to
+compose it, and `blitzecdn.core.ansible.roles.resolve_role_search_path` is the
+whole of that composition: core's directory first, then the contributions
+sorted by plugin name. Deterministic, so two installations with the same
+packages resolve every role identically; and a role name two contributors both
+ship is refused with both names rather than silently shadowed, because Ansible
+takes the first match and a package shipping `blitzecdn_nginx` would replace
+the edge's configuration renderer while the deployment reported success.
+
+A *play* is not global and is therefore not in the contract: the package that
+owns one passes its path to `PlaybookRunner.run_playbook`, which is why core no
+longer has a `cache_purge_playbook_path`, a `stats_playbook_path` or an
+`acme_challenge_playbook_path` setting to point at a file a detached package
+took with it.
+
+Nothing is copied or staged. The package's installed directory *is* the role,
+so an upgraded package is converged from on the next run rather than from a
+snapshot taken at some earlier install. There is still no runtime downloading
+of roles: the wheel carried them.
 
 ## Adding an optional capability
 
@@ -695,11 +737,16 @@ roles from plugin packages.
 3. Write `src/blitzecdn_<name>/plugin.py` with
    `blitzecdn_plugin_metadata` (`required=False`, `provides={...}`) and the
    hooks it contributes through, and `composition.py` if it needs a service.
-4. Put its tests in `packages/blitzecdn-<name>/tests/`.
-5. Add the extra to `[project.optional-dependencies]` in the root
+4. If it owns Ansible, put it in `src/blitzecdn_<name>/ansible/` — `roles/` for
+   roles, `playbooks/` for plays — locate it with `importlib.resources`, and
+   contribute `roles/` through `blitzecdn_ansible_contributions`. Add the roles
+   directory to `roles_path` in the justfile so the checkout's lint and syntax
+   gates see it too.
+5. Put its tests in `packages/blitzecdn-<name>/tests/`.
+6. Add the extra to `[project.optional-dependencies]` in the root
    `pyproject.toml`, the workspace source to `[tool.uv.sources]`, and the test
    path to `testpaths`.
-6. `uv lock && uv sync --all-packages`.
+7. `uv lock && uv sync --all-packages`.
 
 Nothing in `src/blitzecdn/` changes. There is no step that registers it.
 

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from fastapi import APIRouter
 from typer import Typer
 
 from blitzecdn.core.plugins import (
+    AnsibleContribution,
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
@@ -45,6 +47,22 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     return (CliCommandGroup(name="waf", app=commands),)
+
+
+@hookimpl
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    """Where this distribution's own roles live.
+
+    A real package answers this with `importlib.resources`; the fixture is a
+    directory in the tree because there is no wheel here to resolve. What is
+    being demonstrated is the same either way: the plugin reports where its
+    files are and core adds them to the search path.
+    """
+    return (
+        AnsibleContribution(
+            plugin="waf", roles_path=Path(__file__).parent / "ansible" / "roles"
+        ),
+    )
 
 
 @hookimpl

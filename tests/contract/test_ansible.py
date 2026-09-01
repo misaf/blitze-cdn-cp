@@ -338,28 +338,6 @@ def test_real_ansible_runner_produces_structured_events(settings, tmp_path):
     assert run.hosts[0].succeeded is True
 
 
-def test_runner_builds_acme_challenge_command(settings, monkeypatch):
-    settings.acme_challenge_playbook_path.write_text(
-        "- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8"
-    )
-    captured = []
-
-    def fake_run(**kwargs):
-        captured.extend(_runner_command(kwargs))
-        return _runner_result(kwargs)
-
-    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    result = ansible.AnsibleRunner(settings, FakeEdgeStore()).run_acme_challenge(
-        action="present",
-        domain="cdn.example.com",
-        token="safe_token",  # noqa: S106 -- public ACME challenge token
-        validation="safe.validation",
-    )
-    assert result.status is RunStatus.SUCCEEDED
-    assert str(settings.acme_challenge_playbook_path) in captured
-    assert "safe_token" not in captured
-
-
 def _with_edges(*names: str) -> FakeEdgeStore:
     """A fleet for the runner to expand a `--limit` against.
 

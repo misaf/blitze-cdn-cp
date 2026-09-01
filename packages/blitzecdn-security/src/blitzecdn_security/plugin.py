@@ -1,9 +1,11 @@
 """Register the security capability and what it refuses to deploy.
 
-The deployment check is this capability's half of a control the edge role also
-holds. ``blitzecdn_nginx`` asserts that no edge enables the challenge without a
-secret of its own, and that assertion is the last line — it fires after the
-desired-state document is written and a play has started. The same question
+The deployment check is this capability's half of a control its own edge role
+also holds. ``blitzecdn_security`` — the role beside this module, which core's
+edge play runs because the contribution below says so — asserts that no edge
+enables the challenge without a secret of its own, and that assertion is the
+last line: it fires after the desired-state document is written and a play has
+started. The same question
 answered here costs nothing: no file is written and no playbook runs, and the
 operator is told which site and which setting rather than reading it out of a
 failed play.
@@ -11,6 +13,13 @@ failed play.
 Both controls stay. The role has to hold on its own against a hand-written
 desired state; this one exists so an operator finds out at ``blitzecdn
 validate``, before the fleet is touched.
+
+The njs implementation, the fleet secret and the ``conf.d`` snippet that
+imports the module all ship in this wheel, under ``ansible/``. What stays in
+core is the per-site rendering: the challenge locations are directives inside a
+server block, driven by the site's own ``under_attack_mode`` setting, and
+splitting a server block across packages would mean concatenating configuration
+text through a hook.
 """
 
 from __future__ import annotations
@@ -19,11 +28,14 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from blitzecdn.core.plugins import (
+    AnsibleContribution,
     PluginMetadata,
     Severity,
     ValidationIssue,
     hookimpl,
 )
+from blitzecdn_security import ansible
+from blitzecdn_security.config import SECRET_VARIABLE, SecurityConfig
 
 __version__ = "3.0.0"
 
@@ -56,17 +68,32 @@ def blitzecdn_deployment_checks(
     """
     if not site.enabled or not site.under_attack_mode:
         return ()
-    if platform.settings.under_attack_secret.get_secret_value():
+    if SecurityConfig.from_settings(platform.settings).challenge_available:
         return ()
     return (
         ValidationIssue(
             plugin="security",
             site=site.name,
             message=(
-                "under_attack_mode is on but BLITZE_UNDER_ATTACK_SECRET is not set "
-                "on this controller, so the edge challenge capability cannot be "
-                "enabled and the deployment would fail on every edge."
+                f"under_attack_mode is on but {SECRET_VARIABLE} is not set to at "
+                "least 32 bytes on this controller, so the edge challenge "
+                "capability cannot be enabled and the deployment would fail on "
+                "every edge."
             ),
             severity=Severity.BLOCKING,
+        ),
+    )
+
+
+@hookimpl
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    # The role, and the fact that the edge play should run it. Core adds the
+    # directory to Ansible's role search path, adds the name to the play's
+    # capability slot, and never learns what either contains.
+    return (
+        AnsibleContribution(
+            plugin="security",
+            roles_path=ansible.ROLES_PATH,
+            edge_roles=(ansible.EDGE_ROLE,),
         ),
     )

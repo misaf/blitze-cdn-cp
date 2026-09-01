@@ -14,7 +14,8 @@ services:
     #
     # A CDN edge listens on thirteen public TCP ports plus UDP/443, and every
     # one of them has to see the visitor's real address: $remote_addr is the
-    # source of BZ-Connecting-IP, of the GeoIP2 country lookup, and of every
+    # source of BZ-Connecting-IP, of any country lookup a capability installs,
+    # and of every
     # per-site source rule. Behind Docker's bridge and its userland proxy it
     # would be a gateway address instead, and the edge would happily apply a
     # country rule to itself. Host networking also means no NAT hop per packet
@@ -48,12 +49,12 @@ services:
       - {{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro
       # The empty document root Under Attack Mode dispatches through.
       - {{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro
-{% if blitzecdn_edge_runtime.geoip.enabled | bool %}
-      # Shared with the geoipupdate service below, which replaces the database
-      # in place. Nginx picks the new file up through geoip2's auto_reload
-      # without a reload of its own.
-      - {{ blitzecdn_edge_runtime.geoip.directory }}:{{ blitzecdn_edge_runtime.geoip.directory }}:ro
-{% endif %}
+      # Whatever an installed capability provisioned for the edge to read.
+      # Always mounted and always read-only: unconditional so the Compose file
+      # has one shape in every installation, and read-only because the process
+      # that maintains such a file is the capability's, on the host, never the
+      # edge. Empty when nothing contributed anything.
+      - {{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro
       # The two writable mounts, and the only two. Both hold data that must
       # outlive the container: the cache because refilling it from origins after
       # every upgrade is an outage in slow motion, the logs because they are the
@@ -89,27 +90,3 @@ services:
       start_period: 20s
       retries: 3
 
-{% if blitzecdn_edge_runtime.geoip.enabled | bool %}
-  geoipupdate:
-    container_name: blitzecdn-geoipupdate
-    image: {{ blitzecdn_edge_stack_geoipupdate_image }}
-    # Behind a profile, so `docker compose up` never starts it. This is a
-    # one-shot: it runs, replaces the database, and exits. The schedule is a
-    # systemd timer on the host, which is what gives a fleet a calendar and a
-    # randomised delay instead of every edge waking on the same second.
-    profiles: [maintenance]
-    restart: "no"
-    # Default bridge networking, not host: this talks to MaxMind and nothing
-    # local, and it has no reason to see the edge's listeners.
-    env_file:
-      - {{ blitzecdn_edge_stack_geoip_env_file }}
-    environment:
-      GEOIPUPDATE_EDITION_IDS: "{{ blitzecdn_edge_stack_geoip_edition }}"
-      GEOIPUPDATE_DB_DIR: "{{ blitzecdn_edge_runtime.geoip.directory }}"
-      # One shot. The frequency loop is the container's alternative scheduler
-      # and would drift a little further from MaxMind's publication window on
-      # every converge.
-      GEOIPUPDATE_FREQUENCY: "0"
-    volumes:
-      - {{ blitzecdn_edge_runtime.geoip.directory }}:{{ blitzecdn_edge_runtime.geoip.directory }}:rw
-{% endif %}

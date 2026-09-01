@@ -13,8 +13,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from blitzecdn.core.config import Settings
 from blitzecdn.core.runs import AnsibleRun
+from blitzecdn_cache import ansible
 from blitzecdn_cache.domain import PurgeEntry
 from blitzecdn_cache.ports import FleetPlaybooks
 
@@ -29,14 +29,15 @@ def purge_entry_to_ansible(entry: PurgeEntry) -> dict[str, str]:
 class CachePlaybooks:
     """``CacheRunner``, over the control plane's generic playbook primitive.
 
-    The playbooks themselves stay in the control plane's Ansible tree and are
-    located through ``Settings``. Ansible remains the provisioning authority:
-    detaching this package removes the Python that *asks* for a purge, never
-    the role that would carry one out, and no desired state depends on either.
+    The plays and the roles they name ship inside this wheel and are located
+    through :mod:`blitzecdn_cache.ansible`. Core is told the *path* — it stages
+    the variables, expands the host limit against the fleet it records, and
+    applies the timeout — and never what the play is for. Detaching this
+    package therefore removes the Python that asks for a purge and the Ansible
+    that carries one out together, which is what makes the capability whole.
     """
 
-    def __init__(self, settings: Settings, fleet: FleetPlaybooks) -> None:
-        self._settings = settings
+    def __init__(self, fleet: FleetPlaybooks) -> None:
         self._fleet = fleet
 
     def run_cache_purge(
@@ -48,7 +49,7 @@ class CachePlaybooks:
     ) -> AnsibleRun:
         return self._fleet.run_playbook(
             name="cache-purge",
-            playbook=self._settings.cache_purge_playbook_path,
+            playbook=ansible.CACHE_PURGE_PLAYBOOK,
             variables={
                 "blitzecdn_cache_purge_entries": [
                     purge_entry_to_ansible(entry) for entry in entries
@@ -61,7 +62,7 @@ class CachePlaybooks:
     def run_stats(self, *, host_limit: str | None = None) -> AnsibleRun:
         return self._fleet.run_playbook(
             name="stats",
-            playbook=self._settings.stats_playbook_path,
+            playbook=ansible.STATS_PLAYBOOK,
             variables={},
             host_limit=host_limit,
         )

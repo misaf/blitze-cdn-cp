@@ -1,0 +1,101 @@
+---
+# Everything the GeoIP capability needs on an edge, owned by the distribution
+# that provides the capability.
+#
+# None of this is in the control plane's checkout. The role ships inside the
+# `blitzecdn-geoip` wheel, the control plane finds it through the plugin's
+# Ansible contribution, and detaching the distribution takes the whole of it —
+# these defaults, the updater, the timer and the Nginx snippet — off every
+# subsequent deploy with no line of core edited.
+
+# Whether this fleet resolves visitor addresses to countries.
+#
+# Fleet Ansible policy, so it is set with `blitzecdn config set
+# blitzecdn_geoip_enabled true` and published to every edge by the inventory
+# plugin. Installing the distribution makes the capability *available*; this
+# turns it on, and the two are deliberately separate — a controller may carry
+# the package for one fleet and not use it on another.
+#
+# Off by default. A site that asks for a country rule or the BZ-IPCountry
+# header while this is false fails the assertion below rather than converging a
+# configuration that quietly admits every country.
+blitzecdn_geoip_enabled: false
+
+# MaxMind credentials, read from the controller's environment.
+#
+# The control plane forwards every `BLITZE_*` variable it does not consume
+# itself into the Ansible environment, so putting these two in the controller's
+# 0600 `.env` is all that is required:
+#
+#   BLITZE_MAXMIND_ACCOUNT_ID=123456
+#   BLITZE_MAXMIND_LICENSE_KEY=your-key
+#
+# Read here rather than written here: this file ships in a wheel and is world
+# readable, `.env` is not. The key is written to a root-owned 0600 env file on
+# the edge and supplied only to the updater container, and every task that
+# touches it sets no_log.
+#
+# Without credentials the capability still works: the operator places a
+# database at the path below by hand and this role checks it is there.
+blitzecdn_geoip_account_id: "{{ lookup('env', 'BLITZE_MAXMIND_ACCOUNT_ID') }}"
+blitzecdn_geoip_license_key: "{{ lookup('env', 'BLITZE_MAXMIND_LICENSE_KEY') }}"
+
+# Country is all the firewall rules and the BZ-IPCountry header need.
+# GeoLite2-City is far larger and buys nothing here.
+blitzecdn_geoip_edition: GeoLite2-Country
+
+# Under the runtime contract's capability data directory, which core creates
+# and mounts read-only into the edge container and into the configuration test.
+# That directory is the whole of core's knowledge of this capability: it does
+# not know a database goes in it, only that something might.
+blitzecdn_geoip_directory: "{{ blitzecdn_edge_runtime.paths.data }}/geoip"
+blitzecdn_geoip_database: >-
+  {{ blitzecdn_geoip_directory }}/{{ blitzecdn_geoip_edition }}.mmdb
+
+# The updater is a container; its *schedule* is a host responsibility, for the
+# same reason the firewall and the kernel are. A systemd timer with a calendar
+# and a randomised delay is what keeps a fleet from arriving at MaxMind on the
+# same second, and Compose has no equivalent — the alternative, a long-running
+# container sleeping between updates, restarts its interval every time the
+# stack is converged and drifts further from the publication window each time.
+#
+# MaxMind publishes GeoLite2 twice a week and rate-limits downloads, so the
+# converge fetches only when the database is missing and leaves refreshes to
+# the timer. Nginx picks up a replaced file through geoip2's `auto_reload`,
+# with no reload of its own.
+blitzecdn_geoip_update_enabled: true
+blitzecdn_geoip_update_calendar: Wed,Sat 03:00
+blitzecdn_geoip_update_splay: 3h
+
+# MaxMind's own updater, pinned by tag and digest. Never built here: it is one
+# statically linked Go binary whose whole job is talking to MaxMind.
+blitzecdn_geoip_updater_image: >-
+  ghcr.io/maxmind/geoipupdate:v7.1.1@sha256:faecdca22579730ab0b7dea5aa9af350bb3c93cb9d39845c173639ead30346d2
+
+# A Compose project of this capability's own, separate from the edge stack.
+#
+# The updater used to be a `maintenance` profile inside the edge's Compose
+# file, which meant core's Compose template carried a service that exists only
+# because this package is installed. It is a one-shot that talks to MaxMind and
+# nothing local; it shares no network, no lifecycle and no restart policy with
+# the process serving traffic, so a project of its own costs one small file and
+# removes a capability's name from core's template entirely.
+blitzecdn_geoip_project: blitzecdn-geoip
+blitzecdn_geoip_compose_file: >-
+  {{ blitzecdn_edge_runtime.paths.state }}/geoip/compose.yml
+blitzecdn_geoip_env_file: >-
+  {{ blitzecdn_edge_runtime.paths.state }}/geoip/geoipupdate.env
+
+# The `conf.d` snippet defining $blitzecdn_country, which core's site template
+# reads. Written before blitzecdn_nginx renders and validates the tree, which
+# is what the capability role slot in the edge play guarantees.
+blitzecdn_geoip_conf_file: >-
+  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-geoip.conf
+blitzecdn_geoip_reload: 5m
+
+# Systemd units this role installs. Named with the `blitzecdn-` prefix every
+# unit this collection writes carries, which is how blitzecdn_teardown finds
+# and removes them without knowing this package exists.
+blitzecdn_geoip_units:
+  - blitzecdn-geoipupdate.service
+  - blitzecdn-geoipupdate.timer

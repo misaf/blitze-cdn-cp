@@ -14,7 +14,8 @@ argument_specs:
       - >-
         Leaves the container engine and shared packages installed, but withdraws
         the dedicated Nginx configuration, firewall, resolver, SSH, Fail2Ban,
-        kernel and GeoIP artifacts written by the edge roles. It does not alter
+        kernel artifacts written by the edge roles, and every systemd unit
+        any installed capability's role added. It does not alter
         unrelated administrator configuration.
       - >-
         Must run while the host is still in inventory. Once the control plane
@@ -51,10 +52,7 @@ argument_specs:
       blitzecdn_teardown_sysctl_file:
         type: path
         required: true
-      blitzecdn_teardown_geoip_units:
-        type: list
-        elements: str
-        required: true
+      blitzecdn_teardown_unit_prefix: {type: str, required: true}
       blitzecdn_teardown_marker:
         type: str
         required: true
@@ -66,6 +64,7 @@ argument_specs:
       blitzecdn_teardown_project: {type: str, required: true}
       blitzecdn_teardown_container: {type: str, required: true}
       blitzecdn_teardown_runtime_path: {type: path, required: true}
+      blitzecdn_teardown_data_path: {type: path, required: true}
       blitzecdn_teardown_empty_root: {type: path, required: true}
       blitzecdn_teardown_resolver_file: {type: path, required: true}
       blitzecdn_teardown_remove_data:

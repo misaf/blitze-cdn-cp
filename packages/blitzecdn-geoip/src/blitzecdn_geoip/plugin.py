@@ -22,23 +22,37 @@ all. That is deliberately the whole of it:
   maps the settings above onto this token the same way it maps `compression`
   or `http3_enabled` onto theirs — one generic mechanism, no per-package
   branch in any service.
-* The *edge realization* stays in Ansible. The MaxMind database, its scheduled
-  refresh, the ``geoipupdate`` unit and its credentials, the mount into the
-  Nginx container, the ``geoip2`` directive and the module probe are all in the
-  roles, which remain the provisioning authority. Whether an edge has GeoIP
-  switched on is fleet Ansible policy (``blitzecdn_edge_geoip_enabled``), not
-  desired state, so this plugin contributes no variable and an installation
-  converges byte-identical documents whether or not it is attached.
+* The *edge realization* ships in this wheel. The ``blitzecdn_geoip`` role
+  beside this module provisions the GeoLite2 database, owns the MaxMind
+  credential and the updater's Compose project, installs the systemd timer that
+  refreshes it, and writes the ``conf.d`` snippet that defines
+  ``$blitzecdn_country``. Core's edge play runs it because this plugin says so,
+  not because the play names it; detaching the distribution removes the role
+  from Ansible's search path and from the play together.
 
-That leaves metadata, and metadata is enough: attaching the distribution makes
-country-aware sites deployable, and detaching it makes them refused before any
-playbook runs, with nothing in core edited either way.
+  What deliberately stays in core is the *reading* of that variable. Country
+  rules and the ``BZ-IPCountry`` header are per-site directives inside a
+  virtual host, rendered by ``blitzecdn_nginx`` from desired state like every
+  other site setting. Splitting a server block across packages would mean
+  concatenating configuration text through a hook, which this architecture
+  refuses — and it would buy nothing: a site that needs the variable is already
+  refused, by name, before a play starts.
+
+Whether an edge has the capability switched on is fleet Ansible policy
+(``blitzecdn_geoip_enabled``, in this role's own defaults) and not desired
+state, so this plugin contributes no desired-state variable and an installation
+converges byte-identical documents whether or not it is attached. Attaching the
+distribution makes country-aware sites deployable and brings the role that
+serves them; detaching makes them refused before any playbook runs, with
+nothing in core edited either way.
 """
 
 from __future__ import annotations
 
-from blitzecdn.core.plugins import PluginMetadata, hookimpl
-from blitzecdn_geoip import __version__
+from collections.abc import Sequence
+
+from blitzecdn.core.plugins import AnsibleContribution, PluginMetadata, hookimpl
+from blitzecdn_geoip import __version__, ansible
 
 
 @hookimpl
@@ -49,4 +63,18 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
         required=False,
         provides=frozenset({"geoip"}),
         summary="Visitor IP-to-country lookup for country headers and rules.",
+    )
+
+
+@hookimpl
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    # The role, and the fact that the edge play should run it. Core adds the
+    # directory to Ansible's search path, adds the name to the play's
+    # capability slot, and never learns what either contains.
+    return (
+        AnsibleContribution(
+            plugin="geoip",
+            roles_path=ansible.ROLES_PATH,
+            edge_roles=(ansible.EDGE_ROLE,),
+        ),
     )

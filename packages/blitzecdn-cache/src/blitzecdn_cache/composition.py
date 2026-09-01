@@ -34,7 +34,7 @@ def build_cache_service(platform: ControlPlane) -> CacheService:
         # become one.
         sites=platform.sites,
         events=platform.events,
-        runner=CachePlaybooks(platform.settings, platform.fleet),
+        runner=CachePlaybooks(platform.fleet),
     )
 
 

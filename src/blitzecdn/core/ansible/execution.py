@@ -10,10 +10,12 @@ limit are all settled.
 
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import shutil
 import tempfile
+from collections.abc import Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,8 +42,21 @@ _TIMEOUT_RETURN_CODE = 124
 class PlaybookExecutor:
     """Runs one playbook and returns the structured account of what happened."""
 
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        roles_path: Sequence[Path],
+        capability_roles: Sequence[str] = (),
+    ) -> None:
         self._settings = settings
+        #: Where Ansible resolves a role name, composed by
+        #: :func:`blitzecdn.core.ansible.roles.resolve_role_search_path` from
+        #: core's roles and the installed plugins'. Passed in rather than read
+        #: from configuration because it is a fact about what is *installed*,
+        #: which only the composition root knows.
+        self._roles_path = tuple(roles_path)
+        #: Which contributed roles the edge play runs, from the same source.
+        self._capability_roles = tuple(capability_roles)
 
     def execute(
         self,
@@ -132,7 +147,24 @@ class PlaybookExecutor:
         event_handler: RunnerEvents,
     ) -> Any:
         """Execute through Ansible Runner without exposing it above this adapter."""
-        options = ["--extra-vars", f"@{variables}"]
+        options = [
+            "--extra-vars",
+            f"@{variables}",
+            # What is installed, on the command line rather than in the
+            # variables file. The variables file for a deployment *is* the
+            # desired-state snapshot — the document a rollback converges months
+            # later — and the set of installed packages is not desired state:
+            # pinning it would make a rollback try to run a capability role
+            # that has since been detached. Every run gets the list as it is
+            # now, and a play that has no use for it ignores it.
+            #
+            # Nothing secret goes here. These are role names, which are already
+            # readable in every wheel on the controller; credentials reach
+            # Ansible through the environment precisely so they stay out of the
+            # process table.
+            "--extra-vars",
+            json.dumps({"blitzecdn_capability_roles": list(self._capability_roles)}),
+        ]
         if syntax_check:
             options.append("--syntax-check")
         elif check:
@@ -176,6 +208,14 @@ class PlaybookExecutor:
     def _environment(self) -> dict[str, str]:
         environment = os.environ.copy()
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
+        # Overrides `roles_path` in ansible.cfg, which can only name directories
+        # relative to itself and therefore cannot reach a role that lives inside
+        # an installed wheel. Absolute, in the order the composition root
+        # resolved, and set even when it holds only core's directory so a run
+        # never depends on the cfg value and the env value agreeing.
+        environment["ANSIBLE_ROLES_PATH"] = os.pathsep.join(
+            str(path) for path in self._roles_path
+        )
         environment["ANSIBLE_LOCAL_TEMP"] = str(
             self._settings.state_dir / "ansible-local"
         )
@@ -190,16 +230,18 @@ class PlaybookExecutor:
         environment["BLITZE_DATABASE_PATH"] = str(
             self._settings.database_path.resolve()
         )
-        # Always set, even when empty, so `lookup('env', ...)` in group_vars
-        # resolves deterministically instead of inheriting a stray value from
-        # the operator's shell.
-        environment["BLITZE_MAXMIND_ACCOUNT_ID"] = self._settings.maxmind_account_id
-        environment["BLITZE_MAXMIND_LICENSE_KEY"] = (
-            self._settings.maxmind_license_key.get_secret_value()
-        )
-        environment["BLITZE_UNDER_ATTACK_SECRET"] = (
-            self._settings.under_attack_secret.get_secret_value()
-        )
+        # An optional capability's own configuration, forwarded rather than
+        # interpreted. Core does not know that `BLITZE_MAXMIND_LICENSE_KEY`
+        # belongs to GeoIP, or that anything belongs to a capability nobody
+        # here has heard of; it knows which names are its own and passes the
+        # rest through for the roles that ship with the packages that read
+        # them.
+        #
+        # The environment, and not `--extra-vars`, because these are usually
+        # credentials: an extra-var is in the process table for every user on
+        # the controller, and in any file the run writes.
+        for name, value in self._settings.capability_environment.items():
+            environment[name] = value.get_secret_value()
         return environment
 
     def _prune_logs(self) -> None:

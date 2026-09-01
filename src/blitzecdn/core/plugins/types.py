@@ -15,6 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -86,6 +87,53 @@ class PluginMetadata:
     def capabilities(self) -> frozenset[str]:
         """Every capability token this plugin answers for, its name included."""
         return self.provides | {self.name}
+
+
+@dataclass(frozen=True, slots=True)
+class AnsibleContribution:
+    """The Ansible roles one installed plugin brings with it.
+
+    A capability is not complete until the deployment implementation travels
+    with it. A package that owns a role ships the role inside its own wheel and
+    answers this hook with the directory it landed in; the control plane adds
+    that directory to Ansible's role search path and learns nothing else.
+
+    Two members, and both are there because the thing they describe is
+    *global*. `roles_path` answers where Ansible resolves a role name, which is
+    one process-wide list every play shares and core therefore has to compose.
+    `edge_roles` answers which of those roles the shared edge play runs, which
+    is one ordered list core has to compose for the same reason: a capability
+    cannot converge an edge by shipping a role nothing ever includes, and the
+    play that would include it is core's.
+
+    A playbook is not global and is deliberately absent: the package that owns
+    a play already passes its path to ``PlaybookRunner.run_playbook``. Adding
+    `playbooks_path` or `collections_path` before something needs them would be
+    describing a requirement that does not exist.
+
+    `edge_roles` names roles this contribution's own `roles_path` ships —
+    core refuses a name that is not there rather than letting the edge play
+    fail much later with "the role was not found". They run in one slot: after
+    the host has an engine, a runtime image and its persistent directories, and
+    before the firewall opens a port or ``blitzecdn_nginx`` renders and
+    validates the configuration tree. That is the only slot a capability needs,
+    because what a capability contributes to an edge is *something the
+    configuration then depends on* — a database, an njs module, a snippet in
+    `conf.d` — and all of it has to exist before `nginx -t` decides whether the
+    tree may be served.
+
+    `plugin` is here for the failure message and for ordering. Two packages
+    shipping a role of the same name is a conflict that must be reported with
+    both names rather than resolved by whichever happened to register last.
+    """
+
+    plugin: str
+    roles_path: Path
+    #: Role names, from this contribution's own directory, that core's edge
+    #: play runs. Empty for a package whose roles are only ever reached by its
+    #: own plays — ``blitzecdn-cache`` purges through a play of its own and
+    #: converges nothing on a deploy.
+    edge_roles: tuple[str, ...] = ()
 
 
 class ProcessKind(StrEnum):
@@ -235,6 +283,7 @@ __all__ = [
     "ENTRY_POINT_GROUP",
     "HOOK_API_VERSION",
     "PROJECT_NAME",
+    "AnsibleContribution",
     "CliCommandGroup",
     "FleetStateContribution",
     "HealthCheck",

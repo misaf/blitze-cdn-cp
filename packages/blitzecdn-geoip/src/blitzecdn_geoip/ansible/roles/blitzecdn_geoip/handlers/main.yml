@@ -1,0 +1,10 @@
+---
+# The edge's Nginx reload handler is not here: it belongs to blitzecdn_edge,
+# the runtime contract role imported before every capability role, and this
+# role notifies it by name like core's own roles do. What is here is the one
+# thing that is genuinely this role's — systemd needs telling when the units
+# this role wrote are removed.
+- name: Reload systemd after a GeoIP change
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: not ansible_check_mode

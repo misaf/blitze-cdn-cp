@@ -7,7 +7,8 @@ argument_specs:
         Converges nothing. It declares the environment blitzecdn_nginx,
         blitzecdn_edge_stack and blitzecdn_firewall all converge against — the
         host paths, the public listener sets, the status endpoint, the runtime
-        image and the GeoIP database — and refuses a combination of them that
+        image and the capability data directory — and refuses a combination
+        of them that
         no edge could serve.
       - >-
         It exists because those three roles used to read each other's
@@ -29,8 +30,6 @@ argument_specs:
           from desired state. One value for the Nginx listener, the firewall's
           UDP/443 rule and the deploy's listener check, so the three cannot
           disagree.
-      blitzecdn_edge_geoip_enabled: {type: bool, required: true}
-      blitzecdn_edge_geoip_database: {type: path, required: true}
       blitzecdn_edge_runtime_image_default:
         type: str
         required: true
@@ -64,6 +63,7 @@ argument_specs:
               logs: {type: path, required: true}
               acme: {type: path, required: true}
               empty: {type: path, required: true}
+              data: {type: path, required: true}
           status:
             type: dict
             required: true
@@ -78,10 +78,3 @@ argument_specs:
               http: {type: list, elements: int, required: true}
               https: {type: list, elements: int, required: true}
               http3: {type: bool, required: true}
-          geoip:
-            type: dict
-            required: true
-            options:
-              enabled: {type: bool, required: true}
-              database: {type: path, required: true}
-              directory: {type: path, required: true}

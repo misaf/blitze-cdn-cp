@@ -66,25 +66,10 @@ blitzecdn_sshd_permit_root_login: 'no'
 # list to close SSH to a named set of operators.
 blitzecdn_sshd_allow_users: []
 
-# Per-hostname country filtering (the `firewall` block's allowed_countries and
-# denied_countries). Off by default; a site that asks for country rules while
-# this is false fails the deploy rather than serving the traffic it was told to
-# block.
-#
-# GeoLite2 is free but authenticated. Create a MaxMind account, generate a
-# license key, and put both in the control plane's `.env`:
-#
-#   BLITZE_MAXMIND_ACCOUNT_ID=123456
-#   BLITZE_MAXMIND_LICENSE_KEY=your-key
-#
-# The control plane forwards them into the Ansible environment, so they are
-# read here rather than written here — this file is committed, `.env` is 0600
-# and is not. blitzecdn_edge_stack owns the updater, so it owns the credential:
-# it writes the key to the root-owned 0600 /etc/blitzecdn/geoipupdate.env file
-# and supplies it only to the updater container, and every task that handles it
-# sets no_log. Whether country filtering is on at all is the runtime
-# contract's, because blitzecdn_nginx renders the lookup that reads the same
-# database this role provisions.
-blitzecdn_edge_geoip_enabled: false
-blitzecdn_edge_stack_geoip_account_id: "{{ lookup('env', 'BLITZE_MAXMIND_ACCOUNT_ID') }}"
-blitzecdn_edge_stack_geoip_license_key: "{{ lookup('env', 'BLITZE_MAXMIND_LICENSE_KEY') }}"
+# An optional capability's fleet settings are NOT here either. They ship with
+# the capability, in that package's own role defaults, and are overridden the
+# same way everything else is — `blitzecdn config set` for non-secret policy,
+# `.env` on the controller for a credential the role reads with
+# `lookup('env', ...)`. Nothing about `blitzecdn-geoip` or `blitzecdn-security`
+# belongs in a file that ships with the control plane and is read by every edge
+# whether or not those packages are installed.

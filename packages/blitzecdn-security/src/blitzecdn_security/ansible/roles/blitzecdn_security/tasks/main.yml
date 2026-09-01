@@ -1,0 +1,95 @@
+---
+# The security capability's edge implementation: the njs module that serves the
+# challenge, the secret it signs with, and the `conf.d` snippet that loads it.
+#
+# Runs from the edge play's capability slot, before blitzecdn_nginx renders and
+# validates the tree — which is what makes the module importable by the time
+# `nginx -t` reads a site that dispatches to it.
+#
+# What is deliberately *not* here is the per-site rendering. The challenge
+# locations inside a virtual host are directives in a server block that core's
+# site template owns, driven by the site's own `under_attack_mode` setting like
+# every other site setting. Splitting a server block across packages would mean
+# concatenating configuration text through a hook.
+
+# Asked here rather than in blitzecdn_nginx, which would mean core's role
+# naming a capability that may not be installed. The control plane refuses such
+# a site earlier still, by name; both controls stay, because this role has to
+# hold on its own against a hand-written desired state.
+- name: Refuse Under Attack Mode without the edge challenge capability
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_security_under_attack_enabled
+        or blitzecdn_nginx_sites | default([])
+        | selectattr('under_attack_mode', 'defined')
+        | selectattr('under_attack_mode')
+        | list | length == 0
+    fail_msg: >-
+      A site asks for Under Attack Mode, but the capability is off on
+      {{ inventory_hostname }}. Run `blitzecdn config set
+      blitzecdn_security_under_attack_enabled true`, set
+      BLITZE_UNDER_ATTACK_SECRET on the controller, and deploy again. Nothing
+      was changed on this host.
+
+- name: Validate the Under Attack Mode capability settings
+  ansible.builtin.assert:
+    that:
+      - >-
+        not blitzecdn_security_under_attack_enabled
+        or blitzecdn_security_under_attack_secret | length >= 32
+      - blitzecdn_security_under_attack_passage_seconds | int >= 60
+      - blitzecdn_security_under_attack_passage_seconds | int <= 86400
+    fail_msg: >-
+      Under Attack Mode requires BLITZE_UNDER_ATTACK_SECRET to contain at
+      least 32 bytes and blitzecdn_security_under_attack_passage_seconds to be
+      between 60 and 86400 seconds. Nothing was changed on this host.
+
+- name: Provision the edge challenge capability
+  when: blitzecdn_security_under_attack_enabled | bool
+  block:
+    # The njs directory. Core creates the contract paths it *mounts* — the
+    # modules directory and the empty document root among them — because a
+    # missing bind source becomes an empty root-owned directory rather than an
+    # error; this makes sure the one this role writes into exists even when the
+    # role is run outside the edge play, and pins the mode it needs.
+    - name: Create the njs module directory
+      ansible.builtin.file:
+        path: "{{ blitzecdn_security_under_attack_js_file | dirname }}"
+        state: directory
+        owner: root
+        group: www-data
+        mode: "0750"
+
+    - name: Install the Under Attack Mode njs implementation
+      ansible.builtin.template:
+        src: under-attack.js.j2
+        dest: "{{ blitzecdn_security_under_attack_js_file }}"
+        owner: root
+        group: www-data
+        mode: "0640"
+      no_log: true
+      notify: Validate and reload Nginx
+
+    - name: Configure the Under Attack Mode njs module
+      ansible.builtin.template:
+        src: under-attack.conf.j2
+        dest: "{{ blitzecdn_security_under_attack_conf_file }}"
+        owner: root
+        group: root
+        mode: "0644"
+      notify: Validate and reload Nginx
+
+# The module goes with the snippet that imports it: leaving a file signed with
+# a fleet secret on an edge that no longer serves challenges is a credential
+# kept for nothing. A site still asking for the mode cannot reach here — the
+# assertion above refuses the play first.
+- name: Withdraw the edge challenge capability
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "{{ blitzecdn_security_under_attack_conf_file }}"
+    - "{{ blitzecdn_security_under_attack_js_file }}"
+  when: not (blitzecdn_security_under_attack_enabled | bool)
+  notify: Validate and reload Nginx
