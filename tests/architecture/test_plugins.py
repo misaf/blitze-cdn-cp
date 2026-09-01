@@ -484,6 +484,44 @@ def test_a_site_no_plugin_objects_to_is_deployable(builtins):
     assert builtins.validate_site(site(), SimpleNamespace()).ok
 
 
+def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting(
+    builtins,
+):
+    """The message an operator reads before any playbook runs.
+
+    Generic in both halves: the tokens come from the site's own
+    `capability_requirements` and the answer from plugin metadata, so nothing
+    on this path knows what `geoip` is. What the mapping adds is *which*
+    setting asked — the failure it prevents is an operator told a capability is
+    missing and left to find which of two unrelated policy blocks wanted it.
+    """
+    requested = site(
+        visitor_headers={"ip_country": True},
+        firewall={"denied_countries": ["RU"]},
+    )
+
+    result = builtins.validate_site(requested, SimpleNamespace())
+
+    assert not result.ok
+    messages = {issue.message for issue in result.blocking}
+    geoip = next(message for message in messages if "'geoip'" in message)
+    assert "firewall.denied_countries" in geoip
+    assert "visitor_headers.ip_country" in geoip
+    assert "is not installed" in geoip
+    # The other token the same site asks for is reported separately rather than
+    # folded in, so detaching either capability is legible on its own.
+    assert any("'security'" in message for message in messages)
+
+
+def test_a_capability_requested_by_one_setting_reads_in_the_singular(builtins):
+    """One asker, one verb. The plural form is for a site that asked twice."""
+    (issue,) = builtins.validate_site(
+        site(visitor_headers={"ip_country": True}), SimpleNamespace()
+    ).blocking
+
+    assert "site's visitor_headers.ip_country requests it" in issue.message
+
+
 # --- lifecycle --------------------------------------------------------------
 
 

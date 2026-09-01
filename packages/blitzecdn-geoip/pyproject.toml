@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blitzecdn-geoip"
+version = "3.0.0"
+description = "Visitor IP-to-country lookup capability for BlitzeCDN"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = ["blitzecdn>=3.0.0,<4"]
+
+[project.entry-points."blitzecdn.plugins"]
+geoip = "blitzecdn_geoip.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blitzecdn_geoip"]
+
+[tool.uv.sources]
+blitzecdn = { workspace = true }

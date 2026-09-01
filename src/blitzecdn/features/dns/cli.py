@@ -449,9 +449,10 @@ def record_visitor_headers(
     so the BZ- namespace never carries client input. Trust them at the origin
     only where the origin accepts traffic from BlitzeCDN edges alone.
 
-    BZ-IPCountry needs blitzecdn_edge_geoip_enabled and a MaxMind database on
-    the edge. A deploy refuses rather than send an origin a header that is
-    silently absent.
+    BZ-IPCountry needs the 'geoip' capability on this controller — the
+    blitzecdn-geoip distribution — and blitzecdn_edge_geoip_enabled with a
+    MaxMind database on the edge. A deploy refuses rather than send an origin a
+    header that is silently absent.
 
     Options you do not name are left as they are. Nothing changes on the edge
     until the next 'blitzecdn deploy'.
@@ -545,9 +546,10 @@ def record_firewall(
 
     Each option replaces its own list; the lists you do not name are kept. That
     differs from the equivalent PATCH on the HTTP API, which replaces the whole
-    block. Country rules need blitzecdn_edge_geoip_enabled and a MaxMind
-    database on the edge, and a deploy will refuse rather than silently serve
-    the traffic they were meant to block.
+    block. Country rules need the 'geoip' capability on this controller — the
+    blitzecdn-geoip distribution — and blitzecdn_edge_geoip_enabled with a
+    MaxMind database on the edge. A deploy will refuse rather than silently
+    serve the traffic they were meant to block.
 
     Nothing changes on the edge until the next 'blitzecdn deploy'.
     """

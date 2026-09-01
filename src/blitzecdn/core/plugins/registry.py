@@ -262,16 +262,28 @@ class PluginRegistry:
         return merge_variables(contributions, subject="fleet desired state")
 
     def validate_site(self, site: CdnSite, platform: ControlPlane) -> ValidationResult:
+        """Every reason this site cannot be deployed by this installation.
+
+        The capability issues come first and are generic: the tokens are the
+        site's own `capability_requirements`, the answer is plugin metadata,
+        and the settings that asked are quoted straight out of the mapping.
+        Nothing here knows what any capability is, so a token supplied by a
+        distribution this repository has never heard of reads the same way.
+        """
+        requested = site.capability_requirements
         missing = tuple(
             ValidationIssue(
                 plugin="capabilities",
                 site=site.name,
                 message=(
-                    f"capability {capability!r} is not installed; install a plugin "
-                    "that provides it or disable the site setting that requests it"
+                    f"capability {capability!r} is not installed, and this "
+                    f"site's {', '.join(requested[capability])} "
+                    f"{'request' if len(requested[capability]) > 1 else 'requests'}"
+                    " it; install a plugin that provides it or disable the "
+                    "site setting that requests it"
                 ),
             )
-            for capability in self.missing(site.required_capabilities)
+            for capability in self.missing(requested)
         )
         return ValidationResult(
             site=site.name,
