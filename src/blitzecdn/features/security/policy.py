@@ -1,30 +1,73 @@
 """The security capability's configuration contract.
 
 The firewall rule sets and the Under Attack Mode switch, with the validation
-that makes a rule renderable. What the edge does with them is this capability's
-nginx contribution; what a site does is compose them.
+that makes a rule renderable, and the vocabulary that validation is written
+against. What the edge does with them is this capability's nginx contribution;
+what a site does is compose them.
+
+The country and method tables below were in :mod:`blitzecdn.core.validation`,
+which is for primitives *two or more* capabilities share. These have one
+consumer and describe request filtering, so core held the vocabulary of a
+capability an operator can detach. They belong to the rules that use them.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import re
 from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.validation import (
-    COUNTRY_ALIASES,
-    COUNTRY_CODE,
-    HTTP_METHOD,
-    ISO_3166_1_ALPHA_2,
-    unique,
-)
+from blitzecdn.core.validation import OmittedWhenEmpty, unique
+
+COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
+
+HTTP_METHOD = re.compile(r"^[A-Z][A-Z-]{1,19}$")
+
+#: ISO 3166-1 alpha-2, which is what the MaxMind database emits as `iso_code`.
+#:
+#: Checked against the real list rather than the two-letter shape alone,
+#: because a plausible-looking code that is not assigned produces the worst
+#: outcome this feature has: `--allow-country UK` validates, deploys, renders,
+#: and then matches nothing, because the United Kingdom is GB. The rule looks
+#: enforced and blocks nobody. A shape check cannot tell those apart.
+# fmt: off
+ISO_3166_1_ALPHA_2 = frozenset((
+    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU",
+    "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL",
+    "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC",
+    "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV",
+    "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG",
+    "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD",
+    "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT",
+    "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM",
+    "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH",
+    "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK",
+    "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH",
+    "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW",
+    "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR",
+    "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR",
+    "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC",
+    "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS",
+    "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL",
+    "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY",
+    "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "YE", "YT", "ZA",
+    "ZM", "ZW"
+))
+# fmt: on
+
+#: Codes people reach for that ISO does not assign, and what to use instead.
+COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
 
 
-class SiteFirewall(BaseModel):
-    """Per-hostname request filtering applied by Nginx at the edge."""
+class SiteFirewall(OmittedWhenEmpty):
+    """Per-hostname request filtering applied by Nginx at the edge.
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    Absent from the edge document rather than present and empty — see
+    :class:`~blitzecdn.core.validation.OmittedWhenEmpty`, which is also where
+    ``empty`` comes from.
+    """
 
     allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
     deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
@@ -107,10 +150,6 @@ class SiteFirewall(BaseModel):
                 + ", ".join(sorted(overlap))
             )
         return self
-
-    @property
-    def empty(self) -> bool:
-        return not any(getattr(self, field) for field in SiteFirewall.model_fields)
 
     @property
     def requires_geoip(self) -> bool:

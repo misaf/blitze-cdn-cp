@@ -126,7 +126,15 @@ The rules that shape it:
 Equally, do not reach for a generic repository, a DI container, a command bus or mediator, CQRS, or event sourcing. None of them has a demonstrated need here, and each one trades a boundary the tests can check for indirection they cannot. Do not build anything on top of pluggy either: ten hookspecs and one registry are the whole mechanism, and a hook with one hypothetical future consumer is not a hook.
 
 Adapter document shapes do not belong on domain models. Keep Ansible and
-inventory mappings in `core/ansible/mapping.py`. Keep the frozen HTTP v1
+inventory mappings in `core/ansible/mapping.py` — and keep them free of any one
+capability's names: a nested policy block that should be *absent* from the edge
+document rather than present and empty subclasses
+`core.validation.OmittedWhenEmpty`, and `site_to_ansible` prunes by that
+declaration. `core/validation.py` is for primitives two or more capabilities
+share; a table with one consumer (the ISO country list, the HTTP-method shape)
+belongs beside the contract that validates against it, and
+`tests/architecture/test_packages.py` fails a `core/` module that names a
+firewall rule kind. Keep the frozen HTTP v1
 *resource* representations — sites, records, edges — in `api/v1_models.py` and
 evolve v2 independently in `api/v2_models.py`; the *operational* ones (runs,
 deployments, drift, workflows) are identical in both versions and live

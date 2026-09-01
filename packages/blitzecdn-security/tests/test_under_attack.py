@@ -1,4 +1,15 @@
-"""Execute the rendered edge challenge module against hostile token inputs."""
+"""Execute the rendered edge challenge module against hostile token inputs.
+
+Here rather than in `tests/features/security/` because this is the security
+capability's edge behaviour, and this distribution is where that capability
+lives. What core keeps — the `under_attack_mode` switch and the firewall rule
+contract that a detached controller must still be able to read back — is
+asserted beside the contract, in `tests/features/security/test_security_policy.py`.
+
+The template belongs to the `blitzecdn_nginx` role, which is core's: Ansible is
+the authoritative deployment mechanism and no wheel ships roles. Owning the
+capability means owning the *assertion* about what the role renders for it.
+"""
 
 from __future__ import annotations
 

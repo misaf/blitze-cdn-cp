@@ -3,12 +3,20 @@
 Everything here is shared by two or more of the sibling modules — hostnames by
 sites, DNS and certificates. Nothing here knows what a site or a record is,
 which is what keeps this module free of imports from its own package.
+
+That first sentence is the rule rather than a description of the contents.
+Country codes, HTTP method shapes and the alias table lived here with exactly
+one consumer — :mod:`blitzecdn.features.security.policy` — which left core
+carrying the vocabulary of a capability an operator can detach. They now live
+with the contract that validates against them.
 """
 
 from __future__ import annotations
 
 import ipaddress
 import re
+
+from pydantic import BaseModel, ConfigDict
 
 #: One label of a DNS name: no leading or trailing hyphen, 63 bytes at most.
 DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
@@ -19,44 +27,29 @@ SITE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 #: An nginx time value: ``10m``, ``500ms``, ``0s``.
 DURATION = re.compile(r"^(?:0|[1-9]\d*)(?:ms|[smhdw])$")
 
-COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
 
-HTTP_METHOD = re.compile(r"^[A-Z][A-Z-]{1,19}$")
+class OmittedWhenEmpty(BaseModel):
+    """A nested policy block the edge document leaves out when it holds nothing.
 
-#: ISO 3166-1 alpha-2, which is what the MaxMind database emits as `iso_code`.
-#:
-#: Checked against the real list rather than the two-letter shape alone,
-#: because a plausible-looking code that is not assigned produces the worst
-#: outcome this feature has: `--allow-country UK` validates, deploys, renders,
-#: and then matches nothing, because the United Kingdom is GB. The rule looks
-#: enforced and blocks nobody. A shape check cannot tell those apart.
-# fmt: off
-ISO_3166_1_ALPHA_2 = frozenset((
-    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT", "AU",
-    "AW", "AX", "AZ", "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL",
-    "BM", "BN", "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ", "CA", "CC",
-    "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO", "CR", "CU", "CV",
-    "CW", "CX", "CY", "CZ", "DE", "DJ", "DK", "DM", "DO", "DZ", "EC", "EE", "EG",
-    "EH", "ER", "ES", "ET", "FI", "FJ", "FK", "FM", "FO", "FR", "GA", "GB", "GD",
-    "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP", "GQ", "GR", "GS", "GT",
-    "GU", "GW", "GY", "HK", "HM", "HN", "HR", "HT", "HU", "ID", "IE", "IL", "IM",
-    "IN", "IO", "IQ", "IR", "IS", "IT", "JE", "JM", "JO", "JP", "KE", "KG", "KH",
-    "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ", "LA", "LB", "LC", "LI", "LK",
-    "LR", "LS", "LT", "LU", "LV", "LY", "MA", "MC", "MD", "ME", "MF", "MG", "MH",
-    "MK", "ML", "MM", "MN", "MO", "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW",
-    "MX", "MY", "MZ", "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR",
-    "NU", "NZ", "OM", "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR",
-    "PS", "PT", "PW", "PY", "QA", "RE", "RO", "RS", "RU", "RW", "SA", "SB", "SC",
-    "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM", "SN", "SO", "SR", "SS",
-    "ST", "SV", "SX", "SY", "SZ", "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL",
-    "TM", "TN", "TO", "TR", "TT", "TV", "TW", "TZ", "UA", "UG", "UM", "US", "UY",
-    "UZ", "VA", "VC", "VE", "VG", "VI", "VN", "VU", "WF", "WS", "YE", "YT", "ZA",
-    "ZM", "ZW"
-))
-# fmt: on
+    Opting in by subclassing, rather than core inspecting every nested model,
+    is the point. :func:`~blitzecdn.core.ansible.mapping.site_to_ansible` used
+    to name one block — ``firewall`` — which put the vocabulary of a detachable
+    capability into a generic adapter and meant a second such block would be a
+    second branch there. A capability now declares that its block is absent
+    rather than empty in the document, and core prunes whatever declares it
+    without knowing what any of them contain.
 
-#: Codes people reach for that ISO does not assign, and what to use instead.
-COUNTRY_ALIASES = {"UK": "GB", "EL": "GR", "EN": "GB"}
+    It is deliberately not every nested block. ``visitor_headers`` carries
+    switches whose *default* is meaningful to the role, so a block that has
+    never been configured is not the same as one that is off, and pruning it
+    would change what the edge renders.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @property
+    def empty(self) -> bool:
+        return not any(getattr(self, field) for field in type(self).model_fields)
 
 
 def hostname(value: str, *, wildcard: bool = False) -> str:
@@ -80,8 +73,8 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     # IPv4 literal — every label of `192.0.2.1` is a valid DNS label — so
     # `*.192.0.2.1` came back normalised rather than rejected. nginx takes such
     # a `server_name` without complaint and it then matches no request ever
-    # sent, which is the same silent-no-op failure the assigned-country-code
-    # check above exists to prevent.
+    # sent, which is the same silent-no-op failure that the security
+    # capability's assigned-country-code check exists to prevent.
     if prefix:
         raise ValueError("wildcards cannot be used with IP addresses")
     return candidate

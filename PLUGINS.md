@@ -88,6 +88,24 @@ without `blitzecdn-http3` can still read back a site that asks for HTTP/3 — an
 having read it, refuse to deploy it by name. A contract that travelled with the
 package would turn a detached capability into an unreadable database row.
 
+A contract that stays, though, keeps its own *vocabulary*. `SiteFirewall` is
+validated against the ISO 3166-1 alpha-2 table, the HTTP-method shape and the
+alias table that turns `UK` into "use `GB`", and all four lived in
+`core/validation.py` — a module for primitives two or more capabilities share.
+They had one consumer, so core was carrying the words of a capability an
+operator can detach. They now sit beside the rules that use them, and
+`test_core_knows_no_kind_of_firewall_rule` holds `core/` to naming no rule kind
+and no part of that vocabulary.
+
+The same rule reached the adapter. `site_to_ansible` used to read `if
+site.firewall.empty: del document["firewall"]`, which is one capability's block
+named inside generic infrastructure, and a second such block would have been a
+second branch there. A block now opts in by subclassing
+`core.validation.OmittedWhenEmpty`, and core prunes whatever declares it
+without asking what it holds — deliberately *not* every nested block, because
+`visitor_headers` carries switches whose default the role reads, so "never
+configured" and "switched off" are not the same document.
+
 ## Core versus features
 
 **Core** (`src/blitzecdn/core/`) is what a feature is allowed to build on:
