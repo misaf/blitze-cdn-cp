@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Protocol
+from types import TracebackType
+from typing import Any, Protocol
 
 from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.operations import WorkflowKind
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.features.deployments.ports import (
     DeploymentGateway,
@@ -12,7 +14,7 @@ from blitzecdn.features.deployments.ports import (
 )
 from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates.domain import (
+from blitzecdn_certificates.certificates.domain import (
     CertificateInfo,
     CertificateSource,
     PreflightReport,
@@ -47,6 +49,29 @@ class Preflight(Protocol):
     ) -> PreflightReport: ...
 
 
+class WorkflowProgress(Protocol):
+    def checkpoint(
+        self, name: str, details: dict[str, Any] | None = None
+    ) -> object: ...
+
+
+class WorkflowRun(Protocol):
+    def __enter__(self) -> WorkflowProgress: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None: ...
+
+
+class WorkflowCoordinator(Protocol):
+    def run(
+        self, kind: WorkflowKind, operator: str, resource_id: str | None = None
+    ) -> WorkflowRun: ...
+
+
 __all__ = [
     "CertificateStore",
     "DeploymentGateway",
@@ -57,5 +82,7 @@ __all__ = [
     "Preflight",
     "SiteStore",
     "UnitOfWork",
+    "WorkflowCoordinator",
+    "WorkflowProgress",
     "ZoneEditor",
 ]

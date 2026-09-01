@@ -37,7 +37,6 @@ from blitzecdn.features.deployments.domain import (
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.features.http.policy import HttpScheme
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates.domain import CertificateSource
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 
 

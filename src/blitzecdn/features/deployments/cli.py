@@ -48,16 +48,6 @@ def deploy(
         ),
     ] = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    request_certificates: Annotated[
-        bool,
-        typer.Option(
-            "--request-certificates",
-            help=(
-                "After the HTTP deployment, issue certificates for ready "
-                "proxied sites and deploy again to install them."
-            ),
-        ),
-    ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Validate, preview, and apply desired state to the configured edges.
@@ -65,11 +55,6 @@ def deploy(
     With --limit this is a canary: the named edges converge and the rest keep
     serving what they have. Re-run without it to finish the rollout.
     """
-    if request_certificates and limit:
-        raise typer.BadParameter(
-            "--request-certificates cannot be combined with --limit; HTTP-01 "
-            "must be deployed to the full edge fleet"
-        )
     control = common.control_plane()
     if not yes:
         errors = control.deployments.validate()
@@ -91,29 +76,7 @@ def deploy(
         common.emit(result, json_output=json_output)
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
 
-    if request_certificates:
-        # The same reconciliation the scheduler and `blitzecdn cert reconcile`
-        # run, rather than a second copy of the loop. The copy that used to
-        # live here lacked both of the things that make the real one safe: it
-        # never re-checked eligibility under the deployment lock, so two
-        # reconcilers could each contact the CA for one site, and one failing
-        # site aborted the rest instead of being recorded and stepped over.
-        reconciliation = control.certificates.reconcile_certificates("cli")
-        common.emit(
-            {
-                "deployment": result.model_dump(mode="json"),
-                "certificates": reconciliation.model_dump(mode="json"),
-            },
-            json_output=json_output,
-        )
-        certificate_deployment = reconciliation.deployment
-        if reconciliation.failed or (
-            certificate_deployment is not None
-            and certificate_deployment.status is not DeploymentStatus.SUCCEEDED
-        ):
-            raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
-    else:
-        common.emit(result, json_output=json_output)
+    common.emit(result, json_output=json_output)
     if not json_output and limit:
         typer.echo(
             f"\nThis was a canary against {limit!r}. Every other edge is still "

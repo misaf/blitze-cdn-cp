@@ -30,10 +30,9 @@ import dns.rdatatype
 import dns.resolver
 
 from blitzecdn.core.config import Settings
-from blitzecdn.features.edges import OriginProbeAdapter
 from blitzecdn.features.edges.ports import EdgeStore, OriginProbe
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates.domain import (
+from blitzecdn_certificates.certificates.domain import (
     TTL_CUTOVER_ADVISORY_SECONDS,
     PreflightCheck,
     PreflightReport,
@@ -59,7 +58,7 @@ class CertificatePreflight:
     ) -> None:
         self._settings = settings
         self._edges = edges
-        self._origin_probe = origin_probe or OriginProbeAdapter(settings)
+        self._origin_probe = origin_probe
 
     def _resolver(self) -> dns.resolver.Resolver:
         """A resolver honouring the configured timeout and, if set, servers."""
@@ -261,6 +260,8 @@ class CertificatePreflight:
         Included anyway because the customer-visible result of issuing against a
         dead origin is a padlock over a 502, which reads as our failure.
         """
+        if self._origin_probe is None:
+            raise RuntimeError("certificate preflight requires an origin probe")
         result = self._origin_probe.check(site)
         if result.ok:
             return _passed("origin", f"{result.origin} answered as expected")

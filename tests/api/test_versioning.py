@@ -18,8 +18,13 @@ from blitzecdn.features.dns.api import v1_sites, v2_sites
 from blitzecdn.features.dns.api import v2 as v2_zones
 from blitzecdn.features.edges.api import v1 as v1_edges
 from blitzecdn.features.edges.api import v2 as v2_edges
-from blitzecdn.features.tls.certificates.api import v1 as v1_certificates
-from blitzecdn.features.tls.certificates.api import v2 as v2_certificates
+
+REQUIRES_CERTIFICATES = frozenset(
+    {
+        "test_operational_routes_publish_one_shape_for_both_versions",
+        "test_frozen_v1_operational_shapes_are_unchanged",
+    }
+)
 
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
@@ -36,13 +41,11 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
         v1_sites,
         v1_zones,
         v1_edges,
-        v1_certificates,
         v1_deployments,
         v1_diagnostics,
         v2_sites,
         v2_zones,
         v2_edges,
-        v2_certificates,
         v2_deployments,
         v2_diagnostics,
     )
@@ -60,13 +63,11 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
     }
     assert modules == {
         "blitzecdn.features.diagnostics.api.readiness",
-        "blitzecdn.features.tls.certificates.api.v1",
         "blitzecdn.features.deployments.api.v1",
         "blitzecdn.features.diagnostics.api.v1",
         "blitzecdn.features.edges.api.v1",
         "blitzecdn.features.dns.api.v1_sites",
         "blitzecdn.features.dns.api.v1",
-        "blitzecdn.features.tls.certificates.api.v2",
         "blitzecdn.features.deployments.api.v2",
         "blitzecdn.features.diagnostics.api.v2",
         "blitzecdn.features.edges.api.v2",
@@ -90,7 +91,7 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
             assert get_control_plane in dependency_calls(route), route.path
 
 
-def test_openapi_documents_control_and_certificate_workflows(settings):
+def test_openapi_documents_core_control_workflows(settings):
     with TestClient(control_plane_app(settings)) as client:
         assert client.get("/docs").status_code == 200
         assert client.get("/redoc").status_code == 200
@@ -99,13 +100,9 @@ def test_openapi_documents_control_and_certificate_workflows(settings):
         paths = schema["paths"]
         assert "/v1/sites" in paths
         assert "/v1/deployments" in paths
-        assert "/v1/sites/{name}/certificate/request" in paths
-        assert "/v1/sites/{name}/certificate/upload" in paths
         assert "/v1/workflows" in paths
         assert "/v2/sites" in paths
         assert "/v2/deployments" in paths
-        assert "/v2/sites/{name}/certificate/request" in paths
-        assert "/v2/sites/{name}/certificate/upload" in paths
         assert "/v2/workflows" in paths
 
 
@@ -372,7 +369,7 @@ def test_operational_routes_publish_one_shape_for_both_versions(settings):
     # own v1/v2 pair and counts it in its own suite — the app here is built
     # without discovery, so the number is a fact about core rather than about
     # the environment the suite happened to run in.
-    assert compared == 21, "the operational surface changed; check the route table"
+    assert compared == 23, "the all-package surface changed; check the route table"
 
 
 def _unversioned(node: object) -> object:

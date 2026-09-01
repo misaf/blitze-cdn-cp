@@ -12,18 +12,18 @@ from typing import ClassVar
 import dns.exception
 import dns.resolver
 import pytest
+from blitzecdn_certificates.certificates import preflight as preflight_module
+from blitzecdn_certificates.certificates.domain import PreflightSeverity
+from blitzecdn_certificates.certificates.preflight import (
+    CertificatePreflight,
+    _ancestors,
+    _permitted_issuers,
+)
 from control_plane_fixtures import FakeEdgeStore
 
 from blitzecdn.features.edges.domain import Edge
 from blitzecdn.features.edges.origins import OriginCheck
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates import preflight as preflight_module
-from blitzecdn.features.tls.certificates.domain import PreflightSeverity
-from blitzecdn.features.tls.certificates.preflight import (
-    CertificatePreflight,
-    _ancestors,
-    _permitted_issuers,
-)
 
 
 class FakeOriginProbe:

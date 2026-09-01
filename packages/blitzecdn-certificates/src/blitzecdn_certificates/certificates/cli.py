@@ -9,7 +9,8 @@ import typer
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
+from blitzecdn_certificates.certificates.domain import CERTIFICATE_RENEWAL_DAYS
+from blitzecdn_certificates.composition import build_certificate_service
 
 cert_app = typer.Typer(
     no_args_is_help=True, help="Inspect and renew managed TLS certificates."
@@ -34,9 +35,9 @@ def cert_list(
     """
     control = common.control_plane()
     statuses = (
-        control.certificates.expiring_certificates(expiring_in)
+        build_certificate_service(control).expiring_certificates(expiring_in)
         if expiring_in is not None
-        else control.certificates.certificate_statuses()
+        else build_certificate_service(control).certificate_statuses()
     )
     common.emit(statuses, json_output=json_output)
     if not json_output and not statuses:
@@ -60,7 +61,9 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = common.control_plane().certificates.certificate_preflight(name)
+    report = build_certificate_service(common.control_plane()).certificate_preflight(
+        name
+    )
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -115,7 +118,7 @@ def cert_renew(
     subscription back to the CA, which is rate limited.
     """
     control = common.control_plane()
-    result = control.certificates.renew_certificates(
+    result = build_certificate_service(control).renew_certificates(
         "cli",
         within_days=expiring_in,
         force=force,
@@ -160,7 +163,9 @@ def cert_reconcile(
     preflights never contact the CA, and the deployment runs only after at
     least one new certificate was issued.
     """
-    result = common.control_plane().certificates.reconcile_certificates("cli")
+    result = build_certificate_service(common.control_plane()).reconcile_certificates(
+        "cli"
+    )
     common.emit(result, json_output=json_output)
     deployment = result.deployment
     if result.failed or (

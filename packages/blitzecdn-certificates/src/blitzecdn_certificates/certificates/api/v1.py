@@ -11,23 +11,26 @@ from blitzecdn.api.dependencies import (
     SettingsDependency,
     require_operator,
 )
-from blitzecdn.api.operations import (
+from blitzecdn.api.operations import as_operation
+from blitzecdn_certificates.api_models import (
     CertificateInfo,
     CertificateRequest,
     CertificateStatus,
     PreflightReport,
     ReconciliationResult,
     RenewalResult,
-    as_operation,
+    RenewRequest,
 )
-from blitzecdn.api.requests import RenewRequest
+from blitzecdn_certificates.composition import build_certificate_service
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
 def certificate(name: str, control: ControlPlaneDependency) -> CertificateInfo:
-    return as_operation(control.certificates.certificate(name), CertificateInfo)
+    return as_operation(
+        build_certificate_service(control).certificate(name), CertificateInfo
+    )
 
 
 @router.get("/v1/certificates", response_model=list[CertificateStatus])
@@ -37,9 +40,9 @@ def list_certificates(
 ) -> list[CertificateStatus]:
     """Managed certificates against the clock, soonest expiry first."""
     if expiring_in is None:
-        statuses = control.certificates.certificate_statuses()
+        statuses = build_certificate_service(control).certificate_statuses()
     else:
-        statuses = control.certificates.expiring_certificates(expiring_in)
+        statuses = build_certificate_service(control).expiring_certificates(expiring_in)
     return [as_operation(item, CertificateStatus) for item in statuses]
 
 
@@ -55,7 +58,7 @@ async def renew_certificates(
     result = await asyncio.get_running_loop().run_in_executor(
         renewal_pool,
         functools.partial(
-            control.certificates.renew_certificates,
+            build_certificate_service(control).renew_certificates,
             operator,
             within_days=request.within_days,
             force=request.force,
@@ -72,7 +75,8 @@ def reconcile_certificates(
 ) -> ReconciliationResult:
     """Issue first certificates for ready sites, then install them."""
     return as_operation(
-        control.certificates.reconcile_certificates(operator), ReconciliationResult
+        build_certificate_service(control).reconcile_certificates(operator),
+        ReconciliationResult,
     )
 
 
@@ -85,7 +89,7 @@ async def upload_certificate(
     private_key: Annotated[UploadFile, File()],
 ) -> CertificateInfo:
     return as_operation(
-        control.certificates.upload_certificate(
+        build_certificate_service(control).upload_certificate(
             name,
             await certificate.read(1_048_577),
             await private_key.read(262_145),
@@ -103,7 +107,7 @@ def request_certificate(
     control: ControlPlaneDependency,
 ) -> CertificateInfo:
     return as_operation(
-        control.certificates.request_certificate(
+        build_certificate_service(control).request_certificate(
             name,
             operator,
             request.email,
@@ -119,5 +123,5 @@ def certificate_preflight(
 ) -> PreflightReport:
     """Whether HTTP-01 could validate this site right now."""
     return as_operation(
-        control.certificates.certificate_preflight(name), PreflightReport
+        build_certificate_service(control).certificate_preflight(name), PreflightReport
     )

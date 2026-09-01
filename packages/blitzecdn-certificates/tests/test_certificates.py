@@ -6,6 +6,9 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from blitzecdn_certificates.certificates import adapters as certificates_module
+from blitzecdn_certificates.certificates.adapters import CertbotIssuer, CertificateStore
+from blitzecdn_certificates.certificates.domain import CertificateSource
 from control_plane_fixtures import private_key_pem
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
@@ -13,9 +16,6 @@ from cryptography.x509.oid import NameOID
 
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates import adapters as certificates_module
-from blitzecdn.features.tls.certificates.adapters import CertbotIssuer, CertificateStore
-from blitzecdn.features.tls.certificates.domain import CertificateSource
 
 
 def test_store_validates_and_persists_managed_certificate(

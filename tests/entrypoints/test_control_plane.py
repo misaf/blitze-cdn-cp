@@ -1,6 +1,8 @@
 import time
 from contextlib import contextmanager
 from dataclasses import replace
+from importlib import import_module
+from importlib.util import find_spec
 
 import pytest
 from control_plane_fixtures import (
@@ -23,8 +25,22 @@ from blitzecdn.core.runs import HostRun, RunStatus
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates.domain import CertificateSource
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+
+CertificateSource = (
+    import_module("blitzecdn_certificates.certificates.domain").CertificateSource
+    if find_spec("blitzecdn_certificates") is not None
+    else None
+)
+
+REQUIRES_CERTIFICATES = frozenset(
+    {
+        "test_validate_rejects_acme_on_a_reserved_domain",
+        "test_busy_external_work_does_not_create_a_false_workflow",
+        "test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed",
+        "test_an_interrupted_issuance_says_how_far_it_got",
+    }
+)
 
 
 def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
@@ -220,7 +236,11 @@ def test_crud_validate_and_successful_deploy(settings):
         "alice",
     )
     control.dns.update_record(
-        "example.com", "cdn", RecordType.A, RecordPatch(cache_enabled=False), "alice"
+        "example.com",
+        "cdn",
+        RecordType.A,
+        RecordPatch(cache_enabled=False, compression="off"),
+        "alice",
     )
     assert repository.sites.get_site(record.site_name).cache_enabled is False
     assert control.deployments.validate() == []

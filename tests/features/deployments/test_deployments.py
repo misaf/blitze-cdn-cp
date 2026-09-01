@@ -1,5 +1,32 @@
 # ruff: noqa: F403,F405
+from importlib import import_module
+
 from application_support import *
+
+REQUIRES_CERTIFICATES = frozenset(
+    {
+        "test_upload_and_request_certificate_preserve_ssl_mode",
+        "test_new_certificate_material_owes_the_fleet_a_deployment",
+        "test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode",
+        "test_automatic_ssl_uses_flexible_when_only_http_is_healthy",
+        "test_custom_ssl_mode_is_never_scanned_or_changed",
+        "test_automatic_ssl_never_downgrades_when_strict_is_unavailable",
+        "test_reconcile_issues_ready_first_certificate_and_deploys",
+        "test_reconcile_skips_blocked_site_without_contacting_ca",
+        "test_request_certificate_requires_email",
+        "test_certificate_upload_holds_deployment_lock",
+        "test_certificate_statuses_report_time_left",
+        "test_a_healthy_certificate_is_not_reported_as_expiring",
+        "test_renewal_reissues_only_what_is_due",
+        "test_a_spent_renewal_budget_stops_between_sites_and_says_so",
+        "test_renewal_without_a_budget_is_unbounded",
+        "test_an_uploaded_certificate_near_expiry_is_reported_not_renewed",
+        "test_one_failing_renewal_does_not_stop_the_others",
+        "test_renewal_can_be_narrowed_to_named_sites",
+        "test_renewal_rejects_a_site_it_has_no_certificate_for",
+        "test_renewal_records_the_selector_in_the_audit_trail",
+    }
+)
 
 
 def _await_terminal(
@@ -325,9 +352,13 @@ def test_certificate_upload_holds_deployment_lock(
         def install(self, site, certificate, key, *, source, email=None):
             assert events == ["locked"]
             events.append("installed")
-            from blitzecdn.features.tls.certificates.adapters import CertificateStore
+            from importlib import import_module
 
-            return CertificateStore(settings).install(
+            certificate_store_class = import_module(
+                "blitzecdn_certificates.certificates.adapters"
+            ).CertificateStore
+
+            return certificate_store_class(settings).install(
                 site, certificate, key, source=source, email=email
             )
 
@@ -620,7 +651,7 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
     # Time runs out the moment the first site has been renewed.
     clock = iter([0.0, 0.0, 1000.0, 1000.0, 1000.0])
     monkeypatch.setattr(
-        "blitzecdn.features.tls.certificates.service.monotonic", lambda: next(clock)
+        "blitzecdn_certificates.certificates.service.monotonic", lambda: next(clock)
     )
 
     result = control.certificates.renew_certificates(
@@ -690,6 +721,9 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
 
 def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair):
     """A scheduled renewal must make progress even when a site is unreachable."""
+    certificate_source = import_module(
+        "blitzecdn_certificates.certificates.domain"
+    ).CertificateSource
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair, fails={"broken-example-com"})
     control = ControlPlane(
@@ -718,7 +752,7 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
         path = settings.certificate_dir / record.site_name / "metadata.json"
         path.write_text(
             info.model_copy(
-                update={"source": CertificateSource.ACME, "email": "ops@example.com"}
+                update={"source": certificate_source.ACME, "email": "ops@example.com"}
             ).model_dump_json(indent=2),
             encoding="utf-8",
         )

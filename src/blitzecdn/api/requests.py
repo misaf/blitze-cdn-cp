@@ -12,7 +12,6 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.core.validation import EDGE_LIMIT
-from blitzecdn.features.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
 
 class RequestModel(BaseModel):
@@ -39,14 +38,6 @@ class OriginCheckRequest(FleetRequest):
     """Which edges should answer. All of them, unless narrowed."""
 
     pass
-
-
-class RenewRequest(RequestModel):
-    within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
-    force: bool = False
-    #: Narrow the run to these sites. None means every managed certificate;
-    #: an unknown name is a 404 rather than a quiet no-op.
-    sites: list[str] | None = Field(default=None, min_length=1)
 
 
 class RollbackRequest(RequestModel):

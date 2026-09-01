@@ -3,6 +3,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
+from importlib import import_module
+from importlib.util import find_spec
 from pathlib import Path
 
 import dramatiq
@@ -49,6 +51,67 @@ def dramatiq_stub_broker(monkeypatch):
         dramatiq.set_broker(previous_broker)
         for actor, previous in zip(actors, previous_actor_brokers, strict=True):
             actor.broker = previous
+
+
+@pytest.fixture(autouse=True)
+def skip_detached_certificate_integrations(request):
+    """Run package-crossing root tests only while their provider is attached."""
+    required = getattr(request.module, "REQUIRES_CERTIFICATES", frozenset())
+    if request.function.__name__ not in required:
+        return
+    request.node.add_marker(pytest.mark.requires_certificates)
+    if find_spec("blitzecdn_certificates") is None:
+        pytest.skip("blitzecdn-certificates is detached")
+
+
+@pytest.fixture(autouse=True)
+def attach_certificate_test_services(monkeypatch):
+    """Adapt legacy cross-capability integration tests to the detached package.
+
+    Production core never constructs these services. The all-package test
+    workspace does so explicitly, while core-only wheel tests exercise the
+    real detached shape in a separate interpreter.
+    """
+    if find_spec("blitzecdn_certificates") is None:
+        yield
+        return
+
+    original = ControlPlane.__init__
+
+    def initialize(control, *args, **kwargs):
+        certificate_store = kwargs.pop("certificate_store", None)
+        issuer = kwargs.pop("issuer", None)
+        preflight = kwargs.pop("preflight", None)
+        original(control, *args, **kwargs)
+
+        composition = import_module("blitzecdn_certificates.composition")
+        service_module = import_module("blitzecdn_certificates.certificates.service")
+        default = composition.build_certificate_service(control)
+        certificates = service_module.CertificateService(
+            policy=default.policy,
+            persistence=service_module.CertificatePersistence(
+                sites=control.sites,
+                certificates=certificate_store or default.persistence.certificates,
+                uow=control.transactions,
+                requirements=control.deployment_requirements,
+            ),
+            execution=service_module.CertificateExecution(
+                runner=control.deployment_lock,
+                issuer=issuer or default.execution.issuer,
+                preflight=preflight or default.execution.preflight,
+            ),
+            events=control.events,
+            dns=control.dns,
+            deployments=control.deployments,
+            workflows=control.workflows,
+        )
+        control.certificates = certificates
+        composition._certificate_services[control] = certificates
+        control.automatic_ssl = composition.build_automatic_ssl_service(control)
+        control._certificate_store = certificates.persistence.certificates
+
+    monkeypatch.setattr(ControlPlane, "__init__", initialize)
+    yield
 
 
 def host_run(
@@ -295,20 +358,18 @@ class FakePreflight:
         self.calls: list[tuple[str, bool, int | None]] = []
 
     def check(self, site, *, deployed: bool, record_ttl: int | None = None):
-        from blitzecdn.features.tls.certificates.domain import (
-            PreflightCheck,
-            PreflightReport,
-            PreflightSeverity,
-        )
+        from importlib import import_module
+
+        domain = import_module("blitzecdn_certificates.certificates.domain")
 
         self.calls.append((site.name, deployed, record_ttl))
-        return PreflightReport(
+        return domain.PreflightReport(
             site=site.name,
             checks=tuple(
-                PreflightCheck(
+                domain.PreflightCheck(
                     name=name,
                     passed=False,
-                    severity=PreflightSeverity.BLOCKING,
+                    severity=domain.PreflightSeverity.BLOCKING,
                     detail=f"{name} failed",
                 )
                 for name in self.failures
@@ -501,11 +562,16 @@ def cli_control_plane(settings, monkeypatch, runner_double=None, preflight=None)
     of `blitzecdn cache purge` drives the same root application as a test of
     `blitzecdn deploy` and needs the same substitution to do it.
     """
+    certificate_options = (
+        {"preflight": preflight or FakePreflight()}
+        if find_spec("blitzecdn_certificates") is not None
+        else {}
+    )
     control = ControlPlane(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_double or FakeRunner(),
-        preflight=preflight or FakePreflight(),
+        **certificate_options,
     )  # type: ignore[arg-type]
     monkeypatch.setattr(cli_common, "control_plane", lambda: control)
     monkeypatch.setattr(cli_common, "settings", lambda: settings)
@@ -524,16 +590,5 @@ def repository_on(settings):
 
 
 def control_plane_app(settings):
-    """The HTTP API this *distribution* publishes, and nothing an install added.
-
-    `create_app` discovers plugins, so the app a core test builds would
-    otherwise carry whichever optional capabilities the developer happened to
-    have installed — and a test asserting on the published surface would give a
-    different answer in a core-only environment than in a full one. Discovery
-    is switched off here for the same reason the `builtins` plugin fixture
-    switches it off: a core assertion about the API is an assertion about core.
-
-    An optional distribution's routes are asserted in its own tests, against an
-    app built the normal way.
-    """
-    return create_app(settings, plugins=load_plugins(entry_point_group=None))
+    """The all-package workspace API used by cross-capability integration tests."""
+    return create_app(settings, plugins=load_plugins())

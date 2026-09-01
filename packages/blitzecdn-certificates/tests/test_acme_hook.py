@@ -1,34 +1,22 @@
 from types import SimpleNamespace
 
+from blitzecdn_certificates import acme_hook
 from control_plane_fixtures import ansible_run, host_run
-
-from blitzecdn import acme_hook
 
 
 def test_acme_hook_validates_and_runs(monkeypatch, settings):
     calls = []
 
-    original_close = acme_hook.Repository.close
-
-    def close(repository):
+    def close():
         calls.append({"repository": "closed"})
-        original_close(repository)
 
-    class Runner:
-        def __init__(self, _settings, edges):
-            # The hook opens the same database the inventory plugin will read,
-            # so the runner it builds is handed a real edge store. Recorded
-            # rather than ignored: passing the wrong one would mean a challenge
-            # published to a different fleet than the CA is about to validate.
-            calls.append({"edges": type(edges).__name__})
-
-        def run_acme_challenge(self, **values):
+    class Fleet:
+        def run_playbook(self, **values):
             calls.append(values)
             return ansible_run(host_run("edge-a"))
 
-    monkeypatch.setattr(acme_hook.Settings, "from_environment", lambda: settings)
-    monkeypatch.setattr(acme_hook, "AnsibleRunner", Runner)
-    monkeypatch.setattr(acme_hook.Repository, "close", close)
+    control = SimpleNamespace(settings=settings, fleet=Fleet(), close=close)
+    monkeypatch.setattr(acme_hook.common, "control_plane", lambda: control)
     monkeypatch.setattr(acme_hook.sys, "argv", ["acme-hook", "present"])
     monkeypatch.setattr(
         acme_hook,
@@ -42,9 +30,9 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
         ),
     )
     assert acme_hook.main() == 0
-    assert calls[0] == {"edges": "EdgeStore"}
-    assert calls[1]["action"] == "present"
-    assert calls[2] == {"repository": "closed"}
+    assert calls[0]["name"] == "acme-challenge"
+    assert calls[0]["variables"]["blitzecdn_acme_action"] == "present"
+    assert calls[1] == {"repository": "closed"}
 
 
 def test_acme_hook_fails_closed(monkeypatch):

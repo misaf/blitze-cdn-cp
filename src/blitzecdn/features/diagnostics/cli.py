@@ -8,20 +8,54 @@ exact edge that would have made `cache` undetachable.
 
 from __future__ import annotations
 
+import secrets
+from dataclasses import dataclass
 from typing import Annotated, Any
 
+import dns.exception
+import dns.rdatatype
+import dns.resolver
 import typer
 import uvicorn
 
 from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.features.tls.certificates import check_resolver
-from blitzecdn.features.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 
 #: Root-level verbs, like the deployment group: `blitzecdn status`, not
 #: `blitzecdn diagnostics status`.
 diagnostics_app = typer.Typer()
+
+
+@dataclass(frozen=True, slots=True)
+class ResolverCheck:
+    passed: bool
+    detail: str
+
+
+def check_resolver(settings: Any) -> ResolverCheck:
+    """Detect a resolver that invents answers for reserved names."""
+    servers = settings.preflight_dns_servers
+    where = f" ({', '.join(servers)})" if servers else " (host resolver)"
+    resolver = dns.resolver.Resolver()
+    timeout = float(settings.preflight_dns_timeout_seconds)
+    resolver.lifetime = timeout
+    resolver.timeout = timeout
+    if servers:
+        resolver.nameservers = list(servers)
+    probe = f"blitzecdn-resolver-probe-{secrets.token_hex(8)}.invalid"
+    try:
+        answer = resolver.resolve(probe, dns.rdatatype.A)
+    except (dns.resolver.NXDOMAIN, dns.resolver.NoAnswer):
+        return ResolverCheck(True, f"resolver{where} rejects names that cannot exist")
+    except dns.exception.DNSException:
+        return ResolverCheck(True, f"resolver{where} did not answer the probe")
+    addresses = ", ".join(sorted(str(record.address) for record in answer))
+    return ResolverCheck(
+        False,
+        f"resolver{where} answered {addresses} for a reserved .invalid name, so "
+        "it invents addresses instead of resolving",
+    )
 
 
 @diagnostics_app.command()
@@ -98,23 +132,11 @@ def doctor(
     of them wrong. Pass --no-resolver on a host with no DNS at all.
     """
     settings = common.settings()
-    # Certificate expiry is read from the local store, so it belongs in a
-    # check that promises not to touch the network. It is also the thing most
-    # likely to take a site down while every other check stays green.
-    expiring = common.control_plane().certificates.expiring_certificates()
     report = {
         "python_supported": True,
         "state_dir": str(settings.state_dir),
         "api_auth_configured": bool(settings.api_keys),
         "configuration_errors": settings.validate_runtime(),
-        "certificates_expiring": [
-            {
-                "site": status.site,
-                "days_remaining": status.days_remaining,
-                "renewable": status.renewable,
-            }
-            for status in expiring
-        ],
     }
     resolver_report = check_resolver(settings) if resolver_check else None
     if resolver_report is not None:
@@ -125,12 +147,6 @@ def doctor(
     common.emit(report, json_output=json_output)
     if resolver_report is not None and not resolver_report.passed:
         typer.echo(f"\n{resolver_report.detail}.", err=True)
-    if not json_output and expiring:
-        typer.echo(
-            f"\n{len(expiring)} certificate(s) expire within "
-            f"{CERTIFICATE_RENEWAL_DAYS} days. Run 'blitzecdn cert renew'.",
-            err=True,
-        )
     if report["configuration_errors"]:
         raise typer.Exit(ExitCode.CONFIGURATION)
 

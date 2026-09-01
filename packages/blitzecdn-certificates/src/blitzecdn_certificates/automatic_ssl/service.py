@@ -8,10 +8,10 @@ from blitzecdn.features.deployments.ports import DeploymentGateway
 from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
 from blitzecdn.features.edges.origins import OriginCheck, OriginReport
 from blitzecdn.features.edges.ports import OriginCheckRunner, OriginProbe
-from blitzecdn.features.edges.reporting import edge_origins
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.automatic_ssl.domain import SslAutomaticReconciliation
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+from blitzecdn_certificates.automatic_ssl.domain import SslAutomaticReconciliation
+from blitzecdn_certificates.automatic_ssl.reporting import edge_origins
 
 
 class AutomaticSslService:

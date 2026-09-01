@@ -6,6 +6,13 @@ from fastapi.testclient import TestClient
 from blitzecdn.api import create_app
 from blitzecdn.core.persistence.workflows import WorkflowStore
 
+REQUIRES_CERTIFICATES = frozenset(
+    {
+        "test_api_service_runs_certificate_reconciliation_on_its_interval",
+        "test_api_service_runs_automatic_ssl_scans_on_their_interval",
+    }
+)
+
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):
     built = []
@@ -163,4 +170,4 @@ def test_metrics_are_authenticated_and_readable(settings):
     body = response.text
     assert "blitzecdn_edges 0" in body
     assert "blitzecdn_sites 0" in body
-    assert "blitzecdn_certificates_expiring 0" in body
+    assert "blitzecdn_certificates_expiring" not in body
