@@ -125,3 +125,10 @@ class SecurityPolicy(BaseModel):
     under_attack_mode: bool = False
     # The block is replaced wholesale when patched.
     firewall: SiteFirewall = SiteFirewall()
+
+    @property
+    def required_capabilities(self) -> frozenset[str]:
+        """Implementation capabilities requested by this stable policy."""
+        if not self.under_attack_mode and self.firewall.empty:
+            return frozenset()
+        return frozenset({"security"})
