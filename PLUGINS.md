@@ -16,20 +16,21 @@ load-bearing rather than descriptive:
 | **2. Built-in required capabilities** | `src/blitzecdn/features/` | `BUILTIN_PLUGINS` | no — a failure is fatal |
 | **3. Installable optional capabilities** | `packages/blitzecdn-*/` | the `blitzecdn.plugins` entry-point group | yes, and that is normal |
 
-The third category is a real Python distribution. `blitzecdn-backup` and
-`blitzecdn-cache` are wheels that install beside the control plane and are found
-through their installed metadata:
+The third category is a real Python distribution. The official optional wheels
+are `blitzecdn-backup`, `blitzecdn-cache`, `blitzecdn-compression`,
+`blitzecdn-certificates`, and `blitzecdn-security`. They install beside the
+control plane and are found through their installed metadata:
 
 ```
 install the package  →  pluggy discovers the feature  →  the capability exists
 remove the package   →  pluggy discovers nothing      →  core still works
 ```
 
-No line of core is edited either way. Nothing in `blitzecdn` imports
-`blitzecdn_backup` or `blitzecdn_cache`, and nothing anywhere asks whether they
-are installed — `tests/architecture/test_packages.py` fails the suite if either
-appears, and `tests/architecture/test_lifecycle.py` builds the wheels, installs
-them into throwaway virtualenvs, and asserts the cycle above end to end.
+No line of core is edited either way. Nothing in `blitzecdn` imports an optional
+distribution, and no feature-specific installation check exists.
+`tests/architecture/test_packages.py` enforces that direction;
+`tests/architecture/test_lifecycle.py` builds real wheels and asserts attachment
+and detachment in throwaway virtualenvs.
 
 ### What is *not* a package
 
@@ -43,10 +44,10 @@ capability
     └── strategy / mode / option
 ```
 
-gzip and Brotli are values of `CompressionMode` inside `compression`, not
+gzip and Brotli are values of `CompressionMode` inside `blitzecdn-compression`, not
 `blitzecdn-gzip` and `blitzecdn-brotli`. HTTP/1.1, HTTP/2 and HTTP/3 are
 versions of one protocol inside `http`. Under Attack Mode is a switch on
-`security`. The minimum TLS version, the cache TTL, the visitor-IP header and
+`blitzecdn-security`. The minimum TLS version, the cache TTL, the visitor-IP header and
 the origin SNI option are fields on a site.
 
 The test for a package is not "can this be disabled" but:
@@ -55,9 +56,9 @@ The test for a package is not "can this be disabled" but:
 > does removing it remove meaningful implementation, dependencies, registration
 > or operational behavior?
 
-### Why the site-policy capabilities are built in
+### Why site-policy contracts stay in core
 
-`compression`, `http`, `security` and the TLS *policy* cannot be extracted, and
+`CompressionPolicy`, `SecurityPolicy`, and `TlsPolicy` cannot be extracted, and
 the reason is worth writing down because it will come up again. `CdnSite`
 composes `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy` and `TlsPolicy`
 **by inheritance** into one flat, frozen model, and that model is consumed by
@@ -67,9 +68,12 @@ plugins happen to be installed would make the published schema and the on-disk
 snapshot depend on the installation, and would leave Ansible parsing a desired
 state whose shape it cannot predict.
 
-So they stay. What *can* leave is a capability that owns operations rather than
-site policy: `backup` owns archives, `cache` owns purging and reporting, and
-neither appears in a site document.
+The contracts therefore stay. Their implementation can still leave:
+`blitzecdn-compression` supplies gzip/Brotli capability,
+`blitzecdn-certificates` owns managed certificate operations and Automatic SSL,
+and `blitzecdn-security` owns site-level security deployment validation. Core
+can deserialize every site without them and then report an unavailable
+capability deterministically.
 
 ## Core versus features
 
@@ -80,20 +84,17 @@ and process adapters, and the plugin infrastructure itself. Core owns no
 business capability. `tests/architecture/test_layering.py` fails a `core` module that imports
 a feature's `service` or `adapters`.
 
-**Features** (`src/blitzecdn/features/`) are the **required** product or
-operational capabilities this distribution ships: `sites`, `dns`, `http`, `tls`,
-`compression`, `security`, `deployments`, `edges`, `diagnostics`,
-`maintenance`. A feature owns the layers its actual behavior needs and the
-`plugin.py` that tells the control plane it exists. Small features need not
-invent service, repository, or adapter layers merely to match a directory
-template.
+**Features** (`src/blitzecdn/features/`) contain required capabilities and stable
+site contracts: `sites`, `dns`, `http`, `tls`, `compression`, `security`,
+`deployments`, `edges`, `diagnostics`, `maintenance`. A contract-only directory
+does not have a built-in plugin. Small features need not invent service,
+repository, or adapter layers merely to match a directory template.
 
 **Optional capabilities** (`packages/`) are the same shape one directory out,
 and are covered in [Installable optional capabilities](#installable-optional-capabilities).
 
-One top-level package is one capability, and certificate issuance and the
-Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl` — two
-parts of one capability rather than two features.
+One top-level package is one capability. Certificate issuance and the Automatic
+SSL/TLS scan are two parts of `blitzecdn-certificates`, not separate packages.
 `tests/architecture/test_layering.py` refuses a top-level `gzip`, `http3`,
 `certificates` or `under_attack` package by name.
 
@@ -181,7 +182,7 @@ arguments; every other hook takes `platform`, the built control plane.
 | `blitzecdn_shutdown` | `context`, `platform` | `None` |
 
 A plugin implements only the hooks it has something to say through.
-`compression` contributes neither routes nor commands and that is not an error;
+`blitzecdn-compression` contributes neither routes nor commands and that is not an error;
 the installed `blitzecdn-backup` contributes commands and no routes; `sites`
 contributes the site document and the fleet variables derived from site protocol
 policy.
@@ -201,11 +202,12 @@ knows how a document is framed — site documents under one key, fleet variables
 beside them — and nothing about what goes in one:
 
 * `sites` contributes the base site document, projected from `CdnSite`
-* `tls` contributes the certificate paths, and **overrides** the two the model
-  projected, because only this controller knows the fingerprinted filenames
+* `blitzecdn-certificates` contributes managed certificate source/destination
+  paths, and **overrides** the two the model projected, because only the
+  certificate store knows the fingerprinted filenames
 * `http` projects HTTP/3 policy into the fleet-wide QUIC switch and the single
   Nginx listener owner required by `reuseport`
-* `security` contributes no state, but refuses a deployment whose site asks for
+* `blitzecdn-security` contributes no state, but refuses a deployment whose site asks for
   Under Attack Mode on a controller with no challenge secret
 
 This projection does not make site policy an edge capability. A site may ask
@@ -397,7 +399,7 @@ In the workspace:
 ```bash
 uv sync --all-packages                  # everything, for development
 uv sync                                 # the control plane alone
-uv sync --extra backup --extra cache    # the control plane plus named capabilities
+uv sync --extra compression --extra security  # core plus selected capabilities
 
 uv add --package blitzecdn blitzecdn-cache      # attach
 uv remove --package blitzecdn blitzecdn-cache   # detach
@@ -406,15 +408,15 @@ uv remove --package blitzecdn blitzecdn-cache   # detach
 Beside an installed control plane:
 
 ```bash
-pip install blitzecdn-cache      # attach
-pip uninstall blitzecdn-cache    # detach
+pip install 'blitzecdn[compression]'  # attach one official capability
+pip uninstall blitzecdn-compression   # detach it
 pip install 'blitzecdn[all]'     # the control plane and every optional capability
 pip install blitzecdn            # the control plane and none of them
 ```
 
 `pip install blitzecdn` pulls in no optional distribution: they are extras, not
-dependencies. `install.sh` and the container image both pass
-`--extra backup --extra cache`, and `BLITZECDN_CAPABILITIES` overrides that list
+dependencies. `install.sh` and the container image select their required extras,
+and `BLITZECDN_CAPABILITIES` overrides that list
 for a controller that should ship without one. Keep `backup` installed on a
 controller you intend to update in place — `install.sh update` takes a database
 backup before it changes anything.
@@ -437,16 +439,27 @@ suite, and syncs them back. It is part of `just check`.
 Three different things, and collapsing any two of them is a bug:
 
 ```
-blitzecdn-cache installed      →  the capability exists on this controller
-site.cache_enabled = false     →  it exists, and this site does not use it
-site.cache_valid_success = 10m →  it exists, this site uses it, tuned this way
+blitzecdn-compression installed → the capability is available on this controller
+site.compression = off          → it is available but this site does not request it
+site.compression = brotli       → this site requests the available capability
 ```
 
 Removing a package is **not** the same as configuring the capability off.
-Detaching `blitzecdn-cache` does not stop the edges caching — `CachePolicy` is
-site configuration in the control plane and every edge renders it exactly as
-before. What disappears is the ability to *ask* the edges to drop something, or
-to report on what they kept.
+The site contract remains readable after detachment. A requested implementation
+then fails deployment validation with `capability '<token>' is not installed`;
+it is not ignored and its policy is not rewritten.
+
+The official site-level absence rules are:
+
+| package | valid without it | requires it |
+| --- | --- | --- |
+| `blitzecdn-compression` | `compression = off` | `gzip` or `brotli` |
+| `blitzecdn-certificates` | TLS disabled, or `certificate_mode = existing` with `ssl_automatic_mode = custom` | uploaded/requested material, or Automatic SSL on active TLS |
+| `blitzecdn-security` | Under Attack off and an empty site firewall | Under Attack Mode or any site firewall rule |
+
+TLS policy itself always stays core. Certificate routes, `cert`/`ssl` commands,
+certificate jobs, issuance, renewal, upload, and Automatic SSL scans appear only
+while `blitzecdn-certificates` is installed.
 
 ### Seeing what is installed
 
@@ -506,10 +519,9 @@ never heard of is checked identically.
 
 ### Persistence and detachment
 
-Detaching is **non-destructive**. Neither optional package owns a table or a
-migration: `backup` writes archives to the filesystem and reads the control
-plane's database through core's `DatabaseSchema`, and `cache` persists nothing
-at all. Re-attaching restores the capability with no migration and no data loss.
+Detaching is **non-destructive**. The official optional packages own no schema
+migration. Core retains site policy and certificate metadata needed to read
+existing desired state; re-attaching restores the operational contribution.
 
 An optional capability that genuinely needed its own persistence would have to
 define an install/upgrade/uninstall policy first — and uninstalling must never
@@ -518,19 +530,18 @@ one.
 
 ### Ansible stays where it is
 
-Ansible remains the provisioning authority. The `cache-purge.yml` and
-`stats.yml` playbooks are in the control plane's Ansible tree, not inside
-`blitzecdn-cache`, and the edge roles are unchanged. Detaching a Python package
-removes the code that *asks* for an operation, never the role that would carry
-one out, and it can never leave Ansible parsing a desired state whose shape it
-cannot predict — which is the other reason no site-policy capability was
-extracted. There is no runtime downloading of roles from plugin packages.
+Ansible remains the provisioning authority. Playbooks, Nginx templates,
+certificate-file deployment, module/runtime probes, firewall application, and
+edge roles remain in the control plane's Ansible tree. Detaching a Python
+package removes availability, validation, or operational contributions, never
+the role that realizes stable desired state. There is no runtime downloading of
+roles from plugin packages.
 
 ## Adding an optional capability
 
 1. Decide it really is one. Answer the two questions in [What is *not* a
-   package](#what-is-not-a-package). If it owns a field on `CdnSite`, stop: it
-   is a built-in capability or a setting on one.
+   package](#what-is-not-a-package). If it implements a `CdnSite` field, keep
+   that stable field/enum in core and extract only the implementation.
 2. Create `packages/blitzecdn-<name>/` with a `pyproject.toml` declaring
    `dependencies = ["blitzecdn>=3.0.0,<4"]`, the `blitzecdn.plugins` entry
    point, and `[tool.uv.sources] blitzecdn = { workspace = true }`.
