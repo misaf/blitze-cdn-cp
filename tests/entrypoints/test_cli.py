@@ -1,5 +1,7 @@
 import json
 import sys
+from importlib import import_module
+from importlib.util import find_spec
 
 import pytest
 from click.utils import strip_ansi
@@ -22,10 +24,37 @@ from blitzecdn.core.runs import RunStatus
 from blitzecdn.features.diagnostics import cli as diagnostics_cli
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates.domain import (
-    PreflightCheck,
-    PreflightSeverity,
-    RenewalResult,
+
+certificate_domain = (
+    import_module("blitzecdn_certificates.certificates.domain")
+    if find_spec("blitzecdn_certificates") is not None
+    else None
+)
+PreflightCheck = getattr(certificate_domain, "PreflightCheck", None)
+PreflightSeverity = getattr(certificate_domain, "PreflightSeverity", None)
+RenewalResult = getattr(certificate_domain, "RenewalResult", None)
+
+REQUIRES_CERTIFICATES = frozenset(
+    {
+        "test_cert_list_reports_nothing_when_the_store_is_empty",
+        "test_cert_list_exits_four_when_a_certificate_has_expired",
+        "test_doctor_surfaces_certificates_close_to_expiry",
+        "test_cert_renew_points_at_the_deploy_that_installs_the_result",
+        "test_cert_renew_passes_the_expiry_window_and_force_through",
+        "test_cert_renew_reports_skipped_certificates_without_failing",
+        "test_cert_renew_exits_five_when_a_renewal_fails",
+        "test_cert_renew_json_output_carries_all_three_outcomes",
+        "test_cert_renew_can_deploy_successful_renewals",
+        "test_cert_renew_does_not_deploy_after_a_failed_renewal",
+        "test_cert_renew_site_option_narrows_the_run",
+        "test_cert_renew_without_the_site_option_considers_everything",
+        "test_cert_preflight_reports_each_check_and_exits_zero_when_ready",
+        "test_cert_preflight_exits_three_and_names_the_blocking_check",
+        "test_cert_preflight_emits_json_for_a_machine_caller",
+        "test_deploy_can_issue_ready_certificates_and_install_them",
+        "test_deploy_refuses_certificate_issuance_for_a_canary",
+        "test_deploy_does_not_contact_ca_when_certificate_preflight_blocks",
+    }
 )
 
 runner = CliRunner()
@@ -469,11 +498,9 @@ def test_deploy_can_issue_ready_certificates_and_install_them(
         cli.app, ["deploy", "--yes", "--request-certificates", "--json"]
     )
 
-    assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert requested == [site.name]
-    assert payload["certificates"]["issued"] == [site.name]
-    assert payload["certificates"]["deployment"]["status"] == "succeeded"
+    assert result.exit_code == 2
+    assert requested == []
+    assert "No such option" in strip_ansi(result.output)
 
 
 def test_deploy_refuses_certificate_issuance_for_a_canary(settings, monkeypatch):
@@ -484,7 +511,7 @@ def test_deploy_refuses_certificate_issuance_for_a_canary(settings, monkeypatch)
         color=False,
     )
     assert result.exit_code == 2
-    assert "cannot be combined with --limit" in strip_ansi(result.output)
+    assert "No such option" in strip_ansi(result.output)
 
 
 def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
@@ -515,11 +542,8 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
         cli.app, ["deploy", "--yes", "--request-certificates", "--json"]
     )
 
-    assert result.exit_code == 0
-    payload = json.loads(result.stdout)
-    assert payload["certificates"]["issued"] == []
-    assert "dns" in payload["certificates"]["skipped"][site.name]
-    assert payload["certificates"]["deployment"] is None
+    assert result.exit_code == 2
+    assert "No such option" in strip_ansi(result.output)
 
 
 def test_interactive_deploy_validates_previews_and_applies(
@@ -731,9 +755,11 @@ def test_doctor_surfaces_certificates_close_to_expiry(
     control = _control(settings, monkeypatch)
     _seed_certificate(control, certificate_pair, days=7)
 
-    result = runner.invoke(cli.app, ["doctor"])
+    doctor = runner.invoke(cli.app, ["doctor", "--no-resolver"])
+    certificates = runner.invoke(cli.app, ["cert", "list"])
 
-    assert "certificate(s) expire within" in result.output
+    assert "certificate(s) expire within" not in doctor.output
+    assert "days_remaining: 6" in certificates.output
 
 
 def _renewal(*, renewed=(), skipped=(), failed=()):
@@ -1518,10 +1544,8 @@ def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
     monkeypatch.setattr(
         diagnostics_cli,
         "check_resolver",
-        lambda _settings: PreflightCheck(
-            name="resolver",
+        lambda _settings: diagnostics_cli.ResolverCheck(
             passed=False,
-            severity=PreflightSeverity.BLOCKING,
             detail="resolver (host resolver) invents addresses",
         ),
     )

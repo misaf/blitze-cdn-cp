@@ -76,19 +76,6 @@ from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
 from blitzecdn.features.maintenance import MaintenanceService
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.automatic_ssl import AutomaticSslService
-from blitzecdn.features.tls.certificates.adapters import CertbotIssuer, CertificateStore
-from blitzecdn.features.tls.certificates.ports import (
-    CertificateStore as CertificateStorePort,
-)
-from blitzecdn.features.tls.certificates.ports import Issuer, Preflight
-from blitzecdn.features.tls.certificates.preflight import CertificatePreflight
-from blitzecdn.features.tls.certificates.service import (
-    CertificateExecution,
-    CertificatePersistence,
-    CertificatePolicy,
-    CertificateService,
-)
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
@@ -121,10 +108,7 @@ class ControlPlane:
         settings: Settings,
         repository: Repository | None = None,
         runner: FleetRunner | None = None,
-        certificate_store: CertificateStorePort | None = None,
-        issuer: Issuer | None = None,
         origin_probe: OriginProbePort | None = None,
-        preflight: Preflight | None = None,
         edges_store: EdgeStorePort | None = None,
         background: QueueBackgroundRunner | None = None,
         broker_ready: Callable[[str], bool] | None = None,
@@ -143,10 +127,7 @@ class ControlPlane:
         self._wire_adapters(
             store=store,
             runner=runner,
-            certificate_store=certificate_store,
-            issuer=issuer,
             origin_probe=origin_probe,
-            preflight=preflight,
             edges_store=edges_store,
             background=background,
             broker_ready=broker_ready,
@@ -174,10 +155,7 @@ class ControlPlane:
         *,
         store: Repository,
         runner: FleetRunner | None,
-        certificate_store: CertificateStorePort | None,
-        issuer: Issuer | None,
         origin_probe: OriginProbePort | None,
-        preflight: Preflight | None,
         edges_store: EdgeStorePort | None,
         background: QueueBackgroundRunner | None,
         broker_ready: Callable[[str], bool] | None,
@@ -191,12 +169,7 @@ class ControlPlane:
         self.edge_inventory: EdgeStorePort = self._edges_store
         self.ansible_settings = store.ansible_settings
         self._runner = runner or AnsibleRunner(self.settings, self._edges_store)
-        self._certificate_store = certificate_store or CertificateStore(self.settings)
-        self._issuer = issuer or CertbotIssuer(self.settings)
         self._origin_probe = origin_probe or OriginProbe(self.settings)
-        self._preflight = preflight or CertificatePreflight(
-            self.settings, self._edges_store, origin_probe=self._origin_probe
-        )
         self.origin_probe: OriginProbePort = self._origin_probe
         self.deployment_lock: DeploymentLocker = self._runner
         self.origin_checks: OriginCheckRunner = self._runner
@@ -254,7 +227,7 @@ class ControlPlane:
         self._wire_feature_services(store)
 
     def _wire_feature_services(self, store: Repository) -> None:
-        """Build deployment, certificate, edge, and cache capabilities."""
+        """Build required deployment, edge, and maintenance capabilities."""
         # Every variable in a desired-state document comes from a plugin. This
         # is the one place that knows the plugin registry can answer for all of
         # them, which is what keeps `features/deployments` free of it.
@@ -288,24 +261,6 @@ class ControlPlane:
             dns=self.dns,
             workflows=self.workflows,
         )
-        self.certificates = CertificateService(
-            policy=CertificatePolicy(default_email=self.settings.acme_default_email),
-            persistence=CertificatePersistence(
-                sites=store.sites,
-                certificates=self._certificate_store,
-                uow=store,
-                requirements=store.deployment_requirements,
-            ),
-            execution=CertificateExecution(
-                runner=self._runner,
-                issuer=self._issuer,
-                preflight=self._preflight,
-            ),
-            events=self.events,
-            dns=self.dns,
-            deployments=self.deployments,
-            workflows=self.workflows,
-        )
         self.edges = EdgeOperationsService(
             sites=store.sites,
             events=self.events,
@@ -313,13 +268,6 @@ class ControlPlane:
             origin_probe=self._origin_probe,
             edges=self._edges_store,
             uow=store,
-        )
-        self.automatic_ssl = AutomaticSslService(
-            sites=store.sites,
-            runner=self._runner,
-            origin_probe=self._origin_probe,
-            dns=self.dns,
-            deployments=self.deployments,
         )
         self.maintenance = MaintenanceService(
             jobs=lambda: self.jobs,

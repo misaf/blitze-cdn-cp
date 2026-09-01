@@ -3,8 +3,7 @@
 Pure values: the modes, versions and managed paths that describe how a site's
 TLS is *configured*. The behaviour they name — issuing, uploading, renewing and
 publishing material, and the Automatic SSL/TLS scan that upgrades ``ssl_mode``
-— lives in :mod:`blitzecdn.features.tls.certificates` and
-:mod:`blitzecdn.features.tls.automatic_ssl` beside it.
+— lives in the optional ``blitzecdn-certificates`` distribution.
 
 This module imports nothing but ``core`` and another capability's policy
 contract, which is what lets ``sites`` compose it without depending on the TLS
@@ -111,3 +110,23 @@ class TlsPolicy(BaseModel):
     certificate_mode: CertificateMode = CertificateMode.DISABLED
     certificate_path: str | None = None
     certificate_key_path: str | None = None
+
+    @property
+    def required_capabilities(self) -> frozenset[str]:
+        """Operational certificate capabilities requested by this TLS policy.
+
+        Existing edge material is a core TLS contract. Controller-managed
+        material, and Automatic SSL on an active certificate, require the
+        detachable certificates implementation.
+        """
+        managed = self.certificate_mode in {
+            CertificateMode.UPLOADED,
+            CertificateMode.REQUESTED,
+        }
+        automatic = (
+            self.certificate_mode is not CertificateMode.DISABLED
+            and self.ssl_automatic_mode is SslAutomaticMode.AUTO
+        )
+        if managed or automatic:
+            return frozenset({"certificates"})
+        return frozenset()

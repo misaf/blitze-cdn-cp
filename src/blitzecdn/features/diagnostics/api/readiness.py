@@ -43,8 +43,6 @@ def health(response: Response, control: ControlPlaneDependency) -> dict[str, str
 def metrics(control: ControlPlaneDependency) -> str:
     """Prometheus gauges derived from persisted control-plane state."""
     recent = control.deployments.list_deployments(_METRICS_WINDOW)
-    expiring = control.certificates.expiring_certificates()
-    unrenewable = len([status_ for status_ in expiring if not status_.renewable])
     by_status: dict[str, int] = {}
     for deployment in recent:
         by_status[deployment.status.value] = (
@@ -57,12 +55,6 @@ def metrics(control: ControlPlaneDependency) -> str:
         "# HELP blitzecdn_sites Derived virtual hosts.",
         "# TYPE blitzecdn_sites gauge",
         f"blitzecdn_sites {len(control.dns.list_sites())}",
-        "# HELP blitzecdn_certificates_expiring Managed certificates near expiry.",
-        "# TYPE blitzecdn_certificates_expiring gauge",
-        f"blitzecdn_certificates_expiring {len(expiring)}",
-        "# HELP blitzecdn_certificates_unrenewable Expiring but not reissuable.",
-        "# TYPE blitzecdn_certificates_unrenewable gauge",
-        f"blitzecdn_certificates_unrenewable {unrenewable}",
         "# HELP blitzecdn_deployments Deployments in the recent window, by status.",
         "# TYPE blitzecdn_deployments gauge",
     ]

@@ -1,5 +1,12 @@
 # ruff: noqa: F403,F405
 from application_support import *
+from blitzecdn_certificates.certificates.adapters import CertificateStore
+from blitzecdn_certificates.certificates.service import (
+    CertificateExecution,
+    CertificatePersistence,
+    CertificatePolicy,
+    CertificateService,
+)
 
 # ----------------------------------------------------------------------
 # Certificate preflight enforcement
@@ -13,12 +20,29 @@ def _preflight_control(settings, certificate_pair, failures=()):
     repository = Repository(settings.database_path)
     issuer = _RecordingIssuer(certificate_pair)
     preflight = FakePreflight(failures)
+    runner = FakeRunner()
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
-        issuer=issuer,
-        preflight=preflight,  # type: ignore[arg-type]
+        runner=runner,  # type: ignore[arg-type]
+    )
+    control.certificates = CertificateService(  # type: ignore[attr-defined]
+        policy=CertificatePolicy(default_email=settings.acme_default_email),
+        persistence=CertificatePersistence(
+            sites=control.sites,
+            certificates=CertificateStore(settings),
+            uow=control.transactions,
+            requirements=control.deployment_requirements,
+        ),
+        execution=CertificateExecution(
+            runner=runner,
+            issuer=issuer,
+            preflight=preflight,
+        ),
+        events=control.events,
+        dns=control.dns,
+        deployments=control.deployments,
+        workflows=control.workflows,
     )
     return control, repository, issuer, preflight
 

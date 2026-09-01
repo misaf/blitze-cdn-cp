@@ -1,5 +1,7 @@
 import threading
 import time
+from importlib import import_module
+from importlib.util import find_spec
 
 import pytest
 from control_plane_fixtures import (
@@ -23,7 +25,28 @@ from blitzecdn.features.deployments import DeploymentService
 from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.features.edges import EdgeOperationsService
 from blitzecdn.features.sites.domain import SitePolicy
-from blitzecdn.features.tls.certificates import CertificateService
+
+CertificateService = (
+    import_module("blitzecdn_certificates.certificates.service").CertificateService
+    if find_spec("blitzecdn_certificates") is not None
+    else None
+)
+
+REQUIRES_CERTIFICATES = frozenset(
+    {
+        "test_certificate_upload_and_metadata_api",
+        "test_certificates_are_readable",
+        "test_automatic_ssl_reconciliation_is_exposed_by_the_api",
+        "test_renewal_can_be_narrowed_to_named_sites",
+        "test_an_empty_renewal_selector_is_a_422",
+        "test_renewal_is_bounded_by_the_configured_budget",
+        "test_renewal_does_not_occupy_the_shared_request_thread_pool",
+        "test_the_preflight_endpoint_reports_readiness",
+        "test_the_preflight_endpoint_requires_auth",
+        "test_a_blocked_preflight_makes_a_request_a_409",
+        "test_skip_preflight_is_rejected_as_a_non_boolean",
+    }
+)
 
 #: Exactly the policy fields version 1 shipped with. This is a frozen list, not
 #: a derived one: the whole point is that it stops tracking `SitePolicy`.
@@ -609,28 +632,28 @@ def _seed_proxied_record(client) -> None:
 
 def _stub_preflight(monkeypatch, *failures: str) -> None:
     """Replace the real checks, which would resolve names and probe an origin."""
-    from blitzecdn.features.tls.certificates.domain import (
-        PreflightCheck,
-        PreflightReport,
-        PreflightSeverity,
-    )
-    from blitzecdn.features.tls.certificates.preflight import CertificatePreflight
+    domain = import_module("blitzecdn_certificates.certificates.domain")
+    preflight = import_module("blitzecdn_certificates.certificates.preflight")
+    preflight_check = domain.PreflightCheck
+    preflight_report = domain.PreflightReport
+    preflight_severity = domain.PreflightSeverity
+    certificate_preflight = preflight.CertificatePreflight
 
     def check(self, site, *, deployed, record_ttl=None):
-        return PreflightReport(
+        return preflight_report(
             site=site.name,
             checks=tuple(
-                PreflightCheck(
+                preflight_check(
                     name=name,
                     passed=False,
-                    severity=PreflightSeverity.BLOCKING,
+                    severity=preflight_severity.BLOCKING,
                     detail=f"{name} failed",
                 )
                 for name in failures
             ),
         )
 
-    monkeypatch.setattr(CertificatePreflight, "check", check)
+    monkeypatch.setattr(certificate_preflight, "check", check)
 
 
 def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):

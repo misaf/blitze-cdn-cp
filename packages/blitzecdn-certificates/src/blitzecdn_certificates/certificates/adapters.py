@@ -21,7 +21,7 @@ from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFou
 from blitzecdn.core.filesystem import atomic_write_bytes
 from blitzecdn.core.process import terminate_process_group
 from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.certificates.domain import (
+from blitzecdn_certificates.certificates.domain import (
     CertificateInfo,
     CertificateSource,
 )
@@ -231,7 +231,7 @@ class CertbotIssuer:
         logs_dir = self._settings.state_dir / "letsencrypt/logs"
         for directory in (config_dir, work_dir, logs_dir):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        hook = shlex.join([sys.executable, "-m", "blitzecdn.acme_hook"])
+        hook = shlex.join([sys.executable, "-m", "blitzecdn_certificates.acme_hook"])
         command = [
             executable,
             "certonly",

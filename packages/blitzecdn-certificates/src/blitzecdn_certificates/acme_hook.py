@@ -4,9 +4,7 @@ import os
 import re
 import sys
 
-from blitzecdn.core.ansible import AnsibleRunner
-from blitzecdn.core.config import Settings
-from blitzecdn.core.database import Repository
+from blitzecdn.cli import common
 
 _TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
 _VALIDATION = re.compile(r"^[A-Za-z0-9_.-]{1,2048}$")
@@ -24,22 +22,20 @@ def main() -> int:
         return _fail("invalid ACME challenge environment")
     if action == "present" and not _VALIDATION.fullmatch(validation):
         return _fail("invalid ACME validation value")
-    settings = Settings.from_environment()
-    # The runner reads the fleet to expand a host limit. This hook never sets
-    # one — an HTTP-01 challenge has to be published on every edge, because the
-    # CA may validate against any of them — but the runner still needs the
-    # store, and it must be the same database the inventory plugin will read.
-    repository = Repository(settings.database_path)
+    control = common.control_plane()
     try:
-        runner = AnsibleRunner(settings, repository.edges)
-        run = runner.run_acme_challenge(
-            action=action,
-            domain=domain,
-            token=token,
-            validation=validation,
+        run = control.fleet.run_playbook(
+            name="acme-challenge",
+            playbook=control.settings.acme_challenge_playbook_path,
+            variables={
+                "blitzecdn_acme_action": action,
+                "blitzecdn_acme_domain": domain,
+                "blitzecdn_acme_token": token,
+                "blitzecdn_acme_validation": validation,
+            },
         )
     finally:
-        repository.close()
+        control.close()
     if not run.succeeded:
         # certbot shows this to the operator when issuance fails, so it has to
         # be the useful line: run.summary() names the task and the edge, and

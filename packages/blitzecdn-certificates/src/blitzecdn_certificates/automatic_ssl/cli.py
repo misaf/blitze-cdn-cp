@@ -15,6 +15,7 @@ import typer
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.features.deployments.domain import DeploymentStatus
+from blitzecdn_certificates.composition import build_automatic_ssl_service
 
 ssl_app = typer.Typer(
     no_args_is_help=True,
@@ -27,7 +28,7 @@ def reconcile(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Run the same Automatic SSL/TLS scan as the monthly scheduler."""
-    result = common.control_plane().automatic_ssl.reconcile("cli")
+    result = build_automatic_ssl_service(common.control_plane()).reconcile("cli")
     common.emit(result, json_output=json_output)
     if not json_output:
         if result.upgraded:
