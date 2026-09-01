@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 from blitzecdn_security import plugin
+from blitzecdn_security.config import SECRET_VARIABLE
 from pydantic import SecretStr
 
 from blitzecdn.features.sites.domain import CdnSite
@@ -19,12 +20,24 @@ def _site(*, under_attack: bool, enabled: bool = True) -> CdnSite:
 
 @dataclass(frozen=True)
 class _Settings:
-    under_attack_secret: SecretStr
+    """The one attribute this package reads off core's settings.
+
+    `capability_environment` is every `BLITZE_*` variable the control plane was
+    given and does not consume itself. Core carries no field named for this
+    capability's secret any more — a field on the model every installation
+    loads, for a distribution most installations do not have.
+    """
+
+    capability_environment: dict[str, SecretStr]
 
 
 @dataclass(frozen=True)
 class _Platform:
     settings: _Settings
+
+
+def _platform(secret: str) -> _Platform:
+    return _Platform(_Settings({SECRET_VARIABLE: SecretStr(secret)} if secret else {}))
 
 
 def test_metadata_provides_optional_security_capability() -> None:
@@ -35,7 +48,7 @@ def test_metadata_provides_optional_security_capability() -> None:
 
 
 def test_under_attack_without_a_controller_secret_is_a_blocking_issue() -> None:
-    platform = _Platform(_Settings(SecretStr("")))
+    platform = _platform("")
 
     (issue,) = plugin.blitzecdn_deployment_checks(_site(under_attack=True), platform)
 
@@ -46,10 +59,38 @@ def test_under_attack_without_a_controller_secret_is_a_blocking_issue() -> None:
 
 
 def test_no_issue_when_security_is_unused_or_implementable() -> None:
-    provisioned = _Platform(_Settings(SecretStr("x" * 32)))
-    missing = _Platform(_Settings(SecretStr("")))
+    provisioned = _platform("x" * 32)
+    missing = _platform("")
     checks = plugin.blitzecdn_deployment_checks
 
     assert checks(_site(under_attack=True), provisioned) == ()
     assert checks(_site(under_attack=False), missing) == ()
     assert checks(_site(under_attack=True, enabled=False), missing) == ()
+
+
+def test_a_secret_too_short_to_sign_with_is_refused_like_a_missing_one() -> None:
+    """A placeholder is the usual way this goes wrong, and it is not a secret.
+
+    The role refuses to converge with a short key too. Catching it here is what
+    turns a rolled-back deploy on every edge into a message at
+    `blitzecdn validate` naming the variable.
+    """
+    (issue,) = plugin.blitzecdn_deployment_checks(
+        _site(under_attack=True), _platform("short")
+    )
+
+    assert SECRET_VARIABLE in issue.message
+
+
+def test_the_edge_role_travels_with_the_distribution() -> None:
+    """Installing the wheel is what puts the challenge implementation on edges.
+
+    The contribution is the whole of how core learns the role exists and that
+    the edge play should run it; nothing in the control plane names either.
+    """
+    (contribution,) = plugin.blitzecdn_ansible_contributions()
+
+    assert contribution.plugin == "security"
+    assert contribution.roles_path.is_dir()
+    assert contribution.edge_roles == ("blitzecdn_security",)
+    assert (contribution.roles_path / "blitzecdn_security").is_dir()

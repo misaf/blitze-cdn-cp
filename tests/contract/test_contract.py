@@ -28,7 +28,7 @@ import yaml
 # contract, so the loader that builds that namespace is shared with the other
 # contract-test modules rather than reimplemented here.
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
-from paths import FIXTURES, REPO_ROOT
+from paths import FIXTURES, REPO_ROOT, optional_packages
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
@@ -171,20 +171,53 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 
 
+def _plays_and_their_roles() -> list[tuple[Path, tuple[Path, ...]]]:
+    """Every play in the workspace, with the role directories it may resolve in.
+
+    Core's plays see core's roles. A package's play sees core's *and* its own,
+    which is exactly what `resolve_role_search_path` composes at run time — the
+    ACME play is the case that matters, because it is owned by
+    `blitzecdn-certificates` and names the core `blitzecdn_edge` role.
+    """
+    found: list[tuple[Path, tuple[Path, ...]]] = [
+        (playbook, (ROLES_DIR,))
+        for playbook in sorted((PROJECT_DIR / "ansible/playbooks").glob("*.yml"))
+    ]
+    for package in optional_packages():
+        tree = next(package.glob("src/*/ansible"), None)
+        if tree is None:
+            continue
+        search = (ROLES_DIR, tree / "roles") if (tree / "roles").is_dir() else ()
+        found.extend(
+            (playbook, search or (ROLES_DIR,))
+            for playbook in sorted((tree / "playbooks").glob("*.yml"))
+        )
+    return found
+
+
 def test_every_role_a_playbook_names_exists():
-    """A role rename cannot leave a playbook pointing at a missing local role."""
+    """A role rename cannot leave a playbook pointing at a missing local role.
+
+    Across the workspace, not only core: a package's play resolves against the
+    same composed search path a deployment gives Ansible, so a capability that
+    shipped a play without the role it names fails here.
+    """
     referenced: set[str] = set()
-    for playbook in sorted((PROJECT_DIR / "ansible/playbooks").glob("*.yml")):
+    for playbook, search in _plays_and_their_roles():
         document = yaml.safe_load(playbook.read_text(encoding="utf-8"))
         for play in document:
             for entry in play.get("roles", []):
                 name = entry["role"] if isinstance(entry, dict) else entry
                 referenced.add(name)
-                assert (ROLES_DIR / name).is_dir(), (
-                    f"{playbook.name} names role {name}, which is not in ansible/roles/"
+                assert any((directory / name).is_dir() for directory in search), (
+                    f"{playbook.name} names role {name}, which is in none of "
+                    f"{', '.join(str(directory) for directory in search)}"
                 )
 
     assert "blitzecdn_nginx" in referenced, "the sweep found no playbooks to check"
+    assert "blitzecdn_cache" in referenced, (
+        "the sweep no longer reaches the plays an optional distribution owns"
+    )
 
 
 def test_no_reference_to_the_retired_edge_collection_remains():

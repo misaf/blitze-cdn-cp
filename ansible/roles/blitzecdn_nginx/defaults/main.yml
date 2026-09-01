@@ -30,8 +30,8 @@ blitzecdn_nginx_http3_listener_owner: ''
 blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
 # The mounts a configuration test needs to see, in Compose's own
 # host:container:mode form. The same set the running container gets, minus
-# nothing: a test that cannot see a certificate or the GeoIP database passes
-# against a tree the real edge would refuse. Cache and log are writable because
+# nothing: a test that cannot see a certificate, an njs module or a capability's
+# data file passes against a tree the real edge would refuse. Cache and log are writable because
 # `nginx -t` creates the proxy_cache_path levels and opens the error log.
 # tests/test_ansible_role_contracts.py asserts this matches the Compose file.
 blitzecdn_nginx_config_test_volumes:
@@ -44,7 +44,7 @@ blitzecdn_nginx_config_test_volumes:
   - "{{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro"
   - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
   - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
-  - "{{ blitzecdn_edge_runtime.geoip.directory }}:{{ blitzecdn_edge_runtime.geoip.directory }}:ro"
+  - "{{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro"
   - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
   - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
 # Certificate paths become copy destinations written as root, so confine them to
@@ -58,17 +58,12 @@ blitzecdn_nginx_resolvers: [127.0.0.53]
 blitzecdn_nginx_resolver_valid: 30s
 blitzecdn_nginx_resolver_timeout: 5s
 
-# Emergency Layer-7 browser challenge support. The capability is deliberately
-# separate from each site's policy: a site asking for protection while this is
-# false fails validation instead of silently reaching its origin unchallenged.
-# The signing secret is environment-only and is written into the njs module as
-# root:www-data 0640 under no_log. Keep it stable across the fleet so clearance
-# survives an edge change during its 30-minute lifetime.
-blitzecdn_nginx_under_attack_enabled: false
-blitzecdn_nginx_under_attack_passage_seconds: 1800
-blitzecdn_nginx_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_SECRET') }}"
-blitzecdn_nginx_under_attack_js_file: "{{ blitzecdn_edge_runtime.paths.modules }}/under-attack.js"
-blitzecdn_nginx_under_attack_conf_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-under-attack.conf"
+# Under Attack Mode's *implementation* is not here. The njs module, its
+# signing secret and the `conf.d` snippet that loads it belong to the `security`
+# capability, which ships its own role and writes them before this role renders
+# a line. What stays here is the per-site rendering in site.conf.j2, which is
+# desired state like every other site setting; a site asking for the mode on an
+# installation without that capability is refused by name before a play starts.
 
 # Claims the default_server position for a block that serves ACME challenges and
 # answers everything else with 444. Without it, a request for a hostname no
@@ -139,24 +134,16 @@ blitzecdn_nginx_hsts_max_age: 31536000
 # Per-site request filtering (the `firewall` block on a site).
 #
 # Source, method and path rules need nothing beyond stock nginx and are always
-# available. Country rules do not: they need ngx_http_geoip2 and a MaxMind
-# country database on the host, neither of which this role can conjure, so they
-# are opt-in per deployment. A site that asks for country rules on an edge
-# where this is false fails the assertion in tasks/validate.yml rather than
-# rendering a configuration that quietly admits every country.
+# available, so this role renders them unconditionally. Country rules do not:
+# they need ngx_http_geoip2 and a country database, which is the `geoip`
+# capability's business — it ships its own role, provisions the database into
+# the runtime contract's data directory and writes the `conf.d` snippet that
+# defines $blitzecdn_country. This role renders the rules that *read* that
+# variable and knows nothing about where it comes from.
 #
-# The same switch governs the BZ-IPCountry visitor header
-# (`visitor_headers.ip_country` on a site), which reads the same
-# $blitzecdn_country and fails the same assertion — an origin cannot tell a
-# header that was never sent from a visitor whose country is unknown.
-# Whether country rules may be rendered at all is blitzecdn_edge_runtime.geoip
-# .enabled: the database is provisioned by blitzecdn_edge_stack, mounted into
-# the container and probed by the deploy's health check, so the switch and the
-# path belong to the runtime rather than to this role. What stays here is how
-# this role writes the lookup into the Nginx configuration.
-blitzecdn_nginx_geoip_reload: 5m
-blitzecdn_nginx_geoip_file: >-
-  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-geoip.conf
+# A site that asks for country rules on an installation without that capability
+# never reaches here: SitePolicy.capability_requirements refuses the deployment
+# by name, before a document is rendered or a play starts.
 
 # Observability.
 #

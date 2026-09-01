@@ -19,23 +19,16 @@ from blitzecdn.cli.root import app
 
 
 def _environment_file_body() -> str:
-    """The scaffolded `.env`, with the optional settings named but unset.
+    """The scaffolded `.env`, holding what core itself needs and nothing else.
 
-    Commented rather than omitted: an operator who never reads the reference
-    should still be able to discover that these exist, and a key that has to be
-    exported into the shell before each deploy gets exported once and then
-    forgotten. `.env` is written 0600 and is the intended home for both.
+    It used to carry commented MaxMind placeholders, which meant `blitzecdn
+    init` on an installation without the `geoip` distribution scaffolded a
+    setting nothing would ever read. An optional capability documents its own
+    `BLITZE_*` names in its own README; core forwards every such variable it
+    does not consume into the Ansible environment without needing to know whose
+    it is. `.env` is written 0600 and is the intended home for all of them.
     """
-    return (
-        f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n"
-        "\n"
-        "# MaxMind GeoLite2, for per-hostname country filtering. Free, but the\n"
-        "# download is authenticated: create an account, generate a license key,\n"
-        "# and set blitzecdn_edge_geoip_enabled in group_vars. The license key\n"
-        "# is an account credential — this file is 0600 and must stay uncommitted.\n"
-        "# BLITZE_MAXMIND_ACCOUNT_ID=\n"
-        "# BLITZE_MAXMIND_LICENSE_KEY=\n"
-    )
+    return f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n"
 
 
 @app.command()

@@ -3,7 +3,8 @@
 #
 # One description of the environment every edge role converges against: where
 # the runtime keeps its files, which ports it listens on, where its health can
-# be read, and which GeoIP database it reads. blitzecdn_nginx renders a
+# be read, and where an installed capability leaves data for it to read.
+# blitzecdn_nginx renders a
 # configuration for it, blitzecdn_edge_stack runs a container inside it and
 # blitzecdn_firewall opens the host to it — three roles that need the same
 # answers and previously got them by reaching into each other's defaults.
@@ -32,12 +33,6 @@
 # for the firewall — and the play asserted the two copies agreed. One value
 # cannot disagree with itself.
 blitzecdn_edge_http3_enabled: false
-
-# Per-hostname country filtering. Off until an operator provides a database:
-# blitzecdn_nginx refuses to render a country rule without one, rather than
-# rendering a configuration that quietly admits every country.
-blitzecdn_edge_geoip_enabled: false
-blitzecdn_edge_geoip_database: /usr/share/GeoIP/GeoLite2-Country.mmdb
 
 # The fleet value is composed in inventory/group_vars/blitzecdn_edges from
 # blitzecdn_edge_image_registry, _repository, _tag and _digest. The literal
@@ -72,8 +67,9 @@ blitzecdn_edge_runtime:
     # The configuration tree blitzecdn_nginx writes and the container mounts
     # read-only.
     nginx: /etc/nginx
-    # njs modules — the Under Attack Mode implementation, signed with a fleet
-    # secret, which is why it is root-owned and 0750 rather than world-readable.
+    # njs modules an installed capability provisions. Root-owned and 0750
+    # rather than world-readable, because a module here may be generated from
+    # a fleet secret — the Under Attack Mode implementation is.
     modules: /etc/blitzecdn/nginx
     # Chains and private keys.
     tls: /etc/blitzecdn/tls
@@ -83,8 +79,21 @@ blitzecdn_edge_runtime:
     # served from the edge. If the writer and the server ever disagree, HTTP-01
     # validation fails with no useful error.
     acme: /var/lib/blitzecdn/acme
-    # The empty document root Under Attack Mode dispatches through.
+    # An empty document root, for a location that has to dispatch through one
+    # without ever serving a file from it.
     empty: /var/lib/blitzecdn/empty
+    # Read-only runtime data an installed capability provisions for the edge:
+    # a lookup database, a table, anything the Nginx configuration reads but
+    # the control plane does not render.
+    #
+    # Generic on purpose, and it is the whole of what core knows about the
+    # subject. Core creates this directory, mounts it into the runtime and into
+    # the configuration test read-only, and removes it on teardown; *what goes
+    # in it* is the contributing capability's business, written by that
+    # capability's own role. There used to be a `geoip` member here naming a
+    # MaxMind database path, which meant the shared contract every edge role
+    # reads carried the name of a capability that may not be installed.
+    data: /var/lib/blitzecdn/edge-data
 
   # Always served, and read from three places: the Compose healthcheck, the
   # deploy's own health verification, and blitzecdn_stats. Unauthenticated, so
@@ -108,14 +117,3 @@ blitzecdn_edge_runtime:
     # HTTPS listener, because the firewall would then open UDP/443 for a
     # listener no site can own.
     http3: "{{ blitzecdn_edge_http3_enabled | bool }}"
-
-  geoip:
-    enabled: "{{ blitzecdn_edge_geoip_enabled | bool }}"
-    database: "{{ blitzecdn_edge_geoip_database }}"
-    # The directory the updater container writes and the edge mounts. Derived
-    # once, here, rather than each consumer applying `| dirname` to the path
-    # and one of them forgetting.
-    #
-    # Which GeoLite2 *edition* is downloaded is not here either: it is the
-    # updater's business, and the updater is blitzecdn_edge_stack's.
-    directory: "{{ blitzecdn_edge_geoip_database | dirname }}"

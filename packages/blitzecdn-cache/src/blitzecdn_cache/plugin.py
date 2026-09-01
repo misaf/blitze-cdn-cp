@@ -1,10 +1,10 @@
 """Register the cache capability from a separately installable distribution.
 
 The reference optional plugin, and deliberately dull: two routers, two command
-groups, and the name to attribute them to. Everything the capability actually
-*does* is in ``service.py``, reached by an explicit call on a service this
-package builds for itself in ``composition.py`` — nothing about purging a cache
-goes through a hook.
+groups, the two Ansible roles this distribution ships, and the name to attribute
+them to. Everything the capability actually *does* is in ``service.py``, reached
+by an explicit call on a service this package builds for itself in
+``composition.py`` — nothing about purging a cache goes through a hook.
 
 Nothing in ``blitzecdn`` imports this module. The ``blitzecdn.plugins`` entry
 point in this distribution's metadata is the whole of how it is found, so
@@ -18,8 +18,13 @@ from collections.abc import Sequence
 
 from fastapi import APIRouter
 
-from blitzecdn.core.plugins import CliCommandGroup, PluginMetadata, hookimpl
-from blitzecdn_cache import cli
+from blitzecdn.core.plugins import (
+    AnsibleContribution,
+    CliCommandGroup,
+    PluginMetadata,
+    hookimpl,
+)
+from blitzecdn_cache import ansible, cli
 from blitzecdn_cache.api import v1, v2
 from blitzecdn_cache.composition import __version__
 
@@ -38,6 +43,15 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
     return (v1.router, v2.router)
+
+
+@hookimpl
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    # The purge and statistics roles, from inside this wheel. Core adds the
+    # directory to Ansible's role search path and never learns what is in it;
+    # uninstalling this distribution removes both roles from every subsequent
+    # run without a line of the control plane changing.
+    return (AnsibleContribution(plugin="cache", roles_path=ansible.ROLES_PATH),)
 
 
 @hookimpl

@@ -1,6 +1,6 @@
 """The hook specifications: every extension point BlitzeCDN has.
 
-There are ten, and the list is meant to stay that short. A hook earns its place
+There are eleven, and the list is meant to stay that short. A hook earns its place
 by being a *registration* point — somewhere the core has to be told that
 something exists — and nothing else. Business communication is not here and
 must not come here: a caller that wants a certificate issued calls
@@ -33,6 +33,7 @@ import pluggy
 
 from blitzecdn.core.plugins.types import (
     PROJECT_NAME,
+    AnsibleContribution,
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
@@ -86,6 +87,23 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     exist before an argument is parsed, and building services to discover the
     tree would mean ``blitzecdn --help`` created and migrated the database.
     Commands resolve the control plane when they run, not when they register.
+    """
+
+
+@hookspec
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    """Contribute the Ansible roles this plugin ships inside its own wheel.
+
+    Takes nothing, for the same reason a router does: the role search path is
+    composed once, before any adapter exists, and a package answering this is
+    reporting where its own files landed rather than asking anything of the
+    control plane.
+
+    The path must be a real directory on this filesystem — Ansible resolves
+    roles by opening them — which is what ``importlib.resources`` gives back
+    for a wheel-installed package. Core adds the directory to the search path,
+    refuses two packages that ship the same role name, and knows nothing else
+    about what is in there.
     """
 
 

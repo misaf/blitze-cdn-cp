@@ -1,0 +1,28 @@
+---
+# Run whatever the installed capabilities contribute to an edge.
+#
+# This role names no capability and holds no knowledge of any. The control
+# plane composes `blitzecdn_capability_roles` from the plugins that are
+# installed and passes it as an extra-var on every run, so attaching or
+# detaching a distribution changes what converges here with no line of this
+# collection edited. An installation with no such capability runs nothing.
+#
+# It is a role rather than a block of pre-tasks so that it sits in the play's
+# `roles:` list, which is what puts it in the right place twice over:
+#
+#   * before blitzecdn_firewall and blitzecdn_nginx, because what a capability
+#     puts on an edge — a lookup database, an njs module, a snippet in conf.d —
+#     is something the rendered configuration then depends on, and
+#     blitzecdn_nginx proves the whole tree loads before the edge serves it;
+#   * inside the roles phase, so a capability's `notify` reaches the fleet's
+#     reload handler at the *end of the play*. Handlers flush between pre-tasks
+#     and roles, so the same include as a pre-task would run `nginx -t` against
+#     a tree that had not been rendered yet.
+#
+# `include_role` rather than `import_role`: the list is not known until the play
+# runs, and importing is static.
+- name: Converge an installed capability
+  ansible.builtin.include_role:
+    name: "{{ item }}"
+  loop: "{{ blitzecdn_capability_roles | default([]) }}"
+  tags: [always, capabilities]

@@ -2,6 +2,15 @@
 from contract_support import *
 
 
+def _defaults_of(role_dir: Path) -> dict[str, Any]:
+    """A role's `defaults/main.yml`, parsed.
+
+    Local to this module because `from contract_support import *` does not
+    carry names with a leading underscore, and the helper is one line.
+    """
+    return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
+
+
 def test_http3_uses_the_firewall_registry_for_udp_443():
     role = _role("blitzecdn_firewall")
     tasks = (role / "tasks/main.yml").read_text(encoding="utf-8")
@@ -75,17 +84,6 @@ def test_docker_daemon_configuration_uses_only_supported_directives():
 # that serves, a mount the configuration test cannot see, a persistent path
 # nothing creates, a runtime removal that takes a customer's keys with it.
 # ----------------------------------------------------------------------
-
-
-def test_geoip_task_result_does_not_overwrite_the_role_input():
-    """The role is imported twice, so registered results must preserve inputs."""
-    defaults = _defaults_of(STACK_ROLE_DIR)
-    tasks = (STACK_ROLE_DIR / "tasks/geoip-database.yml").read_text(encoding="utf-8")
-
-    assert isinstance(defaults["blitzecdn_edge_stack_geoip_units"], list)
-    assert "register: blitzecdn_edge_stack_geoip_units\n" not in tasks
-    assert "register: blitzecdn_edge_stack_geoip_units_rendered\n" in tasks
-    assert "blitzecdn_edge_stack_geoip_units_rendered is changed" in tasks
 
 
 COMPOSE_TEMPLATE = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(
@@ -198,11 +196,10 @@ def test_every_mounted_path_is_created_before_the_container_starts():
         source.read_text(encoding="utf-8")
         for source in (
             STACK_ROLE_DIR / "tasks/prepare.yml",
-            STACK_ROLE_DIR / "tasks/geoip-credentials.yml",
             ROLE_DIR / "tasks/main.yml",
         )
     )
-    context = _edge_context(blitzecdn_edge_geoip_enabled=True)
+    context = _edge_context()
     # Paths are almost never written out in a task: they are composed from the
     # contract, as `{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d`. So the
     # task text is substituted before it is searched, which is what lets this
@@ -222,7 +219,7 @@ def test_every_mounted_path_is_created_before_the_container_starts():
     for name, value in sorted(substitutions.items(), key=lambda item: -len(item[0])):
         created = created.replace("{{ " + name + " }}", value)
 
-    for path in _compose_mounts(blitzecdn_edge_geoip_enabled=True):
+    for path in _compose_mounts():
         assert path in created, (
             f"{path} is mounted into the edge container but nothing creates it; "
             "Docker would make it an empty directory and the edge would serve "
@@ -567,11 +564,11 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
 
     `nginx -t` inside the probe cannot fail a deploy — Docker would simply mark
     a running container unhealthy every thirty seconds — and it re-reads every
-    certificate and the GeoIP database each time. In health.yml the same
-    failure fails the converge and reaches the rescue path.
+    certificate and every capability data file each time. In health.yml the
+    same failure fails the converge and reaches the rescue path.
     """
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
-    edge = _render_compose(blitzecdn_edge_geoip_enabled=True)["services"]["edge"]
+    edge = _render_compose()["services"]["edge"]
     healthcheck = edge["healthcheck"]
 
     assert healthcheck["test"].count("CMD") == 1
@@ -585,7 +582,11 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     assert "status_code: [200]" in health
     assert "Require every public TCP listener" in health
     assert "Require the HTTP/3 listener on UDP/443" in health
-    assert "Require the GeoIP database the running configuration reads" in health
+    # A capability's own preconditions are not checked here any more. The
+    # GeoIP database used to be, which meant core's health verification named a
+    # file only an optional distribution ever writes; `blitzecdn_geoip` asserts
+    # it from its own role, in the same play, before the tree is rendered.
+    assert "geoip" not in health.lower()
 
     # And Compose is still asked to wait for Docker's verdict before the
     # converge continues into those checks.
@@ -784,13 +785,22 @@ def test_no_edge_image_reference_floats():
     )
     assert group_vars["blitzecdn_edge_image_tag"] not in ("latest", "", None)
 
-    runtime = _runtime_source()
-    defaults = _defaults_of(STACK_ROLE_DIR)
-    for source, name in (
-        (runtime, "blitzecdn_edge_runtime_image_default"),
-        (defaults, "blitzecdn_edge_stack_geoipupdate_image"),
-    ):
-        reference = str(source[name]).strip()
+    # Every image reference in the workspace, core's and every optional
+    # distribution's alike. Found rather than listed: the geoipupdate image
+    # moved into `blitzecdn-geoip` with the role that runs it, and a test that
+    # named the two it knew about would have silently stopped covering it.
+    references = {
+        f"{path}:{name}": str(value).strip()
+        for path in sorted(PROJECT_DIR.glob("**/roles/*/defaults/main.yml"))
+        if ".venv" not in path.parts and "collections" not in path.parts
+        for name, value in (
+            yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+        ).items()
+        if isinstance(value, str) and "image" in name and "/" in value
+    }
+    assert any("blitzecdn_edge_runtime_image_default" in key for key in references)
+    assert any("geoipupdate" in value for value in references.values())
+    for name, reference in references.items():
         assert not reference.endswith(":latest"), name
         assert re.search(r"(@sha256:[0-9a-f]{64}|:\d+\.\d+)", reference), reference
     # The two roles used to carry identical fallback literals, and a test
@@ -901,179 +911,6 @@ def test_the_edge_image_carries_curl_and_no_health_check_script_of_its_own():
     # test_removed_host_compatibility_contracts_do_not_reappear, which walks
     # the tree for both names.
     assert "BLITZECDN_" + "HEALTH_URL" not in COMPOSE_TEMPLATE
-
-
-# ----------------------------------------------------------------------
-# Cross-role agreements
-#
-# blitzecdn_cache and blitzecdn_stats each recompute or re-read something
-# blitzecdn_nginx configured. Nothing at run time can tell a disagreement from
-# an ordinary empty result: a purge aimed at the wrong directory reports
-# success having deleted nothing, and a reader aimed at the wrong log reports a
-# hit ratio of zero, which looks like a broken cache rather than a broken
-# reader. These are the only guards.
-# ----------------------------------------------------------------------
-
-CACHE_ROLE_DIR = _role("blitzecdn_cache")
-STATS_ROLE_DIR = _role("blitzecdn_stats")
-
-
-def _defaults_of(role_dir: Path) -> dict[str, Any]:
-    return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
-
-
-def _contract_value(*path: str) -> Any:
-    value: Any = _runtime_defaults()["blitzecdn_edge_runtime"]
-    for key in path:
-        value = value[key]
-    return value
-
-
-@pytest.mark.parametrize(
-    ("cache_key", "expected"),
-    [
-        ("blitzecdn_cache_path", ("paths", "cache")),
-        ("blitzecdn_cache_purge_http_ports", ("listeners", "http")),
-        ("blitzecdn_cache_purge_https_ports", ("listeners", "https")),
-    ],
-)
-def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
-    """A purge computes file paths from these; a mismatch purges nothing.
-
-    blitzecdn_cache runs in its own play — `blitzecdn cache purge` converges
-    nothing else — so it keeps its own defaults rather than reading the
-    contract. That leaves these literals as the only guard, and they are
-    compared against the contract because the contract is what the edge was
-    built from.
-    """
-    assert _defaults_of(CACHE_ROLE_DIR)[cache_key] == _contract_value(*expected), (
-        f"{cache_key} in blitzecdn_cache disagrees with blitzecdn_edge_runtime."
-        f"{'.'.join(expected)}. Purge would delete paths nginx never wrote to "
-        "and report success."
-    )
-
-
-def test_purge_role_agrees_with_the_nginx_role():
-    """Encoding normalization is Nginx policy, so it is compared to that role."""
-    assert (
-        _defaults_of(CACHE_ROLE_DIR)["blitzecdn_cache_normalize_accept_encoding"]
-        == _role_defaults()["blitzecdn_nginx_normalize_accept_encoding"]
-    )
-
-
-def test_stats_role_reads_the_log_the_nginx_role_writes():
-    stats = _defaults_of(STATS_ROLE_DIR)
-    assert (
-        stats["blitzecdn_stats_access_log_path"]
-        == _role_defaults()["blitzecdn_nginx_access_log_path"]
-    )
-    assert stats["blitzecdn_stats_status_address"] == _contract_value(
-        "status", "address"
-    )
-    assert stats["blitzecdn_stats_status_port"] == _contract_value("status", "port")
-    assert stats["blitzecdn_stats_status_path"] == _contract_value("status", "path")
-
-
-def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
-    """The role computes <md5[-1]>/<md5[-3:-1]>/<md5>, which is levels=1:2 only.
-
-    If the nginx template ever emits different levels, the purge role must stop
-    claiming it can compute paths rather than silently deleting wrong ones.
-    """
-    template = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
-    assert "levels=1:2" in template
-    spec = yaml.safe_load(
-        (CACHE_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )["argument_specs"]["main"]["options"]
-    assert spec["blitzecdn_cache_levels"]["choices"] == ["1:2"]
-
-
-def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
-    """One URL is several entries, and leaving one behind still serves it.
-
-    The site template puts the listener port, request method and normalized
-    encoding in the key, so the purge role has to sweep all three dimensions.
-    nginx caches GET and HEAD by default and the template does not narrow
-    proxy_cache_methods.
-    """
-    site_template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
-    assert "$scheme$server_port$request_method$host{{ cache_uri }}" in site_template
-    assert "proxy_cache_methods" not in site_template
-
-    defaults = _defaults_of(CACHE_ROLE_DIR)
-    assert set(defaults["blitzecdn_cache_purge_methods"]) == {"GET", "HEAD"}
-
-    cache_conf = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
-    mapped = set(re.findall(r'"(br|gzip)"\s*;', cache_conf)) | {""}
-    assert set(defaults["blitzecdn_cache_purge_encodings"]) == mapped, (
-        "the encodings blitzecdn_cache purges differ from the ones the "
-        "$blitzecdn_accept_encoding map can produce; the unlisted variant "
-        "would survive a purge and keep being served"
-    )
-
-
-def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
-    """Execute the role's key calculation, including its Jinja loops."""
-    ansible = shutil.which("ansible-playbook") or str(
-        PROJECT_DIR / ".venv/bin/ansible-playbook"
-    )
-    if not Path(ansible).exists():
-        pytest.skip("ansible-playbook is not installed")
-
-    cache_path = tmp_path / "cache"
-    key = "http80GETexample.com/asset"
-    digest = hashlib.md5(key.encode(), usedforsecurity=False).hexdigest()
-    cached = cache_path / digest[-1] / digest[-3:-1] / digest
-    computed = tmp_path / "computed.json"
-
-    variables = _defaults_of(CACHE_ROLE_DIR) | {
-        "blitzecdn_cache_path": str(cache_path),
-        "blitzecdn_cache_purge_entries": [
-            {"host": "example.com", "uri": "/asset", "scheme": "http"}
-        ],
-        "blitzecdn_cache_purge_all": False,
-    }
-    role_tasks = yaml.safe_load(
-        (CACHE_ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    )
-    playbook = tmp_path / "purge-key.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "hosts": "localhost",
-                    "gather_facts": False,
-                    "vars": variables,
-                    # Run through "Compute the cache files". The remaining
-                    # tasks chown a manifest to root, which a unit test neither
-                    # needs nor has permission to do.
-                    "tasks": [
-                        *role_tasks[:5],
-                        {
-                            "copy": {
-                                "content": (
-                                    "{{ blitzecdn_cache_purge_files | to_json }}"
-                                ),
-                                "dest": str(computed),
-                                "mode": "0600",
-                            }
-                        },
-                    ],
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    result = subprocess.run(
-        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        check=False,
-    )
-
-    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
-    assert str(cached) in yaml.safe_load(computed.read_text(encoding="utf-8"))
 
 
 def test_the_edge_lifecycle_order_holds():
@@ -1333,6 +1170,12 @@ def _run_contract(
             "ANSIBLE_LOCALHOST_WARNING": "False",
             "ANSIBLE_LOCAL_TEMP": str(ansible_local),
             "ANSIBLE_ROLES_PATH": str(ROLES_DIR),
+            # The role carries the fleet's Nginx reload handler now, and the
+            # handler runs `community.docker` modules. Nothing here notifies
+            # it, but Ansible resolves a role's handlers when it loads the
+            # role, so the collection has to be reachable or the play fails
+            # before an assertion is reached.
+            "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
         },
         check=False,
     )

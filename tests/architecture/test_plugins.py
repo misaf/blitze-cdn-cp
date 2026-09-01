@@ -18,6 +18,7 @@ import pytest
 from fastapi import APIRouter
 from typer import Typer
 
+from blitzecdn.core.ansible.roles import resolve_role_search_path
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     BUILTIN_PLUGINS,
@@ -108,6 +109,7 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
         "blitzecdn_plugin_metadata",
         "blitzecdn_api_routers",
         "blitzecdn_cli_commands",
+        "blitzecdn_ansible_contributions",
         "blitzecdn_health_checks",
         "blitzecdn_scheduled_jobs",
         "blitzecdn_site_desired_state",
@@ -210,6 +212,48 @@ def test_an_external_plugin_contributes_jobs_health_checks_and_state(
     assert "waf-rules" in {check.name for check in builtins.health_checks(platform)}
     assert builtins.site_variables(site(), platform)["waf_mode"] == "enforce"
     assert builtins.fleet_variables((site(),), platform)["blitzecdn_edge_waf_enabled"]
+
+
+def test_an_installed_plugin_contributes_its_ansible_roles(builtins):
+    """The deployment half of a capability, discovered the same way as the rest.
+
+    Nothing in core names this plugin, and nothing in core copies its files
+    anywhere. It reports the directory its wheel put them in and the control
+    plane composes that into Ansible's search path.
+    """
+    register_external(builtins._manager, points=[entry_point("waf", "external")])
+    contributions = builtins.ansible_contributions()
+
+    assert [item.plugin for item in contributions] == ["waf"]
+    assert (contributions[0].roles_path / "blitzecdn_waf/tasks/main.yml").is_file()
+
+
+def test_a_plugin_that_ships_no_roles_contributes_no_directory(builtins):
+    """Most plugins have no Ansible of their own, and say nothing rather than
+    an empty path that core would then have to interpret."""
+    assert builtins.ansible_contributions() == ()
+
+
+def test_the_roles_of_an_absent_plugin_are_absent_from_the_search_path(
+    builtins, tmp_path
+):
+    """Detach, in the terms Ansible sees. The mirror of the test above.
+
+    The registry with no `waf` registered yields no contribution, so the
+    resolved path is core's directory alone — the role name simply stops
+    resolving, which is what "the capability is not installed" has to mean on
+    the edge as well as in the API.
+    """
+    core = tmp_path / "roles"
+    (core / "blitzecdn_nginx").mkdir(parents=True)
+
+    assert resolve_role_search_path(core, builtins.ansible_contributions()) == (core,)
+
+    register_external(builtins._manager, points=[entry_point("waf", "external")])
+    attached = resolve_role_search_path(core, builtins.ansible_contributions())
+
+    assert len(attached) == 2
+    assert (attached[1] / "blitzecdn_waf").is_dir()
 
 
 def test_core_needs_no_change_for_an_external_feature(builtins):

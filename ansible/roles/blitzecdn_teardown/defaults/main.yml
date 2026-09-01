@@ -14,9 +14,17 @@ blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
 blitzecdn_teardown_sshd_file: /etc/ssh/sshd_config.d/50-blitzecdn.conf
 blitzecdn_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.local
 blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
-blitzecdn_teardown_geoip_units:
-  - blitzecdn-geoipupdate.service
-  - blitzecdn-geoipupdate.timer
+# Systemd units this collection installs, matched rather than listed.
+#
+# A list would have to name every unit any capability might install, which puts
+# `blitzecdn-geoipupdate.timer` — a unit only the `geoip` package's role ever
+# writes — in a core role that has never heard of that package. The prefix is
+# the contract instead: a unit under /etc/systemd/system whose name starts with
+# this is ours, and teardown removes it whether the capability that wrote it is
+# still installed or not. That last part matters most: a host is usually
+# decommissioned by a controller whose package set has drifted from the one
+# that converged it.
+blitzecdn_teardown_unit_prefix: blitzecdn-
 
 # Every file this collection writes into the nginx tree carries this as its
 # first line. Selecting by marker rather than by the managed-sites registry is
@@ -30,6 +38,7 @@ blitzecdn_teardown_project: blitzecdn
 blitzecdn_teardown_container: blitzecdn-edge
 blitzecdn_teardown_runtime_path: /var/lib/blitzecdn/edge
 blitzecdn_teardown_empty_root: /var/lib/blitzecdn/empty
+blitzecdn_teardown_data_path: /var/lib/blitzecdn/edge-data
 
 # Stopping the edge and destroying what it was serving are two different
 # operations, and conflating them is how a routine runtime removal takes a
@@ -37,8 +46,9 @@ blitzecdn_teardown_empty_root: /var/lib/blitzecdn/empty
 #
 # The containers always go: they are disposable by construction and a stopped
 # edge can be recreated from the control plane in one deploy. The *data* —
-# TLS material, the configuration tree, ACME state, the GeoIP database, the
-# cache and the logs — goes only when this is true.
+# TLS material, the configuration tree, ACME state, whatever an installed
+# capability left in the data directory, the cache and the logs — goes only
+# when this is true.
 #
 # It defaults to true because both callers are decommissions: `blitzecdn edge
 # remove`, which forgets the host entirely, and the uninstaller. Set it false to

@@ -72,7 +72,8 @@ blitze-cdn-cp/
 │   └── worker.py           # Dramatiq entry point
 ├── packages/               # OPTIONAL capabilities: real, separate wheels
 │   ├── blitzecdn-backup/   #   archive and restore the control plane's state
-│   ├── blitzecdn-cache/    #   purge, and cache-effectiveness reporting
+│   ├── blitzecdn-cache/    #   purge, and cache-effectiveness reporting —
+│   │                       #   ansible/ carries both roles and both plays
 │   ├── blitzecdn-certificates/  # issuance, renewal, Automatic SSL/TLS
 │   ├── blitzecdn-compression/   # the gzip and Brotli implementation
 │   ├── blitzecdn-geoip/    #   visitor country lookup: the BZ-IPCountry header
@@ -108,6 +109,22 @@ The rules that shape it:
   this named play with these variables against these hosts, and nothing
   feature-shaped). Core's `AnsibleRunner` therefore has no `run_cache_purge`
   any more — building a purge document is the cache package's business.
+- **A package owns its Ansible too.** The roles and plays that exist *because* a
+  capability is installed ship inside its wheel, under
+  `src/blitzecdn_<name>/ansible/{roles,playbooks}/`, located with
+  `importlib.resources` — never a repository-relative path or a working
+  directory, both of which are absent on an installed controller. `roles/` is
+  contributed through `blitzecdn_ansible_contributions`, and
+  `core/ansible/roles.py` composes the one global input Ansible has: core's
+  roles first, then contributions sorted by plugin name, refusing a role name
+  two packages both ship rather than letting the first match shadow the other.
+  A *play* is passed by path to `run_playbook`, so it needs no hook and core
+  keeps no setting naming it. What stays core-owned is the platform — the base
+  host, Docker, the firewall, the edge runtime contract and `blitzecdn_nginx`,
+  which renders whatever the merged desired-state document holds. An absent
+  capability contributes no variables and its block is simply not there;
+  splitting that template per capability would mean concatenating configuration
+  text through a hook, which this architecture refuses.
 - **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `features/gzip`, `features/http3`, `features/certificates` or `features/under_attack` package by name. That rule is about the *feature tree* only: an optional distribution is named after the implementation an operator attaches, which is why `blitzecdn-certificates` and `blitzecdn-http3` are wheels while those feature directories stay refused. HTTP/1.1 and HTTP/2 are baseline and never optional — there is no `blitzecdn-http1` or `blitzecdn-http2`. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
 - **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.

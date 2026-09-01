@@ -7,12 +7,16 @@ services. Production wiring lives here and nowhere else, so
 constructor.
 
 Then it loads the plugins. The order matters and is the whole architecture in
-four lines: adapters, services, plugins, contributions. Services are built with
-explicit constructor injection and know nothing about plugins; plugins are given
-the finished control plane and use it to register what they contribute — routes,
-commands, jobs, health checks, desired state. Nothing flows the other way, and
-no service is ever *looked up*: `platform.cache` in a `plugin.py` is a typed
-attribute read once at registration, not a resolution step in a request.
+four lines: adapters, services, plugins, contributions. Discovery is the one
+step that runs first, because an installed package's Ansible roles have to be
+in the search path before the runner that will resolve them exists — but a
+plugin is still *given* the control plane last, when every service is built.
+Services are built with explicit constructor injection and know nothing about
+plugins; plugins are given the finished control plane and use it to register
+what they contribute — routes, commands, jobs, health checks, desired state.
+Nothing flows the other way, and no service is ever *looked up*:
+`platform.cache` in a `plugin.py` is a typed attribute read once at
+registration, not a resolution step in a request.
 
 ``ControlPlane`` is that constructor and nothing else. It holds the feature
 services and the ports the entry layers read through, and it forwards no calls:
@@ -38,6 +42,10 @@ from collections.abc import Callable
 from typing import Protocol
 
 from blitzecdn.core.ansible import AnsibleRunner
+from blitzecdn.core.ansible.roles import (
+    resolve_edge_capability_roles,
+    resolve_role_search_path,
+)
 from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
@@ -124,17 +132,12 @@ class ControlPlane:
             settings.database_path, pool_connections=pool_connections
         )
         self._owned_repository = store if repository is None else None
-        self._wire_adapters(
-            store=store,
-            runner=runner,
-            origin_probe=origin_probe,
-            edges_store=edges_store,
-            background=background,
-            broker_ready=broker_ready,
-        )
-        # Plugins last, and given the finished object. A plugin registering a
-        # scheduled job needs the service that job will call, so there is
-        # nothing for it to be handed until every service exists.
+        # Discovered before the adapters, because one adapter is built from
+        # what is installed: Ansible resolves a role name against a single
+        # process-wide search path, so a package that ships a role has to be
+        # known before the runner exists. Nothing else reads the registry this
+        # early — plugins are still *given* the control plane last, once every
+        # service they might register against has been built.
         self.plugins = plugins if plugins is not None else load_plugins()
         # Before anything is wired: an optional capability this installation
         # says it depends on has to actually be installed. Detaching a package
@@ -146,6 +149,14 @@ class ControlPlane:
         self.plugins.require(
             self.settings.required_capabilities,
             subject="this installation's `required_capabilities`",
+        )
+        self._wire_adapters(
+            store=store,
+            runner=runner,
+            origin_probe=origin_probe,
+            edges_store=edges_store,
+            background=background,
+            broker_ready=broker_ready,
         )
         self._jobs: dict[str, ScheduledJob] | None = None
         self._wire_services(store)
@@ -168,7 +179,25 @@ class ControlPlane:
         self._edges_store = edges_store or store.edges
         self.edge_inventory: EdgeStorePort = self._edges_store
         self.ansible_settings = store.ansible_settings
-        self._runner = runner or AnsibleRunner(self.settings, self._edges_store)
+        contributions = self.plugins.ansible_contributions()
+        self._runner = runner or AnsibleRunner(
+            self.settings,
+            self._edges_store,
+            # An installed capability's roles, alongside core's. This is the
+            # one place that knows both halves: the registry answers what is
+            # installed, `resolve_role_search_path` decides the order and
+            # refuses a role two packages both ship, and the runner is handed
+            # a finished list. Detaching a package removes its directory from
+            # this list with nothing in core edited.
+            resolve_role_search_path(
+                self.settings.ansible_dir / "roles",
+                contributions,
+            ),
+            # And which of those roles the edge play runs. Two questions, one
+            # source: a package that ships a role its own plays reach declares
+            # the directory and no edge roles at all.
+            resolve_edge_capability_roles(contributions),
+        )
         self._origin_probe = origin_probe or OriginProbe(self.settings)
         self.origin_probe: OriginProbePort = self._origin_probe
         self.deployment_lock: DeploymentLocker = self._runner

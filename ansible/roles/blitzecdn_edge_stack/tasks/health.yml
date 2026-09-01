@@ -107,14 +107,3 @@
   register: blitzecdn_edge_stack_status
   changed_when: false
   when: not ansible_check_mode
-
-# blitzecdn_nginx refuses to render a country rule without a database; this
-# refuses to run one, covering a database removed after the config was written.
-- name: Require the GeoIP database the running configuration reads
-  community.docker.docker_container_exec:
-    container: "{{ blitzecdn_edge_runtime.container }}"
-    argv: [test, -s, "{{ blitzecdn_edge_runtime.geoip.database }}"]
-  changed_when: false
-  when:
-    - not ansible_check_mode
-    - blitzecdn_edge_runtime.geoip.enabled | bool

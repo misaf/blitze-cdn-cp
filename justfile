@@ -17,6 +17,14 @@ export ANSIBLE_LOCAL_TEMP := ".state/ansible-local"
 
 collections := ".state/collections"
 
+# Ansible's role search path, composed the way the control plane composes it:
+# core's roles, then the roles each optional capability ships inside its own
+# distribution. Spelled out here rather than globbed because `just` has no
+# glob, and because a package that gains a roles directory should be a visible
+# line in this file rather than a silent change in behaviour.
+roles_path := "ansible/roles" + ":" + \
+    "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles"
+
 # List the available recipes.
 default:
     @just --list
@@ -185,13 +193,21 @@ test-profile *args:
 # mode. A fresh checkout has no control-plane database, and a syntax check does
 # not need hosts; production keeps using the strict inventory in
 # `ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
+#
+# `ANSIBLE_ROLES_PATH` is composed the way the control plane composes it at run
+# time: core's roles plus the roles each installed capability ships inside its
+# own wheel. A package's play — the ACME challenge, the cache purge — resolves
+# both its own roles and core's, exactly as a deployment does.
 ansible-check:
     uv run yamllint .
-    uv run ansible-playbook -i tests/fixtures/blitzecdn.yml \
+    ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
+        -i tests/fixtures/blitzecdn.yml \
         ansible/playbooks/edge.yml --syntax-check \
         --extra-vars @tests/fixtures/desired-state.yml
-    uv run ansible-playbook -i tests/fixtures/blitzecdn.yml \
-        ansible/playbooks/acme-challenge.yml --syntax-check
+    ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
+        -i tests/fixtures/blitzecdn.yml \
+        packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
+        --syntax-check
     uv run ansible-playbook -i localhost, \
         tests/integration/http3-edge.yml --syntax-check
     uv run ansible-playbook -i localhost, \
@@ -204,12 +220,16 @@ ansible-check:
         ansible/playbooks/control-plane.yml --syntax-check
     uv run ansible-playbook -i localhost, \
         ansible/playbooks/uninstall.yml --syntax-check
-    ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
-        ansible/playbooks/edge.yml ansible/playbooks/acme-challenge.yml \
+    ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml \
+    ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-lint \
+        ansible/playbooks/edge.yml \
         ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \
         ansible/playbooks/uninstall.yml \
-        ansible/playbooks/cache-purge.yml ansible/playbooks/stats.yml \
-        ansible/playbooks/origin-check.yml tests/integration/http3-edge.yml \
+        ansible/playbooks/origin-check.yml \
+        packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/cache-purge.yml \
+        packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/stats.yml \
+        packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
+        tests/integration/http3-edge.yml \
         tests/integration/http3-firewall-disabled.yml \
         tests/integration/edge-teardown.yml tests/integration/docker-engine.yml
 

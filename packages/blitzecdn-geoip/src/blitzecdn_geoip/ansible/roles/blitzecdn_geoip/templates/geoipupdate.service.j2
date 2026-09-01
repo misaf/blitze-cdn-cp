@@ -12,7 +12,7 @@ Type=oneshot
 # --rm, because this is a one-shot whose only output is a replaced database
 # file on a shared mount. Leaving exited containers behind would turn a twice-
 # weekly refresh into an ever-growing list in `docker ps -a`.
-ExecStart=/usr/bin/docker compose --file {{ blitzecdn_edge_stack_compose_file }} --profile maintenance run --rm geoipupdate
+ExecStart=/usr/bin/docker compose --file {{ blitzecdn_geoip_compose_file }} run --rm geoipupdate
 # A failed refresh is allowed to fail loudly. It cannot take the edge with it —
 # Nginx keeps serving the database already on disk, stale rather than absent —
 # so there is nothing to protect by masking the exit status, and masking it

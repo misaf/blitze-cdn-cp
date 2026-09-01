@@ -77,14 +77,16 @@ argument_specs:
                 default: []
                 description: >-
                   ISO 3166-1 alpha-2 codes; every other country gets a 403.
-                  Requires the runtime contract's geoip.enabled.
+                  Reads $blitzecdn_country, which the `geoip` capability's own
+                  role defines; a site asking for one without that capability
+                  is refused by the control plane, by name, before any play.
               denied_countries:
                 type: list
                 elements: str
                 default: []
                 description: >-
-                  ISO 3166-1 alpha-2 codes answered with 403. Requires
-                  the runtime contract's geoip.enabled.
+                  ISO 3166-1 alpha-2 codes answered with 403. Reads
+                  $blitzecdn_country, as allowed_countries does.
               denied_methods:
                 type: list
                 elements: str
@@ -117,9 +119,9 @@ argument_specs:
                 default: false
                 description: >-
                   Send BZ-IPCountry, the ISO 3166-1 alpha-2 code from
-                  $blitzecdn_country. Requires the runtime contract's
-                  geoip.enabled; a site asking for it without GeoIP fails
-                  validation rather than omitting the header.
+                  $blitzecdn_country, which the `geoip` capability defines. A
+                  site asking for it without that capability is refused rather
+                  than converged with the header quietly omitted.
       blitzecdn_nginx_allow_empty_sites:
         type: bool
         required: true
@@ -129,8 +131,8 @@ argument_specs:
         description: >-
           The shared edge runtime contract, owned and validated by the
           blitzecdn_edge role. This role reads the paths it renders into,
-          the public listener sets, the status endpoint, the GeoIP database
-          and the image it validates against. It reads no variable belonging
+          the public listener sets, the status endpoint, the capability data
+          directory and the image it validates against. It reads no variable belonging
           to blitzecdn_edge_stack or blitzecdn_firewall.
       blitzecdn_nginx_cache_zone: {type: str, required: true}
       blitzecdn_nginx_cache_size: {type: str, required: true}
@@ -153,29 +155,13 @@ argument_specs:
         required: true
         description: >-
           Compose-form mounts the configuration test container receives. The
-          same set the running edge gets: a test that cannot see a certificate
-          or the GeoIP database passes against a tree the real edge refuses.
+          same set the running edge gets: a test that cannot see a certificate,
+          an njs module or a capability's data file passes against a tree the
+          real edge refuses.
       blitzecdn_nginx_certificate_path_pattern: {type: str, required: true}
       blitzecdn_nginx_resolvers: {type: list, elements: str, required: true}
       blitzecdn_nginx_resolver_valid: {type: str, required: true}
       blitzecdn_nginx_resolver_timeout: {type: str, required: true}
-      blitzecdn_nginx_under_attack_enabled:
-        type: bool
-        required: true
-        description: Enable the njs challenge capability for the edge fleet.
-      blitzecdn_nginx_under_attack_passage_seconds:
-        type: int
-        required: true
-        description: Lifetime of a valid clearance cookie, in seconds.
-      blitzecdn_nginx_under_attack_secret:
-        type: str
-        required: true
-        no_log: true
-        description: >-
-          Environment-provisioned HMAC secret; at least 32 bytes and never
-          stored in desired state or the fleet settings database.
-      blitzecdn_nginx_under_attack_js_file: {type: path, required: true}
-      blitzecdn_nginx_under_attack_conf_file: {type: path, required: true}
       blitzecdn_nginx_default_server: {type: bool, required: true}
       blitzecdn_nginx_default_site_file: {type: path, required: true}
       blitzecdn_nginx_normalize_accept_encoding: {type: bool, required: true}
@@ -193,8 +179,6 @@ argument_specs:
       blitzecdn_nginx_ssl_stapling: {type: bool, required: true}
       blitzecdn_nginx_hsts_enabled: {type: bool, required: true}
       blitzecdn_nginx_hsts_max_age: {type: int, required: true}
-      blitzecdn_nginx_geoip_reload: {type: str, required: true}
-      blitzecdn_nginx_geoip_file: {type: path, required: true}
       blitzecdn_nginx_access_log_enabled:
         type: bool
         required: true

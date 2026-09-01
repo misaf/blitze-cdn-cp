@@ -1,0 +1,42 @@
+---
+# Everything the security capability needs on an edge, owned by the
+# distribution that provides the capability.
+#
+# The role ships inside the `blitzecdn-security` wheel; the control plane finds
+# it through the plugin's Ansible contribution, and detaching the distribution
+# takes the njs implementation, its secret and its `conf.d` snippet off every
+# subsequent deploy with no line of core edited.
+
+# Whether this fleet can serve the Layer-7 browser challenge.
+#
+# Fleet Ansible policy — `blitzecdn config set
+# blitzecdn_security_under_attack_enabled true` — and separate from whether the
+# distribution is installed, exactly as the site setting is separate from both.
+# A site asking for Under Attack Mode while this is false fails the assertion
+# in tasks/main.yml rather than silently reaching its origin unchallenged.
+blitzecdn_security_under_attack_enabled: false
+
+# Lifetime of a valid clearance cookie. Keep the secret below stable across the
+# fleet so a clearance survives an edge change inside this window.
+blitzecdn_security_under_attack_passage_seconds: 1800
+
+# Fleet-wide HMAC key for stateless challenges and clearance cookies.
+#
+# Read from the controller's environment, never written down here: the control
+# plane forwards every `BLITZE_*` variable it does not consume itself into the
+# Ansible environment, so the operator sets one line in the controller's 0600
+# `.env` and nothing else:
+#
+#   BLITZE_UNDER_ATTACK_SECRET=<at least 32 bytes>
+#
+# It never enters TOML, desired state, the fleet settings database or an
+# Ansible command line. The njs module it is written into is root:www-data
+# 0640 and every task that touches it sets no_log.
+blitzecdn_security_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_SECRET') }}"
+
+# Under the runtime contract's njs module directory, which core creates
+# root-owned and 0750 and mounts read-only into the edge container.
+blitzecdn_security_under_attack_js_file: >-
+  {{ blitzecdn_edge_runtime.paths.modules }}/under-attack.js
+blitzecdn_security_under_attack_conf_file: >-
+  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-under-attack.conf

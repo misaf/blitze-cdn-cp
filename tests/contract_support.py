@@ -36,10 +36,14 @@ PROJECT_DIR = REPO_ROOT
 FIXTURE = FIXTURES / "desired-state.yml"
 
 
-#: The roles ship with this control plane, so there is no install step to get
-#: wrong and no reason for these tests to skip. That matters: they used to read
-#: an installed collection and skipped silently when it was absent, which turned
-#: a broken contract into a green run.
+#: Core's roles. They ship with this control plane, so there is no install step
+#: to get wrong and no reason for these tests to skip. That matters: they used
+#: to read an installed collection and skipped silently when it was absent,
+#: which turned a broken contract into a green run.
+#:
+#: An optional capability's roles are not here. They ship inside that
+#: capability's wheel and its own tests read them from there, which is the same
+#: path a deployment resolves them by.
 ROLES_DIR = PROJECT_DIR / "ansible/roles"
 
 
@@ -132,8 +136,8 @@ def _split_runtime(overrides: dict[str, Any]) -> tuple[dict[str, Any], dict[str,
     """Separate contract inputs from ordinary variable overrides.
 
     A contract input has to be applied before the contract is composed —
-    setting `blitzecdn_edge_geoip_enabled` after the fact would leave
-    `blitzecdn_edge_runtime.geoip.enabled` reading the default, which is
+    setting `blitzecdn_edge_http3_enabled` after the fact would leave
+    `blitzecdn_edge_runtime.listeners.http3` reading the default, which is
     precisely the two-copies bug the contract exists to remove.
     """
     inputs = {
@@ -190,10 +194,61 @@ def _role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
     return context
 
 
-CACHE_ROLE_DIR = _role("blitzecdn_cache")
 STACK_ROLE_DIR = _role("blitzecdn_edge_stack")
 DOCKER_ROLE_DIR = _role("blitzecdn_docker")
-STATS_ROLE_DIR = _role("blitzecdn_stats")
+
+
+def run_role_tasks(
+    tasks_file: Path, variables: dict[str, Any], tmp_path: Path
+) -> subprocess.CompletedProcess[str]:
+    """Execute one role's task file against localhost and report what happened.
+
+    The only way these assertions are ever *evaluated* rather than merely
+    parsed. `--syntax-check` and ansible-lint both accept a `when:` that raises
+    at run time, and a conditional whose result is a dict rather than a boolean
+    is exactly the shape that has shipped a broken deploy before.
+
+    Shared here because a capability's role validates its own settings now, in
+    its own package's tests, and every one of them needs the same three lines
+    of playbook around a task file.
+    """
+    executable = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(executable).exists():
+        pytest.skip("ansible-playbook is not installed")
+    (tmp_path / "ansible-local").mkdir(exist_ok=True)
+    playbook = tmp_path / f"{tasks_file.stem}-run.yml"
+    playbook.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "vars": variables,
+                    "tasks": [{"import_tasks": str(tasks_file)}],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return subprocess.run(
+        [executable, "-i", "localhost,", "-c", "local", str(playbook)],
+        capture_output=True,
+        text=True,
+        cwd=tmp_path,
+        check=False,
+        env=os.environ
+        | {
+            "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-local"),
+            "ANSIBLE_ROLES_PATH": str(ROLES_DIR),
+            # A capability's role uses the same collections core's roles do —
+            # `community.docker` runs its updater container. Without this the
+            # play fails to resolve the module, which looks like a broken role
+            # rather than a test harness that never installed anything.
+            "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
+        },
+    )
 
 
 @pytest.fixture

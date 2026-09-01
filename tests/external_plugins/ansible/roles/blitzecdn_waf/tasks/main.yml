@@ -1,0 +1,8 @@
+---
+# The pretend WAF's pretend edge implementation. It exists so the example
+# plugin's `blitzecdn_ansible_contributions` points at a directory that really
+# holds a role, which is the half of the contract a hand-built path cannot
+# prove.
+- name: Report that the WAF role was resolved
+  ansible.builtin.debug:
+    msg: blitzecdn_waf converged

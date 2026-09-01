@@ -173,6 +173,37 @@ class Environment:
         )
         return json.loads(finished.stdout)
 
+    def ansible_roles(self) -> dict[str, object]:
+        """Which role directories this installation would give Ansible.
+
+        Resolved the way a deployment resolves it — the registry's
+        contributions through `resolve_role_search_path` — and reported as
+        paths and role names, so the assertion can be about what is installed
+        rather than about what the source tree happens to contain.
+        """
+        program = (
+            "import json;"
+            "from pathlib import Path;"
+            "from blitzecdn.core.plugins import load_plugins;"
+            "from blitzecdn.core.ansible.roles import resolve_role_search_path;"
+            "core = Path('/nonexistent-core-roles');"
+            "path = resolve_role_search_path(core, load_plugins()"
+            ".ansible_contributions());"
+            "print(json.dumps({"
+            "'paths': [str(p) for p in path],"
+            "'roles': sorted(r.name for p in path if p.is_dir()"
+            "  for r in p.iterdir() if r.is_dir()),"
+            "}))"
+        )
+        finished = subprocess.run(
+            [str(self.python), "-c", program],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
+        return json.loads(finished.stdout)
+
     def site_capabilities(self, overrides: dict[str, object]) -> dict[str, object]:
         """Required and missing tokens for a real installed site schema."""
         program = (
@@ -763,6 +794,198 @@ def test_the_http3_wheel_contains_only_its_own_package(wheels: dict[str, Path]):
         "blitzecdn_http3/plugin.py",
     ]
     assert "Requires-Dist: blitzecdn" in requires
+
+
+def test_validate_names_the_capability_a_configuration_asks_for_and_lacks(
+    tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
+):
+    """`blitzecdn validate`, before and after the wheel, in one environment.
+
+    The acceptance criterion spelled as the command an operator types.
+    Detached, the run refuses and names the token; attached, that reason is
+    gone — the command still has nothing to converge in a bare virtualenv, so
+    what is asserted is the *disappearance of this reason*, not a green run
+    against a fleet that does not exist.
+    """
+    installation = _environment(tmp_path_factory.mktemp("validate") / "venv")
+    installation.install(wheels["blitzecdn"])
+    environment = dict(os.environ)
+    environment.pop("VIRTUAL_ENV", None)
+    environment["BLITZE_REQUIRED_CAPABILITIES"] = "cache"
+
+    def validate() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            [str(installation.blitzecdn), "validate"],
+            capture_output=True,
+            text=True,
+            cwd=installation.root,
+            env=environment,
+            timeout=300,
+        )
+
+    detached = validate()
+    assert detached.returncode != 0
+    assert "cache" in detached.stdout + detached.stderr
+
+    installation.install(wheels[ANSIBLE_PACKAGE])
+    attached = validate()
+    assert "requires the capability cache" not in attached.stdout + attached.stderr
+
+
+# --- the deployment implementation attaches and detaches with the wheel -----
+
+
+#: The capability whose Ansible really is its own: two roles and two plays that
+#: exist only while `blitzecdn-cache` is installed. `backup` drives the generic
+#: attach/detach cycle above because it has no Ansible at all, which is exactly
+#: why it cannot drive this one.
+ANSIBLE_PACKAGE = "blitzecdn-cache"
+ANSIBLE_ROLES = ("blitzecdn_cache", "blitzecdn_stats")
+
+
+@pytest.fixture(scope="session")
+def ansible_cycle(
+    tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
+) -> dict[str, dict[str, object]]:
+    """One environment, read at all three points of the cycle.
+
+    Three subprocess reports rather than three virtualenvs: what is being
+    claimed is that the *same* installation answers differently before, during
+    and after, so building a separate environment per state would prove less
+    at three times the cost.
+    """
+    environment = _environment(tmp_path_factory.mktemp("ansible-cycle") / "venv")
+    environment.install(wheels["blitzecdn"])
+    before = environment.ansible_roles()
+    environment.install(wheels[ANSIBLE_PACKAGE])
+    attached = environment.ansible_roles()
+    environment.uninstall(ANSIBLE_PACKAGE)
+    return {
+        "before": before,
+        "attached": attached,
+        "after": environment.ansible_roles(),
+    }
+
+
+def test_core_alone_offers_no_capability_owned_role(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """The root wheel carries the platform's roles and nobody else's.
+
+    Core's own roles ship with the checkout, not with the wheel, which is why
+    the search path here is core's directory and nothing beside it: there is no
+    contributed directory to add.
+    """
+    assert ansible_cycle["before"]["roles"] == []
+    assert len(ansible_cycle["before"]["paths"]) == 1
+
+
+def test_installing_a_distribution_makes_its_roles_resolvable(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """Attach, on the Ansible side. One `pip install` and the roles are there.
+
+    And they are there *inside the installed distribution* — the asserted path
+    is under the virtualenv, so this cannot be passing because the repository
+    checkout happens to be on disk beside it.
+    """
+    attached = ansible_cycle["attached"]
+
+    assert list(ANSIBLE_ROLES) == attached["roles"]
+    contributed = attached["paths"][1]
+    assert "site-packages" in contributed
+    assert "blitzecdn_cache/ansible/roles" in contributed
+    assert str(REPO_ROOT) not in contributed
+
+
+def test_uninstalling_a_distribution_takes_its_roles_with_it(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """Detach, on the Ansible side, and the acceptance criterion in full.
+
+    The Python capability and its deployment implementation leave together.
+    Nothing in core is edited, no directory is pruned by hand, and the role
+    names simply stop resolving on the next run.
+    """
+    assert ansible_cycle["after"] == ansible_cycle["before"]
+
+
+def test_the_capability_wheel_carries_its_whole_ansible_tree(
+    wheels: dict[str, Path],
+):
+    """Built, not assumed. An editable install would hide the real failure.
+
+    A wheel that shipped only the `.py` files would leave a plugin pointing at
+    a directory that does not exist on an installed controller, and every
+    purge would fail with "the role was not found" — on the controller, never
+    in this checkout.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(wheels[ANSIBLE_PACKAGE]) as archive:
+        names = set(archive.namelist())
+
+    root = "blitzecdn_cache/ansible"
+    for role in ANSIBLE_ROLES:
+        assert f"{root}/roles/{role}/tasks/main.yml" in names
+        assert f"{root}/roles/{role}/defaults/main.yml" in names
+        assert f"{root}/roles/{role}/meta/argument_specs.yml" in names
+    # Not only YAML: the statistics role reads the access log with a shipped
+    # script, and a build that filtered by extension would drop it silently.
+    assert f"{root}/roles/blitzecdn_stats/files/collect-cache-stats.sh" in names
+    assert f"{root}/playbooks/cache-purge.yml" in names
+    assert f"{root}/playbooks/stats.yml" in names
+
+
+def test_the_root_wheel_carries_no_capability_owned_ansible(
+    wheels: dict[str, Path],
+):
+    """The other direction: core's tree kept nothing behind when they moved."""
+    import zipfile
+
+    with zipfile.ZipFile(wheels["blitzecdn"]) as archive:
+        names = "".join(archive.namelist())
+
+    assert "blitzecdn_cache" not in names
+    assert "blitzecdn_stats" not in names
+    assert "cache-purge.yml" not in names
+    assert "acme-challenge.yml" not in names
+
+
+def test_an_installed_capability_locates_its_plays_without_the_repository(
+    tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
+):
+    """Resource discovery, asked of a real install from outside the checkout.
+
+    The subprocess runs with its working directory somewhere else entirely, so
+    a path built from `cwd` or from a repository-relative walk would fail here
+    and only here.
+    """
+    environment = _environment(tmp_path_factory.mktemp("resources") / "venv")
+    environment.install(wheels["blitzecdn"], wheels[ANSIBLE_PACKAGE])
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    program = (
+        "import json;"
+        "from blitzecdn_cache import ansible;"
+        "print(json.dumps({"
+        "'purge': str(ansible.CACHE_PURGE_PLAYBOOK),"
+        "'exists': ansible.CACHE_PURGE_PLAYBOOK.is_file()"
+        " and ansible.STATS_PLAYBOOK.is_file()"
+        " and (ansible.ROLES_PATH / 'blitzecdn_cache').is_dir(),"
+        "}))"
+    )
+    finished = subprocess.run(
+        [str(environment.python), "-c", program],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=elsewhere,
+        timeout=300,
+    )
+    resolved = json.loads(finished.stdout)
+
+    assert resolved["exists"]
+    assert str(environment.root) in resolved["purge"]
 
 
 # --- GeoIP: one lookup capability behind two unrelated settings -------------

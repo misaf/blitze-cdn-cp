@@ -1,0 +1,56 @@
+---
+argument_specs:
+  main:
+    short_description: Provision visitor IP-to-country lookup on an edge.
+    description:
+      - >-
+        The `geoip` capability's whole edge implementation, shipped inside the
+        blitzecdn-geoip wheel. It provisions the MaxMind GeoLite2 database and
+        its refresh schedule, and writes the conf.d snippet that defines
+        $blitzecdn_country for core's site template to read.
+      - >-
+        Run from the edge play's capability slot, which the control plane fills
+        from the installed plugins. Detaching the distribution removes this role
+        from Ansible's search path and from the play, with no line of the
+        control plane edited.
+      - >-
+        It reads the shared edge runtime contract for one thing only — the
+        capability data directory its database lives under, and the nginx
+        configuration tree its snippet lives in. It reads no variable belonging
+        to blitzecdn_nginx, blitzecdn_edge_stack or another capability's role.
+    options:
+      blitzecdn_edge_runtime:
+        type: dict
+        required: true
+        description: >-
+          The shared edge runtime contract, owned and validated by the
+          blitzecdn_edge role.
+      blitzecdn_geoip_enabled:
+        type: bool
+        required: true
+        description: >-
+          Whether this fleet resolves visitor addresses to countries. Separate
+          from whether the distribution is installed: installing provides the
+          capability, this switches it on.
+      blitzecdn_geoip_account_id: {type: str, required: true}
+      blitzecdn_geoip_license_key:
+        type: str
+        required: true
+        no_log: true
+        description: >-
+          MaxMind license key, read from the controller's environment. Reaches
+          the updater container through a 0600 env_file, never through the
+          Compose file or `docker inspect`.
+      blitzecdn_geoip_edition: {type: str, required: true}
+      blitzecdn_geoip_directory: {type: path, required: true}
+      blitzecdn_geoip_database: {type: path, required: true}
+      blitzecdn_geoip_update_enabled: {type: bool, required: true}
+      blitzecdn_geoip_update_calendar: {type: str, required: true}
+      blitzecdn_geoip_update_splay: {type: str, required: true}
+      blitzecdn_geoip_updater_image: {type: str, required: true}
+      blitzecdn_geoip_project: {type: str, required: true}
+      blitzecdn_geoip_compose_file: {type: path, required: true}
+      blitzecdn_geoip_env_file: {type: path, required: true}
+      blitzecdn_geoip_conf_file: {type: path, required: true}
+      blitzecdn_geoip_reload: {type: str, required: true}
+      blitzecdn_geoip_units: {type: list, elements: str, required: true}

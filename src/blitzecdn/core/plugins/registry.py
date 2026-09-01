@@ -28,6 +28,7 @@ import pluggy
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins.discovery import PluginRejection
 from blitzecdn.core.plugins.types import (
+    AnsibleContribution,
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
@@ -206,6 +207,20 @@ class PluginRegistry:
             self._manager.hook.blitzecdn_cli_commands(),
             "blitzecdn_cli_commands",
             CliCommandGroup,
+        )
+
+    def ansible_contributions(self) -> tuple[AnsibleContribution, ...]:
+        """Every installed plugin's Ansible roles directory, in a fixed order.
+
+        Registration order, like the routers and the commands, and then sorted
+        by plugin name where it matters — the search path this feeds is
+        composed in :mod:`blitzecdn.core.ansible.roles`, which is where
+        determinism and shadowing are actually decided.
+        """
+        return _flatten(
+            self._manager.hook.blitzecdn_ansible_contributions(),
+            "blitzecdn_ansible_contributions",
+            AnsibleContribution,
         )
 
     def health_checks(self, platform: ControlPlane) -> tuple[HealthCheck, ...]:
