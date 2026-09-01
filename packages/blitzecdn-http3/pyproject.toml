@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blitzecdn-http3"
+version = "3.0.0"
+description = "HTTP/3 over QUIC capability for BlitzeCDN"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = ["blitzecdn>=3.0.0,<4"]
+
+[project.entry-points."blitzecdn.plugins"]
+http3 = "blitzecdn_http3.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blitzecdn_http3"]
+
+[tool.uv.sources]
+blitzecdn = { workspace = true }

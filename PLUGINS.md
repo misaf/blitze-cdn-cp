@@ -18,7 +18,7 @@ load-bearing rather than descriptive:
 
 The third category is a real Python distribution. The official optional wheels
 are `blitzecdn-backup`, `blitzecdn-cache`, `blitzecdn-compression`,
-`blitzecdn-certificates`, and `blitzecdn-security`. They install beside the
+`blitzecdn-certificates`, `blitzecdn-security`, and `blitzecdn-http3`. They install beside the
 control plane and are found through their installed metadata:
 
 ```
@@ -46,7 +46,10 @@ capability
 
 gzip and Brotli are values of `CompressionMode` inside `blitzecdn-compression`, not
 `blitzecdn-gzip` and `blitzecdn-brotli`. HTTP/1.1, HTTP/2 and HTTP/3 are
-versions of one protocol inside `http`. Under Attack Mode is a switch on
+versions of one protocol, and the `http` capability owns the contract for all
+three — but the *implementation* behind the HTTP/3 switch is separable and
+ships as `blitzecdn-http3`. There is no `blitzecdn-http1` or `blitzecdn-http2`:
+baseline HTTP is not something an operator attaches. Under Attack Mode is a switch on
 `blitzecdn-security`. The minimum TLS version, the cache TTL, the visitor-IP header and
 the origin SNI option are fields on a site.
 
@@ -71,9 +74,16 @@ state whose shape it cannot predict.
 The contracts therefore stay. Their implementation can still leave:
 `blitzecdn-compression` supplies gzip/Brotli capability,
 `blitzecdn-certificates` owns managed certificate operations and Automatic SSL,
-and `blitzecdn-security` owns site-level security deployment validation. Core
-can deserialize every site without them and then report an unavailable
+`blitzecdn-security` owns site-level security deployment validation, and
+`blitzecdn-http3` owns the QUIC listener the `http3_enabled` switch asks for.
+Core can deserialize every site without them and then report an unavailable
 capability deterministically.
+
+`ProtocolPolicy` is the clearest case of why the field and the implementation
+part company. `http3_enabled` stays in core precisely *so that* a controller
+without `blitzecdn-http3` can still read back a site that asks for HTTP/3 — and
+having read it, refuse to deploy it by name. A contract that travelled with the
+package would turn a detached capability into an unreadable database row.
 
 ## Core versus features
 
@@ -95,8 +105,13 @@ and are covered in [Installable optional capabilities](#installable-optional-cap
 
 One top-level package is one capability. Certificate issuance and the Automatic
 SSL/TLS scan are two parts of `blitzecdn-certificates`, not separate packages.
-`tests/architecture/test_layering.py` refuses a top-level `gzip`, `http3`,
-`certificates` or `under_attack` package by name.
+`tests/architecture/test_layering.py` refuses a top-level `features/gzip`,
+`features/http3`, `features/certificates` or `features/under_attack` package by
+name — a *feature directory* named after a strategy, a version or a mode is
+always wrong. An optional distribution is a different question: it is named
+after the implementation an operator attaches or removes, which is why
+`blitzecdn-certificates` and `blitzecdn-http3` exist as wheels while
+`features/certificates` and `features/http3` remain refused.
 
 Each capability splits in two:
 
@@ -400,6 +415,7 @@ In the workspace:
 uv sync --all-packages                  # everything, for development
 uv sync                                 # the control plane alone
 uv sync --extra compression --extra security  # core plus selected capabilities
+uv sync --extra http3                   # core plus HTTP/3 over QUIC
 
 uv add --package blitzecdn blitzecdn-cache      # attach
 uv remove --package blitzecdn blitzecdn-cache   # detach
@@ -456,10 +472,53 @@ The official site-level absence rules are:
 | `blitzecdn-compression` | `compression = off` | `gzip` or `brotli` |
 | `blitzecdn-certificates` | TLS disabled, or `certificate_mode = existing` with `ssl_automatic_mode = custom` | uploaded/requested material, or Automatic SSL on active TLS |
 | `blitzecdn-security` | Under Attack off and an empty site firewall | Under Attack Mode or any site firewall rule |
+| `blitzecdn-http3` | `http3_enabled = false` — the site is still served over HTTP/1.1 and HTTP/2 | `http3_enabled = true` |
 
 TLS policy itself always stays core. Certificate routes, `cert`/`ssl` commands,
 certificate jobs, issuance, renewal, upload, and Automatic SSL scans appear only
 while `blitzecdn-certificates` is installed.
+
+### Baseline HTTP versus optional HTTP/3
+
+HTTP/1.1 and HTTP/2 are invariants of a managed edge. They are served by every
+edge, they have no policy to set, and no distribution has to be installed for
+them to work — the built-in `http` capability owns them and is `required`.
+
+HTTP/3 is the advanced transport a site opts into, and its implementation is
+`blitzecdn-http3`:
+
+| `blitzecdn-http3` | `http3_enabled` | What happens |
+| --- | --- | --- |
+| absent | `false` | The site is served over HTTP/1.1 and HTTP/2. Nothing is missing, nothing is reported. This is an ordinary installation. |
+| absent | `true` | The site still **loads** — the field is core's. The deployment is refused at validation with `capability 'http3' is not installed`, before any playbook runs. It is never silently downgraded to HTTP/2 and the setting is never ignored. |
+| installed | `true` | The fleet opens a QUIC listener and exactly one site is named to carry `reuseport`. |
+| installed | `false` everywhere | Identical to the detached fleet document. Installing the package converges nothing on its own. |
+
+Attach it with `uv sync --extra http3` in a checkout, `pip install
+'blitzecdn[http3]'` beside an installed control plane, or by adding `http3` to
+`BLITZECDN_CAPABILITIES` for `install.sh` and the container image.
+
+Two fleet variables describe the listener, and both are `required: true` in the
+`blitzecdn_edge` and `blitzecdn_nginx` argument specs:
+
+```
+blitzecdn_edge_http3_enabled        # does any enabled site serve HTTP/3
+blitzecdn_nginx_http3_listener_owner # the one server block carrying reuseport
+```
+
+They are always present, whatever is installed, so Ansible sees one contract
+rather than a document whose shape depends on the controller's wheels. The
+built-in `http` plugin writes them at their baseline — no listener, no owner —
+and `blitzecdn-http3` declares both in its `overrides` and replaces them with
+the values it derives from the fleet. That is the same mechanism
+`blitzecdn-certificates` uses for the certificate paths `sites` projects.
+
+Ansible remains the provisioning authority for how the edge *realizes* this.
+The Nginx HTTP/3 directives, the QUIC and UDP listener rendering, the firewall's
+UDP/443 rule, the Nginx module capability probe, the edge image build and the
+integration harness all stay in the roles. The package owns whether the
+capability is offered at all, the two fleet variables, the validation that
+refuses a site without it, and its own tests.
 
 ### Seeing what is installed
 

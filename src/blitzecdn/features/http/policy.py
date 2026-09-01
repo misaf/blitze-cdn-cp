@@ -1,9 +1,16 @@
 """The HTTP capability's configuration contract.
 
 The scheme, the public proxy port sets, and the one protocol switch a site
-owns. ``sites`` composes :class:`ProtocolPolicy` into its flat policy;
-:mod:`blitzecdn.features.http.plugin` turns the enabled sites into the fleet's
-QUIC listener state.
+owns. ``sites`` composes :class:`ProtocolPolicy` into its flat policy.
+
+The contract is deliberately wider than what this distribution implements.
+HTTP/1.1 and HTTP/2 are invariants of the managed edge and carry no policy;
+HTTP/3 is a switch a site opts into, and the code that turns it into a QUIC
+listener ships separately as ``blitzecdn-http3``. The *field* stays here so
+that a stored site asking for HTTP/3 still loads when that distribution is
+absent — the control plane then refuses the deployment by name through
+:attr:`required_capabilities`, rather than failing to read its own database or
+quietly serving the site over HTTP/2 as though nothing had been asked for.
 """
 
 from enum import StrEnum
@@ -31,3 +38,14 @@ class ProtocolPolicy(BaseModel):
     # QUIC always negotiates TLS 1.3. This does not change the minimum TLS
     # version accepted by the site's parallel TCP listeners.
     http3_enabled: bool = False
+
+    @property
+    def required_capabilities(self) -> frozenset[str]:
+        """Implementation capabilities requested by this stable policy.
+
+        Empty for a site served over HTTP/1.1 and HTTP/2, which every managed
+        edge does with nothing installed beside the control plane.
+        """
+        if not self.http3_enabled:
+            return frozenset()
+        return frozenset({"http3"})

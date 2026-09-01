@@ -84,6 +84,8 @@ class SitePolicy(
             required.add("compression")
         if self.under_attack_mode or not self.firewall.empty:
             required.add("security")
+        if self.http3_enabled:
+            required.add("http3")
         if self.certificate_mode in {
             CertificateMode.UPLOADED,
             CertificateMode.REQUESTED,

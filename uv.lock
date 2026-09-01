@@ -14,6 +14,7 @@ members = [
     "blitzecdn-cache",
     "blitzecdn-certificates",
     "blitzecdn-compression",
+    "blitzecdn-http3",
     "blitzecdn-security",
 ]
 
@@ -298,6 +299,7 @@ all = [
     { name = "blitzecdn-cache" },
     { name = "blitzecdn-certificates" },
     { name = "blitzecdn-compression" },
+    { name = "blitzecdn-http3" },
     { name = "blitzecdn-security" },
 ]
 backup = [
@@ -311,6 +313,9 @@ certificates = [
 ]
 compression = [
     { name = "blitzecdn-compression" },
+]
+http3 = [
+    { name = "blitzecdn-http3" },
 ]
 security = [
     { name = "blitzecdn-security" },
@@ -349,6 +354,8 @@ requires-dist = [
     { name = "blitzecdn-certificates", marker = "extra == 'certificates'", editable = "packages/blitzecdn-certificates" },
     { name = "blitzecdn-compression", marker = "extra == 'all'", editable = "packages/blitzecdn-compression" },
     { name = "blitzecdn-compression", marker = "extra == 'compression'", editable = "packages/blitzecdn-compression" },
+    { name = "blitzecdn-http3", marker = "extra == 'all'", editable = "packages/blitzecdn-http3" },
+    { name = "blitzecdn-http3", marker = "extra == 'http3'", editable = "packages/blitzecdn-http3" },
     { name = "blitzecdn-security", marker = "extra == 'all'", editable = "packages/blitzecdn-security" },
     { name = "blitzecdn-security", marker = "extra == 'security'", editable = "packages/blitzecdn-security" },
     { name = "cryptography", specifier = ">=45,<51" },
@@ -364,7 +371,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.16,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3,<1" },
 ]
-provides-extras = ["backup", "cache", "compression", "certificates", "security", "all"]
+provides-extras = ["backup", "cache", "compression", "certificates", "security", "http3", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -422,6 +429,17 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 name = "blitzecdn-compression"
 version = "3.0.0"
 source = { editable = "packages/blitzecdn-compression" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-http3"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-http3" }
 dependencies = [
     { name = "blitzecdn" },
 ]

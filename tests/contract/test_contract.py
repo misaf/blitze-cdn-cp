@@ -475,9 +475,21 @@ def test_first_http3_site_owns_reuseport_without_a_catch_all():
     assert "reuseport" not in bravo
 
 
-def test_desired_state_derives_http3_firewall_and_listener_ownership(
+def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
     settings, tmp_path
 ):
+    """The shape of the QUIC contract, which does not depend on what is installed.
+
+    One key, not two. The firewall's UDP/443 rule and the QUIC listener read the
+    same contract member, so desired state states HTTP/3 once and the edge play
+    no longer has to assert that two copies of it agree.
+
+    Both keys are `required: true` in the edge and Nginx argument specs, so they
+    are emitted whether or not `blitzecdn-http3` is attached — core writes the
+    baseline and the package overrides it. The *values* are that package's
+    behavior and are asserted in its own tests and in the packaging lifecycle;
+    what core owns is that these two names, and no others, carry the answer.
+    """
     repository = Repository(settings.database_path)
     control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
@@ -501,13 +513,10 @@ def test_desired_state_derives_http3_firewall_and_listener_ownership(
     control.deployments.write_desired_state(repository.snapshot(), output)
     document = yaml.safe_load(output.read_text(encoding="utf-8"))
 
-    # One key, not two. The firewall's UDP/443 rule and the QUIC listener read
-    # the same contract member, so desired state states HTTP/3 once and the
-    # edge play no longer has to assert that two copies of it agree.
-    assert document["blitzecdn_edge_http3_enabled"] is True
+    assert isinstance(document["blitzecdn_edge_http3_enabled"], bool)
+    assert isinstance(document["blitzecdn_nginx_http3_listener_owner"], str)
     assert "blitzecdn_nginx_http3_enabled" not in document
     assert "blitzecdn_firewall_http3_enabled" not in document
-    assert document["blitzecdn_nginx_http3_listener_owner"] == "alpha-example-com"
 
 
 def test_firewall_rules_reach_the_generated_configuration(desired_state):

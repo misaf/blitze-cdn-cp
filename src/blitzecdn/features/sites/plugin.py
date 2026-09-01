@@ -1,10 +1,12 @@
 """Register the site-serving composition and the document the edges converge on.
 
 One contribution, and it is the important one: the flat site document every
-edge role reads. The QUIC listener state used to be derived here too and is now
-``http``'s, which is the ownership rule applied to the one case where it made a
-difference — a fleet fact about a protocol was being computed by the feature
-that merely composes that protocol's switch.
+edge role reads. The QUIC listener state used to be derived here too. It moved
+to ``http`` first — the ownership rule applied to the one case where it made a
+difference, a fleet fact about a protocol being computed by the feature that
+merely composes that protocol's switch — and then out of this distribution
+altogether, into ``blitzecdn-http3``. What stays here is the switch's *value*
+on each site document, which is site policy like any other.
 """
 
 from __future__ import annotations
