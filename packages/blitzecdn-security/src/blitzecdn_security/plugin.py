@@ -18,13 +18,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from blitzecdn import __version__
 from blitzecdn.core.plugins import (
     PluginMetadata,
     Severity,
     ValidationIssue,
     hookimpl,
 )
+
+__version__ = "3.0.0"
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
@@ -36,7 +37,8 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="security",
         version=__version__,
-        required=True,
+        required=False,
+        provides=frozenset({"security"}),
         summary="Per-site request filtering and Under Attack Mode.",
     )
 
