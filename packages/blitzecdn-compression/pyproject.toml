@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blitzecdn-compression"
+version = "3.0.0"
+description = "gzip and Brotli compression capability for BlitzeCDN"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = ["blitzecdn>=3.0.0,<4"]
+
+[project.entry-points."blitzecdn.plugins"]
+compression = "blitzecdn_compression.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blitzecdn_compression"]
+
+[tool.uv.sources]
+blitzecdn = { workspace = true }
