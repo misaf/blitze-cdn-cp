@@ -22,7 +22,7 @@ from typing import Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.core.validation import SITE_NAME, hostname
-from blitzecdn.features.compression.policy import CompressionPolicy
+from blitzecdn.features.compression.policy import CompressionMode, CompressionPolicy
 from blitzecdn.features.http.policy import (
     DEFAULT_PORTS,
     HttpScheme,
@@ -38,6 +38,7 @@ from blitzecdn.features.tls.policy import (
     CERTIFICATE_ROOTS,
     MANAGED_TLS_ROOT,
     CertificateMode,
+    SslAutomaticMode,
     TlsPolicy,
     managed_certificate_paths,
 )
@@ -72,6 +73,26 @@ class SitePolicy(
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     enabled: bool = True
+
+    @property
+    def required_capabilities(self) -> frozenset[str]:
+        """Optional implementation tokens requested by the stable schema."""
+        if not self.enabled:
+            return frozenset()
+        required: set[str] = set()
+        if self.compression is not CompressionMode.OFF:
+            required.add("compression")
+        if self.under_attack_mode or not self.firewall.empty:
+            required.add("security")
+        if self.certificate_mode in {
+            CertificateMode.UPLOADED,
+            CertificateMode.REQUESTED,
+        } or (
+            self.certificate_mode is not CertificateMode.DISABLED
+            and self.ssl_automatic_mode is SslAutomaticMode.AUTO
+        ):
+            required.add("certificates")
+        return frozenset(required)
 
     @model_validator(mode="after")
     def validate_http3_requires_edge_tls(self) -> Self:

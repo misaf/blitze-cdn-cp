@@ -6,7 +6,7 @@ them into throwaway virtualenvs, and asks the control plane what it can do —
 because the property being claimed is about `pip install`, and a test that
 mocked the registry would prove only that the mock was written correctly.
 
-Three environments are built, each once per session:
+The established backup cycle uses three environments, each once per session:
 
 * **core only** — the root wheel and nothing else. This is the configuration
   the acceptance criteria call "BlitzeCDN root package works alone", and it is
@@ -28,6 +28,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -54,9 +55,33 @@ pytestmark = [
 LIFECYCLE_PACKAGE = "blitzecdn-backup"
 LIFECYCLE_CAPABILITY = "backup"
 
+DETACHABLE_SITE_PACKAGES = (
+    ("blitzecdn-compression", "compression", {"compression": "gzip"}),
+    (
+        "blitzecdn-certificates",
+        "certificates",
+        {
+            "compression": "off",
+            "ssl_mode": "full",
+            "ssl_automatic_mode": "custom",
+            "certificate_mode": "requested",
+            "certificate_path": "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem",
+            "certificate_key_path": "/etc/blitzecdn/tls/cdn-example-com/privkey.pem",
+        },
+    ),
+    (
+        "blitzecdn-security",
+        "security",
+        {"compression": "off", "under_attack_mode": True},
+    ),
+)
+
 
 def _uv(*arguments: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
     environment = dict(os.environ)
+    environment["UV_CACHE_DIR"] = str(
+        Path(tempfile.gettempdir()) / "blitzecdn-lifecycle-uv-cache"
+    )
     # Never let the developer's own virtualenv answer for the one under test.
     environment.pop("VIRTUAL_ENV", None)
     return subprocess.run(
@@ -115,6 +140,32 @@ class Environment:
         )
         finished = subprocess.run(
             [str(self.python), "-c", program],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=300,
+        )
+        return json.loads(finished.stdout)
+
+    def site_capabilities(self, overrides: dict[str, object]) -> dict[str, object]:
+        """Required and missing tokens for a real installed site schema."""
+        program = (
+            "import json,sys;"
+            "from blitzecdn.core.plugins import load_plugins;"
+            "from blitzecdn.features.sites import CdnSite;"
+            "values={'name':'cdn-example-com',"
+            "'server_names':['cdn.example.com'],"
+            "'origin_host':'198.51.100.10',**json.loads(sys.argv[1])};"
+            "site=CdnSite.model_validate(values);"
+            "registry=load_plugins();"
+            "print(json.dumps({"
+            "'required':sorted(site.required_capabilities),"
+            "'missing':list(registry.missing(site.required_capabilities)),"
+            "'shape':sorted(site.model_dump(mode='json'))"
+            "}))"
+        )
+        finished = subprocess.run(
+            [str(self.python), "-c", program, json.dumps(overrides)],
             capture_output=True,
             text=True,
             check=True,
@@ -210,6 +261,40 @@ def test_core_alone_offers_no_optional_capability(core_only: Environment):
     assert LIFECYCLE_CAPABILITY not in report["commands"]
     assert "cache" not in report["capabilities"]
     assert not [path for path in report["routes"] if "cache" in path]  # type: ignore[union-attr]
+
+
+def test_core_alone_loads_off_and_unmanaged_site_contracts(core_only: Environment):
+    baseline = core_only.site_capabilities({"compression": "off"})
+    existing_tls = core_only.site_capabilities(
+        {
+            "compression": "off",
+            "ssl_mode": "full",
+            "ssl_automatic_mode": "custom",
+            "certificate_mode": "existing",
+            "certificate_path": "/etc/ssl/cdn-example-com.pem",
+            "certificate_key_path": "/etc/ssl/cdn-example-com.key",
+        }
+    )
+
+    assert baseline["required"] == baseline["missing"] == []
+    assert existing_tls["required"] == existing_tls["missing"] == []
+    assert baseline["shape"] == existing_tls["shape"]
+
+
+@pytest.mark.parametrize(
+    ("_distribution", "capability", "overrides"),
+    DETACHABLE_SITE_PACKAGES,
+)
+def test_core_alone_rejects_requested_site_capabilities(
+    core_only: Environment,
+    _distribution: str,
+    capability: str,
+    overrides: dict[str, object],
+):
+    result = core_only.site_capabilities(overrides)
+
+    assert result["required"] == [capability]
+    assert result["missing"] == [capability]
 
 
 def test_the_api_and_the_cli_both_start_with_no_optional_package(
@@ -362,6 +447,49 @@ def test_the_cli_still_works_after_the_capability_is_detached(detached: Environm
     assert "backup" not in finished.stdout
 
 
+@pytest.mark.parametrize(
+    ("distribution", "capability", "overrides"),
+    DETACHABLE_SITE_PACKAGES,
+)
+def test_site_capability_wheels_attach_and_detach_through_real_entry_points(
+    tmp_path: Path,
+    wheels: dict[str, Path],
+    distribution: str,
+    capability: str,
+    overrides: dict[str, object],
+):
+    environment = _environment(tmp_path / "venv")
+    environment.install(wheels["blitzecdn"])
+    before = environment.report()
+    assert capability not in before["capabilities"]
+    assert environment.site_capabilities(overrides)["missing"] == [capability]
+
+    environment.install(wheels[distribution])
+    attached = environment.report()
+    assert capability in attached["plugins"]
+    assert capability in attached["capabilities"]
+    assert attached["rejected"] == []
+    assert environment.site_capabilities(overrides)["missing"] == []
+    _uv("pip", "check", "--python", str(environment.python))
+
+    if capability == "certificates":
+        assert {"cert", "ssl"} <= set(attached["commands"])  # type: ignore[arg-type]
+        assert any("certificates" in path for path in attached["routes"])  # type: ignore[union-attr]
+        assert any("/ssl/automatic/" in path for path in attached["routes"])  # type: ignore[union-attr]
+
+    environment.uninstall(distribution)
+    detached_report = environment.report()
+    assert capability not in detached_report["plugins"]
+    assert capability not in detached_report["capabilities"]
+    assert detached_report["rejected"] == []
+    assert detached_report["routes"]
+    assert environment.site_capabilities(overrides)["missing"] == [capability]
+    if capability == "certificates":
+        assert not {"cert", "ssl"} & set(detached_report["commands"])  # type: ignore[arg-type]
+        assert not any("certificates" in path for path in detached_report["routes"])  # type: ignore[union-attr]
+        assert not any("/ssl/automatic/" in path for path in detached_report["routes"])  # type: ignore[union-attr]
+
+
 # --- configuration that names a capability nothing supplies -----------------
 
 
@@ -381,7 +509,7 @@ def test_configuration_requiring_an_absent_capability_fails_deterministically(
     environment.pop("VIRTUAL_ENV", None)
     environment["BLITZE_REQUIRED_CAPABILITIES"] = "backup"
     finished = subprocess.run(
-        [str(core_only.blitzecdn), "doctor"],
+        [str(core_only.blitzecdn), "plugins"],
         capture_output=True,
         text=True,
         env=environment,

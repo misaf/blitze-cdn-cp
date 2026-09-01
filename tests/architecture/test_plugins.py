@@ -86,6 +86,7 @@ def site(**overrides: object) -> CdnSite:
             "name": "cdn-example-com",
             "server_names": ["cdn.example.com"],
             "origin_host": "198.51.100.10",
+            "compression": "off",
             **overrides,
         }
     )
@@ -117,20 +118,6 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
     }
 
 
-def test_a_plugin_may_implement_only_the_hooks_it_cares_about(builtins):
-    """`compression` contributes neither routes nor commands, and that is fine.
-
-    A capability registers so it can be named — in `blitzecdn plugins`, in a
-    failure, in the answer to "where does Brotli live" — and contributing an
-    empty router to satisfy a shape would be the universal feature base class
-    this mechanism exists to avoid.
-    """
-    assert "compression" in builtins
-    assert not any(group.name == "compression" for group in builtins.cli_commands())
-    assert builtins.api_routers()
-    assert builtins.cli_commands()
-
-
 # --- built-in discovery -----------------------------------------------------
 
 
@@ -151,9 +138,13 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
     of `SslMode`. Each name here would be a plausible package, and each belongs
     inside one that already exists.
     """
-    for capability in ("compression", "http", "security", "tls", "sites"):
+    for capability in ("http", "tls", "sites"):
         assert capability in builtins
         assert f"blitzecdn.features.{capability}.plugin" in BUILTIN_PLUGINS
+
+    for capability in ("compression", "security"):
+        assert capability not in builtins
+        assert f"blitzecdn.features.{capability}.plugin" not in BUILTIN_PLUGINS
 
     for option in (
         "gzip",
@@ -601,43 +592,6 @@ def test_a_command_group_names_the_subcommand_it_appears_under():
     assert group.name == "waf"
 
 
-def test_reconciliation_rescans_automatic_ssl_only_when_it_issued_something(builtins):
-    """The one job that sequences two features, and the reason it is separate.
-
-    A site that has just gained a certificate may now qualify for an upgrade it
-    did not qualify for a minute ago — but scanning after a reconciliation that
-    issued nothing is a pass over the whole fleet for no reason.
-    """
-    calls: list[str] = []
-    issued: list[str] = []
-    platform = SimpleNamespace(
-        settings=SimpleNamespace(
-            certificate_reconcile_interval_seconds=3600,
-            certificate_renewal_interval_seconds=3600,
-            certificate_renewal_budget_seconds=300,
-            ssl_automatic_scan_interval_seconds=86_400,
-            drift_check_interval_seconds=900,
-        ),
-        certificates=SimpleNamespace(
-            reconcile_certificates=lambda operator: (
-                calls.append(f"reconcile {operator}")
-                or SimpleNamespace(issued=tuple(issued))
-            )
-        ),
-        automatic_ssl=SimpleNamespace(
-            reconcile=lambda operator: calls.append(f"scan {operator}")
-        ),
-    )
-    job = builtins.scheduled_jobs(platform)["certificate-reconciliation"]
-
-    job.run("scheduler")
-    assert calls == ["reconcile scheduler"]
-
-    issued.append("cdn-example-com")
-    job.run("scheduler")
-    assert calls[1:] == ["reconcile scheduler", "scan scheduler"]
-
-
 def test_every_built_in_job_calls_the_service_that_owns_its_work(builtins):
     """A job is one object — its interval and its work — so both are checkable.
 
@@ -647,37 +601,16 @@ def test_every_built_in_job_calls_the_service_that_owns_its_work(builtins):
     """
     calls: list[str] = []
     platform = SimpleNamespace(
-        settings=SimpleNamespace(
-            certificate_reconcile_interval_seconds=3600,
-            certificate_renewal_interval_seconds=7200,
-            certificate_renewal_budget_seconds=300,
-            ssl_automatic_scan_interval_seconds=86_400,
-            drift_check_interval_seconds=900,
-        ),
-        certificates=SimpleNamespace(
-            reconcile_certificates=lambda operator: (
-                calls.append("reconcile") or SimpleNamespace(issued=())
-            ),
-            renew_certificates=lambda operator, *, budget_seconds: calls.append(
-                f"renew {budget_seconds}"
-            ),
-        ),
-        automatic_ssl=SimpleNamespace(reconcile=lambda _o: calls.append("scan")),
+        settings=SimpleNamespace(drift_check_interval_seconds=900),
         deployments=SimpleNamespace(check_drift=lambda _o: calls.append("drift")),
     )
     jobs = builtins.scheduled_jobs(platform)
 
-    assert set(jobs) == {
-        "certificate-reconciliation",
-        "certificate-renewal",
-        "automatic-ssl-scan",
-        "check-drift",
-    }
+    assert set(jobs) == {"check-drift"}
     for name in sorted(jobs):
         jobs[name].run("scheduler")
 
-    assert calls == ["scan", "reconcile", "renew 300", "drift"]
-    assert jobs["certificate-renewal"].jitter_seconds == 720
+    assert calls == ["drift"]
     assert jobs["check-drift"].interval_seconds == 900
 
 

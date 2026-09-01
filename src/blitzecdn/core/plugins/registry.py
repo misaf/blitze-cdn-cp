@@ -262,9 +262,21 @@ class PluginRegistry:
         return merge_variables(contributions, subject="fleet desired state")
 
     def validate_site(self, site: CdnSite, platform: ControlPlane) -> ValidationResult:
+        missing = tuple(
+            ValidationIssue(
+                plugin="capabilities",
+                site=site.name,
+                message=(
+                    f"capability {capability!r} is not installed; install a plugin "
+                    "that provides it or disable the site setting that requests it"
+                ),
+            )
+            for capability in self.missing(site.required_capabilities)
+        )
         return ValidationResult(
             site=site.name,
-            issues=_flatten(
+            issues=missing
+            + _flatten(
                 self._manager.hook.blitzecdn_deployment_checks(
                     site=site, platform=platform
                 ),
