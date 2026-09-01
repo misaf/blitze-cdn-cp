@@ -56,7 +56,8 @@ blitze-cdn-cp/
 │   ├── features/           # one package per REQUIRED product or operational
 │   │   │                   # capability, with only the layers it actually needs
 │   │   ├── compression/    #   policy.py — gzip and Brotli are strategies
-│   │   ├── http/           #   policy.py + plugin.py — HTTP/1, /2, /3, listeners
+│   │   ├── http/           #   policy.py + plugin.py — baseline HTTP/1.1 + /2,
+│   │   │                   #   the http3_enabled switch, listener contract
 │   │   ├── security/       #   policy.py + plugin.py — firewall, Under Attack Mode
 │   │   ├── tls/            #   policy.py + certificates/ + automatic_ssl/
 │   │   ├── sites/          #   domain.py composes every contract; policy/ its own
@@ -71,7 +72,11 @@ blitze-cdn-cp/
 │   └── worker.py           # Dramatiq entry point
 ├── packages/               # OPTIONAL capabilities: real, separate wheels
 │   ├── blitzecdn-backup/   #   archive and restore the control plane's state
-│   └── blitzecdn-cache/    #   purge, and cache-effectiveness reporting
+│   ├── blitzecdn-cache/    #   purge, and cache-effectiveness reporting
+│   ├── blitzecdn-certificates/  # issuance, renewal, Automatic SSL/TLS
+│   ├── blitzecdn-compression/   # the gzip and Brotli implementation
+│   ├── blitzecdn-http3/    #   QUIC listener state; HTTP/1.1 and /2 stay core
+│   └── blitzecdn-security/ #   site firewall and Under Attack validation
 └── tests/                  # core behavior, plugin contracts, architecture,
                             # cross-package contracts, integration
 ```
@@ -101,7 +106,7 @@ The rules that shape it:
   this named play with these variables against these hosts, and nothing
   feature-shaped). Core's `AnsibleRunner` therefore has no `run_cache_purge`
   any more — building a purge document is the cache package's business.
-- **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `gzip`, `http3`, `certificates` or `under_attack` package by name. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
+- **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `features/gzip`, `features/http3`, `features/certificates` or `features/under_attack` package by name. That rule is about the *feature tree* only: an optional distribution is named after the implementation an operator attaches, which is why `blitzecdn-certificates` and `blitzecdn-http3` are wheels while those feature directories stay refused. HTTP/1.1 and HTTP/2 are baseline and never optional — there is no `blitzecdn-http1` or `blitzecdn-http2`. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
 - **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
 - **The consumer owns the port.** A feature's `ports.py` holds the narrow `Protocol` interfaces *that feature* calls. A port belongs to whoever calls it, never to whoever implements it — a port describing a run some other feature performs is what forces a cycle, and `test_no_feature_port_declares_another_feature_s_playbook` refuses it.
@@ -109,7 +114,7 @@ The rules that shape it:
 - **`bootstrap.py` is the production composition root.** It builds every adapter, injects it into the services, loads the plugins, and hands each plugin the finished control plane. Production wiring exists nowhere else, and it is the only module that knows one `AnsibleRunner` satisfies `CacheRunner`, `EdgeRunner`, `DeploymentRunner` and `DeploymentLocker` alike. The order is the architecture: **adapters → services → plugins → contributions**, and nothing flows back.
 - **Pluggy registers; it never carries business calls.** A feature's `plugin.py` contributes routers, CLI groups, scheduled jobs, health checks, desired-state fragments, deployment checks and lifecycle work. Business communication stays an explicit call on a constructor-injected service — `certificate_service.issue(...)`, never `hook.issue_certificate(...)`. There is no global plugin manager and no service lookup in a request path; `platform.<service>` appears in `plugin.py` and nowhere else, and a layering test refuses it anywhere else.
 - **`api/app.py` and `cli/main.py` import no feature.** Both ask the plugin registry. Adding an extension-style feature means writing its `plugin.py` and adding one line to `BUILTIN_PLUGINS`; a separately installed distribution needs neither, only an entry point in the `blitzecdn.plugins` group.
-- **Desired state is contributed, not centralised.** `DesiredStateRenderer` frames the document and knows nothing about what goes in it: `sites` projects the site model, `http` derives the fleet QUIC requirement and its single `reuseport` listener owner, and `tls` overrides the two certificate paths. Contributions are typed and merged order-independently — two plugins writing one variable is an error unless exactly one declares it in `overrides`. Never concatenate configuration text through a hook.
+- **Desired state is contributed, not centralised.** `DesiredStateRenderer` frames the document and knows nothing about what goes in it: `sites` projects the site model, `http` states the fleet's baseline listener stance, the optional `blitzecdn-http3` overrides it with the QUIC requirement and its single `reuseport` listener owner, and `tls` overrides the two certificate paths. Contributions are typed and merged order-independently — two plugins writing one variable is an error unless exactly one declares it in `overrides`. Never concatenate configuration text through a hook.
 - **A CDN switch is not automatically a feature — it belongs to the capability that owns its behavior.** Compression, HTTP protocol, security and TLS policy live with their capabilities. Cache policy, visitor headers and origin identity stay under `sites/policy/` because nothing outside a site's own configuration reads them: the `cache` capability owns purge and statistics *operations*, and moving `CachePolicy` under it would make `sites` depend on a feature that already depends on `sites`. Keep edge runtime/build capability separate.
 - **Cross-feature dependencies follow the declared graph.** See `ALLOWED_FEATURE_DEPENDENCIES` below.
 - **Entry layers (`api/`, `cli/`) never touch persistence or an adapter directly.** They call services on `ControlPlane`.

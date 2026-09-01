@@ -58,7 +58,8 @@ cache = ["blitzecdn-cache"]
 compression = ["blitzecdn-compression"]
 certificates = ["blitzecdn-certificates"]
 security = ["blitzecdn-security"]
-all = ["blitzecdn-backup", "blitzecdn-cache", "blitzecdn-compression", "blitzecdn-certificates", "blitzecdn-security"]
+http3 = ["blitzecdn-http3"]
+all = ["blitzecdn-backup", "blitzecdn-cache", "blitzecdn-compression", "blitzecdn-certificates", "blitzecdn-security", "blitzecdn-http3"]
 
 
 # PEP 735. Not an extra: these are never part of an install of this package,
@@ -115,6 +116,7 @@ blitzecdn-cache = { workspace = true }
 blitzecdn-compression = { workspace = true }
 blitzecdn-certificates = { workspace = true }
 blitzecdn-security = { workspace = true }
+blitzecdn-http3 = { workspace = true }
 
 
 [project.scripts]
@@ -131,14 +133,14 @@ markers = [
   "packaging: exercises real distribution build, install and uninstall",
   "requires_certificates: cross-capability integration needing blitzecdn-certificates",
 ]
-addopts = "--strict-config --strict-markers --cov=blitzecdn --cov=blitzecdn_backup --cov=blitzecdn_cache --cov=blitzecdn_compression --cov=blitzecdn_certificates --cov=blitzecdn_security --cov-report=term-missing --cov-fail-under=85"
+addopts = "--strict-config --strict-markers --cov=blitzecdn --cov=blitzecdn_backup --cov=blitzecdn_cache --cov=blitzecdn_compression --cov=blitzecdn_certificates --cov=blitzecdn_security --cov=blitzecdn_http3 --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = ["error"]
 # The workspace's whole suite: the control plane's own tests, plus each
 # optional distribution's tests, which live with the distribution. A package
 # is the unit of modularity, so removing `packages/blitzecdn-cache` removes its
 # implementation *and* its tests in one move and this list needs no edit — a
 # missing directory contributes nothing rather than failing collection.
-testpaths = ["tests", "packages/blitzecdn-backup/tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-compression/tests", "packages/blitzecdn-certificates/tests", "packages/blitzecdn-security/tests"]
+testpaths = ["tests", "packages/blitzecdn-backup/tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-compression/tests", "packages/blitzecdn-certificates/tests", "packages/blitzecdn-security/tests", "packages/blitzecdn-http3/tests"]
 # Tests live in per-capability directories now, so the shared helpers beside
 # `conftest.py` are no longer guaranteed onto `sys.path` by a top-level test
 # module. Name the directory rather than relying on where the first collected

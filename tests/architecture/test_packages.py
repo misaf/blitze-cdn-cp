@@ -454,3 +454,95 @@ def test_the_control_plane_suite_names_no_optional_package():
         if imported.split(".")[0] in optional
     ]
     assert offenders == []
+
+
+# --- HTTP/3 is optional; the protocol it is a version of is not -------------
+
+
+#: The two fleet variables that describe the edge's QUIC listener. Core writes
+#: them at their baseline and `blitzecdn-http3` overrides them, so both names
+#: appear in both distributions — what must not appear in core is the
+#: *derivation*, which is what the tests below actually look for.
+_QUIC_FLEET_VARIABLES = frozenset(
+    {"blitzecdn_edge_http3_enabled", "blitzecdn_nginx_http3_listener_owner"}
+)
+
+
+def test_http3_ships_as_an_optional_distribution_and_http1_and_http2_do_not():
+    """The asymmetry is the whole design, so it is asserted by name.
+
+    HTTP/1.1 and HTTP/2 are invariants of a managed edge: there is nothing to
+    install and nothing to turn on. A `blitzecdn-http1` or `blitzecdn-http2`
+    would make ordinary traffic depend on an optional wheel, which is the
+    failure this extraction must not drift into.
+    """
+    distributions = {package.name for package in _packages()}
+
+    assert "blitzecdn-http3" in distributions
+    assert not {"blitzecdn-http1", "blitzecdn-http2", "blitzecdn-http"} & distributions
+    assert "blitzecdn.features.http.plugin" in BUILTIN_PLUGINS
+
+
+def test_the_http3_capability_is_reached_only_through_its_entry_point():
+    """Attached and detached are both real, and neither touches core.
+
+    The generic tests above already hold this for every package; stated once
+    for `http3` too because the token is the one the site contract names, and a
+    capability whose token nothing supplied would fail as a validation error on
+    every HTTP/3 site rather than as anything obviously packaging-shaped.
+    """
+    builtins = load_plugins(entry_point_group=None)
+    installed = load_plugins()
+
+    assert "http3" not in builtins.capabilities
+    assert "http3" in installed.capabilities
+    assert "http3" not in {metadata.name for metadata in builtins.plugins}
+
+
+def test_the_http_capability_contributes_the_quic_baseline_without_deriving_it():
+    """Core may state the baseline; it may not work out who owns `reuseport`.
+
+    The derivation is `site.http3_enabled` read across the fleet, and it now
+    lives in `blitzecdn-http3`. Core's `http` plugin still writes both
+    variables — they are `required: true` in the edge role's argument spec, so
+    the document keeps one shape whatever is installed — but it writes them as
+    constants. `policy.py` still reads the switch, which is right: the *field*
+    is core's and `required_capabilities` is how a site asks for the capability.
+    What may not come back is a read in `plugin.py`, because that is the
+    derivation, and two plugins deriving these two variables from one fleet is
+    a merge conflict at deploy time rather than a design anybody chose.
+    """
+    plugin = SOURCE / "features/http/plugin.py"
+    offenders = [
+        "features/http/plugin.py reads .http3_enabled"
+        for node in ast.walk(ast.parse(plugin.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Attribute) and node.attr == "http3_enabled"
+    ]
+    assert offenders == []
+
+    constants = {
+        key.value: getattr(value, "value", value)
+        for node in ast.walk(ast.parse(plugin.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Dict)
+        for key, value in zip(node.keys, node.values, strict=True)
+        if isinstance(key, ast.Constant)
+    }
+    assert set(constants) == _QUIC_FLEET_VARIABLES
+    assert set(constants.values()) == {False, ""}
+
+
+def test_the_site_contract_keeps_the_http3_switch_in_core():
+    """The other direction: the field may not follow the implementation out.
+
+    `CdnSite` composes `ProtocolPolicy` by inheritance and the flat shape is
+    what the v1/v2 schemas, the persisted policy JSON and the deployment
+    snapshots all consume. Moving `http3_enabled` into the package would make
+    that shape depend on what is installed, and a stored site asking for HTTP/3
+    would stop loading on a controller that had detached it.
+    """
+    from blitzecdn.features.http.policy import ProtocolPolicy
+    from blitzecdn.features.sites.domain import CdnSite
+
+    assert "http3_enabled" in ProtocolPolicy.model_fields
+    assert "http3_enabled" in CdnSite.model_fields
+    assert ProtocolPolicy.__module__.startswith("blitzecdn.features.http")
