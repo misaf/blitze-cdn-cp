@@ -23,3 +23,10 @@ class CompressionPolicy(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     compression: CompressionMode = CompressionMode.BROTLI
+
+    @property
+    def required_capabilities(self) -> frozenset[str]:
+        """Implementation capabilities requested by this stable policy."""
+        if self.compression is CompressionMode.OFF:
+            return frozenset()
+        return frozenset({"compression"})
