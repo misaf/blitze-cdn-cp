@@ -106,14 +106,23 @@ it and are found only through their entry points:
 
 ```bash
 pip install blitzecdn                # the control plane alone
-pip install blitzecdn-cache          # + purge and cache reporting
+pip install 'blitzecdn[compression]' # + gzip and Brotli implementation
+pip install 'blitzecdn[certificates]'# + certificate management and Automatic SSL
+pip install 'blitzecdn[security]'    # + site security implementation
 pip install 'blitzecdn[all]'         # + every optional capability
-pip uninstall blitzecdn-cache        # the capability disappears; core keeps working
+pip uninstall blitzecdn-compression  # the capability disappears; core keeps working
 ```
 
 A package can contribute routes, commands, scheduled jobs, health checks,
 deployment checks and desired state without a line of this repository changing —
 including one this repository has never heard of. See [PLUGINS.md](PLUGINS.md).
+
+The stable `CdnSite` configuration remains part of core whether an implementation
+wheel is installed or not. A site with compression off, unmanaged TLS, and the
+default security settings works with core alone. Requesting gzip/Brotli,
+uploaded/requested certificates, Automatic SSL for active TLS, Under Attack
+Mode, or site firewall rules without its provider fails validation explicitly;
+it is never silently ignored or downgraded.
 
 ## Development
 
