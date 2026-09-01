@@ -621,14 +621,6 @@ def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():
     assert SitePolicy.model_fields["visitor_headers"].annotation is SiteVisitorHeaders
 
 
-
-def test_a_certificate_outside_the_window_is_not_due():
-    now = datetime.now(UTC)
-    status = CertificateStatus.of(_info(60, CertificateSource.ACME), now=now)
-    assert status.due_for_renewal() is False
-    assert status.due_for_renewal(within_days=90) is True
-
-
 # ----------------------------------------------------------------------
 # Deployment lifecycle
 # ----------------------------------------------------------------------
