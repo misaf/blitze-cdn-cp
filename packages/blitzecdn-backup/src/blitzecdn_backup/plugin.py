@@ -6,12 +6,12 @@ metadata is the whole of how it is found, so ``uv remove blitzecdn-backup``
 removes the capability and ``uv add`` puts it back, with no line of core edited
 either way.
 
-``required=False`` is the failure policy that goes with that. A built-in is
-required by definition — a control plane without ``sites`` is not degraded but
-wrong — whereas a broken optional package is reported by name and skipped, and
-the node still serves. ``provides`` is the other half: it is what a
-configuration means when it says it depends on this capability, and it is how
-the core answers "is backup available here?" without naming this package.
+A built-in is required by definition — a control plane without ``sites`` is not
+degraded but wrong — whereas an external plugin is optional unless it explicitly
+chooses a stricter failure policy. ``PluginMetadata`` also treats the plugin's
+own name as a capability automatically, so this package only needs to declare
+additional capability tokens when it actually provides something beyond
+``backup``.
 
 Deliberately no HTTP surface. Restoring replaces the database this process is
 reading and stops the services around it, so it is a command an operator runs
@@ -33,8 +33,6 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="backup",
         version=__version__,
-        required=False,
-        provides=frozenset({"backup"}),
         summary="Archive and restore the control plane's own state.",
     )
 
