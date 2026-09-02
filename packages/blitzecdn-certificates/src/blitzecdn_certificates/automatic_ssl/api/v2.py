@@ -8,7 +8,7 @@ from blitzecdn.api.dependencies import (
     require_operator,
 )
 from blitzecdn.api.operations import as_operation
-from blitzecdn_certificates.api_models import SslAutomaticReconciliation
+from blitzecdn_certificates.api.models import SslAutomaticReconciliation
 from blitzecdn_certificates.composition import build_automatic_ssl_service
 
 router = APIRouter(dependencies=[Depends(require_operator)])
