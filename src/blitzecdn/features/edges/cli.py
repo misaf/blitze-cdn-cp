@@ -1,8 +1,9 @@
-"""`edge` — the fleet roster itself.
+"""`edge` — the fleet roster itself, and the image the fleet runs.
 
 `origin check` was here and moved to `blitzecdn-origins` with the play it runs.
 What stayed is what an installation must be able to do with no optional
-distribution attached: add an edge, update one, remove one.
+distribution attached: add an edge, update one, remove one — and ask what the
+runtime image those edges serve from has to be built with.
 """
 
 from __future__ import annotations
@@ -12,6 +13,8 @@ from typing import Annotated
 import typer
 
 from blitzecdn.cli import common
+from blitzecdn.core.nginx import resolve_edge_modules
+from blitzecdn.core.plugins import load_plugins
 from blitzecdn.features.edges.domain import Edge, EdgePatch
 
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
@@ -200,3 +203,73 @@ def edge_remove(
     else:
         control.edges.remove_edge(name, "cli")
     typer.echo(f"Removed {name}")
+
+
+image_app = typer.Typer(
+    no_args_is_help=True,
+    help="The edge runtime image the fleet serves from.",
+)
+edge_app.add_typer(image_app, name="image")
+
+
+@image_app.command("spec")
+def edge_image_spec(
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Print the build arguments the edge runtime image is built from.
+
+    The image needs one thing from this control plane that it cannot work out
+    for itself: which Nginx dynamic modules to carry. That used to be written
+    into the Dockerfile, which made the image build a second register of which
+    capabilities exist — and the only one that kept naming a capability after
+    its distribution was detached, because an image is built once and pinned by
+    digest. So the modules are declared by the capabilities that need them and
+    this command emits them, in the form `docker build --build-arg` takes:
+
+        docker build $(blitzecdn edge image spec | sed 's/^/--build-arg /') \\
+            "$(python -c 'from blitzecdn import docker; print(docker.EDGE_CONTEXT)')"
+
+    What it prints is the *superset* an image should carry, not what one edge
+    loads. An image is shared by fleets whose attached capabilities differ, so
+    it carries every module the installed distributions declare and each edge
+    mounts its own narrower `load_module` list over the image's; run this on a
+    controller with every published capability installed — which is what CI
+    does — and the published image can serve any subset of them.
+
+    The plugins are loaded here rather than taken from a control plane because
+    the answer depends only on what is installed: this runs in an image build,
+    where there is no database to open and no fleet to read.
+    """
+    modules = resolve_edge_modules(load_plugins().ansible_contributions())
+    if json_output:
+        common.emit(
+            [
+                {
+                    "plugin": module.plugin,
+                    "name": module.name,
+                    "objects": list(module.objects),
+                    "build": module.build,
+                    "probe": module.probe,
+                }
+                for module in modules
+            ],
+            json_output=True,
+        )
+        return
+    # One `NAME=value` line per build argument, which is exactly what both
+    # `docker build --build-arg` and the `build-args:` input of the GitHub
+    # build action accept. Values are space separated because that is what the
+    # Dockerfile's `for` loops split on.
+    typer.echo(
+        "ENABLED_MODULES=" + " ".join(module.name for module in modules if module.build)
+    )
+    typer.echo(
+        "LOADED_MODULES="
+        + " ".join(
+            shared_object for module in modules for shared_object in module.objects
+        )
+    )
+    typer.echo(
+        "MODULE_PROBE_DIRECTIVES="
+        + " ".join(module.probe for module in modules if module.probe)
+    )
