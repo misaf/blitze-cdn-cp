@@ -1,0 +1,5 @@
+---
+blitzecdn_cache_config_zone: blitzecdn_cache
+blitzecdn_cache_config_size: 100m
+blitzecdn_cache_config_max_size: 10g
+blitzecdn_cache_config_inactive: 60m

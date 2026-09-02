@@ -15,12 +15,14 @@ makes them go away, with no line of core edited either way.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
 from fastapi import APIRouter
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
     CliCommandGroup,
+    NginxContribution,
     PluginMetadata,
     hookimpl,
 )
@@ -51,7 +53,25 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
     # directory to Ansible's role search path and never learns what is in it;
     # uninstalling this distribution removes both roles from every subsequent
     # run without a line of the control plane changing.
-    return (AnsibleContribution(plugin="cache", roles_path=ansible.ROLES_PATH),)
+    return (
+        AnsibleContribution(
+            plugin="cache",
+            roles_path=ansible.ROLES_PATH,
+            edge_roles=(ansible.EDGE_ROLE,),
+        ),
+    )
+
+
+@hookimpl
+def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
+    return (
+        NginxContribution(
+            plugin="cache",
+            templates_path=Path(__file__).with_name("nginx"),
+            http_fragments=("cache-http.conf.j2",),
+            upstream_fragments=("cache-upstream.conf.j2",),
+        ),
+    )
 
 
 @hookimpl

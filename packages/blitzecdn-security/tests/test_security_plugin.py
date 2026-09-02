@@ -22,10 +22,9 @@ def _site(*, under_attack: bool, enabled: bool = True) -> CdnSite:
 class _Settings:
     """The one attribute this package reads off core's settings.
 
-    `capability_environment` is every `BLITZE_*` variable the control plane was
-    given and does not consume itself. Core carries no field named for this
-    capability's secret any more — a field on the model every installation
-    loads, for a distribution most installations do not have.
+    `capability_environment` stages non-core `BLITZE_*` values. This package's
+    Ansible contribution explicitly claims its key before composition permits
+    it to reach Ansible. Core carries no named field for the optional secret.
     """
 
     capability_environment: dict[str, SecretStr]

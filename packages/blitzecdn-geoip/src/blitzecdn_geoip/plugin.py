@@ -25,18 +25,14 @@ all. That is deliberately the whole of it:
 * The *edge realization* ships in this wheel. The ``blitzecdn_geoip`` role
   beside this module provisions the GeoLite2 database, owns the MaxMind
   credential and the updater's Compose project, installs the systemd timer that
-  refreshes it, and writes the ``conf.d`` snippet that defines
-  ``$blitzecdn_country``. Core's edge play runs it because this plugin says so,
+  refreshes it, while package-owned Nginx resources define and consume
+  ``$blitzecdn_country``. Core's edge play and renderer discover those resources
+  because this plugin says so,
   not because the play names it; detaching the distribution removes the role
   from Ansible's search path and from the play together.
 
-  What deliberately stays in core is the *reading* of that variable. Country
-  rules and the ``BZ-IPCountry`` header are per-site directives inside a
-  virtual host, rendered by ``blitzecdn_nginx`` from desired state like every
-  other site setting. Splitting a server block across packages would mean
-  concatenating configuration text through a hook, which this architecture
-  refuses — and it would buy nothing: a site that needs the variable is already
-  refused, by name, before a play starts.
+  Core retains only the generic visitor-country variable/header contract and
+  stable fragment insertion context. It contains no GeoIP2 implementation.
 
 Whether an edge has the capability switched on is fleet Ansible policy
 (``blitzecdn_geoip_enabled``, in this role's own defaults) and not desired
@@ -50,8 +46,14 @@ nothing in core edited either way.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 
-from blitzecdn.core.plugins import AnsibleContribution, PluginMetadata, hookimpl
+from blitzecdn.core.plugins import (
+    AnsibleContribution,
+    NginxContribution,
+    PluginMetadata,
+    hookimpl,
+)
 from blitzecdn_geoip import __version__, ansible
 
 
@@ -76,5 +78,21 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
             plugin="geoip",
             roles_path=ansible.ROLES_PATH,
             edge_roles=(ansible.EDGE_ROLE,),
+            environment_keys=(
+                "BLITZE_MAXMIND_ACCOUNT_ID",
+                "BLITZE_MAXMIND_LICENSE_KEY",
+            ),
+        ),
+    )
+
+
+@hookimpl
+def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
+    return (
+        NginxContribution(
+            plugin="geoip",
+            templates_path=Path(__file__).with_name("nginx"),
+            http_fragments=("geoip-http.conf.j2",),
+            upstream_fragments=("geoip-upstream.conf.j2",),
         ),
     )

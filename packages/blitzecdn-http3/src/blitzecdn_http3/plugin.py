@@ -20,10 +20,18 @@ Ansible roles, which remain the provisioning authority.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
-from blitzecdn.core.plugins import FleetStateContribution, PluginMetadata, hookimpl
-from blitzecdn_http3 import __version__
+from blitzecdn.core.plugins import (
+    AnsibleContribution,
+    FleetStateContribution,
+    NginxContribution,
+    PluginMetadata,
+    hookimpl,
+)
+from blitzecdn_http3 import __version__, ansible
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
@@ -45,6 +53,29 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
         required=False,
         provides=frozenset({"http3"}),
         summary="Visitor HTTP/3 over QUIC, and the edge's single QUIC listener.",
+    )
+
+
+@hookimpl
+def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
+    return (
+        NginxContribution(
+            plugin="http3",
+            templates_path=Path(__file__).with_name("nginx"),
+            server_fragments=("http3-server.conf.j2",),
+            upstream_fragments=("http3-upstream.conf.j2",),
+        ),
+    )
+
+
+@hookimpl
+def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
+    return (
+        AnsibleContribution(
+            plugin="http3",
+            roles_path=ansible.ROLES_PATH,
+            edge_roles=(ansible.EDGE_ROLE,),
+        ),
     )
 
 

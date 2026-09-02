@@ -14,21 +14,20 @@ Both controls stay. The role has to hold on its own against a hand-written
 desired state; this one exists so an operator finds out at ``blitzecdn
 validate``, before the fleet is touched.
 
-The njs implementation, the fleet secret and the ``conf.d`` snippet that
-imports the module all ship in this wheel, under ``ansible/``. What stays in
-core is the per-site rendering: the challenge locations are directives inside a
-server block, driven by the site's own ``under_attack_mode`` setting, and
-splitting a server block across packages would mean concatenating configuration
-text through a hook.
+The njs implementation, fleet secret, global import, request filters and
+challenge locations all ship in this wheel. Core provides only typed, stable
+Nginx insertion contexts and renders the resources discovered from this plugin.
 """
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
+    NginxContribution,
     PluginMetadata,
     Severity,
     ValidationIssue,
@@ -95,5 +94,20 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
             plugin="security",
             roles_path=ansible.ROLES_PATH,
             edge_roles=(ansible.EDGE_ROLE,),
+            environment_keys=(SECRET_VARIABLE,),
+        ),
+    )
+
+
+@hookimpl
+def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
+    return (
+        NginxContribution(
+            plugin="security",
+            templates_path=Path(__file__).with_name("nginx"),
+            http_fragments=("security-http.conf.j2",),
+            server_fragments=("security-server.conf.j2",),
+            access_fragments=("security-access.conf.j2",),
+            upstream_fragments=("security-upstream.conf.j2",),
         ),
     )

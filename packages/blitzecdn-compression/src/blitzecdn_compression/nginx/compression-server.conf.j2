@@ -1,0 +1,22 @@
+{% if not default_server %}
+{% set compression = site.compression | default('brotli') %}
+{% if compression != 'off' %}
+    gzip on;
+    gzip_comp_level {{ blitzecdn_compression_gzip_level }};
+    gzip_min_length {{ blitzecdn_compression_min_length }};
+    gzip_proxied any;
+    gzip_vary on;
+    gzip_types {{ blitzecdn_compression_types | join(' ') }};
+{% if compression == 'brotli' %}
+    brotli on;
+    brotli_comp_level {{ blitzecdn_compression_brotli_level }};
+    brotli_min_length {{ blitzecdn_compression_min_length }};
+    brotli_types {{ blitzecdn_compression_types | join(' ') }};
+{% else %}
+    brotli off;
+{% endif %}
+{% else %}
+    gzip off;
+    brotli off;
+{% endif %}
+{% endif %}

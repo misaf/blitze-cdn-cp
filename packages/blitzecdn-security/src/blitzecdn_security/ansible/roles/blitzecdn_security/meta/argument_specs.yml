@@ -14,10 +14,8 @@ argument_specs:
         from Ansible's search path and from the play, with no line of the
         control plane edited.
       - >-
-        The per-site challenge locations are not here. They are directives
-        inside a server block, rendered by blitzecdn_nginx from the site's own
-        under_attack_mode setting; a site asking for it on an installation
-        without this distribution is refused by name before any play starts.
+        Package-owned Nginx fragments render the per-site rules and challenge
+        locations into the stable server skeleton.
     options:
       blitzecdn_edge_runtime:
         type: dict
@@ -26,6 +24,7 @@ argument_specs:
           The shared edge runtime contract, owned and validated by the
           blitzecdn_edge role. This role reads the njs module directory, the
           empty document root and the nginx configuration tree.
+      blitzecdn_nginx_sites: {type: list, elements: dict, required: true}
       blitzecdn_security_under_attack_enabled:
         type: bool
         required: true
@@ -42,4 +41,3 @@ argument_specs:
           Environment-provisioned HMAC secret; at least 32 bytes and never
           stored in desired state or the fleet settings database.
       blitzecdn_security_under_attack_js_file: {type: path, required: true}
-      blitzecdn_security_under_attack_conf_file: {type: path, required: true}

@@ -1,0 +1,11 @@
+---
+argument_specs:
+  main:
+    short_description: Provision package-owned response cache resources
+    options:
+      blitzecdn_edge_runtime: {type: dict, required: true}
+      blitzecdn_nginx_sites: {type: list, elements: dict, required: true}
+      blitzecdn_cache_config_zone: {type: str, required: true}
+      blitzecdn_cache_config_size: {type: str, required: true}
+      blitzecdn_cache_config_max_size: {type: str, required: true}
+      blitzecdn_cache_config_inactive: {type: str, required: true}

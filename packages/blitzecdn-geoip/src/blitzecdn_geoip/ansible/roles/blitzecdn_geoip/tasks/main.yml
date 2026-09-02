@@ -188,19 +188,6 @@
           database was placed there by hand. Country rules and the BZ-IPCountry
           header cannot be served without it.
 
-    # Defines $blitzecdn_country in the http context, so every managed site
-    # reads one variable. Written before blitzecdn_nginx renders the sites that
-    # test it; the assertion above is what guarantees the two cannot be out of
-    # step in the dangerous direction.
-    - name: Configure the GeoIP country lookup
-      ansible.builtin.template:
-        src: geoip.conf.j2
-        dest: "{{ blitzecdn_geoip_conf_file }}"
-        owner: root
-        group: root
-        mode: "0644"
-      notify: Validate and reload Nginx
-
 # Turning the capability off withdraws everything it put on the host, in the
 # order that keeps the edge loadable at every point: the Nginx snippet first,
 # because a site still reading $blitzecdn_country is refused by the assertion
@@ -209,12 +196,6 @@
 - name: Withdraw the GeoIP capability
   when: not (blitzecdn_geoip_enabled | bool)
   block:
-    - name: Withdraw the GeoIP country lookup
-      ansible.builtin.file:
-        path: "{{ blitzecdn_geoip_conf_file }}"
-        state: absent
-      notify: Validate and reload Nginx
-
     - name: Stop and disable the refresh timer
       ansible.builtin.systemd_service:
         name: "{{ item }}"

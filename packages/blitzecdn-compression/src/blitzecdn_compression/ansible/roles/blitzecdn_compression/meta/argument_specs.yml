@@ -1,0 +1,9 @@
+---
+argument_specs:
+  main:
+    short_description: Validate package-owned compression configuration
+    options:
+      blitzecdn_compression_gzip_level: {type: int, required: true}
+      blitzecdn_compression_brotli_level: {type: int, required: true}
+      blitzecdn_compression_min_length: {type: int, required: true}
+      blitzecdn_compression_types: {type: list, elements: str, required: true}

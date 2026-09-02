@@ -1,4 +1,5 @@
-# Managed by BlitzeCDN. Local edits are overwritten.
+{% if blitzecdn_security_under_attack_enabled | bool %}
 js_import blitzecdn_under_attack from {{ blitzecdn_security_under_attack_js_file }};
 js_var $blitzecdn_under_attack_location;
 limit_req_zone $binary_remote_addr zone=blitzecdn_under_attack_verify:10m rate=30r/m;
+{% endif %}

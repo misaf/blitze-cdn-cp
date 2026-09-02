@@ -1,0 +1,5 @@
+{% if site.under_attack_mode | default(false) %}
+        set $blitzecdn_under_attack_target $request_uri;
+        auth_request /.blitzecdn/internal/under-attack-guard;
+        error_page 401 = @blitzecdn_under_attack_redirect;
+{% endif %}
