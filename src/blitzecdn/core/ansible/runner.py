@@ -6,12 +6,15 @@ import shutil
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
+from pydantic import SecretStr
+
 from blitzecdn.core.ansible.execution import PlaybookExecutor
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.ansible.variables import run_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.nginx import ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.features.edges.ports import EdgeStore
 
@@ -44,6 +47,8 @@ class AnsibleRunner:
         edges: EdgeStore,
         roles_path: Sequence[Path] | None = None,
         capability_roles: Sequence[str] = (),
+        nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
+        capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
         self._settings = settings
         self._edges = edges
@@ -55,6 +60,8 @@ class AnsibleRunner:
             settings,
             roles_path if roles_path is not None else (settings.ansible_dir / "roles",),
             capability_roles,
+            nginx_resources,
+            capability_environment,
         )
 
     def lock(self) -> DeploymentLock:

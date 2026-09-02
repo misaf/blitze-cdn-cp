@@ -50,6 +50,10 @@ from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
 from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
+from blitzecdn.core.nginx import (
+    resolve_capability_environment,
+    resolve_nginx_resources,
+)
 from blitzecdn.core.operation_ports import AuditTrail, PlaybookRunner
 from blitzecdn.core.plugins import (
     HealthCheck,
@@ -180,6 +184,10 @@ class ControlPlane:
         self.edge_inventory: EdgeStorePort = self._edges_store
         self.ansible_settings = store.ansible_settings
         contributions = self.plugins.ansible_contributions()
+        nginx_resources = resolve_nginx_resources(self.plugins.nginx_contributions())
+        capability_environment = resolve_capability_environment(
+            contributions, self.settings.capability_environment
+        )
         self._runner = runner or AnsibleRunner(
             self.settings,
             self._edges_store,
@@ -197,6 +205,8 @@ class ControlPlane:
             # source: a package that ships a role its own plays reach declares
             # the directory and no edge roles at all.
             resolve_edge_capability_roles(contributions),
+            nginx_resources,
+            capability_environment,
         )
         self._origin_probe = origin_probe or OriginProbe(self.settings)
         self.origin_probe: OriginProbePort = self._origin_probe
