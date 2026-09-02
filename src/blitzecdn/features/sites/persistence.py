@@ -1,4 +1,11 @@
-"""Persistence for the derived site projection."""
+"""Persistence for the derived site projection.
+
+The rows live here rather than beside the zones that produce them because a
+site is what the rest of the control plane reads: `SiteReader` is the port every
+capability is handed, and this is the one adapter behind it. `dns` writes it
+through its own `SiteProjection` port, which is the same object seen from the
+side that derives it.
+"""
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert

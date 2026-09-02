@@ -22,10 +22,10 @@ from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.runs import HostRun
-from blitzecdn.features.dns.ports import SiteStore
 from blitzecdn.features.http.policy import HttpScheme
 from blitzecdn.features.sites.domain import CdnSite
 from blitzecdn.features.sites.policy import CacheQueryStringMode
+from blitzecdn.features.sites.ports import SiteReader
 from blitzecdn_cache.domain import (
     CacheStatsReport,
     EdgeStats,
@@ -42,7 +42,7 @@ class CacheService:
     def __init__(
         self,
         *,
-        sites: SiteStore,
+        sites: SiteReader,
         events: EventRecorder,
         runner: CacheRunner,
     ) -> None:

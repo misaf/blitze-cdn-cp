@@ -43,7 +43,7 @@ from blitzecdn_certificates.certificates.ports import (
     EventRecorder,
     Issuer,
     Preflight,
-    SiteStore,
+    SiteReader,
     UnitOfWork,
     WorkflowCoordinator,
     WorkflowProgress,
@@ -64,7 +64,7 @@ class CertificatePolicy:
 class CertificatePersistence:
     """Certificate and site state committed in the same workflows."""
 
-    sites: SiteStore
+    sites: SiteReader
     certificates: CertificateStore
     uow: UnitOfWork
     requirements: DeploymentRequirements

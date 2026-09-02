@@ -15,7 +15,7 @@ from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.features.dns.ports import (
     EventRecorder,
-    SiteStore,
+    SiteProjection,
     UnitOfWork,
     ZoneStore,
 )
@@ -35,7 +35,7 @@ class DnsService:
         self,
         *,
         zones: ZoneStore,
-        sites: SiteStore,
+        sites: SiteProjection,
         events: EventRecorder,
         uow: UnitOfWork,
     ) -> None:
@@ -44,20 +44,9 @@ class DnsService:
         self.events = events
         self.uow = uow
 
-    # -- Sites ---------------------------------------------------------
-    #
-    # Read-only, and deliberately the only way in. Sites are derived from
-    # records by ``sync_sites`` below, so a caller that reached the sites table
-    # directly could edit a row that survives exactly until the next record
-    # change re-derives over it.
-
-    def list_sites(self) -> list[CdnSite]:
-        """Every virtual host the edges should serve."""
-        return self.sites.list_sites()
-
-    def get_site(self, name: str) -> CdnSite:
-        """One site's fully resolved policy, as handed to the edges."""
-        return self.sites.get_site(name)
+    # Reading a site is not this service's job: `platform.sites` is the read
+    # side and answers without going through the zone editor at all. What is
+    # here is the write side — `sync_sites` and the operations that call it.
 
     # -- Domains -------------------------------------------------------
 
