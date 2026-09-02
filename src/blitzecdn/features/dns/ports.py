@@ -6,15 +6,19 @@ from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.ports import SiteReader
 from blitzecdn.features.tls.policy import CertificateMode, SslMode
 
 
-class SiteStore(Protocol):
-    """The derived virtual hosts. Written only by re-derivation from records."""
+class SiteProjection(SiteReader, Protocol):
+    """The write side of the derived virtual hosts, and only this feature has it.
 
-    def list_sites(self) -> list[CdnSite]: ...
-
-    def get_site(self, name: str) -> CdnSite: ...
+    `sites` publishes the read side; re-derivation from records is what may
+    write, and re-derivation happens here. The two halves are one object at run
+    time — the composition root passes the same store to both — but a
+    capability handed `platform.sites` gets `SiteReader` and cannot reach past
+    it to replace a projection whose source it does not own.
+    """
 
     def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
 
@@ -78,4 +82,10 @@ class ZoneEditor(Protocol):
     ) -> CdnSite | None: ...
 
 
-__all__ = ["EventRecorder", "SiteStore", "UnitOfWork", "ZoneEditor", "ZoneStore"]
+__all__ = [
+    "EventRecorder",
+    "SiteProjection",
+    "UnitOfWork",
+    "ZoneEditor",
+    "ZoneStore",
+]

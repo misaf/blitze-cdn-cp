@@ -79,7 +79,6 @@ from blitzecdn.features.deployments.service import (
     DeploymentService,
 )
 from blitzecdn.features.dns import DnsService
-from blitzecdn.features.dns.ports import SiteStore as SiteReader
 from blitzecdn.features.edges import EdgeOperationsService
 from blitzecdn.features.edges.ports import EdgeRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
@@ -87,6 +86,7 @@ from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
 from blitzecdn.features.maintenance import MaintenanceService
 from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.ports import SiteReader
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):

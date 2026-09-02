@@ -12,8 +12,9 @@ from blitzecdn.features.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
+from blitzecdn.features.dns.ports import ZoneEditor
 from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.ports import SiteReader
 from blitzecdn_certificates.certificates.domain import (
     CertificateInfo,
     CertificateSource,
@@ -80,7 +81,7 @@ __all__ = [
     "EventRecorder",
     "Issuer",
     "Preflight",
-    "SiteStore",
+    "SiteReader",
     "UnitOfWork",
     "WorkflowCoordinator",
     "WorkflowProgress",

@@ -54,7 +54,7 @@ def metrics(control: ControlPlaneDependency) -> str:
         f"blitzecdn_edges {len(control.edges.list_edges())}",
         "# HELP blitzecdn_sites Derived virtual hosts.",
         "# TYPE blitzecdn_sites gauge",
-        f"blitzecdn_sites {len(control.dns.list_sites())}",
+        f"blitzecdn_sites {len(control.sites.list_sites())}",
         "# HELP blitzecdn_deployments Deployments in the recent window, by status.",
         "# TYPE blitzecdn_deployments gauge",
     ]

@@ -1,7 +1,8 @@
-"""`domain`, `record`, `dns` and `site` — the zone editor's command groups.
+"""`domain`, `record` and `dns` — the zone editor's command groups.
 
-They share a module because they edit one thing: records are the source of
-truth, and sites are what proxying a record derives.
+They share a module because they edit one thing: a record is the source of
+truth, and the site a proxied record derives follows from it. Reading that site
+back is `site`, over in the capability that owns it.
 """
 
 from __future__ import annotations
@@ -17,44 +18,12 @@ from blitzecdn.features.security.policy import SiteFirewall
 from blitzecdn.features.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
 from blitzecdn.features.tls.policy import MinimumTlsVersion, SslAutomaticMode, SslMode
 
-site_app = typer.Typer(
-    no_args_is_help=True,
-    help="Inspect CDN virtual hosts (derived from proxied DNS records).",
-)
 domain_app = typer.Typer(no_args_is_help=True, help="Manage DNS zones.")
 record_app = typer.Typer(
     no_args_is_help=True,
     help="Manage DNS records, and the CDN policy each proxied record carries.",
 )
 dns_app = typer.Typer(no_args_is_help=True, help="Export DNS state.")
-
-
-# -- Sites ---------------------------------------------------------------
-
-
-@site_app.command("list")
-def site_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
-    """List the virtual hosts the edges will serve.
-
-    Derived, not created: only proxied records appear. A record you proxied but
-    have not deployed is already listed here — this is desired state, not what
-    the fleet is running. Use 'drift' for that.
-    """
-    common.emit(common.control_plane().dns.list_sites(), json_output=json_output)
-
-
-@site_app.command("show")
-def site_show(
-    name: Annotated[str, typer.Argument(help="Site name, e.g. cdn-example-com.")],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
-) -> None:
-    """Show the fully resolved policy for one site.
-
-    Sites are derived from proxied DNS records rather than created, so this is
-    where the defaults a record never mentions become visible — it is the same
-    document the edges are handed.
-    """
-    common.emit(common.control_plane().dns.get_site(name), json_output=json_output)
 
 
 # -- Domains -------------------------------------------------------------

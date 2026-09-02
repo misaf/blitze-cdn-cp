@@ -25,8 +25,8 @@ from blitzecdn.core.persistence.workflows import WorkflowStore
 from blitzecdn.features.deployments.persistence import DeploymentStore
 from blitzecdn.features.deployments.snapshots import encode_snapshot
 from blitzecdn.features.dns.persistence import ZoneStore
-from blitzecdn.features.dns.site_persistence import SiteStore
 from blitzecdn.features.edges.persistence import EdgeStore
+from blitzecdn.features.sites.persistence import SiteStore
 
 __all__ = [
     "AuditLog",
