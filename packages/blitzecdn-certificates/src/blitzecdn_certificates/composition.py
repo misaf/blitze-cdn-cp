@@ -3,6 +3,8 @@
 from typing import TYPE_CHECKING, cast
 from weakref import WeakKeyDictionary
 
+from blitzecdn_origins.adapters import OriginCheckPlaybook
+
 from blitzecdn_certificates.automatic_ssl.service import AutomaticSslService
 from blitzecdn_certificates.certificates.adapters import CertbotIssuer, CertificateStore
 from blitzecdn_certificates.certificates.ports import WorkflowCoordinator
@@ -65,7 +67,13 @@ def build_automatic_ssl_service(platform: ControlPlane) -> AutomaticSslService:
         return existing
     service = AutomaticSslService(
         sites=platform.sites,
-        runner=platform.origin_checks,
+        # The one declared optional-to-optional edge in the workspace. The
+        # scan's question — "can every edge reach this origin, and would it
+        # still under Full (strict)?" — is `blitzecdn-origins`' play, and core
+        # carries no method for it any more. Declared in this distribution's
+        # dependencies rather than imported opportunistically, so pip installs
+        # both and detaching that package cannot leave this import dangling.
+        runner=OriginCheckPlaybook(platform.fleet),
         origin_probe=platform.origin_probe,
         dns=platform.dns,
         deployments=platform.deployments,

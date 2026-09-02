@@ -4,14 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from blitzecdn_origins.domain import OriginReport
+from blitzecdn_origins.reporting import edge_origins
+
 from blitzecdn.features.deployments.ports import DeploymentGateway
 from blitzecdn.features.dns.ports import SiteStore, ZoneEditor
-from blitzecdn.features.edges.origins import OriginCheck, OriginReport
-from blitzecdn.features.edges.ports import OriginCheckRunner, OriginProbe
+from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.features.edges.ports import OriginProbe
 from blitzecdn.features.sites.domain import CdnSite
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 from blitzecdn_certificates.automatic_ssl.domain import SslAutomaticReconciliation
-from blitzecdn_certificates.automatic_ssl.reporting import edge_origins
+from blitzecdn_certificates.automatic_ssl.ports import OriginCheckRunner
 
 
 class AutomaticSslService:

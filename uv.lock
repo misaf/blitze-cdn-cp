@@ -15,7 +15,10 @@ members = [
     "blitzecdn-certificates",
     "blitzecdn-compression",
     "blitzecdn-geoip",
+    "blitzecdn-hardening",
     "blitzecdn-http3",
+    "blitzecdn-origins",
+    "blitzecdn-resolver",
     "blitzecdn-security",
 ]
 
@@ -301,7 +304,10 @@ all = [
     { name = "blitzecdn-certificates" },
     { name = "blitzecdn-compression" },
     { name = "blitzecdn-geoip" },
+    { name = "blitzecdn-hardening" },
     { name = "blitzecdn-http3" },
+    { name = "blitzecdn-origins" },
+    { name = "blitzecdn-resolver" },
     { name = "blitzecdn-security" },
 ]
 backup = [
@@ -319,8 +325,17 @@ compression = [
 geoip = [
     { name = "blitzecdn-geoip" },
 ]
+hardening = [
+    { name = "blitzecdn-hardening" },
+]
 http3 = [
     { name = "blitzecdn-http3" },
+]
+origins = [
+    { name = "blitzecdn-origins" },
+]
+resolver = [
+    { name = "blitzecdn-resolver" },
 ]
 security = [
     { name = "blitzecdn-security" },
@@ -361,8 +376,14 @@ requires-dist = [
     { name = "blitzecdn-compression", marker = "extra == 'compression'", editable = "packages/blitzecdn-compression" },
     { name = "blitzecdn-geoip", marker = "extra == 'all'", editable = "packages/blitzecdn-geoip" },
     { name = "blitzecdn-geoip", marker = "extra == 'geoip'", editable = "packages/blitzecdn-geoip" },
+    { name = "blitzecdn-hardening", marker = "extra == 'all'", editable = "packages/blitzecdn-hardening" },
+    { name = "blitzecdn-hardening", marker = "extra == 'hardening'", editable = "packages/blitzecdn-hardening" },
     { name = "blitzecdn-http3", marker = "extra == 'all'", editable = "packages/blitzecdn-http3" },
     { name = "blitzecdn-http3", marker = "extra == 'http3'", editable = "packages/blitzecdn-http3" },
+    { name = "blitzecdn-origins", marker = "extra == 'all'", editable = "packages/blitzecdn-origins" },
+    { name = "blitzecdn-origins", marker = "extra == 'origins'", editable = "packages/blitzecdn-origins" },
+    { name = "blitzecdn-resolver", marker = "extra == 'all'", editable = "packages/blitzecdn-resolver" },
+    { name = "blitzecdn-resolver", marker = "extra == 'resolver'", editable = "packages/blitzecdn-resolver" },
     { name = "blitzecdn-security", marker = "extra == 'all'", editable = "packages/blitzecdn-security" },
     { name = "blitzecdn-security", marker = "extra == 'security'", editable = "packages/blitzecdn-security" },
     { name = "cryptography", specifier = ">=45,<51" },
@@ -378,7 +399,7 @@ requires-dist = [
     { name = "typer", specifier = ">=0.16,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.52.3,<1" },
 ]
-provides-extras = ["backup", "cache", "compression", "certificates", "security", "http3", "geoip", "all"]
+provides-extras = ["backup", "cache", "compression", "certificates", "security", "http3", "geoip", "hardening", "origins", "resolver", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -427,10 +448,14 @@ version = "3.0.0"
 source = { editable = "packages/blitzecdn-certificates" }
 dependencies = [
     { name = "blitzecdn" },
+    { name = "blitzecdn-origins" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "blitzecdn", editable = "." }]
+requires-dist = [
+    { name = "blitzecdn", editable = "." },
+    { name = "blitzecdn-origins", editable = "packages/blitzecdn-origins" },
+]
 
 [[package]]
 name = "blitzecdn-compression"
@@ -455,9 +480,42 @@ dependencies = [
 requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
+name = "blitzecdn-hardening"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-hardening" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
 name = "blitzecdn-http3"
 version = "3.0.0"
 source = { editable = "packages/blitzecdn-http3" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-origins"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-origins" }
+dependencies = [
+    { name = "blitzecdn" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "blitzecdn", editable = "." }]
+
+[[package]]
+name = "blitzecdn-resolver"
+version = "3.0.0"
+source = { editable = "packages/blitzecdn-resolver" }
 dependencies = [
     { name = "blitzecdn" },
 ]

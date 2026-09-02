@@ -26,7 +26,10 @@ roles_path := "ansible/roles" + ":" + \
     "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles" + ":" + \
     "packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles" + ":" + \
     "packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" + ":" + \
+    "packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles" + ":" + \
     "packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles" + ":" + \
+    "packages/blitzecdn-origins/src/blitzecdn_origins/ansible/roles" + ":" + \
+    "packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles" + ":" + \
     "packages/blitzecdn-security/src/blitzecdn_security/ansible/roles"
 
 # List the available recipes.
@@ -52,7 +55,8 @@ install:
 # without that capability — and `uv sync --frozen --no-dev` with no extras at
 # all is a working control plane with neither.
 install-prod:
-    uv sync --frozen --no-dev --extra backup --extra cache
+    uv sync --frozen --no-dev --extra backup --extra cache --extra hardening \
+        --extra origins --extra resolver
 
 # The control plane on its own: no optional distribution installed at all.
 #
@@ -179,17 +183,36 @@ test-core-only *args:
         --ignore=tests/architecture/test_packages.py \
         --ignore=tests/architecture/test_lifecycle.py {{args}}
 
-# Sequential and without coverage, because a subset would otherwise fail on the
-# global coverage floor rather than on the test, and because a handful of cases
-# are not worth sixteen workers.
+# One file, or one case. Without coverage, because a subset would otherwise
+# fail on the global coverage floor rather than on the test.
 #
-# One file, or one case.
+# Sequential, and measured rather than assumed — this was briefly changed to
+# `-n auto` on the theory that a whole file must be faster across cores, and
+# it is not. Eight workers each import the plugin tree and collect the whole
+# workspace before running anything, which on this suite costs about twenty
+# seconds flat:
+#
+#   one case                    3s sequential   26s parallel
+#   tests/contract/…_contracts  22s             17s
+#   tests/architecture/…cycle   286s            163s
+#
+# So the crossover is minutes, not seconds, and the common use of this recipe
+# is the first line. For the one file where parallel genuinely wins, the
+# packaging lifecycle, ask for it directly and get the workers with it:
+#
+#     just test-fast -m packaging
 test-one *args:
     uv run pytest --no-cov {{args}}
 
-# Where the time goes. Sequential: parallel durations overlap and mislead.
+# Where the time goes. Sequential, because parallel durations overlap and
+# mislead — this is the one recipe that is deliberately not across cores.
+#
+# `packaging` is deselected here and not elsewhere: those cases are minutes of
+# `uv build` and `uv venv` in subprocesses, they would crowd out every real
+# finding in the table, and there is nothing in them to optimise anyway. Pass
+# `-m packaging` to profile them regardless — a later `-m` wins.
 test-profile *args:
-    uv run pytest --no-cov --durations=30 {{args}}
+    uv run pytest --no-cov --durations=30 -m "not packaging" {{args}}
 
 # YAML, playbook syntax, and role linting.
 #
@@ -208,7 +231,7 @@ ansible-check:
         -i tests/fixtures/blitzecdn.yml \
         ansible/playbooks/edge.yml --syntax-check \
         --extra-vars @tests/fixtures/desired-state.yml \
-        --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_cache_config", "blitzecdn_compression", "blitzecdn_geoip", "blitzecdn_http3", "blitzecdn_security"]}'
+        --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_cache_config", "blitzecdn_compression", "blitzecdn_geoip", "blitzecdn_http3", "blitzecdn_security"], "blitzecdn_host_capability_roles": ["blitzecdn_sshd", "blitzecdn_fail2ban"]}'
     ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
         packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
@@ -230,14 +253,19 @@ ansible-check:
         ansible/playbooks/edge.yml \
         ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \
         ansible/playbooks/uninstall.yml \
-        ansible/playbooks/origin-check.yml \
+        packages/blitzecdn-origins/src/blitzecdn_origins/ansible/playbooks/origin-check.yml \
+        packages/blitzecdn-origins/src/blitzecdn_origins/ansible/roles/blitzecdn_origins \
         packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/cache-purge.yml \
         packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/stats.yml \
         packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles/blitzecdn_cache_config \
         packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
         packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles/blitzecdn_compression \
         packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles/blitzecdn_geoip \
+        packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles/blitzecdn_sshd \
+        packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles/blitzecdn_fail2ban \
         packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles/blitzecdn_http3 \
+        packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles/blitzecdn_resolver \
+        packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles/blitzecdn_resolver_teardown \
         packages/blitzecdn-security/src/blitzecdn_security/ansible/roles/blitzecdn_security \
         tests/integration/http3-edge.yml \
         tests/integration/http3-firewall-disabled.yml \
@@ -274,6 +302,20 @@ docs-check docs="../blitze-cdn-web":
     BLITZE_CP_PATH="{{justfile_directory()}}" \
     BLITZE_CP_PYTHON="{{justfile_directory()}}/.venv/bin/python" \
         node "{{docs}}/scripts/check-api-surface.mjs" --strict
+
+# The inner-loop gate: about a minute, and it catches everything that is
+# cheap to catch. Formatting, types, the shell scripts, every YAML and role,
+# and the whole suite across cores with coverage off.
+#
+# What it deliberately leaves to `check` is only the expensive half, and each
+# one is expensive for the same reason — it builds or installs something:
+# `test`'s coverage pass and packaging lifecycle, `test-core-only`'s two
+# workspace syncs, `audit`'s dependency fetch, `build`, and `docs-check`'s
+# sibling checkout. None of them is likely to break on an edit that this
+# recipe passes, which is what makes running it instead a fair trade.
+#
+# Not a substitute for `check` before pushing. It is not what CI runs.
+check-quick: lint types shell-lint ansible-check test-fast
 
 # Everything CI runs. Run this before pushing.
 check: lock-check lint types shell-lint test test-core-only ansible-check audit build docs-check
