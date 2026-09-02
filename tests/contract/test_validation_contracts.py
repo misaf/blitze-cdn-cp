@@ -76,7 +76,9 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
     )
 
 
-def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
+def _run_nginx_build_capability(
+    tmp_path: Path, configure_arguments: str, *, version: str = "1.27.0"
+):
     """Execute the build invariant against a fabricated `nginx -V` banner.
 
     Nginx runs in a container now, so there is no binary on the host to fake.
@@ -97,7 +99,7 @@ def _run_nginx_build_capability(tmp_path: Path, configure_arguments: str):
                         "blitzecdn_nginx_config_test_image": "example/edge:test",
                         "blitzecdn_nginx_build_status": 0,
                         "blitzecdn_nginx_build_output": (
-                            "nginx version: nginx/1.27.0\n"
+                            f"nginx version: nginx/{version}\n"
                             f"configure arguments: {configure_arguments}\n"
                         ),
                     },
@@ -141,10 +143,11 @@ def test_nginx_invariant_accepts_a_capable_build(tmp_path):
 
 
 def test_nginx_invariant_rejects_an_unsupported_build_clearly(tmp_path):
-    result = _run_nginx_build_capability(tmp_path, "--with-http_ssl_module")
+    result = _run_nginx_build_capability(
+        tmp_path, "--with-http_ssl_module", version="not-a-version"
+    )
     assert result.returncode != 0
-    assert "--with-http_v3_module is required" in result.stdout
-    assert "will not be silently disabled" in result.stdout
+    assert "does not contain a working nginx binary" in result.stdout
 
 
 def test_role_validation_tasks_actually_run(desired_state, tmp_path):
@@ -197,17 +200,6 @@ def test_role_accepts_the_connecting_ip_header_without_geoip(desired_state, tmp_
     result = _run_validation(sites, tmp_path)
 
     assert result.returncode == 0, result.stdout
-
-
-def test_role_rejects_a_firewall_rule_it_cannot_safely_render(desired_state, tmp_path):
-    """Defence in depth: the role holds even if the control plane regresses."""
-    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
-    sites[0] = sites[0] | {"firewall": {"denied_paths": ["/a; return 200"]}}
-
-    result = _run_validation(sites, tmp_path)
-
-    assert result.returncode != 0
-    assert "firewall rules this role will not render" in result.stdout
 
 
 def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):

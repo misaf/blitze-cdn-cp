@@ -533,7 +533,7 @@ def test_every_country_setting_requests_the_geoip_capability(site_payload):
     the capability detached still reads the site back and then refuses to
     deploy it. What the package owns is whether anything answers for the token.
     """
-    plain = site_payload | {"compression": "off"}
+    plain = site_payload | {"compression": "off", "cache_enabled": False}
     header = CdnSite.model_validate(plain | {"visitor_headers": {"ip_country": True}})
     allowed = CdnSite.model_validate(
         plain | {"firewall": {"allowed_countries": ["DE"]}}
@@ -557,6 +557,7 @@ def test_an_ordinary_site_requests_no_geoip_capability(site_payload):
         site_payload
         | {
             "compression": "off",
+            "cache_enabled": False,
             "visitor_headers": {"connecting_ip": True, "ip_country": False},
             "firewall": {
                 "deny_sources": ["203.0.113.0/24"],

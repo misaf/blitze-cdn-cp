@@ -29,7 +29,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
-from paths import SOURCE, optional_packages
+from paths import REPO_ROOT, SOURCE, optional_packages
 
 from blitzecdn.core.plugins import (
     BUILTIN_PLUGINS,
@@ -803,3 +803,240 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
         "denied_methods": ["DELETE"],
         "denied_paths": [],
     }
+
+
+# ----------------------------------------------------------------------
+# Ansible ownership
+#
+# The other half of a vertical slice, and the half that used to be missing.
+# A capability whose Python detaches cleanly while its roles, its templates and
+# its fleet settings stay behind in the control plane's `ansible/` tree is not
+# detachable at all: uninstalling the wheel leaves an edge still being told to
+# provision a GeoIP database by a role core carries.
+#
+# Three rules hold it, and each one refuses a different way of half-doing the
+# move: no capability's name in core's Ansible, no capability's role in core's
+# tree, and a contributed role that the edge play really runs.
+# ----------------------------------------------------------------------
+
+#: The repository-level Ansible tree, which is the platform's and nobody
+#: else's: the base host, the container engine, the firewall, the edge runtime
+#: contract, `blitzecdn_nginx`, and the slot the installed capabilities fill.
+CORE_ANSIBLE = REPO_ROOT / "ansible"
+
+#: Words that name an optional capability's *implementation* rather than a
+#: setting core legitimately renders. `geoip2` is the Nginx module directive,
+#: `geoipupdate` the updater container, `maxmind` the account they authenticate
+#: to, `njs`/`js_import` the module system the challenge is written in — none
+#: of them can appear in a tree that must converge an edge identically whether
+#: or not any distribution is installed.
+#:
+#: `$blitzecdn_country` and `under_attack_mode` are deliberately *not* here.
+#: They are site settings core renders from desired state, and a site that asks
+#: for either is refused by name before a play starts; that split — core reads
+#: the variable, the capability defines it — is the whole design and is
+#: asserted from the packages' own tests, which can see both sides.
+CAPABILITY_IMPLEMENTATION_WORDS = (
+    "maxmind",
+    "geolite",
+    "geoip2",
+    "geoipupdate",
+    "geoip_enabled",
+    "js_import",
+    "under_attack_secret",
+    "under_attack_enabled",
+)
+
+#: The one place core may still name a module by name, and why.
+#:
+#: `capabilities.yml` starts the managed edge image with no network and no
+#: mounts and asks whether it can load the modules it was built with. That is a
+#: statement about the *image*, which core builds and pins, and it has to be
+#: made whether or not any distribution is installed — an image missing its
+#: GeoIP2 or Brotli filter is not a usable BlitzeCDN edge, and finding out at
+#: `nginx -t` on a live edge is much worse than finding out here. Moving the
+#: probe into a package would mean an uninstalled capability could silently
+#: stop the image from being validated at all.
+CAPABILITY_WORD_EXEMPTIONS = frozenset({"roles/blitzecdn_nginx/tasks/capabilities.yml"})
+
+
+def _core_ansible_files() -> list[Path]:
+    return sorted(
+        path
+        for path in CORE_ANSIBLE.rglob("*")
+        if path.is_file()
+        and path.suffix in {".yml", ".yaml", ".j2", ".cfg", ".sh"}
+        and "__pycache__" not in path.parts
+    )
+
+
+def test_core_ansible_names_no_capabilitys_implementation():
+    """The platform tree provisions the platform, and stops there.
+
+    A grep, deliberately, because the failure it catches is textual: a task
+    that fetches a MaxMind database or a template that emits `js_import` is
+    implementation belonging to a wheel, wherever it is written and whatever
+    the variable around it is called.
+
+    A comment is exempt. Several of the files here explain *why* something is
+    no longer present, and forbidding the explanation would mean removing the
+    only record of the decision.
+    """
+    offenders = [
+        f"{path.relative_to(REPO_ROOT)}:{number} names {word!r}"
+        for path in _core_ansible_files()
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if not line.lstrip().startswith(("#", ";"))
+        and str(path.relative_to(CORE_ANSIBLE)) not in CAPABILITY_WORD_EXEMPTIONS
+        for word in CAPABILITY_IMPLEMENTATION_WORDS
+        if word in line.lower()
+    ]
+    assert offenders == [], (
+        "core's Ansible tree carries an optional capability's implementation; "
+        "it belongs in that distribution's own roles/ directory: " + str(offenders)
+    )
+
+
+def test_no_capability_owned_role_survives_in_the_core_tree():
+    """The same rule as a directory listing, which is what a duplicate is.
+
+    A role left behind in `ansible/roles/` after its package shipped one would
+    not merely be dead: `resolve_role_search_path` puts core's directory first,
+    so the stale copy would *win* and every edge would converge the version
+    nobody is maintaining.
+    """
+    contributed = {
+        directory.name
+        for package in optional_packages()
+        for directory in (package / "src").rglob("ansible/roles/*")
+        if directory.is_dir()
+    }
+    core = {
+        directory.name
+        for directory in (CORE_ANSIBLE / "roles").iterdir()
+        if directory.is_dir()
+    }
+
+    assert contributed, "no optional distribution ships an Ansible role at all"
+    assert contributed & core == set(), (
+        "a role is shipped by both core and a package; core's directory is "
+        f"searched first, so the package's copy would never run: {contributed & core}"
+    )
+
+
+def test_core_nginx_templates_are_capability_neutral():
+    """Optional directive implementations must live in contributed resources."""
+    templates = CORE_ANSIBLE / "roles/blitzecdn_nginx/templates"
+    text = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(templates.rglob("*.j2"))
+    ).lower()
+    forbidden = (
+        "brotli ",
+        "gzip_comp_level",
+        "listen 443 quic",
+        "alt-svc",
+        "proxy_cache ",
+        "proxy_cache_key",
+        "blitzecdn_under_attack",
+        "js_content",
+        "$blitzecdn_country",
+        "geoip2 ",
+    )
+
+    assert [directive for directive in forbidden if directive in text] == []
+
+
+def test_the_edge_play_names_no_capability_and_fills_one_slot():
+    """The play is the platform's, and it is what makes a contribution run.
+
+    Two properties in one place because they are the same decision. The play
+    must name no capability's role — that is what "no edit to add a package"
+    means — and it must include the list the control plane composes, or a
+    contributed role would resolve by name and never execute.
+    """
+    play = (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
+    contributed = {
+        directory.name
+        for package in optional_packages()
+        for directory in (package / "src").rglob("ansible/roles/*")
+        if directory.is_dir()
+    }
+
+    for role in contributed:
+        assert role not in play, f"the edge play names {role}, which ships in a wheel"
+    assert "blitzecdn_capabilities" in play
+
+    slot = (CORE_ANSIBLE / "roles/blitzecdn_capabilities/tasks/main.yml").read_text(
+        encoding="utf-8"
+    )
+    assert "blitzecdn_capability_roles" in slot
+    assert "include_role" in slot
+
+
+def test_every_contributed_edge_role_is_shipped_by_the_plugin_that_asks_for_it():
+    """A contribution that names a role its own wheel lacks is refused early.
+
+    Ansible would refuse it too, but only after the engine is installed, the
+    image pulled and the play half-way through an edge — and its message names
+    the role, never the distribution that asked for it.
+    """
+    for package in optional_packages():
+        for roles in (package / "src").rglob("ansible/roles"):
+            available = {path.name for path in roles.iterdir() if path.is_dir()}
+            plugin = (roles.parent.parent / "plugin.py").read_text(encoding="utf-8")
+            for role in available:
+                if role in plugin:
+                    assert (roles / role / "tasks/main.yml").is_file(), role
+
+
+def test_optional_roles_do_not_depend_on_another_packages_role_order():
+    """Alphabetical contribution order is deterministic, never dependency resolution."""
+    package_roles = {
+        package: {
+            role.name
+            for roles in (package / "src").rglob("ansible/roles")
+            for role in roles.iterdir()
+            if role.is_dir()
+        }
+        for package in optional_packages()
+    }
+    offenders = []
+    for package, own_roles in package_roles.items():
+        foreign_roles = set().union(
+            *(roles for owner, roles in package_roles.items() if owner != package)
+        )
+        for task_file in (package / "src").rglob("ansible/roles/*/tasks/*.yml"):
+            text = task_file.read_text(encoding="utf-8")
+            offenders.extend(
+                f"{task_file.relative_to(REPO_ROOT)} names {role}"
+                for role in sorted(foreign_roles - own_roles)
+                if f"role: {role}" in text or f"name: {role}" in text
+            )
+
+    assert offenders == []
+
+
+def test_core_carries_no_setting_named_for_an_optional_capability():
+    """`Settings` is the platform's configuration, not a union of everyone's.
+
+    A field named for a capability is loaded by every installation, including
+    the ones that will never have the distribution — and a capability this
+    repository has never heard of could not be configured at all. The generic
+    answer is `capability_environment`, whose keys installed plugins must claim
+    explicitly before core forwards them.
+    """
+    from blitzecdn.core.config import Settings
+
+    # Implementation names, not capability tokens. A field called `backup_dir`
+    # names a directory the platform creates and protects — `install.sh update`
+    # writes there before it changes anything, with or without the `backup`
+    # distribution — while a field called `maxmind_license_key` can only be
+    # read by one wheel and is meaningless without it. The second kind is what
+    # this refuses.
+    forbidden = ("maxmind", "geolite", "under_attack", "brotli", "geoip", "njs")
+    offenders = [
+        name for name in Settings.model_fields for token in forbidden if token in name
+    ]
+    assert offenders == [], offenders

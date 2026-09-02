@@ -24,9 +24,9 @@ def _environment_file_body() -> str:
     It used to carry commented MaxMind placeholders, which meant `blitzecdn
     init` on an installation without the `geoip` distribution scaffolded a
     setting nothing would ever read. An optional capability documents its own
-    `BLITZE_*` names in its own README; core forwards every such variable it
-    does not consume into the Ansible environment without needing to know whose
-    it is. `.env` is written 0600 and is the intended home for all of them.
+    `BLITZE_*` names in its own README and claims them through its Ansible
+    contribution. Core forwards only keys claimed by one installed plugin.
+    `.env` is written 0600 and is the intended home for all of them.
     """
     return f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n"
 

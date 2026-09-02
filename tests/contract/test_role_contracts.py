@@ -493,11 +493,18 @@ def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modul
     assert "brotli off;" in probe
     assert "js_path" in probe
 
-    capabilities = (
-        STACK_ROLE_DIR.parent / "blitzecdn_nginx/tasks/capabilities.yml"
+    build_probe = (
+        STACK_ROLE_DIR.parent / "blitzecdn_nginx/tasks/build-capability.yml"
     ).read_text(encoding="utf-8")
-    assert "read_only: true" in capabilities
-    assert "/var/log/nginx:rw,noexec,nosuid,size=8m" in capabilities
+    assert "read_only: true" in build_probe
+    assert '"/run:rw,noexec,nosuid,size=8m"' in build_probe
+
+    config_test = (
+        STACK_ROLE_DIR.parent / "blitzecdn_nginx/tasks/config-test.yml"
+    ).read_text(encoding="utf-8")
+    assert "network_mode: none" in config_test
+    assert "read_only: true" in config_test
+    assert "no-new-privileges:true" in config_test
 
 
 def test_nginx_logs_to_persistent_files_and_docker_streams():
@@ -796,7 +803,16 @@ def test_no_edge_image_reference_floats():
         for name, value in (
             yaml.safe_load(path.read_text(encoding="utf-8")) or {}
         ).items()
-        if isinstance(value, str) and "image" in name and "/" in value
+        # A literal reference only. A default derived from another variable —
+        # the rollback role strips a tag off the contract's image — is not a
+        # reference this repository ships, and the value it derives from is
+        # already covered where it is written.
+        if isinstance(value, str)
+        and "image" in name
+        and "{{" not in value
+        # A registry reference, not a host path: the rollback record lives at
+        # /var/lib/blitzecdn/edge/image and is not an image at all.
+        and re.match(r"[^/\s]+\.[^/\s]+/", value)
     }
     assert any("blitzecdn_edge_runtime_image_default" in key for key in references)
     assert any("geoipupdate" in value for value in references.values())
