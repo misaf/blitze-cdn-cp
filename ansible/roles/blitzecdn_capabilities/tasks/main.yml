@@ -1,23 +1,36 @@
 ---
-# Run whatever the installed capabilities contribute to an edge.
+# Run whatever the installed capabilities contribute to one slot of one of
+# core's plays.
 #
 # This role names no capability and holds no knowledge of any. The control
-# plane composes `blitzecdn_capability_roles` from the plugins that are
-# installed and passes it as an extra-var on every run, so attaching or
-# detaching a distribution changes what converges here with no line of this
-# collection edited. An installation with no such capability runs nothing.
+# plane composes the slot's list from the plugins that are installed and passes
+# it as an extra-var on every run, so attaching or detaching a distribution
+# changes what converges here with no line of this collection edited. An
+# installation with no such capability runs nothing.
 #
 # It is a role rather than a block of pre-tasks so that it sits in the play's
 # `roles:` list, which is what puts it in the right place twice over:
 #
-#   * before blitzecdn_firewall and blitzecdn_nginx, because what a capability
-#     puts on an edge — a lookup database, an njs module, a snippet in conf.d —
-#     is something the rendered configuration then depends on, and
-#     blitzecdn_nginx proves the whole tree loads before the edge serves it;
+#   * in the edge slot, before blitzecdn_firewall and blitzecdn_nginx, because
+#     what a capability puts on an edge — a lookup database, an njs module, a
+#     snippet in conf.d — is something the rendered configuration then depends
+#     on, and blitzecdn_nginx proves the whole tree loads before the edge
+#     serves it;
 #   * inside the roles phase, so a capability's `notify` reaches the fleet's
 #     reload handler at the *end of the play*. Handlers flush between pre-tasks
 #     and roles, so the same include as a pre-task would run `nginx -t` against
 #     a tree that had not been rendered yet.
+#
+# Three slots use it — two in the edge play, one in the decommission play —
+# which is why the list is a role parameter rather than the extra-var read
+# directly: one mechanism, told where it is standing, instead of three
+# near-identical loops drifting apart. See meta/main.yml for why a second
+# invocation in the same play is allowed to run at all.
+#
+# The decommission slot is the mirror of the edge one and sits before
+# blitzecdn_teardown: a capability withdraws what it wrote while the state tree
+# it may need to read is still there, and before the clean-host assertion that
+# is the verdict on the whole decommission.
 #
 # `include_role` rather than `import_role`: the list is not known until the play
 # runs, and importing is static.
@@ -29,5 +42,5 @@
     # checks cover the resources themselves; keeping them public avoids copying
     # optional defaults into core merely to render their templates.
     public: true
-  loop: "{{ blitzecdn_capability_roles | default([]) }}"
+  loop: "{{ blitzecdn_capabilities_roles }}"
   tags: [always, capabilities]

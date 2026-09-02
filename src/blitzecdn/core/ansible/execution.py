@@ -49,6 +49,8 @@ class PlaybookExecutor:
         settings: Settings,
         roles_path: Sequence[Path],
         capability_roles: Sequence[str] = (),
+        host_capability_roles: Sequence[str] = (),
+        teardown_capability_roles: Sequence[str] = (),
         nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
         capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
@@ -61,6 +63,11 @@ class PlaybookExecutor:
         self._roles_path = tuple(roles_path)
         #: Which contributed roles the edge play runs, from the same source.
         self._capability_roles = tuple(capability_roles)
+        #: And which it runs in its host slot, after the edge is serving.
+        self._host_capability_roles = tuple(host_capability_roles)
+        #: And which the decommission play runs before core's teardown, to
+        #: take a capability's own files off a host that is leaving.
+        self._teardown_capability_roles = tuple(teardown_capability_roles)
         self._nginx_resources = {
             context: tuple(resources)
             for context, resources in (nginx_resources or {}).items()
@@ -175,6 +182,12 @@ class PlaybookExecutor:
             json.dumps(
                 {
                     "blitzecdn_capability_roles": list(self._capability_roles),
+                    "blitzecdn_host_capability_roles": list(
+                        self._host_capability_roles
+                    ),
+                    "blitzecdn_teardown_capability_roles": list(
+                        self._teardown_capability_roles
+                    ),
                     "blitzecdn_nginx_resources": {
                         context: [
                             {
