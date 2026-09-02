@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
+    EdgeModule,
     NginxContribution,
     PluginMetadata,
     Severity,
@@ -94,6 +95,18 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
             plugin="security",
             roles_path=ansible.ROLES_PATH,
             edge_roles=(ansible.EDGE_ROLE,),
+            # Under Attack Mode is an njs script, so this capability is the
+            # one that needs the JavaScript engine. `build=False`: njs ships
+            # in the official Alpine image already, and asking pkg-oss to
+            # build a module the base has installed fails the image build.
+            edge_modules=(
+                EdgeModule(
+                    name="njs",
+                    objects=("ngx_http_js_module.so",),
+                    build=False,
+                    probe="js_path /etc/nginx;",
+                ),
+            ),
             environment_keys=(SECRET_VARIABLE,),
         ),
     )
