@@ -15,7 +15,7 @@ import os
 import shlex
 import shutil
 import tempfile
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
@@ -26,10 +26,12 @@ import ansible_runner  # type: ignore[import-untyped]
 from ansible_runner import (
     exceptions as runner_exceptions,
 )
+from pydantic import SecretStr
 
 from blitzecdn.core.ansible.events import RunnerEvents
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ExecutionError
+from blitzecdn.core.nginx import ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun, HostRun, RunStatus
 
 __all__ = ["PlaybookExecutor"]
@@ -47,6 +49,8 @@ class PlaybookExecutor:
         settings: Settings,
         roles_path: Sequence[Path],
         capability_roles: Sequence[str] = (),
+        nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
+        capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
         self._settings = settings
         #: Where Ansible resolves a role name, composed by
@@ -57,6 +61,11 @@ class PlaybookExecutor:
         self._roles_path = tuple(roles_path)
         #: Which contributed roles the edge play runs, from the same source.
         self._capability_roles = tuple(capability_roles)
+        self._nginx_resources = {
+            context: tuple(resources)
+            for context, resources in (nginx_resources or {}).items()
+        }
+        self._capability_environment = dict(capability_environment or {})
 
     def execute(
         self,
@@ -163,7 +172,22 @@ class PlaybookExecutor:
             # Ansible through the environment precisely so they stay out of the
             # process table.
             "--extra-vars",
-            json.dumps({"blitzecdn_capability_roles": list(self._capability_roles)}),
+            json.dumps(
+                {
+                    "blitzecdn_capability_roles": list(self._capability_roles),
+                    "blitzecdn_nginx_resources": {
+                        context: [
+                            {
+                                "plugin": resource.plugin,
+                                "name": resource.name,
+                                "template": str(resource.template),
+                            }
+                            for resource in resources
+                        ]
+                        for context, resources in self._nginx_resources.items()
+                    },
+                }
+            ),
         ]
         if syntax_check:
             options.append("--syntax-check")
@@ -230,17 +254,15 @@ class PlaybookExecutor:
         environment["BLITZE_DATABASE_PATH"] = str(
             self._settings.database_path.resolve()
         )
-        # An optional capability's own configuration, forwarded rather than
-        # interpreted. Core does not know that `BLITZE_MAXMIND_LICENSE_KEY`
-        # belongs to GeoIP, or that anything belongs to a capability nobody
-        # here has heard of; it knows which names are its own and passes the
-        # rest through for the roles that ship with the packages that read
-        # them.
+        # Optional capability configuration after plugin ownership has been
+        # resolved. The composition root rejects unclaimed and multiply
+        # claimed keys, so this contains only names explicitly owned by one
+        # installed package.
         #
         # The environment, and not `--extra-vars`, because these are usually
         # credentials: an extra-var is in the process table for every user on
         # the controller, and in any file the run writes.
-        for name, value in self._settings.capability_environment.items():
+        for name, value in self._capability_environment.items():
             environment[name] = value.get_secret_value()
         return environment
 

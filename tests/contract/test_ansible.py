@@ -13,6 +13,7 @@ from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.ansible import runner as ansible_runner_module
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
+from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
@@ -521,14 +522,15 @@ def test_a_role_payload_arrives_on_the_host_that_published_it(settings, monkeypa
     assert run.host("edge-b").report is None
 
 
-def test_maxmind_credentials_reach_ansible_through_the_environment(
+def test_a_capabilitys_own_settings_reach_ansible_through_the_environment(
     settings, monkeypatch
 ):
-    """Resolved credentials must reach the Ansible subprocess explicitly."""
+    """Only the values resolved from explicit plugin claims are forwarded."""
     configured = settings.model_copy(
         update={
-            "maxmind_account_id": "123456",
-            "maxmind_license_key": SecretStr("SENTINELKEY"),
+            "capability_environment": {
+                "BLITZE_MAXMIND_LICENSE_KEY": SecretStr("SENTINELKEY"),
+            }
         }
     )
     captured: dict[str, str] = {}
@@ -538,42 +540,53 @@ def test_maxmind_credentials_reach_ansible_through_the_environment(
         return _runner_result(kwargs)
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
+    ansible.AnsibleRunner(
+        configured,
+        FakeEdgeStore(),
+        capability_environment=configured.capability_environment,
+    ).run(check=True)
 
-    assert captured["BLITZE_MAXMIND_ACCOUNT_ID"] == "123456"
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "SENTINELKEY"
 
 
-def test_under_attack_secret_reaches_ansible_only_through_the_environment(
-    settings, monkeypatch
-):
-    sentinel = "UNDER" + "-ATTACK-SENTINEL"
-    configured = settings.model_copy(
-        update={"under_attack_secret": SecretStr(sentinel)}
+def test_the_controllers_own_credentials_are_never_forwarded(settings):
+    """No edge has any business holding the key to the control plane's API.
+
+    `BLITZE_API_KEY` and `BLITZE_API_KEYS` are core's own names, so they are
+    excluded from `capability_environment` where it is read, while contribution
+    ownership further limits which staged keys can reach Ansible.
+    """
+    configured = Settings.from_environment(
+        {
+            "BLITZE_PROJECT_DIR": str(settings.project_dir),
+            "BLITZE_API_KEY": "k" * 40,
+            "BLITZE_MAXMIND_LICENSE_KEY": "SENTINELKEY",
+        }
     )
-    captured_env: dict[str, str] = {}
-    captured_argv: list[str] = []
 
-    def fake_run(**kwargs):
-        captured_env.update(kwargs["envvars"])
-        captured_argv.extend(_runner_command(kwargs))
-        return _runner_result(kwargs)
-
-    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
-
-    assert captured_env["BLITZE_UNDER_ATTACK_SECRET"] == sentinel
-    assert not any(sentinel in argument for argument in captured_argv)
+    assert "BLITZE_API_KEY" not in configured.capability_environment
+    assert "BLITZE_API_KEYS" not in configured.capability_environment
+    assert (
+        configured.capability_environment[
+            "BLITZE_MAXMIND_LICENSE_KEY"
+        ].get_secret_value()
+        == "SENTINELKEY"
+    )
 
 
-def test_maxmind_credentials_never_become_command_arguments(settings, monkeypatch):
+def test_a_capabilitys_settings_never_become_command_arguments(settings, monkeypatch):
     """A secret in argv is readable by every account on the controller.
 
-    Keeping it out of the process table is the whole reason it travels in the
-    environment rather than as `--extra-vars`.
+    Core cannot tell a credential from a tuning value in claimed settings, so
+    it treats all of it as a secret: the environment, never `--extra-vars`.
+    Keeping it out of the process table is the whole reason for that.
     """
     configured = settings.model_copy(
-        update={"maxmind_license_key": SecretStr("SENTINELKEY")}
+        update={
+            "capability_environment": {
+                "BLITZE_UNDER_ATTACK_SECRET": SecretStr("UNDER-ATTACK-SENTINEL")
+            }
+        }
     )
     captured: list[str] = []
 
@@ -582,24 +595,26 @@ def test_maxmind_credentials_never_become_command_arguments(settings, monkeypatc
         return _runner_result(kwargs)
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
-    ansible.AnsibleRunner(configured, FakeEdgeStore()).run(check=True)
+    ansible.AnsibleRunner(
+        configured,
+        FakeEdgeStore(),
+        capability_environment=configured.capability_environment,
+    ).run(check=True)
 
     assert captured
-    assert not any("SENTINELKEY" in argument for argument in captured)
+    assert not any("UNDER-ATTACK-SENTINEL" in argument for argument in captured)
 
 
-def test_the_credential_environment_is_set_even_when_unconfigured(
-    settings, monkeypatch
-):
-    """The runner forwards resolved settings, not whatever is in the ambient env.
+def test_what_a_capability_was_never_given_is_not_invented(settings, monkeypatch):
+    """An unconfigured capability setting is absent, not blanked.
 
-    `Settings` resolves the credential once. The runner must then overwrite the
-    child's value unconditionally: inheriting os.environ and only setting it when
-    non-empty would let a stale export from the deploying shell reach Ansible,
-    so the same desired state would converge differently depending on who ran
-    it.
+    Core used to overwrite `BLITZE_MAXMIND_LICENSE_KEY` with the empty string
+    on every run so a stale export could not reach Ansible. It cannot do that
+    any more without knowing the names, and it should not: the names belong to
+    the packages. What it must not do is invent one — a controller that was
+    never given a capability's setting forwards nothing for it, and the role's
+    own default answers instead.
     """
-    monkeypatch.setenv("BLITZE_MAXMIND_LICENSE_KEY", "FROM-THE-SHELL")
     captured: dict[str, str] = {}
 
     def fake_run(**kwargs):
@@ -609,4 +624,5 @@ def test_the_credential_environment_is_set_even_when_unconfigured(
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=True)
 
-    assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == ""
+    assert settings.capability_environment == {}
+    assert "BLITZE_SOMETHING_UNHEARD_OF" not in captured

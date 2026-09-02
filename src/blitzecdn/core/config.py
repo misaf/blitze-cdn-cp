@@ -118,10 +118,8 @@ MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
         "BLITZE_REDIS_URL",
     }
 )
-#: Every `BLITZE_*` name core reads for itself. Its complement is what an
-#: optional capability may claim, which is why the set is written out rather
-#: than derived loosely: a name here is core's and is never forwarded to a
-#: subprocess as somebody else's configuration.
+#: Every `BLITZE_*` name core reads for itself. A name here can never be claimed
+#: by an optional package or forwarded as capability configuration.
 _CORE_ENVIRONMENT_KEYS = frozenset(
     {
         *(
@@ -236,16 +234,17 @@ class Settings(BaseSettings):
     #:
     #: Empty by default: a fresh install requires no optional capability.
     required_capabilities: tuple[str, ...] = ()
-    #: Every `BLITZE_*` variable this controller was configured with that core
-    #: itself does not consume, forwarded into the Ansible subprocess.
+    #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:
     #: The generic answer to "an optional capability needs a credential". A
     #: MaxMind license key and an Under Attack signing secret used to be fields
     #: on this model, which meant core carried the name of a capability that
     #: may not be installed — and a package this repository has never heard of
-    #: had no way to be configured at all. Now core carries neither name: it
-    #: forwards what it was given and the owning package's role reads its own
-    #: key with `lookup('env', ...)`.
+    #: had no way to be configured at all. Core carries neither name. During
+    #: composition, installed plugins explicitly claim keys through
+    #: `AnsibleContribution.environment_keys`; unclaimed and multiply claimed
+    #: names are configuration errors. Only the resolved subset reaches the
+    #: package role through the subprocess environment.
     #:
     #: `SecretStr` because core cannot know which of these are credentials, and
     #: the safe assumption for a value it cannot interpret is that it is one:
@@ -557,18 +556,17 @@ class Settings(BaseSettings):
 
     @staticmethod
     def _read_capability_environment(env: Mapping[str, str]) -> dict[str, SecretStr]:
-        """The `BLITZE_*` variables core does not consume, kept for Ansible.
+        """Stage non-core `BLITZE_*` values for contribution-owner resolution.
 
         Read from the *merged* environment, so a value in the controller's
         `.env` reaches a deploy without an operator having to export it into
         every shell — which is the whole reason this is collected here rather
         than left to `os.environ` in the executor.
 
-        Nothing interprets these. Core does not know which capability owns
-        which name, whether a name is a credential or a tuning value, or
-        whether the package that reads it is installed at all, and that is the
-        property worth keeping: adding a capability with its own setting
-        requires no edit here.
+        The plugin resolver interprets ownership, not values. It accepts only
+        keys explicitly declared by one installed package and rejects typos,
+        detached-package settings and ownership collisions before a runner is
+        built. Thus collecting candidates here is not a forwarding policy.
         """
         return {
             name: SecretStr(value)
