@@ -75,6 +75,11 @@ blitze-cdn-cp/
 │   │                       # dynamic inventory plugin, ansible.cfg and the
 │   │                       # shipped group_vars. Located with
 │   │                       # importlib.resources, never from project_dir
+│   ├── docker/             # the image build inputs, in the wheel for the same
+│   │                       # reason: edge/ is a whole build context and
+│   │                       # control-plane/ is a Dockerfile whose context is
+│   │                       # the source tree, so `blitzecdn.docker` publishes
+│   │                       # no constant for that context
 │   ├── api/                # FastAPI entry point
 │   ├── cli/                # Typer entry point
 │   ├── bootstrap.py        # the sole production composition root
@@ -153,7 +158,7 @@ The rules that shape it:
   `collections_path` or `local_tmp` in `ansible.cfg` would resolve inside
   site-packages, so both are set from `Settings.state_dir` at run time and
   exported by the justfile and `install.sh` for a bare `ansible-playbook`.
-  `blitzecdn_ansible_contributions` carries four things, and each is there
+  `blitzecdn_ansible_contributions` carries five things, and each is there
   because the thing it describes is *global*: `roles_path`, which
   `core/ansible/roles.py` composes into the one process-wide search path
   Ansible has (core first, then contributions sorted by plugin name, refusing a
@@ -189,7 +194,19 @@ The rules that shape it:
   decommissioned by a controller whose package set has drifted from the one
   that converged it. What core still removes on its own is what core wrote: its
   own trees, the shared runtime directories, and every systemd unit matching
-  the managed prefix, matched rather than listed for the same reason. All three
+  the managed prefix, matched rather than listed for the same reason.
+  `edge_modules` is the fifth, and it asks the same question about Nginx's own
+  extension point: `load_module` is a main-context directive, so the dynamic
+  modules an edge loads are one list per process. `resolve_edge_modules` (in
+  `core/nginx.py`) composes it, it reaches Ansible as `blitzecdn_nginx_modules`,
+  and `blitzecdn_nginx` renders it over the list the *image* was built with.
+  The two differ on purpose — the image is pinned by digest and shared by
+  fleets whose capabilities differ, so it carries the superset and each edge
+  loads its own subset — and `blitzecdn edge image spec` emits that superset as
+  the image's build arguments from the same declarations. That is why
+  `src/blitzecdn/docker/edge/` now names no capability: it used to enumerate
+  `geoip2`, `brotli` and `njs`, which left a detached capability's module
+  loading on every edge until a new image was published. All these
   lists travel on the command line, never in the variables file: that file *is*
   the desired-state snapshot a rollback converges later, and what is installed
   is not desired state. A *play* is passed by path to `run_playbook`, so it needs

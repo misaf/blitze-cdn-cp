@@ -867,7 +867,7 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
     )
 ```
 
-`AnsibleContribution` has five members and each one is there because the thing
+`AnsibleContribution` has six members and each one is there because the thing
 it describes is *global*.
 
 `roles_path` answers where Ansible resolves a role name. That is the one
@@ -942,6 +942,52 @@ A capability declares any of the three slots, or none. Most declare none:
 whatever they leave in `paths.data`, in the state tree, or in a unit matching
 the managed prefix is already removed by core.
 
+`edge_modules` is the last member, and it is Nginx's own extension point asked
+the same way. `load_module` is a main-context directive, so the modules an edge
+loads are one list per Nginx process — global in exactly the sense the three
+role slots are, and composed by core for the same reason. A capability declares
+an `EdgeModule` with the module's pkg-oss name, the shared objects to load,
+whether the image has to *build* it or the official base already ships it
+(`njs` is the standing example of the latter), and one directive the module
+registers:
+
+```python
+AnsibleContribution(
+    plugin="compression",
+    roles_path=ansible.ROLES_PATH,
+    edge_roles=("blitzecdn_compression",),
+    edge_modules=(
+        EdgeModule(
+            name="brotli",
+            objects=("ngx_http_brotli_filter_module.so",),
+            probe="brotli off;",
+        ),
+    ),
+)
+```
+
+`blitzecdn.core.nginx.resolve_edge_modules` composes the list — ordered by
+plugin name like the slots, and refusing one module described two ways or one
+shared object loaded under two names, because Nginx would take whichever was
+emitted first. Two capabilities declaring the *same* module identically is
+allowed and deduplicated: njs is one file in the base image, and refusing the
+second would force one capability to depend on another over a file neither of
+them owns.
+
+The list reaches Ansible as `blitzecdn_nginx_modules`, on the command line with
+the role slots and for the same reason, and `blitzecdn_nginx` renders it into
+the edge's `load_module` file. That file is mounted over the one the *image*
+was built with, and the two are deliberately different sizes. An image is built
+once, pinned by digest and shared by fleets whose attached capabilities differ,
+so it carries every module the published distributions declare; an edge loads
+only what its controller has installed. `blitzecdn edge image spec` emits the
+build arguments for the wider set from the same declarations, which is how the
+Dockerfile stopped enumerating capabilities — it now takes `ENABLED_MODULES`,
+`LOADED_MODULES` and `MODULE_PROBE_DIRECTIVES` as inputs and names none of
+them. A capability whose module the pinned image predates is refused before
+anything is rendered, by name, rather than at `nginx -t` on an unknown
+directive.
+
 The lists are passed on the command line rather than written into the variables
 file, because the variables file for a deployment *is* the desired-state
 snapshot a rollback converges months later, and what is installed is not
@@ -972,13 +1018,14 @@ server blocks or executable rendering hooks. A site that needs an absent
 capability is refused by name before a document
 is rendered or a play starts.
 
-The one place core still names a module is
-`blitzecdn_nginx/tasks/capabilities.yml`, which starts the managed edge image
-with no network and no mounts and asks whether it can load the GeoIP2, Brotli
-and njs modules it was *built* with. That is a statement about the image, which
-core builds and pins, and it has to hold whether or not any distribution is
-installed. `tests/architecture/test_packages.py` carries it as the single named
-exemption to "core's Ansible names no capability's implementation".
+Core names no module either, and that used to be the one exemption.
+`blitzecdn_nginx/tasks/build-capability.yml` starts the managed edge image with
+no network and no mounts and reads what it can load; the assertion beside it,
+`modules-invariant.yml`, checks that output against the modules the *installed
+capabilities* declared rather than against a list of its own. So the failure it
+reports names the capability, the module and the image — and
+`tests/architecture/test_packages.py` now carries no exemption at all to
+"core's Ansible names no capability's implementation".
 
 #### An optional capability's configuration
 
@@ -1036,6 +1083,11 @@ by every edge whether or not the package is installed.
    If the capability needs a credential, give it a `BLITZE_*` name, document it
    in the package README, and read it with `lookup('env', ...)` in the role's
    defaults — and claim it in `AnsibleContribution.environment_keys`.
+   If its Nginx resources need a dynamic module, declare it in `edge_modules`
+   rather than adding it to the image build: the edge then loads it only while
+   this distribution is installed, and `blitzecdn edge image spec` picks it up
+   for the next published image. An edge cannot load it until an image built
+   since that declaration is rolled out, and the deploy says so by name.
 5. Put its tests in `packages/blitzecdn-<name>/tests/`.
 6. Add the extra to `[project.optional-dependencies]` in the root
    `pyproject.toml`, the workspace source to `[tool.uv.sources]`, and the test
