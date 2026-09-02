@@ -929,9 +929,10 @@ CAPABILITY_IMPLEMENTATION_WORDS = (
 #: Brotli and njs, on the grounds that the *image* carries them whether or not
 #: any distribution is installed. That grounding is what changed. The modules
 #: an edge loads are declared by the capabilities that need them, resolved by
-#: `blitzecdn.core.nginx.resolve_edge_modules` and rendered into the edge's own
-#: `load_module` list — so the probe now asserts against that resolved list and
-#: has no module name of its own to hold. Nothing in the tree is exempt.
+#: `blitzecdn.core.plugins.resolution.resolve_edge_modules` and rendered into
+#: the edge's own `load_module` list — so the probe now asserts against that
+#: resolved list and has no module name of its own to hold. Nothing in the tree
+#: is exempt.
 CAPABILITY_WORD_EXEMPTIONS: frozenset[str] = frozenset()
 
 

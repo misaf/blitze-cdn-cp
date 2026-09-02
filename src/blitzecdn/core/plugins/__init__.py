@@ -30,6 +30,19 @@ from blitzecdn.core.plugins.discovery import (
 from blitzecdn.core.plugins.hooks import hookimpl
 from blitzecdn.core.plugins.manager import build_plugin_manager, load_plugins
 from blitzecdn.core.plugins.registry import PluginRegistry, merge_variables
+from blitzecdn.core.plugins.resolution import (
+    CapabilityConfig,
+    ResolvedCapabilityEnvironment,
+    ResolvedEdgeModule,
+    ResolvedNginxResource,
+    resolve_capability_environment,
+    resolve_edge_capability_roles,
+    resolve_edge_modules,
+    resolve_host_capability_roles,
+    resolve_nginx_resources,
+    resolve_role_search_path,
+    resolve_teardown_capability_roles,
+)
 from blitzecdn.core.plugins.types import (
     ENTRY_POINT_GROUP,
     HOOK_API_VERSION,
@@ -37,6 +50,7 @@ from blitzecdn.core.plugins.types import (
     AnsibleContribution,
     CliCommandGroup,
     EdgeModule,
+    EnvironmentKey,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
@@ -57,9 +71,11 @@ __all__ = [
     "HOOK_API_VERSION",
     "PROJECT_NAME",
     "AnsibleContribution",
+    "CapabilityConfig",
     "CliCommandGroup",
     "Discovery",
     "EdgeModule",
+    "EnvironmentKey",
     "FleetStateContribution",
     "HealthCheck",
     "NginxContribution",
@@ -67,6 +83,9 @@ __all__ = [
     "PluginRegistry",
     "PluginRejection",
     "ProcessKind",
+    "ResolvedCapabilityEnvironment",
+    "ResolvedEdgeModule",
+    "ResolvedNginxResource",
     "RuntimeContext",
     "ScheduledJob",
     "Severity",
@@ -81,4 +100,11 @@ __all__ = [
     "register",
     "register_builtins",
     "register_external",
+    "resolve_capability_environment",
+    "resolve_edge_capability_roles",
+    "resolve_edge_modules",
+    "resolve_host_capability_roles",
+    "resolve_nginx_resources",
+    "resolve_role_search_path",
+    "resolve_teardown_capability_roles",
 ]

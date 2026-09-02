@@ -8,11 +8,18 @@ the MaxMind credentials came to live there. Reading ``os.environ`` directly
 would miss the controller's ``.env``, which core merges and the process never
 exports.
 
-So the package reads ``Settings.capability_environment``, already merged from
-the environment and the controller's ``.env``. Its Ansible contribution
-explicitly claims this module's key; composition rejects an unclaimed or
-multiply claimed name and forwards only resolved package-owned keys to the
-Ansible subprocess.
+So this package declares the key it owns in its Ansible contribution, and core
+hands back exactly that: ``platform.capability_config.for_plugin("security")``,
+a ``CapabilityConfig`` holding this package's keys and no other package's,
+already merged from the environment and the controller's ``.env``. Composition
+rejects an unclaimed or multiply claimed name and forwards only resolved
+package-owned keys to the Ansible subprocess.
+
+The length rule travels with the declaration rather than living here, which is
+why this module no longer enforces it. A secret that is present but too short
+is a value an operator can fix, and core now refuses it at composition — before
+a service is built, naming the key and this capability — instead of leaving it
+to be discovered by the first site that turns Under Attack Mode on.
 """
 
 from __future__ import annotations
@@ -21,7 +28,9 @@ from dataclasses import dataclass, field
 
 from pydantic import SecretStr
 
-__all__ = ["SECRET_VARIABLE", "SecurityConfig"]
+from blitzecdn.core.plugins import CapabilityConfig
+
+__all__ = ["MINIMUM_SECRET_BYTES", "SECRET_VARIABLE", "SecurityConfig"]
 
 #: The controller-side *name* of the fleet challenge secret — never its value,
 #: which is only ever read from the environment. One constant, spelled here and
@@ -34,8 +43,9 @@ SECRET_VARIABLE = "BLITZE_UNDER_ATTACK_SECRET"  # noqa: S105  # nosec B105
 
 #: Shortest key the challenge will sign with. An HMAC-SHA256 secret below its
 #: block size buys nothing, and a short one here is nearly always a placeholder
-#: somebody meant to replace.
-_MINIMUM_SECRET_BYTES = 32
+#: somebody meant to replace. Declared to core on the contribution beside this
+#: module, which is what enforces it; public so the two cannot drift.
+MINIMUM_SECRET_BYTES = 32
 
 
 @dataclass(frozen=True, slots=True)
@@ -45,26 +55,24 @@ class SecurityConfig:
     under_attack_secret: SecretStr = field(default_factory=lambda: SecretStr(""))
 
     @classmethod
-    def from_settings(cls, settings: object) -> SecurityConfig:
-        """Read this package's settings off the control plane's.
+    def from_capability_config(cls, config: CapabilityConfig) -> SecurityConfig:
+        """Read this package's own configuration, typed and already scoped.
 
-        ``settings`` is core's ``Settings``; it is typed loosely here for the
-        same reason the hook that hands it over is — this package depends on
-        the control plane, and importing the concrete model to annotate one
-        attribute read would buy nothing a test would catch.
+        ``config`` holds the keys this package declared and nothing else, so
+        the name below is checked against the declaration rather than looked up
+        hopefully in a dictionary of everything the controller was given.
         """
-        environment: dict[str, SecretStr] = getattr(
-            settings, "capability_environment", {}
-        )
-        return cls(under_attack_secret=environment.get(SECRET_VARIABLE, SecretStr("")))
+        return cls(under_attack_secret=config.secret(SECRET_VARIABLE))
 
     @property
     def challenge_available(self) -> bool:
         """Whether an edge could serve a challenge at all.
 
-        Length is checked here as well as in the role because the two failures
-        are different: the role refuses a converge it cannot complete, and this
-        refuses a deployment before anything is rendered, naming the variable.
+        Presence only. A secret shorter than :data:`MINIMUM_SECRET_BYTES` never
+        reaches here — core refuses the controller's configuration at
+        composition against the length this package declared — so the one
+        remaining case is a controller that set nothing, which is a supported
+        state and not an error: it is only a deployment this capability has to
+        refuse, and only for a site that asks for the challenge.
         """
-        secret = self.under_attack_secret.get_secret_value()
-        return len(secret.encode("utf-8")) >= _MINIMUM_SECRET_BYTES
+        return bool(self.under_attack_secret.get_secret_value())

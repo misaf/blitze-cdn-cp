@@ -14,7 +14,7 @@ from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.ansible.variables import run_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.nginx import ResolvedEdgeModule, ResolvedNginxResource
+from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.features.edges.ports import EdgeStore
 

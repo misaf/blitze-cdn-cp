@@ -160,7 +160,7 @@ The rules that shape it:
   exported by the justfile and `install.sh` for a bare `ansible-playbook`.
   `blitzecdn_ansible_contributions` carries five things, and each is there
   because the thing it describes is *global*: `roles_path`, which
-  `core/ansible/roles.py` composes into the one process-wide search path
+  `core/plugins/resolution.py` composes into the one process-wide search path
   Ansible has (core first, then contributions sorted by plugin name, refusing a
   role name two packages both ship rather than letting the first match shadow
   the other); and `edge_roles`, the roles core's edge play runs, resolved the
@@ -198,7 +198,8 @@ The rules that shape it:
   `edge_modules` is the fifth, and it asks the same question about Nginx's own
   extension point: `load_module` is a main-context directive, so the dynamic
   modules an edge loads are one list per process. `resolve_edge_modules` (in
-  `core/nginx.py`) composes it, it reaches Ansible as `blitzecdn_nginx_modules`,
+  `core/plugins/resolution.py`, with every other resolver over contributions)
+  composes it, it reaches Ansible as `blitzecdn_nginx_modules`,
   and `blitzecdn_nginx` renders it over the list the *image* was built with.
   The two differ on purpose — the image is pinned by digest and shared by
   fleets whose capabilities differ, so it carries the superset and each edge
@@ -229,10 +230,19 @@ The rules that shape it:
 - **An optional capability's configuration is not a field on `Settings`.**
   `Settings.capability_environment` stages non-core `BLITZE_*` values from the
   environment and `.env`, each as `SecretStr`. Installed plugins explicitly
-  claim names through `AnsibleContribution.environment_keys`; composition
-  rejects unknown or duplicate claims and `PlaybookExecutor` forwards only the
-  resolved subset through the environment, never `--extra-vars`. The owning
-  package's role reads its own name with `lookup('env', ...)`. Core names are excluded,
+  claim names through `AnsibleContribution.environment_keys`, and a claim is an
+  `EnvironmentKey` rather than a bare string: it carries `required`, a
+  `minimum_bytes` for a value whose length is the whole of its validity, and a
+  `summary` an operator is shown. Composition rejects unknown or duplicate
+  claims, refuses a missing required key or a too-short value with a
+  `ConfigurationError` naming the capability, and `PlaybookExecutor` forwards
+  only the resolved subset through the environment, never `--extra-vars`. The
+  owning package's role reads its own name with `lookup('env', ...)`; on the
+  Python side it reads `platform.capability_config.for_plugin("<name>")`, a
+  `CapabilityConfig` holding *its own* declared keys and no other package's —
+  never `Settings.capability_environment`, which is the whole installation's.
+  Anything richer than presence and length stays the package's to validate.
+  Core names are excluded,
   which is what keeps `BLITZE_API_KEY` out of every subprocess. Non-secret
   fleet policy lives in the capability role's own `defaults/main.yml` and is
   overridden with `blitzecdn config set`; nothing about an optional capability

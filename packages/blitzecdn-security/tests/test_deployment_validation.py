@@ -31,9 +31,8 @@ _SECRET = SecretStr("s" * 32)
 
 _REFUSAL = (
     "security: cdn-example-com: under_attack_mode is on but "
-    f"{SECRET_VARIABLE} is not set to at least 32 bytes on this controller, so "
-    "the edge challenge capability cannot be enabled and the deployment would "
-    "fail on every edge."
+    f"{SECRET_VARIABLE} is not set on this controller, so the edge challenge "
+    "capability cannot be enabled and the deployment would fail on every edge."
 )
 
 

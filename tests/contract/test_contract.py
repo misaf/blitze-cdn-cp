@@ -34,8 +34,8 @@ from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
-from blitzecdn.core.nginx import resolve_nginx_resources
 from blitzecdn.core.plugins import load_plugins
+from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 from blitzecdn.features.compression.policy import CompressionMode
 from blitzecdn.features.dns.domain import DnsRecord, Domain
 from blitzecdn.features.http.policy import (

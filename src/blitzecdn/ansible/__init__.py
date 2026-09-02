@@ -55,8 +55,8 @@ def _directory() -> Path:
     return anchor
 
 
-#: The platform roles, and the first entry of the search path
-#: :func:`blitzecdn.core.ansible.roles.resolve_role_search_path` composes. Every
+#: The platform roles, and the first entry of the search path that
+#: :func:`blitzecdn.core.plugins.resolution.resolve_role_search_path` composes. Every
 #: contributed directory is appended after it, and a capability shipping a role
 #: whose name is already here is refused rather than allowed to shadow it.
 ROLES_PATH = _directory() / "roles"

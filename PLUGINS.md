@@ -873,7 +873,7 @@ it describes is *global*.
 `roles_path` answers where Ansible resolves a role name. That is the one
 Ansible input that is genuinely process-wide — a single list every play
 resolves against — so core has to compose it, and
-`blitzecdn.core.ansible.roles.resolve_role_search_path` is the whole of that
+`blitzecdn.core.plugins.resolution.resolve_role_search_path` is the whole of that
 composition: core's directory first, then the contributions sorted by plugin
 name. Deterministic, so two installations with the same packages resolve every
 role identically; and a role name two contributors both ship is refused with
@@ -966,7 +966,7 @@ AnsibleContribution(
 )
 ```
 
-`blitzecdn.core.nginx.resolve_edge_modules` composes the list — ordered by
+`blitzecdn.core.plugins.resolution.resolve_edge_modules` composes the list — ordered by
 plugin name like the slots, and refusing one module described two ways or one
 shared object loaded under two names, because Nginx would take whichever was
 emitted first. Two capabilities declaring the *same* module identically is
@@ -1040,8 +1040,57 @@ merged from the process environment and the controller's `.env`, as
 `SecretStr`. Each package declares its keys in
 `AnsibleContribution.environment_keys`; composition rejects unknown and
 duplicate ownership, then `PlaybookExecutor` forwards only resolved keys
-through the environment, never `--extra-vars`. On the Python side the package
-reads the same staged mapping; see
+through the environment, never `--extra-vars`.
+
+A declaration is an `EnvironmentKey`, not a bare name:
+
+```python
+environment_keys=(
+    EnvironmentKey(
+        name="BLITZE_UNDER_ATTACK_SECRET",
+        minimum_bytes=32,
+        summary="The fleet-wide key the Under Attack Mode challenge is signed with.",
+    ),
+)
+```
+
+A name alone said only *whose* the key is. It said nothing about whether the
+capability can work without it or what a usable value looks like, so every
+package answered that half itself, in its own module and at its own moment —
+which is how a placeholder signing secret came to start a controller, reach
+every play, and be reported only by the first site that turned Under Attack
+Mode on. Core now holds the two rules it can hold without knowing what a value
+*means*, at composition, before an adapter exists:
+
+- `required` — absence stops the control plane, naming the capability and the
+  key. It is not "is this capability useful": a controller with no signing
+  secret is a working control plane with one site setting it will refuse, and
+  that is a deployment check's answer, not a startup failure. Most keys leave
+  this alone.
+- `minimum_bytes` — checked only when a value is present, so the two rules stay
+  independent. For a value whose length is the whole of its validity.
+
+Both refusals are `ConfigurationError`, not `PluginError`: nothing is wrong
+with the installed package and the fix is a value the operator can change.
+Anything richer — the shape of a MaxMind account id — stays the package's to
+validate, because a core that could describe one would be carrying the shape of
+a capability that may not be installed.
+
+On the Python side the package reads its *own* configuration, scoped:
+
+```python
+config = platform.capability_config.for_plugin("security")
+secret = config.secret(SECRET_VARIABLE)      # empty SecretStr when unset
+if config.is_set(SECRET_VARIABLE): ...
+```
+
+`CapabilityConfig` holds the keys this package declared and no other package's.
+A key it did not declare is refused rather than returned empty — the two
+mistakes look identical at the call site and only one of them is a typo — and a
+declared key is always present, so an unset value is an empty secret rather
+than a missing entry. Reading `Settings.capability_environment` directly is the
+thing this replaces: it is the whole installation's, and a package that reads
+it sees every other capability's credential. See
 `blitzecdn_security/config.py`.
 
 Core's own names are excluded, which is what keeps `BLITZE_API_KEY` and
@@ -1082,7 +1131,10 @@ by every edge whether or not the package is installed.
    `ansible-lint` argument list.
    If the capability needs a credential, give it a `BLITZE_*` name, document it
    in the package README, and read it with `lookup('env', ...)` in the role's
-   defaults — and claim it in `AnsibleContribution.environment_keys`.
+   defaults — and claim it in `AnsibleContribution.environment_keys` as an
+   `EnvironmentKey`, with `required` and `minimum_bytes` if either applies.
+   Read it on the controller through
+   `platform.capability_config.for_plugin("<name>")`.
    If its Nginx resources need a dynamic module, declare it in `edge_modules`
    rather than adding it to the image build: the edge then loads it only while
    this distribution is installed, and `blitzecdn edge image spec` picks it up

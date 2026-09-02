@@ -150,6 +150,63 @@ class EdgeModule:
 
 
 @dataclass(frozen=True, slots=True)
+class EnvironmentKey:
+    """One `BLITZE_*` name an installed capability claims, and its shape.
+
+    This used to be a bare string, and a bare string answers only half the
+    question. It says the name is this package's — which is what stops a typo,
+    a detached package's leftover setting and two packages claiming one name —
+    and it says nothing about whether the capability can work without it or
+    what a usable value looks like. Every package therefore answered that half
+    itself, in its own module, in its own way, and at its own moment: the
+    security capability re-spelled its own key in a constant, read it back off
+    `Settings` through an untyped `getattr`, and enforced a 32-byte minimum in
+    a deployment check — so a controller configured with a placeholder secret
+    started, converged, and only reported the mistake when a site turned Under
+    Attack Mode on.
+
+    Declaring the shape here moves each of those to the one moment they are
+    all cheap: composition, before an adapter exists or a play could start.
+    Core enforces the two rules it can enforce without knowing what any of
+    these values *mean* — presence, and a minimum length — and hands the
+    package the rest as its own typed `CapabilityConfig`.
+
+    `required` is presence, and it is not the same question as whether the
+    capability is useful. A required key is one whose absence makes the
+    installed package *wrong* rather than idle, and it stops the control plane
+    at startup naming the key and the package. Under Attack Mode is
+    deliberately not that: a controller with no signing secret is a perfectly
+    good control plane with one site setting it will refuse, which is a
+    deployment check's answer and not a startup failure. Almost every key
+    should leave this alone.
+
+    `minimum_bytes` is checked only when a value is *present*, which is what
+    keeps those two rules independent. It is for a value whose length is the
+    whole of its validity — an HMAC secret below the hash's block size buys
+    nothing, and a short one is nearly always a placeholder somebody meant to
+    replace. A value with any richer rule than that stays the package's to
+    validate: core cannot know what a MaxMind account id looks like, and a
+    core that grew a way to describe one would be carrying the shape of a
+    capability that may not be installed.
+
+    `summary` is what an operator is shown — by the refusal that names a
+    missing key, and by ``blitzecdn plugins`` — so write it as the sentence
+    that would tell somebody where to get the value.
+    """
+
+    name: str
+    summary: str = ""
+    required: bool = False
+    minimum_bytes: int = 0
+
+    def __post_init__(self) -> None:
+        if self.minimum_bytes < 0:
+            raise ValueError(
+                f"environment key {self.name!r} declares a negative minimum length"
+            )
+
+
+@dataclass(frozen=True, slots=True)
 class AnsibleContribution:
     """The Ansible roles one installed plugin brings with it.
 
@@ -247,10 +304,12 @@ class AnsibleContribution:
     #: main-context directive and there is one list per Nginx process, so core
     #: composes it. Empty for a capability that adds no module — most of them.
     edge_modules: tuple[EdgeModule, ...] = ()
-    #: Environment names this package alone owns. Only these names are copied
-    #: into Ansible's subprocess environment; values remain ``SecretStr`` in
-    #: Settings and never travel through argv or desired state.
-    environment_keys: tuple[str, ...] = ()
+    #: Environment names this package alone owns, and what each has to be.
+    #: Only these names are copied into Ansible's subprocess environment;
+    #: values remain ``SecretStr`` in Settings and never travel through argv or
+    #: desired state. See :class:`EnvironmentKey` for why a name alone was not
+    #: enough.
+    environment_keys: tuple[EnvironmentKey, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -422,6 +481,7 @@ __all__ = [
     "AnsibleContribution",
     "CliCommandGroup",
     "EdgeModule",
+    "EnvironmentKey",
     "FleetStateContribution",
     "HealthCheck",
     "NginxContribution",

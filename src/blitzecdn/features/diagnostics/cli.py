@@ -21,6 +21,7 @@ import uvicorn
 from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
+from blitzecdn.core.plugins import EnvironmentKey
 
 #: Root-level verbs, like the deployment group: `blitzecdn status`, not
 #: `blitzecdn diagnostics status`.
@@ -73,8 +74,21 @@ def plugins(
     `required` distinguishes a capability this distribution ships from one
     installed beside it. `capabilities` are the tokens configuration depends on
     through `required_capabilities`, which is usually just the plugin's name.
+
+    `configuration` is the other half of the same question: which `BLITZE_*`
+    names this capability claims, and whether this controller has set them.
+    That answer used to exist only inside each package, so "I installed
+    blitzecdn-geoip and no database is provisioned" had no command to ask —
+    the names were in a README, and whether they had arrived was visible only
+    in a failed play.
     """
-    registry = common.control_plane().plugins
+    control = common.control_plane()
+    registry = control.plugins
+    declared: dict[str, list[EnvironmentKey]] = {}
+    for contribution in registry.ansible_contributions():
+        declared.setdefault(contribution.plugin, []).extend(
+            contribution.environment_keys
+        )
     document: dict[str, Any] = {
         "plugins": [
             {
@@ -83,6 +97,22 @@ def plugins(
                 "required": plugin.required,
                 "capabilities": sorted(plugin.capabilities),
                 "summary": plugin.summary,
+                "configuration": [
+                    {
+                        "name": key.name,
+                        "required": key.required,
+                        "minimum_bytes": key.minimum_bytes,
+                        # Whether a value arrived, never the value: this prints
+                        # to a terminal and into whatever captures its JSON.
+                        "set": control.capability_config.for_plugin(plugin.name).is_set(
+                            key.name
+                        ),
+                        "summary": key.summary,
+                    }
+                    for key in sorted(
+                        declared.get(plugin.name, ()), key=lambda key: key.name
+                    )
+                ],
             }
             for plugin in registry.plugins
         ],
