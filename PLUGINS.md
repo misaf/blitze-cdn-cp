@@ -60,6 +60,79 @@ The test for a package is not "can this be disabled" but:
 > does removing it remove meaningful implementation, dependencies, registration
 > or operational behavior?
 
+### The classification, in full
+
+Every significant capability, and where it landed. The right-hand column is the
+answer to the question above, not a description of the code.
+
+| Capability | Classification | Why |
+| --- | --- | --- |
+| plugin infrastructure, persistence, runtime, config, Ansible execution | **core** | the control plane *is* these; there is nothing left without them |
+| sites | **built-in required** | `CdnSite` is what every other capability composes into and every edge role renders from |
+| DNS, edges, deployments, diagnostics, maintenance | **built-in required** | a CDN with no zones, no fleet, no way to converge it and no way to see whether it worked is not a degraded CDN |
+| HTTP/1.1 and HTTP/2 | **built-in required** | baseline. An edge that speaks neither serves nothing, and there is no `blitzecdn-http1` to attach |
+| compression, security, TLS *contracts* | **built-in required** | `CompressionPolicy`, `SecurityPolicy` and `TlsPolicy` are inherited into the flat `CdnSite` that the v1/v2 schemas, the persisted policy JSON and the deployment snapshots consume; a field that travelled with a wheel would make a stored row unreadable on detachment |
+| `blitzecdn-backup` | **optional** | archiving and restoring the control plane's own state is an operational choice, and the capability has no Ansible at all |
+| `blitzecdn-cache` | **optional** | purge and cache-effectiveness *operations*, with their own roles and plays. `CachePolicy` stays in `sites/policy/` — nothing outside a site's own configuration reads it, and moving it here would make `sites` depend on a feature that already depends on `sites` |
+| `blitzecdn-certificates` | **optional** | issuance, renewal and the Automatic SSL/TLS scan. An operator may bring their own certificates and never attach it |
+| `blitzecdn-compression` | **optional** | gzip and Brotli are `CompressionMode` values inside one capability, not two wheels. The per-vhost directives stay in `site.conf.j2`: they are site settings, and an absent capability is refused by name before a play starts |
+| `blitzecdn-geoip` | **optional** | one lookup, two consumers — the `BZ-IPCountry` header and the country firewall lists — so one wheel, and it brings its whole edge implementation |
+| `blitzecdn-http3` | **optional** | the QUIC listener and its fleet derivation. The *switch* stays a field on `ProtocolPolicy`; what detaches is the implementation behind it |
+| `blitzecdn-security` | **optional** | the njs challenge and the per-site rule validation. The rule *vocabulary* stays in `SecurityPolicy` for the same reason as the other site contracts |
+
+Two that came up and were deliberately **not** split:
+
+* **WAF and rate limiting.** Neither exists yet. When they do, the question is
+  cohesion and lifecycle, not package count: a WAF that shares Under Attack
+  Mode's njs runtime, its fleet secret and its per-site rule shape belongs
+  inside `blitzecdn-security`; one with its own rule format, its own signature
+  feed and its own update schedule is a distribution of its own. Rate limiting
+  reads the same `$binary_remote_addr` zone machinery the challenge already
+  installs, which argues for `blitzecdn-security` unless it grows a
+  distributed counter store.
+* **`blitzecdn_nginx`.** It is not one capability's implementation. It renders
+  whatever the merged desired-state document holds, so it stays core; see
+  [What stays in `blitzecdn_nginx`, and
+  why](#what-stays-in-blitzecdn_nginx-and-why).
+
+### The canonical package
+
+Every optional distribution converges on one shape. Small ones use fewer
+files — `blitzecdn-compression` is a `plugin.py` and nothing else, and that is
+correct rather than incomplete — but nothing uses a *different* shape.
+
+```
+packages/blitzecdn-<name>/
+├── pyproject.toml            # the entry point, and a dependency on blitzecdn only
+├── README.md                 # what it owns, what it does not, and its BLITZE_* names
+├── LICENSE
+├── src/blitzecdn_<name>/
+│   ├── plugin.py             # metadata + the hooks it contributes through
+│   ├── composition.py        # builds its service from what the platform publishes
+│   ├── config.py             # its own settings, read from capability_environment
+│   ├── domain.py             # pure rules
+│   ├── ports.py              # the narrow Protocols *it* calls
+│   ├── service.py            # the capability's behaviour
+│   ├── adapters/             # concrete implementations of its own ports
+│   ├── api/                  # its routers and its operational models
+│   ├── cli.py                # its command groups
+│   └── ansible/
+│       ├── __init__.py       # ROLES_PATH and EDGE_ROLE, via importlib.resources
+│       ├── roles/<role>/     # defaults, tasks, handlers, templates, argument_specs
+│       └── playbooks/        # plays only this capability runs
+└── tests/                    # including its role's contract tests
+```
+
+A package with no service needs no `composition.py`; one with no settings needs
+no `config.py`; one that converges no edge ships no `ansible/`. Do not add a
+`domain/`, `application/` and `infrastructure/` split to a package of six
+modules — the layering is already expressed by the module names above, and the
+architecture tests check it there.
+
+`blitzecdn-cache` is the reference for a package with a service, an API, a CLI
+and plays of its own; `blitzecdn-geoip` is the reference for a package whose
+whole substance is its edge role.
+
 ### Why site-policy contracts stay in core
 
 `CompressionPolicy`, `SecurityPolicy`, and `TlsPolicy` cannot be extracted, and
@@ -592,22 +665,47 @@ would make an ordinary site depend on a MaxMind account.
 
 This package contributes no desired state, and that is deliberate. Whether an
 edge resolves countries at all is fleet Ansible policy —
-`blitzecdn_edge_geoip_enabled`, set with `blitzecdn config set` or in group vars
-— not a variable the control plane derives per deployment, so turning it into a
-contribution would silently override what an operator configured. The rendered
-document is byte-identical with and without the package installed.
+`blitzecdn_geoip_enabled`, set with `blitzecdn config set` — not a variable the
+control plane derives per deployment, so turning it into a contribution would
+silently override what an operator configured. The rendered document is
+byte-identical with and without the package installed.
 
-Ansible remains the provisioning authority for how the edge realizes the
-lookup. The MaxMind credentials, the `geoipupdate` image, the GeoLite2-Country
-database and the systemd timer that refreshes it, the mount into the Nginx
-container, the `geoip2` directive and its `auto_reload`, and the
-`ngx_http_geoip2` module probe all stay in `blitzecdn_edge`,
-`blitzecdn_edge_stack` and `blitzecdn_nginx`. The database refresh is a
-provisioning lifecycle rather than recurring control-plane behavior, so the
-package contributes no scheduled job and performs no network download. The
-role's own assertion — refusing a country-dependent site on an edge with GeoIP
-off — stays too: it is the second line, for a desired state that did not come
-from this control plane.
+What the package *does* contribute is its edge implementation, in full. The
+`blitzecdn_geoip` role ships inside the wheel and carries the MaxMind
+credentials, the `geoipupdate` image and its own small Compose project, the
+GeoLite2-Country database, the systemd timer that refreshes it, the `geoip2`
+directive with its `auto_reload`, and the assertion that refuses a
+country-dependent site on an edge where the capability is switched off. Core's
+edge play runs it because the contribution says so, and detaching the
+distribution takes every one of those off the next deploy.
+
+Two things stay core's, and both are seams rather than implementation. The
+runtime contract's `paths.data` is a directory core creates and mounts
+read-only into the edge container and the configuration-test container; the
+role puts its database under it, and core never learns what is in there. The
+generic `$blitzecdn_visitor_ip_country`/`BZ-IPCountry` contract is stable;
+package-owned HTTP and upstream resources implement the GeoIP2 lookup and
+assign that generic variable.
+
+The database refresh is a provisioning lifecycle rather than recurring
+control-plane behavior, so the package contributes no scheduled job and the
+control plane performs no network download.
+
+Its credentials are `BLITZE_MAXMIND_ACCOUNT_ID` and
+`BLITZE_MAXMIND_LICENSE_KEY` in the controller's `.env`. Core no longer has
+fields for either. The GeoIP Ansible contribution claims both keys explicitly,
+and only resolved plugin claims enter the Ansible environment.
+
+### The edge challenge
+
+`blitzecdn-security` is the same shape. Core owns the `under_attack_mode`
+switch and firewall rule contract on `CdnSite`; the package owns its contributed
+challenge/filtering resources and the njs module that
+implements the challenge, the fleet secret it signs clearances with
+(`BLITZE_UNDER_ATTACK_SECRET`), the `conf.d` snippet that imports the module,
+and both halves of the refusal — a deployment check at `blitzecdn validate`
+that names the missing secret, and the role's own assertion for a desired state
+that did not come from this control plane.
 
 ### Seeing what is installed
 
@@ -685,35 +783,70 @@ Core owns the platform: the base host, the kernel and resolver, Docker, SSH and
 Fail2Ban, the firewall, the shared edge runtime contract, the edge stack, and
 `blitzecdn_nginx` — the role that renders a site's whole configuration from the
 merged desired-state document. Those are not one capability's implementation.
-`blitzecdn_nginx` in particular renders whatever the document contains, so an
-absent capability contributes no variables and its block simply is not there;
-splitting the template per capability would mean concatenating configuration
-text through a hook, which this architecture does not do.
 
-An optional capability owns the roles and plays that exist *because* it is
-installed. `blitzecdn-cache` ships `blitzecdn_cache` and `blitzecdn_stats`
-inside its wheel, with the two plays that run them; `blitzecdn-certificates`
-ships the ACME challenge play. A package locates its own files with
-`importlib.resources` — never a repository-relative path, a working directory,
-or an editable checkout — and answers `blitzecdn_ansible_contributions` with the
-directory its roles landed in:
+An optional capability owns everything that exists *because* it is installed:
+its roles, its plays, its templates, its systemd units, its fleet settings and
+its credentials. `blitzecdn-cache` ships `blitzecdn_cache` and `blitzecdn_stats`
+with the two plays that run them; `blitzecdn-certificates` ships the ACME
+challenge play; `blitzecdn-geoip` ships the role that provisions the GeoLite2
+database, its updater's Compose project, the systemd timer that refreshes it and
+the `conf.d` snippet defining `$blitzecdn_country`; `blitzecdn-security` ships
+the njs challenge module, its fleet secret and the snippet that imports it.
+
+A package locates its own files with `importlib.resources` — never a
+repository-relative path, a working directory, or an editable checkout — and
+answers `blitzecdn_ansible_contributions` with what it brought:
 
 ```python
 @hookimpl
 def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
-    return (AnsibleContribution(plugin="cache", roles_path=ansible.ROLES_PATH),)
+    return (
+        AnsibleContribution(
+            plugin="geoip",
+            roles_path=ansible.ROLES_PATH,
+            edge_roles=("blitzecdn_geoip",),
+        ),
+    )
 ```
 
-`AnsibleContribution` carries a plugin name and a roles directory, and nothing
-else. The search path is the one Ansible input that is global — one
-process-wide list every play resolves a role name against — so core has to
-compose it, and `blitzecdn.core.ansible.roles.resolve_role_search_path` is the
-whole of that composition: core's directory first, then the contributions
-sorted by plugin name. Deterministic, so two installations with the same
-packages resolve every role identically; and a role name two contributors both
-ship is refused with both names rather than silently shadowed, because Ansible
-takes the first match and a package shipping `blitzecdn_nginx` would replace
-the edge's configuration renderer while the deployment reported success.
+`AnsibleContribution` has three members and each one is there because the thing
+it describes is *global*.
+
+`roles_path` answers where Ansible resolves a role name. That is the one
+Ansible input that is genuinely process-wide — a single list every play
+resolves against — so core has to compose it, and
+`blitzecdn.core.ansible.roles.resolve_role_search_path` is the whole of that
+composition: core's directory first, then the contributions sorted by plugin
+name. Deterministic, so two installations with the same packages resolve every
+role identically; and a role name two contributors both ship is refused with
+both names rather than silently shadowed, because Ansible takes the first match
+and a package shipping `blitzecdn_nginx` would replace the edge's configuration
+renderer while the deployment reported success.
+
+`edge_roles` answers which of those roles core's edge play *runs*, which is
+global for the same reason: a role nothing includes converges nothing, and the
+play that would include it is core's. `resolve_edge_capability_roles` composes
+that list — same ordering, and a name the contributing wheel does not actually
+ship is refused here rather than by a play that is already half-way through an
+edge. The list reaches Ansible as `blitzecdn_capability_roles`, an extra-var on
+every run, and `ansible/roles/blitzecdn_capabilities` is the one slot that
+loops over it. It sits in the edge play's `roles:` list between
+`blitzecdn_kernel` and `blitzecdn_firewall`, which is forced from both sides:
+after the pre-tasks, because a capability role may need the container engine,
+the runtime image and the persistent directories they establish; before
+`blitzecdn_nginx`, because what a capability puts on an edge is something the
+rendered configuration then depends on, and `blitzecdn_nginx` proves the whole
+tree loads before the edge serves from it. Inside the roles phase rather than
+as a pre-task, so a capability's `notify` reaches the fleet's *Validate and
+reload Nginx* handler at the end of the play — handlers flush between
+pre-tasks and roles, and a reload from there would run `nginx -t` against a
+tree that had not been rendered yet.
+
+The list is passed on the command line rather than written into the variables
+file, because the variables file for a deployment *is* the desired-state
+snapshot a rollback converges months later, and what is installed is not
+desired state: pinning it would make a rollback run a capability role that has
+since been detached.
 
 A *play* is not global and is therefore not in the contract: the package that
 owns one passes its path to `PlaybookRunner.run_playbook`, which is why core no
@@ -725,6 +858,54 @@ Nothing is copied or staged. The package's installed directory *is* the role,
 so an upgraded package is converged from on the next run rather than from a
 snapshot taken at some earlier install. There is still no runtime downloading
 of roles: the wheel carried them.
+
+#### What stays in `blitzecdn_nginx`, and why
+
+The generic virtual-host lifecycle stays core-owned: listeners, TLS material,
+ACME, origin routing, proxy headers/timeouts, status, validation and reload.
+Its template exposes stable typed resource contexts (`http`, `server`,
+`access`, `upstream`). Optional packages contribute named templates to those
+contexts and therefore own their directives without contributing arbitrary
+server blocks or executable rendering hooks. A site that needs an absent
+capability is refused by name before a document
+is rendered or a play starts.
+
+The one place core still names a module is
+`blitzecdn_nginx/tasks/capabilities.yml`, which starts the managed edge image
+with no network and no mounts and asks whether it can load the GeoIP2, Brotli
+and njs modules it was *built* with. That is a statement about the image, which
+core builds and pins, and it has to hold whether or not any distribution is
+installed. `tests/architecture/test_packages.py` carries it as the single named
+exemption to "core's Ansible names no capability's implementation".
+
+#### An optional capability's configuration
+
+A capability that needs a setting does not get a field on core's `Settings`.
+`under_attack_secret`, `maxmind_account_id` and `maxmind_license_key` were all
+fields there, which meant every installation loaded configuration named for
+distributions most of them do not have — and a capability this repository has
+never heard of could not be configured at all.
+
+Instead, `Settings.capability_environment` stages non-core `BLITZE_*` values,
+merged from the process environment and the controller's `.env`, as
+`SecretStr`. Each package declares its keys in
+`AnsibleContribution.environment_keys`; composition rejects unknown and
+duplicate ownership, then `PlaybookExecutor` forwards only resolved keys
+through the environment, never `--extra-vars`. On the Python side the package
+reads the same staged mapping; see
+`blitzecdn_security/config.py`.
+
+Core's own names are excluded, which is what keeps `BLITZE_API_KEY` and
+`BLITZE_API_KEYS` — the control plane's own authentication — out of every
+subprocess it starts. And `blitzecdn.toml` refuses any key it does not know, so
+a capability credential cannot arrive through committed configuration whatever
+a package's README says.
+
+Non-secret fleet policy is unchanged: it lives in the capability role's own
+`defaults/main.yml` and is overridden with `blitzecdn config set`, exactly as
+core's role defaults are. Nothing about an optional capability belongs in
+`ansible/inventory/group_vars/`, which ships with the control plane and is read
+by every edge whether or not the package is installed.
 
 ## Adding an optional capability
 
@@ -738,10 +919,17 @@ of roles: the wheel carried them.
    `blitzecdn_plugin_metadata` (`required=False`, `provides={...}`) and the
    hooks it contributes through, and `composition.py` if it needs a service.
 4. If it owns Ansible, put it in `src/blitzecdn_<name>/ansible/` — `roles/` for
-   roles, `playbooks/` for plays — locate it with `importlib.resources`, and
-   contribute `roles/` through `blitzecdn_ansible_contributions`. Add the roles
-   directory to `roles_path` in the justfile so the checkout's lint and syntax
-   gates see it too.
+   roles, `playbooks/` for plays, each role with its own `defaults/`,
+   `templates/`, `handlers/` and `meta/argument_specs.yml` — locate it with
+   `importlib.resources`, and contribute it through
+   `blitzecdn_ansible_contributions`. Name the role in `edge_roles` if a deploy
+   should run it; leave `edge_roles` empty if only the package's own plays
+   reach it. Add the roles directory to `roles_path` in the justfile so the
+   checkout's lint and syntax gates see it too, and add the role to the
+   `ansible-lint` argument list.
+   If the capability needs a credential, give it a `BLITZE_*` name, document it
+   in the package README, and read it with `lookup('env', ...)` in the role's
+   defaults — and claim it in `AnsibleContribution.environment_keys`.
 5. Put its tests in `packages/blitzecdn-<name>/tests/`.
 6. Add the extra to `[project.optional-dependencies]` in the root
    `pyproject.toml`, the workspace source to `[tool.uv.sources]`, and the test

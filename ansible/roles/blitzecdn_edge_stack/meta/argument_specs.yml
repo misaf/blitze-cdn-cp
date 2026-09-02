@@ -5,8 +5,9 @@ argument_specs:
     description:
       - >-
         Owns the edge *runtime*: the Compose project, the image it runs, the
-        persistent host directories the container mounts, the GeoLite2 updater
-        and the health verification that decides whether a converge succeeded.
+        persistent host directories the container mounts — including the one an
+        installed capability leaves data in — and the health verification that
+        decides whether a converge succeeded.
       - >-
         It renders no customer configuration. blitzecdn_nginx writes the whole
         configuration tree to the host filesystem and this role mounts it

@@ -109,22 +109,51 @@ The rules that shape it:
   this named play with these variables against these hosts, and nothing
   feature-shaped). Core's `AnsibleRunner` therefore has no `run_cache_purge`
   any more — building a purge document is the cache package's business.
-- **A package owns its Ansible too.** The roles and plays that exist *because* a
-  capability is installed ship inside its wheel, under
+- **A package owns its Ansible too.** Everything that exists on an edge
+  *because* a capability is installed — roles, plays, templates, systemd units,
+  fleet settings, credentials — ships inside its wheel under
   `src/blitzecdn_<name>/ansible/{roles,playbooks}/`, located with
   `importlib.resources` — never a repository-relative path or a working
-  directory, both of which are absent on an installed controller. `roles/` is
-  contributed through `blitzecdn_ansible_contributions`, and
-  `core/ansible/roles.py` composes the one global input Ansible has: core's
-  roles first, then contributions sorted by plugin name, refusing a role name
-  two packages both ship rather than letting the first match shadow the other.
-  A *play* is passed by path to `run_playbook`, so it needs no hook and core
-  keeps no setting naming it. What stays core-owned is the platform — the base
-  host, Docker, the firewall, the edge runtime contract and `blitzecdn_nginx`,
-  which renders whatever the merged desired-state document holds. An absent
-  capability contributes no variables and its block is simply not there;
-  splitting that template per capability would mean concatenating configuration
-  text through a hook, which this architecture refuses.
+  directory, both of which are absent on an installed controller.
+  `blitzecdn_ansible_contributions` carries two things, and both are there
+  because the thing they describe is *global*: `roles_path`, which
+  `core/ansible/roles.py` composes into the one process-wide search path
+  Ansible has (core first, then contributions sorted by plugin name, refusing a
+  role name two packages both ship rather than letting the first match shadow
+  the other); and `edge_roles`, the roles core's edge play runs, resolved the
+  same way and reaching Ansible as the `blitzecdn_capability_roles` extra-var
+  that `ansible/roles/blitzecdn_capabilities` loops over. That slot sits
+  between `blitzecdn_kernel` and `blitzecdn_firewall` in the `roles:` list —
+  late enough to have the engine and the runtime directories, early enough that
+  `blitzecdn_nginx` proves the whole tree loads afterwards, and inside the
+  roles phase so a capability's `notify` reaches the reload handler at the end
+  of the play rather than between pre-tasks and roles. The list travels on the
+  command line, never in the variables file: that file *is* the desired-state
+  snapshot a rollback converges later, and what is installed is not desired
+  state. A *play* is passed by path to `run_playbook`, so it needs no hook and
+  core keeps no setting naming it. What stays core-owned is the platform — the
+  base host, Docker, the firewall, the edge runtime contract and
+  `blitzecdn_nginx`, which renders whatever the merged desired-state document
+  holds. The renderer exposes typed `http`, `server`, `access` and `upstream`
+  resource contexts; packages contribute named templates, never complete
+  server blocks or arbitrary hook output. GeoIP, compression, HTTP/3, cache and
+  request-security directives therefore live with their distributions while
+  core retains the generic server/TLS/proxy skeleton. A site needing an absent
+  capability is refused by name before a play starts. The runtime contract's
+  `paths.data` and `paths.modules` are how a capability hands the edge a file:
+  core creates and mounts both read-only and never learns what is in them.
+
+- **An optional capability's configuration is not a field on `Settings`.**
+  `Settings.capability_environment` stages non-core `BLITZE_*` values from the
+  environment and `.env`, each as `SecretStr`. Installed plugins explicitly
+  claim names through `AnsibleContribution.environment_keys`; composition
+  rejects unknown or duplicate claims and `PlaybookExecutor` forwards only the
+  resolved subset through the environment, never `--extra-vars`. The owning
+  package's role reads its own name with `lookup('env', ...)`. Core names are excluded,
+  which is what keeps `BLITZE_API_KEY` out of every subprocess. Non-secret
+  fleet policy lives in the capability role's own `defaults/main.yml` and is
+  overridden with `blitzecdn config set`; nothing about an optional capability
+  belongs in `ansible/inventory/group_vars/`.
 - **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `features/gzip`, `features/http3`, `features/certificates` or `features/under_attack` package by name. That rule is about the *feature tree* only: an optional distribution is named after the implementation an operator attaches, which is why `blitzecdn-certificates` and `blitzecdn-http3` are wheels while those feature directories stay refused. HTTP/1.1 and HTTP/2 are baseline and never optional — there is no `blitzecdn-http1` or `blitzecdn-http2`. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
 - **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
