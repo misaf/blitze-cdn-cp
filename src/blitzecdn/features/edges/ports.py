@@ -8,30 +8,14 @@ from blitzecdn.features.edges.origins import OriginCheck
 from blitzecdn.features.sites.domain import CdnSite
 
 
-class OriginCheckRunner(Protocol):
-    """Asks each edge in scope to connect to the origins it proxies to.
-
-    ``sites`` is passed rather than read from the desired-state file: this
-    takes no deployment lock, so that file may belong to a deploy in flight,
-    and the check is a question about what is configured *now* rather than
-    about what is being converged.
-
-    Its own port rather than the deployment runner's method, because the
-    automatic-SSL feature needs exactly this to decide whether an origin can be
-    upgraded, and giving it the deployment runner would give it ``run``.
-    """
-
-    def run_origin_check(
-        self, *, sites: list[dict[str, object]], host_limit: str | None = None
-    ) -> AnsibleRun: ...
-
-
-class EdgeRunner(OriginCheckRunner, Protocol):
+class EdgeRunner(Protocol):
     """Everything edge operations run against the fleet.
 
-    ``host_limit`` is required on the teardown and never defaulted: the other
-    runs treat an absent limit as "every edge", which for a decommission would
-    empty the fleet.
+    One method, now. ``run_origin_check`` was the other, and it left with the
+    play it runs: ``blitzecdn-origins`` declares its own port over core's
+    generic ``run_playbook`` primitive. ``host_limit`` is required here and
+    never defaulted — an absent limit means "every edge" elsewhere, which for a
+    decommission would empty the fleet.
     """
 
     def run_decommission(self, *, host_limit: str) -> AnsibleRun: ...
@@ -65,9 +49,9 @@ class EdgeStore(Protocol):
 class OriginProbe(Protocol):
     """A site's origin: how to reach it, and what the controller sees of it.
 
-    ``to_probe`` renders an origin for whoever is going to connect to it. The
-    operator-facing check is answered by the *edges* — ``check_origins`` runs a
-    playbook, because the controller's routes, resolver and egress rules are not
+    ``to_probe`` renders an origin for whoever is going to connect to it, which
+    for the operator-facing check is the *edges*: ``blitzecdn-origins`` runs a
+    play, because the controller's routes, resolver and egress rules are not
     the ones that carry traffic, and an origin allow-listing the edges refuses
     the controller while working perfectly.
 
@@ -82,4 +66,4 @@ class OriginProbe(Protocol):
     def check(self, site: CdnSite) -> OriginCheck: ...
 
 
-__all__ = ["EdgeRunner", "EdgeStore", "OriginCheckRunner", "OriginProbe"]
+__all__ = ["EdgeRunner", "EdgeStore", "OriginProbe"]

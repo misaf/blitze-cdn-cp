@@ -5,8 +5,7 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.operations import EdgeRemoval, HostRun, OriginReport, as_operation
-from blitzecdn.api.requests import OriginCheckRequest
+from blitzecdn.api.operations import EdgeRemoval, HostRun, as_operation
 from blitzecdn.api.v2_models import Edge, EdgePatch
 
 router = APIRouter(dependencies=[Depends(require_operator)])
@@ -73,17 +72,4 @@ def remove_edge(
         name=name,
         decommissioned=True,
         hosts=tuple(as_operation(host, HostRun) for host in hosts),
-    )
-
-
-@router.post("/v2/origins/check", response_model=OriginReport)
-def check_origins(
-    request: OriginCheckRequest,
-    operator: OperatorDependency,
-    control: ControlPlaneDependency,
-) -> OriginReport:
-    """Ask the edges to connect to the origins they proxy to."""
-    return as_operation(
-        control.edges.check_origins(operator, host_limit=request.host_limit),
-        OriginReport,
     )

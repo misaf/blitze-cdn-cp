@@ -36,8 +36,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import RunStatus, TaskOutcome
 from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.http.policy import HttpScheme
-from blitzecdn.features.tls.policy import SslMode
 
 
 class OperationModel(BaseModel):
@@ -126,32 +124,6 @@ class Workflow(OperationModel):
     error: str | None = None
 
 
-class OriginCheck(OperationModel):
-    site: str
-    origin: str
-    scheme: HttpScheme
-    ssl_mode: SslMode
-    sni: str | None = None
-    reachable: bool = False
-    tls_verified: bool | None = None
-    status: int | None = None
-    content_sha256: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
-    detail: str | None = None
-
-
-class EdgeOriginChecks(OperationModel):
-    host: str
-    checked_at: datetime | None = None
-    checks: tuple[OriginCheck, ...] = ()
-    error: str | None = None
-
-
-class OriginReport(OperationModel):
-    checked_at: datetime
-    host_limit: str | None = None
-    edges: tuple[EdgeOriginChecks, ...] = ()
-
-
 class AuditEvent(OperationModel):
     id: int
     created_at: datetime
@@ -180,12 +152,9 @@ __all__ = [
     "AuditEvent",
     "Deployment",
     "DriftReport",
-    "EdgeOriginChecks",
     "EdgeRemoval",
     "HostRun",
     "OperationModel",
-    "OriginCheck",
-    "OriginReport",
     "TaskResult",
     "Workflow",
     "WorkflowStep",

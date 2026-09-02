@@ -2,9 +2,9 @@
 
 Registering, updating and removing an edge changes *which hosts exist* — and
 because the Ansible inventory is read from the same rows, writing one here is
-what publishes it to Ansible. Probing origins and decommissioning read or act
-on the fleet without changing desired state; those write no deployment record
-and, deliberately, do not take the deployment lock.
+what publishes it to Ansible. Decommissioning acts on the fleet without
+changing desired state; it writes no deployment record and, deliberately, does
+not take the deployment lock.
 
 Registration goes through a service rather than straight to the store so that
 both entry points reach it the same way and every change is audited: "who added
@@ -12,25 +12,23 @@ this edge, and when" is a question the audit trail can answer.
 
 What is *stored* on the edges is a different question, and it is not this
 distribution's: purging and cache statistics are the installed
-``blitzecdn-cache`` package. They were here once because they also reach the
-fleet, which describes the transport rather than the work — and being able to
-detach them without touching this service is what that separation bought.
+``blitzecdn-cache`` package, and asking the edges whether they can reach their
+origins is ``blitzecdn-origins``. All three were here once because they also
+reach the fleet, which describes the transport rather than the work — and being
+able to detach them without touching this service is what that separation
+bought. What cannot leave is the roster: an installation must be able to add
+and remove an edge with no optional distribution attached.
 """
 
 from __future__ import annotations
-
-from datetime import UTC, datetime
 
 from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.runs import HostRun
-from blitzecdn.features.dns.ports import SiteStore
 from blitzecdn.features.edges.domain import Edge, EdgePatch
-from blitzecdn.features.edges.origins import OriginReport
-from blitzecdn.features.edges.ports import EdgeRunner, EdgeStore, OriginProbe
-from blitzecdn.features.edges.reporting import edge_origins
+from blitzecdn.features.edges.ports import EdgeRunner, EdgeStore
 
 
 class EdgeOperationsService:
@@ -39,17 +37,13 @@ class EdgeOperationsService:
     def __init__(
         self,
         *,
-        sites: SiteStore,
         events: EventRecorder,
         runner: EdgeRunner,
-        origin_probe: OriginProbe,
         edges: EdgeStore,
         uow: UnitOfWork,
     ) -> None:
-        self.sites = sites
         self.events = events
         self.runner = runner
-        self.origin_probe = origin_probe
         self.edges = edges
         self.uow = uow
 
@@ -126,64 +120,6 @@ class EdgeOperationsService:
         with self.uow.transaction():
             self.edges.delete_edge(name)
             self.events.record(domain_event(operator, "edge.removed", "edge", name))
-
-    # -- Origins -------------------------------------------------------
-
-    def check_origins(
-        self, operator: str, *, host_limit: str | None = None
-    ) -> OriginReport:
-        """Ask every edge to connect to the origins it proxies to.
-
-        Answered by the fleet rather than by the controller. The controller's
-        routes, resolver and egress rules are not the ones that carry traffic:
-        an origin allow-listing the edges' addresses refuses the controller
-        while working perfectly, and one reachable only from the controller's
-        subnet passes and then 502s on every edge. Both were this check
-        reporting confidently on a question nobody asked.
-
-        Per edge *and* per site for the same reason. An origin no edge can
-        reach is down; one some edges can reach is a routing or allow-list
-        problem, and a single vantage point could never tell those apart.
-
-        Deliberately not folded into ``validate()``, which ``deploy`` runs.
-        Validation is about desired state being coherent and has to stay fast
-        and deterministic; an origin being briefly unreachable is neither a
-        reason to refuse a deploy of unrelated sites nor something a deploy
-        should wait on. Run this before a deploy, not inside one.
-
-        Disabled sites are skipped: the edge will not proxy to them, so their
-        origins being down is not a fact about anything.
-        """
-        sites = [site for site in self.sites.list_sites() if site.enabled]
-        run = self.runner.run_origin_check(
-            sites=[self.origin_probe.to_probe(site) for site in sites],
-            host_limit=host_limit,
-        )
-        report = OriginReport(
-            checked_at=datetime.now(UTC),
-            host_limit=host_limit,
-            edges=tuple(edge_origins(host) for host in run.hosts),
-        )
-        self.events.record(
-            domain_event(
-                operator,
-                "origins.checked",
-                "site",
-                None,
-                {
-                    "host_limit": host_limit,
-                    "sites": len(sites),
-                    "silent": [edge.host for edge in report.silent],
-                    "failing": {
-                        site: list(hosts)
-                        for site, hosts in report.failing_sites.items()
-                    },
-                },
-            )
-        )
-        if not report.edges:
-            raise ExecutionError(run.unreported("origin check"))
-        return report
 
     # -- Decommissioning -----------------------------------------------
 

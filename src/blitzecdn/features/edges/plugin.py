@@ -1,4 +1,4 @@
-"""The fleet roster: which edges exist, and whether their origins answer."""
+"""The fleet roster: which edges exist, and how one is added or removed."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
         name="edges",
         version=__version__,
         required=True,
-        summary="Register edge servers and check their origins.",
+        summary="Register, update and decommission edge servers.",
     )
 
 
@@ -29,7 +29,7 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    return (
-        CliCommandGroup(name="edge", app=cli.edge_app),
-        CliCommandGroup(name="origin", app=cli.origin_app),
-    )
+    # `origin` is not here any more: the group left with the play behind it,
+    # into `blitzecdn-origins`, and appears only while that package is
+    # installed.
+    return (CliCommandGroup(name="edge", app=cli.edge_app),)

@@ -44,7 +44,9 @@ from typing import Protocol
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.roles import (
     resolve_edge_capability_roles,
+    resolve_host_capability_roles,
     resolve_role_search_path,
+    resolve_teardown_capability_roles,
 )
 from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
@@ -82,7 +84,7 @@ from blitzecdn.features.deployments.service import (
 from blitzecdn.features.dns import DnsService
 from blitzecdn.features.dns.ports import SiteStore as SiteReader
 from blitzecdn.features.edges import EdgeOperationsService
-from blitzecdn.features.edges.ports import EdgeRunner, OriginCheckRunner
+from blitzecdn.features.edges.ports import EdgeRunner
 from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.features.edges.probe import OriginProbe
@@ -201,17 +203,19 @@ class ControlPlane:
                 self.settings.ansible_dir / "roles",
                 contributions,
             ),
-            # And which of those roles the edge play runs. Two questions, one
-            # source: a package that ships a role its own plays reach declares
-            # the directory and no edge roles at all.
-            resolve_edge_capability_roles(contributions),
-            nginx_resources,
-            capability_environment,
+            # And which of those roles core's own plays run, in each of the
+            # three slots: two in the edge play, one in the decommission play.
+            # Four questions, one source — a package that ships a role only its
+            # own plays reach declares the directory and no slot at all.
+            capability_roles=resolve_edge_capability_roles(contributions),
+            host_capability_roles=resolve_host_capability_roles(contributions),
+            teardown_capability_roles=resolve_teardown_capability_roles(contributions),
+            nginx_resources=nginx_resources,
+            capability_environment=capability_environment,
         )
         self._origin_probe = origin_probe or OriginProbe(self.settings)
         self.origin_probe: OriginProbePort = self._origin_probe
         self.deployment_lock: DeploymentLocker = self._runner
-        self.origin_checks: OriginCheckRunner = self._runner
         self._background = background or DramatiqBackgroundRunner(
             str(self.settings.redis_url)
         )
@@ -301,10 +305,8 @@ class ControlPlane:
             workflows=self.workflows,
         )
         self.edges = EdgeOperationsService(
-            sites=store.sites,
             events=self.events,
             runner=self._runner,
-            origin_probe=self._origin_probe,
             edges=self._edges_store,
             uow=store,
         )

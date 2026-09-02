@@ -191,8 +191,10 @@ class Settings(BaseSettings):
     #: The plays core itself owns. A capability's play is not here: it ships
     #: inside that capability's wheel and reaches ``run_playbook`` as a path
     #: the package resolved for itself, so detaching the package takes the
-    #: play with it and leaves no setting behind pointing at nothing.
-    origin_check_playbook_path: Path
+    #: play with it and leaves no setting behind pointing at nothing. The
+    #: origin check used to be the exception and is not any more — it is
+    #: ``blitzecdn-origins``'. Decommissioning stays, because removing an edge
+    #: has to work on an installation with no capability attached at all.
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
     certbot: str = "certbot"
@@ -259,6 +261,9 @@ class Settings(BaseSettings):
     #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
+    #: The controller's *own* advisory probe budget, inside certificate
+    #: preflight. Not the fleet check's: that one is ``blitzecdn-origins``'
+    #: role default, in that package's wheel.
     origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
     #: How much of a run log to read back when showing an operator why a run
     #: failed. The log itself is never truncated — it is the full account — but
@@ -320,7 +325,6 @@ class Settings(BaseSettings):
         "certificate_dir",
         "environment_path",
         "backup_dir",
-        "origin_check_playbook_path",
         "decommission_playbook_path",
         mode="before",
     )
@@ -417,7 +421,6 @@ class Settings(BaseSettings):
             "ansible_dir": root / "ansible",
             "inventory_path": root / "ansible/inventory/blitzecdn.yml",
             "playbook_path": root / "ansible/playbooks/edge.yml",
-            "origin_check_playbook_path": root / "ansible/playbooks/origin-check.yml",
             "decommission_playbook_path": root / "ansible/playbooks/decommission.yml",
             "generated_vars_path": state / "desired-state.yml",
             "deployment_lock_path": state / "deployment.lock",
