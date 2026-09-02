@@ -53,7 +53,7 @@ in_edge() { docker exec "${edge}" bash -lc "$1"; }
 # at run time, so this harness resolves `blitzecdn_geoip` and
 # `blitzecdn_security` the same way a deployment does rather than from a
 # directory in the checkout.
-readonly ROLES_PATH='/workspace/ansible/roles:/workspace/packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles:/workspace/packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles:/workspace/packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles:/workspace/packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles:/workspace/packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles:/workspace/packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles:/workspace/packages/blitzecdn-security/src/blitzecdn_security/ansible/roles'
+readonly ROLES_PATH='/workspace/src/blitzecdn/ansible/roles:/workspace/packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles:/workspace/packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles:/workspace/packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles:/workspace/packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles:/workspace/packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles:/workspace/packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles:/workspace/packages/blitzecdn-security/src/blitzecdn_security/ansible/roles'
 converge() {
   in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }
@@ -107,7 +107,7 @@ done
 
 say "Installing the minimal Ansible test runner"
 in_edge 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ansible-core openssl curl ca-certificates iproute2 >/dev/null'
-in_edge 'ansible-galaxy collection install -r /workspace/ansible/requirements.yml >/dev/null'
+in_edge 'ansible-galaxy collection install -r /workspace/src/blitzecdn/ansible/requirements.yml >/dev/null'
 # Under the runtime contract's capability data directory, which is where the
 # `blitzecdn_geoip` role expects it and the only place core mounts read-only
 # into the edge container. Placed by hand because this runner has no MaxMind

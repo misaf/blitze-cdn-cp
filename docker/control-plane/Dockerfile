@@ -25,7 +25,7 @@ RUN uv sync --frozen --no-dev --no-editable --python /usr/local/bin/python \
         --extra backup --extra cache --extra hardening --extra origins \
         --extra resolver \
     && .venv/bin/ansible-galaxy collection install \
-        --requirements-file ansible/requirements.yml \
+        --requirements-file src/blitzecdn/ansible/requirements.yml \
         --collections-path /usr/share/ansible/collections
 
 # python:slim is root by default but already supplies Debian's unprivileged

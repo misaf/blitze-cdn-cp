@@ -7,13 +7,13 @@ from typing import Any
 
 import jinja2
 import yaml
-from paths import REPO_ROOT
+from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core import broker
 
 ROOT = REPO_ROOT
-ROLE = ROOT / "ansible/roles/blitzecdn_controlplane"
-UNINSTALL = ROOT / "ansible/roles/blitzecdn_uninstall/tasks/main.yml"
+ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
+UNINSTALL = CORE_ANSIBLE / "roles/blitzecdn_uninstall/tasks/main.yml"
 
 
 def _compose() -> dict[str, Any]:
@@ -131,7 +131,7 @@ def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():
-    config = (ROOT / "ansible/ansible.cfg").read_text(encoding="utf-8")
+    config = (CORE_ANSIBLE / "ansible.cfg").read_text(encoding="utf-8")
     tasks = yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
     probe = next(
         task
@@ -191,9 +191,9 @@ def test_host_has_no_blitzecdn_service_account_contract():
         ROLE / "defaults/main.yml",
         ROLE / "meta/argument_specs.yml",
         ROLE / "tasks/main.yml",
-        ROOT / "ansible/roles/blitzecdn_uninstall/defaults/main.yml",
-        ROOT / "ansible/roles/blitzecdn_uninstall/meta/argument_specs.yml",
-        ROOT / "ansible/roles/blitzecdn_uninstall/tasks/main.yml",
+        CORE_ANSIBLE / "roles/blitzecdn_uninstall/defaults/main.yml",
+        CORE_ANSIBLE / "roles/blitzecdn_uninstall/meta/argument_specs.yml",
+        CORE_ANSIBLE / "roles/blitzecdn_uninstall/tasks/main.yml",
     ]
     document = "\n".join(path.read_text(encoding="utf-8") for path in sources)
     for obsolete in (

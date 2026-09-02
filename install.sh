@@ -338,9 +338,9 @@ converge_control_plane() {
   # Ansible's temporary files must not land in .state. This play runs as root
   # and gives the persistent state bind mount to the image's non-root account;
   # a root-owned leftover there would break the next container invocation.
-  ANSIBLE_CONFIG=ansible/ansible.cfg ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
+  ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" \
-    -i localhost, ansible/playbooks/control-plane.yml "$@" || status=$?
+    -i localhost, src/blitzecdn/ansible/playbooks/control-plane.yml "$@" || status=$?
   rm -rf -- "${ansible_tmp}"
   return "${status}"
 }
@@ -348,7 +348,7 @@ converge_control_plane() {
 # Ansible is the only implementation of system teardown. This must finish
 # successfully before the installer removes the checkout containing Ansible.
 converge_uninstall() {
-  local playbook="${INSTALL_DIR}/ansible/playbooks/uninstall.yml"
+  local playbook="${INSTALL_DIR}/src/blitzecdn/ansible/playbooks/uninstall.yml"
   local executable="${INSTALL_DIR}/.venv/bin/ansible-playbook"
   [[ -x ${executable} ]] || die 1 \
     "error: cannot uninstall: Ansible is missing at ${executable}" \
@@ -359,7 +359,7 @@ converge_uninstall() {
 
   local ansible_tmp status=0
   ansible_tmp=$(mktemp -d)
-  ANSIBLE_CONFIG="${INSTALL_DIR}/ansible/ansible.cfg" ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
+  ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/ansible/ansible.cfg" ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${executable}" -i localhost, "${playbook}" || status=$?
   rm -rf -- "${ansible_tmp}"
   return "${status}"
@@ -476,22 +476,25 @@ if sys.version_info[:2] < (3, 12):
   fi
 
   # Collections go inside the repository rather than ~/.ansible/collections:
-  # ansible/ansible.cfg looks here first, tests/test_contract.py reads whatever
+  # src/blitzecdn/ansible/ansible.cfg no longer names it — it can only point inside the wheel
+  # the platform roles ship in — so ANSIBLE_COLLECTIONS_PATH below is the whole
+  # of it. tests/test_contract.py reads whatever
   # lands here, and a lab machine can hold several checkouts without them
   # fighting over one global collection path.
   local collections_path=.state/collections
 
-  # ansible/ansible.cfg already resolves collections_path to that directory
-  # (relative entries there resolve against the config file, not the caller's
-  # working directory). Exporting it keeps ansible-galaxy from warning that it is
-  # installing somewhere Ansible will not look, which is not true at deploy time.
-  export ANSIBLE_CONFIG=ansible/ansible.cfg
+  # Exported rather than left to the config file: since the platform's Ansible
+  # moved into the wheel, a relative `collections_path` in src/blitzecdn/ansible/ansible.cfg
+  # would resolve inside site-packages. PlaybookExecutor sets the same variable
+  # from Settings.state_dir on every run, so galaxy installs where deploys look.
+  export ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg
+  export ANSIBLE_COLLECTIONS_PATH="${collections_path}"
 
   # Only third-party dependencies now: the BlitzeCDN roles live in
-  # ansible/roles/ and ship with this checkout, so there is nothing to pin, to
+  # src/blitzecdn/ansible/roles/ and ship inside the wheel, so there is nothing to pin, to
   # build, or to keep in step with the desired-state contract.
   .venv/bin/ansible-galaxy collection install \
-    -r ansible/requirements.yml -p "${collections_path}"
+    -r src/blitzecdn/ansible/requirements.yml -p "${collections_path}"
 
 }
 
@@ -547,7 +550,7 @@ cmd_standalone() {
   # environment itself, so python3-venv is no longer needed. curl fetches the
   # pinned uv build when the host has no uv of its own; ca-certificates is what
   # makes that fetch verifiable at all, and a minimal image can lack it. git is
-  # here because ansible/requirements.yml fetches the edge collection from a Git
+  # here because src/blitzecdn/ansible/requirements.yml fetches the edge collection from a Git
   # ref, and that happens in the default install form below — before the role runs.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update

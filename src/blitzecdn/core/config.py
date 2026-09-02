@@ -11,6 +11,7 @@ from typing import Self
 from pydantic import Field, RedisDsn, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from blitzecdn import ansible as core_ansible
 from blitzecdn.core.exceptions import ConfigurationError
 
 _PATH_SETTINGS = (
@@ -418,10 +419,16 @@ class Settings(BaseSettings):
         values: dict[str, object] = {
             "project_dir": root,
             "state_dir": state,
-            "ansible_dir": root / "ansible",
-            "inventory_path": root / "ansible/inventory/blitzecdn.yml",
-            "playbook_path": root / "ansible/playbooks/edge.yml",
-            "decommission_playbook_path": root / "ansible/playbooks/decommission.yml",
+            # Not derived from `root`. The platform's Ansible ships inside
+            # this wheel and is located through `importlib.resources`, so these
+            # four resolve identically in a checkout and on a controller that
+            # has no checkout at all. They are deliberately not operator
+            # configurable: pointing the control plane at someone else's copy
+            # of the platform roles is not a supported deployment.
+            "ansible_dir": core_ansible.ROLES_PATH.parent,
+            "inventory_path": core_ansible.INVENTORY_PATH,
+            "playbook_path": core_ansible.EDGE_PLAYBOOK,
+            "decommission_playbook_path": core_ansible.DECOMMISSION_PLAYBOOK,
             "generated_vars_path": state / "desired-state.yml",
             "deployment_lock_path": state / "deployment.lock",
             "certificate_dir": state / "certificates",

@@ -14,7 +14,7 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
 def test_http3_uses_the_firewall_registry_for_udp_443():
     role = _role("blitzecdn_firewall")
     tasks = (role / "tasks/main.yml").read_text(encoding="utf-8")
-    play = (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+    play = (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
 
     assert "['udp|443|any'] if blitzecdn_edge_runtime.listeners.http3 else []" in tasks
     assert "proto: udp" in tasks
@@ -786,9 +786,9 @@ def test_no_edge_image_reference_floats():
     compose file names it.
     """
     group_vars = yaml.safe_load(
-        (
-            PROJECT_DIR / "ansible/inventory/group_vars/blitzecdn_edges/defaults.yml"
-        ).read_text(encoding="utf-8")
+        (CORE_ANSIBLE / "inventory/group_vars/blitzecdn_edges/defaults.yml").read_text(
+            encoding="utf-8"
+        )
     )
     assert group_vars["blitzecdn_edge_image_tag"] not in ("latest", "", None)
 
@@ -939,7 +939,7 @@ def test_the_edge_lifecycle_order_holds():
     because a container started against an incomplete tree is an edge answering
     444 for every customer.
     """
-    play = (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+    play = (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
     order = [
         "name: blitzecdn_docker",
         "tasks_from: prepare.yml",
@@ -974,7 +974,7 @@ def test_the_fleet_rollout_starts_with_one_edge():
     believing they changed the rule.
     """
     play = yaml.safe_load(
-        (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+        (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
     )[0]
 
     assert play["any_errors_fatal"] is True

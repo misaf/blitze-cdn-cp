@@ -3,14 +3,14 @@ extends: default
 ignore: |
   .state/
   .venv/
-  ansible/.venv/
-  ansible/.ansible/
-  ansible/.cache/
+  src/blitzecdn/ansible/.venv/
+  src/blitzecdn/ansible/.ansible/
+  src/blitzecdn/ansible/.cache/
   # Operator state written by `blitzecdn setup` and `blitzecdn edge add`, not
   # source. It is gitignored, so CI never sees it, but every installed
   # controller has one and `yamllint .` would fail there on formatting no
-  # human chose. Lint ansible/inventory/hosts.example.yml instead.
-  ansible/inventory/hosts.yml
+  # human chose. Lint src/blitzecdn/ansible/inventory/hosts.example.yml instead.
+  src/blitzecdn/ansible/inventory/hosts.yml
 rules:
   braces:
     max-spaces-inside: 1

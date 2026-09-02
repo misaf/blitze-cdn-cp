@@ -890,7 +890,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
 #: The repository-level Ansible tree, which is the platform's and nobody
 #: else's: the base host, the container engine, the firewall, the edge runtime
 #: contract, `blitzecdn_nginx`, and the slot the installed capabilities fill.
-CORE_ANSIBLE = REPO_ROOT / "ansible"
+CORE_ANSIBLE = REPO_ROOT / "src/blitzecdn/ansible"
 
 #: Words that name an optional capability's *implementation* rather than a
 #: setting core legitimately renders. `geoip2` is the Nginx module directive,

@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 import yaml
-from paths import FIXTURES, REPO_ROOT
+from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
@@ -44,12 +44,12 @@ FIXTURE = FIXTURES / "desired-state.yml"
 #: An optional capability's roles are not here. They ship inside that
 #: capability's wheel and its own tests read them from there, which is the same
 #: path a deployment resolves them by.
-ROLES_DIR = PROJECT_DIR / "ansible/roles"
+ROLES_DIR = CORE_ANSIBLE / "roles"
 
 
 def _role(name: str) -> Path:
     candidate = ROLES_DIR / name
-    assert candidate.is_dir(), f"{name} is missing from ansible/roles/"
+    assert candidate.is_dir(), f"{name} is missing from src/blitzecdn/ansible/roles/"
     return candidate
 
 

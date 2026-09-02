@@ -1,7 +1,9 @@
 # Ansible quick start
 
 The control plane invokes the playbooks and roles in this directory to manage
-BlitzeCDN edges. There is no host inventory file to edit: the inventory plugin
+BlitzeCDN edges. They live *inside* the `blitzecdn` package, so they ship in the
+wheel and resolve identically in a checkout and on a controller that has no
+checkout — the same way every optional capability carries its own Ansible. There is no host inventory file to edit: the inventory plugin
 reads registered edges and fleet configuration from the control-plane database.
 
 Install the controller from the project root, then register and deploy an edge:
@@ -25,7 +27,7 @@ CIDR. Managed edges must be fresh Ubuntu 26.04 LTS hosts.
 Inspect the generated inventory when troubleshooting:
 
 ```bash
-ANSIBLE_CONFIG=ansible/ansible.cfg \
+ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg \
   ansible-inventory --list
 ```
 
@@ -113,10 +115,10 @@ To run the edge play by hand against a fleet with capabilities attached, pass
 the roles path and the list:
 
 ```bash
-ANSIBLE_CONFIG=ansible/ansible.cfg \
+ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg \
 ANSIBLE_LOCAL_TEMP=.state/ansible-local \
-ANSIBLE_ROLES_PATH="ansible/roles:packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" \
-  ansible-playbook ansible/playbooks/edge.yml \
+ANSIBLE_ROLES_PATH="src/blitzecdn/ansible/roles:packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" \
+  ansible-playbook src/blitzecdn/ansible/playbooks/edge.yml \
   --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_geoip"]}'
 ```
 

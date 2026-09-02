@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+from paths import CORE_ANSIBLE
 
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
@@ -38,7 +39,26 @@ def test_runtime_validation_reports_missing_files(tmp_path):
     settings = Settings.from_environment({}, project_dir=tmp_path)
     errors = settings.validate_runtime(require_auth=True)
     assert "no API keys configured" in errors
-    assert any("inventory does not exist" in item for item in errors)
+
+
+def test_the_platform_ansible_is_not_a_function_of_the_project_directory(tmp_path):
+    """An empty project directory still has roles, plays and an inventory.
+
+    These three used to be `project_dir / "ansible/..."`, so a controller whose
+    project directory was not a checkout — which is every controller — had none
+    of them, and `validate_runtime` said so. That report was the symptom: the
+    repository was an undeclared runtime dependency of the wheel. They come
+    from `importlib.resources` now, so the answer is the same in a checkout and
+    on an installed controller, and the only thing an empty project directory
+    is missing is the API key above.
+    """
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+
+    assert settings.project_dir == tmp_path.resolve()
+    assert settings.ansible_dir == CORE_ANSIBLE
+    assert settings.playbook_path == CORE_ANSIBLE / "playbooks/edge.yml"
+    assert settings.inventory_path == CORE_ANSIBLE / "inventory/blitzecdn.yml"
+    assert not any("does not exist" in item for item in settings.validate_runtime())
 
 
 def test_a_capabilitys_settings_are_kept_environment_only_and_masked(tmp_path):

@@ -26,7 +26,6 @@ import os
 import sqlite3
 
 from ansible.errors import AnsibleParserError
-
 from ansible.plugins.inventory import BaseInventoryPlugin
 
 DOCUMENTATION = """

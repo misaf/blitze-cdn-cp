@@ -259,6 +259,16 @@ class PlaybookExecutor:
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
+        # The third-party collections the platform roles depend on, for the
+        # same reason as the two above: ansible.cfg can only name a directory
+        # relative to itself, and since the platform's Ansible moved into the
+        # wheel that would put a controller's collections inside its own
+        # site-packages. Not created here — `install.sh` and the container image
+        # fetch into it, and a run that finds it empty must fail loudly rather
+        # than proceed against a directory this made look valid.
+        environment.setdefault(
+            "ANSIBLE_COLLECTIONS_PATH", str(self._settings.state_dir / "collections")
+        )
         # Where the `blitzecdn` inventory plugin reads the fleet from. Absolute,
         # because Ansible runs with cwd set to `ansible_dir` and the configured
         # path may well be relative to the project root instead. This is the

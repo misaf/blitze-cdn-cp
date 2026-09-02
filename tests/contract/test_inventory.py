@@ -5,11 +5,11 @@ inventory plugin, which reads that table directly at the start of every run —
 so there is no file to keep in step, and nothing here writes one.
 
 What is left to check is the seam the plugin sits on, and it is a real seam:
-the plugin ships in `ansible/plugins/inventory/`, runs inside `ansible-playbook`
-under whatever interpreter that is, and cannot import `blitzecdn` to validate
-what it reads. Two independent pieces of code therefore know the shape of an
-edge — `infrastructure.ansible_mapping.edge_to_inventory` and the plugin's
-`_host_variables` —
+the plugin ships in `src/blitzecdn/ansible/plugins/inventory/`, runs inside
+`ansible-playbook` under whatever interpreter that is, and cannot import
+`blitzecdn` to validate what it reads. Two independent pieces of code therefore
+know the shape of an edge — `infrastructure.ansible_mapping.edge_to_inventory`
+and the plugin's `_host_variables` —
 and the only honest way to check they agree is to write a database with the
 model and then run the real `ansible-inventory` against it. That is what
 `test_the_plugin_publishes_what_the_model_renders` does.
@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from paths import REPO_ROOT
+from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core.ansible.mapping import edge_to_inventory
 from blitzecdn.core.database import Repository
@@ -36,7 +36,7 @@ from blitzecdn.core.validation import RESERVED_ANSIBLE_SETTINGS
 from blitzecdn.features.edges.domain import EDGE_GROUP, Edge, firewall_sources
 
 PROJECT_DIR = REPO_ROOT
-ANSIBLE_DIR = PROJECT_DIR / "ansible"
+ANSIBLE_DIR = CORE_ANSIBLE
 INVENTORY_SOURCE = ANSIBLE_DIR / "inventory/blitzecdn.yml"
 
 

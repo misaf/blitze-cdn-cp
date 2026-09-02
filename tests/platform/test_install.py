@@ -36,7 +36,7 @@ from pathlib import Path
 import jinja2
 import pytest
 import yaml
-from paths import REPO_ROOT
+from paths import CORE_ANSIBLE, REPO_ROOT
 
 PROJECT_DIR = REPO_ROOT
 SCRIPT = PROJECT_DIR / "install.sh"
@@ -235,7 +235,7 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "opt/blitzecdn/.state/ansible-local",
         root / "opt/blitzecdn/.venv/bin/python",
         root / "opt/blitzecdn/.venv/bin/ansible-playbook",
-        root / "opt/blitzecdn/ansible/playbooks/uninstall.yml",
+        root / "opt/blitzecdn/src/blitzecdn/ansible/playbooks/uninstall.yml",
         root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/blitzecdn/control-plane.compose.yml",
@@ -517,14 +517,16 @@ def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
 
 
 def test_installer_installs_only_third_party_collections():
-    """The BlitzeCDN roles ship in ansible/roles/; nothing pins or builds them.
+    """The BlitzeCDN roles ship inside the wheel; nothing pins or builds them.
 
     The --force that used to be here worked around ansible-core comparing a
     v-prefixed Git ref to a numeric manifest. With no Git-backed collection
     left, needing it again would mean the roles had been re-externalised.
     """
     script = _script()
-    assert '-r ansible/requirements.yml -p "${collections_path}"' in script
+    assert (
+        '-r src/blitzecdn/ansible/requirements.yml -p "${collections_path}"' in script
+    )
     assert "--force" not in script
     assert "collection build" not in script
 
@@ -608,7 +610,7 @@ def test_bash_delegates_all_system_teardown_to_ansible():
 
 def test_uninstall_reuses_the_canonical_edge_teardown_role():
     uninstall_tasks = yaml.safe_load(
-        (SCRIPT.parent / "ansible/roles/blitzecdn_uninstall/tasks/main.yml").read_text(
+        (CORE_ANSIBLE / "roles/blitzecdn_uninstall/tasks/main.yml").read_text(
             encoding="utf-8"
         )
     )
@@ -1168,13 +1170,13 @@ def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
 
 # --- the control-plane role --------------------------------------------------
 #
-# Host state moved out of this script and into ansible/roles/blitzecdn_controlplane,
-# so the properties that used to be asserted against bash are asserted against
-# the role's tasks. What the role *does* is covered by running it on a real
-# Debian/Ubuntu host; these pin the invariants that a reader cannot see from one
-# successful run.
+# Host state moved out of this script and into the blitzecdn_controlplane
+# role under src/blitzecdn/ansible/roles/, so the properties that used to be
+# asserted against bash are asserted against the role's tasks. What the role
+# *does* is covered by running it on a real Debian/Ubuntu host; these pin the
+# invariants that a reader cannot see from one successful run.
 
-ROLE = PROJECT_DIR / "ansible/roles/blitzecdn_controlplane"
+ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
 
 
 def _role_tasks() -> list[dict]:
@@ -1259,7 +1261,7 @@ def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
 
 def test_edge_platform_is_pinned_to_ubuntu_26_04():
     edge = yaml.safe_load(
-        (PROJECT_DIR / "ansible/playbooks/edge.yml").read_text(encoding="utf-8")
+        (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
     )
     edge_gate = edge[0]["pre_tasks"][0]["ansible.builtin.assert"]
     assert edge_gate["that"] == [

@@ -205,7 +205,10 @@ class Environment:
             "  resolve_edge_capability_roles, resolve_host_capability_roles,"
             "  resolve_role_search_path, resolve_teardown_capability_roles);"
             "from blitzecdn.core.nginx import resolve_nginx_resources;"
-            "core = Path('/nonexistent-core-roles');"
+            # The platform's own roles, from the installed distribution. This
+            # used to be a fabricated path, because core resolved its tree from
+            # the checkout and there was nothing to point at in a virtualenv.
+            "from blitzecdn.ansible import ROLES_PATH as core;"
             "path = resolve_role_search_path(core, load_plugins()"
             ".ansible_contributions());"
             "print(json.dumps({"
@@ -902,6 +905,37 @@ def test_validate_names_the_capability_a_configuration_asks_for_and_lacks(
 # --- the deployment implementation attaches and detaches with the wheel -----
 
 
+#: The platform roles: the ones that exist on every edge because the control
+#: plane converged it, not because a capability was attached. They are core's
+#: half of the same contract every package under `packages/` already keeps —
+#: the deployment implementation ships inside the distribution that asks for
+#: it — and the two tests below are the capability tests above, turned on core.
+PLATFORM_ROLES = (
+    "blitzecdn_base",
+    "blitzecdn_capabilities",
+    "blitzecdn_controlplane",
+    "blitzecdn_docker",
+    "blitzecdn_edge",
+    "blitzecdn_edge_stack",
+    "blitzecdn_firewall",
+    "blitzecdn_kernel",
+    "blitzecdn_nginx",
+    "blitzecdn_teardown",
+    "blitzecdn_uninstall",
+)
+
+#: The plays core passes to `run_playbook` by path, plus the two it hands to
+#: Ansible as configuration. The inventory plugin is in the list because it is
+#: the piece with no capability precedent: Ansible loads inventory plugins by
+#: *directory*, so a wheel that carried the roles and left the plugin in the
+#: checkout would resolve every role and then find no fleet to run them on.
+PLATFORM_PLAYBOOKS = (
+    "control-plane.yml",
+    "decommission.yml",
+    "edge.yml",
+    "uninstall.yml",
+)
+
 #: The capability whose Ansible really is its own: two roles and two plays that
 #: exist only while `blitzecdn-cache` is installed. `backup` drives the generic
 #: attach/detach cycle above because it has no Ansible at all, which is exactly
@@ -974,12 +1008,14 @@ def test_core_alone_offers_no_capability_owned_role(
 ):
     """The root wheel carries the platform's roles and nobody else's.
 
-    Core's own roles ship with the checkout, not with the wheel, which is why
-    the search path here is core's directory and nothing beside it: there is no
-    contributed directory to add.
+    The search path is core's directory and nothing beside it, because there is
+    no contributed directory to add — and that directory is now inside the
+    installed distribution, so the roles it holds are the platform's eleven
+    rather than the empty list a fabricated path used to produce.
     """
-    assert ansible_cycle["before"]["roles"] == []
+    assert sorted(PLATFORM_ROLES) == ansible_cycle["before"]["roles"]
     assert len(ansible_cycle["before"]["paths"]) == 1
+    assert "site-packages" in ansible_cycle["before"]["paths"][0]
     # And the edge play converges nothing beyond the platform. A core-only
     # installation renders `blitzecdn_capability_roles` as an empty list, which
     # is the shape the play's include loops over — not a missing variable it
@@ -1004,6 +1040,9 @@ def test_installing_a_distribution_makes_its_roles_resolvable(
     assert (
         sorted(
             [
+                # The platform's, which are there in every state of the cycle
+                # because they ship in the root wheel.
+                *PLATFORM_ROLES,
                 *ANSIBLE_ROLES,
                 EDGE_ROLE,
                 *HOST_ROLES,
@@ -1246,6 +1285,95 @@ def test_an_installed_capability_locates_its_plays_without_the_repository(
 
     assert resolved["exists"]
     assert str(environment.root) in resolved["purge"]
+
+
+# --- core's own Ansible travels the same way a capability's does ------------
+
+
+def test_the_root_wheel_carries_the_platform_ansible_tree(wheels: dict[str, Path]):
+    """Core keeps the contract it holds every capability to.
+
+    `test_the_capability_wheel_carries_its_whole_ansible_tree` asserts this of
+    `blitzecdn-cache`, and the reason given there is that a wheel shipping only
+    the `.py` files leaves a controller pointing at a directory that is not
+    there. Core is the larger case of exactly that: without this, `pip install
+    blitzecdn` produces a control plane that cannot converge anything, and the
+    only reason it works today is that `install.sh` and the Dockerfile copy the
+    repository in behind it. That makes the checkout an undeclared runtime
+    dependency of the root distribution — invisible until someone installs the
+    wheel the way its own packaging says they may.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(wheels["blitzecdn"]) as archive:
+        names = set(archive.namelist())
+
+    root = "blitzecdn/ansible"
+    for role in PLATFORM_ROLES:
+        assert f"{root}/roles/{role}/tasks/main.yml" in names
+        assert f"{root}/roles/{role}/meta/argument_specs.yml" in names
+    for playbook in PLATFORM_PLAYBOOKS:
+        assert f"{root}/playbooks/{playbook}" in names
+    # The dynamic inventory plugin and the source file that selects it. The
+    # fleet lives in the control-plane database and this is how Ansible reaches
+    # it; a wheel without them has roles and no hosts.
+    assert f"{root}/plugins/inventory/blitzecdn.py" in names
+    assert f"{root}/inventory/blitzecdn.yml" in names
+    # Shipped non-secret defaults. Read-only package data once they are in the
+    # wheel, which is what turns CLAUDE.md's "do not edit the tracked files
+    # under group_vars" from documentation into packaging.
+    assert f"{root}/inventory/group_vars/blitzecdn_edges/defaults.yml" in names
+    assert f"{root}/ansible.cfg" in names
+    assert f"{root}/requirements.yml" in names
+
+
+def test_core_locates_its_own_ansible_without_the_repository(
+    tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
+):
+    """The installed root wheel finds its roles and plays with no checkout.
+
+    The mirror of `test_an_installed_capability_locates_its_plays_without_the
+    _repository`, and it fails for the same reason that one would if
+    `blitzecdn_cache.ansible` counted `..` from `__file__`: core resolves its
+    tree from `Settings.project_dir`, so the answer is a repository-relative
+    path that is correct in a checkout and absent on a controller.
+
+    Run from a working directory that is not the repository, and asserted to be
+    under the virtualenv, so neither `cwd` nor a stray `BLITZE_PROJECT_DIR` can
+    make it pass for the wrong reason.
+    """
+    environment = _environment(tmp_path_factory.mktemp("core-ansible") / "venv")
+    environment.install(wheels["blitzecdn"])
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    program = (
+        "import json;"
+        "from blitzecdn import ansible;"
+        "print(json.dumps({"
+        "'roles': str(ansible.ROLES_PATH),"
+        "'edge': str(ansible.EDGE_PLAYBOOK),"
+        "'names': sorted(p.name for p in ansible.ROLES_PATH.iterdir()"
+        "  if p.is_dir()),"
+        "'exists': ansible.EDGE_PLAYBOOK.is_file()"
+        " and ansible.DECOMMISSION_PLAYBOOK.is_file()"
+        " and ansible.ROLES_PATH.is_dir()"
+        " and (ansible.INVENTORY_PLUGINS_PATH / 'blitzecdn.py').is_file(),"
+        "}))"
+    )
+    finished = subprocess.run(
+        [str(environment.python), "-c", program],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=elsewhere,
+        timeout=300,
+    )
+    resolved = json.loads(finished.stdout)
+
+    assert resolved["exists"]
+    assert sorted(PLATFORM_ROLES) == resolved["names"]
+    assert str(environment.root) in resolved["roles"]
+    assert str(environment.root) in resolved["edge"]
+    assert str(REPO_ROOT) not in resolved["roles"]
 
 
 # --- GeoIP: one lookup capability behind two unrelated settings -------------

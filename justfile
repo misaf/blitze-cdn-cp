@@ -12,8 +12,11 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 set dotenv-load := false
 
 # Ansible needs these to find the vendored roles and the inventory plugin.
-export ANSIBLE_CONFIG := "ansible/ansible.cfg"
+export ANSIBLE_CONFIG := "src/blitzecdn/ansible/ansible.cfg"
 export ANSIBLE_LOCAL_TEMP := ".state/ansible-local"
+# ansible.cfg no longer names this: it can only point inside the wheel the
+# platform roles now ship in, and collections are state.
+export ANSIBLE_COLLECTIONS_PATH := ".state/collections"
 
 collections := ".state/collections"
 
@@ -22,7 +25,7 @@ collections := ".state/collections"
 # distribution. Spelled out here rather than globbed because `just` has no
 # glob, and because a package that gains a roles directory should be a visible
 # line in this file rather than a silent change in behaviour.
-roles_path := "ansible/roles" + ":" + \
+roles_path := "src/blitzecdn/ansible/roles" + ":" + \
     "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles" + ":" + \
     "packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles" + ":" + \
     "packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" + ":" + \
@@ -45,7 +48,7 @@ default:
 # to have any.
 install:
     uv sync --frozen --all-packages
-    uv run ansible-galaxy collection install -r ansible/requirements.yml -p {{collections}}
+    uv run ansible-galaxy collection install -r src/blitzecdn/ansible/requirements.yml -p {{collections}}
 
 # Install exactly what a server gets: the control plane, the optional
 # capabilities a BlitzeCDN installation ships with, and no development group.
@@ -219,7 +222,7 @@ test-profile *args:
 # The syntax checks use the dynamic inventory plugin in its explicit non-strict
 # mode. A fresh checkout has no control-plane database, and a syntax check does
 # not need hosts; production keeps using the strict inventory in
-# `ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
+# `src/blitzecdn/ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
 #
 # `ANSIBLE_ROLES_PATH` is composed the way the control plane composes it at run
 # time: core's roles plus the roles each installed capability ships inside its
@@ -229,7 +232,7 @@ ansible-check:
     uv run yamllint .
     ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
-        ansible/playbooks/edge.yml --syntax-check \
+        src/blitzecdn/ansible/playbooks/edge.yml --syntax-check \
         --extra-vars @tests/fixtures/desired-state.yml \
         --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_cache_config", "blitzecdn_compression", "blitzecdn_geoip", "blitzecdn_http3", "blitzecdn_security"], "blitzecdn_host_capability_roles": ["blitzecdn_sshd", "blitzecdn_fail2ban"]}'
     ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
@@ -245,14 +248,14 @@ ansible-check:
     uv run ansible-playbook -i localhost, \
         tests/integration/docker-engine.yml --syntax-check
     uv run ansible-playbook -i localhost, \
-        ansible/playbooks/control-plane.yml --syntax-check
+        src/blitzecdn/ansible/playbooks/control-plane.yml --syntax-check
     uv run ansible-playbook -i localhost, \
-        ansible/playbooks/uninstall.yml --syntax-check
+        src/blitzecdn/ansible/playbooks/uninstall.yml --syntax-check
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml \
     ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-lint \
-        ansible/playbooks/edge.yml \
-        ansible/playbooks/control-plane.yml ansible/playbooks/decommission.yml \
-        ansible/playbooks/uninstall.yml \
+        src/blitzecdn/ansible/playbooks/edge.yml \
+        src/blitzecdn/ansible/playbooks/control-plane.yml src/blitzecdn/ansible/playbooks/decommission.yml \
+        src/blitzecdn/ansible/playbooks/uninstall.yml \
         packages/blitzecdn-origins/src/blitzecdn_origins/ansible/playbooks/origin-check.yml \
         packages/blitzecdn-origins/src/blitzecdn_origins/ansible/roles/blitzecdn_origins \
         packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/cache-purge.yml \
