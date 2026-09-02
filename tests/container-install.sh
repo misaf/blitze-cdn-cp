@@ -138,7 +138,7 @@ say "Seeding the edge runtime image this host will run"
 # everything as it expects and reports no change on its second run. This is the
 # only step in this script that pre-empts a role, and it does so with that
 # role's own configuration.
-docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/docker/edge" >/dev/null
+docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/src/blitzecdn/docker/edge" >/dev/null
 
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null' ||
   fail "could not install the Docker repository prerequisites"

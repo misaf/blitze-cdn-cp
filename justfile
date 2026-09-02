@@ -132,7 +132,7 @@ shell-lint:
 # The tag is only a local name: production pulls the published image by the tag
 # and digest recorded in the fleet settings, never a locally built one.
 edge-image tag="blitzecdn-edge:dev":
-    docker build --tag {{tag}} docker/edge
+    docker build --tag {{tag}} src/blitzecdn/docker/edge
 
 # Slow, privileged proof of a clean Ubuntu edge running the containerised
 # runtime: real HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, Brotli and Under Attack Mode,

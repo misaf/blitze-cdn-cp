@@ -59,7 +59,7 @@ converge() {
 }
 
 say "Building the BlitzeCDN edge image"
-docker build --tag "${EDGE_TAG}" "${project_dir}/docker/edge"
+docker build --tag "${EDGE_TAG}" "${project_dir}/src/blitzecdn/docker/edge"
 
 # A second tag of the same bytes. An upgrade is a change of *reference*, so this
 # exercises the pull, validate, recreate and health path without pretending a
