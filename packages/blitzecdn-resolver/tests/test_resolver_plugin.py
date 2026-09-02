@@ -14,12 +14,12 @@ from blitzecdn_resolver.plugin import (
     blitzecdn_plugin_metadata,
 )
 
-from blitzecdn.core.ansible.roles import (
+from blitzecdn.core.plugins import BUILTIN_PLUGINS, PluginMetadata, load_plugins
+from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
     resolve_teardown_capability_roles,
 )
-from blitzecdn.core.plugins import BUILTIN_PLUGINS, PluginMetadata, load_plugins
 
 # --- registration -----------------------------------------------------------
 

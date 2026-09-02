@@ -28,15 +28,15 @@ from control_plane_fixtures import FakeEdgeStore, settings  # noqa: F401
 
 from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
-from blitzecdn.core.ansible.roles import (
+from blitzecdn.core.exceptions import PluginError
+from blitzecdn.core.plugins import AnsibleContribution, EdgeModule
+from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
+    resolve_edge_modules,
     resolve_host_capability_roles,
     resolve_role_search_path,
     resolve_teardown_capability_roles,
 )
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.nginx import resolve_edge_modules
-from blitzecdn.core.plugins import AnsibleContribution, EdgeModule
 
 
 def _roles(root: Path, *names: str) -> Path:

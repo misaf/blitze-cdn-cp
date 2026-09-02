@@ -31,7 +31,7 @@ from pydantic import SecretStr
 from blitzecdn.core.ansible.events import RunnerEvents
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.core.nginx import ResolvedEdgeModule, ResolvedNginxResource
+from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun, HostRun, RunStatus
 
 __all__ = ["PlaybookExecutor"]
@@ -57,7 +57,7 @@ class PlaybookExecutor:
     ) -> None:
         self._settings = settings
         #: Where Ansible resolves a role name, composed by
-        #: :func:`blitzecdn.core.ansible.roles.resolve_role_search_path` from
+        #: :func:`blitzecdn.core.plugins.resolution.resolve_role_search_path` from
         #: core's roles and the installed plugins'. Passed in rather than read
         #: from configuration because it is a fact about what is *installed*,
         #: which only the composition root knows.
@@ -74,8 +74,9 @@ class PlaybookExecutor:
             for context, resources in (nginx_resources or {}).items()
         }
         #: The Nginx dynamic modules the installed capabilities need loaded,
-        #: composed by :func:`blitzecdn.core.nginx.resolve_edge_modules`. Same
-        #: kind of fact as the role slots and travelling the same way: it is
+        #: composed by
+        #: :func:`blitzecdn.core.plugins.resolution.resolve_edge_modules`. The
+        #: same kind of fact as the role slots, travelling the same way: it is
         #: what is *installed*, so it is not desired state and never enters the
         #: snapshot a rollback converges.
         self._edge_modules = tuple(edge_modules)

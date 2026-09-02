@@ -201,10 +201,10 @@ class Environment:
             "import json;"
             "from pathlib import Path;"
             "from blitzecdn.core.plugins import load_plugins;"
-            "from blitzecdn.core.ansible.roles import ("
+            "from blitzecdn.core.plugins.resolution import ("
             "  resolve_edge_capability_roles, resolve_host_capability_roles,"
             "  resolve_role_search_path, resolve_teardown_capability_roles);"
-            "from blitzecdn.core.nginx import ("
+            "from blitzecdn.core.plugins.resolution import ("
             "  resolve_edge_modules, resolve_nginx_resources);"
             # The platform's own roles, from the installed distribution. This
             # used to be a fabricated path, because core resolved its tree from

@@ -215,7 +215,7 @@ class PluginRegistry:
 
         Registration order, like the routers and the commands, and then sorted
         by plugin name where it matters — the search path this feeds is
-        composed in :mod:`blitzecdn.core.ansible.roles`, which is where
+        composed in :mod:`blitzecdn.core.plugins.resolution`, which is where
         determinism and shadowing are actually decided.
         """
         return _flatten(

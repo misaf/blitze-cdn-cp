@@ -42,21 +42,10 @@ from collections.abc import Callable
 from typing import Protocol
 
 from blitzecdn.core.ansible import AnsibleRunner
-from blitzecdn.core.ansible.roles import (
-    resolve_edge_capability_roles,
-    resolve_host_capability_roles,
-    resolve_role_search_path,
-    resolve_teardown_capability_roles,
-)
 from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
 from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
-from blitzecdn.core.nginx import (
-    resolve_capability_environment,
-    resolve_edge_modules,
-    resolve_nginx_resources,
-)
 from blitzecdn.core.operation_ports import AuditTrail, PlaybookRunner
 from blitzecdn.core.plugins import (
     HealthCheck,
@@ -66,6 +55,13 @@ from blitzecdn.core.plugins import (
     ScheduledJob,
     ValidationResult,
     load_plugins,
+    resolve_capability_environment,
+    resolve_edge_capability_roles,
+    resolve_edge_modules,
+    resolve_host_capability_roles,
+    resolve_nginx_resources,
+    resolve_role_search_path,
+    resolve_teardown_capability_roles,
 )
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.workflows import WorkflowCoordinator
@@ -189,7 +185,12 @@ class ControlPlane:
         contributions = self.plugins.ansible_contributions()
         nginx_resources = resolve_nginx_resources(self.plugins.nginx_contributions())
         edge_modules = resolve_edge_modules(contributions)
-        capability_environment = resolve_capability_environment(
+        # Each installed package's own configuration, resolved once here and
+        # never read out of `Settings` by the packages themselves. Flat for
+        # Ansible, scoped for the controller: `platform.capability_config` is
+        # how a capability reads the credential it claimed, and it can reach
+        # nothing it did not claim.
+        self.capability_config = resolve_capability_environment(
             contributions, self.settings.capability_environment
         )
         self._runner = runner or AnsibleRunner(
@@ -219,7 +220,7 @@ class ControlPlane:
             # edge that loads one no installed capability asked for is the
             # image enumerating capabilities instead of the controller.
             edge_modules=edge_modules,
-            capability_environment=capability_environment,
+            capability_environment=self.capability_config.environment,
         )
         self._origin_probe = origin_probe or OriginProbe(self.settings)
         self.origin_probe: OriginProbePort = self._origin_probe

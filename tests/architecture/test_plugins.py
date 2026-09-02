@@ -18,7 +18,6 @@ import pytest
 from fastapi import APIRouter
 from typer import Typer
 
-from blitzecdn.core.ansible.roles import resolve_role_search_path
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     BUILTIN_PLUGINS,
@@ -41,6 +40,7 @@ from blitzecdn.core.plugins import (
     register,
     register_external,
 )
+from blitzecdn.core.plugins.resolution import resolve_role_search_path
 from blitzecdn.features.sites.domain import CdnSite
 
 _FIXTURES = "external_plugins"
