@@ -34,12 +34,6 @@ class DriftRequest(FleetRequest):
     pass
 
 
-class OriginCheckRequest(FleetRequest):
-    """Which edges should answer. All of them, unless narrowed."""
-
-    pass
-
-
 class RollbackRequest(RequestModel):
     deployment_id: str | None = Field(default=None, min_length=32, max_length=32)
     check: bool = False
