@@ -1,6 +1,0 @@
----
-- name: Restart Fail2Ban
-  ansible.builtin.systemd_service:
-    name: fail2ban
-    state: restarted
-  when: not ansible_check_mode

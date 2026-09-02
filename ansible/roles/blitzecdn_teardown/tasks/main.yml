@@ -201,32 +201,19 @@
 # The report the control plane records against the decommission. Anything still
 # listed here needs a human on the host, because after the inventory entry goes
 # there is no way back to it.
-# Restores whatever the link supplies, which is the state the host was in
-# before blitzecdn_resolver ran. If that resolver was the reason this fleet
-# needed the role, the host goes back to resolving badly -- correct for a
-# decommission, and worth knowing before running one on a live host.
-- name: Remove the managed resolver drop-in
-  ansible.builtin.file:
-    path: "{{ blitzecdn_teardown_resolver_file }}"
-    state: absent
-  register: blitzecdn_teardown_resolver_removed
-
-- name: Restart systemd-resolved without the managed drop-in
-  ansible.builtin.systemd_service:
-    name: systemd-resolved
-    state: restarted
-  when:
-    - blitzecdn_teardown_resolver_removed.changed
-    - not ansible_check_mode
-
+#
+# It is a verdict on what *core* wrote, and it is the last thing the
+# decommission play runs. An installed capability withdraws its own files in
+# the slot before this role, so anything it left behind is already gone by the
+# time this looks — and a path this role does not know, such as the resolver
+# drop-in `blitzecdn-resolver` writes, is not one it could have listed anyway.
 - name: Confirm the host is clean
   ansible.builtin.stat:
     path: "{{ item }}"
   register: blitzecdn_teardown_residue
   loop: >-
     {{
-      [blitzecdn_teardown_resolver_file,
-       blitzecdn_teardown_sshd_file,
+      [blitzecdn_teardown_sshd_file,
        blitzecdn_teardown_fail2ban_file,
        blitzecdn_teardown_sysctl_file]
       + ([blitzecdn_teardown_state_path,

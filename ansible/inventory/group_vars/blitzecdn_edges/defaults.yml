@@ -56,15 +56,12 @@ blitzecdn_firewall_enabled: false
 # effect. Use `blitzecdn edge update` instead.
 blitzecdn_nginx_sites: []
 
-# Edges accept public keys only. The role refuses to disable passwords unless
-# the connecting account already has a working key on the host, so this cannot
-# strand an edge — but it will fail a deploy against a host reached by
-# password. Install the operator key first.
-blitzecdn_sshd_enabled: true
-blitzecdn_sshd_permit_root_login: 'no'
-# Empty means "the account this control plane connects as". Set an explicit
-# list to close SSH to a named set of operators.
-blitzecdn_sshd_allow_users: []
+# The SSH keys that were here are not any more. Host access hardening ships as
+# `blitzecdn-hardening`, so `blitzecdn_sshd_enabled`, its root-login policy and
+# its user list live in that package's own role defaults — where an operator
+# who has detached the distribution does not find a file in the control plane's
+# checkout still describing a role no edge will run. Their values are unchanged
+# and they are overridden the same way: `blitzecdn config set`.
 
 # An optional capability's fleet settings are NOT here either. They ship with
 # the capability, in that package's own role defaults, and are overridden the

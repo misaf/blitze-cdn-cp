@@ -1,9 +1,0 @@
----
-argument_specs:
-  main:
-    short_description: Point the host at resolvers that answer public names truthfully.
-    options:
-      blitzecdn_resolver_enabled: {type: bool, required: true}
-      blitzecdn_resolver_addresses: {type: list, elements: str, required: true}
-      blitzecdn_resolver_fallback_addresses: {type: list, elements: str, required: true}
-      blitzecdn_resolver_domains: {type: list, elements: str, required: true}
