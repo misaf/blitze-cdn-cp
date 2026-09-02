@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
 import jinja2
@@ -10,10 +11,24 @@ import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core import broker
+from blitzecdn.docker import (
+    CONTROL_PLANE_DOCKERFILE,
+    CONTROL_PLANE_DOCKERIGNORE,
+)
 
 ROOT = REPO_ROOT
 ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
 UNINSTALL = CORE_ANSIBLE / "roles/blitzecdn_uninstall/tasks/main.yml"
+
+
+def _role_defaults() -> dict[str, Any]:
+    """The role's own `defaults/main.yml`.
+
+    Read rather than restated, so a variable the template needs is proved
+    to have a default that renders — the failure otherwise is a
+    `StrictUndefined` on a controller mid-install, not here.
+    """
+    return yaml.safe_load((ROLE / "defaults/main.yml").read_text(encoding="utf-8"))
 
 
 def _compose() -> dict[str, Any]:
@@ -31,6 +46,9 @@ def _compose() -> dict[str, Any]:
         blitzecdn_controlplane_state_dir="/var/lib/blitzecdn",
         blitzecdn_controlplane_backup_dir="/var/backups/blitzecdn",
         blitzecdn_controlplane_redis_image="redis:test",
+        blitzecdn_controlplane_dockerfile=_role_defaults()[
+            "blitzecdn_controlplane_dockerfile"
+        ],
     )
     return yaml.safe_load(rendered)
 
@@ -84,15 +102,13 @@ def test_application_services_reuse_the_image_non_root_identity():
         assert "group_add" not in service
         assert service["security_opt"] == ["no-new-privileges:true"]
 
-    dockerfile = (ROOT / "docker/control-plane/Dockerfile").read_text(encoding="utf-8")
+    dockerfile = CONTROL_PLANE_DOCKERFILE.read_text(encoding="utf-8")
     assert "USER nobody:nogroup" in dockerfile
     for duplicate_account in ("useradd", "groupadd", "adduser", "addgroup"):
         assert duplicate_account not in dockerfile
     for dynamic_mapping in ("BLITZE_UID", "BLITZE_GID", "PUID", "PGID"):
         assert dynamic_mapping not in dockerfile
-    dockerignore = (ROOT / "docker/control-plane/Dockerfile.dockerignore").read_text(
-        encoding="utf-8"
-    )
+    dockerignore = CONTROL_PLANE_DOCKERIGNORE.read_text(encoding="utf-8")
     assert "blitzecdn.toml" in dockerignore.splitlines()
 
 
@@ -245,3 +261,26 @@ def test_host_permissions_match_container_write_requirements():
     environment = file_task("Enforce the environment file ownership")
     assert environment["owner"] == environment["group"] == "root"
     assert environment["mode"] == "0600"
+
+
+def test_the_image_is_built_from_the_dockerfile_the_package_publishes():
+    """One path, named by `blitzecdn.docker` and pointed at by the role.
+
+    The template used to spell the Dockerfile's location inline, back when
+    it sat in a top-level directory: that was a second copy of a location
+    the package now owns, and moving the tree
+    would have left the controller's `docker compose build` looking for a file
+    that is no longer there, and nothing would have said so until an install.
+
+    Relative, because Docker resolves it against the build context rather than
+    against anything Ansible knows. That context is the installation directory
+    — a source checkout — and it is the last thing on a controller that still
+    needs one.
+    """
+    build = _compose()["services"]["blitzecdn-api"]["build"]
+    default = _role_defaults()["blitzecdn_controlplane_dockerfile"]
+
+    assert build["context"] == "/opt/blitzecdn"
+    assert build["dockerfile"] == default
+    assert not Path(default).is_absolute()
+    assert default == str(CONTROL_PLANE_DOCKERFILE.relative_to(REPO_ROOT))

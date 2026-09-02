@@ -29,7 +29,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
-from paths import REPO_ROOT, SOURCE, optional_packages
+from paths import CORE_DOCKER, REPO_ROOT, SOURCE, optional_packages
 
 from blitzecdn.core.plugins import (
     BUILTIN_PLUGINS,
@@ -922,17 +922,17 @@ CAPABILITY_IMPLEMENTATION_WORDS = (
     "under_attack_enabled",
 )
 
-#: The one place core may still name a module by name, and why.
+#: There are no exemptions, and there is no longer a mechanism for one.
 #:
-#: `capabilities.yml` starts the managed edge image with no network and no
-#: mounts and asks whether it can load the modules it was built with. That is a
-#: statement about the *image*, which core builds and pins, and it has to be
-#: made whether or not any distribution is installed — an image missing its
-#: GeoIP2 or Brotli filter is not a usable BlitzeCDN edge, and finding out at
-#: `nginx -t` on a live edge is much worse than finding out here. Moving the
-#: probe into a package would mean an uninstalled capability could silently
-#: stop the image from being validated at all.
-CAPABILITY_WORD_EXEMPTIONS = frozenset({"roles/blitzecdn_nginx/tasks/capabilities.yml"})
+#: There used to be exactly one: the task that started the managed edge image
+#: and asked whether it could load the modules it was built with named GeoIP2,
+#: Brotli and njs, on the grounds that the *image* carries them whether or not
+#: any distribution is installed. That grounding is what changed. The modules
+#: an edge loads are declared by the capabilities that need them, resolved by
+#: `blitzecdn.core.nginx.resolve_edge_modules` and rendered into the edge's own
+#: `load_module` list — so the probe now asserts against that resolved list and
+#: has no module name of its own to hold. Nothing in the tree is exempt.
+CAPABILITY_WORD_EXEMPTIONS: frozenset[str] = frozenset()
 
 
 def _core_ansible_files() -> list[Path]:
@@ -1187,3 +1187,74 @@ def test_core_carries_no_setting_named_for_an_optional_capability():
         name for name in Settings.model_fields for token in forbidden if token in name
     ]
     assert offenders == [], offenders
+
+
+# --- the image build inputs ship inside the package, like the Ansible --------
+
+
+def test_the_published_docker_paths_are_the_ones_in_the_checkout():
+    """`blitzecdn.docker` and the checkout tree are the same directory.
+
+    The module resolves through `importlib.resources`, which in a checkout
+    with an editable install answers the checkout — so every other suite can
+    read the constants and still be reading the files under review. The day
+    that stops being true is the day the packaging moved and nothing said so.
+    """
+    from blitzecdn import docker
+
+    assert docker.EDGE_CONTEXT == CORE_DOCKER / "edge"
+    assert docker.CONTROL_PLANE_DOCKERFILE == CORE_DOCKER / "control-plane/Dockerfile"
+    for constant in (
+        docker.EDGE_DOCKERFILE,
+        docker.EDGE_MODULE_PROBE_CONF,
+        docker.CONTROL_PLANE_DOCKERFILE,
+        docker.CONTROL_PLANE_DOCKERIGNORE,
+    ):
+        assert constant.is_file(), constant
+
+
+def test_no_tracked_file_names_the_old_top_level_docker_directory():
+    """The build inputs moved into the wheel; nothing may point back.
+
+    A textual guard, because that is the shape of the regression: a new script
+    or workflow copying the old `docker/edge` incantation would work in a
+    checkout and fail on an installed controller, which is the exact failure
+    mode the move removed. Python callers should read the constants; the
+    justfile, the two root-run shell scripts and the release workflow cannot
+    import anything, so they spell the path under `src/blitzecdn/` and this
+    only refuses the pre-move form.
+    """
+    import shutil
+    import subprocess
+
+    git = shutil.which("git")
+    assert git, "this asks git which files are tracked"
+    tracked = subprocess.run(  # noqa: S603 - fixed argv built here
+        [git, "ls-files"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.split()
+    offenders = [
+        f"{name}:{number}"
+        for name in tracked
+        for path in ((REPO_ROOT / name),)
+        # This module is the one file that has to spell the pre-move form:
+        # the needles below are it. Prose elsewhere is deliberately *not*
+        # exempt — a comment telling somebody to build `docker/edge` sends
+        # them somewhere that no longer exists just as surely as a command
+        # would.
+        if path.is_file()
+        and not name.startswith("src/blitzecdn/docker/")
+        and path != Path(__file__).resolve()
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1
+        )
+        for stale in ("docker/edge", "docker/control-plane")
+        if stale in line and f"src/blitzecdn/{stale}" not in line
+    ]
+    assert offenders == [], (
+        "these name the pre-move `docker/` directory, which only a checkout "
+        f"has: {offenders}"
+    )
