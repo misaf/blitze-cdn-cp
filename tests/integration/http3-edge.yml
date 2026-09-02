@@ -12,8 +12,8 @@
     blitzecdn_edge_stack_image_pull: false
     # The runner has no MaxMind credentials, and the test installs a MaxMind
     # sample database by hand. Without this the role would try to fetch one.
-    blitzecdn_edge_stack_geoip_account_id: ''
-    blitzecdn_edge_stack_geoip_license_key: ''
+    blitzecdn_geoip_account_id: ''
+    blitzecdn_geoip_license_key: ''
     blitzecdn_firewall_enabled: true
     blitzecdn_firewall_ssh_sources: [172.16.0.0/12]
     blitzecdn_nginx_allow_empty_sites: false
@@ -21,11 +21,61 @@
     # deploy's own listener check. The play used to set it three times.
     blitzecdn_edge_http3_enabled: true
     blitzecdn_nginx_http3_listener_owner: site-one-test
-    blitzecdn_edge_geoip_enabled: true
-    blitzecdn_edge_stack_geoip_update_enabled: false
-    blitzecdn_edge_geoip_database: /usr/share/GeoIP/GeoIP2-Country-Test.mmdb
-    blitzecdn_nginx_under_attack_enabled: true
-    blitzecdn_nginx_under_attack_secret: >-
+    # Two optional capabilities, converged from the roles their own wheels
+    # ship. This play names them the way the control plane does — a list core's
+    # capability slot loops over — rather than importing them, so the ordering
+    # and the variable are the ones a real deploy uses.
+    blitzecdn_capability_roles:
+      - blitzecdn_cache_config
+      - blitzecdn_compression
+      - blitzecdn_geoip
+      - blitzecdn_http3
+      - blitzecdn_security
+    # A direct Ansible harness has no Python composition root, so state the
+    # resources that installed plugins would normally resolve automatically.
+    blitzecdn_nginx_resources:
+      http:
+        - plugin: cache
+          name: cache-http.conf.j2
+          template: /workspace/packages/blitzecdn-cache/src/blitzecdn_cache/nginx/cache-http.conf.j2
+        - plugin: geoip
+          name: geoip-http.conf.j2
+          template: /workspace/packages/blitzecdn-geoip/src/blitzecdn_geoip/nginx/geoip-http.conf.j2
+        - plugin: security
+          name: security-http.conf.j2
+          template: /workspace/packages/blitzecdn-security/src/blitzecdn_security/nginx/security-http.conf.j2
+      server:
+        - plugin: compression
+          name: compression-server.conf.j2
+          template: /workspace/packages/blitzecdn-compression/src/blitzecdn_compression/nginx/compression-server.conf.j2
+        - plugin: http3
+          name: http3-server.conf.j2
+          template: /workspace/packages/blitzecdn-http3/src/blitzecdn_http3/nginx/http3-server.conf.j2
+        - plugin: security
+          name: security-server.conf.j2
+          template: /workspace/packages/blitzecdn-security/src/blitzecdn_security/nginx/security-server.conf.j2
+      access:
+        - plugin: security
+          name: security-access.conf.j2
+          template: /workspace/packages/blitzecdn-security/src/blitzecdn_security/nginx/security-access.conf.j2
+      upstream:
+        - plugin: cache
+          name: cache-upstream.conf.j2
+          template: /workspace/packages/blitzecdn-cache/src/blitzecdn_cache/nginx/cache-upstream.conf.j2
+        - plugin: geoip
+          name: geoip-upstream.conf.j2
+          template: /workspace/packages/blitzecdn-geoip/src/blitzecdn_geoip/nginx/geoip-upstream.conf.j2
+        - plugin: http3
+          name: http3-upstream.conf.j2
+          template: /workspace/packages/blitzecdn-http3/src/blitzecdn_http3/nginx/http3-upstream.conf.j2
+        - plugin: security
+          name: security-upstream.conf.j2
+          template: /workspace/packages/blitzecdn-security/src/blitzecdn_security/nginx/security-upstream.conf.j2
+    blitzecdn_geoip_enabled: true
+    blitzecdn_geoip_update_enabled: false
+    blitzecdn_geoip_edition: GeoIP2-Country-Test
+    blitzecdn_security_under_attack_enabled: true
+    blitzecdn_security_under_attack_secret: >-
       {{ lookup('file', '/run/blitzecdn-under-attack-secret') }}
     # The config-test container has no network, so keep origin lookup deferred
     # until request time. The running edge shares this host's network namespace,
@@ -111,6 +161,11 @@
           {{ blitzecdn_edge_stack_resolved_image
              | default(blitzecdn_edge_runtime.image) }}
   roles:
+    # Exactly the order ansible/playbooks/edge.yml uses: the installed
+    # capabilities converge what the configuration will depend on, then the
+    # firewall opens the ports, then blitzecdn_nginx renders and proves the
+    # whole tree loads, then the stack starts the container.
+    - role: blitzecdn_capabilities
     - role: blitzecdn_firewall
     - role: blitzecdn_nginx
     - role: blitzecdn_edge_stack

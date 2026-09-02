@@ -41,6 +41,11 @@ _ROLE_TEXT = "".join(
     for path in sorted(_ROLE.rglob("*"))
     if path.is_file()
 )
+_PACKAGE_NGINX_TEXT = "".join(
+    path.read_text(encoding="utf-8")
+    for path in sorted((REPO_ROOT / "packages").glob("*/src/*/nginx/*.j2"))
+)
+_NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 
 #: Which capability's policy class declares which slice of the flat site
 #: document. The class is the source of truth — this names the owner, and the
@@ -118,15 +123,19 @@ def test_every_edge_visible_setting_reaches_the_nginx_template():
         origin_host="198.51.100.10",
     )
     document = set(site_to_ansible(site)) | {"firewall"}
-    referenced = set(re.findall(r"item\.([a-z_0-9]+)", _ROLE_TEXT))
+    referenced = set(
+        re.findall(r"(?:item|site)\.([a-z_0-9]+)", _NGINX_IMPLEMENTATION_TEXT)
+    )
 
     assert document - referenced == {"ssl_automatic_mode"}
 
 
 def test_the_nested_blocks_are_read_through_their_owning_capability():
     """`firewall` and `visitor_headers` are replaced wholesale, so are nested."""
-    firewall = set(re.findall(r"fw\.([a-z_0-9]+)", _TEMPLATE))
-    headers = set(re.findall(r"vh\.([a-z_0-9]+)", _TEMPLATE))
+    firewall = set(re.findall(r"firewall\.([a-z_0-9]+)", _PACKAGE_NGINX_TEXT))
+    headers = set(
+        re.findall(r"visitor_headers\.([a-z_0-9]+)", _NGINX_IMPLEMENTATION_TEXT)
+    )
 
     assert firewall == set(SiteFirewall.model_fields)
     assert headers == set(SiteVisitorHeaders.model_fields)

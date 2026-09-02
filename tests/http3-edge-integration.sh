@@ -25,6 +25,11 @@ readonly MMDB_SHA256=b37601903448683d241af52893c8cbf0fed461e0cdebe0bfaca01891fde
 readonly EDGE_TAG=blitzecdn-edge:integration
 readonly EDGE_TAG_NEXT=blitzecdn-edge:integration-next
 readonly EDGE_TAG_BROKEN=blitzecdn-edge:integration-broken
+# Where the `blitzecdn_geoip` role reads its database: under the edge runtime
+# contract's capability data directory, not a distribution path. Core creates
+# and mounts that directory and never learns what is in it.
+readonly GEOIP_DIR=/var/lib/blitzecdn/edge-data/geoip
+readonly GEOIP_DB="${GEOIP_DIR}/GeoIP2-Country-Test.mmdb"
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 suffix=$$
@@ -43,8 +48,14 @@ trap cleanup EXIT
 say() { printf '\n=== %s ===\n' "$*"; }
 fail() { printf 'FAIL: %s\n' "$*" >&2; exit 1; }
 in_edge() { docker exec "${edge}" bash -lc "$1"; }
+# Core's roles, then the roles the optional capabilities ship inside their own
+# wheels — composed here exactly as `blitzecdn.core.ansible.roles` composes it
+# at run time, so this harness resolves `blitzecdn_geoip` and
+# `blitzecdn_security` the same way a deployment does rather than from a
+# directory in the checkout.
+readonly ROLES_PATH='/workspace/ansible/roles:/workspace/packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles:/workspace/packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles:/workspace/packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles:/workspace/packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles:/workspace/packages/blitzecdn-security/src/blitzecdn_security/ansible/roles'
 converge() {
-  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
+  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }
 
 say "Building the BlitzeCDN edge image"
@@ -97,7 +108,12 @@ done
 say "Installing the minimal Ansible test runner"
 in_edge 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ansible-core openssl curl ca-certificates iproute2 >/dev/null'
 in_edge 'ansible-galaxy collection install -r /workspace/ansible/requirements.yml >/dev/null'
-in_edge "install -d -m 0755 /usr/share/GeoIP && curl -fsSL --proto '=https' --tlsv1.2 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/${MMDB_COMMIT}/test-data/GeoIP2-Country-Test.mmdb' -o /usr/share/GeoIP/GeoIP2-Country-Test.mmdb && echo '${MMDB_SHA256}  /usr/share/GeoIP/GeoIP2-Country-Test.mmdb' | sha256sum -c -"
+# Under the runtime contract's capability data directory, which is where the
+# `blitzecdn_geoip` role expects it and the only place core mounts read-only
+# into the edge container. Placed by hand because this runner has no MaxMind
+# credentials — which is also the supported path for an air-gapped fleet, so it
+# is worth exercising.
+in_edge "install -d -m 0755 ${GEOIP_DIR} && curl -fsSL --proto '=https' --tlsv1.2 'https://raw.githubusercontent.com/maxmind/MaxMind-DB/${MMDB_COMMIT}/test-data/GeoIP2-Country-Test.mmdb' -o ${GEOIP_DB} && echo '${MMDB_SHA256}  ${GEOIP_DB}' | sha256sum -c -"
 in_edge "install -d -m 0700 /etc/blitzecdn/tls && openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj '/CN=site-one.test' -addext 'subjectAltName=DNS:site-one.test,DNS:site-two.test' -keyout /etc/blitzecdn/tls/integration.key -out /etc/blitzecdn/tls/integration.pem >/dev/null 2>&1 && chmod 0600 /etc/blitzecdn/tls/integration.key"
 in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0600 /run/blitzecdn-under-attack-secret"
 
@@ -107,7 +123,7 @@ in_edge "openssl rand -base64 48 > /run/blitzecdn-under-attack-secret && chmod 0
 # engine is installed by the very converge that then requires the image — so
 # the engine goes in first, on its own.
 say "Installing the container engine and loading the edge runtime images"
-in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/docker-engine.yml"
+in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/docker-engine.yml"
 in_edge 'docker load -i /images/edge-images.tar'
 for tag in "${EDGE_TAG}" "${EDGE_TAG_NEXT}" "${EDGE_TAG_BROKEN}"; do
   in_edge "docker image inspect ${tag} >/dev/null" ||
@@ -132,7 +148,7 @@ in_edge 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx 
 in_edge 'docker inspect -f "{{.HostConfig.NetworkMode}}" blitzecdn-edge | grep -qx host'
 in_edge 'docker exec blitzecdn-edge nginx -t'
 in_edge 'docker exec blitzecdn-edge nginx -V 2>&1 | grep -q -- --with-http_v3_module'
-in_edge "docker exec blitzecdn-edge nginx -T 2>&1 | grep -q 'geoip2 /usr/share/GeoIP/GeoIP2-Country-Test.mmdb'"
+in_edge "docker exec blitzecdn-edge nginx -T 2>&1 | grep -q 'geoip2 ${GEOIP_DB}'"
 
 say "Checking every supported public listener"
 for port in 80 8080 8880 2052 2082 2086 2095 443 2053 2083 2087 2096 8443; do
@@ -260,7 +276,7 @@ in_edge 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx 
 # Firewall and HTTP/3 stay in step
 # --------------------------------------------------------------------------
 say "Withdrawing stale UDP/443 firewall state"
-in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/http3-firewall-disabled.yml"
+in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-firewall-disabled.yml"
 in_edge "grep -qx 'tcp|443|any' /etc/blitzecdn/firewall-rules"
 in_edge "! grep -q '^udp|443|any$' /etc/blitzecdn/firewall-rules"
 
@@ -268,7 +284,7 @@ in_edge "! grep -q '^udp|443|any$' /etc/blitzecdn/firewall-rules"
 # Teardown, both kinds
 # --------------------------------------------------------------------------
 say "Removing the runtime without destroying what it served"
-in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/edge-teardown.yml -e blitzecdn_teardown_remove_data=false"
+in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml -e blitzecdn_teardown_remove_data=false"
 in_edge 'docker ps -a --format "{{.Names}}" | grep -qx blitzecdn-edge' &&
   fail "the edge container survived a runtime teardown"
 in_edge 'test -s /etc/blitzecdn/tls/integration.key' ||
@@ -277,7 +293,7 @@ in_edge 'test -d /var/cache/nginx/blitzecdn' ||
   fail "a runtime teardown destroyed the cache"
 
 say "Destroying the persistent state on request"
-in_edge "cd /workspace && ANSIBLE_ROLES_PATH=/workspace/ansible/roles ansible-playbook -i localhost, tests/integration/edge-teardown.yml"
+in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml"
 in_edge '! test -e /etc/blitzecdn' || fail "the state tree survived a destructive teardown"
 in_edge '! test -e /var/cache/nginx/blitzecdn' || fail "the cache survived a destructive teardown"
 in_edge '! test -e /var/lib/blitzecdn/acme' || fail "the ACME state survived a destructive teardown"

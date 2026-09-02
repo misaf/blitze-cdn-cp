@@ -33,6 +33,8 @@ from paths import FIXTURES, REPO_ROOT, optional_packages
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
+from blitzecdn.core.nginx import resolve_nginx_resources
+from blitzecdn.core.plugins import load_plugins
 from blitzecdn.features.compression.policy import CompressionMode
 from blitzecdn.features.dns.domain import DnsRecord, Domain
 from blitzecdn.features.http.policy import (
@@ -54,6 +56,51 @@ jinja2 = pytest.importorskip("jinja2")
 
 PROJECT_DIR = REPO_ROOT
 FIXTURE = FIXTURES / "desired-state.yml"
+
+
+#: The tests below that read a *capability's* half of the rendered edge
+#: configuration, and the capabilities each one needs attached.
+#:
+#: The rendered server block is composed — core frames it and each installed
+#: capability contributes the fragments that fill it — so an assertion on one
+#: of those fragments is a contract between two distributions and belongs
+#: here, in the one suite that has both installed, rather than in either
+#: package's own tests. It cannot hold in the core-only workspace, where the
+#: fragment is not there to render, so `just test-core-only` skips exactly
+#: these and keeps running every assertion about core's own half.
+REQUIRES_CAPABILITIES = {
+    "test_http3_is_additive_and_limited_to_udp_443": ("http3",),
+    "test_http3_alt_svc_is_in_the_proxy_location_header_set": ("http3",),
+    "test_http3_alt_svc_follows_the_listener_not_the_origin": ("http3",),
+    "test_default_server_owns_reuseport_once_for_many_http3_sites": ("http3",),
+    "test_first_http3_site_owns_reuseport_without_a_catch_all": ("http3",),
+    "test_firewall_rules_reach_the_generated_configuration": ("security",),
+    "test_the_acme_challenge_path_is_never_filtered": ("geoip", "security"),
+    "test_an_allow_country_list_refuses_addresses_the_database_cannot_place": (
+        "geoip",
+        "security",
+    ),
+    "test_ip_country_reads_the_variable_the_capability_defines": ("geoip",),
+    "test_under_attack_mode_redirects_permanently_on_every_challenge_path": (
+        "security",
+    ),
+    "test_under_attack_mode_renders_before_redirect_and_proxy_on_http_and_https": (
+        "security",
+    ),
+    "test_under_attack_reserved_endpoints_are_edge_only_and_uncached": ("security",),
+    "test_acme_bypasses_under_attack_mode_in_every_server_block": ("security",),
+    "test_websocket_upgrade_is_forwarded_and_never_cached": ("cache",),
+    "test_cache_query_string_mode_selects_the_cache_key": ("cache",),
+    "test_the_cache_key_still_separates_the_listener_ports": ("cache",),
+    "test_brotli_uses_the_managed_filter_and_keeps_gzip_fallback": ("compression",),
+    "test_compression_off_says_so_rather_than_staying_silent": ("compression",),
+    "test_gzip_only_turns_the_managed_brotli_filter_off": ("compression",),
+    "test_compression_leaves_the_cache_key_and_origin_request_alone": (
+        "cache",
+        "compression",
+    ),
+    "test_missing_compression_preserves_pre_upgrade_behavior": ("compression",),
+}
 
 
 def test_ci_actions_are_pinned_to_immutable_commits():
@@ -83,6 +130,39 @@ def _role(name: str) -> Path:
 ROLE_DIR = _role("blitzecdn_nginx")
 
 
+def _nginx_resources() -> dict[str, list[dict[str, str]]]:
+    return {
+        context: [
+            {
+                "plugin": resource.plugin,
+                "name": resource.name,
+                "template": str(resource.template),
+            }
+            for resource in resources
+        ]
+        for context, resources in resolve_nginx_resources(
+            load_plugins().nginx_contributions()
+        ).items()
+    }
+
+
+def _nginx_environment():
+    environment = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
+        undefined=jinja2.StrictUndefined,
+        keep_trailing_newline=True,
+    )
+
+    @jinja2.pass_context
+    def lookup(context, _plugin, template, *, template_vars=None):
+        values = dict(context.get_all())
+        values.update(template_vars or {})
+        return environment.from_string(Path(template).read_text()).render(**values)
+
+    environment.globals["lookup"] = lookup
+    return environment
+
+
 class _IndentedDumper(yaml.SafeDumper):
     """Indent sequences under their key, which is what yamllint expects."""
 
@@ -107,6 +187,24 @@ def _contract(*path: str) -> Any:
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:
     return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
+
+
+def _capability_defaults() -> dict[str, Any]:
+    """Every installed capability role's defaults, the way a play resolves them.
+
+    A capability's fragment reads its own role's variables — the cache zone,
+    the compression level — and those are `defaults/main.yml` in a role that
+    ships inside the wheel. Discovered through the contributions rather than
+    listed by path: a checkout directory is not where an installed controller
+    finds them, and naming the packages here would make core's tests need an
+    edit every time a capability is attached or detached.
+    """
+    defaults: dict[str, Any] = {}
+    for contribution in load_plugins().ansible_contributions():
+        for role in sorted(contribution.roles_path.iterdir()):
+            if (role / "defaults/main.yml").is_file():
+                defaults |= _defaults_of(role)
+    return defaults
 
 
 @pytest.fixture
@@ -364,16 +462,6 @@ def test_every_emitted_firewall_key_is_declared_by_the_role(desired_state):
         assert set(site.get("firewall", {})) <= declared
 
 
-def test_geoip_is_off_until_an_operator_turns_it_on():
-    """Country rules depend on a database this collection cannot install.
-
-    Defaulting the switch on would render every edge unable to load nginx the
-    moment someone wrote a country rule, so the role asserts instead. That is
-    only true while the default stays false.
-    """
-    assert _contract("geoip", "enabled") is False
-
-
 def test_public_ports_match_cloudflare_and_the_firewall():
     """A listener without a firewall rule is unreachable, and the reverse
     exposes a port that can never serve traffic.
@@ -401,11 +489,7 @@ def test_public_ports_match_cloudflare_and_the_firewall():
 
 def test_default_server_claims_every_public_listener():
     """Unknown hostnames must not fall through to a customer site on any port."""
-    environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
-        undefined=jinja2.StrictUndefined,
-        keep_trailing_newline=True,
-    )
+    environment = _nginx_environment()
     defaults = _role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
     rendered = environment.get_template("default.conf.j2").render(**defaults)
@@ -419,17 +503,19 @@ def test_default_server_claims_every_public_listener():
 
 
 def _render(site: dict[str, Any], **overrides: Any) -> str:
-    environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
-        undefined=jinja2.StrictUndefined,
-        keep_trailing_newline=True,
-    )
+    environment = _nginx_environment()
     # A contract input has to be applied before the contract is composed, so
     # `blitzecdn_edge_geoip_enabled=True` reaches the template as
     # `blitzecdn_edge_runtime.geoip.enabled`, not as a stray extra variable.
     inputs, plain = _split_runtime(overrides)
     return environment.get_template("site.conf.j2").render(
-        **(_role_defaults(**inputs) | plain), item=site
+        **(
+            _role_defaults(**inputs)
+            | _capability_defaults()
+            | {"blitzecdn_nginx_resources": _nginx_resources()}
+            | plain
+        ),
+        item=site,
     )
 
 
@@ -482,11 +568,8 @@ def test_http3_disabled_emits_neither_quic_nor_alt_svc():
 
 def test_default_server_owns_reuseport_once_for_many_http3_sites():
     defaults = _role_defaults(blitzecdn_edge_http3_enabled=True)
-    environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
-        undefined=jinja2.StrictUndefined,
-        keep_trailing_newline=True,
-    )
+    defaults["blitzecdn_nginx_resources"] = _nginx_resources()
+    environment = _nginx_environment()
     catch_all = environment.get_template("default.conf.j2").render(**defaults)
     sites = "".join(_render(_http3_site(name)) for name in ("alpha", "bravo"))
 
@@ -720,22 +803,27 @@ def test_connecting_ip_disabled_clears_the_header_rather_than_forwarding_it():
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" not in rendered
 
 
-def test_ip_country_enabled_reuses_the_one_geoip_variable():
-    """The same $blitzecdn_country the firewall rules test, not a second lookup."""
-    rendered = _render(
-        _with_visitor_headers(ip_country=True), blitzecdn_edge_geoip_enabled=True
-    )
+def test_ip_country_reads_the_variable_the_capability_defines():
+    """The same $blitzecdn_country the firewall rules test, not a second lookup.
 
-    assert "proxy_set_header BZ-IPCountry $blitzecdn_country;" in rendered
+    Core's half only. The `geoip2` block that *defines* the variable is the
+    `blitzecdn-geoip` distribution's, and that both sides spell the name the
+    same way is asserted in that package's own tests, which can read both.
+    Repeating it here would make this suite fail on a checkout where the
+    optional distribution is not installed.
+    """
+    rendered = _render(_with_visitor_headers(ip_country=True))
+
+    assert "set $blitzecdn_visitor_ip_country $blitzecdn_country;" in rendered
+    assert "proxy_set_header BZ-IPCountry $blitzecdn_visitor_ip_country;" in rendered
     assert rendered.count("geoip2") == 0
-    geoip = (ROLE_DIR / "templates/geoip.conf.j2").read_text(encoding="utf-8")
-    assert "$blitzecdn_country source=$remote_addr country iso_code;" in geoip
 
 
 def test_ip_country_disabled_clears_the_header_rather_than_forwarding_it():
     rendered = _render(_with_visitor_headers(ip_country=False))
 
-    assert 'proxy_set_header BZ-IPCountry "";' in rendered
+    assert 'set $blitzecdn_visitor_ip_country "";' in rendered
+    assert "$blitzecdn_visitor_ip_country $blitzecdn_country" not in rendered
     assert "$blitzecdn_country" not in rendered
 
 
@@ -814,7 +902,7 @@ def test_missing_visitor_headers_preserve_pre_upgrade_behavior():
     rendered = _render(site)
 
     assert "proxy_set_header BZ-Connecting-IP $remote_addr;" in rendered
-    assert 'proxy_set_header BZ-IPCountry "";' in rendered
+    assert 'set $blitzecdn_visitor_ip_country "";' in rendered
 
 
 def test_site_template_renders_from_real_model_output(desired_state):
@@ -1276,10 +1364,16 @@ def test_always_use_https_uses_a_permanent_redirect():
     template is checked whole rather than one rendering at a time.
     """
     template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
+    security_template = (
+        REPO_ROOT
+        / "packages/blitzecdn-security/src/blitzecdn_security/nginx"
+        / "security-server.conf.j2"
+    ).read_text(encoding="utf-8")
+    implementation = template + security_template
 
-    assert "return 30" in template
-    assert "return 308" not in template
-    assert template.count("return 301 https://$host$request_uri;") == 4
+    assert "return 30" in implementation
+    assert "return 308" not in implementation
+    assert implementation.count("return 301 https://$host$request_uri;") == 3
 
 
 def test_always_use_https_redirects_every_http_listener_without_its_port():
@@ -1433,9 +1527,9 @@ def test_websocket_upgrade_is_forwarded_and_never_cached():
         }
     )
     rendered = _render(site_to_ansible(site))
-    cache_template = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
+    http_template = (ROLE_DIR / "templates/http.conf.j2").read_text(encoding="utf-8")
 
-    assert "map $http_upgrade $blitzecdn_connection_upgrade" in cache_template
+    assert "map $http_upgrade $blitzecdn_connection_upgrade" in http_template
     assert "proxy_set_header Upgrade $http_upgrade;" in rendered
     assert "proxy_set_header Connection $blitzecdn_connection_upgrade;" in rendered
     assert "proxy_cache_bypass $http_upgrade;" in rendered
@@ -1539,7 +1633,12 @@ def test_compression_never_lists_text_html():
     test as normal, which is the failure this prevents rather than the
     duplicate itself.
     """
-    types = _role_defaults()["blitzecdn_nginx_compression_types"]
+    compression_role = (
+        REPO_ROOT
+        / "packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles"
+        / "blitzecdn_compression"
+    )
+    types = _defaults_of(compression_role)["blitzecdn_compression_types"]
 
     assert "text/html" not in types
     # Nothing already compressed: re-encoding one of these adds bytes and CPU.
@@ -1619,7 +1718,7 @@ def test_under_attack_mode_renders_before_redirect_and_proxy_on_http_and_https()
     assert rendered.count("auth_request /.blitzecdn/internal/under-attack-guard;") == (
         len(runtime["listeners"]["http"]) + len(runtime["listeners"]["https"])
     )
-    assert "try_files /__blitzecdn_https_dispatch__" in rendered
+    assert "try_files /__blitzecdn_dispatch__ @blitzecdn_upstream;" in rendered
     assert "proxy_pass" in rendered
     assert rendered.index("auth_request /.blitzecdn/") < rendered.index("proxy_pass")
     assert "X-BlitzeCDN-Mitigation challenge" in rendered

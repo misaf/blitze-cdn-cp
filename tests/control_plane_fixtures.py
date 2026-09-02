@@ -65,6 +65,30 @@ def skip_detached_certificate_integrations(request):
 
 
 @pytest.fixture(autouse=True)
+def skip_tests_a_detached_capability_cannot_answer(request):
+    """Run a root test that reads a capability's own output only while it is attached.
+
+    The rendered edge configuration is composed: core frames the server block
+    and each installed capability contributes the fragments that fill it. A
+    test asserting on one of those fragments is a cross-package contract, so it
+    belongs here rather than in either distribution — no package's own test
+    environment has the other packages installed — but it cannot hold in the
+    core-only workspace, where the fragment is not there to render.
+
+    Named per test rather than per module, because most of the tests beside
+    them assert core's half and must keep failing when it breaks.
+    """
+    required = getattr(request.module, "REQUIRES_CAPABILITIES", {})
+    detached = sorted(
+        capability
+        for capability in required.get(request.function.__name__, ())
+        if find_spec(f"blitzecdn_{capability}") is None
+    )
+    if detached:
+        pytest.skip(f"detached: {', '.join(detached)}")
+
+
+@pytest.fixture(autouse=True)
 def attach_certificate_test_services(monkeypatch):
     """Adapt legacy cross-capability integration tests to the detached package.
 

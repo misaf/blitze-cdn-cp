@@ -56,12 +56,22 @@ LIFECYCLE_PACKAGE = "blitzecdn-backup"
 LIFECYCLE_CAPABILITY = "backup"
 
 DETACHABLE_SITE_PACKAGES = (
-    ("blitzecdn-compression", "compression", {"compression": "gzip"}),
+    (
+        "blitzecdn-compression",
+        "compression",
+        {"compression": "gzip", "cache_enabled": False},
+    ),
+    (
+        "blitzecdn-cache",
+        "cache",
+        {"compression": "off", "cache_enabled": True},
+    ),
     (
         "blitzecdn-certificates",
         "certificates",
         {
             "compression": "off",
+            "cache_enabled": False,
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "requested",
@@ -72,7 +82,7 @@ DETACHABLE_SITE_PACKAGES = (
     (
         "blitzecdn-security",
         "security",
-        {"compression": "off", "under_attack_mode": True},
+        {"compression": "off", "cache_enabled": False, "under_attack_mode": True},
     ),
     # HTTP/3 needs edge TLS, so the site has to serve it — with `existing`
     # material and a custom automatic mode, so that asking for HTTP/3 requires
@@ -83,6 +93,7 @@ DETACHABLE_SITE_PACKAGES = (
         "http3",
         {
             "compression": "off",
+            "cache_enabled": False,
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "existing",
@@ -98,7 +109,11 @@ DETACHABLE_SITE_PACKAGES = (
     (
         "blitzecdn-geoip",
         "geoip",
-        {"compression": "off", "visitor_headers": {"ip_country": True}},
+        {
+            "compression": "off",
+            "cache_enabled": False,
+            "visitor_headers": {"ip_country": True},
+        },
     ),
 )
 
@@ -185,7 +200,9 @@ class Environment:
             "import json;"
             "from pathlib import Path;"
             "from blitzecdn.core.plugins import load_plugins;"
-            "from blitzecdn.core.ansible.roles import resolve_role_search_path;"
+            "from blitzecdn.core.ansible.roles import ("
+            "  resolve_edge_capability_roles, resolve_role_search_path);"
+            "from blitzecdn.core.nginx import resolve_nginx_resources;"
             "core = Path('/nonexistent-core-roles');"
             "path = resolve_role_search_path(core, load_plugins()"
             ".ansible_contributions());"
@@ -193,6 +210,15 @@ class Environment:
             "'paths': [str(p) for p in path],"
             "'roles': sorted(r.name for p in path if p.is_dir()"
             "  for r in p.iterdir() if r.is_dir()),"
+            # And which of those roles the edge play would run, resolved the
+            # same way and from the same contributions. Two questions with one
+            # source: a package may ship a role only its own plays reach.
+            "'edge_roles': list(resolve_edge_capability_roles("
+            "  load_plugins().ansible_contributions())),"
+            "'nginx': {context:[{'plugin':r.plugin,'name':r.name,"
+            "  'exists':r.template.is_file()} for r in resources]"
+            "  for context,resources in resolve_nginx_resources("
+            "    load_plugins().nginx_contributions()).items()},"
             "}))"
         )
         finished = subprocess.run(
@@ -345,10 +371,13 @@ def test_core_alone_offers_no_optional_capability(core_only: Environment):
 
 
 def test_core_alone_loads_off_and_unmanaged_site_contracts(core_only: Environment):
-    baseline = core_only.site_capabilities({"compression": "off"})
+    baseline = core_only.site_capabilities(
+        {"compression": "off", "cache_enabled": False}
+    )
     existing_tls = core_only.site_capabilities(
         {
             "compression": "off",
+            "cache_enabled": False,
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "existing",
@@ -615,6 +644,7 @@ def _http3_site(name: str, *, http3: bool, enabled: bool = True) -> dict[str, ob
         "origin_host": "198.51.100.10",
         "enabled": enabled,
         "compression": "off",
+        "cache_enabled": False,
         "ssl_mode": "full",
         "ssl_automatic_mode": "custom",
         "certificate_mode": "existing",
@@ -791,6 +821,7 @@ def test_the_http3_wheel_contains_only_its_own_package(wheels: dict[str, Path]):
 
     assert modules == [
         "blitzecdn_http3/__init__.py",
+        "blitzecdn_http3/ansible/__init__.py",
         "blitzecdn_http3/plugin.py",
     ]
     assert "Requires-Dist: blitzecdn" in requires
@@ -840,7 +871,16 @@ def test_validate_names_the_capability_a_configuration_asks_for_and_lacks(
 #: attach/detach cycle above because it has no Ansible at all, which is exactly
 #: why it cannot drive this one.
 ANSIBLE_PACKAGE = "blitzecdn-cache"
-ANSIBLE_ROLES = ("blitzecdn_cache", "blitzecdn_stats")
+ANSIBLE_ROLES = (
+    "blitzecdn_cache",
+    "blitzecdn_cache_config",
+    "blitzecdn_stats",
+)
+
+#: The capability whose role core's *edge play* runs, which is the other half
+#: of the Ansible contribution and a second independent capability role.
+EDGE_ROLE_PACKAGE = "blitzecdn-geoip"
+EDGE_ROLE = "blitzecdn_geoip"
 
 
 @pytest.fixture(scope="session")
@@ -857,9 +897,9 @@ def ansible_cycle(
     environment = _environment(tmp_path_factory.mktemp("ansible-cycle") / "venv")
     environment.install(wheels["blitzecdn"])
     before = environment.ansible_roles()
-    environment.install(wheels[ANSIBLE_PACKAGE])
+    environment.install(wheels[ANSIBLE_PACKAGE], wheels[EDGE_ROLE_PACKAGE])
     attached = environment.ansible_roles()
-    environment.uninstall(ANSIBLE_PACKAGE)
+    environment.uninstall(ANSIBLE_PACKAGE, EDGE_ROLE_PACKAGE)
     return {
         "before": before,
         "attached": attached,
@@ -878,6 +918,12 @@ def test_core_alone_offers_no_capability_owned_role(
     """
     assert ansible_cycle["before"]["roles"] == []
     assert len(ansible_cycle["before"]["paths"]) == 1
+    # And the edge play converges nothing beyond the platform. A core-only
+    # installation renders `blitzecdn_capability_roles` as an empty list, which
+    # is the shape the play's include loops over — not a missing variable it
+    # would have to defend against.
+    assert ansible_cycle["before"]["edge_roles"] == []
+    assert not any(ansible_cycle["before"]["nginx"].values())
 
 
 def test_installing_a_distribution_makes_its_roles_resolvable(
@@ -891,11 +937,35 @@ def test_installing_a_distribution_makes_its_roles_resolvable(
     """
     attached = ansible_cycle["attached"]
 
-    assert list(ANSIBLE_ROLES) == attached["roles"]
+    assert sorted([*ANSIBLE_ROLES, EDGE_ROLE]) == attached["roles"]
     contributed = attached["paths"][1]
     assert "site-packages" in contributed
     assert "blitzecdn_cache/ansible/roles" in contributed
     assert str(REPO_ROOT) not in contributed
+    nginx = attached["nginx"]
+    assert {resource["plugin"] for values in nginx.values() for resource in values} == {
+        "cache",
+        "geoip",
+    }
+    assert all(resource["exists"] for values in nginx.values() for resource in values)
+
+
+def test_installing_a_distribution_puts_its_role_into_the_edge_play(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """Attach, all the way to what a deploy actually converges.
+
+    Resolving the role by name is not enough on its own: a role nothing
+    includes changes no edge. The contribution carries both halves, so
+    installing the wheel is what puts `blitzecdn_geoip` in the list core's edge
+    play loops over — and `blitzecdn-cache`, installed in the same environment,
+    contributes roles its own plays reach and nothing to the play, which is
+    what makes the two halves visibly separate.
+    """
+    assert ansible_cycle["attached"]["edge_roles"] == [
+        "blitzecdn_cache_config",
+        EDGE_ROLE,
+    ]
 
 
 def test_uninstalling_a_distribution_takes_its_roles_with_it(
@@ -905,9 +975,13 @@ def test_uninstalling_a_distribution_takes_its_roles_with_it(
 
     The Python capability and its deployment implementation leave together.
     Nothing in core is edited, no directory is pruned by hand, and the role
-    names simply stop resolving on the next run.
+    names simply stop resolving on the next run. The edge play stops running
+    the capability's role in the same breath, which is the part that means an
+    already-converged edge is left alone rather than half-managed.
     """
     assert ansible_cycle["after"] == ansible_cycle["before"]
+    assert ansible_cycle["after"]["edge_roles"] == []
+    assert not any(ansible_cycle["after"]["nginx"].values())
 
 
 def test_the_capability_wheel_carries_its_whole_ansible_tree(
@@ -950,6 +1024,55 @@ def test_the_root_wheel_carries_no_capability_owned_ansible(
     assert "blitzecdn_stats" not in names
     assert "cache-purge.yml" not in names
     assert "acme-challenge.yml" not in names
+
+
+@pytest.mark.parametrize(
+    ("distribution", "module", "resources"),
+    [
+        (
+            "blitzecdn-cache",
+            "blitzecdn_cache",
+            {"cache-http.conf.j2", "cache-upstream.conf.j2"},
+        ),
+        (
+            "blitzecdn-compression",
+            "blitzecdn_compression",
+            {"compression-server.conf.j2"},
+        ),
+        (
+            "blitzecdn-http3",
+            "blitzecdn_http3",
+            {"http3-server.conf.j2", "http3-upstream.conf.j2"},
+        ),
+        (
+            "blitzecdn-geoip",
+            "blitzecdn_geoip",
+            {"geoip-http.conf.j2", "geoip-upstream.conf.j2"},
+        ),
+        (
+            "blitzecdn-security",
+            "blitzecdn_security",
+            {
+                "security-http.conf.j2",
+                "security-server.conf.j2",
+                "security-access.conf.j2",
+                "security-upstream.conf.j2",
+            },
+        ),
+    ],
+)
+def test_capability_wheels_carry_their_nginx_resources(
+    wheels: dict[str, Path],
+    distribution: str,
+    module: str,
+    resources: set[str],
+):
+    import zipfile
+
+    with zipfile.ZipFile(wheels[distribution]) as archive:
+        names = set(archive.namelist())
+
+    assert {f"{module}/nginx/{resource}" for resource in resources} <= names
 
 
 def test_an_installed_capability_locates_its_plays_without_the_repository(
@@ -1001,6 +1124,7 @@ def _country_site(**policy: object) -> dict[str, object]:
         "server_names": ["cdn.example.com"],
         "origin_host": "198.51.100.10",
         "compression": "off",
+        "cache_enabled": False,
         **policy,
     }
 
@@ -1018,10 +1142,11 @@ def test_a_site_that_asks_for_no_country_needs_no_geoip(core_only: Environment):
     deliberately: they are the non-geographical half of the same policy block,
     and they must not drag the lookup in behind them.
     """
-    plain = core_only.site_capabilities({"compression": "off"})
+    plain = core_only.site_capabilities({"compression": "off", "cache_enabled": False})
     filtered = core_only.site_capabilities(
         {
             "compression": "off",
+            "cache_enabled": False,
             "visitor_headers": {"connecting_ip": True, "ip_country": False},
             "firewall": {
                 "deny_sources": ["203.0.113.0/24"],
@@ -1164,19 +1289,55 @@ def test_the_root_wheel_neither_contains_nor_requires_geoip(wheels: dict[str, Pa
     ), mentions
 
 
-def test_the_geoip_wheel_contains_only_its_own_package(wheels: dict[str, Path]):
-    """No vendored core, and nothing but the module and its metadata."""
+def test_the_geoip_wheel_carries_its_own_edge_implementation(wheels: dict[str, Path]):
+    """No vendored core — and the role that provisions the database, in full.
+
+    Built, not assumed. A wheel that shipped only the `.py` files would leave
+    the plugin contributing a directory that does not exist on an installed
+    controller, and every deploy would fail with "the role was not found" — on
+    the controller, never in this checkout.
+    """
     import zipfile
 
     with zipfile.ZipFile(wheels["blitzecdn-geoip"]) as archive:
-        modules = sorted(name for name in archive.namelist() if name.endswith(".py"))
-        metadata = next(
-            name for name in archive.namelist() if name.endswith("METADATA")
-        )
+        names = set(archive.namelist())
+        metadata = next(name for name in names if name.endswith("METADATA"))
         requires = archive.read(metadata).decode()
 
-    assert modules == [
+    assert sorted(name for name in names if name.endswith(".py")) == [
         "blitzecdn_geoip/__init__.py",
+        "blitzecdn_geoip/ansible/__init__.py",
         "blitzecdn_geoip/plugin.py",
     ]
+    root = "blitzecdn_geoip/ansible/roles/blitzecdn_geoip"
+    assert f"{root}/tasks/main.yml" in names
+    assert f"{root}/defaults/main.yml" in names
+    assert f"{root}/meta/argument_specs.yml" in names
+    # The updater's own Compose project and the systemd units that refresh the
+    # database. A build that
+    # filtered by extension would drop every one of them silently.
+    for template in (
+        "compose.yml.j2",
+        "geoipupdate.env.j2",
+        "geoipupdate.service.j2",
+        "geoipupdate.timer.j2",
+    ):
+        assert f"{root}/templates/{template}" in names
+    assert "blitzecdn_geoip/nginx/geoip-http.conf.j2" in names
+    assert "blitzecdn_geoip/nginx/geoip-upstream.conf.j2" in names
     assert "Requires-Dist: blitzecdn" in requires
+
+
+def test_the_security_wheel_carries_its_own_edge_implementation(
+    wheels: dict[str, Path],
+):
+    """The njs challenge travels with the capability that declares it."""
+    import zipfile
+
+    with zipfile.ZipFile(wheels["blitzecdn-security"]) as archive:
+        names = set(archive.namelist())
+
+    root = "blitzecdn_security/ansible/roles/blitzecdn_security"
+    assert f"{root}/tasks/main.yml" in names
+    assert f"{root}/templates/under-attack.js.j2" in names
+    assert "blitzecdn_security/nginx/security-http.conf.j2" in names
