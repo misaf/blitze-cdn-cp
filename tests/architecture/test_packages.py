@@ -457,6 +457,159 @@ def test_an_optional_capability_is_discovered_only_through_its_entry_point():
     assert not (added & builtins.capabilities)
 
 
+# --- the layout inside a package is a vocabulary, not a habit ---------------
+
+
+#: The modules a package's Python is organised into. Held to a closed set for
+#: the same reason `ALLOWED_FEATURE_DEPENDENCIES` is one: ten packages that
+#: converged on a shape by imitation give the eleventh author ten examples and
+#: no rule, and the shape is what makes a capability readable without reading
+#: it — `plugin.py` is what it contributes, `composition.py` is how it is
+#: built, `ports.py` is what it calls. A package uses as few of these as it
+#: needs; `blitzecdn-compression` is a `plugin.py` and nothing else.
+#:
+#: Growing the set is allowed and is a decision: add the name here with the
+#: sentence saying what belongs in it, and to the canonical package in
+#: PLUGINS.md. What this refuses is the name that arrives without either.
+_PACKAGE_MODULES = {
+    "__init__.py",
+    "plugin.py",  # metadata and the hooks it contributes through
+    "composition.py",  # builds its service from what the platform publishes
+    "config.py",  # its own settings, read from its CapabilityConfig
+    "domain.py",  # pure rules
+    "ports.py",  # the narrow Protocols this capability calls
+    "service.py",  # the capability's behaviour
+    "reporting.py",  # application policy beside the service, held to its rule
+    "cli.py",  # its command groups
+    # A capability small enough for one adapter *module* rather than an
+    # `adapters/` package is still an adapter, and `test_layering` already
+    # holds both spellings to the adapter rule.
+    "adapters.py",
+    "preflight.py",
+}
+
+#: `api/` holds the routers and the operational models, and nothing else: a
+#: version is a module, the shapes both versions share are `models.py`. A
+#: package whose HTTP surface needs a fourth module is describing something
+#: that is not an HTTP adapter.
+_API_MODULES = {"__init__.py", "models.py", "v1.py", "v2.py"}
+
+#: Directories whose *contents* are named after what they implement rather
+#: than after a layer — `archive.py`, `playbooks.py` — because that is the
+#: point of an adapter. Flat: an adapter package with a package inside it is a
+#: layer split this size of code does not have.
+_FREE_FORM_DIRECTORIES = {"adapters"}
+
+#: What a package ships for something other than Python to read. `ansible/`
+#: carries one module — the `importlib.resources` anchor — and its roles and
+#: plays; `nginx/` carries templates only. A `.py` file deeper in either is a
+#: capability putting logic where no test looks for it.
+_ANSIBLE_DIRECTORIES = {"roles", "playbooks"}
+_NGINX_SUFFIX = ".conf.j2"
+
+#: Modules outside the vocabulary, by distribution, each with the reason.
+#: `acme_hook` is a process entry point rather than part of the capability's
+#: composition: certbot execs it as a one-shot subprocess with no control
+#: plane in the picture, which is why `test_layering` also names it beside
+#: `bootstrap.py` as a second composition root.
+_DECLARED_EXTRA_MODULES = {"blitzecdn-certificates": {"acme_hook.py"}}
+
+
+def _module_offence(parts: tuple[str, ...], *, nested: bool) -> str | None:
+    head, *rest = parts
+    if not rest:
+        return (
+            None if head in _PACKAGE_MODULES else f"{head} is not a documented module"
+        )
+    if head == "ansible":
+        if rest == ["__init__.py"]:
+            return None
+        return "ansible/ ships roles and plays; its only module is the anchor"
+    if head == "nginx":
+        return "nginx/ ships templates, not Python"
+    if head == "api":
+        if len(rest) == 1 and rest[0] in _API_MODULES:
+            return None
+        return f"api/{'/'.join(rest)} is not a router, a version or the shared models"
+    if head in _FREE_FORM_DIRECTORIES:
+        return None if len(rest) == 1 else f"{head}/ is flat"
+    if nested:
+        return f"{head}/ nests a capability two levels deep"
+    return _module_offence(tuple(rest), nested=True)
+
+
+@pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
+def test_a_package_organises_its_python_into_the_documented_modules(package: Path):
+    """The canonical package in PLUGINS.md, checked against the real tree.
+
+    A capability may nest *one* level — `blitzecdn-certificates` holds
+    `certificates/` and `automatic_ssl/`, which are two jobs on one capability
+    rather than two capabilities — and each nested directory is held to the
+    same vocabulary. A second level is a package that wants to be two
+    distributions, and it says so here rather than three refactors later.
+    """
+    root = package / "src" / _import_package(package)
+    allowed_extra = _DECLARED_EXTRA_MODULES.get(package.name, set())
+    offenders = [
+        f"{path.relative_to(root)}: {offence}"
+        for path in _source_files(package)
+        for parts in (path.relative_to(root).parts,)
+        if not (len(parts) == 1 and parts[0] in allowed_extra)
+        for offence in (_module_offence(parts, nested=False),)
+        if offence
+    ]
+    assert offenders == []
+
+
+@pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
+def test_a_package_ships_its_ansible_and_its_templates_where_the_layout_says(
+    package: Path,
+):
+    """The two directories the control plane locates by path, not by import.
+
+    Core composes `roles_path` from what a contribution answers with and hands
+    `templates_path` to the renderer, so a file in the wrong place here is not
+    a tidiness question: it is a role Ansible will not resolve or a fragment
+    the renderer will not find, and both fail on an edge rather than in CI.
+    """
+    root = package / "src" / _import_package(package)
+    offenders = []
+    ansible = root / "ansible"
+    if ansible.is_dir():
+        offenders += [
+            f"ansible/{entry.name} is neither the anchor, roles/ nor playbooks/"
+            for entry in sorted(ansible.iterdir())
+            if entry.name not in {"__init__.py", "__pycache__"}
+            and not (entry.is_dir() and entry.name in _ANSIBLE_DIRECTORIES)
+        ]
+    nginx = root / "nginx"
+    if nginx.is_dir():
+        offenders += [
+            f"nginx/{path.relative_to(nginx)} is not a {_NGINX_SUFFIX} template"
+            for path in sorted(nginx.rglob("*"))
+            if path.is_file()
+            and "__pycache__" not in path.parts
+            and not path.name.endswith(_NGINX_SUFFIX)
+        ]
+    assert offenders == []
+
+
+def test_the_documented_layout_and_the_enforced_one_are_the_same():
+    """PLUGINS.md carries the vocabulary; this file refuses departures from it.
+
+    Two registers of one rule drift, and the one that drifts is the prose,
+    because nothing fails when it does. A name enforced here and absent from
+    the canonical package is a rule a capability author cannot read.
+    """
+    documented = (REPO_ROOT / "PLUGINS.md").read_text(encoding="utf-8")
+    missing = sorted(
+        name
+        for name in _PACKAGE_MODULES | _API_MODULES | _FREE_FORM_DIRECTORIES
+        if name != "__init__.py" and name not in documented
+    )
+    assert missing == []
+
+
 # --- tests travel with their package ----------------------------------------
 
 
