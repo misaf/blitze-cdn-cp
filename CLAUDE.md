@@ -8,8 +8,9 @@ Tasks run through `just` (recipes are in `justfile`) and every recipe wraps `uv 
 
 ```bash
 just install       # uv sync --frozen --all-packages + the Ansible collections into .state/
-just check         # every CI gate, in CI order — run before pushing
-just test-fast     # the whole suite across every core, coverage off — the inner loop
+just check-quick   # lint, types, shell-lint, ansible-check, test-fast — ~2 min, the inner loop
+just check         # every CI gate, in CI order — ~8 min, run once before pushing
+just test-fast     # the whole suite across every core, coverage off
 just test-one tests/features/sites/test_domain.py -k some_case   # a single case
 just test-package blitzecdn-cache   # one optional distribution's own tests
 just test-core-only                 # the suite with no optional package installed
@@ -17,6 +18,10 @@ just build                          # every wheel and sdist in the workspace
 ```
 
 `just check` is the contract with CI: `.github/workflows/ci.yml` calls these same recipes rather than repeating commands, so a gate added to the justfile is a gate CI picks up with no second edit. Don't add a CI step that bypasses it.
+
+`just check-quick` is not that contract and is not what CI runs — it is the same gates minus the expensive half (coverage, the packaging lifecycle, the two core-only syncs, `audit`, `build`, `docs-check`). Work against it, then run `just check` once before pushing. Reach for the full gate earlier only when `pyproject.toml` or `uv.lock` changed, since `lock-check`, `audit` and `build` are the gates that then have something to say.
+
+**Run a subset sequentially.** `just test-one` is deliberately not parallel: eight xdist workers each import the plugin tree and collect the whole workspace first, which costs about twenty seconds flat — a single case measures 3s sequential against 26s parallel. The crossover is minutes, so only the packaging lifecycle is worth `just test-fast -m packaging`.
 
 Things that are not guessable:
 
@@ -78,7 +83,14 @@ blitze-cdn-cp/
 │   ├── blitzecdn-compression/   # the gzip and Brotli implementation
 │   ├── blitzecdn-geoip/    #   visitor country lookup: the BZ-IPCountry header
 │   │                       #   and country firewall rules both need it
+│   ├── blitzecdn-hardening/ #  the edge *host's* front door: public-key-only
+│   │                       #   SSH and Fail2Ban. No site setting asks for it
 │   ├── blitzecdn-http3/    #   QUIC listener state; HTTP/1.1 and /2 stay core
+│   ├── blitzecdn-origins/  #   probing site origins *from the edges*: role,
+│   │                       #   play, `origin check`, POST /v{1,2}/origins/check
+│   ├── blitzecdn-resolver/ #   host DNS an edge can trust — and the only user
+│   │                       #   of the decommission slot, because its drop-in
+│   │                       #   is at a path core must not name
 │   └── blitzecdn-security/ #   site firewall and Under Attack validation
 └── tests/                  # core behavior, plugin contracts, architecture,
                             # cross-package contracts, integration
@@ -105,18 +117,28 @@ The rules that shape it:
   services and knows nothing about what is installed beside it. A package builds
   its service in its own `composition.py` from what the control plane publishes:
   `platform.settings`, `platform.events`, `platform.sites` (the read side of the
-  site model, typed as a port) and `platform.fleet` (a `PlaybookRunner`: run
-  this named play with these variables against these hosts, and nothing
-  feature-shaped). Core's `AnsibleRunner` therefore has no `run_cache_purge`
-  any more — building a purge document is the cache package's business.
+  site model, typed as a port), `platform.origin_probe` and `platform.fleet` (a
+  `PlaybookRunner`: run this named play with these variables against these
+  hosts, and nothing feature-shaped). Core's `AnsibleRunner` therefore has no
+  `run_cache_purge` or `run_origin_check` any more — building a purge document
+  is the cache package's business and building a probe document is
+  `blitzecdn-origins`'. A package **may** depend on another package when it
+  genuinely needs one, and then it says so in its `pyproject.toml` with a
+  pinned range: the Automatic SSL/TLS scan runs `blitzecdn-origins`' play, so
+  `blitzecdn-certificates` declares it. An *undeclared* cross-package import is
+  refused — `test_optional_packages_depend_on_each_other_only_when_they_say_so`
+  — because detaching one would then break the other with an ImportError
+  nothing predicted. A third-party runtime dependency in a capability wheel is
+  refused outright: it is a dependency of the whole installation, added where
+  nobody would look for it.
 - **A package owns its Ansible too.** Everything that exists on an edge
   *because* a capability is installed — roles, plays, templates, systemd units,
   fleet settings, credentials — ships inside its wheel under
   `src/blitzecdn_<name>/ansible/{roles,playbooks}/`, located with
   `importlib.resources` — never a repository-relative path or a working
   directory, both of which are absent on an installed controller.
-  `blitzecdn_ansible_contributions` carries two things, and both are there
-  because the thing they describe is *global*: `roles_path`, which
+  `blitzecdn_ansible_contributions` carries four things, and each is there
+  because the thing it describes is *global*: `roles_path`, which
   `core/ansible/roles.py` composes into the one process-wide search path
   Ansible has (core first, then contributions sorted by plugin name, refusing a
   role name two packages both ship rather than letting the first match shadow
@@ -127,14 +149,42 @@ The rules that shape it:
   late enough to have the engine and the runtime directories, early enough that
   `blitzecdn_nginx` proves the whole tree loads afterwards, and inside the
   roles phase so a capability's `notify` reaches the reload handler at the end
-  of the play rather than between pre-tasks and roles. The list travels on the
-  command line, never in the variables file: that file *is* the desired-state
-  snapshot a rollback converges later, and what is installed is not desired
-  state. A *play* is passed by path to `run_playbook`, so it needs no hook and
-  core keeps no setting naming it. What stays core-owned is the platform — the
-  base host, Docker, the firewall, the edge runtime contract and
+  of the play rather than between pre-tasks and roles. `host_roles` is the
+  same question for the play's *second* slot, reaching Ansible as
+  `blitzecdn_host_capability_roles` and resolved by
+  `resolve_host_capability_roles`; the play uses the one
+  `blitzecdn_capabilities` role twice, with the list as a role parameter and
+  `allow_duplicates` making the second invocation deliberate. That slot sits
+  *after* `blitzecdn_edge_stack`, and the reason is the opposite of the edge
+  slot's: a role there configures the host underneath a runtime that is already
+  serving, and must not run earlier — SSH policy before firewall validation is
+  how a host ends up key-only *and* unreachable, and an edge whose containers
+  are all broken must still be reachable for Ansible to repair it.
+  `blitzecdn-hardening` is the whole of that slot's use. `teardown_roles` is
+  the third slot and the only one outside the edge play: it reaches Ansible as
+  `blitzecdn_teardown_capability_roles`, is resolved by
+  `resolve_teardown_capability_roles`, and sits in `decommission.yml` *before*
+  `blitzecdn_teardown`, whose closing clean-host assertion is the verdict on
+  the whole decommission and must not be passed before half the removal has
+  happened. It exists because core cannot remove what it may not name: a file
+  at a path only a wheel knows — `blitzecdn-resolver`'s drop-in under
+  `/etc/systemd/resolved.conf.d` is the case — would otherwise sit in a role
+  that is installed whether or not that wheel is, and a host is usually
+  decommissioned by a controller whose package set has drifted from the one
+  that converged it. What core still removes on its own is what core wrote: its
+  own trees, the shared runtime directories, and every systemd unit matching
+  the managed prefix, matched rather than listed for the same reason. All three
+  lists travel on the command line, never in the variables file: that file *is*
+  the desired-state snapshot a rollback converges later, and what is installed
+  is not desired state. A *play* is passed by path to `run_playbook`, so it needs
+  no hook and core keeps no setting naming it. What stays core-owned is the
+  platform — the base host, Docker, the firewall, the edge runtime contract and
   `blitzecdn_nginx`, which renders whatever the merged desired-state document
-  holds. The renderer exposes typed `http`, `server`, `access` and `upstream`
+  holds. SSH and Fail2Ban are *not* platform and left with
+  `blitzecdn-hardening`; host DNS resolution is not either and left with
+  `blitzecdn-resolver`. All three configure the host, not the runtime, and a
+  fleet whose `sshd_config` or whose resolver belongs elsewhere had no way to
+  decline while core's play named them. The renderer exposes typed `http`, `server`, `access` and `upstream`
   resource contexts; packages contribute named templates, never complete
   server blocks or arbitrary hook output. GeoIP, compression, HTTP/3, cache and
   request-security directives therefore live with their distributions while

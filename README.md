@@ -111,6 +111,8 @@ pip install 'blitzecdn[certificates]'# + certificate management and Automatic SS
 pip install 'blitzecdn[security]'    # + site security implementation
 pip install 'blitzecdn[http3]'       # + HTTP/3 over QUIC (HTTP/1.1 and HTTP/2 are baseline)
 pip install 'blitzecdn[geoip]'       # + visitor country lookup (headers and country rules)
+pip install 'blitzecdn[hardening]'   # + public-key-only SSH and Fail2Ban on every edge host
+pip install 'blitzecdn[resolver]'    # + host DNS resolution BlitzeCDN manages, off until enabled
 pip install 'blitzecdn[all]'         # + every optional capability
 pip uninstall blitzecdn-compression  # the capability disappears; core keeps working
 ```
