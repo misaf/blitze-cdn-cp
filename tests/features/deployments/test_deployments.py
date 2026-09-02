@@ -232,7 +232,7 @@ def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
 
     assert result.scanned == ()
     assert result.upgraded == {}
-    assert runner.origin_checks == []
+    assert runner.playbooks == []
     assert (
         control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
         is SslMode.OFF

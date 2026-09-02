@@ -535,30 +535,36 @@ def test_an_empty_renewal_selector_is_a_422(settings):
 # ----------------------------------------------------------------------
 
 
+# Raised from a *core* operation. These used to monkeypatch `check_origins`,
+# which now lives in `blitzecdn-origins`: the mapping being asserted is the
+# control plane's exception handlers, and a test of core's handlers that only
+# runs while an optional package is installed is testing the wrong thing.
+
+
 def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch):
     monkeypatch.setattr(
         EdgeOperationsService,
-        "check_origins",
-        lambda _self, _operator, **_kwargs: (_ for _ in ()).throw(
-            ConfigurationError("no edges configured")
+        "decommission_edge",
+        lambda _self, _name, _operator, **_kwargs: (_ for _ in ()).throw(
+            ConfigurationError("edge does not exist: edge-01")
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        response = client.post("/v1/origins/check", json={}, headers=_HEADERS)
+        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
     assert response.status_code == 400
-    assert response.json()["detail"] == "no edges configured"
+    assert response.json()["detail"] == "edge does not exist: edge-01"
 
 
 def test_an_execution_error_is_a_502(settings, monkeypatch):
     monkeypatch.setattr(
         EdgeOperationsService,
-        "check_origins",
-        lambda _self, _operator, **_kwargs: (_ for _ in ()).throw(
+        "decommission_edge",
+        lambda _self, _name, _operator, **_kwargs: (_ for _ in ()).throw(
             ExecutionError("ansible would not start")
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        response = client.post("/v1/origins/check", json={}, headers=_HEADERS)
+        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
     assert response.status_code == 502
 
 

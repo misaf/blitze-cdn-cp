@@ -254,10 +254,6 @@ class FakeRunner:
         #: method per play some package might contribute.
         self.playbooks: list[tuple[str, Path, dict[str, object], str | None]] = []
         self.decommissions: list[str] = []
-        #: The sites each origin check was asked about, and the limit it ran
-        #: under — the check is answered by the edges now, so what the
-        #: controller *sent* is the part a test can hold it to.
-        self.origin_checks: list[tuple[list[dict[str, object]], str | None]] = []
 
     def lock(self) -> nullcontext[None]:
         return nullcontext()
@@ -284,15 +280,6 @@ class FakeRunner:
 
     def run_decommission(self, *, host_limit: str) -> AnsibleRun:
         self.decommissions.append(host_limit)
-        return self.results.pop(0)
-
-    def run_origin_check(
-        self,
-        *,
-        sites: list[dict[str, object]],
-        host_limit: str | None = None,
-    ) -> AnsibleRun:
-        self.origin_checks.append((sites, host_limit))
         return self.results.pop(0)
 
 
@@ -427,7 +414,6 @@ def settings(tmp_path: Path) -> Settings:
         certificate_dir=state / "certificates",
         environment_path=tmp_path / ".env",
         backup_dir=state / "backups",
-        origin_check_playbook_path=ansible / "playbooks/origin-check.yml",
         decommission_playbook_path=ansible / "playbooks/decommission.yml",
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": "x" * 32},

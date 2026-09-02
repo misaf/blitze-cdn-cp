@@ -11,7 +11,6 @@ from control_plane_fixtures import (
     RecordingBackgroundQueue,
     ansible_run,
     host_run,
-    origin_report,
 )
 
 from blitzecdn.bootstrap import ControlPlane
@@ -585,72 +584,6 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings, site_payload)
 
     assert report.unattempted == ("edge-b",)
     assert report.in_sync is False
-
-
-def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_payload):
-    """The check runs on the machines that carry the traffic.
-
-    The controller's routes, resolver and egress rules are not the fleet's: an
-    origin allow-listing the edges refuses the controller while working
-    perfectly, and one reachable only from the controller's subnet passed the
-    old check and then 502'd on every edge. What the controller still owns is
-    *describing* the origin — port and SNI — so the two probes cannot disagree
-    about what a site's origin is.
-    """
-    repository = Repository(settings.database_path)
-    fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
-
-    report = control.edges.check_origins("alice", host_limit="edge-*")
-
-    sent, limit = fake.origin_checks[0]
-    assert limit == "edge-*"
-    assert sent[0]["origin_port"] == 80
-    assert sent[0]["ssl_mode"] == "off"
-    assert "origin_scheme" not in sent[0]
-    assert report.healthy is True
-    assert [edge.host for edge in report.reporting] == ["edge-a", "edge-b"]
-
-
-def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
-    """The distinction a single vantage point could never have made."""
-    repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings=settings,
-        repository=repository,
-        runner=FakeRunner(
-            [
-                ansible_run(
-                    origin_report("edge-a"),
-                    origin_report("edge-b", reachable=False, detail="timed out"),
-                )
-            ]
-        ),  # type: ignore[arg-type]
-    )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
-
-    report = control.edges.check_origins("alice")
-
-    assert report.healthy is False
-    assert report.failing_sites == {"cdn-example-com": ("edge-b",)}
-    assert report.silent == ()
-
-
-def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
-    """An edge that said nothing has not confirmed anything."""
-    repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings=settings,
-        repository=repository,
-        runner=FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
-    )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
-
-    report = control.edges.check_origins("alice")
-
-    assert [edge.host for edge in report.silent] == ["edge-b"]
-    assert report.silent[0].error == "the edge published no report"
 
 
 def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):

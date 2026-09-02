@@ -953,9 +953,14 @@ def test_the_edge_lifecycle_order_holds():
         "the edge lifecycle is out of order; expected " + " -> ".join(order)
     )
     # The stack role must be the last thing that touches the runtime, and the
-    # security roles stay after it — an edge whose containers are all broken
-    # still has to be reachable for Ansible to repair it.
-    assert play.index("role: blitzecdn_edge_stack") < play.index("role: blitzecdn_sshd")
+    # host capability slot stays after it — an edge whose containers are all
+    # broken still has to be reachable for Ansible to repair it, so nothing
+    # that could close the management path (SSH policy, a Fail2Ban jail, both
+    # now shipped by `blitzecdn-hardening`) may run before the runtime has
+    # proved it serves.
+    assert play.index("role: blitzecdn_edge_stack") < play.index(
+        "blitzecdn_host_capability_roles"
+    )
 
 
 def test_the_fleet_rollout_starts_with_one_edge():
