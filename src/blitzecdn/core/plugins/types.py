@@ -134,6 +134,29 @@ class AnsibleContribution:
     #: own plays — ``blitzecdn-cache`` purges through a play of its own and
     #: converges nothing on a deploy.
     edge_roles: tuple[str, ...] = ()
+    #: Environment names this package alone owns. Only these names are copied
+    #: into Ansible's subprocess environment; values remain ``SecretStr`` in
+    #: Settings and never travel through argv or desired state.
+    environment_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class NginxContribution:
+    """Static Nginx template fragments shipped by an installed package.
+
+    The four contexts are deliberately structural rather than directive-level:
+    one global ``http`` resource, one server-level insertion point, one access
+    phase before dispatch, and one upstream location after dispatch.  They are
+    enough for current capabilities without allowing a package to replace a
+    complete server block or turning Pluggy into a templating API.
+    """
+
+    plugin: str
+    templates_path: Path
+    http_fragments: tuple[str, ...] = ()
+    server_fragments: tuple[str, ...] = ()
+    access_fragments: tuple[str, ...] = ()
+    upstream_fragments: tuple[str, ...] = ()
 
 
 class ProcessKind(StrEnum):
@@ -287,6 +310,7 @@ __all__ = [
     "CliCommandGroup",
     "FleetStateContribution",
     "HealthCheck",
+    "NginxContribution",
     "PluginMetadata",
     "ProcessKind",
     "RuntimeContext",
