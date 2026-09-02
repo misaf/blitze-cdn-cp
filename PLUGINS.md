@@ -887,7 +887,7 @@ play that would include it is core's. `resolve_edge_capability_roles` composes
 that list — same ordering, and a name the contributing wheel does not actually
 ship is refused here rather than by a play that is already half-way through an
 edge. The list reaches Ansible as `blitzecdn_capability_roles`, an extra-var on
-every run, and `ansible/roles/blitzecdn_capabilities` is the one slot that
+every run, and `src/blitzecdn/ansible/roles/blitzecdn_capabilities` is the one slot that
 loops over it. It sits in the edge play's `roles:` list between
 `blitzecdn_kernel` and `blitzecdn_firewall`, which is forced from both sides:
 after the pre-tasks, because a capability role may need the container engine,
@@ -1006,7 +1006,8 @@ a package's README says.
 Non-secret fleet policy is unchanged: it lives in the capability role's own
 `defaults/main.yml` and is overridden with `blitzecdn config set`, exactly as
 core's role defaults are. Nothing about an optional capability belongs in
-`ansible/inventory/group_vars/`, which ships with the control plane and is read
+`src/blitzecdn/ansible/inventory/group_vars/`, which ships inside the control plane's own
+wheel and is read
 by every edge whether or not the package is installed.
 
 ## Adding an optional capability

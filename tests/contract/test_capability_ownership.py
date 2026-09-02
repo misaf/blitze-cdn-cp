@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from paths import REPO_ROOT
+from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.features.compression.policy import CompressionPolicy
@@ -30,7 +30,7 @@ from blitzecdn.features.sites.policy import (
 )
 from blitzecdn.features.tls.policy import TlsPolicy
 
-_ROLE = REPO_ROOT / "ansible/roles/blitzecdn_nginx"
+_ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"
 _TEMPLATE = (_ROLE / "templates/site.conf.j2").read_text(encoding="utf-8")
 #: The whole role. A site setting reaches the edge through the template that
 #: renders it *or* through the tasks that act on it — `certificate_mode` is the

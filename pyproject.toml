@@ -199,6 +199,20 @@ strict = true
 # really being held.
 packages = ["blitzecdn", "blitzecdn_backup", "blitzecdn_cache", "blitzecdn_compression", "blitzecdn_certificates", "blitzecdn_security", "blitzecdn_http3", "blitzecdn_geoip", "blitzecdn_hardening", "blitzecdn_origins", "blitzecdn_resolver"]
 
+# The dynamic inventory plugin is Ansible's code, not the control plane's. It
+# ships inside the package because Ansible loads inventory plugins by directory
+# and it therefore has to travel in the wheel — but it is imported by
+# `ansible-playbook`, under whatever interpreter that is, and deliberately
+# cannot import `blitzecdn` to check what it reads (see
+# tests/contract/test_inventory.py). It subclasses an untyped Ansible base, so
+# under `strict` every method it overrides is an error about someone else's
+# missing `py.typed`. What it publishes is checked where it matters: the
+# contract test runs the real `ansible-inventory` against a real database and
+# compares it to what the model renders.
+[[tool.mypy.overrides]]
+module = "blitzecdn.ansible.plugins.inventory.*"
+ignore_errors = true
+
 # Hook specifications are declarations, not implementations: pluggy never calls
 # the spec, only the implementations registered against it. A body would be
 # unreachable code that looked like a default.

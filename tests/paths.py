@@ -9,11 +9,19 @@ this module sits at the top of ``tests/``, and nothing below it counts.
 
 from pathlib import Path
 
-#: The checkout root — the directory holding `src/`, `ansible/` and `docker/`.
+#: The checkout root — the directory holding `src/` and `docker/`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = Path(__file__).resolve().parent
 SOURCE = REPO_ROOT / "src" / "blitzecdn"
 FIXTURES = TESTS_DIR / "fixtures"
+
+#: The platform's Ansible, which lives *inside* the package rather than beside
+#: it: roles, plays, the dynamic inventory plugin and the shipped non-secret
+#: defaults all ship in the `blitzecdn` wheel, the same way every optional
+#: capability ships its own. Anchored here for the same reason the root is —
+#: a suite that spelled the path would have to be edited by the next move, and
+#: this one has already happened once.
+CORE_ANSIBLE = SOURCE / "ansible"
 
 #: The workspace's optional distributions. Each directory here is one wheel
 #: that can be installed beside the control plane or left out of it.
@@ -34,6 +42,7 @@ def optional_packages() -> list[Path]:
 
 
 __all__ = [
+    "CORE_ANSIBLE",
     "FIXTURES",
     "PACKAGES",
     "REPO_ROOT",

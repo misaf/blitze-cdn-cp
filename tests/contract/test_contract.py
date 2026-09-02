@@ -1,7 +1,8 @@
 """Verify what the control plane emits against what the edge roles declare.
 
-The edge roles live in `ansible/roles/`, in this repository, so these tests read
-the roles this control plane actually deploys. Nothing else stops a new
+The edge roles live in `src/blitzecdn/ansible/roles/` — inside the package, so
+they ship in the wheel — and these tests read the roles this control plane
+actually deploys. Nothing else stops a new
 `CdnSite` field from reaching a role that has never heard of it.
 
 Every assertion here is about the boundary between them, not either side alone:
@@ -28,7 +29,7 @@ import yaml
 # contract, so the loader that builds that namespace is shared with the other
 # contract-test modules rather than reimplemented here.
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
-from paths import FIXTURES, REPO_ROOT, optional_packages
+from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.ansible.mapping import site_to_ansible
@@ -118,12 +119,12 @@ def test_ci_actions_are_pinned_to_immutable_commits():
 #: wrong and no reason for these tests to skip. That matters: they used to read
 #: an installed collection and skipped silently when it was absent, which turned
 #: a broken contract into a green run.
-ROLES_DIR = PROJECT_DIR / "ansible/roles"
+ROLES_DIR = CORE_ANSIBLE / "roles"
 
 
 def _role(name: str) -> Path:
     candidate = ROLES_DIR / name
-    assert candidate.is_dir(), f"{name} is missing from ansible/roles/"
+    assert candidate.is_dir(), f"{name} is missing from src/blitzecdn/ansible/roles/"
     return candidate
 
 
@@ -279,7 +280,7 @@ def _plays_and_their_roles() -> list[tuple[Path, tuple[Path, ...]]]:
     """
     found: list[tuple[Path, tuple[Path, ...]]] = [
         (playbook, (ROLES_DIR,))
-        for playbook in sorted((PROJECT_DIR / "ansible/playbooks").glob("*.yml"))
+        for playbook in sorted((CORE_ANSIBLE / "playbooks").glob("*.yml"))
     ]
     for package in optional_packages():
         tree = next(package.glob("src/*/ansible"), None)
@@ -321,8 +322,8 @@ def test_every_role_a_playbook_names_exists():
 def test_no_reference_to_the_retired_edge_collection_remains():
     """A stale `blitzecdn.edge.` prefix resolves to nothing and fails at deploy."""
     tracked = [
-        *sorted((PROJECT_DIR / "ansible").rglob("*.yml")),
-        *sorted((PROJECT_DIR / "ansible").rglob("*.cfg")),
+        *sorted(CORE_ANSIBLE.rglob("*.yml")),
+        *sorted(CORE_ANSIBLE.rglob("*.cfg")),
         PROJECT_DIR / "install.sh",
     ]
     offenders = [
@@ -342,7 +343,7 @@ def test_no_reference_to_the_retired_edge_collection_remains():
 # control plane's own file and holds whether or not that package is attached.
 def test_controller_refuses_password_authentication():
     """The other half of the contract: what this repository dials out with."""
-    config = (PROJECT_DIR / "ansible/ansible.cfg").read_text(encoding="utf-8")
+    config = (CORE_ANSIBLE / "ansible.cfg").read_text(encoding="utf-8")
     for option in (
         "PreferredAuthentications=publickey",
         "PasswordAuthentication=no",
@@ -350,8 +351,8 @@ def test_controller_refuses_password_authentication():
         "BatchMode=yes",
     ):
         assert option in config, (
-            f"ansible/ansible.cfg no longer passes -o {option}, so a deploy "
-            "could authenticate to an edge with a password."
+            f"the platform ansible.cfg no longer passes -o {option}, so a "
+            "deploy could authenticate to an edge with a password."
         )
     assert "host_key_checking = True" in config
 

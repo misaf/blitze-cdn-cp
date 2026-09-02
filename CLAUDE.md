@@ -38,7 +38,7 @@ Things that are not guessable:
 - **`filterwarnings = ["error"]`.** A new DeprecationWarning anywhere in the dependency tree fails the suite.
 - **`BLITZECDN_UPDATE_FIXTURE=1 pytest tests/test_contract.py --no-cov`** regenerates the control-plane/edge contract fixture. Do this only after an *intended* change to `CdnSite` or the Nginx role.
 - **Contract tests skip silently when the Ansible collections aren't installed.** Check the outcome, not the exit code: a `tests/test_contract.py` run that reports skips rather than passes means the collections are missing, and it exits `0` either way. Run `just install` (or `./install.sh`) first.
-- **Ansible needs two env vars** — `ANSIBLE_CONFIG=ansible/ansible.cfg` and `ANSIBLE_LOCAL_TEMP=.state/ansible-local`. The justfile exports both; a manual `ansible-playbook` invocation must too. `-i` is deliberately omitted: `ansible.cfg` points at the `blitzecdn` dynamic inventory plugin, which reads the fleet from the control-plane database.
+- **Ansible needs three env vars** — `ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg`, `ANSIBLE_LOCAL_TEMP=.state/ansible-local` and `ANSIBLE_COLLECTIONS_PATH=.state/collections`. The justfile exports all three; a manual `ansible-playbook` invocation must too. The last two are not in `ansible.cfg`: since the platform's Ansible moved inside the package, a relative path there resolves into site-packages, and both name state. `-i` is deliberately omitted: `ansible.cfg` points at the `blitzecdn` dynamic inventory plugin, which reads the fleet from the control-plane database.
 - **Optional capabilities are attached with extras, not dependencies.**
   `pip install blitzecdn` installs neither `blitzecdn-backup` nor
   `blitzecdn-cache`; `install.sh` and the container image pass
@@ -70,6 +70,11 @@ blitze-cdn-cp/
 │   ├── core/               # shared runtime and infrastructure implementations:
 │   │   │                   # SQLite, Ansible, Certbot, filesystem, process, config
 │   │   └── plugins/        # hookspecs, discovery, manager, registry
+│   ├── ansible/            # the PLATFORM's Ansible, inside the package so it
+│   │                       # ships in the wheel: roles/, playbooks/, the
+│   │                       # dynamic inventory plugin, ansible.cfg and the
+│   │                       # shipped group_vars. Located with
+│   │                       # importlib.resources, never from project_dir
 │   ├── api/                # FastAPI entry point
 │   ├── cli/                # Typer entry point
 │   ├── bootstrap.py        # the sole production composition root
@@ -131,12 +136,23 @@ The rules that shape it:
   nothing predicted. A third-party runtime dependency in a capability wheel is
   refused outright: it is a dependency of the whole installation, added where
   nobody would look for it.
-- **A package owns its Ansible too.** Everything that exists on an edge
-  *because* a capability is installed — roles, plays, templates, systemd units,
-  fleet settings, credentials — ships inside its wheel under
+- **A package owns its Ansible too, and so does core.** Everything that exists
+  on an edge *because* a capability is installed — roles, plays, templates,
+  systemd units, fleet settings, credentials — ships inside its wheel under
   `src/blitzecdn_<name>/ansible/{roles,playbooks}/`, located with
   `importlib.resources` — never a repository-relative path or a working
-  directory, both of which are absent on an installed controller.
+  directory, both of which are absent on an installed controller. The platform's
+  own Ansible keeps the same contract from the same module shape:
+  `src/blitzecdn/ansible/` holds the eleven platform roles, the four plays, the
+  dynamic inventory plugin and `ansible.cfg`, and `blitzecdn/ansible/__init__.py`
+  publishes `ROLES_PATH`, `EDGE_PLAYBOOK`, `DECOMMISSION_PLAYBOOK` and
+  `INVENTORY_PLUGINS_PATH` that `Settings` reads. It used to resolve them from
+  `project_dir`, which made the checkout an undeclared runtime dependency of the
+  root wheel; `tests/architecture/test_lifecycle.py` now installs core alone into
+  a virtualenv and refuses that. What must *not* go in there is state: a relative
+  `collections_path` or `local_tmp` in `ansible.cfg` would resolve inside
+  site-packages, so both are set from `Settings.state_dir` at run time and
+  exported by the justfile and `install.sh` for a bare `ansible-playbook`.
   `blitzecdn_ansible_contributions` carries four things, and each is there
   because the thing it describes is *global*: `roles_path`, which
   `core/ansible/roles.py` composes into the one process-wide search path
@@ -144,7 +160,7 @@ The rules that shape it:
   role name two packages both ship rather than letting the first match shadow
   the other); and `edge_roles`, the roles core's edge play runs, resolved the
   same way and reaching Ansible as the `blitzecdn_capability_roles` extra-var
-  that `ansible/roles/blitzecdn_capabilities` loops over. That slot sits
+  that `src/blitzecdn/ansible/roles/blitzecdn_capabilities` loops over. That slot sits
   between `blitzecdn_kernel` and `blitzecdn_firewall` in the `roles:` list —
   late enough to have the engine and the runtime directories, early enough that
   `blitzecdn_nginx` proves the whole tree loads afterwards, and inside the
@@ -203,7 +219,7 @@ The rules that shape it:
   which is what keeps `BLITZE_API_KEY` out of every subprocess. Non-secret
   fleet policy lives in the capability role's own `defaults/main.yml` and is
   overridden with `blitzecdn config set`; nothing about an optional capability
-  belongs in `ansible/inventory/group_vars/`.
+  belongs in `src/blitzecdn/ansible/inventory/group_vars/`.
 - **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `features/gzip`, `features/http3`, `features/certificates` or `features/under_attack` package by name. That rule is about the *feature tree* only: an optional distribution is named after the implementation an operator attaches, which is why `blitzecdn-certificates` and `blitzecdn-http3` are wheels while those feature directories stay refused. HTTP/1.1 and HTTP/2 are baseline and never optional — there is no `blitzecdn-http1` or `blitzecdn-http2`. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
 - **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
@@ -266,7 +282,7 @@ Rules that the layering tests exist to defend, each guarding a failure that is i
 
 Precedence, most specific first: CLI arguments (one invocation only) → `BLITZE_*` environment variables → inventory/group/host vars (environment policy) → namespaced role defaults (non-secret implementation defaults). `blitzecdn.toml` supplies non-secret defaults and env vars override it; secrets are deliberately not valid TOML keys.
 
-**Do not edit the tracked files under `ansible/inventory/group_vars/`.** Fleet-wide non-secret Ansible policy lives in the control-plane database — change it with `blitzecdn config set/list/unset`, and the dynamic inventory plugin publishes it to every edge. Those tracked files are shipped defaults only.
+**Do not edit the tracked files under `src/blitzecdn/ansible/inventory/group_vars/`.** Fleet-wide non-secret Ansible policy lives in the control-plane database — change it with `blitzecdn config set/list/unset`, and the dynamic inventory plugin publishes it to every edge. Those tracked files are shipped defaults only.
 
 Secrets stay in `.env` (auto-loaded by the CLI as local defaults; already-exported variables win). Runtime state — SQLite data, generated Ansible vars, locks, run logs — lives under `.state/` and is gitignored.
 
