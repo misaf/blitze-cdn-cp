@@ -23,8 +23,8 @@ blitzecdn_geoip_enabled: false
 
 # MaxMind credentials, read from the controller's environment.
 #
-# The control plane forwards every `BLITZE_*` variable it does not consume
-# itself into the Ansible environment, so putting these two in the controller's
+# The control plane forwards these keys because this package explicitly claims
+# them in its Ansible contribution, so putting these two in the controller's
 # 0600 `.env` is all that is required:
 #
 #   BLITZE_MAXMIND_ACCOUNT_ID=123456
@@ -89,8 +89,6 @@ blitzecdn_geoip_env_file: >-
 # The `conf.d` snippet defining $blitzecdn_country, which core's site template
 # reads. Written before blitzecdn_nginx renders and validates the tree, which
 # is what the capability role slot in the edge play guarantees.
-blitzecdn_geoip_conf_file: >-
-  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-geoip.conf
 blitzecdn_geoip_reload: 5m
 
 # Systemd units this role installs. Named with the `blitzecdn-` prefix every

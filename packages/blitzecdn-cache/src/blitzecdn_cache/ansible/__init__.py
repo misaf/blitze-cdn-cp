@@ -17,7 +17,7 @@ from __future__ import annotations
 from importlib import resources
 from pathlib import Path
 
-__all__ = ["CACHE_PURGE_PLAYBOOK", "ROLES_PATH", "STATS_PLAYBOOK"]
+__all__ = ["CACHE_PURGE_PLAYBOOK", "EDGE_ROLE", "ROLES_PATH", "STATS_PLAYBOOK"]
 
 
 def _directory() -> Path:
@@ -41,6 +41,7 @@ def _directory() -> Path:
 #: Handed to the control plane through ``blitzecdn_ansible_contributions``.
 #: Everything under it is a role Ansible may resolve by name.
 ROLES_PATH = _directory() / "roles"
+EDGE_ROLE = "blitzecdn_cache_config"
 
 #: Passed straight to ``PlaybookRunner.run_playbook``. Core stages the
 #: variables, expands the host limit and applies the timeout; which play runs

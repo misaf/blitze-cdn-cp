@@ -1,0 +1,10 @@
+---
+- name: Validate compression settings
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_compression_gzip_level | int >= 1
+      - blitzecdn_compression_gzip_level | int <= 9
+      - blitzecdn_compression_brotli_level | int >= 0
+      - blitzecdn_compression_brotli_level | int <= 11
+      - blitzecdn_compression_min_length | int >= 0
+    fail_msg: Compression levels or minimum length are outside Nginx limits.

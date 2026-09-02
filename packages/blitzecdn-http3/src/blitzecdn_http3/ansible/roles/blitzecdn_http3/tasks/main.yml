@@ -1,0 +1,60 @@
+---
+- name: Inspect the package-required HTTP/3 runtime
+  community.docker.docker_container:
+    name: blitzecdn-http3-build-probe
+    image: "{{ blitzecdn_edge_runtime.image }}"
+    command: [nginx, -V]
+    detach: false
+    cleanup: true
+    network_mode: none
+    read_only: true
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m", "/run:rw,noexec,nosuid,size=8m"]
+    state: started
+  register: blitzecdn_http3_build_probe
+  changed_when: false
+  failed_when: false
+  when: blitzecdn_edge_runtime.listeners.http3 | bool
+
+- name: Require the HTTP/3 Nginx module when requested
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_http3_build_probe.status | default(1) | int == 0
+      - >-
+        '--with-http_v3_module' in
+        (blitzecdn_http3_build_probe.container.Output | default(''))
+    fail_msg: >-
+      The configured edge image cannot serve HTTP/3: nginx -V did not report
+      --with-http_v3_module. No Nginx configuration was changed.
+  when: blitzecdn_edge_runtime.listeners.http3 | bool
+
+- name: Validate HTTP/3 desired state before Nginx rendering
+  ansible.builtin.assert:
+    that:
+      - >-
+        blitzecdn_nginx_sites
+        | selectattr('http3_enabled', 'defined')
+        | selectattr('http3_enabled')
+        | selectattr('ssl_mode', 'equalto', 'off')
+        | list | length == 0
+      - >-
+        not (
+          blitzecdn_nginx_sites
+          | selectattr('enabled', 'undefined')
+          | selectattr('http3_enabled', 'defined')
+          | selectattr('http3_enabled')
+          | list | length > 0
+          or blitzecdn_nginx_sites
+          | selectattr('enabled', 'defined')
+          | selectattr('enabled')
+          | selectattr('http3_enabled', 'defined')
+          | selectattr('http3_enabled')
+          | list | length > 0
+        ) or blitzecdn_edge_runtime.listeners.http3
+      - >-
+        not blitzecdn_edge_runtime.listeners.http3 or
+        blitzecdn_nginx_http3_listener_owner | length > 0
+      - >-
+        not blitzecdn_edge_runtime.listeners.http3 or
+        blitzecdn_nginx_http3_listener_owner in
+        (blitzecdn_nginx_sites | map(attribute='name') | list)
+    fail_msg: HTTP/3 listener state has no valid managed-site owner.

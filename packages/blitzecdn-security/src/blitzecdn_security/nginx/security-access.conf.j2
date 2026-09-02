@@ -1,0 +1,16 @@
+{% set firewall = site.firewall | default({}, true) or {} %}
+{% if firewall.denied_countries | default([], true) %}
+        if ($blitzecdn_country ~ "^({{ firewall.denied_countries | join('|') }})$") { return 403; }
+{% endif %}
+{% if firewall.allowed_countries | default([], true) %}
+        if ($blitzecdn_country !~ "^({{ firewall.allowed_countries | join('|') }})$") { return 403; }
+{% endif %}
+{% if firewall.denied_methods | default([], true) %}
+        if ($request_method ~ "^({{ firewall.denied_methods | join('|') }})$") { return 405; }
+{% endif %}
+{% for source in firewall.allow_sources | default([], true) %}
+        allow {{ source }};
+{% endfor %}
+{% for source in firewall.deny_sources | default([], true) %}
+        deny {{ source }};
+{% endfor %}

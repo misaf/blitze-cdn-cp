@@ -13,6 +13,7 @@ no record derives is not in the snapshot the validator reads.
 import json
 
 import pytest
+from blitzecdn_security.config import SECRET_VARIABLE
 from control_plane_fixtures import FakeRunner, ansible_run, host_run
 from pydantic import SecretStr
 from typer.testing import CliRunner
@@ -22,7 +23,6 @@ from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn_security.config import SECRET_VARIABLE
 
 runner = CliRunner()
 

@@ -1,0 +1,22 @@
+---
+- name: Validate per-site cache durations
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.cache_valid_success | default('10m')
+        is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
+      - >-
+        item.cache_valid_not_found | default('1m')
+        is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
+    fail_msg: "Site {{ item.name }} has an invalid cache duration."
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+
+- name: Create the response cache directory
+  ansible.builtin.file:
+    path: "{{ blitzecdn_edge_runtime.paths.cache }}"
+    state: directory
+    owner: www-data
+    group: www-data
+    mode: "0750"

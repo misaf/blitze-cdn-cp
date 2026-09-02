@@ -32,6 +32,7 @@ def _site(**policy: object) -> CdnSite:
         server_names=("alpha.example.com",),
         origin_host="198.51.100.10",
         compression="off",
+        cache_enabled=False,
         **policy,
     )
 

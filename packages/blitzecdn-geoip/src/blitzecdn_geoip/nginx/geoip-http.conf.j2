@@ -1,0 +1,6 @@
+{% if blitzecdn_geoip_enabled | bool %}
+geoip2 {{ blitzecdn_geoip_database }} {
+    auto_reload {{ blitzecdn_geoip_reload }};
+    $blitzecdn_country source=$remote_addr country iso_code;
+}
+{% endif %}

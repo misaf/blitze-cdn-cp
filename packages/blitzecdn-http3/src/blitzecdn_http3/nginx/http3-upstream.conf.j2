@@ -1,0 +1,3 @@
+{% if visitor_scheme == 'https' and site.http3_enabled | default(false) and listener_port == 443 %}
+        add_header Alt-Svc 'h3=":443"; ma=86400' always;
+{% endif %}

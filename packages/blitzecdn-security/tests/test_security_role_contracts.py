@@ -1,8 +1,8 @@
 """The agreements this capability's edge role has with the core it converges on.
 
-`blitzecdn_security` puts two files on an edge — the njs module that serves the
-challenge, and the `conf.d` snippet that imports it — and core's site template
-dispatches into both by name. Nothing at run time catches a disagreement: an
+`blitzecdn_security` puts the njs module that serves the challenge on an edge
+and contributes the Nginx resource that imports it. Nothing before Nginx's
+configuration test catches a disagreement: an
 import that names a file the role did not write fails `nginx -t`, which is a
 rolled-back deploy on every edge rather than a message naming the two
 distributions that stopped agreeing.
@@ -18,6 +18,7 @@ from contract_support import *
 
 ROLE = ansible.ROLES_PATH / ansible.EDGE_ROLE
 TASKS = ROLE / "tasks/main.yml"
+NGINX = ansible.ROLES_PATH.parents[1] / "nginx"
 
 
 def _defaults(**overrides: Any) -> dict[str, Any]:
@@ -54,11 +55,9 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
     inside Nginx, and the `js_import` in the snippet below would fail the
     configuration test rather than the deploy saying what is missing.
     """
-    resolved = _defaults()
+    resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     modules = resolved["blitzecdn_edge_runtime"]["paths"]["modules"]
-    assert resolved["blitzecdn_security_under_attack_js_file"].startswith(
-        f"{modules}/"
-    )
+    assert resolved["blitzecdn_security_under_attack_js_file"].startswith(f"{modules}/")
     mounts = "\n".join(_role_defaults()["blitzecdn_nginx_config_test_volumes"])
     assert f"{modules}:{modules}:ro" in mounts
 
@@ -68,31 +67,33 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
 
 def test_the_snippet_imports_the_module_the_role_writes():
     """One path, spelled the same in the snippet and in the task that writes it."""
-    resolved = _defaults()
+    resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     environment = _ansible_jinja(
-        loader=jinja2.FileSystemLoader(ROLE / "templates"),
+        loader=jinja2.FileSystemLoader(NGINX),
         keep_trailing_newline=True,
     )
-    snippet = environment.get_template("under-attack.conf.j2").render(**resolved)
+    snippet = environment.get_template("security-http.conf.j2").render(**resolved)
     assert (
         f"js_import blitzecdn_under_attack from "
         f"{resolved['blitzecdn_security_under_attack_js_file']};" in snippet
     )
 
 
-def test_core_dispatches_into_the_module_this_role_installs():
-    """Core's site template names the njs functions; this role provides them.
+def test_package_resources_dispatch_into_the_module_this_role_installs():
+    """Package Nginx resources name the njs functions its role provides.
 
     The names cross a distribution boundary in both directions, so both sides
     are asserted here — this is the only place that reads them together.
     """
-    site = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
+    site = "\n".join(
+        path.read_text(encoding="utf-8") for path in sorted(NGINX.glob("*.j2"))
+    )
     module = (ROLE / "templates/under-attack.js.j2").read_text(encoding="utf-8")
     for entry in ("challenge", "verify", "guard"):
         assert f"js_content blitzecdn_under_attack.{entry};" in site
         assert entry in module
     assert "js_var $blitzecdn_under_attack_location;" in (
-        ROLE / "templates/under-attack.conf.j2"
+        NGINX / "security-http.conf.j2"
     ).read_text(encoding="utf-8")
 
 
@@ -163,3 +164,20 @@ def test_the_role_accepts_a_fleet_that_never_asks_for_the_challenge(tmp_path):
         tmp_path,
     )
     assert accepted.returncode == 0, accepted.stdout
+
+
+def test_the_role_rejects_a_firewall_rule_it_cannot_safely_render(
+    desired_state, tmp_path
+):
+    """Defence in depth stays with the request-security implementation."""
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {"firewall": {"denied_paths": ["/a; return 200"]}}
+
+    rejected = run_role_tasks(
+        TASKS,
+        _defaults(blitzecdn_nginx_sites=sites),
+        tmp_path,
+    )
+
+    assert rejected.returncode != 0
+    assert "invalid CDN request-security rules" in rejected.stdout

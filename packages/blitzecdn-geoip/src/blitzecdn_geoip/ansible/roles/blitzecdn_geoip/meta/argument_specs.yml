@@ -7,7 +7,7 @@ argument_specs:
         The `geoip` capability's whole edge implementation, shipped inside the
         blitzecdn-geoip wheel. It provisions the MaxMind GeoLite2 database and
         its refresh schedule, and writes the conf.d snippet that defines
-        $blitzecdn_country for core's site template to read.
+        $blitzecdn_country for this package's Nginx contribution to expose.
       - >-
         Run from the edge play's capability slot, which the control plane fills
         from the installed plugins. Detaching the distribution removes this role
@@ -51,6 +51,5 @@ argument_specs:
       blitzecdn_geoip_project: {type: str, required: true}
       blitzecdn_geoip_compose_file: {type: path, required: true}
       blitzecdn_geoip_env_file: {type: path, required: true}
-      blitzecdn_geoip_conf_file: {type: path, required: true}
       blitzecdn_geoip_reload: {type: str, required: true}
       blitzecdn_geoip_units: {type: list, elements: str, required: true}

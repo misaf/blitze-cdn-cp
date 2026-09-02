@@ -1,0 +1,4 @@
+{% set visitor_headers = site.visitor_headers | default({}, true) or {} %}
+{% if visitor_headers.ip_country | default(false) %}
+        set $blitzecdn_visitor_ip_country $blitzecdn_country;
+{% endif %}

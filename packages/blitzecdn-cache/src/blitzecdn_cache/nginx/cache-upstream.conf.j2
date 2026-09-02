@@ -1,0 +1,15 @@
+{% if site.cache_enabled | default(true) %}
+{% set cache_uri = '$blitzecdn_uri_without_query' if site.cache_query_string_mode | default('include') == 'ignore' else '$request_uri' %}
+        proxy_cache {{ blitzecdn_cache_config_zone }};
+        proxy_cache_bypass $http_upgrade;
+        proxy_no_cache $http_upgrade;
+        proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}$blitzecdn_accept_encoding";
+        proxy_cache_valid 200 301 302 {{ site.cache_valid_success | default('10m') }};
+        proxy_cache_valid 404 {{ site.cache_valid_not_found | default('1m') }};
+        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
+        proxy_cache_background_update on;
+        proxy_cache_lock on;
+        proxy_cache_revalidate on;
+        proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;
+        add_header X-Cache-Status $upstream_cache_status always;
+{% endif %}

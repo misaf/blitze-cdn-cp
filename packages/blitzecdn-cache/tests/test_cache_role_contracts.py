@@ -18,7 +18,9 @@ from blitzecdn_cache import ansible
 from contract_support import *
 
 CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache"
+CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
 STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_stats"
+NGINX_DIR = Path(__file__).parents[1] / "src/blitzecdn_cache/nginx"
 
 
 def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
@@ -31,6 +33,7 @@ def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
     assert ansible.ROLES_PATH.is_dir()
     assert sorted(path.name for path in ansible.ROLES_PATH.iterdir()) == [
         "blitzecdn_cache",
+        "blitzecdn_cache_config",
         "blitzecdn_stats",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
@@ -77,12 +80,11 @@ def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
     )
 
 
-def test_purge_role_agrees_with_the_nginx_role():
-    """Encoding normalization is Nginx policy, so it is compared to that role."""
-    assert (
-        _defaults_of(CACHE_ROLE_DIR)["blitzecdn_cache_normalize_accept_encoding"]
-        == _role_defaults()["blitzecdn_nginx_normalize_accept_encoding"]
-    )
+def test_purge_role_agrees_with_the_package_owned_nginx_resource():
+    """The cache package owns both normalization and every consumer of it."""
+    template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
+    assert _defaults_of(CACHE_ROLE_DIR)["blitzecdn_cache_normalize_accept_encoding"]
+    assert "$blitzecdn_accept_encoding" in template
 
 
 def test_stats_role_reads_the_log_the_nginx_role_writes():
@@ -104,7 +106,7 @@ def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
     If the nginx template ever emits different levels, the purge role must stop
     claiming it can compute paths rather than silently deleting wrong ones.
     """
-    template = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
+    template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
     assert "levels=1:2" in template
     spec = yaml.safe_load(
         (CACHE_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
@@ -120,14 +122,14 @@ def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
     nginx caches GET and HEAD by default and the template does not narrow
     proxy_cache_methods.
     """
-    site_template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
+    site_template = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
     assert "$scheme$server_port$request_method$host{{ cache_uri }}" in site_template
     assert "proxy_cache_methods" not in site_template
 
     defaults = _defaults_of(CACHE_ROLE_DIR)
     assert set(defaults["blitzecdn_cache_purge_methods"]) == {"GET", "HEAD"}
 
-    cache_conf = (ROLE_DIR / "templates/cache.conf.j2").read_text(encoding="utf-8")
+    cache_conf = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
     mapped = set(re.findall(r'"(br|gzip)"\s*;', cache_conf)) | {""}
     assert set(defaults["blitzecdn_cache_purge_encodings"]) == mapped, (
         "the encodings blitzecdn_cache purges differ from the ones the "

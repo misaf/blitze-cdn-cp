@@ -23,8 +23,8 @@ blitzecdn_security_under_attack_passage_seconds: 1800
 # Fleet-wide HMAC key for stateless challenges and clearance cookies.
 #
 # Read from the controller's environment, never written down here: the control
-# plane forwards every `BLITZE_*` variable it does not consume itself into the
-# Ansible environment, so the operator sets one line in the controller's 0600
+# plane forwards this key because this package explicitly claims it in its
+# Ansible contribution, so the operator sets one line in the controller's 0600
 # `.env` and nothing else:
 #
 #   BLITZE_UNDER_ATTACK_SECRET=<at least 32 bytes>
@@ -38,5 +38,3 @@ blitzecdn_security_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_S
 # root-owned and 0750 and mounts read-only into the edge container.
 blitzecdn_security_under_attack_js_file: >-
   {{ blitzecdn_edge_runtime.paths.modules }}/under-attack.js
-blitzecdn_security_under_attack_conf_file: >-
-  {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-under-attack.conf

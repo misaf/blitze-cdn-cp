@@ -1,0 +1,16 @@
+proxy_cache_path {{ blitzecdn_edge_runtime.paths.cache }}
+    levels=1:2
+    keys_zone={{ blitzecdn_cache_config_zone }}:{{ blitzecdn_cache_config_size }}
+    max_size={{ blitzecdn_cache_config_max_size }}
+    inactive={{ blitzecdn_cache_config_inactive }}
+    use_temp_path=off;
+
+map $request_uri $blitzecdn_uri_without_query {
+    ~^([^?]*) $1;
+}
+
+map $http_accept_encoding $blitzecdn_accept_encoding {
+    default        "";
+    "~*(^|,)\s*br\s*(;|,|$)"    "br";
+    "~*(^|,)\s*gzip\s*(;|,|$)"  "gzip";
+}

@@ -1,0 +1,36 @@
+{% if not default_server %}
+{% set firewall = site.firewall | default({}, true) or {} %}
+{% for path in firewall.denied_paths | default([], true) %}
+    location ^~ {{ path }} { return 403; }
+{% endfor %}
+{% if site.under_attack_mode | default(false) %}
+    location = /.blitzecdn/challenge {
+{% if redirect_https %}
+        return 301 https://$host$request_uri;
+{% else %}
+        js_content blitzecdn_under_attack.challenge;
+{% endif %}
+    }
+    location = /.blitzecdn/challenge/verify {
+{% if redirect_https %}
+        return 301 https://$host$request_uri;
+{% else %}
+        client_max_body_size 2k;
+        client_body_buffer_size 2k;
+        limit_req zone=blitzecdn_under_attack_verify burst=10 nodelay;
+        limit_req_status 429;
+        js_content blitzecdn_under_attack.verify;
+{% endif %}
+    }
+    location = /.blitzecdn/internal/under-attack-guard {
+        internal;
+        js_content blitzecdn_under_attack.guard;
+    }
+    location @blitzecdn_under_attack_redirect {
+        internal;
+        add_header X-BlitzeCDN-Mitigation challenge always;
+        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
+        return 302 $blitzecdn_under_attack_location;
+    }
+{% endif %}
+{% endif %}

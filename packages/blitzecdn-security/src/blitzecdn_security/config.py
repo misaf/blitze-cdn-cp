@@ -8,24 +8,29 @@ the MaxMind credentials came to live there. Reading ``os.environ`` directly
 would miss the controller's ``.env``, which core merges and the process never
 exports.
 
-So the package reads ``Settings.capability_environment``: every ``BLITZE_*``
-variable the control plane was configured with and does not consume itself,
-already merged from the environment and the controller's ``.env``. Core does
-not know this name belongs to this package; it forwards what it was given, here
-and into the Ansible subprocess the role reads it from.
+So the package reads ``Settings.capability_environment``, already merged from
+the environment and the controller's ``.env``. Its Ansible contribution
+explicitly claims this module's key; composition rejects an unclaimed or
+multiply claimed name and forwards only resolved package-owned keys to the
+Ansible subprocess.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import SecretStr
 
 __all__ = ["SECRET_VARIABLE", "SecurityConfig"]
 
-#: The controller-side name of the fleet challenge secret. One constant, read
-#: by this module and named in the role's defaults, so the two cannot drift.
-SECRET_VARIABLE = "BLITZE_UNDER_ATTACK_SECRET"
+#: The controller-side *name* of the fleet challenge secret — never its value,
+#: which is only ever read from the environment. One constant, spelled here and
+#: in the role's defaults, so the two cannot drift.
+#:
+#: The linters see a capitalised string with "SECRET" in it and assume a
+#: hardcoded credential; both are told otherwise here rather than by renaming
+#: the constant into something that describes it less well.
+SECRET_VARIABLE = "BLITZE_UNDER_ATTACK_SECRET"  # noqa: S105  # nosec B105
 
 #: Shortest key the challenge will sign with. An HMAC-SHA256 secret below its
 #: block size buys nothing, and a short one here is nearly always a placeholder
@@ -37,7 +42,7 @@ _MINIMUM_SECRET_BYTES = 32
 class SecurityConfig:
     """What this capability needs from the controller's configuration."""
 
-    under_attack_secret: SecretStr = SecretStr("")
+    under_attack_secret: SecretStr = field(default_factory=lambda: SecretStr(""))
 
     @classmethod
     def from_settings(cls, settings: object) -> SecurityConfig:

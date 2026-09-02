@@ -6,11 +6,36 @@
 # validates the tree — which is what makes the module importable by the time
 # `nginx -t` reads a site that dispatches to it.
 #
-# What is deliberately *not* here is the per-site rendering. The challenge
-# locations inside a virtual host are directives in a server block that core's
-# site template owns, driven by the site's own `under_attack_mode` setting like
-# every other site setting. Splitting a server block across packages would mean
-# concatenating configuration text through a hook.
+# The package-owned Nginx fragments render request filtering and challenge
+# locations into the core skeleton. This role provisions the runtime resources
+# those fragments reference and independently validates their desired state.
+
+- name: Validate per-site request security rules
+  ansible.builtin.assert:
+    that:
+      - >-
+        item.firewall.allow_sources | default([])
+        | union(item.firewall.deny_sources | default([]))
+        | reject('match', '^[0-9A-Fa-f:.]+(?:/[0-9]{1,3})?$')
+        | list | length == 0
+      - >-
+        item.firewall.allowed_countries | default([])
+        | union(item.firewall.denied_countries | default([]))
+        | reject('match', '^[A-Z]{2}$')
+        | list | length == 0
+      - >-
+        item.firewall.denied_methods | default([])
+        | reject('match', '^[A-Z][A-Z-]{1,19}$')
+        | list | length == 0
+      - >-
+        item.firewall.denied_paths | default([])
+        | reject('match', '^/[^\\s;{}"''\\\\]*$')
+        | list | length == 0
+    fail_msg: "Site {{ item.name }} has invalid CDN request-security rules."
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    label: "{{ item.name }}"
+  when: item.firewall | default({}, true) | length > 0
 
 # Asked here rather than in blitzecdn_nginx, which would mean core's role
 # naming a capability that may not be installed. The control plane refuses such
@@ -71,15 +96,6 @@
       no_log: true
       notify: Validate and reload Nginx
 
-    - name: Configure the Under Attack Mode njs module
-      ansible.builtin.template:
-        src: under-attack.conf.j2
-        dest: "{{ blitzecdn_security_under_attack_conf_file }}"
-        owner: root
-        group: root
-        mode: "0644"
-      notify: Validate and reload Nginx
-
 # The module goes with the snippet that imports it: leaving a file signed with
 # a fleet secret on an edge that no longer serves challenges is a credential
 # kept for nothing. A site still asking for the mode cannot reach here — the
@@ -89,7 +105,6 @@
     path: "{{ item }}"
     state: absent
   loop:
-    - "{{ blitzecdn_security_under_attack_conf_file }}"
     - "{{ blitzecdn_security_under_attack_js_file }}"
   when: not (blitzecdn_security_under_attack_enabled | bool)
   notify: Validate and reload Nginx
