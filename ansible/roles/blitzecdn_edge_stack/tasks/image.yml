@@ -46,9 +46,9 @@
         name: "{{ blitzecdn_edge_runtime.image }}"
       register: blitzecdn_edge_stack_pull
       until: blitzecdn_edge_stack_pull is success
-      # Longer between attempts than the package tasks use, for the same reason
-      # the GeoLite2 download uses: this crosses the public internet to a
-      # registry that rate-limits, so a failure is often "not yet".
+      # Longer between attempts than the package tasks use: this crosses the
+      # public internet to a registry that rate-limits, so a failure is often
+      # "not yet" rather than "no".
       retries: 3
       delay: 15
       when:

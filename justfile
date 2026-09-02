@@ -23,7 +23,11 @@ collections := ".state/collections"
 # glob, and because a package that gains a roles directory should be a visible
 # line in this file rather than a silent change in behaviour.
 roles_path := "ansible/roles" + ":" + \
-    "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles"
+    "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles" + ":" + \
+    "packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles" + ":" + \
+    "packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" + ":" + \
+    "packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles" + ":" + \
+    "packages/blitzecdn-security/src/blitzecdn_security/ansible/roles"
 
 # List the available recipes.
 default:
@@ -203,7 +207,8 @@ ansible-check:
     ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
         ansible/playbooks/edge.yml --syntax-check \
-        --extra-vars @tests/fixtures/desired-state.yml
+        --extra-vars @tests/fixtures/desired-state.yml \
+        --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_cache_config", "blitzecdn_compression", "blitzecdn_geoip", "blitzecdn_http3", "blitzecdn_security"]}'
     ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
         packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
@@ -228,7 +233,12 @@ ansible-check:
         ansible/playbooks/origin-check.yml \
         packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/cache-purge.yml \
         packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/stats.yml \
+        packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles/blitzecdn_cache_config \
         packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
+        packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles/blitzecdn_compression \
+        packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles/blitzecdn_geoip \
+        packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles/blitzecdn_http3 \
+        packages/blitzecdn-security/src/blitzecdn_security/ansible/roles/blitzecdn_security \
         tests/integration/http3-edge.yml \
         tests/integration/http3-firewall-disabled.yml \
         tests/integration/edge-teardown.yml tests/integration/docker-engine.yml

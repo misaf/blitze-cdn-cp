@@ -39,6 +39,7 @@ The main entry points are:
 - `playbooks/uninstall.yml` — standalone host removal
 - `roles/` — controller and edge roles
 - `roles/blitzecdn_edge/` — the shared edge runtime contract
+- `roles/blitzecdn_capabilities/` — the slot an installed capability's role fills
 
 Do not edit tracked fleet defaults for local overrides. Use
 `blitzecdn config set`, `blitzecdn config list`, and `blitzecdn config unset`.
@@ -54,11 +55,18 @@ variable, `blitzecdn_edge_runtime`, declared and validated by the
 blitzecdn_edge_runtime:
   container:  blitzecdn-edge
   image:      "{{ blitzecdn_edge_image }}"
-  paths:      {state, nginx, modules, tls, cache, logs, acme, empty}
+  paths:      {state, nginx, modules, tls, cache, logs, acme, empty, data}
   status:     {address, port, path}
   listeners:  {http: [...], https: [...], http3: false}
-  geoip:      {enabled, database, directory}
 ```
+
+`paths.data` and `paths.modules` are the two members that exist for someone
+else. Core creates both and mounts them read-only into the edge container and
+into the configuration test; what goes in them — a lookup database, an njs
+module — is an installed capability's business, written by that capability's
+own role. There is deliberately no `geoip` member any more: the shared contract
+every edge role reads carried the name of a distribution that may not be
+installed.
 
 The three roles read it and never each other. A value only one role uses stays
 in that role — Nginx policy in `blitzecdn_nginx`, the Compose project and the
@@ -73,8 +81,42 @@ and neither can override one member of a dictionary:
 | --- | --- | --- |
 | `blitzecdn_edge_image` | `blitzecdn config set` | `.image` |
 | `blitzecdn_edge_http3_enabled` | desired state | `.listeners.http3` |
-| `blitzecdn_edge_geoip_enabled` | fleet settings | `.geoip.enabled` |
-| `blitzecdn_edge_geoip_database` | fleet settings | `.geoip.database`, `.geoip.directory` |
+
+## What is in this tree, and what is not
+
+This tree is the *platform*: the base host, the kernel and resolver, Docker,
+SSH and Fail2Ban, the firewall, the edge runtime contract, the edge stack, and
+`blitzecdn_nginx`, which renders a site's whole configuration from the merged
+desired-state document.
+
+An optional capability's roles are not here. They ship inside that
+capability's wheel — `blitzecdn_geoip` in `blitzecdn-geoip`, `blitzecdn_cache`
+and `blitzecdn_stats` in `blitzecdn-cache`, and so on — and the control plane
+composes the real role search path from core's directory plus the directory
+each installed plugin reports. `roles_path` in `ansible.cfg` is only what a
+bare `ansible-playbook` in a checkout resolves against; every run the control
+plane makes overrides it with `ANSIBLE_ROLES_PATH`.
+
+`roles/blitzecdn_capabilities` is how a contributed role actually runs. It
+names no capability: the control plane passes `blitzecdn_capability_roles` as
+an extra-var on every run, composed from the installed plugins, and the role
+includes each one. It sits between `blitzecdn_kernel` and `blitzecdn_firewall`
+in `playbooks/edge.yml`, which is early enough for a capability to have the
+container engine and the persistent directories, and late enough that
+`blitzecdn_nginx` can prove the whole configuration tree loads afterwards.
+
+To run the edge play by hand against a fleet with capabilities attached, pass
+the roles path and the list:
+
+```bash
+ANSIBLE_CONFIG=ansible/ansible.cfg \
+ANSIBLE_LOCAL_TEMP=.state/ansible-local \
+ANSIBLE_ROLES_PATH="ansible/roles:packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" \
+  ansible-playbook ansible/playbooks/edge.yml \
+  --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_geoip"]}'
+```
+
+`just ansible-check` does exactly this for the syntax and lint gates.
 
 From the project root, run the Ansible checks with:
 

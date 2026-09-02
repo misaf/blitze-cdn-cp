@@ -40,6 +40,10 @@
         # Ubuntu gives log readers, and it is what a Phase 2 log shipper will
         # join rather than being given root.
         - {path: "{{ blitzecdn_edge_runtime.paths.logs }}", owner: www-data, group: adm, mode: "0755"}
+        # A generic writable runtime volume. The cache capability decides
+        # whether Nginx uses it; core creates it because Compose mounts it even
+        # on a capability-free edge and must never let Docker invent ownership.
+        - {path: "{{ blitzecdn_edge_runtime.paths.cache }}", owner: www-data, group: www-data, mode: "0750"}
         # Where an installed capability leaves data the edge reads — a lookup
         # database, a table. Created here because the container mounts it and
         # a bind mount of a missing path becomes an empty root-owned directory;

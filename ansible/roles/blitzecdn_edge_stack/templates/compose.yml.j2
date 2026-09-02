@@ -24,6 +24,17 @@ services:
     restart: unless-stopped
     # Reaps the zombies an Nginx master would otherwise leave behind as PID 1.
     init: true
+    # A process inside this container can never gain privileges it was not
+    # started with — no setuid binary, no file capability. It costs nothing
+    # here: the master starts as root to bind the privileged listeners and read
+    # the private keys, and then drops to www-data by its own configuration,
+    # which is a privilege *reduction* and unaffected.
+    #
+    # The controller's own Compose project already carries this. The edge, the
+    # host-networked container that terminates every visitor connection, is the
+    # one where it matters most.
+    security_opt:
+      - no-new-privileges:true
     stop_grace_period: {{ blitzecdn_edge_stack_stop_grace_period }}
     # Nginx's own signal for "finish what you are doing, then exit". SIGTERM is
     # an immediate shutdown, which turns every container replacement into a

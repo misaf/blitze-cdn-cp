@@ -179,6 +179,11 @@ max-statements = 60
 # the repository — there is no untrusted input for S603 to be about, and
 # asserting on a real install is the whole point of the file.
 "tests/architecture/test_lifecycle.py" = ["S101", "S603"]
+# The shared Ansible contract helpers run `ansible-playbook` for the same
+# reason: a role's assertions are only ever *evaluated* by executing them, and
+# every argument is a fixed array over `tmp_path` and paths inside this
+# workspace.
+"tests/contract_support.py" = ["S603"]
 
 [tool.mypy]
 python_version = "3.12"
