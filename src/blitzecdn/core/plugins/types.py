@@ -278,6 +278,13 @@ class AnsibleContribution:
     `plugin` is here for the failure message and for ordering. Two packages
     shipping a role of the same name is a conflict that must be reported with
     both names rather than resolved by whichever happened to register last.
+
+    Six members is where this stops being obviously one object. The decision is
+    written down in PLUGINS.md under "When this contract splits": a seventh
+    member is the signal to split by lifecycle slot — edge, host, teardown —
+    because that is the seam these already cluster on. Read it before adding
+    one, and apply the same admission test the hooks use: the thing it
+    describes is global, and core is the only place that can compose it.
     """
 
     plugin: str

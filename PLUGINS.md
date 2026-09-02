@@ -118,9 +118,15 @@ packages/blitzecdn-<name>/
 │   ├── domain.py             # pure rules
 │   ├── ports.py              # the narrow Protocols *it* calls
 │   ├── service.py            # the capability's behaviour
+│   ├── reporting.py          # application policy beside the service
 │   ├── adapters/             # concrete implementations of its own ports
-│   ├── api/                  # its routers and its operational models
+│   │                         #   named after what they implement, and flat
+│   ├── api/                  # its HTTP adapters, and nothing else:
+│   │   ├── models.py         #   the shapes both versions share
+│   │   ├── v1.py             #   one module per version
+│   │   └── v2.py
 │   ├── cli.py                # its command groups
+│   ├── nginx/                # *.conf.j2 fragments only
 │   └── ansible/
 │       ├── __init__.py       # ROLES_PATH and EDGE_ROLE, via importlib.resources
 │       ├── roles/<role>/     # defaults, tasks, handlers, templates, argument_specs
@@ -137,6 +143,33 @@ architecture tests check it there.
 `blitzecdn-cache` is the reference for a package with a service, an API, a CLI
 and plays of its own; `blitzecdn-geoip` is the reference for a package whose
 whole substance is its edge role.
+
+**That list is a vocabulary, and it is enforced.** Ten packages that converged
+on a shape by imitation give the eleventh author ten examples and no rule,
+which is how one package's settings ended up in `config.py` and another's
+inline in `plugin.py`. `test_a_package_organises_its_python_into_the_documented_modules`
+in `tests/architecture/test_packages.py` walks each distribution's `src/` and
+refuses a module name that is not one of the above — plus `adapters.py` and
+`preflight.py`, the single-module spellings of an adapter that
+`test_layering.py` already holds to the adapter rule. `api/` is exactly
+`models.py`, `v1.py` and `v2.py`; `adapters/` is flat and its module names are
+the implementations they hold; `nginx/` and `ansible/` carry no Python beyond
+the one `importlib.resources` anchor.
+
+Growing the vocabulary is allowed and is a *decision*: add the name to the set
+in the test with the sentence saying what belongs in it, and to the tree above.
+`test_the_documented_layout_and_the_enforced_one_are_the_same` fails when only
+one of the two registers moves. A module outside the vocabulary altogether is
+declared per-distribution with its reason — `blitzecdn_certificates.acme_hook`
+is the only one, because certbot execs it as a subprocess and it is a second
+composition root rather than part of the capability.
+
+A capability may nest **one** level and no more.
+`blitzecdn-certificates` holds `certificates/` and `automatic_ssl/`, and each
+follows the same vocabulary, because issuing material and deciding when to
+upgrade a mode are two jobs on one capability. A second level is a package that
+wants to be two distributions; the test says so there rather than three
+refactors later.
 
 ### Why site-policy contracts stay in core
 
@@ -987,6 +1020,44 @@ Dockerfile stopped enumerating capabilities — it now takes `ENABLED_MODULES`,
 them. A capability whose module the pinned image predates is refused before
 anything is rendered, by name, rather than at `nginx -t` on an unknown
 directive.
+
+#### The image is declared, never templated
+
+`EdgeModule` is the first thing a capability needs *in the image* rather than
+on the host, and it will not be the last: an apt package, a build stage, a
+binary the role expects on `PATH`. Each of those extends the same shape — a
+typed declaration core composes into build arguments, the way
+`blitzecdn edge image spec` already composes the module set.
+
+What a package must never contribute is Dockerfile *text*. It is the same rule
+as the Nginx fragments, refused for the same three reasons: a text fragment
+cannot be validated before it is built, cannot be *refused* when two packages
+conflict — which is exactly what `resolve_edge_modules` does with one module
+described two ways — and cannot be diffed against what the image actually
+contains. Typed declaration, core renders. Hold that line even where a
+fragment would be five minutes faster; the five minutes are paid back the
+first time an edge boots an image nobody can explain.
+
+#### When this contract splits
+
+`AnsibleContribution` now carries six members — `roles_path`, `edge_roles`,
+`host_roles`, `teardown_roles`, `edge_modules`, `environment_keys` — and the
+trend has been about one per release. Splitting it today would cost more than
+it saves: five of the six are answered together by the same three-line hookimpl,
+and a package would gain three objects to return where it returns one.
+
+The decision, written down while the reasoning is fresh: **when a seventh
+member lands, split by lifecycle slot** — `EdgeContribution`,
+`HostContribution`, `TeardownContribution` — because that is the seam the
+members already cluster on. `edge_roles` and `edge_modules` are both "what the
+edge play does"; `host_roles` is the far side of the edge being up;
+`teardown_roles` is a different play altogether, and its docstring already
+explains itself without reference to the other two. `roles_path` and
+`environment_keys` are per-package rather than per-slot and stay on whatever
+carries the set. Do not split on a smaller signal than that seventh member,
+and do not add the seventh member without reading this paragraph first: the
+admission test for a member is the same one the hooks use — *the thing it
+describes is global, and core is the only place that can compose it*.
 
 The lists are passed on the command line rather than written into the variables
 file, because the variables file for a deployment *is* the desired-state
