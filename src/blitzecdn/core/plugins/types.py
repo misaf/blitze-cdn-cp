@@ -90,6 +90,66 @@ class PluginMetadata:
 
 
 @dataclass(frozen=True, slots=True)
+class EdgeModule:
+    """One Nginx dynamic module an installed capability needs on the edge.
+
+    A dynamic module has two halves, and they are answered in two different
+    places. It has to be *in the image* — built against that exact Nginx ABI,
+    or already shipped by the official base — and it has to be *loaded* by the
+    running configuration, which is one `load_module` list the whole process
+    shares. Both halves used to be written into the edge image's own build
+    context, which made that build a third register of which capabilities
+    exist — and the only one that kept naming a capability after its
+    distribution was detached, because an image is built once and pinned by
+    digest: an edge with no `blitzecdn-geoip` still loaded the GeoIP2 module.
+
+    Declaring it here answers both from one place. Core composes the resolved
+    set into the `load_module` list `blitzecdn_nginx` renders onto the host, so
+    an edge loads exactly what is installed; and `blitzecdn edge image spec`
+    emits the same set as the build arguments the image is built from, so the
+    Dockerfile enumerates nothing.
+
+    `name` is the module as Nginx's own pkg-oss tooling names it — `geoip2`,
+    `brotli`, `njs` — because that name is what the build takes. `objects` are
+    the shared objects to load, in order, and there may be more than one:
+    `brotli` builds a filter and a static module and only the filter is loaded.
+    Core supplies the directory they live in; a capability names the files.
+
+    `build` is the difference between a module the image has to compile and one
+    the official base image already carries. njs is the second kind, and the
+    distinction cannot be inferred from the name: asking pkg-oss to build a
+    module that is already installed is a build failure, and omitting one that
+    is not is an edge that fails `nginx -t` on its first deploy.
+
+    `probe` is one directive the module registers, evaluated by the image's
+    build-time probe. A module that loads but registers nothing is
+    indistinguishable from a working one until an edge configuration uses it,
+    which is far too late — and only the capability knows which directive is
+    its.
+    """
+
+    name: str
+    objects: tuple[str, ...]
+    build: bool = True
+    probe: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.name or not self.name.replace("_", "").replace("-", "").isalnum():
+            raise ValueError(f"module name {self.name!r} must be alphanumeric")
+        if not self.objects:
+            raise ValueError(f"module {self.name!r} loads no shared object")
+        for shared_object in self.objects:
+            if Path(shared_object).name != shared_object or not shared_object.endswith(
+                ".so"
+            ):
+                raise ValueError(
+                    f"module {self.name!r} names the shared object "
+                    f"{shared_object!r}; it must be a plain '.so' filename, "
+                    "resolved against the directory the image puts modules in"
+                )
+
+
+@dataclass(frozen=True, slots=True)
 class AnsibleContribution:
     """The Ansible roles one installed plugin brings with it.
 
@@ -106,6 +166,11 @@ class AnsibleContribution:
     compose for the same reason: a capability cannot converge an edge by
     shipping a role nothing ever includes, and the plays that would include it
     are core's.
+
+    `edge_modules` is the same question about Nginx's own extension point:
+    `load_module` is a main-context directive, so the modules an edge loads are
+    one list per process and core has to compose that too. See
+    :class:`EdgeModule` for why the image build reads it as well.
 
     A playbook is not global and is deliberately absent: the package that owns
     a play already passes its path to ``PlaybookRunner.run_playbook``. Adding
@@ -177,6 +242,11 @@ class AnsibleContribution:
     #: nothing outside the trees core already removes — the data directory,
     #: the state tree, and any systemd unit matching the managed prefix.
     teardown_roles: tuple[str, ...] = ()
+    #: Nginx dynamic modules this capability's configuration needs loaded.
+    #: Global for the same reason the role lists are: `load_module` is a
+    #: main-context directive and there is one list per Nginx process, so core
+    #: composes it. Empty for a capability that adds no module — most of them.
+    edge_modules: tuple[EdgeModule, ...] = ()
     #: Environment names this package alone owns. Only these names are copied
     #: into Ansible's subprocess environment; values remain ``SecretStr`` in
     #: Settings and never travel through argv or desired state.
@@ -351,6 +421,7 @@ __all__ = [
     "PROJECT_NAME",
     "AnsibleContribution",
     "CliCommandGroup",
+    "EdgeModule",
     "FleetStateContribution",
     "HealthCheck",
     "NginxContribution",
