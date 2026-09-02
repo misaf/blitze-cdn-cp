@@ -1,0 +1,15 @@
+---
+- name: Validate SSH configuration
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  changed_when: false
+  listen: Validate and reload SSH
+# Reload, never restart: a reload re-reads the configuration without dropping
+# established sessions, so a policy mistake still leaves the current connection
+# open to fix it.
+- name: Reload SSH after validation
+  ansible.builtin.systemd_service:
+    name: "{{ blitzecdn_sshd_service }}"
+    state: reloaded
+  listen: Validate and reload SSH
+  when: not ansible_check_mode

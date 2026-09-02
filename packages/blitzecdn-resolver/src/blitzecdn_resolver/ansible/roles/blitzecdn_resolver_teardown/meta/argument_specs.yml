@@ -1,0 +1,22 @@
+---
+argument_specs:
+  main:
+    short_description: Give a decommissioned host its own resolver back.
+    description:
+      - >-
+        Removes the systemd-resolved drop-in blitzecdn_resolver wrote and
+        restarts the resolver so the host returns to whatever its link
+        advertises. Runs in the decommission play's capability slot, before
+        blitzecdn_teardown, and only while this distribution is installed.
+      - >-
+        The host goes back to resolving the way it did before BlitzeCDN
+        managed it. If the reason this fleet enabled the role was that the
+        original resolver answers dishonestly, it will do so again — correct
+        for a host that is leaving inventory, and worth knowing before running
+        a decommission against a live one.
+    options:
+      blitzecdn_resolver_teardown_file:
+        type: path
+        required: true
+        description: >-
+          Must equal the drop-in blitzecdn_resolver writes on the same host.

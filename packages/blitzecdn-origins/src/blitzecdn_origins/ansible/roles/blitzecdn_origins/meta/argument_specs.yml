@@ -1,0 +1,21 @@
+---
+argument_specs:
+  main:
+    short_description: Probe each site's origin from this edge.
+    description:
+      - Connects to every origin in C(blitzecdn_origins_sites) from this host
+        and publishes the results to the control plane as C(blitzecdn_report).
+      - Read-only. Nothing on the edge or the origin is changed.
+    options:
+      blitzecdn_origins_sites:
+        description:
+          - The sites to probe, as rendered by the control plane.
+          - Each entry carries C(name), C(origin_host), C(origin_port),
+            C(ssl_mode), C(origin_tls_verify) and C(origin_sni).
+        type: list
+        elements: dict
+        default: []
+      blitzecdn_origins_timeout:
+        description: Seconds to allow one origin to answer.
+        type: int
+        default: 5

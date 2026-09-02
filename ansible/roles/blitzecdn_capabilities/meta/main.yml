@@ -1,0 +1,13 @@
+---
+# The edge play includes this role twice — once for the edge slot before
+# blitzecdn_nginx, once for the host slot after blitzecdn_edge_stack — with a
+# different list each time. The decommission play includes it once more, for
+# the teardown slot, though a separate play would not have needed this flag.
+#
+# Ansible already runs a role a second time when its parameters differ, so this
+# is not what makes the host slot work. It is here so that it cannot silently
+# stop working: the two invocations differing only in a variable is precisely
+# the shape that a later edit ("both slots read the same default") would
+# collapse into one, and the symptom would be a slot that quietly converges
+# nothing while the play still reports success.
+allow_duplicates: true
