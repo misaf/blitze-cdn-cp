@@ -1,0 +1,24 @@
+# {{ ansible_managed }}
+#
+# The dynamic modules this edge loads, and only those.
+#
+# `load_module` is a main-context directive, so this is one list for the whole
+# Nginx process — which is why it is composed by the control plane from every
+# installed capability rather than contributed the way the conf.d fragments
+# beside it are. It is mounted over the image's own list, so an edge loads what
+# the controller has installed and not what the image happened to be built
+# with: detaching a capability's distribution stops its module loading on the
+# next converge, with nothing in the image changed.
+#
+# The image is deliberately the wider of the two. It is pinned by digest and
+# shared by fleets whose attached capabilities differ, so it carries every
+# module the published packages can ask for and this narrows it. A module named
+# here that the image does not carry is refused before anything is rendered —
+# see tasks/modules-invariant.yml.
+{% for module in blitzecdn_nginx_modules %}
+
+# {{ module.name }}, for the {{ module.plugin }} capability.
+{% for object in module.objects %}
+load_module {{ blitzecdn_nginx_module_directory }}/{{ object }};
+{% endfor %}
+{% endfor %}

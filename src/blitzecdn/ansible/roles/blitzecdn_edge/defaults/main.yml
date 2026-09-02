@@ -67,6 +67,16 @@ blitzecdn_edge_runtime:
     # The configuration tree blitzecdn_nginx writes and the container mounts
     # read-only.
     nginx: /etc/nginx
+    # The `load_module` list, which is two paths rather than one because it is
+    # the only file in the tree whose name inside the runtime is not its name
+    # on the host. nginx.conf includes `modules_include` on its first line and
+    # that path belongs to the image; `modules_conf` is what blitzecdn_nginx
+    # renders from the installed capabilities and blitzecdn_edge_stack mounts
+    # over it. Here rather than in either role because both need it and it
+    # describes the runtime: the image carries every module the published
+    # capabilities can ask for, and this is how one edge loads its own subset.
+    modules_conf: /etc/nginx/blitzecdn-modules.conf
+    modules_include: /etc/nginx/modules.conf
     # njs modules an installed capability provisions. Root-owned and 0750
     # rather than world-readable, because a module here may be generated from
     # a fleet secret — the Under Attack Mode implementation is.

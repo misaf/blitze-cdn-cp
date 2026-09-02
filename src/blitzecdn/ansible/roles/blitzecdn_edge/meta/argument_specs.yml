@@ -58,6 +58,8 @@ argument_specs:
               state: {type: path, required: true}
               nginx: {type: path, required: true}
               modules: {type: path, required: true}
+              modules_conf: {type: path, required: true}
+              modules_include: {type: path, required: true}
               tls: {type: path, required: true}
               cache: {type: path, required: true}
               logs: {type: path, required: true}

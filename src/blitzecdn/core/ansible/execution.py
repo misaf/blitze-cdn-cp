@@ -31,7 +31,7 @@ from pydantic import SecretStr
 from blitzecdn.core.ansible.events import RunnerEvents
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.core.nginx import ResolvedNginxResource
+from blitzecdn.core.nginx import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun, HostRun, RunStatus
 
 __all__ = ["PlaybookExecutor"]
@@ -52,6 +52,7 @@ class PlaybookExecutor:
         host_capability_roles: Sequence[str] = (),
         teardown_capability_roles: Sequence[str] = (),
         nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
+        edge_modules: Sequence[ResolvedEdgeModule] = (),
         capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
         self._settings = settings
@@ -72,6 +73,12 @@ class PlaybookExecutor:
             context: tuple(resources)
             for context, resources in (nginx_resources or {}).items()
         }
+        #: The Nginx dynamic modules the installed capabilities need loaded,
+        #: composed by :func:`blitzecdn.core.nginx.resolve_edge_modules`. Same
+        #: kind of fact as the role slots and travelling the same way: it is
+        #: what is *installed*, so it is not desired state and never enters the
+        #: snapshot a rollback converges.
+        self._edge_modules = tuple(edge_modules)
         self._capability_environment = dict(capability_environment or {})
 
     def execute(
@@ -188,6 +195,14 @@ class PlaybookExecutor:
                     "blitzecdn_teardown_capability_roles": list(
                         self._teardown_capability_roles
                     ),
+                    "blitzecdn_nginx_modules": [
+                        {
+                            "plugin": module.plugin,
+                            "name": module.name,
+                            "objects": list(module.objects),
+                        }
+                        for module in self._edge_modules
+                    ],
                     "blitzecdn_nginx_resources": {
                         context: [
                             {

@@ -6,7 +6,7 @@ x-blitzecdn-runtime: &blitzecdn-runtime
   image: {{ blitzecdn_controlplane_image | to_json }}
   build:
     context: {{ blitzecdn_controlplane_install_dir | to_json }}
-    dockerfile: docker/control-plane/Dockerfile
+    dockerfile: {{ blitzecdn_controlplane_dockerfile | to_json }}
   env_file:
     - {{ (blitzecdn_controlplane_config_dir ~ '/blitzecdn.env') | to_json }}
   environment:

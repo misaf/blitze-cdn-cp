@@ -10,6 +10,15 @@ blitzecdn_nginx_resources:
   server: []
   access: []
   upstream: []
+# The Nginx dynamic modules the installed capabilities need loaded, composed by
+# the control plane and delivered as an extra-var on every run. Empty here so
+# the role stands on its own, and empty is a valid edge: HTTP/1.1, HTTP/2,
+# HTTP/3, gzip and every core directive are compiled in.
+blitzecdn_nginx_modules: []
+# Where the edge runtime image keeps them. Core's half of the contract: a
+# capability names a shared object, this names the directory it lands in, and
+# neither has to know the other's answer.
+blitzecdn_nginx_module_directory: /usr/lib/nginx/modules
 blitzecdn_nginx_proxy_connect_timeout: 5s
 blitzecdn_nginx_proxy_read_timeout: 30s
 blitzecdn_nginx_managed_sites_file: "{{ blitzecdn_edge_runtime.paths.nginx }}/blitzecdn-managed-sites"
@@ -37,6 +46,9 @@ blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
 # `nginx -t` opens the error log.
 # tests/test_ansible_role_contracts.py asserts this matches the Compose file.
 blitzecdn_nginx_config_test_volumes:
+  - >-
+    {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{
+      blitzecdn_edge_runtime.paths.modules_include }}:ro
   - "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro"
   - >-
     {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{
