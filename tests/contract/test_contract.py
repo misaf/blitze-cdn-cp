@@ -336,45 +336,10 @@ def test_no_reference_to_the_retired_edge_collection_remains():
     )
 
 
-def test_edge_collection_enforces_public_key_only_ssh():
-    """The control plane reaches every edge over SSH and nothing else.
-
-    `ansible/ansible.cfg` refuses to authenticate with anything but a key, and
-    the pinned collection is what makes the hosts agree. If a future edge
-    release relaxes this drop-in, deploys keep working — the controller still
-    has its key — while every edge quietly starts accepting passwords again.
-    Nothing else in either repository would notice.
-    """
-    role = _role("blitzecdn_sshd")
-    template = (role / "templates/sshd.conf.j2").read_text(encoding="utf-8")
-    directives = {
-        line.split()[0].lower(): line.split(maxsplit=1)[1].strip()
-        for line in template.splitlines()
-        if line and not line.startswith(("#", "{"))
-    }
-    for keyword, expected in (
-        ("pubkeyauthentication", "yes"),
-        ("authenticationmethods", "publickey"),
-        ("passwordauthentication", "no"),
-        ("kbdinteractiveauthentication", "no"),
-        ("permitemptypasswords", "no"),
-        ("hostbasedauthentication", "no"),
-    ):
-        assert directives.get(keyword) == expected, (
-            f"blitzecdn_sshd no longer sets {keyword} {expected}. Edges "
-            "would accept something other than public keys."
-        )
-
-
-def test_edge_ssh_hardening_is_on_by_default():
-    """Opting out is possible; arriving opted out by accident is not."""
-    defaults = yaml.safe_load(
-        (_role("blitzecdn_sshd") / "defaults/main.yml").read_text(encoding="utf-8")
-    )
-    assert defaults["blitzecdn_sshd_enabled"] is True
-    assert defaults["blitzecdn_sshd_permit_root_login"] == "no"
-
-
+# The two assertions that were here — the drop-in's directives and the role's
+# defaults — moved to `packages/blitzecdn-hardening/tests/` with the roles
+# themselves. This half of the SSH contract stays, because `ansible.cfg` is the
+# control plane's own file and holds whether or not that package is attached.
 def test_controller_refuses_password_authentication():
     """The other half of the contract: what this repository dials out with."""
     config = (PROJECT_DIR / "ansible/ansible.cfg").read_text(encoding="utf-8")

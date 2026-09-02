@@ -20,7 +20,12 @@ from control_plane_fixtures import FakeEdgeStore, settings  # noqa: F401
 
 from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
-from blitzecdn.core.ansible.roles import resolve_role_search_path
+from blitzecdn.core.ansible.roles import (
+    resolve_edge_capability_roles,
+    resolve_host_capability_roles,
+    resolve_role_search_path,
+    resolve_teardown_capability_roles,
+)
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import AnsibleContribution
 
@@ -183,3 +188,104 @@ def test_a_runner_nobody_gave_a_path_still_finds_the_control_plane_s_roles(
         ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
 
     assert captured["ANSIBLE_ROLES_PATH"] == str(settings.ansible_dir / "roles")
+
+
+# --- the capability slots ---------------------------------------------------
+
+
+def test_a_slot_refuses_a_role_the_package_does_not_ship(tmp_path):
+    """Refused at composition, naming the distribution that asked.
+
+    Ansible would refuse it too, but only once the play had reached the include
+    — with the engine installed, the image pulled and, in the decommission
+    slot, a host already half taken apart. And it would name the role rather
+    than the wheel, which is the part that leads nobody anywhere.
+    """
+    roles = _roles(tmp_path / "resolver", "blitzecdn_resolver")
+    contribution = AnsibleContribution(
+        plugin="resolver",
+        roles_path=roles,
+        teardown_roles=("blitzecdn_resolver_teardown",),
+    )
+
+    with pytest.raises(PluginError) as error:
+        resolve_teardown_capability_roles([contribution])
+
+    assert "'resolver'" in str(error.value)
+    assert "blitzecdn_resolver_teardown" in str(error.value)
+    assert "teardown_roles" in str(error.value)
+
+
+def test_the_three_slots_are_composed_independently(tmp_path):
+    """One set of contributions, three lists, no leakage between them.
+
+    A role landing in the wrong slot is not a cosmetic error: the edge slot
+    runs before the firewall is validated and the teardown slot runs on a host
+    that is leaving inventory. Each list must hold exactly what was declared
+    for it.
+    """
+    roles = _roles(
+        tmp_path / "pkg", "converge_role", "host_role", "withdraw_role", "own_play_role"
+    )
+    contributions = [
+        AnsibleContribution(
+            plugin="one",
+            roles_path=roles,
+            edge_roles=("converge_role",),
+            host_roles=("host_role",),
+            teardown_roles=("withdraw_role",),
+        )
+    ]
+
+    assert resolve_edge_capability_roles(contributions) == ("converge_role",)
+    assert resolve_host_capability_roles(contributions) == ("host_role",)
+    assert resolve_teardown_capability_roles(contributions) == ("withdraw_role",)
+
+
+def test_a_package_declaring_no_slot_contributes_to_none(tmp_path):
+    """Shipping a role its own plays reach is not a contribution to a slot."""
+    roles = _roles(tmp_path / "cache", "blitzecdn_stats")
+    contributions = [AnsibleContribution(plugin="cache", roles_path=roles)]
+
+    assert resolve_edge_capability_roles(contributions) == ()
+    assert resolve_host_capability_roles(contributions) == ()
+    assert resolve_teardown_capability_roles(contributions) == ()
+
+
+def test_every_slot_reaches_ansible_on_the_command_line(
+    settings,  # noqa: F811
+    monkeypatch,
+):
+    """The composed lists reach the subprocess, not just the constructor.
+
+    Each slot's role includes the list by name, so a slot the executor did not
+    forward is a slot that silently converges nothing — the play still reports
+    success, and the capability simply never ran. That is the failure this
+    catches, and it is invisible in every other test: the play parses, the
+    roles resolve, and nothing happens.
+
+    On the command line rather than in the variables file, because that file
+    *is* the desired-state snapshot a rollback converges months later, and what
+    is installed today is not desired state.
+    """
+    captured: dict[str, str] = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs)
+        raise AssertionError("stop once the command line is built")
+
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
+    runner = ansible.AnsibleRunner(
+        settings,
+        FakeEdgeStore(),
+        capability_roles=("converge_role",),
+        host_capability_roles=("host_role",),
+        teardown_capability_roles=("withdraw_role",),
+    )
+    with pytest.raises(AssertionError):
+        runner.run(check=True)
+
+    command = captured["cmdline"]
+    assert '"blitzecdn_capability_roles": ["converge_role"]' in command
+    assert '"blitzecdn_host_capability_roles": ["host_role"]' in command
+    assert '"blitzecdn_teardown_capability_roles": ["withdraw_role"]' in command

@@ -29,6 +29,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -201,7 +202,8 @@ class Environment:
             "from pathlib import Path;"
             "from blitzecdn.core.plugins import load_plugins;"
             "from blitzecdn.core.ansible.roles import ("
-            "  resolve_edge_capability_roles, resolve_role_search_path);"
+            "  resolve_edge_capability_roles, resolve_host_capability_roles,"
+            "  resolve_role_search_path, resolve_teardown_capability_roles);"
             "from blitzecdn.core.nginx import resolve_nginx_resources;"
             "core = Path('/nonexistent-core-roles');"
             "path = resolve_role_search_path(core, load_plugins()"
@@ -214,6 +216,15 @@ class Environment:
             # same way and from the same contributions. Two questions with one
             # source: a package may ship a role only its own plays reach.
             "'edge_roles': list(resolve_edge_capability_roles("
+            "  load_plugins().ansible_contributions())),"
+            # And the play's other slot, which is a separate list because it is
+            # a separate position in the play: what a capability does to the
+            # host once the edge is already serving.
+            "'host_roles': list(resolve_host_capability_roles("
+            "  load_plugins().ansible_contributions())),"
+            # And the decommission play's slot, which is the one a capability
+            # uses to take its own files off a host that is leaving.
+            "'teardown_roles': list(resolve_teardown_capability_roles("
             "  load_plugins().ansible_contributions())),"
             "'nginx': {context:[{'plugin':r.plugin,'name':r.name,"
             "  'exists':r.template.is_file()} for r in resources]"
@@ -300,6 +311,29 @@ def wheels(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
     expected = {"blitzecdn", *(package.name for package in optional_packages())}
     assert expected <= set(built), f"missing wheels: {expected - set(built)}"
     return built
+
+
+def _declared_workspace_wheels(
+    distribution: str, wheels: dict[str, Path]
+) -> tuple[Path, ...]:
+    """The wheels a distribution's own metadata says it needs beside `blitzecdn`.
+
+    One package declares another today: `blitzecdn-certificates` runs
+    `blitzecdn-origins`' play for the Automatic SSL/TLS scan. Resolved from the
+    manifest rather than hard-coded, so the next declared edge is installed
+    here without this file being edited — and so `uv pip install` really
+    resolves the requirement instead of the test quietly working around it.
+    """
+    manifest = tomllib.loads(
+        (REPO_ROOT / "packages" / distribution / "pyproject.toml").read_text(
+            encoding="utf-8"
+        )
+    )
+    names = [
+        requirement.split(">")[0].split("[")[0].strip()
+        for requirement in manifest["project"]["dependencies"]
+    ]
+    return tuple(wheels[name] for name in names if name != "blitzecdn")
 
 
 def _environment(root: Path) -> Environment:
@@ -574,7 +608,9 @@ def test_site_capability_wheels_attach_and_detach_through_real_entry_points(
     assert capability not in before["capabilities"]
     assert environment.site_capabilities(overrides)["missing"] == [capability]
 
-    environment.install(wheels[distribution])
+    environment.install(
+        wheels[distribution], *_declared_workspace_wheels(distribution, wheels)
+    )
     attached = environment.report()
     assert capability in attached["plugins"]
     assert capability in attached["capabilities"]
@@ -882,6 +918,22 @@ ANSIBLE_ROLES = (
 EDGE_ROLE_PACKAGE = "blitzecdn-geoip"
 EDGE_ROLE = "blitzecdn_geoip"
 
+#: And the capability that fills the play's *host* slot instead. A third
+#: package in the same environment, because the property worth proving is that
+#: the two slots are composed independently: this one contributes no edge role
+#: and no Nginx resource, and its roles must still arrive — in the host list,
+#: never in the edge one.
+HOST_ROLE_PACKAGE = "blitzecdn-hardening"
+HOST_ROLES = ("blitzecdn_sshd", "blitzecdn_fail2ban")
+
+#: And the capability that fills two slots at once, one of them in a different
+#: play. `blitzecdn-resolver` converges in the edge slot and withdraws in the
+#: decommission slot, which is the pairing the third slot exists for: it writes
+#: a file at a path core does not know, so core cannot remove it either.
+TEARDOWN_ROLE_PACKAGE = "blitzecdn-resolver"
+TEARDOWN_EDGE_ROLE = "blitzecdn_resolver"
+TEARDOWN_ROLE = "blitzecdn_resolver_teardown"
+
 
 @pytest.fixture(scope="session")
 def ansible_cycle(
@@ -897,9 +949,19 @@ def ansible_cycle(
     environment = _environment(tmp_path_factory.mktemp("ansible-cycle") / "venv")
     environment.install(wheels["blitzecdn"])
     before = environment.ansible_roles()
-    environment.install(wheels[ANSIBLE_PACKAGE], wheels[EDGE_ROLE_PACKAGE])
+    environment.install(
+        wheels[ANSIBLE_PACKAGE],
+        wheels[EDGE_ROLE_PACKAGE],
+        wheels[HOST_ROLE_PACKAGE],
+        wheels[TEARDOWN_ROLE_PACKAGE],
+    )
     attached = environment.ansible_roles()
-    environment.uninstall(ANSIBLE_PACKAGE, EDGE_ROLE_PACKAGE)
+    environment.uninstall(
+        ANSIBLE_PACKAGE,
+        EDGE_ROLE_PACKAGE,
+        HOST_ROLE_PACKAGE,
+        TEARDOWN_ROLE_PACKAGE,
+    )
     return {
         "before": before,
         "attached": attached,
@@ -923,6 +985,8 @@ def test_core_alone_offers_no_capability_owned_role(
     # is the shape the play's include loops over — not a missing variable it
     # would have to defend against.
     assert ansible_cycle["before"]["edge_roles"] == []
+    assert ansible_cycle["before"]["host_roles"] == []
+    assert ansible_cycle["before"]["teardown_roles"] == []
     assert not any(ansible_cycle["before"]["nginx"].values())
 
 
@@ -937,7 +1001,18 @@ def test_installing_a_distribution_makes_its_roles_resolvable(
     """
     attached = ansible_cycle["attached"]
 
-    assert sorted([*ANSIBLE_ROLES, EDGE_ROLE]) == attached["roles"]
+    assert (
+        sorted(
+            [
+                *ANSIBLE_ROLES,
+                EDGE_ROLE,
+                *HOST_ROLES,
+                TEARDOWN_EDGE_ROLE,
+                TEARDOWN_ROLE,
+            ]
+        )
+        == attached["roles"]
+    )
     contributed = attached["paths"][1]
     assert "site-packages" in contributed
     assert "blitzecdn_cache/ansible/roles" in contributed
@@ -965,7 +1040,64 @@ def test_installing_a_distribution_puts_its_role_into_the_edge_play(
     assert ansible_cycle["attached"]["edge_roles"] == [
         "blitzecdn_cache_config",
         EDGE_ROLE,
+        TEARDOWN_EDGE_ROLE,
     ]
+
+
+def test_installing_a_host_capability_fills_the_other_slot_only(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """The two slots are composed independently, from one set of contributions.
+
+    `blitzecdn-hardening` declares `host_roles` and nothing else: no edge role,
+    no Nginx resource, no environment key, no desired-state variable. So its
+    roles must appear in the list the play's host slot loops over and in
+    neither of the others — a package landing in the edge slot instead would
+    run SSH hardening before the firewall was validated, which is how a host
+    ends up key-only and unreachable at once.
+
+    Declared order inside the contribution is kept, because that package alone
+    owns both roles and Fail2Ban's jail has to protect a daemon that has
+    already stopped accepting passwords.
+    """
+    attached = ansible_cycle["attached"]
+
+    assert attached["host_roles"] == list(HOST_ROLES)
+    assert not set(HOST_ROLES) & set(attached["edge_roles"])
+    assert "hardening" not in {
+        resource["plugin"]
+        for values in attached["nginx"].values()
+        for resource in values
+    }
+
+
+def test_a_capability_that_writes_outside_core_s_trees_can_take_it_off_again(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """The decommission slot, and the pairing it exists for.
+
+    `blitzecdn-resolver` writes a drop-in under /etc/systemd/resolved.conf.d.
+    Core's `blitzecdn_teardown` removes the trees it wrote, the shared runtime
+    directories and every systemd unit matching the managed prefix — that file
+    is none of those, and core naming it would put a path belonging to a wheel
+    into a role that is installed whether or not the wheel is.
+
+    So the removal travels with the capability, in a slot of its own. The two
+    halves must land in different slots: converging before `nginx -t`, and
+    withdrawing in a play that only ever runs on a host leaving inventory. A
+    teardown role that turned up in the edge slot would strip resolution from
+    every edge on every deploy.
+    """
+    attached = ansible_cycle["attached"]
+
+    assert attached["teardown_roles"] == [TEARDOWN_ROLE]
+    assert TEARDOWN_ROLE not in attached["edge_roles"]
+    assert TEARDOWN_ROLE not in attached["host_roles"]
+    assert TEARDOWN_EDGE_ROLE not in attached["teardown_roles"]
+    # And the packages filling the other slots contribute nothing to this one:
+    # a capability writes only what it wrote, and most write nothing core does
+    # not already remove.
+    assert not set(HOST_ROLES) & set(attached["teardown_roles"])
 
 
 def test_uninstalling_a_distribution_takes_its_roles_with_it(
@@ -981,6 +1113,11 @@ def test_uninstalling_a_distribution_takes_its_roles_with_it(
     """
     assert ansible_cycle["after"] == ansible_cycle["before"]
     assert ansible_cycle["after"]["edge_roles"] == []
+    assert ansible_cycle["after"]["host_roles"] == []
+    # Including the removal role. A capability that leaves takes its teardown
+    # with it, which is why core's own teardown may not depend on one having
+    # ever been installed.
+    assert ansible_cycle["after"]["teardown_roles"] == []
     assert not any(ansible_cycle["after"]["nginx"].values())
 
 

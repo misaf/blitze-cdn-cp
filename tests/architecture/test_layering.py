@@ -559,7 +559,12 @@ ALLOWED_FEATURE_DEPENDENCIES = {
     "deployments": {"dns", "sites"},
     "diagnostics": set(),
     "dns": {"sites"},
-    "edges": {"dns", "sites"},
+    # `dns` left this set with `check_origins`. Probing an origin needed the
+    # site list, and `edges` reached it through `dns.ports.SiteStore` — the one
+    # place the fleet roster depended on the zone feature. The roster itself
+    # never needed a site: `blitzecdn-origins` reads `platform.sites` for
+    # itself, and an edge is added, updated and removed without either.
+    "edges": {"sites"},
     "http": {"sites"},
     "maintenance": {"deployments"},
     "security": set(),
@@ -834,10 +839,15 @@ def test_no_feature_port_declares_another_feature_s_playbook():
     this one to type its own collaborator — which is exactly how the cycles got
     there.
     """
-    owners = {
-        "run_cache_purge": "cache",
-        "run_stats": "cache",
-        "run_origin_check": "edges",
+    # `run_cache_purge`, `run_stats` and `run_origin_check` belong to no
+    # feature at all any more — they left with the distributions that run
+    # those plays, and a core `ports.py` naming one would be core declaring an
+    # optional capability's operation. `None` says exactly that: no feature
+    # may declare it, not even the one it used to live beside.
+    owners: dict[str, str | None] = {
+        "run_cache_purge": None,
+        "run_stats": None,
+        "run_origin_check": None,
         "run_decommission": "edges",
     }
     offenders = [
@@ -845,8 +855,8 @@ def test_no_feature_port_declares_another_feature_s_playbook():
         for path in _FEATURES.glob("*/ports.py")
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.FunctionDef)
-        for owner in [owners.get(node.name)]
-        if owner is not None and owner != _feature_name(path)
+        for owner in [owners.get(node.name, _feature_name(path))]
+        if owner != _feature_name(path)
     ]
     assert offenders == []
 

@@ -184,33 +184,62 @@ def test_a_built_in_declares_itself_required_and_an_optional_package_does_not():
 
 
 @pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
-def test_an_optional_package_depends_only_on_the_control_plane(package: Path):
-    """One dependency, pointing inward, with an explicit compatibility range.
+def test_an_optional_package_depends_on_the_control_plane_and_workspace_only(
+    package: Path,
+):
+    """Every dependency points inward, with an explicit compatibility range.
 
-    The upper bound is not decoration: `HOOK_API_VERSION` may only move in a
-    major, and a plugin written against v1 that silently installed beside a v2
-    control plane would be refused at registration with a message about a hook
-    contract rather than about the dependency that allowed it.
+    `blitzecdn` first and always. The upper bound is not decoration:
+    `HOOK_API_VERSION` may only move in a major, and a plugin written against
+    v1 that silently installed beside a v2 control plane would be refused at
+    registration with a message about a hook contract rather than about the
+    dependency that allowed it.
+
+    Anything after it must be another distribution in this workspace, pinned
+    the same way. That is the *declared* form of a cross-package edge, and it
+    is the only form allowed — see
+    `test_optional_packages_depend_on_each_other_only_when_they_say_so`, which
+    refuses the undeclared one. Nothing else may appear at all: a third-party
+    runtime dependency in a capability wheel is a dependency of the whole
+    installation, added where nobody would look for it.
     """
     project = _manifest(package)["project"]
-    assert [
+    names = [
         requirement.split(">")[0].split("[")[0].strip()
         for requirement in project["dependencies"]
-    ] == ["blitzecdn"]
-    assert "<4" in project["dependencies"][0]
+    ]
+    assert names[0] == "blitzecdn"
+    workspace = {path.name for path in _packages()}
+    assert set(names[1:]) <= workspace, (
+        f"{package.name} depends on {set(names[1:]) - workspace}, which is "
+        "neither the control plane nor a distribution in this workspace"
+    )
+    for requirement in project["dependencies"]:
+        assert "<4" in requirement, requirement
 
 
 @pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
-def test_optional_packages_do_not_depend_on_each_other(package: Path):
-    """No optional-to-optional edge, declared or imported.
+def test_optional_packages_depend_on_each_other_only_when_they_say_so(package: Path):
+    """An optional-to-optional edge is allowed, and only in its declared form.
 
-    Avoided rather than forbidden outright: a package that genuinely needs
-    another may declare it as a real dependency in `pyproject.toml`, and pip
-    then installs both. What is refused is the *undeclared* form — an import
-    that happens to work because both are installed today — because it makes
-    detaching one break the other with an ImportError nothing predicted.
+    Avoided rather than forbidden outright. A package that genuinely needs
+    another declares it as a real dependency in `pyproject.toml`, and pip then
+    installs both. What is refused is the *undeclared* form — an import that
+    happens to work because both are installed today — because that is what
+    makes detaching one break the other with an ImportError nothing predicted.
+
+    There is exactly one such edge today: `blitzecdn-certificates` runs
+    `blitzecdn-origins`' play for the Automatic SSL/TLS scan, which probes each
+    candidate origin from every edge over its current transport and again under
+    Full (strict). It is a real requirement — without that answer the scan
+    cannot recommend anything — so it is written down rather than worked
+    around.
     """
-    others = _optional_import_roots() - {_import_package(package)}
+    declared = {
+        requirement.split(">")[0].split("[")[0].strip().replace("-", "_")
+        for requirement in _manifest(package)["project"]["dependencies"]
+    }
+    others = _optional_import_roots() - {_import_package(package)} - declared
     offenders = [
         f"{path.name} imports {imported}"
         for path in _source_files(package)
@@ -651,6 +680,45 @@ def test_security_depends_on_the_geoip_token_and_never_on_its_implementation():
         assert offenders == []
 
 
+def test_automatic_ssl_declares_the_origin_probe_it_runs():
+    """The workspace's one optional-to-optional edge, held from both sides.
+
+    `blitzecdn-certificates` cannot recommend an SSL upgrade without asking
+    every edge whether the origin answers over its current transport and again
+    under Full (strict), and that play is `blitzecdn-origins`'. So the edge is
+    real and is written down: declared in the manifest with a pinned range, so
+    pip installs both and detaching the probe cannot leave the scan importing
+    something that is gone.
+
+    Held from both sides because the failure mode is asymmetric. An import
+    without the declaration is the silent one — it works on every machine that
+    happens to have both — and it is what this pins down.
+    """
+    certificates = next(p for p in _packages() if p.name == "blitzecdn-certificates")
+    requirements = _manifest(certificates)["project"]["dependencies"]
+
+    declared = next(
+        (r for r in requirements if r.startswith("blitzecdn-origins")), None
+    )
+    assert declared is not None, (
+        "the Automatic SSL/TLS scan runs blitzecdn-origins' play; declare it "
+        "in blitzecdn-certificates' dependencies rather than importing it "
+        "opportunistically"
+    )
+    assert "<4" in declared
+
+    imports = {
+        imported
+        for path in _source_files(certificates)
+        for imported in _imports(path)
+        if imported.split(".")[0] == "blitzecdn_origins"
+    }
+    assert imports, (
+        "blitzecdn-certificates declares blitzecdn-origins and uses none of "
+        "it; drop the dependency rather than leaving one nobody needs"
+    )
+
+
 # --- the firewall belongs to the security capability, not to core -----------
 
 
@@ -831,12 +899,19 @@ CORE_ANSIBLE = REPO_ROOT / "ansible"
 #: of them can appear in a tree that must converge an edge identically whether
 #: or not any distribution is installed.
 #:
+#: `resolved.conf.d` is the resolver drop-in's directory: the file there is
+#: written by `blitzecdn-resolver`'s role and removed by that same package's
+#: teardown role, so core neither creates nor deletes it. It used to be listed
+#: in `blitzecdn_teardown`'s defaults, which meant a role installed on every
+#: controller carried the path of a capability that may not be installed.
+#:
 #: `$blitzecdn_country` and `under_attack_mode` are deliberately *not* here.
 #: They are site settings core renders from desired state, and a site that asks
 #: for either is refused by name before a play starts; that split — core reads
 #: the variable, the capability defines it — is the whole design and is
 #: asserted from the packages' own tests, which can see both sides.
 CAPABILITY_IMPLEMENTATION_WORDS = (
+    "resolved.conf.d",
     "maxmind",
     "geolite",
     "geoip2",
@@ -948,13 +1023,76 @@ def test_core_nginx_templates_are_capability_neutral():
     assert [directive for directive in forbidden if directive in text] == []
 
 
-def test_the_edge_play_names_no_capability_and_fills_one_slot():
+def test_the_decommission_play_names_no_capability_and_fills_its_slot():
+    """The other play a capability contributes to, and the harder direction.
+
+    Converging is forgiving: a capability whose role did not run leaves an edge
+    unconverged, and the next deploy fixes it. Decommissioning is not. The play
+    runs while the host is still in inventory and there is no way back to it
+    afterwards, so a capability's files either come off here or stay on that
+    host forever.
+
+    The slot must therefore be *in* the play, must name no capability, and must
+    come before `blitzecdn_teardown` — that role ends by asserting the host is
+    clean and failing the run if anything survived, which is the verdict on the
+    whole decommission and cannot be passed before half the removal has
+    happened.
+    """
+    play = (CORE_ANSIBLE / "playbooks/decommission.yml").read_text(encoding="utf-8")
+    contributed = {
+        directory.name
+        for package in optional_packages()
+        for directory in (package / "src").rglob("ansible/roles/*")
+        if directory.is_dir()
+    }
+
+    for role in contributed:
+        assert role not in play, (
+            f"the decommission play names {role}, which ships in a wheel"
+        )
+    assert "blitzecdn_teardown_capability_roles" in play
+    assert play.index("blitzecdn_teardown_capability_roles") < play.index(
+        "role: blitzecdn_teardown"
+    )
+
+
+def test_core_s_teardown_removes_no_path_that_belongs_to_a_wheel():
+    """A role installed on every controller may not know a wheel's paths.
+
+    `blitzecdn_teardown` is core's, so it runs on every decommission whatever
+    is installed. Every path in its defaults is therefore a claim core can
+    still make when a capability has been detached — its own trees, the shared
+    runtime directories, and units matched by prefix rather than listed. A
+    capability's own file is removed by that capability's teardown role, in the
+    slot before this one.
+    """
+    defaults = (CORE_ANSIBLE / "roles/blitzecdn_teardown/defaults/main.yml").read_text(
+        encoding="utf-8"
+    )
+    contributed_paths = ("resolved.conf.d",)
+
+    for path in contributed_paths:
+        for line in defaults.splitlines():
+            if line.lstrip().startswith("#"):
+                continue
+            assert path not in line, (
+                f"blitzecdn_teardown names {path}, which belongs to a wheel it "
+                "cannot depend on being installed"
+            )
+
+
+def test_the_edge_play_names_no_capability_and_fills_both_slots():
     """The play is the platform's, and it is what makes a contribution run.
 
     Two properties in one place because they are the same decision. The play
     must name no capability's role — that is what "no edit to add a package"
-    means — and it must include the list the control plane composes, or a
+    means — and it must include both lists the control plane composes, or a
     contributed role would resolve by name and never execute.
+
+    Both slots, because a package declaring `host_roles` and getting silence is
+    the failure this catches: the edge slot would still run, the play would
+    still report success, and the SSH policy nobody noticed was missing is
+    exactly the kind of absence that surfaces months later.
     """
     play = (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
     contributed = {
@@ -966,13 +1104,22 @@ def test_the_edge_play_names_no_capability_and_fills_one_slot():
 
     for role in contributed:
         assert role not in play, f"the edge play names {role}, which ships in a wheel"
-    assert "blitzecdn_capabilities" in play
+    assert "blitzecdn_capability_roles" in play
+    assert "blitzecdn_host_capability_roles" in play
 
     slot = (CORE_ANSIBLE / "roles/blitzecdn_capabilities/tasks/main.yml").read_text(
         encoding="utf-8"
     )
-    assert "blitzecdn_capability_roles" in slot
+    assert "blitzecdn_capabilities_roles" in slot
     assert "include_role" in slot
+    # One role, two invocations. Ansible runs a role again when its parameters
+    # differ, but only `allow_duplicates` states that on purpose — without it,
+    # an edit that made both slots read the same variable would silently
+    # collapse them into one and converge the host slot's roles nowhere.
+    duplicates = (
+        CORE_ANSIBLE / "roles/blitzecdn_capabilities/meta/main.yml"
+    ).read_text(encoding="utf-8")
+    assert "allow_duplicates: true" in duplicates
 
 
 def test_every_contributed_edge_role_is_shipped_by_the_plugin_that_asks_for_it():
