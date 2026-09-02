@@ -297,7 +297,7 @@ def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypat
     )
     assert disabled.exit_code == 0
     assert "now disabled" in disabled.stdout
-    assert control.dns.get_site("api-example-com").always_use_https is False
+    assert control.sites.get_site("api-example-com").always_use_https is False
 
 
 def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
@@ -1165,7 +1165,7 @@ def test_record_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["http3_enabled"] is True
-    assert control.dns.get_site("cdn-example-com").http3_enabled is True
+    assert control.sites.get_site("cdn-example-com").http3_enabled is True
 
 
 def test_record_under_attack_toggles_edge_mitigation(settings, monkeypatch):
@@ -1187,7 +1187,7 @@ def test_record_under_attack_toggles_edge_mitigation(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["under_attack_mode"] is True
-    assert control.dns.get_site("cdn-example-com").under_attack_mode is True
+    assert control.sites.get_site("cdn-example-com").under_attack_mode is True
 
 
 def test_record_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
@@ -1262,7 +1262,7 @@ def test_record_minimum_tls_and_cache_query_string_commands(settings, monkeypatc
     assert json.loads(tls.stdout)["minimum_tls_version"] == "1.3"
     assert query.exit_code == 0
     assert json.loads(query.stdout)["cache_query_string_mode"] == "ignore"
-    site = control.dns.get_site("cdn-example-com")
+    site = control.sites.get_site("cdn-example-com")
     assert site.minimum_tls_version == "1.3"
     assert site.cache_query_string_mode == "ignore"
 
@@ -1279,7 +1279,7 @@ def test_record_compression_command(settings, monkeypatch):
         ),
         "cli",
     )
-    assert control.dns.get_site("cdn-example-com").compression == "brotli"
+    assert control.sites.get_site("cdn-example-com").compression == "brotli"
 
     result = runner.invoke(
         cli.app,
@@ -1288,7 +1288,7 @@ def test_record_compression_command(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["compression"] == "gzip"
-    assert control.dns.get_site("cdn-example-com").compression == "gzip"
+    assert control.sites.get_site("cdn-example-com").compression == "gzip"
 
     rejected = runner.invoke(
         cli.app,
@@ -1296,7 +1296,7 @@ def test_record_compression_command(settings, monkeypatch):
     )
 
     assert rejected.exit_code != 0
-    assert control.dns.get_site("cdn-example-com").compression == "gzip"
+    assert control.sites.get_site("cdn-example-com").compression == "gzip"
 
 
 def test_record_visitor_headers_command(settings, monkeypatch):
@@ -1311,7 +1311,7 @@ def test_record_visitor_headers_command(settings, monkeypatch):
         ),
         "cli",
     )
-    site = control.dns.get_site("cdn-example-com")
+    site = control.sites.get_site("cdn-example-com")
     assert site.visitor_headers.connecting_ip is True
     assert site.visitor_headers.ip_country is False
 
@@ -1325,7 +1325,7 @@ def test_record_visitor_headers_command(settings, monkeypatch):
         "connecting_ip": True,
         "ip_country": True,
     }
-    assert control.dns.get_site("cdn-example-com").visitor_headers.ip_country is True
+    assert control.sites.get_site("cdn-example-com").visitor_headers.ip_country is True
 
     # An option that is not named keeps its value rather than resetting it.
     narrowed = runner.invoke(
@@ -1392,7 +1392,7 @@ def test_record_visitor_headers_reports_what_the_origin_will_see(settings, monke
     )
     assert "no BZ-* visitor headers" in off.stdout
     assert (
-        control.dns.get_site("cdn-example-com").visitor_headers.connecting_ip is False
+        control.sites.get_site("cdn-example-com").visitor_headers.connecting_ip is False
     )
 
 

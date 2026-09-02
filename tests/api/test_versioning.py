@@ -14,10 +14,11 @@ from blitzecdn.features.diagnostics.api import readiness as diagnostics
 from blitzecdn.features.diagnostics.api import v1 as v1_diagnostics
 from blitzecdn.features.diagnostics.api import v2 as v2_diagnostics
 from blitzecdn.features.dns.api import v1 as v1_zones
-from blitzecdn.features.dns.api import v1_sites, v2_sites
 from blitzecdn.features.dns.api import v2 as v2_zones
 from blitzecdn.features.edges.api import v1 as v1_edges
 from blitzecdn.features.edges.api import v2 as v2_edges
+from blitzecdn.features.sites.api import v1 as v1_sites
+from blitzecdn.features.sites.api import v2 as v2_sites
 
 REQUIRES_CERTIFICATES = frozenset(
     {
@@ -66,12 +67,12 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
         "blitzecdn.features.deployments.api.v1",
         "blitzecdn.features.diagnostics.api.v1",
         "blitzecdn.features.edges.api.v1",
-        "blitzecdn.features.dns.api.v1_sites",
+        "blitzecdn.features.sites.api.v1",
         "blitzecdn.features.dns.api.v1",
         "blitzecdn.features.deployments.api.v2",
         "blitzecdn.features.diagnostics.api.v2",
         "blitzecdn.features.edges.api.v2",
-        "blitzecdn.features.dns.api.v2_sites",
+        "blitzecdn.features.sites.api.v2",
         "blitzecdn.features.dns.api.v2",
     }
 
