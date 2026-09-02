@@ -1,24 +1,33 @@
 ---
 argument_specs:
   main:
-    short_description: Run the edge roles the installed capabilities contribute.
+    short_description: Run the roles the installed capabilities contribute.
     description:
       - >-
         The slot an optional distribution's Ansible fills. It names no
-        capability: the control plane resolves blitzecdn_capability_roles from
-        the plugins it discovered and passes it on every run, and this role
-        includes each one in turn.
+        capability: the control plane resolves the role list from the plugins
+        it discovered and passes it on every run, and this role includes each
+        one in turn.
+      - >-
+        Core's plays use this role once per slot, and there are three. The edge
+        slot runs before blitzecdn_firewall and blitzecdn_nginx, for a
+        capability contributing something the rendered configuration depends
+        on; the host slot runs after blitzecdn_edge_stack, for a capability
+        configuring the host underneath a runtime that is already serving; and
+        the decommission slot runs before blitzecdn_teardown, for a capability
+        withdrawing what it wrote from a host that is leaving inventory.
       - >-
         A capability role reads the shared edge runtime contract and notifies
         the fleet's "Validate and reload Nginx" handler exactly as core's roles
         do. It must not read another role's variables, and nothing here reads
         its.
     options:
-      blitzecdn_capability_roles:
+      blitzecdn_capabilities_roles:
         type: list
         elements: str
-        default: []
+        required: true
         description: >-
-          Role names, composed by the control plane from every installed
-          plugin's Ansible contribution and ordered by plugin name. Empty on an
-          installation with no capability that converges an edge.
+          Role names for the slot this invocation stands in, composed by the
+          control plane from every installed plugin's Ansible contribution and
+          ordered by plugin name. Empty on an installation with no capability
+          that converges an edge in this slot.

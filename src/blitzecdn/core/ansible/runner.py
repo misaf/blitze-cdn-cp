@@ -36,9 +36,13 @@ class AnsibleRunner:
     static inventory file was meant to end.
 
     One adapter, several playbooks. Each feature declares the slice of this it
-    actually needs as its own port — ``DeploymentRunner``, ``CacheRunner``,
-    ``OriginCheckRunner``, ``DecommissionRunner`` — and the composition root is
-    the only place that knows one object satisfies all of them.
+    actually needs as its own port — ``DeploymentRunner``, ``EdgeRunner``,
+    ``DeploymentLocker`` — and the composition root is the only place that
+    knows one object satisfies all of them. An installed capability's own
+    operations are not among them: ``blitzecdn-cache``'s purge and
+    ``blitzecdn-origins``' probe reach the fleet through the generic
+    ``run_playbook`` below, so this class carries no method for a play that
+    might not be installed.
     """
 
     def __init__(
@@ -47,6 +51,8 @@ class AnsibleRunner:
         edges: EdgeStore,
         roles_path: Sequence[Path] | None = None,
         capability_roles: Sequence[str] = (),
+        host_capability_roles: Sequence[str] = (),
+        teardown_capability_roles: Sequence[str] = (),
         nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
         capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
@@ -59,9 +65,11 @@ class AnsibleRunner:
         self._executor = PlaybookExecutor(
             settings,
             roles_path if roles_path is not None else (settings.ansible_dir / "roles",),
-            capability_roles,
-            nginx_resources,
-            capability_environment,
+            capability_roles=capability_roles,
+            host_capability_roles=host_capability_roles,
+            teardown_capability_roles=teardown_capability_roles,
+            nginx_resources=nginx_resources,
+            capability_environment=capability_environment,
         )
 
     def lock(self) -> DeploymentLock:
@@ -99,23 +107,6 @@ class AnsibleRunner:
             check=check,
             targeted=targeted_hosts(self._edges, limit),
         )
-
-    def run_origin_check(
-        self, *, sites: list[dict[str, object]], host_limit: str | None = None
-    ) -> AnsibleRun:
-        """Ask each edge to connect to the origins it proxies to.
-
-        The sites are handed over as run variables rather than read from the
-        desired-state file: this takes no deployment lock, so the shared file
-        may belong to a deploy in flight, and the check is a question about
-        what is configured *now* rather than about what is being converged.
-        """
-        with run_variables(
-            self._settings.run_dir, "origin-check", {"blitzecdn_origins_sites": sites}
-        ) as vars_:
-            return self._playbook_run(
-                self._settings.origin_check_playbook_path, vars_, host_limit
-            )
 
     def run_decommission(self, *, host_limit: str) -> AnsibleRun:
         """Strip BlitzeCDN configuration and TLS material from one edge.

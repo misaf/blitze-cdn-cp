@@ -20,7 +20,12 @@ from pathlib import Path
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins.types import AnsibleContribution
 
-__all__ = ["resolve_edge_capability_roles", "resolve_role_search_path"]
+__all__ = [
+    "resolve_edge_capability_roles",
+    "resolve_host_capability_roles",
+    "resolve_role_search_path",
+    "resolve_teardown_capability_roles",
+]
 
 #: How core is named in a conflict message. Not a plugin name — nothing
 #: registers under it — only the label the failure needs to name both sides.
@@ -84,26 +89,75 @@ def resolve_edge_capability_roles(
     this says which ones the shared edge play *includes*. A package that ships
     a role only its own plays reach — a purge, a statistics collection —
     answers this with nothing and converges no edge on a deploy.
+    """
+    return _resolve_slot(contributions, "edge_roles")
+
+
+def resolve_host_capability_roles(
+    contributions: Iterable[AnsibleContribution],
+) -> tuple[str, ...]:
+    """The same question for the play's *host* slot, at the end of the run.
+
+    A separate list rather than a flag on the names in one, because the two
+    slots are two positions in a play and a role belongs to exactly one of
+    them. Composed identically, and deliberately by the same private helper:
+    the ordering rule, the "your wheel does not ship that" refusal and the
+    determinism are properties of *a slot*, and a second copy of them would be
+    a second place for them to drift.
+    """
+    return _resolve_slot(contributions, "host_roles")
+
+
+def resolve_teardown_capability_roles(
+    contributions: Iterable[AnsibleContribution],
+) -> tuple[str, ...]:
+    """The same question again, for the decommission play's slot.
+
+    A third list rather than a reuse of either edge slot, because a
+    decommission is a different play with a different guarantee: it runs on a
+    host that is about to leave inventory, and after it there is no way back.
+    A capability removes what it wrote here or it stays on the host forever.
+
+    Composed by the same helper for the same reason as the other two, and
+    ordered by plugin name like them — with one consequence worth naming.
+    Removal order is not the reverse of convergence order and does not need to
+    be: each role withdraws only what its own package wrote, and nothing in
+    this slot may depend on another capability's files still being present.
+    """
+    return _resolve_slot(contributions, "teardown_roles")
+
+
+def _resolve_slot(
+    contributions: Iterable[AnsibleContribution], slot: str
+) -> tuple[str, ...]:
+    """Compose one of core's capability slots.
 
     Ordered by plugin name, like the search path, so a fleet converged from the
     same set of packages runs the same roles in the same order every time. This
     ordering has no dependency semantics: optional roles must depend only on
     established core prerequisites. Within one plugin the declared order is
-    kept because that package alone owns both roles.
+    kept because that package alone owns those roles — which is how
+    ``blitzecdn-hardening`` gets Fail2Ban after SSH without core knowing that
+    either exists.
 
     A name the contributing package does not actually ship is refused here.
     Ansible would refuse it too, but much later — after the engine is
     installed, the image pulled and the play half-way through an edge — and it
-    would name only the role, not the distribution that asked for it.
+    would name only the role, not the distribution that asked for it. In the
+    decommission slot that lateness is worse still: the play would have already
+    started taking the host apart.
     """
     roles: list[str] = []
     for contribution in sorted(contributions, key=lambda item: item.plugin):
+        requested: tuple[str, ...] = getattr(contribution, slot)
+        if not requested:
+            continue
         available = set(_role_names(contribution.roles_path))
-        for role in contribution.edge_roles:
+        for role in requested:
             if role not in available:
                 raise PluginError(
-                    f"plugin {contribution.plugin!r} asks the edge play to run "
-                    f"the role {role!r}, which its own roles directory "
+                    f"plugin {contribution.plugin!r} asks for the role {role!r} "
+                    f"in the {slot!r} slot, which its own roles directory "
                     f"{contribution.roles_path} does not contain."
                 )
             roles.append(role)
