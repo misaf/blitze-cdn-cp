@@ -517,7 +517,7 @@ own `composition.py`, from what the control plane publishes:
 ```python
 def build_cache_service(platform: ControlPlane) -> CacheService:
     return CacheService(
-        sites=platform.sites,  # the read side of the site model, as a port
+        sites=platform.sites,  # `sites.ports.SiteReader`: list and get, no writes
         events=platform.events,  # the domain-event recorder
         runner=CachePlaybooks(platform.settings, platform.fleet),
     )

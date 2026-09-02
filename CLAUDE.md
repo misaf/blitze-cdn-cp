@@ -65,7 +65,10 @@ blitze-cdn-cp/
 │   │   │                   #   the http3_enabled switch, listener contract
 │   │   ├── security/       #   policy.py + plugin.py — firewall, Under Attack Mode
 │   │   ├── tls/            #   policy.py + certificates/ + automatic_ssl/
-│   │   ├── sites/          #   domain.py composes every contract; policy/ its own
+│   │   ├── sites/          #   domain.py composes every contract; policy/ its own;
+│   │   │                   #   ports.py + persistence.py + api/ + cli.py are the
+│   │   │                   #   derived projection, which `dns` writes and
+│   │   │                   #   everyone else reads
 │   │   └── dns/  edges/  deployments/  diagnostics/  maintenance/
 │   ├── core/               # shared runtime and infrastructure implementations:
 │   │   │                   # SQLite, Ansible, Certbot, filesystem, process, config
@@ -126,8 +129,10 @@ The rules that shape it:
 - **An optional package composes itself.** `bootstrap.py` builds the *required*
   services and knows nothing about what is installed beside it. A package builds
   its service in its own `composition.py` from what the control plane publishes:
-  `platform.settings`, `platform.events`, `platform.sites` (the read side of the
-  site model, typed as a port), `platform.origin_probe` and `platform.fleet` (a
+  `platform.settings`, `platform.events`, `platform.sites`
+  (`features/sites/ports.py`'s `SiteReader` — list and get, and nothing that
+  writes: the projection's write side is `dns.ports.SiteProjection` and stays
+  with the feature that derives it), `platform.origin_probe` and `platform.fleet` (a
   `PlaybookRunner`: run this named play with these variables against these
   hosts, and nothing feature-shaped). Core's `AnsibleRunner` therefore has no
   `run_cache_purge` or `run_origin_check` any more — building a purge document
@@ -248,7 +253,7 @@ The rules that shape it:
   overridden with `blitzecdn config set`; nothing about an optional capability
   belongs in `src/blitzecdn/ansible/inventory/group_vars/`.
 - **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `features/gzip`, `features/http3`, `features/certificates` or `features/under_attack` package by name. That rule is about the *feature tree* only: an optional distribution is named after the implementation an operator attaches, which is why `blitzecdn-certificates` and `blitzecdn-http3` are wheels while those feature directories stay refused. HTTP/1.1 and HTTP/2 are baseline and never optional — there is no `blitzecdn-http1` or `blitzecdn-http2`. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
-- **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
+- **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. The *derived* projection of that model lives with it too — `sites/persistence.py` behind `sites/ports.py`, plus the read-only `site` commands and `/v{1,2}/sites` routes — while `dns` keeps deriving it and writes through its own `SiteProjection`, so the `dns → sites` arrow is unchanged and nobody looking for the site API has to find it under `dns`. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
 - **The consumer owns the port.** A feature's `ports.py` holds the narrow `Protocol` interfaces *that feature* calls. A port belongs to whoever calls it, never to whoever implements it — a port describing a run some other feature performs is what forces a cycle, and `test_no_feature_port_declares_another_feature_s_playbook` refuses it.
 - **Concrete infrastructure implements those ports.** `core/` and a feature's own `adapters/` supply the implementations. A feature *service* (`service.py`, `rollback.py`, `reporting.py`) names its ports and never a concrete adapter.
