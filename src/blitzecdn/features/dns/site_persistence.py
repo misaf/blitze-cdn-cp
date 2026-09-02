@@ -1,7 +1,5 @@
 """Persistence for the derived site projection."""
 
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
-
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
@@ -94,7 +92,7 @@ class SiteStore:
     def _apply(self, row: SiteRow, site: CdnSite) -> None:
         row.server_names = list(site.server_names)
         row.origin_host = site.origin_host
-        row.policy = site.model_dump(mode="json", exclude=_SITE_COLUMNS)
+        row.policy = site.model_dump(mode="json", exclude=set(_SITE_COLUMNS))
         row.updated_at = self._db.now()
 
     @staticmethod

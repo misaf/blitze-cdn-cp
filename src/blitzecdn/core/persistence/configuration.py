@@ -1,11 +1,10 @@
 """Persistence for deployment requirements and fleet-wide settings."""
 
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
-
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, Result, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlmodel import col
 
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import AnsibleSettingRow, DeploymentRequirementRow
@@ -33,20 +32,13 @@ class DeploymentRequirementStore:
         with self._db.session() as session:
             session.execute(
                 delete(DeploymentRequirementRow).where(
-                    DeploymentRequirementRow.kind == kind.value
+                    col(DeploymentRequirementRow.kind) == kind.value
                 )
             )
 
     def pending(self, kind: DeploymentRequirementKind) -> bool:
         with self._db.session() as session:
             return session.get(DeploymentRequirementRow, kind.value) is not None
-
-
-#: Fields of a record that are columns; everything else is CDN policy. Derived
-#: from the model rather than typed out twice, so a new policy field lands in
-#: `policy` on its own and a new column is a deliberate edit here.
-_RECORD_COLUMNS = frozenset({"domain", "name", "type", "value", "ttl", "proxied"})
-_SITE_COLUMNS = frozenset({"name", "server_names", "origin_host"})
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -97,7 +89,7 @@ class AnsibleSettingStore:
         with self._db.session() as session:
             result = _rows_affected(
                 session.execute(
-                    delete(AnsibleSettingRow).where(AnsibleSettingRow.name == name)
+                    delete(AnsibleSettingRow).where(col(AnsibleSettingRow.name) == name)
                 )
             )
             if result == 0:

@@ -1,10 +1,9 @@
 """Persistence for the append-only audit trail."""
 
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
-
 from typing import Any
 
 from sqlalchemy import select
+from sqlmodel import col
 
 from blitzecdn.core.audit import AuditEvent
 from blitzecdn.core.database_engine import Database
@@ -60,7 +59,9 @@ class AuditLog:
     def list_audit_events(self, limit: int = 100) -> list[AuditEvent]:
         with self._db.session() as session:
             rows = session.scalars(
-                select(AuditEventRow).order_by(AuditEventRow.id.desc()).limit(limit)
+                select(AuditEventRow)
+                .order_by(col(AuditEventRow.id).desc())
+                .limit(limit)
             ).all()
             return [self._audit_event(row) for row in rows]
 

@@ -1,7 +1,5 @@
 """Persistence for the edge fleet."""
 
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
-
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 

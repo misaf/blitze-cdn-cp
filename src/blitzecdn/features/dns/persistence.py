@@ -1,9 +1,8 @@
 """Persistence for DNS zones and records."""
 
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
-
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
+from sqlmodel import col
 
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import DnsRecordRow, DomainRow
@@ -53,7 +52,7 @@ class ZoneStore:
             DnsRecordRow.domain, DnsRecordRow.name, DnsRecordRow.type
         )
         if domain is not None:
-            query = query.where(DnsRecordRow.domain == domain)
+            query = query.where(col(DnsRecordRow.domain) == domain)
         with self._db.session() as session:
             return [self._record(row) for row in session.scalars(query).all()]
 
@@ -142,7 +141,7 @@ class ZoneStore:
         row.value = record.value
         row.ttl = record.ttl
         row.proxied = record.proxied
-        row.policy = record.model_dump(mode="json", exclude=_RECORD_COLUMNS)
+        row.policy = record.model_dump(mode="json", exclude=set(_RECORD_COLUMNS))
         row.updated_at = self._db.now()
 
     @staticmethod
