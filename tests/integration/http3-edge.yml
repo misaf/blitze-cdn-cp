@@ -5,7 +5,7 @@
   become: true
   gather_facts: true
   vars:
-    # Built from docker/edge/ by the integration script and loaded into this
+    # Built from src/blitzecdn/docker/edge/ by the integration script and loaded into this
     # host's engine, so the test proves the image this repository produces
     # rather than whatever the registry currently publishes.
     blitzecdn_edge_image: blitzecdn-edge:integration
@@ -31,6 +31,20 @@
       - blitzecdn_geoip
       - blitzecdn_http3
       - blitzecdn_security
+    # And the dynamic modules those capabilities load, stated the same way the
+    # control plane composes them. Without this the rendered module list is
+    # empty and every contributed `brotli`, `geoip2` or `js_import` directive
+    # in the tree below is an unknown directive.
+    blitzecdn_nginx_modules:
+      - plugin: compression
+        name: brotli
+        objects: [ngx_http_brotli_filter_module.so]
+      - plugin: geoip
+        name: geoip2
+        objects: [ngx_http_geoip2_module.so]
+      - plugin: security
+        name: njs
+        objects: [ngx_http_js_module.so]
     # A direct Ansible harness has no Python composition root, so state the
     # resources that installed plugins would normally resolve automatically.
     blitzecdn_nginx_resources:

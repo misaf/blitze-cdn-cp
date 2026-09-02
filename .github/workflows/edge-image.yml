@@ -9,19 +9,24 @@
 # either.
 #
 # On a pull request the image is built and probed but never pushed, so the
-# ABI invariant is checked on every change to docker/edge/ without publishing
+# ABI invariant is checked on every change to the edge image without publishing
 # anything.
 name: Edge image
 
 "on":
   pull_request:
     paths:
-      - docker/edge/**
+      - src/blitzecdn/docker/edge/**
+      # A capability declares the dynamic modules it needs in its plugin
+      # module, and the image is built from that declaration — so a package
+      # that adds one changes this image without touching the build context.
+      - packages/*/src/*/plugin.py
       - .github/workflows/edge-image.yml
   push:
     branches: [2.x, 3.x]
     paths:
-      - docker/edge/**
+      - src/blitzecdn/docker/edge/**
+      - packages/*/src/*/plugin.py
       - .github/workflows/edge-image.yml
     tags: ['v*.*.*']
   workflow_dispatch:
@@ -42,6 +47,28 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      # Which modules this image carries is not written in the build context:
+      # each capability declares its own, and the control plane composes them.
+      # The workspace is synced with every package installed, deliberately —
+      # the published image is the superset an edge mounts its own narrower
+      # `load_module` list over, so it has to be built by a controller that has
+      # every published capability attached.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.3"
+          enable-cache: true
+      - name: Install Python
+        run: uv python install 3.14
+      - name: Resolve the modules the installed capabilities declare
+        id: modules
+        run: |
+          uv sync --frozen --all-packages
+          uv run blitzecdn edge image spec | tee /tmp/edge-image-spec
+          {
+            echo 'build-args<<SPEC'
+            cat /tmp/edge-image-spec
+            echo SPEC
+          } >> "${GITHUB_OUTPUT}"
       # A pull request builds and probes without credentials; nothing is pushed.
       - name: Sign in to the registry
         if: github.event_name != 'pull_request'
@@ -64,7 +91,7 @@ jobs:
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: docker/edge
+          context: src/blitzecdn/docker/edge
           # amd64 and arm64, because an edge fleet is rarely one architecture
           # and the official Alpine image and module builds support both.
           platforms: linux/amd64,linux/arm64
@@ -72,6 +99,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
+            ${{ steps.modules.outputs.build-args }}
             BLITZECDN_EDGE_VERSION=${{ github.ref_name }}
             BLITZECDN_EDGE_REVISION=${{ github.sha }}
           provenance: mode=max
