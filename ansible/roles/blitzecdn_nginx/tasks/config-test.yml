@@ -19,6 +19,9 @@
     detach: false
     cleanup: true
     network_mode: none
+    read_only: true
+    security_opts: [no-new-privileges:true]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m", "/run:rw,noexec,nosuid,size=8m"]
     volumes: "{{ blitzecdn_nginx_config_test_volumes }}"
     state: started
   register: blitzecdn_nginx_config_test

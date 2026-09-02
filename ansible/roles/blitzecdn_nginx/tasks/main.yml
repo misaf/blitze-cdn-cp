@@ -6,14 +6,6 @@
   ansible.builtin.import_tasks: verify-runtime.yml
   when: not (blitzecdn_nginx_stack_ready | default(false) | bool)
 
-- name: Create cache directory
-  ansible.builtin.file:
-    path: "{{ blitzecdn_edge_runtime.paths.cache }}"
-    state: directory
-    owner: www-data
-    group: www-data
-    mode: "0750"
-
 - name: Allow Nginx to traverse the ACME webroot parent
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_runtime.paths.acme | dirname }}"
@@ -84,13 +76,57 @@
   no_log: true
   notify: Validate and reload Nginx
 
-- name: Configure the shared cache
+- name: Configure generic HTTP support
   ansible.builtin.template:
-    src: cache.conf.j2
-    dest: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-cache.conf"
+    src: http.conf.j2
+    dest: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-http.conf"
     owner: root
     group: root
     mode: "0644"
+  notify: Validate and reload Nginx
+
+- name: Render installed capability HTTP resources
+  ansible.builtin.template:
+    src: "{{ item.template }}"
+    dest: >-
+      {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/blitzecdn-plugin-{{
+        item.name | regex_replace('\.j2$', '') }}
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ blitzecdn_nginx_resources.http | default([]) }}"
+  loop_control:
+    label: "{{ item.plugin }}:{{ item.name }}"
+  notify: Validate and reload Nginx
+
+- name: Find previously rendered capability HTTP resources
+  ansible.builtin.find:
+    paths: "{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d"
+    patterns: blitzecdn-plugin-*.conf
+    file_type: file
+  register: blitzecdn_nginx_installed_http_resources
+
+- name: Remove detached capability HTTP resources
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  vars:
+    blitzecdn_nginx_desired_http_resource_paths: >-
+      {{
+        blitzecdn_nginx_resources.http | default([])
+        | map(attribute='name')
+        | map('regex_replace', '\.j2$', '')
+        | map('regex_replace', '^(.*)$', blitzecdn_edge_runtime.paths.nginx ~ '/conf.d/blitzecdn-plugin-\\1')
+        | list
+      }}
+  loop: >-
+    {{
+      blitzecdn_nginx_installed_http_resources.files
+      | rejectattr('path', 'in', blitzecdn_nginx_desired_http_resource_paths)
+      | list
+    }}
+  loop_control:
+    label: "{{ item.path }}"
   notify: Validate and reload Nginx
 
 # Part of the edge runtime contract, so it is always rendered, and rendered

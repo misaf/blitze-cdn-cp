@@ -24,5 +24,10 @@
 - name: Converge an installed capability
   ansible.builtin.include_role:
     name: "{{ item }}"
+    # Package-owned defaults configure the package-owned Nginx resources that
+    # the later renderer evaluates. Names are capability-prefixed and collision
+    # checks cover the resources themselves; keeping them public avoids copying
+    # optional defaults into core merely to render their templates.
+    public: true
   loop: "{{ blitzecdn_capability_roles | default([]) }}"
   tags: [always, capabilities]

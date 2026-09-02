@@ -1,183 +1,21 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
 {% set ssl_mode = item.ssl_mode %}
 {% set tls = ssl_mode != 'off' %}
-{% set http3 = item.http3_enabled | default(false) %}
-{% set under_attack = item.under_attack_mode | default(false) %}
-{#
-  Origin routing, in one place. Both halves of the upstream are decided per
-  listener, inside the proxy macro, because both depend on the request:
-
-    origin port   = the listener port the visitor arrived on, unchanged. A
-                    request to :8080 reaches the origin's 8080 and one to :8443
-                    reaches its 8443, across all thirteen supported public proxy
-                    ports. Sites do not configure an origin port.
-
-    origin scheme = ssl_mode applied to the visitor's scheme *and* its port.
-                    every mode, http listener -> http
-                    off                       -> http
-                    flexible on 443           -> http
-                    flexible on 2053/2083/2087/2096/8443
-                                              -> https, Full-like, unverified
-                    full, full_strict         -> mirror the visitor
-                    full_strict               -> and verify the origin certificate
-
-  So full on an HTTP listener proxies over HTTP: neither Full mode promises to
-  re-originate a plaintext request as TLS, and doing so breaks every origin that
-  answers only one of the two.
-
-  Flexible is the reason the port is in this decision. Cloudflare supports
-  Flexible only for HTTPS on 443; an HTTPS request on one of the five alternate
-  HTTPS proxy ports falls back to Full-like transport. Only the transport falls
-  back — proxy_ssl_verify stays off, because the fallback is Full and not Full
-  (strict).
-
-  The control plane computes the identical rule in SslMode.origin_scheme_for();
-  test_contract.py renders this template against it for every mode and every
-  listener, so the two cannot drift.
-
-  The control plane's preflight probe checks one endpoint out of the thirteen —
-  CdnSite.canonical_origin_scheme on that scheme's default port — rather than
-  requiring an origin to answer on every alternate port. So a Flexible site
-  passes preflight against http://origin:80 and can still 502 for a visitor on
-  2053, whose leg is https://origin:2053. That is an alternate-port failure of
-  one request, not of the deployment. See OriginProbe.
-#}
-{% set cache_query_string_mode = item.cache_query_string_mode | default('include') %}
-{% set cache_uri = '$blitzecdn_uri_without_query' if cache_query_string_mode == 'ignore' else '$request_uri' %}
-{% set compression = item.compression | default('brotli') %}
-{% set brotli = compression == 'brotli' %}
 {% set origin_host = item.origin_host %}
 {% if ':' in origin_host and not origin_host.startswith('[') %}{% set origin_host = '[' ~ origin_host ~ ']' %}{% endif %}
-{# Per-site request filtering. An untouched policy is omitted, so defaults are explicit. #}
-{% set fw = item.firewall | default({}, true) or {} %}
-{% set fw_allow = fw.allow_sources | default([], true) %}
-{% set fw_deny = fw.deny_sources | default([], true) %}
-{% set fw_allow_countries = fw.allowed_countries | default([], true) %}
-{% set fw_deny_countries = fw.denied_countries | default([], true) %}
-{% set fw_deny_methods = fw.denied_methods | default([], true) %}
-{% set fw_deny_paths = fw.denied_paths | default([], true) %}
-{# Visitor metadata the edge writes on the request to the origin. Defaults
-   match the control plane's, so an edge upgraded ahead of its controller
-   behaves as it will once both have moved. #}
-{% set vh = item.visitor_headers | default({}, true) or {} %}
-{% set vh_connecting_ip = vh.connecting_ip | default(true) %}
-{% set vh_ip_country = vh.ip_country | default(false) %}
-{#
-  Emitted inside `location /` rather than at server level, so that the ACME
-  challenge location above is never subject to it. A site that filtered its own
-  CA out of validation would keep serving until the certificate expired and
-  then fail with nothing pointing back at the rule.
-
-  These do not run in the order they are written. `if` is a rewrite-phase
-  directive and `allow`/`deny` belong to the later access phase, so the country
-  and method returns below always win over a source exemption.
-#}
-{% macro access() %}
-{% if fw_deny_countries %}
-        # Unknown addresses render as "" and do not match, so a country block
-        # never catches an address the database has no entry for.
-        if ($blitzecdn_country ~ "^({{ fw_deny_countries | join('|') }})$") {
-            return 403;
-        }
-{% endif %}
-{% if fw_allow_countries %}
-        # The mirror of the above: "" fails the match, so an address the
-        # database cannot place is refused by an allow list.
-        if ($blitzecdn_country !~ "^({{ fw_allow_countries | join('|') }})$") {
-            return 403;
-        }
-{% endif %}
-{% if fw_deny_methods %}
-        if ($request_method ~ "^({{ fw_deny_methods | join('|') }})$") {
-            return 405;
-        }
-{% endif %}
-{% if fw_allow or fw_deny %}
-        # First match wins, so the allows are exemptions from the denies under
-        # them. There is no trailing `deny all` — the posture stays open unless
-        # the control plane was given a rule covering everything.
-{% for source in fw_allow %}
-        allow {{ source }};
-{% endfor %}
-{% for source in fw_deny %}
-        deny {{ source }};
-{% endfor %}
-{% endif %}
-{% endmacro %}
-{#
-  Prefix locations, so they are matched before `location /`. The ACME location
-  is a longer prefix than anything plausible here and keeps winning for
-  challenge URIs even if a rule names /.well-known.
-#}
-{% macro denied_paths() %}
-{% for path in fw_deny_paths %}
-    location ^~ {{ path }} {
-        return 403;
-    }
+{% set visitor_headers = item.visitor_headers | default({}, true) or {} %}
+{% set connecting_ip = visitor_headers.connecting_ip | default(true) %}
+{% macro fragments(context, listener_port, visitor_scheme, redirect_https=false) %}
+{% for resource in blitzecdn_nginx_resources[context] | default([]) %}
+{{ lookup('ansible.builtin.template', resource.template, template_vars={'site': item, 'listener_port': listener_port, 'visitor_scheme': visitor_scheme, 'redirect_https': redirect_https, 'default_server': false}) }}
 {% endfor %}
 {% endmacro %}
-{#
-  Emitted at server level rather than in the proxy macro: these are response
-  filters, not proxy settings, and at server level they also cover the ACME
-  challenge location and the 301 redirect without being written three times.
-
-  `gzip off` has to be explicit. Debian and Ubuntu ship `gzip on` in the http
-  context of the stock nginx.conf, so a site configured for no compression
-  would inherit it and quietly keep compressing. `brotli off` is emitted for
-  the same reason. The managed Ubuntu package stack always supplies that
-  directive; its absence fails the capability invariant before rendering.
-
-  What is *not* here is any change to what the origin is asked for. The
-  Accept-Encoding the proxy macro forwards, and the cache key that carries it,
-  are unchanged: the cache still stores whatever the origin sent, and these
-  filters run on the way out, on hits as well as misses. An origin that
-  compresses for itself keeps winning — nginx will not re-encode a body that
-  already has a Content-Encoding.
-#}
-{% macro compression_filters() %}
-{% if compression != 'off' %}
-    gzip on;
-    gzip_comp_level {{ blitzecdn_nginx_gzip_comp_level }};
-    gzip_min_length {{ blitzecdn_nginx_compression_min_length }};
-    # Every response here is proxied and carries headers — Expires,
-    # Cache-Control, Via — that switch gzip off under the default `gzip_proxied
-    # off`. Without this the filter is on and never fires.
-    gzip_proxied any;
-    # Correct for any shared cache downstream of this edge. Ours already keys
-    # on the normalised encoding, but a corporate proxy between us and the
-    # client does not know that.
-    gzip_vary on;
-    gzip_types {{ blitzecdn_nginx_compression_types | join(' ') }};
-{% if brotli %}
-    brotli on;
-    brotli_comp_level {{ blitzecdn_nginx_brotli_comp_level }};
-    brotli_min_length {{ blitzecdn_nginx_compression_min_length }};
-    brotli_types {{ blitzecdn_nginx_compression_types | join(' ') }};
-{% endif %}
-{% else %}
-    gzip off;
-{% endif %}
-{% if not brotli %}
-    brotli off;
-{% endif %}
-{% endmacro %}
-{#
-  `visitor_scheme` is the scheme of the listener this location belongs to. It
-  picks the origin scheme (see the routing note above) and, as `secure`, decides
-  whether this location emits HSTS. HSTS has to be emitted here
-  rather than once at server level: an add_header anywhere in a location
-  replaces the whole inherited set, so the X-Cache-Status line below would
-  silently drop a server-level Strict-Transport-Security on every cached site.
-#}
 {% macro proxy(listener_port, visitor_scheme='http') %}
-{# See the origin routing note at the top of this file. #}
 {% set secure = visitor_scheme == 'https' %}
 {% set origin_tls = secure and (ssl_mode in ['full', 'full_strict'] or (ssl_mode == 'flexible' and listener_port != 443)) %}
 {% set origin_scheme = 'https' if origin_tls else 'http' %}
 {% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ listener_port %}
 {% if blitzecdn_nginx_resolvers %}
-        # A variable upstream defers resolution to request time so origin DNS
-        # changes take effect. nginx does not append the URI in this form.
         set $blitzecdn_upstream {{ upstream }};
         proxy_pass $blitzecdn_upstream$request_uri;
 {% else %}
@@ -188,36 +26,12 @@
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
-        {#
-          BZ-* is edge-owned metadata, so every header in the namespace is
-          written here from a value only the edge has — never read back from
-          what the visitor sent. $remote_addr is the peer address of the
-          connection nginx accepted, IPv4 or IPv6; it cannot be influenced by
-          a request header, which is exactly why it and not X-Forwarded-For is
-          the source.
-
-          A disabled header is set to the empty string rather than left
-          alone. nginx drops an empty proxy_set_header instead of sending it,
-          and — the part that matters — a header a client supplied under that
-          name is dropped with it. Omitting the directive would forward the
-          client's own BZ-Connecting-IP to the origin verbatim.
-
-          None of this touches proxy_cache_key: two visitors from different
-          addresses or countries still share one cached object.
-        #}
-        proxy_set_header BZ-Connecting-IP {{ '$remote_addr' if vh_connecting_ip else '""' }};
-        proxy_set_header BZ-IPCountry {{ '$blitzecdn_country' if vh_ip_country else '""' }};
+        proxy_set_header BZ-Connecting-IP {{ '$remote_addr' if connecting_ip else '""' }};
+        proxy_set_header BZ-IPCountry $blitzecdn_visitor_ip_country;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection $blitzecdn_connection_upgrade;
 {% if origin_scheme == 'https' %}
         proxy_ssl_server_name on;
-        {#
-          SNI falls back to the origin hostname, never to a server_name: those
-          may be wildcards such as *.example.com, which matches no certificate
-          in a TLS handshake. The control plane's CdnSite.effective_origin_sni
-          computes this identically, and its preflight probe verifies against
-          the result — the two must not drift.
-        #}
         proxy_ssl_name {{ item.origin_sni | default(item.origin_request_host | default(item.origin_host)) }};
         proxy_ssl_verify {{ 'on' if ssl_mode == 'full_strict' else 'off' }};
 {% if ssl_mode == 'full_strict' %}
@@ -227,84 +41,11 @@
 {% endif %}
         proxy_connect_timeout {{ blitzecdn_nginx_proxy_connect_timeout }};
         proxy_read_timeout {{ blitzecdn_nginx_proxy_read_timeout }};
-{% if blitzecdn_nginx_normalize_accept_encoding %}
-        # Bounds the variants the origin can return to the ones the cache key
-        # below can tell apart. See the map in blitzecdn-cache.conf.
-        proxy_set_header Accept-Encoding $blitzecdn_accept_encoding;
-{% endif %}
-{% if item.cache_enabled | default(true) %}
-        proxy_cache {{ blitzecdn_nginx_cache_zone }};
-        # An upgraded connection is a byte stream, not an HTTP response object.
-        # Never read a WebSocket handshake from cache or store one there.
-        proxy_cache_bypass $http_upgrade;
-        proxy_no_cache $http_upgrade;
-{% if blitzecdn_nginx_normalize_accept_encoding %}
-        # The encoding belongs in the key. Without it a gzipped response and an
-        # identity response share one entry, and whichever arrives first is
-        # served to every subsequent client regardless of what it can decode.
-        proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}$blitzecdn_accept_encoding";
-{% else %}
-        proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}";
-{% endif %}
-        proxy_cache_valid 200 301 302 {{ item.cache_valid_success | default('10m') }};
-        proxy_cache_valid 404 {{ item.cache_valid_not_found | default('1m') }};
-        proxy_cache_use_stale error timeout updating http_500 http_502 http_503 http_504;
-        proxy_cache_background_update on;
-        proxy_cache_lock on;
-        # Revalidates an expired entry with If-Modified-Since / If-None-Match, so
-        # an unchanged object costs a 304 instead of a full re-fetch.
-        proxy_cache_revalidate on;
-        add_header X-Cache-Status $upstream_cache_status always;
-{% else %}
-        proxy_no_cache 1;
-        proxy_cache_bypass 1;
-{% endif %}
 {% if secure and blitzecdn_nginx_hsts_enabled %}
         add_header Strict-Transport-Security "max-age={{ blitzecdn_nginx_hsts_max_age }}" always;
 {% endif %}
-{% if secure and http3 and listener_port == 443 %}
-        # Kept in the location-level response header set: add_header directives
-        # here replace inherited server headers, so a server-level Alt-Svc
-        # would disappear whenever cache status or HSTS is emitted.
-        add_header Alt-Svc 'h3=":443"; ma=86400' always;
-{% endif %}
 {% endmacro %}
-{# The /.blitzecdn namespace belongs to the edge and never reaches an origin. #}
-{% macro reserved_locations(move_to_https=false) %}
-{% if under_attack %}
-    location = /.blitzecdn/challenge {
-{% if move_to_https %}
-        add_header X-BlitzeCDN-Mitigation challenge always;
-        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
-        return 301 https://$host$request_uri;
-{% else %}
-        js_content blitzecdn_under_attack.challenge;
-{% endif %}
-    }
-    location = /.blitzecdn/challenge/verify {
-{% if move_to_https %}
-        add_header X-BlitzeCDN-Mitigation challenge always;
-        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
-        return 301 https://$host$request_uri;
-{% else %}
-        client_max_body_size 2k;
-        client_body_buffer_size 2k;
-        limit_req zone=blitzecdn_under_attack_verify burst=10 nodelay;
-        limit_req_status 429;
-        js_content blitzecdn_under_attack.verify;
-{% endif %}
-    }
-    location = /.blitzecdn/internal/under-attack-guard {
-        internal;
-        js_content blitzecdn_under_attack.guard;
-    }
-    location @blitzecdn_under_attack_redirect {
-        internal;
-        add_header X-BlitzeCDN-Mitigation challenge always;
-        add_header Cache-Control "no-store, no-cache, must-revalidate, private" always;
-        return 302 $blitzecdn_under_attack_location;
-    }
-{% endif %}
+{% macro reserved_locations() %}
     location = /.blitzecdn {
         add_header Cache-Control "no-store" always;
         return 404;
@@ -314,36 +55,21 @@
         return 404;
     }
 {% endmacro %}
-{#
-  Source ACLs run in the first location's access phase. Only after they grant
-  access does try_files dispatch in the content phase to the named location,
-  whose auth subrequest validates clearance before redirect/proxy processing.
-  This makes firewall -> mitigation ordering independent of access-module
-  registration order.
-#}
-{% macro protected(listener_port, visitor_scheme='http', redirect_https=false) %}
+{% macro route(listener_port, visitor_scheme, redirect_https=false) %}
     location / {
-{{ access() }}
+{{ fragments('access', listener_port, visitor_scheme, redirect_https) }}
         root {{ blitzecdn_edge_runtime.paths.empty }};
-        try_files /__blitzecdn_dispatch__ @blitzecdn_under_attack;
+        try_files /__blitzecdn_dispatch__ @blitzecdn_upstream;
     }
-    location @blitzecdn_under_attack {
-        set $blitzecdn_under_attack_target $request_uri;
-        auth_request /.blitzecdn/internal/under-attack-guard;
-        error_page 401 = @blitzecdn_under_attack_redirect;
+    location @blitzecdn_upstream {
+        set $blitzecdn_visitor_ip_country "";
+{{ fragments('upstream', listener_port, visitor_scheme, redirect_https) }}
 {% if redirect_https %}
-        root {{ blitzecdn_edge_runtime.paths.empty }};
-        try_files /__blitzecdn_https_dispatch__ @blitzecdn_under_attack_https_redirect;
-{% else %}
-{{ proxy(listener_port, visitor_scheme=visitor_scheme) }}
-{% endif %}
-    }
-{% if redirect_https %}
-    location @blitzecdn_under_attack_https_redirect {
-        internal;
         return 301 https://$host$request_uri;
-    }
+{% else %}
+{{ proxy(listener_port, visitor_scheme) }}
 {% endif %}
+    }
 {% endmacro %}
 {% for port in blitzecdn_edge_runtime.listeners.http %}
 server {
@@ -354,26 +80,14 @@ server {
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
-{{ compression_filters() }}
+{{ fragments('server', port, 'http', tls and (item.always_use_https | default(false))) }}
     location ^~ /.well-known/acme-challenge/ {
         root {{ blitzecdn_edge_runtime.paths.acme }};
         default_type text/plain;
         try_files $uri =404;
     }
-{{ reserved_locations(move_to_https=(tls and (item.always_use_https | default(false)))) }}
-{{ denied_paths() }}
-{% if under_attack %}
-{{ protected(port, visitor_scheme='http', redirect_https=(tls and (item.always_use_https | default(false)))) }}
-{% else %}
-    location / {
-{{ access() }}
-{% if tls and (item.always_use_https | default(false)) %}
-        return 301 https://$host$request_uri;
-{% else %}
-{{ proxy(port, visitor_scheme='http') }}
-{% endif %}
-    }
-{% endif %}
+{{ reserved_locations() }}
+{{ route(port, 'http', tls and (item.always_use_https | default(false))) }}
 }
 {% endfor %}
 {% if tls %}
@@ -381,17 +95,13 @@ server {
 server {
     listen {{ port }} ssl;
     listen [::]:{{ port }} ssl;
-{% if http3 and port == 443 %}
-    listen 443 quic{% if not blitzecdn_nginx_default_server and item.name == blitzecdn_nginx_http3_listener_owner %} reuseport{% endif %};
-    listen [::]:443 quic{% if not blitzecdn_nginx_default_server and item.name == blitzecdn_nginx_http3_listener_owner %} reuseport{% endif %};
-{% endif %}
     http2 on;
     server_name {{ item.server_names | join(' ') }};
 {% if blitzecdn_nginx_access_log_enabled %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
-{{ compression_filters() }}
+{{ fragments('server', port, 'https') }}
     ssl_certificate {{ item.certificate_path }};
     ssl_certificate_key {{ item.certificate_key_path }};
 {% if item.minimum_tls_version | default('1.2') == '1.3' %}
@@ -400,48 +110,22 @@ server {
     ssl_protocols TLSv1.2 TLSv1.3;
 {% endif %}
     ssl_ciphers {{ blitzecdn_nginx_ssl_ciphers }};
-    # TLS 1.3 fixes its own cipher order and 1.2 clients here are already
-    # restricted to AEAD suites, so the client's preference is the better signal
-    # — it knows which of them its hardware accelerates.
     ssl_prefer_server_ciphers off;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
-    # Tickets are encrypted with a key nginx generates at start and never
-    # rotates, so anyone who later obtains it can decrypt every session resumed
-    # against this worker. Off, forward secrecy holds.
     ssl_session_tickets off;
 {% if blitzecdn_nginx_ssl_stapling and blitzecdn_nginx_resolvers %}
-    # Saves the client an OCSP round trip to the CA on first connect. Needs the
-    # resolver configured in blitzecdn-cache.conf to reach the responder, which
-    # is why this is conditional on it. The chain we install is a fullchain, so
-    # it already carries the issuer needed to verify the response.
-    #
-    # Off by default: a leaf with no OCSP responder URL — which is what the CA
-    # this collection provisions from now issues — makes nginx warn on every
-    # config test and staple nothing. See the default's comment.
     ssl_stapling on;
     ssl_stapling_verify on;
     ssl_trusted_certificate {{ item.certificate_path }};
 {% endif %}
-    # HSTS, when enabled, is emitted inside the location by the proxy macro —
-    # see the note there. It is off by default in this collection: HSTS is a
-    # promise made on the customer's domain, not ours, and a max-age already
-    # served cannot be withdrawn faster than it expires in browsers that saw it.
     location ^~ /.well-known/acme-challenge/ {
         root {{ blitzecdn_edge_runtime.paths.acme }};
         default_type text/plain;
         try_files $uri =404;
     }
 {{ reserved_locations() }}
-{{ denied_paths() }}
-{% if under_attack %}
-{{ protected(port, visitor_scheme='https') }}
-{% else %}
-    location / {
-{{ access() }}
-{{ proxy(port, visitor_scheme='https') }}
-    }
-{% endif %}
+{{ route(port, 'https') }}
 }
 {% endfor %}
 {% endif %}

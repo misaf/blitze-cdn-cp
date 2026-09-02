@@ -1,32 +1,16 @@
 # Managed by BlitzeCDN. Local edits are overwritten.
-#
-# Without a default_server, nginx answers a request whose Host matches no
-# server_name using whichever managed site it loaded first — alphabetically by
-# sites-enabled link. On a multi-tenant edge that means one customer's config
-# answering for a hostname it was never configured for, and it makes an edge IP
-# enumerable by host-header probing. This block claims that position instead.
 server {
 {% for port in blitzecdn_edge_runtime.listeners.http %}
     listen {{ port }} default_server;
     listen [::]:{{ port }} default_server;
 {% endfor %}
     server_name _;
-
-    # Still served for unknown hosts on purpose: a domain being onboarded needs
-    # to pass HTTP-01 validation before its own site exists, and refusing the
-    # challenge here would make first issuance impossible.
     location ^~ /.well-known/acme-challenge/ {
         root {{ blitzecdn_edge_runtime.paths.acme }};
         default_type text/plain;
         try_files $uri =404;
     }
-
-    # 444 closes the connection without a response line. A probe learns nothing
-    # about what this edge serves; a misrouted client fails fast rather than
-    # caching a wrong answer.
-    location / {
-        return 444;
-    }
+    location / { return 444; }
 }
 
 server {
@@ -34,17 +18,9 @@ server {
     listen {{ port }} ssl default_server;
     listen [::]:{{ port }} ssl default_server;
 {% endfor %}
-{% if blitzecdn_edge_runtime.listeners.http3 %}
-    # This catch-all owns the shared UDP sockets and their one-time reuseport
-    # option. Enabled HTTP/3 sites join the sockets without redeclaring it.
-    listen 443 quic reuseport default_server;
-    listen [::]:443 quic reuseport default_server;
-{% endif %}
+{% for resource in blitzecdn_nginx_resources.server | default([]) %}
+{{ lookup('ansible.builtin.template', resource.template, template_vars={'site': {}, 'listener_port': 443, 'visitor_scheme': 'https', 'redirect_https': false, 'default_server': true}) }}
+{% endfor %}
     server_name _;
-
-    # Rejects the handshake outright for unrecognised SNI, so no managed site's
-    # certificate is ever presented for a hostname it does not cover. Requires
-    # ssl_reject_handshake needs no certificate of its own, which is why it
-    # beats a self-signed placeholder on an unknown hostname.
     ssl_reject_handshake on;
 }
