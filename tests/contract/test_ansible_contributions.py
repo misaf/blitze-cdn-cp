@@ -1,4 +1,12 @@
-"""The role search path: composed from core and from what is installed.
+"""What an installed capability contributes to Ansible, and how core composes it.
+
+The role search path is the larger half: an optional capability is only whole
+if its deployment implementation travels with it, and Ansible resolves a role
+name against a single process-wide list. So the composition of that list is a
+contract in its own right: what is in it, in which order, and what happens when
+two packages claim one name. The dynamic modules an edge loads are the same
+shape of question one level down — `load_module` is a main-context directive,
+so there is one list per Nginx process too.
 
 An optional capability is only whole if its deployment implementation travels
 with it, and Ansible resolves a role name against a single process-wide list.
@@ -27,7 +35,8 @@ from blitzecdn.core.ansible.roles import (
     resolve_teardown_capability_roles,
 )
 from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins import AnsibleContribution
+from blitzecdn.core.nginx import resolve_edge_modules
+from blitzecdn.core.plugins import AnsibleContribution, EdgeModule
 
 
 def _roles(root: Path, *names: str) -> Path:
@@ -281,6 +290,15 @@ def test_every_slot_reaches_ansible_on_the_command_line(
         capability_roles=("converge_role",),
         host_capability_roles=("host_role",),
         teardown_capability_roles=("withdraw_role",),
+        edge_modules=resolve_edge_modules(
+            [
+                AnsibleContribution(
+                    plugin="one",
+                    roles_path=settings.ansible_dir / "roles",
+                    edge_modules=(EdgeModule(name="brotli", objects=("filter.so",)),),
+                )
+            ]
+        ),
     )
     with pytest.raises(AssertionError):
         runner.run(check=True)
@@ -289,3 +307,107 @@ def test_every_slot_reaches_ansible_on_the_command_line(
     assert '"blitzecdn_capability_roles": ["converge_role"]' in command
     assert '"blitzecdn_host_capability_roles": ["host_role"]' in command
     assert '"blitzecdn_teardown_capability_roles": ["withdraw_role"]' in command
+    # The same journey for the module list, and for the same reason: an edge
+    # loads what the extra-var says and nothing else, so a list the executor
+    # did not forward is an edge whose contributed directives are unknown.
+    assert '"blitzecdn_nginx_modules"' in command
+    assert '"objects": ["filter.so"]' in command
+
+
+# --- the dynamic modules an installed capability loads -----------------------
+
+
+def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
+    """`load_module` is one list per process, so core composes it.
+
+    Ordered by plugin name like every other slot, so two controllers with the
+    same packages installed render the same file and an edge's configuration
+    tree does not change because pluggy registered in a different order.
+    """
+    contributions = [
+        AnsibleContribution(
+            plugin="security",
+            roles_path=Path("/nowhere"),
+            edge_modules=(EdgeModule(name="njs", objects=("js.so",), build=False),),
+        ),
+        AnsibleContribution(
+            plugin="compression",
+            roles_path=Path("/nowhere"),
+            edge_modules=(EdgeModule(name="brotli", objects=("brotli.so",)),),
+        ),
+    ]
+
+    resolved = resolve_edge_modules(contributions)
+
+    assert [(module.plugin, module.name) for module in resolved] == [
+        ("compression", "brotli"),
+        ("security", "njs"),
+    ]
+    assert [module.build for module in resolved] == [True, False]
+
+
+def test_two_capabilities_may_need_the_same_module():
+    """njs is one shared object, and any number of capabilities may want it.
+
+    Refusing the second would make one capability declare a dependency on the
+    other over a file neither of them owns.
+    """
+    njs = EdgeModule(name="njs", objects=("js.so",), build=False, probe="js_path /e;")
+    contributions = [
+        AnsibleContribution(
+            plugin="alpha", roles_path=Path("/nowhere"), edge_modules=(njs,)
+        ),
+        AnsibleContribution(
+            plugin="zulu", roles_path=Path("/nowhere"), edge_modules=(njs,)
+        ),
+    ]
+
+    assert [module.name for module in resolve_edge_modules(contributions)] == ["njs"]
+
+
+def test_one_module_described_two_ways_is_refused():
+    """Two descriptions of one module means an edge loads whichever won."""
+    contributions = [
+        AnsibleContribution(
+            plugin="alpha",
+            roles_path=Path("/nowhere"),
+            edge_modules=(EdgeModule(name="njs", objects=("js.so",), build=False),),
+        ),
+        AnsibleContribution(
+            plugin="zulu",
+            roles_path=Path("/nowhere"),
+            edge_modules=(EdgeModule(name="njs", objects=("js.so",), build=True),),
+        ),
+    ]
+
+    with pytest.raises(PluginError, match="declared differently"):
+        resolve_edge_modules(contributions)
+
+
+def test_one_shared_object_loaded_under_two_names_is_refused():
+    """Nginx refuses a module loaded twice; this names both owners first."""
+    contributions = [
+        AnsibleContribution(
+            plugin="alpha",
+            roles_path=Path("/nowhere"),
+            edge_modules=(EdgeModule(name="js", objects=("js.so",)),),
+        ),
+        AnsibleContribution(
+            plugin="zulu",
+            roles_path=Path("/nowhere"),
+            edge_modules=(EdgeModule(name="njs", objects=("js.so",)),),
+        ),
+    ]
+
+    with pytest.raises(PluginError, match="loaded by both"):
+        resolve_edge_modules(contributions)
+
+
+@pytest.mark.parametrize(
+    "objects",
+    [(), ("/usr/lib/nginx/modules/js.so",), ("../js.so",), ("js",)],
+)
+def test_a_module_names_a_plain_shared_object_file(objects):
+    """The directory is core's half of the contract; the file is the plugin's."""
+    with pytest.raises(ValueError):
+        EdgeModule(name="njs", objects=objects)

@@ -204,7 +204,8 @@ class Environment:
             "from blitzecdn.core.ansible.roles import ("
             "  resolve_edge_capability_roles, resolve_host_capability_roles,"
             "  resolve_role_search_path, resolve_teardown_capability_roles);"
-            "from blitzecdn.core.nginx import resolve_nginx_resources;"
+            "from blitzecdn.core.nginx import ("
+            "  resolve_edge_modules, resolve_nginx_resources);"
             # The platform's own roles, from the installed distribution. This
             # used to be a fabricated path, because core resolved its tree from
             # the checkout and there was nothing to point at in a virtualenv.
@@ -229,6 +230,12 @@ class Environment:
             # uses to take its own files off a host that is leaving.
             "'teardown_roles': list(resolve_teardown_capability_roles("
             "  load_plugins().ansible_contributions())),"
+            # And the Nginx dynamic modules those roles' configuration needs
+            # loaded. The image is built from this list and the edge renders
+            # its own from it, so a detached capability whose module still
+            # appeared here would be an edge loading it forever.
+            "'modules': [[m.plugin, m.name] for m in resolve_edge_modules("
+            "  load_plugins().ansible_contributions())],"
             "'nginx': {context:[{'plugin':r.plugin,'name':r.name,"
             "  'exists':r.template.is_file()} for r in resources]"
             "  for context,resources in resolve_nginx_resources("
@@ -1023,6 +1030,11 @@ def test_core_alone_offers_no_capability_owned_role(
     assert ansible_cycle["before"]["edge_roles"] == []
     assert ansible_cycle["before"]["host_roles"] == []
     assert ansible_cycle["before"]["teardown_roles"] == []
+    # And it loads no dynamic module. Everything core renders — HTTP/1.1,
+    # HTTP/2, HTTP/3, TLS, proxying, gzip — is compiled into Nginx, so a
+    # capability-free edge has an empty `load_module` list rather than a
+    # baseline one.
+    assert ansible_cycle["before"]["modules"] == []
     assert not any(ansible_cycle["before"]["nginx"].values())
 
 
@@ -1081,6 +1093,25 @@ def test_installing_a_distribution_puts_its_role_into_the_edge_play(
         EDGE_ROLE,
         TEARDOWN_EDGE_ROLE,
     ]
+
+
+def test_installing_a_distribution_puts_its_module_into_the_edge_s_load_list(
+    ansible_cycle: dict[str, dict[str, object]],
+):
+    """Attach, all the way to what the running Nginx loads.
+
+    The last place a capability used to survive its own removal. `geoip2` was
+    built into the edge image and loaded by a file inside the image, so an
+    installation with no `blitzecdn-geoip` still loaded the module on every
+    edge — the image is built once and pinned by digest, and nothing about
+    detaching a distribution could reach it.
+
+    Declaring the module with the capability makes the `load_module` list a
+    function of what is installed: `blitzecdn-cache`, `blitzecdn-hardening` and
+    `blitzecdn-resolver` are in this same environment and need none, and the
+    module named here is named by exactly one wheel.
+    """
+    assert ansible_cycle["attached"]["modules"] == [["geoip", "geoip2"]]
 
 
 def test_installing_a_host_capability_fills_the_other_slot_only(
@@ -1157,6 +1188,10 @@ def test_uninstalling_a_distribution_takes_its_roles_with_it(
     # with it, which is why core's own teardown may not depend on one having
     # ever been installed.
     assert ansible_cycle["after"]["teardown_roles"] == []
+    # And the module goes with it. This is the half the edge image used to get
+    # wrong on its own: the role and the Nginx resources disappeared while the
+    # module kept loading, because the image had been built naming it.
+    assert ansible_cycle["after"]["modules"] == []
     assert not any(ansible_cycle["after"]["nginx"].values())
 
 
@@ -1325,6 +1360,116 @@ def test_the_root_wheel_carries_the_platform_ansible_tree(wheels: dict[str, Path
     assert f"{root}/inventory/group_vars/blitzecdn_edges/defaults.yml" in names
     assert f"{root}/ansible.cfg" in names
     assert f"{root}/requirements.yml" in names
+
+
+def test_the_root_wheel_carries_the_image_build_inputs(
+    wheels: dict[str, Path],
+):
+    """The Dockerfiles ship too, for the same reason the roles do.
+
+    They were a top-level `docker/` directory that only a checkout has, and
+    every consumer — the justfile, both integration scripts, the release
+    workflow, the contract suites and the compose template the controlplane
+    role renders — spelled that path again. An air-gapped fleet that has to
+    build its own edge image on the controller had nothing to build from, and
+    a wheel is the only artefact that reaches such a controller.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(wheels["blitzecdn"]) as archive:
+        names = set(archive.namelist())
+
+    root = "blitzecdn/docker"
+    assert f"{root}/edge/Dockerfile" in names
+    # Not only the Dockerfile: the file it COPYs and probes with is part of
+    # the context, and a build that shipped one without the other fails at
+    # `nginx -t` in a layer nobody reads until the image is being published.
+    assert f"{root}/edge/module-probe.conf" in names
+    assert f"{root}/control-plane/Dockerfile" in names
+    # BuildKit resolves this beside the Dockerfile, not at the context root, so
+    # it travels in the wheel with it or the build context stops being pruned.
+    assert f"{root}/control-plane/Dockerfile.dockerignore" in names
+
+
+def test_core_locates_its_image_build_inputs_without_the_repository(
+    tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
+):
+    """`blitzecdn.docker` answers from site-packages, like `blitzecdn.ansible`.
+
+    Shipping the files is half of it; resolving them without counting `..`
+    from `__file__` is the other half, and it is the half that fails silently
+    in a checkout where the two answers coincide. Run from a working directory
+    that is not the repository, and asserted to be under the virtualenv.
+    """
+    environment = _environment(tmp_path_factory.mktemp("core-docker") / "venv")
+    environment.install(wheels["blitzecdn"])
+    elsewhere = tmp_path_factory.mktemp("elsewhere")
+    program = (
+        "import json;"
+        "from blitzecdn import docker;"
+        "print(json.dumps({"
+        "'context': str(docker.EDGE_CONTEXT),"
+        "'exists': docker.EDGE_DOCKERFILE.is_file()"
+        " and docker.EDGE_MODULE_PROBE_CONF.is_file()"
+        " and docker.CONTROL_PLANE_DOCKERFILE.is_file()"
+        " and docker.CONTROL_PLANE_DOCKERIGNORE.is_file(),"
+        "}))"
+    )
+    finished = subprocess.run(
+        [str(environment.python), "-c", program],
+        capture_output=True,
+        text=True,
+        check=True,
+        cwd=elsewhere,
+        timeout=300,
+    )
+    resolved = json.loads(finished.stdout)
+
+    assert resolved["exists"]
+    assert str(environment.root) in resolved["context"]
+    assert str(REPO_ROOT) not in resolved["context"]
+
+
+def test_the_root_wheel_publishes_no_control_plane_build_context(
+    wheels: dict[str, Path],
+):
+    """`blitzecdn.docker` names that Dockerfile and stops there.
+
+    Its build context is the distribution's own source — `pyproject.toml`,
+    `uv.lock` and every workspace member under `packages/` — so a constant for
+    it would be `project_dir` under another name, put back by the very module
+    that removed the last one. The role supplies the context, and only until
+    the control plane is delivered as a published image the way the edge is.
+    """
+    import ast
+    import zipfile
+
+    with zipfile.ZipFile(wheels["blitzecdn"]) as archive:
+        source = archive.read("blitzecdn/docker/__init__.py").decode("utf-8")
+
+    module = ast.parse(source)
+    # What is *defined*, not what is mentioned: the docstrings here explain the
+    # absence, and a grep would forbid the explanation along with the thing.
+    defined = {
+        target.id
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        for target in node.targets
+        if isinstance(target, ast.Name)
+    }
+    published = next(
+        ast.literal_eval(node.value)
+        for node in module.body
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(target, ast.Name) and target.id == "__all__"
+            for target in node.targets
+        )
+    )
+
+    assert "CONTROL_PLANE_CONTEXT" not in defined
+    assert "CONTROL_PLANE_CONTEXT" not in published
+    assert not any("CONTEXT" in name for name in published if "EDGE" not in name)
 
 
 def test_core_locates_its_own_ansible_without_the_repository(

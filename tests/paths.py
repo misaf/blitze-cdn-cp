@@ -9,7 +9,7 @@ this module sits at the top of ``tests/``, and nothing below it counts.
 
 from pathlib import Path
 
-#: The checkout root — the directory holding `src/` and `docker/`.
+#: The checkout root — the directory holding `src/` and `pyproject.toml`.
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TESTS_DIR = Path(__file__).resolve().parent
 SOURCE = REPO_ROOT / "src" / "blitzecdn"
@@ -22,6 +22,15 @@ FIXTURES = TESTS_DIR / "fixtures"
 #: a suite that spelled the path would have to be edited by the next move, and
 #: this one has already happened once.
 CORE_ANSIBLE = SOURCE / "ansible"
+
+#: The image build inputs, which live inside the package for exactly the
+#: reason the Ansible above does: an installed controller has no checkout to
+#: find them in. `blitzecdn.docker` is the authority on these paths and the
+#: suites read their constants from it; this anchor exists so a test can ask
+#: the *checkout* question — is the tree where the packaging expects it — and
+#: `test_the_published_docker_paths_are_the_ones_in_the_checkout` asserts the
+#: two agree.
+CORE_DOCKER = SOURCE / "docker"
 
 #: The workspace's optional distributions. Each directory here is one wheel
 #: that can be installed beside the control plane or left out of it.
@@ -43,6 +52,7 @@ def optional_packages() -> list[Path]:
 
 __all__ = [
     "CORE_ANSIBLE",
+    "CORE_DOCKER",
     "FIXTURES",
     "PACKAGES",
     "REPO_ROOT",

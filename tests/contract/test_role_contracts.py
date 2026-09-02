@@ -1,6 +1,11 @@
 # ruff: noqa: F403,F405
 from contract_support import *
 
+from blitzecdn.docker import (
+    EDGE_DOCKERFILE,
+    EDGE_MODULE_PROBE_CONF,
+)
+
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:
     """A role's `defaults/main.yml`, parsed.
@@ -466,32 +471,52 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
 
 def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modules():
     """Third-party modules must be built against the exact runtime image."""
-    dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
+    dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
     assert "ARG NGINX_IMAGE=nginx:1.31.4-alpine" in dockerfile
     assert dockerfile.count("FROM ${NGINX_IMAGE}") == 2
-    assert 'ARG ENABLED_MODULES="geoip2 brotli"' in dockerfile
     assert '"${NGINX_VERSION}-${PKG_RELEASE}"' in dockerfile
-    assert "nginx-module-geoip2-${NGINX_VERSION}*.apk" in dockerfile
-    assert "nginx-module-brotli-${NGINX_VERSION}*.apk" in dockerfile
+    # Every package the builder stage produced has to carry this image's Nginx
+    # version in its filename. It replaces two `apk add` lines that named the
+    # two modules, and it is the same ABI guarantee without the enumeration.
+    assert "was not built for nginx ${NGINX_VERSION}" in dockerfile
     assert "--with-http_v3_module" in dockerfile
     assert "module-probe.conf" in dockerfile
-    assert "COPY modules.conf /etc/nginx/modules.conf" in dockerfile
     assert "include /etc/nginx/modules.conf;" in dockerfile
     assert "include /etc/nginx/sites-enabled/" in dockerfile
 
-    probe = (PROJECT_DIR / "docker/edge/module-probe.conf").read_text(encoding="utf-8")
-    modules = (PROJECT_DIR / "docker/edge/modules.conf").read_text(encoding="utf-8")
+    probe = EDGE_MODULE_PROBE_CONF.read_text(encoding="utf-8")
     assert "include /etc/nginx/modules.conf;" in probe
-    for module in (
-        "ngx_http_geoip2_module.so",
-        "ngx_http_brotli_filter_module.so",
-        "ngx_http_js_module.so",
-    ):
-        assert module in modules, module
     # A module that loads but registers no directive is indistinguishable from
-    # a working one until an edge configuration uses it.
-    assert "brotli off;" in probe
-    assert "js_path" in probe
+    # a working one until an edge configuration uses it. The directives are
+    # generated from what the capabilities declared, so the probe includes
+    # them rather than spelling them.
+    assert "include /usr/share/blitzecdn/module-probe-directives.conf;" in probe
+
+
+def test_the_edge_image_enumerates_no_capability():
+    """The image build takes its module set as an input, not as a literal.
+
+    This is the regression the whole mechanism exists to refuse. A module name
+    written into the build context is a second register of which capabilities
+    exist, and the one that cannot be corrected by detaching a distribution:
+    the image is built once and pinned by digest, so an edge whose controller
+    has no `blitzecdn-geoip` installed still loaded GeoIP2 for as long as the
+    Dockerfile said so.
+    """
+    for path in (EDGE_DOCKERFILE, EDGE_MODULE_PROBE_CONF):
+        document = path.read_text(encoding="utf-8").lower()
+        for capability in ("geoip", "brotli", "njs", "maxmind"):
+            # The Dockerfile's prose may explain what moved and why; what it
+            # may not do is name a capability where the build reads it.
+            directives = [
+                line
+                for line in document.splitlines()
+                if capability in line and not line.lstrip().startswith("#")
+            ]
+            assert directives == [], f"{path.name} names {capability}: {directives}"
+    dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
+    for argument in ("ENABLED_MODULES", "LOADED_MODULES", "MODULE_PROBE_DIRECTIVES"):
+        assert f"ARG {argument}" in dockerfile, argument
 
     build_probe = (
         STACK_ROLE_DIR.parent / "blitzecdn_nginx/tasks/build-capability.yml"
@@ -509,7 +534,7 @@ def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modul
 
 def test_nginx_logs_to_persistent_files_and_docker_streams():
     """Docker logs supplement the retained files consumed by edge tooling."""
-    dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
+    dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
     site = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
 
     assert "error_log  /dev/stderr notice;" in dockerfile
@@ -773,7 +798,7 @@ def test_the_edge_stops_gracefully():
     assert grace.endswith("s") and int(grace[:-1]) >= 10, grace
 
     # And the image agrees, for a `docker stop` outside Compose.
-    dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
+    dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
     assert "STOPSIGNAL SIGQUIT" in dockerfile
 
 
@@ -911,10 +936,10 @@ def test_the_edge_image_carries_curl_and_no_health_check_script_of_its_own():
     for what "healthy" means. curl is neither — it is the runtime dependency
     the Compose probe execs, and removing it would report every edge unhealthy.
     """
-    dockerfile = (PROJECT_DIR / "docker/edge/Dockerfile").read_text(encoding="utf-8")
+    dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
 
     assert not (PROJECT_DIR / ("healthcheck" + ".sh")).exists()
-    assert not (PROJECT_DIR / "docker/edge" / ("healthcheck" + ".sh")).exists()
+    assert not (EDGE_DOCKERFILE.parent / ("healthcheck" + ".sh")).exists()
     # The instruction, not the word: the comment explaining its absence stays.
     assert not any(line.startswith("HEALTHCHECK") for line in dockerfile.splitlines())
     assert "healthcheck" + ".sh" not in dockerfile
