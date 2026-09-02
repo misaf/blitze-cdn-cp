@@ -4,13 +4,13 @@
 # ``str``), while SQLAlchemy turns that attribute into a SQL expression when
 # accessed on the class. Mypy cannot model that duality in the bulk statements
 # below, which SQLModel deliberately leaves to its SQLAlchemy foundation.
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
 
 from __future__ import annotations
 
 from typing import Any, cast
 
 from sqlalchemy import CursorResult, delete, select
+from sqlmodel import col
 
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import WorkflowRow
@@ -87,11 +87,11 @@ class WorkflowStore:
             rows = session.scalars(
                 select(WorkflowRow)
                 .where(
-                    WorkflowRow.status.in_(
+                    col(WorkflowRow.status).in_(
                         (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
                     )
                 )
-                .order_by(WorkflowRow.created_at)
+                .order_by(col(WorkflowRow.created_at))
             ).all()
             return [self._workflow(row) for row in rows]
 
@@ -111,16 +111,16 @@ class WorkflowStore:
         with self._db.session() as session:
             unfinished = (WorkflowStatus.PENDING.value, WorkflowStatus.RUNNING.value)
             survivors = (
-                select(WorkflowRow.id)
-                .where(WorkflowRow.status.not_in(unfinished))
-                .order_by(WorkflowRow.created_at.desc())
+                select(col(WorkflowRow.id))
+                .where(col(WorkflowRow.status).not_in(unfinished))
+                .order_by(col(WorkflowRow.created_at).desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             result = session.execute(
                 delete(WorkflowRow).where(
-                    WorkflowRow.status.not_in(unfinished),
-                    WorkflowRow.id.not_in(survivors),
+                    col(WorkflowRow.status).not_in(unfinished),
+                    col(WorkflowRow.id).not_in(survivors),
                 )
             )
             return cast("CursorResult[Any]", result).rowcount
@@ -128,7 +128,9 @@ class WorkflowStore:
     def list_workflows(self, limit: int = 100) -> list[Workflow]:
         with self._db.session() as session:
             rows = session.scalars(
-                select(WorkflowRow).order_by(WorkflowRow.created_at.desc()).limit(limit)
+                select(WorkflowRow)
+                .order_by(col(WorkflowRow.created_at).desc())
+                .limit(limit)
             ).all()
             return [self._workflow(row) for row in rows]
 

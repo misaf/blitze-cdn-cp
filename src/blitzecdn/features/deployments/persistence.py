@@ -1,13 +1,12 @@
 """Persistence for deployment history and snapshots."""
 
-# mypy: disable-error-code="attr-defined,arg-type,call-overload,union-attr"
-
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import CursorResult, Result, delete, select, update
+from sqlmodel import col
 
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import DeploymentRow
@@ -140,7 +139,7 @@ class DeploymentStore:
         with self._db.session() as session:
             rows = session.scalars(
                 select(DeploymentRow)
-                .order_by(DeploymentRow.created_at.desc())
+                .order_by(col(DeploymentRow.created_at).desc())
                 .limit(limit)
             ).all()
             return [self._deployment(row) for row in rows]
@@ -149,8 +148,8 @@ class DeploymentStore:
         with self._db.session() as session:
             rows = session.scalars(
                 select(DeploymentRow)
-                .where(DeploymentRow.status == DeploymentStatus.QUEUED)
-                .order_by(DeploymentRow.created_at)
+                .where(col(DeploymentRow.status) == DeploymentStatus.QUEUED.value)
+                .order_by(col(DeploymentRow.created_at))
             ).all()
             return [self._deployment(row) for row in rows]
 
@@ -174,7 +173,7 @@ class DeploymentStore:
             return _rows_affected(
                 session.execute(
                     update(DeploymentRow)
-                    .where(DeploymentRow.status == DeploymentStatus.RUNNING)
+                    .where(col(DeploymentRow.status) == DeploymentStatus.RUNNING.value)
                     .values(
                         status=DeploymentStatus.ABANDONED.value,
                         finished_at=now,
@@ -200,17 +199,17 @@ class DeploymentStore:
         """
         with self._db.session() as session:
             survivors = (
-                select(DeploymentRow.id)
-                .where(DeploymentRow.check_mode.is_(True))
-                .order_by(DeploymentRow.created_at.desc())
+                select(col(DeploymentRow.id))
+                .where(col(DeploymentRow.check_mode).is_(True))
+                .order_by(col(DeploymentRow.created_at).desc())
                 .limit(keep)
                 .scalar_subquery()
             )
             return _rows_affected(
                 session.execute(
                     delete(DeploymentRow).where(
-                        DeploymentRow.check_mode.is_(True),
-                        DeploymentRow.id.not_in(survivors),
+                        col(DeploymentRow.check_mode).is_(True),
+                        col(DeploymentRow.id).not_in(survivors),
                     )
                 )
             )
@@ -224,12 +223,12 @@ class DeploymentStore:
             row = session.scalars(
                 select(DeploymentRow)
                 .where(
-                    DeploymentRow.status == DeploymentStatus.SUCCEEDED.value,
-                    DeploymentRow.check_mode.is_(False),
-                    DeploymentRow.snapshot != current_snapshot,
-                    DeploymentRow.host_limit.is_(None),
+                    col(DeploymentRow.status) == DeploymentStatus.SUCCEEDED.value,
+                    col(DeploymentRow.check_mode).is_(False),
+                    col(DeploymentRow.snapshot) != current_snapshot,
+                    col(DeploymentRow.host_limit).is_(None),
                 )
-                .order_by(DeploymentRow.created_at.desc())
+                .order_by(col(DeploymentRow.created_at).desc())
                 .limit(1)
             ).first()
             if row is None:
