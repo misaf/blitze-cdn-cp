@@ -1,0 +1,18 @@
+---
+# The origins to probe, supplied by the control plane as extra-vars. Each entry
+# is one site: name, origin_host, origin_port, ssl_mode, origin_tls_verify, and
+# origin_sni.
+#
+# origin_port is the site's *canonical* origin endpoint — 80 for Off and
+# Flexible, 443 for Full and Full (strict) — and not the port any particular
+# visitor request reaches. The edge preserves the visitor's destination port
+# toward the origin, so a request on 8443 is proxied to the origin's 8443. This
+# check deliberately does not walk all thirteen public proxy ports: an origin
+# serving only 80 and 443 is ordinary, and failing it for ports nobody uses
+# would make it undeployable. See OriginProbe in the control plane.
+# Empty by default so the role is a no-op if it is ever run without them.
+blitzecdn_origins_sites: []
+
+# Per-origin budget. Short on purpose: an origin that needs longer than this to
+# answer a request is one this edge will struggle to proxy for.
+blitzecdn_origins_timeout: 5

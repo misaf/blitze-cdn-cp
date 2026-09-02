@@ -1,0 +1,46 @@
+---
+# Nothing here is guarded by blitzecdn_resolver_enabled. A host is usually
+# decommissioned by a controller whose configuration has drifted from the one
+# that converged it, and a fleet that turned the role off after enabling it
+# once would then leave the drop-in behind forever. Removing a file that is not
+# there is free; leaving one on a host nothing can reach again is not.
+- name: Remove the managed resolver drop-in
+  ansible.builtin.file:
+    path: "{{ blitzecdn_resolver_teardown_file }}"
+    state: absent
+  register: blitzecdn_resolver_teardown_removed
+
+# Not a handler. Handlers flush at the end of the play, which here is after
+# blitzecdn_teardown has run and passed its verdict on the host; the resolver
+# has to be back before then, and this role has to fail the decommission itself
+# if it is not.
+- name: Restart systemd-resolved without the managed drop-in
+  ansible.builtin.systemd_service:
+    name: systemd-resolved
+    state: restarted
+  when:
+    - blitzecdn_resolver_teardown_removed.changed
+    - not ansible_check_mode
+
+- name: Confirm the drop-in is gone
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_resolver_teardown_file }}"
+  register: blitzecdn_resolver_teardown_residue
+  when: not ansible_check_mode
+
+# The same rule core's teardown applies to its own files, applied by the
+# package that owns this one: a decommission that reports success while leaving
+# BlitzeCDN's resolver configuration on the host is the failure worth failing
+# for, because the inventory entry goes next and nothing can reach the host
+# afterwards.
+- name: Fail if the drop-in survived
+  ansible.builtin.assert:
+    that:
+      - not blitzecdn_resolver_teardown_residue.stat.exists
+    fail_msg: >-
+      {{ blitzecdn_resolver_teardown_file }} is still on {{ inventory_hostname }}.
+      Remove it before the host leaves inventory; afterwards no playbook can
+      reach it.
+    success_msg: >-
+      {{ inventory_hostname }} resolves through its own configuration again.
+  when: not ansible_check_mode

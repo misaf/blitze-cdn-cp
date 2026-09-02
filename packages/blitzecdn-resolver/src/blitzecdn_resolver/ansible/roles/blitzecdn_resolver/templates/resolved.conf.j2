@@ -1,0 +1,9 @@
+# {{ ansible_managed }}
+# BlitzeCDN manages resolution on this host. The link may still advertise its
+# own servers; the routing domains below decide which of them actually answer.
+[Resolve]
+DNS={{ blitzecdn_resolver_addresses | join(' ') }}
+{% if blitzecdn_resolver_fallback_addresses %}
+FallbackDNS={{ blitzecdn_resolver_fallback_addresses | join(' ') }}
+{% endif %}
+Domains={{ blitzecdn_resolver_domains | join(' ') }}

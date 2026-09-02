@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling>=1.32.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "blitzecdn-origins"
+version = "3.0.0"
+description = "Fleet origin reachability probing capability for BlitzeCDN"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = ["blitzecdn>=3.0.0,<4"]
+
+[project.entry-points."blitzecdn.plugins"]
+origins = "blitzecdn_origins.plugin"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/blitzecdn_origins"]
+
+[tool.uv.sources]
+blitzecdn = { workspace = true }
