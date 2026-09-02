@@ -86,9 +86,10 @@ def resolve_edge_capability_roles(
     answers this with nothing and converges no edge on a deploy.
 
     Ordered by plugin name, like the search path, so a fleet converged from the
-    same set of packages runs the same roles in the same order every time.
-    Within one plugin the declared order is kept: a package shipping two roles
-    is the only party that knows whether one has to precede the other.
+    same set of packages runs the same roles in the same order every time. This
+    ordering has no dependency semantics: optional roles must depend only on
+    established core prerequisites. Within one plugin the declared order is
+    kept because that package alone owns both roles.
 
     A name the contributing package does not actually ship is refused here.
     Ansible would refuse it too, but much later — after the engine is

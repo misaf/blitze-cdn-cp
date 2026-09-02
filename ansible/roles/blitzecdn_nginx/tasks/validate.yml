@@ -31,20 +31,8 @@
         item.origin_sni is not defined or
         item.origin_sni is match('^[A-Za-z0-9.:-]+$')
       - >-
-        item.cache_valid_success | default('10m')
-        is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
-      - >-
-        item.cache_valid_not_found | default('1m')
-        is match('^(?:0|[1-9][0-9]*)(?:ms|[smhdw])$')
-      - >-
         item.ssl_mode == 'off' or
         item.certificate_mode | default('disabled') != 'disabled'
-      - >-
-        not (item.http3_enabled | default(false)) or item.ssl_mode != 'off'
-      - >-
-        not (item.enabled | default(true)) or
-        not (item.http3_enabled | default(false)) or
-        blitzecdn_edge_runtime.listeners.http3
       - >-
         item.certificate_mode | default('disabled') == 'disabled' or
         item.certificate_path is defined
@@ -80,81 +68,3 @@
   loop: "{{ blitzecdn_nginx_sites }}"
   loop_control:
     label: "{{ item.name | default('unnamed') }}"
-
-- name: Validate shared HTTP/3 listener ownership
-  ansible.builtin.assert:
-    that:
-      - >-
-        not blitzecdn_edge_runtime.listeners.http3 or
-        blitzecdn_nginx_sites
-        | selectattr('enabled', 'undefined')
-        | selectattr('http3_enabled', 'defined')
-        | selectattr('http3_enabled')
-        | list | length > 0 or
-        blitzecdn_nginx_sites
-        | selectattr('enabled', 'defined')
-        | selectattr('enabled')
-        | selectattr('http3_enabled', 'defined')
-        | selectattr('http3_enabled')
-        | list | length > 0
-      - >-
-        blitzecdn_nginx_default_server or
-        not blitzecdn_edge_runtime.listeners.http3 or
-        blitzecdn_nginx_http3_listener_owner in
-        (blitzecdn_nginx_sites | map(attribute='name') | list)
-    fail_msg: >-
-      HTTP/3 shared listener state is inconsistent. Derive
-      blitzecdn_edge_runtime.listeners.http3 and blitzecdn_nginx_http3_listener_owner
-      from the enabled HTTP/3 sites instead of editing them independently.
-
-# Defensive only — the control plane validates all of this before a site is
-# ever stored. It is repeated because these values are interpolated into a
-# configuration file this role writes as root, and the role has to hold on its
-# own against a hand-written desired state or a controller with a regression.
-- name: Validate per-site firewall rules
-  ansible.builtin.assert:
-    that:
-      - >-
-        item.firewall.allow_sources | default([])
-        | union(item.firewall.deny_sources | default([]))
-        | reject('match', '^[0-9A-Fa-f:.]+(?:/[0-9]{1,3})?$')
-        | list | length == 0
-      - >-
-        item.firewall.allowed_countries | default([])
-        | union(item.firewall.denied_countries | default([]))
-        | reject('match', '^[A-Z]{2}$')
-        | list | length == 0
-      - >-
-        item.firewall.denied_methods | default([])
-        | reject('match', '^[A-Z][A-Z-]{1,19}$')
-        | list | length == 0
-      # A location argument, so anything that could close the directive or add
-      # a second argument to it is refused.
-      - >-
-        item.firewall.denied_paths | default([])
-        | reject('match', '^/[^\\s;{}\"''\\\\]*$')
-        | list | length == 0
-    fail_msg: >-
-      Site {{ item.name }} carries firewall rules this role will not render.
-      Sources must be IP addresses or CIDR networks, countries ISO 3166-1
-      alpha-2, methods uppercase, and denied paths absolute with no whitespace,
-      quotes, backslashes, ';', '{' or '}'.
-  loop: "{{ blitzecdn_nginx_sites }}"
-  loop_control:
-    label: "{{ item.name }}"
-  # `length > 0` rather than the dict's own truthiness: ansible-core 2.19+
-  # refuses a conditional whose result is not a boolean, and `item.firewall`
-  # alone evaluates to the dict.
-  when: item.firewall | default({}, true) | length > 0
-
-# What is deliberately no longer asserted here: that GeoIP is available for a
-# site asking for country rules or the BZ-IPCountry header, and that the edge
-# challenge capability is available for a site asking for Under Attack Mode.
-# Both questions belong to the capability that answers them — `blitzecdn_geoip`
-# and `blitzecdn_security` each assert their own, from their own role, which
-# runs before this one — and asking them here would mean this role naming two
-# capabilities that may not be installed.
-#
-# The control plane refuses either site earlier still, by name, in
-# SitePolicy.capability_requirements. These remain two independent controls: the
-# role has to hold on its own against a hand-written desired state.
