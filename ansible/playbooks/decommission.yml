@@ -13,5 +13,28 @@
   max_fail_percentage: 0
   serial: "100%"
   roles:
+    # The decommission slot: each installed capability withdraws what its own
+    # roles put on this host. Composed by the control plane from the plugins it
+    # discovered and passed as an extra-var on every run, exactly like the edge
+    # play's two slots, so this play names no capability either.
+    #
+    # It runs *before* blitzecdn_teardown, and the position is the contract.
+    # That role ends by asserting the host is clean and failing the run if
+    # anything survived, which is the verdict on the whole decommission — a
+    # capability removing its files afterwards would be removing them after the
+    # verdict had already been passed. Running first also means a capability
+    # role can still read the state tree and the data directory that
+    # blitzecdn_teardown is about to delete.
+    #
+    # Core removes what core wrote, plus the shared trees and every systemd
+    # unit matching the managed prefix. What it cannot remove is a file at a
+    # path only a wheel knows — a resolver drop-in, an SSH policy fragment —
+    # because naming one would put a capability's path in a role that is
+    # installed whether or not the capability is.
+    - role: blitzecdn_capabilities
+      vars:
+        blitzecdn_capabilities_roles: >-
+          {{ blitzecdn_teardown_capability_roles | default([]) }}
+      tags: [teardown, capabilities]
     - role: blitzecdn_teardown
       tags: [teardown]

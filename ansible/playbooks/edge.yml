@@ -83,10 +83,11 @@
   roles:
     - role: blitzecdn_base
       tags: [base]
-    # Before nginx, which resolves origin hostnames through the host resolver,
-    # and before anything that fetches by name. Off unless enabled.
-    - role: blitzecdn_resolver
-      tags: [base, resolver]
+    # Host DNS resolution is no longer named here. It ships as
+    # `blitzecdn-resolver` and asks for the capability slot below, which is
+    # still before blitzecdn_nginx renders the origin hostnames the runtime
+    # will look up — so a fleet whose DNS belongs to its network detaches the
+    # distribution instead of setting a variable in a role it never wanted.
     - role: blitzecdn_kernel
       tags: [kernel]
     # Every installed capability's own edge role, in one slot.
@@ -103,6 +104,8 @@
     # the rendered configuration then depends on, and blitzecdn_nginx proves
     # the whole tree loads before the edge serves from it.
     - role: blitzecdn_capabilities
+      vars:
+        blitzecdn_capabilities_roles: "{{ blitzecdn_capability_roles | default([]) }}"
       tags: [capabilities, nginx]
     - role: blitzecdn_firewall
       tags: [firewall]
@@ -117,13 +120,25 @@
     # an edge answering 444 for every customer.
     - role: blitzecdn_edge_stack
       tags: [nginx, edge_stack]
-    # SSH policy comes after the firewall so a host that fails firewall
-    # validation is never left key-only but unreachable from the management
-    # network, and before Fail2Ban so bans apply to a daemon that has already
-    # stopped accepting passwords. Both stay on the host: they protect and
-    # configure the host itself, and an edge whose containers are all broken
-    # must still be reachable for Ansible to repair it.
-    - role: blitzecdn_sshd
-      tags: [security, sshd]
-    - role: blitzecdn_fail2ban
-      tags: [security]
+    # The second capability slot: what an installed capability does to the
+    # *host* rather than to the runtime, once the edge is already serving.
+    #
+    # This is where SSH policy and Fail2Ban run, and they are no longer named
+    # here — `blitzecdn-hardening` ships both and asks for this slot, so a
+    # fleet whose host access belongs to a golden image or a bastion detaches
+    # the distribution instead of forking this play.
+    #
+    # The position is as much a contract as the edge slot's, and for a reason
+    # that is nearly the opposite. A role here must come after the firewall,
+    # because a host that fails firewall validation must never be left key-only
+    # but unreachable from the management network; and after
+    # blitzecdn_edge_stack, because an edge whose containers are all broken
+    # must still be reachable for Ansible to repair it, so nothing that could
+    # close the management path may run before the runtime has proved it
+    # serves. Ordering *within* the slot is the contributing package's, which
+    # is how Fail2Ban follows SSH without this play knowing either exists.
+    - role: blitzecdn_capabilities
+      vars:
+        blitzecdn_capabilities_roles: >-
+          {{ blitzecdn_host_capability_roles | default([]) }}
+      tags: [capabilities, security]
