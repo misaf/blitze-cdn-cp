@@ -50,6 +50,7 @@ from pathlib import Path
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
+    EdgeModule,
     NginxContribution,
     PluginMetadata,
     hookimpl,
@@ -78,6 +79,24 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
             plugin="geoip",
             roles_path=ansible.ROLES_PATH,
             edge_roles=(ansible.EDGE_ROLE,),
+            # The module the resources below are written against. It used to
+            # be built into the edge image and loaded unconditionally, so an
+            # edge with this distribution detached still loaded GeoIP2 — the
+            # image was a second, stale answer to which capabilities exist.
+            #
+            # No `probe`, and that is not an omission. The image's build-time
+            # probe evaluates one directive per module to catch a module that
+            # loads but registers nothing, and every geoip2 directive takes a
+            # MaxMind database: `geoip2` opens the file while the configuration
+            # is parsed, and the image has none and must not carry one. The
+            # module still has to load, which the probe's `load_module` proves;
+            # only the directive check is unavailable here.
+            edge_modules=(
+                EdgeModule(
+                    name="geoip2",
+                    objects=("ngx_http_geoip2_module.so",),
+                ),
+            ),
             environment_keys=(
                 "BLITZE_MAXMIND_ACCOUNT_ID",
                 "BLITZE_MAXMIND_LICENSE_KEY",
