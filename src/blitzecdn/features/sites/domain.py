@@ -101,6 +101,8 @@ class SitePolicy(
 
         if self.compression is not CompressionMode.OFF:
             request("compression", "compression")
+        if self.cache_enabled:
+            request("cache", "cache_enabled")
         if self.under_attack_mode:
             request("security", "under_attack_mode")
         if not self.firewall.empty:
