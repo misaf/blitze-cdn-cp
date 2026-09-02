@@ -57,7 +57,6 @@ _ADAPTER_PARTS = {
     # purely because it is a file and the others are a directory.
     "adapters.py",
     "persistence.py",
-    "site_persistence.py",
     "probe.py",
     "preflight.py",
     "desired_state.py",
@@ -322,8 +321,6 @@ def _entry_files() -> list[Path]:
         "cli.py",
         "v1.py",
         "v2.py",
-        "v1_sites.py",
-        "v2_sites.py",
         "readiness.py",
     }
     return [
@@ -560,10 +557,13 @@ ALLOWED_FEATURE_DEPENDENCIES = {
     "diagnostics": set(),
     "dns": {"sites"},
     # `dns` left this set with `check_origins`. Probing an origin needed the
-    # site list, and `edges` reached it through `dns.ports.SiteStore` — the one
-    # place the fleet roster depended on the zone feature. The roster itself
-    # never needed a site: `blitzecdn-origins` reads `platform.sites` for
-    # itself, and an edge is added, updated and removed without either.
+    # site list, and `edges` reached it through a port on the zone feature —
+    # the one place the fleet roster depended on it. The roster itself never
+    # needed a site: `blitzecdn-origins` reads `platform.sites` for itself, and
+    # an edge is added, updated and removed without either. Reading a site does
+    # not point at `dns` at all now: `sites.ports.SiteReader` is the read side
+    # and `dns.ports.SiteProjection` is the write side, which is why this arrow
+    # runs the way it does.
     "edges": {"sites"},
     "http": {"sites"},
     "maintenance": {"deployments"},
