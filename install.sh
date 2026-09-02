@@ -443,11 +443,22 @@ if sys.version_info[:2] < (3, 12):
   # dropping one from this list produces a working controller without that
   # capability and nothing else changes. `backup` is in the default because
   # `update` takes a database backup before it changes anything; a controller
-  # installed without it cannot be updated in place.
+  # installed without it cannot be updated in place. `hardening` is in it
+  # because an edge's SSH policy and Fail2Ban jail ship in that distribution:
+  # leaving it out is how a fleet whose host access belongs to a golden image
+  # or a bastion declines BlitzeCDN's, and leaving it out by accident means no
+  # edge is hardened at all. `origins` is in it because `blitzecdn origin
+  # check` used to be a core command and an operator upgrading should not
+  # discover it missing; it is also what the Automatic SSL/TLS scan probes
+  # with, so `certificates` pulls it in regardless. `resolver` is in it for the
+  # same upgrade reason and costs nothing to carry: its role is off until
+  # `blitzecdn_resolver_enabled` is set, so attaching it manages no host that
+  # had not already asked, while leaving it out would silently stop managing
+  # the hosts that had.
   local -a sync_flags=(--frozen --python "${python_command}")
   local -a capability_flags=()
   local capability
-  for capability in ${BLITZECDN_CAPABILITIES:-backup cache}; do
+  for capability in ${BLITZECDN_CAPABILITIES:-backup cache hardening origins resolver}; do
     capability_flags+=(--extra "${capability}")
   done
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then

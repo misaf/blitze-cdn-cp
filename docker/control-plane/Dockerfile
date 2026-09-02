@@ -15,13 +15,15 @@ RUN apt-get update \
 
 WORKDIR /opt/blitzecdn
 COPY . /opt/blitzecdn
-# `--extra backup --extra cache` attaches the optional capability
-# distributions from packages/. They are discovered through their
+# `--extra backup --extra cache --extra hardening --extra origins --extra
+# resolver` attaches the optional capability distributions from packages/.
+# They are discovered through their
 # `blitzecdn.plugins` entry points, never imported by the control plane, so an
 # image built without one of these flags is a working controller that simply
 # does not offer that capability.
 RUN uv sync --frozen --no-dev --no-editable --python /usr/local/bin/python \
-        --extra backup --extra cache \
+        --extra backup --extra cache --extra hardening --extra origins \
+        --extra resolver \
     && .venv/bin/ansible-galaxy collection install \
         --requirements-file ansible/requirements.yml \
         --collections-path /usr/share/ansible/collections

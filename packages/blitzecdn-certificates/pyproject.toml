@@ -9,7 +9,11 @@ description = "Certificate management and Automatic SSL capability for BlitzeCDN
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
-dependencies = ["blitzecdn>=3.0.0,<4"]
+# The Automatic SSL/TLS scan probes each origin from the edges, which is
+# `blitzecdn-origins`' play. Declared rather than assumed: an import that
+# merely happened to work would break on detachment with an ImportError
+# nothing predicted.
+dependencies = ["blitzecdn>=3.0.0,<4", "blitzecdn-origins>=3.0.0,<4"]
 
 [project.entry-points."blitzecdn.plugins"]
 certificates = "blitzecdn_certificates.plugin"
@@ -19,3 +23,4 @@ packages = ["src/blitzecdn_certificates"]
 
 [tool.uv.sources]
 blitzecdn = { workspace = true }
+blitzecdn-origins = { workspace = true }
