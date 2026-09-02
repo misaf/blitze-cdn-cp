@@ -84,26 +84,30 @@ and neither can override one member of a dictionary:
 
 ## What is in this tree, and what is not
 
-This tree is the *platform*: the base host, the kernel and resolver, Docker,
-SSH and Fail2Ban, the firewall, the edge runtime contract, the edge stack, and
-`blitzecdn_nginx`, which renders a site's whole configuration from the merged
-desired-state document.
+This tree is the *platform*: the base host, the kernel, Docker, the firewall,
+the edge runtime contract, the edge stack, and `blitzecdn_nginx`, which renders
+a site's whole configuration from the merged desired-state document.
 
 An optional capability's roles are not here. They ship inside that
 capability's wheel — `blitzecdn_geoip` in `blitzecdn-geoip`, `blitzecdn_cache`
-and `blitzecdn_stats` in `blitzecdn-cache`, and so on — and the control plane
+and `blitzecdn_stats` in `blitzecdn-cache`, `blitzecdn_sshd` and
+`blitzecdn_fail2ban` in `blitzecdn-hardening`, `blitzecdn_resolver` in
+`blitzecdn-resolver`, and so on — and the control plane
 composes the real role search path from core's directory plus the directory
 each installed plugin reports. `roles_path` in `ansible.cfg` is only what a
 bare `ansible-playbook` in a checkout resolves against; every run the control
 plane makes overrides it with `ANSIBLE_ROLES_PATH`.
 
 `roles/blitzecdn_capabilities` is how a contributed role actually runs. It
-names no capability: the control plane passes `blitzecdn_capability_roles` as
-an extra-var on every run, composed from the installed plugins, and the role
-includes each one. It sits between `blitzecdn_kernel` and `blitzecdn_firewall`
-in `playbooks/edge.yml`, which is early enough for a capability to have the
-container engine and the persistent directories, and late enough that
-`blitzecdn_nginx` can prove the whole configuration tree loads afterwards.
+names no capability: the control plane passes the slot's list as an extra-var
+on every run, composed from the installed plugins, and the role includes each
+one. There are three slots, and each position is a contract:
+
+| slot | extra-var | where | for |
+| --- | --- | --- | --- |
+| edge | `blitzecdn_capability_roles` | between `blitzecdn_kernel` and `blitzecdn_firewall` in `playbooks/edge.yml` | a capability contributing something the rendered configuration then depends on — early enough to have the container engine and the persistent directories, late enough that `blitzecdn_nginx` proves the whole tree loads afterwards |
+| host | `blitzecdn_host_capability_roles` | after `blitzecdn_edge_stack` in `playbooks/edge.yml` | a capability configuring the host underneath a runtime that is already serving; an edge whose containers are all broken must still be reachable for Ansible to repair it |
+| teardown | `blitzecdn_teardown_capability_roles` | before `blitzecdn_teardown` in `playbooks/decommission.yml` | a capability withdrawing what it wrote from a host that is leaving inventory, while the state tree is still there and before core's clean-host assertion passes the verdict |
 
 To run the edge play by hand against a fleet with capabilities attached, pass
 the roles path and the list:
