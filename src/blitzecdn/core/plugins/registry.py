@@ -32,6 +32,7 @@ from blitzecdn.core.plugins.types import (
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
+    NginxContribution,
     PluginMetadata,
     RuntimeContext,
     ScheduledJob,
@@ -221,6 +222,14 @@ class PluginRegistry:
             self._manager.hook.blitzecdn_ansible_contributions(),
             "blitzecdn_ansible_contributions",
             AnsibleContribution,
+        )
+
+    def nginx_contributions(self) -> tuple[NginxContribution, ...]:
+        """Every installed package's static Nginx resources."""
+        return _flatten(
+            self._manager.hook.blitzecdn_nginx_contributions(),
+            "blitzecdn_nginx_contributions",
+            NginxContribution,
         )
 
     def health_checks(self, platform: ControlPlane) -> tuple[HealthCheck, ...]:

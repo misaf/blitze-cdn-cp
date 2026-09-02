@@ -88,6 +88,7 @@ def site(**overrides: object) -> CdnSite:
             "server_names": ["cdn.example.com"],
             "origin_host": "198.51.100.10",
             "compression": "off",
+            "cache_enabled": False,
             **overrides,
         }
     )
@@ -110,6 +111,7 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
         "blitzecdn_api_routers",
         "blitzecdn_cli_commands",
         "blitzecdn_ansible_contributions",
+        "blitzecdn_nginx_contributions",
         "blitzecdn_health_checks",
         "blitzecdn_scheduled_jobs",
         "blitzecdn_site_desired_state",

@@ -37,6 +37,7 @@ from blitzecdn.core.plugins.types import (
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
+    NginxContribution,
     PluginMetadata,
     RuntimeContext,
     ScheduledJob,
@@ -105,6 +106,11 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
     refuses two packages that ship the same role name, and knows nothing else
     about what is in there.
     """
+
+
+@hookspec
+def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
+    """Contribute package-owned static fragments at stable Nginx contexts."""
 
 
 @hookspec
