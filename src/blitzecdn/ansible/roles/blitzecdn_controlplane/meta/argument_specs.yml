@@ -21,6 +21,7 @@ argument_specs:
       blitzecdn_controlplane_compose_project: {type: str, required: true}
       blitzecdn_controlplane_image: {type: str, required: true}
       blitzecdn_controlplane_redis_image: {type: str, required: true}
+      blitzecdn_controlplane_dockerfile: {type: str, required: true}
       blitzecdn_controlplane_packages: {type: list, elements: str, required: true}
       blitzecdn_controlplane_acme_email:
         type: str

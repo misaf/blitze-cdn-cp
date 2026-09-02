@@ -142,6 +142,28 @@ argument_specs:
         description: >-
           Validated package-owned static fragments grouped by stable Nginx
           context. Resolved from installed plugin contributions at run time.
+      blitzecdn_nginx_modules:
+        type: list
+        elements: dict
+        required: true
+        description: >-
+          The Nginx dynamic modules the installed capabilities load, composed
+          by the control plane and delivered as an extra-var. Each entry names
+          the contributing plugin, the module and its shared objects; the
+          rendered list is mounted over the one the runtime image was built
+          with, so an edge loads what is installed rather than what the image
+          carries. Empty is a valid edge.
+        options:
+          plugin: {type: str, required: true}
+          name: {type: str, required: true}
+          objects: {type: list, elements: str, required: true}
+      blitzecdn_nginx_module_directory:
+        type: path
+        required: true
+        description: >-
+          Where the runtime image keeps its dynamic modules. Core's half of the
+          contract: a capability names a shared object and this names the
+          directory it resolves against.
       blitzecdn_nginx_proxy_connect_timeout: {type: str, required: true}
       blitzecdn_nginx_proxy_read_timeout: {type: str, required: true}
       blitzecdn_nginx_managed_sites_file: {type: path, required: true}

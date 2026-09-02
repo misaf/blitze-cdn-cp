@@ -1,0 +1,39 @@
+---
+# Whether the pinned edge runtime image can serve the modules this controller's
+# installed capabilities ask for. No I/O of its own, exactly like
+# build-invariant.yml beside it: the caller supplies
+# blitzecdn_nginx_build_output, which is what lets
+# tests/test_ansible_validation_contracts.py execute this assertion against a
+# fabricated image rather than merely read it.
+#
+# The image and the load list have different lifetimes, which is why this gate
+# exists at all. The image is pinned by digest and shared by fleets whose
+# attached capabilities differ, so it is built as the superset; the load list
+# is resolved from what is installed on *this* controller. Attaching a
+# capability whose module the pinned image predates is therefore an ordinary
+# mistake, and without this it surfaces as `nginx -t` refusing an unknown
+# directive somewhere in a contributed fragment — a message that names neither
+# the module, the capability, nor the image.
+- name: Describe the modules the edge runtime image carries
+  ansible.builtin.set_fact:
+    # Every shared object named anywhere in the probe's output. `nginx -V`
+    # prints a configure line that contains no '.so', so the only source of a
+    # match is the module directory listing beside it.
+    blitzecdn_nginx_available_modules: >-
+      {{ blitzecdn_nginx_build_output | regex_findall('[A-Za-z0-9_.-]+\.so') }}
+
+- name: Require the modules the installed capabilities load
+  ansible.builtin.assert:
+    that:
+      - item.objects | difference(blitzecdn_nginx_available_modules) | length == 0
+    fail_msg: >-
+      The {{ item.plugin }} capability loads the Nginx module {{ item.name }},
+      but {{ blitzecdn_nginx_config_test_image }} does not carry
+      {{ item.objects | difference(blitzecdn_nginx_available_modules) | join(', ') }}.
+      The edge runtime image is built as the superset of the modules the
+      published capabilities declare, so an image older than this capability
+      cannot serve it: roll the fleet onto an image built since, or detach the
+      distribution.
+  loop: "{{ blitzecdn_nginx_modules }}"
+  loop_control:
+    label: "{{ item.plugin }}:{{ item.name }}"

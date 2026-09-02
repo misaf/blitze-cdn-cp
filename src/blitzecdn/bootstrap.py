@@ -54,6 +54,7 @@ from blitzecdn.core.database import Repository
 from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.core.nginx import (
     resolve_capability_environment,
+    resolve_edge_modules,
     resolve_nginx_resources,
 )
 from blitzecdn.core.operation_ports import AuditTrail, PlaybookRunner
@@ -187,6 +188,7 @@ class ControlPlane:
         self.ansible_settings = store.ansible_settings
         contributions = self.plugins.ansible_contributions()
         nginx_resources = resolve_nginx_resources(self.plugins.nginx_contributions())
+        edge_modules = resolve_edge_modules(contributions)
         capability_environment = resolve_capability_environment(
             contributions, self.settings.capability_environment
         )
@@ -211,6 +213,12 @@ class ControlPlane:
             host_capability_roles=resolve_host_capability_roles(contributions),
             teardown_capability_roles=resolve_teardown_capability_roles(contributions),
             nginx_resources=nginx_resources,
+            # And the dynamic modules those resources need loaded. The same
+            # question one level down: a contributed `brotli` directive is a
+            # syntax error on an edge that never loaded the module, and an
+            # edge that loads one no installed capability asked for is the
+            # image enumerating capabilities instead of the controller.
+            edge_modules=edge_modules,
             capability_environment=capability_environment,
         )
         self._origin_probe = origin_probe or OriginProbe(self.settings)

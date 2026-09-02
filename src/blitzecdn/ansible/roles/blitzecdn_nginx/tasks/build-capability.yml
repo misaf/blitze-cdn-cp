@@ -1,12 +1,15 @@
 ---
 # `nginx -V` writes its banner to stderr, so the container's combined output is
 # what carries both the version and the configure line. One container start
-# answers every question build-invariant.yml then asks of it.
+# answers every question build-invariant.yml then asks of it — and the module
+# listing appended below answers modules-invariant.yml's as well, because two
+# container starts to read two properties of one immutable image would be two
+# chances for them to describe different images.
 - name: Read the edge runtime build
   community.docker.docker_container:
     name: blitzecdn-edge-build-probe
     image: "{{ blitzecdn_nginx_config_test_image }}"
-    command: [nginx, -V]
+    command: [sh, -c, "nginx -V 2>&1; ls -1 {{ blitzecdn_nginx_module_directory }} 2>/dev/null || true"]
     detach: false
     cleanup: true
     network_mode: none
@@ -28,3 +31,8 @@
 # them by starting a container is a test that does not run.
 - name: Require a supported edge runtime build
   ansible.builtin.import_tasks: build-invariant.yml
+
+# The same separation, for the other half of what that one probe answered:
+# whether this image carries the modules this controller's capabilities load.
+- name: Require the modules the installed capabilities load
+  ansible.builtin.import_tasks: modules-invariant.yml

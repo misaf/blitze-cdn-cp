@@ -18,6 +18,17 @@ blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
 blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 blitzecdn_controlplane_image: blitzecdn-control-plane:local
 blitzecdn_controlplane_redis_image: redis:8.2-alpine
+# Where the control plane's own Dockerfile sits, relative to the installation
+# directory that is the build context. It ships inside the wheel, beside the
+# Ansible this role is part of, and `blitzecdn.docker.CONTROL_PLANE_DOCKERFILE`
+# is the authority on the location — a contract test fails if this default and
+# that constant disagree, which is the whole reason the path is a variable
+# rather than a literal in the template.
+#
+# Relative because it is resolved against the context by Docker, not by
+# Ansible. The context is a source checkout, which is why this is the last
+# place the controller still needs one.
+blitzecdn_controlplane_dockerfile: src/blitzecdn/docker/control-plane/Dockerfile
 
 # python3 and python3-venv are absent here on purpose: the installer has already
 # had to install them to build the virtualenv this play is running from.

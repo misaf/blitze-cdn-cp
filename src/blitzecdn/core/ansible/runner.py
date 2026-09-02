@@ -14,7 +14,7 @@ from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.ansible.variables import run_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.nginx import ResolvedNginxResource
+from blitzecdn.core.nginx import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.features.edges.ports import EdgeStore
 
@@ -54,6 +54,7 @@ class AnsibleRunner:
         host_capability_roles: Sequence[str] = (),
         teardown_capability_roles: Sequence[str] = (),
         nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
+        edge_modules: Sequence[ResolvedEdgeModule] = (),
         capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
         self._settings = settings
@@ -69,6 +70,7 @@ class AnsibleRunner:
             host_capability_roles=host_capability_roles,
             teardown_capability_roles=teardown_capability_roles,
             nginx_resources=nginx_resources,
+            edge_modules=edge_modules,
             capability_environment=capability_environment,
         )
 

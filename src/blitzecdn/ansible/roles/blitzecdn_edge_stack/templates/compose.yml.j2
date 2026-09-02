@@ -47,6 +47,11 @@ services:
       # business rewriting what the control plane rendered, and a container that
       # cannot write its own configuration cannot be talked into persisting a
       # change that the next converge would silently revert.
+      # The dynamic modules this edge loads, over the list the image was built
+      # with. The image carries every module the published capabilities can
+      # ask for; what an edge actually loads is what this controller has
+      # installed, and nginx.conf includes this path on its first line.
+      - {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{ blitzecdn_edge_runtime.paths.modules_include }}:ro
       - {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro
       - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
       - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro
