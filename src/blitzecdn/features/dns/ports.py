@@ -5,22 +5,24 @@ from typing import Protocol
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.features.sites.domain import CdnSite
 from blitzecdn.features.sites.ports import SiteReader
-from blitzecdn.features.tls.policy import CertificateMode, SslMode
 
 
-class SiteProjection(SiteReader, Protocol):
-    """The write side of the derived virtual hosts, and only this feature has it.
+class SiteHostnames(SiteReader, Protocol):
+    """The one part of a site this feature writes, and the reads it needs.
 
-    `sites` publishes the read side; re-derivation from records is what may
-    write, and re-derivation happens here. The two halves are one object at run
-    time — the composition root passes the same store to both — but a
-    capability handed `platform.sites` gets `SiteReader` and cannot reach past
-    it to replace a projection whose source it does not own.
+    A site is canonical and `sites` owns it. What `dns` owns is the answer to
+    "which hostnames route here", because that answer *is* the set of records
+    pointing at the site — so ``server_names`` is maintained from this side and
+    from nowhere else, and the site's own service has no method that sets it.
+
+    The read half comes along because the checks this feature runs before a
+    deploy are cross-cutting: whether a record names a site that exists, and
+    whether the hostnames stored on each site still match the records. Both
+    need to see sites; neither may change one.
     """
 
-    def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
+    def set_server_names(self, site: str, server_names: tuple[str, ...]) -> None: ...
 
     def projection_revision(self) -> str | None: ...
 
@@ -28,7 +30,7 @@ class SiteProjection(SiteReader, Protocol):
 
 
 class ZoneStore(Protocol):
-    """Zones and records — the source of truth sites are derived from."""
+    """Zones and the records in them."""
 
     def list_domains(self) -> list[Domain]: ...
 
@@ -50,41 +52,34 @@ class ZoneStore(Protocol):
 
     def delete_record(self, domain: str, name: str, type_: RecordType) -> None: ...
 
+    def delete_all_records(self) -> None: ...
+
     def replace_all_records(
         self, domains: list[Domain], records: list[DnsRecord]
     ) -> None: ...
 
 
 class ZoneEditor(Protocol):
-    """What the other services need from the zone editor.
+    """What `deployments` needs from the zone editor, and it is now two things.
 
-    Four methods out of ``DnsService``'s twenty. Certificate state has to land
-    on the *record* rather than on the derived site, so issuing a certificate
-    unavoidably reaches back into the zone editor — but only this far.
+    It used to be four. Two of them — ``activate_managed_certificate`` and
+    ``apply_automatic_ssl_upgrade`` — were certificate state reaching back into
+    a record because the derived site could not hold it. The site holds it now,
+    so both moved to ``SiteService`` and this port lost the reason it had to
+    know what a certificate is.
     """
 
-    def sync_sites(self) -> None: ...
+    def resync_hostnames(self) -> None: ...
 
-    #: Ways the stored zones and their derived sites contradict each other.
-    #: A deploy asks before it converges anything, because the contradictions
-    #: are the kind that would otherwise reach an edge as a valid-looking
-    #: config serving the wrong site.
+    #: Ways canonical state contradicts itself. A deploy asks before it
+    #: converges anything, because the contradictions are the kind that would
+    #: otherwise reach an edge as a valid-looking config serving the wrong site.
     def validation_errors(self) -> list[str]: ...
-
-    def record_for_site(self, site_name: str) -> DnsRecord: ...
-
-    def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode
-    ) -> CdnSite: ...
-
-    def apply_automatic_ssl_upgrade(
-        self, site_name: str, target: SslMode, operator: str
-    ) -> CdnSite | None: ...
 
 
 __all__ = [
     "EventRecorder",
-    "SiteProjection",
+    "SiteHostnames",
     "UnitOfWork",
     "ZoneEditor",
     "ZoneStore",

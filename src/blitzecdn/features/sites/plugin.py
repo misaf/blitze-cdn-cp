@@ -1,8 +1,10 @@
 """Register the site-serving composition and the document the edges converge on.
 
 The important contribution is still the flat site document every edge role
-reads; beside it are the read-only `site` commands and routes over the derived
-projection, which live here because this is where someone looks for them.
+reads; beside it are the `site` commands and routes, which live here because
+this is where someone looks for them. They stopped being read-only when a site
+stopped being a projection of a DNS record: creating, editing and deleting one
+is this capability's own operation now, and `dns` contributes only the routing.
 
 The QUIC listener state used to be derived here too. It moved to ``http``
 first — the ownership rule applied to the one case where it made a difference,
@@ -49,7 +51,6 @@ def blitzecdn_site_desired_state(site: CdnSite) -> SiteStateContribution:
 
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
-    """The projection, read-only. Writing one means editing the record."""
     return (v1.router, v2.router)
 
 

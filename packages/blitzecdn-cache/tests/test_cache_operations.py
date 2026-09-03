@@ -14,13 +14,13 @@ def _purge_run():
 
 
 def _site(control, name="cdn", domain="example.com", **policy):
-    """A site to purge, made the way the control plane makes one.
+    """A site to purge, and the hostname that reaches it.
 
-    The projection has no write side, so this proxies a record and lets the
-    derivation produce the site — which is also what keeps these tests about a
-    site shape the control plane can actually hold.
+    ``name`` is the record label — purge matches on ``server_names``, so what
+    these tests care about is the hostname rather than the site's own name.
     """
-    return seed_site(control, domain=domain, name=name, **policy)
+    slug = f"{'wildcard' if name == '*' else name}-{domain.replace('.', '-')}"
+    return seed_site(control, name=slug, domain=domain, record=name, **policy)
 
 
 def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):

@@ -39,6 +39,7 @@ from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.schema import DatabaseSchema
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.features.sites.domain import CdnSite
 
 runner = CliRunner()
 
@@ -741,13 +742,15 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     _populate(settings)
     store = Repository(settings.database_path)
     original = ControlPlane(settings=settings, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
+    original.site_editor.create_site(
+        CdnSite(name="cdn-example-com", origin_host="198.51.100.10"), "tester"
+    )
     original.dns.create_record(
         DnsRecord(
             domain="example.com",
             name="cdn",
             type=RecordType.A,
-            value="198.51.100.10",
-            proxied=True,
+            site="cdn-example-com",
         ),
         operator="tester",
     )

@@ -104,14 +104,17 @@ class DomainRow(Base, table=True):
 
 
 class DnsRecordRow(Base, table=True):
-    """One record, plus the CDN policy that applies when it is proxied.
+    """One record: an address of its own, or a route to a site.
 
-    ``value``, ``ttl`` and ``proxied`` are columns because they are the answer
-    DNS gives and the switch that decides whether a site exists at all. The
-    inherited :class:`~blitzecdn.features.sites.domain.SitePolicy` fields —
-    cache rules, firewall, headers, certificate mode — stay in ``policy``:
-    nothing queries
-    inside them, and they are validated by the domain model on the way out.
+    There is no ``policy`` column any more and no ``proxied`` flag. Both
+    existed because a record used to *be* a site; a site is its own row now, so
+    what is left here is the answer DNS gives (``value``, ``ttl``) and the site
+    that answers instead (``site``).
+
+    The check constraint is the database's copy of the domain rule: exactly one
+    of ``value`` and ``site``. It is written down twice deliberately — records
+    also arrive from a restored backup and from a rollback's wholesale rewrite,
+    neither of which goes through the record editor.
     """
 
     __tablename__ = "dns_records"
@@ -119,7 +122,13 @@ class DnsRecordRow(Base, table=True):
         CheckConstraint("ttl BETWEEN 1 AND 604800", name="dns_records_ttl_check"),
         CheckConstraint("type IN ('A', 'AAAA')", name="dns_records_type_check"),
         CheckConstraint("length(name) > 0", name="dns_records_name_nonempty_check"),
-        CheckConstraint("length(value) > 0", name="dns_records_value_nonempty_check"),
+        CheckConstraint(
+            "(value IS NULL) <> (site IS NULL)", name="dns_records_target_check"
+        ),
+        CheckConstraint(
+            "value IS NULL OR length(value) > 0",
+            name="dns_records_value_nonempty_check",
+        ),
     )
 
     # ON DELETE CASCADE is load-bearing rather than convenience: a record
@@ -133,28 +142,42 @@ class DnsRecordRow(Base, table=True):
     )
     name: str = Field(sa_column=Column(String, primary_key=True))
     type: str = Field(sa_column=Column(String, primary_key=True))
-    value: str
+    value: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     ttl: int
-    proxied: bool
-    policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    # RESTRICT rather than CASCADE or SET NULL: deleting a site that hostnames
+    # still route to is a mistake worth refusing, not one to resolve by
+    # guessing. `SiteService.delete_site` names the records first; this is the
+    # backstop for the paths that do not go through it.
+    site: str | None = Field(
+        default=None,
+        sa_column=Column(
+            String,
+            ForeignKey("sites.name", ondelete="RESTRICT"),
+            nullable=True,
+            index=True,
+        ),
+    )
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
 class SiteRow(Base, table=True):
-    """The derived virtual hosts.
+    """The virtual hosts, and the source of truth for how each one is served.
 
-    The one table that is a projection rather than a source of truth: it is
-    rebuilt wholesale from records, so an edit made directly here survives only
-    until the next record change. ``policy`` stays whole for that reason — it
-    is never queried into, only regenerated.
+    ``policy`` stays whole because nothing queries inside it: it is written and
+    read back as one document and validated by the domain model on the way out.
+
+    ``server_names`` is the one column with a writer outside this feature. It is
+    maintained by `dns` from the records routed to the site, so it is a
+    projection of a *relationship* rather than of the site — which is why the
+    row it lives on is canonical and this column is not.
     """
 
     __tablename__ = "sites"
 
     name: str = Field(sa_column=Column(String, primary_key=True))
-    #: The virtual host names nginx answers on, and where it fetches from.
-    #: Columns because "which site serves this hostname" is a question worth
-    #: asking of the database rather than of every decoded policy in turn.
+    #: The virtual host names nginx answers on. A column because "which site
+    #: serves this hostname" is a question worth asking of the database rather
+    #: than of every decoded policy in turn.
     server_names: list[Any] = Field(default_factory=list, sa_type=JSON)
     origin_host: str
     policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)

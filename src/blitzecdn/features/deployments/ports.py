@@ -18,6 +18,18 @@ from blitzecdn.features.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.features.sites.domain import CdnSite
 
 
+class SiteRestore(Protocol):
+    """Putting the sites back, for a rollback that adopts an older snapshot.
+
+    One method, and deliberately not ``sites.ports.SiteStore``: a rollback
+    replaces the table wholesale and never edits one site, so the port it holds
+    should not be able to. The write side of a *single* site belongs to
+    ``SiteService`` and this feature has no business with it.
+    """
+
+    def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
+
+
 class DeploymentRequirements(Protocol):
     """The durable reasons a convergence is still owed to the fleet.
 
@@ -198,6 +210,7 @@ __all__ = [
     "EventRecorder",
     "LogReader",
     "QueueBackgroundRunner",
+    "SiteRestore",
     "SiteValidator",
     "StateContributors",
     "UnitOfWork",

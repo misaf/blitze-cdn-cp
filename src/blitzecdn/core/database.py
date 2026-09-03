@@ -7,7 +7,8 @@ feature ports structurally, so the composition root passes
 ever handed more of persistence than it declared.
 
 ``snapshot`` is the one thing that cannot belong to a single store, because the
-desired state a deployment converges spans both zones and records.
+desired state a deployment converges spans the zones, their records, and the
+sites those records route to.
 """
 
 from __future__ import annotations
@@ -67,11 +68,16 @@ class Repository:
         store. ``DeploymentStore`` is handed this bound method at construction:
         it records a snapshot with every deployment without knowing what a
         snapshot contains.
+
+        Sites are read here rather than derived on the way out. They stopped
+        being derivable when they stopped being a projection of the records,
+        and a site no record routes to yet is desired state all the same.
         """
         with self.transaction():
             domains = self.zones.list_domains()
             records = self.zones.list_records()
-            return encode_snapshot(domains, records)
+            sites = self.sites.list_sites()
+            return encode_snapshot(domains, records, sites)
 
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by this repository's stores."""
