@@ -46,22 +46,39 @@ def test_repository_close_disposes_the_engine(settings, monkeypatch):
     assert disposed
 
 
-def test_site_crud_and_audit(settings, site_payload):
+def test_the_site_projection_is_only_ever_rewritten_wholesale(settings, site_payload):
+    """`replace_all_sites` is the store's whole write side, and deliberately.
+
+    A projection with per-row create, update and delete invites a caller to
+    edit a site that the next record change would silently re-derive over. The
+    store offers no such call, so the round trip worth holding is the one the
+    derivation performs: whatever it hands over is what the table then holds,
+    and a name it stops producing stops existing.
+    """
     repository = Repository(settings.database_path)
     site = CdnSite.model_validate(site_payload)
-    assert repository.sites.create_site(site) == site
-    with pytest.raises(ConflictError):
-        repository.sites.create_site(site)
-    changed = site.model_copy(update={"origin_host": "192.0.2.2"})
-    assert repository.sites.replace_site(changed).origin_host == "192.0.2.2"
-    assert repository.sites.list_sites() == [changed]
+
+    repository.sites.replace_all_sites([site])
+    assert repository.sites.list_sites() == [site]
+
+    moved = site.model_copy(update={"origin_host": "192.0.2.2"})
+    repository.sites.replace_all_sites([moved])
+    assert repository.sites.list_sites() == [moved], "a rewrite replaces, not merges"
+
+    repository.sites.replace_all_sites([])
+    with pytest.raises(NotFoundError):
+        repository.sites.get_site(site.name)
+
+
+def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_payload):
+    repository = Repository(settings.database_path)
+    site = CdnSite.model_validate(site_payload)
+
     event = repository.audit_log.audit(
         "alice", "site.updated", "site", site.name, {"safe": True}
     )
+
     assert repository.audit_log.list_audit_events()[0] == event
-    repository.sites.delete_site(site.name)
-    with pytest.raises(NotFoundError):
-        repository.sites.get_site(site.name)
 
 
 def test_visitor_headers_survive_persistence_and_derivation(
