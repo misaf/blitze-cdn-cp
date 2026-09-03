@@ -14,7 +14,6 @@ still owns the lock, the transaction and the ordering; this owns the policy.
 
 from __future__ import annotations
 
-from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentStore,
@@ -26,6 +25,7 @@ from blitzecdn.capabilities.deployments.snapshots import (
     decode_snapshot_state,
     snapshot_digest,
 )
+from blitzecdn.core.exceptions import ConflictError
 
 __all__ = ["adopt_snapshot", "require_unchanged_canonical", "select_target"]
 

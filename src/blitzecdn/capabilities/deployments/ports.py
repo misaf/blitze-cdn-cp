@@ -5,10 +5,6 @@ from contextlib import AbstractContextManager
 from pathlib import Path
 from typing import Any, Protocol
 
-from blitzecdn.core.operation_ports import EventRecorder
-from blitzecdn.core.plugins import StateValue, ValidationResult
-from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.capabilities.deployments.domain import (
     Deployment,
     DeploymentRequirementKind,
@@ -16,6 +12,10 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.plugins import StateValue, ValidationResult
+from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.runs import AnsibleRun
 
 
 class SiteRestore(Protocol):
@@ -33,7 +33,8 @@ class SiteRestore(Protocol):
 class DeploymentRequirements(Protocol):
     """The durable reasons a convergence is still owed to the fleet.
 
-    Typed by :class:`~blitzecdn.capabilities.deployments.domain.DeploymentRequirementKind`
+    Typed by
+    :class:`~blitzecdn.capabilities.deployments.domain.DeploymentRequirementKind`
     rather than by a bare string: the kinds are a closed set every caller has to
     agree on, and a typo in one of three call sites would otherwise raise a
     requirement nothing ever clears.

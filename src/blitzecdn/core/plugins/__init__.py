@@ -14,9 +14,10 @@ one to ask for a certificate would trade every one of them for indirection
 nothing here needs.
 
 A plugin is a module (or any object) carrying ``@hookimpl`` functions. A
-built-in capability is listed in :data:`~blitzecdn.core.plugins.discovery.BUILTIN_PLUGINS`;
-an external distribution advertises itself in the ``blitzecdn.plugins``
-entry-point group and needs no change here at all.
+built-in capability is listed in
+:data:`~blitzecdn.core.plugins.discovery.BUILTIN_PLUGINS`; an external
+distribution advertises itself in the ``blitzecdn.plugins`` entry-point group
+and needs no change here at all.
 """
 
 from blitzecdn.core.plugins.discovery import (

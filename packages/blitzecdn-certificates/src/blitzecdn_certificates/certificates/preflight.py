@@ -29,9 +29,9 @@ import dns.exception
 import dns.rdatatype
 import dns.resolver
 
-from blitzecdn.core.config import Settings
 from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.config import Settings
 from blitzecdn_certificates.certificates.domain import (
     TTL_CUTOVER_ADVISORY_SECONDS,
     PreflightCheck,

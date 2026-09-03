@@ -13,12 +13,12 @@ from blitzecdn_http3.plugin import (
     blitzecdn_plugin_metadata,
 )
 
-from blitzecdn.core.plugins import PluginMetadata, load_plugins, merge_variables
 from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state as baseline_fleet_desired_state,
 )
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
+from blitzecdn.core.plugins import PluginMetadata, load_plugins, merge_variables
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:

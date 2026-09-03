@@ -16,12 +16,17 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.cli import common
+from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-from blitzecdn.capabilities.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.policy import MinimumTlsVersion, SslAutomaticMode, SslMode
+from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.tls.policy import (
+    MinimumTlsVersion,
+    SslAutomaticMode,
+    SslMode,
+)
+from blitzecdn.cli import common
 
 site_app = typer.Typer(
     no_args_is_help=True,

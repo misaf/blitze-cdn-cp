@@ -3,13 +3,13 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from blitzecdn.core.validation import hostname
 from blitzecdn.capabilities.deployments.snapshots import (
     decode_snapshot_state,
     encode_snapshot,
 )
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.validation import hostname
 
 _LABEL = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=20

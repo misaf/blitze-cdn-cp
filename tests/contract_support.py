@@ -17,18 +17,18 @@ import yaml
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
 from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.core.database import Repository
+from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
-from blitzecdn.capabilities.sites.policy import CacheQueryStringMode
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,
 )
+from blitzecdn.core.ansible.mapping import site_to_ansible
+from blitzecdn.core.database import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 

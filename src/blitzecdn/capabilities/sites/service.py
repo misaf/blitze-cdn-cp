@@ -14,10 +14,6 @@ becomes reachable when the first record names it.
 
 from __future__ import annotations
 
-from blitzecdn.core.events import domain_event
-from blitzecdn.core.exceptions import ConflictError
-from blitzecdn.core.operation_ports import EventRecorder
-from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
 from blitzecdn.capabilities.sites.ports import SiteStore
 from blitzecdn.capabilities.tls.policy import (
@@ -26,6 +22,10 @@ from blitzecdn.capabilities.tls.policy import (
     SslMode,
     managed_certificate_paths,
 )
+from blitzecdn.core.events import domain_event
+from blitzecdn.core.exceptions import ConflictError
+from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.ports import UnitOfWork
 
 __all__ = ["SiteService"]
 

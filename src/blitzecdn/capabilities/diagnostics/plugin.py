@@ -15,14 +15,14 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter
 
 from blitzecdn import __version__
+from blitzecdn.capabilities.diagnostics import cli
+from blitzecdn.capabilities.diagnostics.api import readiness, routes
 from blitzecdn.core.plugins import (
     CliCommandGroup,
     HealthCheck,
     PluginMetadata,
     hookimpl,
 )
-from blitzecdn.capabilities.diagnostics import cli
-from blitzecdn.capabilities.diagnostics.api import readiness, routes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane

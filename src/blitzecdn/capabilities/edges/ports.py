@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.origins import OriginCheck
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.runs import AnsibleRun
 
 
 class EdgeRunner(Protocol):

@@ -7,9 +7,9 @@ from urllib.parse import urlsplit
 
 import typer
 
+from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn_cache.composition import build_cache_service
 from blitzecdn_cache.domain import CacheStatsReport, PurgeEntry
 

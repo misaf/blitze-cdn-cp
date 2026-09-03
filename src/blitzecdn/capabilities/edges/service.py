@@ -22,13 +22,13 @@ and remove an edge with no optional distribution attached.
 
 from __future__ import annotations
 
+from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
+from blitzecdn.capabilities.edges.ports import EdgeRunner, EdgeStore
 from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.runs import HostRun
-from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
-from blitzecdn.capabilities.edges.ports import EdgeRunner, EdgeStore
 
 
 class EdgeOperationsService:

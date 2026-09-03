@@ -15,6 +15,9 @@ from pathlib import Path
 from time import monotonic
 from typing import Literal
 
+from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
+from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -23,9 +26,6 @@ from blitzecdn.core.exceptions import (
     NotFoundError,
 )
 from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn_certificates.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateInfo,

@@ -221,6 +221,7 @@ def test_legacy_layer_first_packages_have_no_source_modules():
 @pytest.mark.parametrize(
     "capability",
     [
+        "cache",
         "compression",
         "deployments",
         "diagnostics",
@@ -241,7 +242,8 @@ def test_capability_domains_are_framework_and_io_independent():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _capability_files()
-        if path.name in _DOMAIN_FILES or "policy" in path.relative_to(_CAPABILITIES).parts
+        if path.name in _DOMAIN_FILES
+        or "policy" in path.relative_to(_CAPABILITIES).parts
         for imported in sorted(_imports(path))
         if _banned(
             imported,
@@ -600,6 +602,10 @@ def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
 #: is what a capability is allowed to build on without that counting as knowing
 #: another capability.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
+    # Contract only in this distribution: purge and statistics ship in
+    # `blitzecdn-cache`, and that wheel is where an edge from `cache` to
+    # `sites` would be recorded if this graph covered installed packages.
+    "cache": set(),
     "compression": set(),
     "deployments": {"dns", "sites"},
     "diagnostics": set(),
@@ -630,6 +636,7 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 #: their `plugin.py` annotates a hook with `CdnSite`, which is knowledge of
 #: `sites` even under `TYPE_CHECKING` and is declared rather than excused.
 ALLOWED_POLICY_DEPENDENCIES = {
+    "cache": set(),
     "compression": set(),
     "deployments": set(),
     "diagnostics": set(),
@@ -638,7 +645,7 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "http": set(),
     "maintenance": set(),
     "security": set(),
-    "sites": {"compression", "http", "security", "tls"},
+    "sites": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},
 }
 
@@ -667,21 +674,37 @@ def test_sites_composes_the_capability_contracts_and_owns_no_other_capability():
     It was: compression, HTTP, security and TLS policy all lived under
     `sites/policy/` while the behaviour they describe lived in capabilities that
     imported `sites` to reach it. Reuniting each contract with its capability
-    is what this asserts, from both directions — `sites` imports the four, and
+    is what this asserts, from both directions — `sites` imports the five, and
     defines none of them.
+
+    `cache` was the last one out, and the one whose argument for staying was
+    the most plausible: the `cache` *implementation* consumes `CdnSite`, so
+    moving the contract under it looks like a cycle. It is not one, because a
+    contract imports nothing but `core` — which is the property the two graphs
+    exist to keep separate, and the reason this test can name `cache` in the
+    contract graph and `test_the_capability_dependency_graph_is_acyclic` never
+    sees the edge at all.
     """
     graph = _capability_graph()
     assert graph["sites"] == set()
-    assert _policy_graph()["sites"] == {"compression", "http", "security", "tls"}
+    assert _policy_graph()["sites"] == {
+        "cache",
+        "compression",
+        "http",
+        "security",
+        "tls",
+    }
     assert "sites" in graph["dns"]
 
     site_imports = _imports(_CAPABILITIES / "sites/domain.py")
     assert all("dns" not in imported for imported in site_imports)
-    for capability in ("compression", "http", "security", "tls"):
+    for capability in ("cache", "compression", "http", "security", "tls"):
         assert f"blitzecdn.capabilities.{capability}.policy" in site_imports
 
+    # What is left is what no distribution could carry away: the trusted `BZ-*`
+    # headers the edge writes, and the `Host`/SNI it identifies itself with.
     owned = {path.stem for path in (_CAPABILITIES / "sites/policy").glob("*.py")}
-    assert owned == {"__init__", "cache", "headers", "origin"}
+    assert owned == {"__init__", "headers", "origin"}
 
 
 def test_no_strategy_mode_or_option_becomes_a_top_level_capability():
@@ -721,7 +744,9 @@ def test_a_sub_capability_is_not_a_capability():
             package = _CAPABILITIES / parent / child
             assert (package / "__init__.py").is_file()
             assert not (package / "plugin.py").exists()
-            assert f"blitzecdn.capabilities.{parent}.{child}.plugin" not in BUILTIN_PLUGINS
+            assert (
+                f"blitzecdn.capabilities.{parent}.{child}.plugin" not in BUILTIN_PLUGINS
+            )
 
 
 def test_policy_dependencies_match_what_is_declared():
@@ -922,7 +947,7 @@ def test_every_capability_registers_itself_through_a_plugin_module():
         for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
-    contract_only = {"compression", "security"}
+    contract_only = {"cache", "compression", "security"}
     assert {path.parent.name for path in _CAPABILITIES.glob("*/plugin.py")} == (
         packages - contract_only
     )

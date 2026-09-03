@@ -10,11 +10,13 @@ contract, which is what lets ``sites`` compose it without depending on the TLS
 implementation that consumes ``CdnSite``.
 """
 
+from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
+from blitzecdn.core.policy import CapabilityPolicy
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
@@ -98,7 +100,7 @@ class CertificateMode(StrEnum):
     REQUESTED = "requested"
 
 
-class TlsPolicy(BaseModel):
+class TlsPolicy(CapabilityPolicy):
     """TLS settings persisted as part of a site's flat policy."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -112,21 +114,26 @@ class TlsPolicy(BaseModel):
     certificate_key_path: str | None = None
 
     @property
-    def required_capabilities(self) -> frozenset[str]:
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Operational certificate capabilities requested by this TLS policy.
 
         Existing edge material is a core TLS contract. Controller-managed
         material, and Automatic SSL on an active certificate, require the
         detachable certificates implementation.
+
+        Managed material is named ahead of the automatic scan because it is the
+        more specific answer: a site that both uploads material and asks for
+        the scan is refused over ``certificate_mode``, which is the setting an
+        operator would clear to make the deployment legal.
         """
-        managed = self.certificate_mode in {
+        if self.certificate_mode in {
             CertificateMode.UPLOADED,
             CertificateMode.REQUESTED,
-        }
-        automatic = (
+        }:
+            return {"certificates": ("certificate_mode",)}
+        if (
             self.certificate_mode is not CertificateMode.DISABLED
             and self.ssl_automatic_mode is SslAutomaticMode.AUTO
-        )
-        if managed or automatic:
-            return frozenset({"certificates"})
-        return frozenset()
+        ):
+            return {"certificates": ("ssl_automatic_mode",)}
+        return {}

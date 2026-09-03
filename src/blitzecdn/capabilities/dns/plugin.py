@@ -7,9 +7,9 @@ from collections.abc import Sequence
 from fastapi import APIRouter
 
 from blitzecdn import __version__
-from blitzecdn.core.plugins import CliCommandGroup, PluginMetadata, hookimpl
 from blitzecdn.capabilities.dns import cli
 from blitzecdn.capabilities.dns.api import routes
+from blitzecdn.core.plugins import CliCommandGroup, PluginMetadata, hookimpl
 
 
 @hookimpl

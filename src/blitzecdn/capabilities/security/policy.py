@@ -15,10 +15,12 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from collections.abc import Mapping
 from typing import Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import ConfigDict, Field, field_validator, model_validator
 
+from blitzecdn.core.policy import CapabilityPolicy
 from blitzecdn.core.validation import OmittedWhenEmpty, unique
 
 COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
@@ -156,7 +158,7 @@ class SiteFirewall(OmittedWhenEmpty):
         return bool(self.allowed_countries or self.denied_countries)
 
 
-class SecurityPolicy(BaseModel):
+class SecurityPolicy(CapabilityPolicy):
     """Request filtering requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -166,8 +168,38 @@ class SecurityPolicy(BaseModel):
     firewall: SiteFirewall = SiteFirewall()
 
     @property
-    def required_capabilities(self) -> frozenset[str]:
-        """Implementation capabilities requested by this stable policy."""
-        if not self.under_attack_mode and self.firewall.empty:
-            return frozenset()
-        return frozenset({"security"})
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """Implementation capabilities requested by this stable policy.
+
+        Two tokens, because a country rule needs two things that detach
+        separately: this capability, which renders the rule, and the GeoIP
+        lookup that gives it a country to compare against. `sites` used to name
+        the second on this contract's behalf, which made the composition the
+        place to edit when a third country-aware setting appeared.
+
+        Country settings are named through the block that holds them —
+        ``firewall.allowed_countries`` — because that is the path a patch would
+        set, and the bare field name appears on two unrelated models.
+        """
+        requested: dict[str, tuple[str, ...]] = {}
+        security = tuple(
+            name
+            for name, asked in (
+                ("under_attack_mode", self.under_attack_mode),
+                ("firewall", not self.firewall.empty),
+            )
+            if asked
+        )
+        if security:
+            requested["security"] = security
+        countries = tuple(
+            name
+            for name, asked in (
+                ("firewall.allowed_countries", bool(self.firewall.allowed_countries)),
+                ("firewall.denied_countries", bool(self.firewall.denied_countries)),
+            )
+            if asked
+        )
+        if countries:
+            requested["geoip"] = countries
+        return requested

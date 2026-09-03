@@ -17,8 +17,6 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 
-from blitzecdn.core.events import domain_event
-from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.capabilities.dns.ports import (
     EventRecorder,
@@ -26,6 +24,8 @@ from blitzecdn.capabilities.dns.ports import (
     UnitOfWork,
     ZoneStore,
 )
+from blitzecdn.core.events import domain_event
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
 class DnsService:

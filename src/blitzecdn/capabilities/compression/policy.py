@@ -1,8 +1,11 @@
 """The compression capability's configuration contract."""
 
+from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+
+from blitzecdn.core.policy import CapabilityPolicy
 
 
 class CompressionMode(StrEnum):
@@ -17,7 +20,7 @@ class CompressionMode(StrEnum):
     BROTLI = "brotli"
 
 
-class CompressionPolicy(BaseModel):
+class CompressionPolicy(CapabilityPolicy):
     """Compression behavior requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -25,8 +28,8 @@ class CompressionPolicy(BaseModel):
     compression: CompressionMode = CompressionMode.BROTLI
 
     @property
-    def required_capabilities(self) -> frozenset[str]:
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Implementation capabilities requested by this stable policy."""
         if self.compression is CompressionMode.OFF:
-            return frozenset()
-        return frozenset({"compression"})
+            return {}
+        return {"compression": ("compression",)}

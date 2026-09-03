@@ -32,10 +32,7 @@ from contract_support import _role_defaults, _runtime_defaults, _split_runtime
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 
 from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.core.database import Repository
-from blitzecdn.core.plugins import load_plugins
-from blitzecdn.core.plugins.resolution import resolve_nginx_resources
+from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.http.policy import (
@@ -45,13 +42,17 @@ from blitzecdn.capabilities.http.policy import (
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
-from blitzecdn.capabilities.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
+from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,
 )
+from blitzecdn.core.ansible.mapping import site_to_ansible
+from blitzecdn.core.database import Repository
+from blitzecdn.core.plugins import load_plugins
+from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 
 jinja2 = pytest.importorskip("jinja2")
 

@@ -35,12 +35,12 @@ from control_plane_fixtures import FakeRunner
 from typer.testing import CliRunner
 
 from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.schema import DatabaseSchema
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.capabilities.sites.domain import CdnSite
 
 runner = CliRunner()
 

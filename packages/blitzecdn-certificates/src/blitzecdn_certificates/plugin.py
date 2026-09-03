@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
 
+from blitzecdn.capabilities.tls.policy import MANAGED_TLS_ROOT, CertificateMode
 from blitzecdn.core.plugins import (
     CliCommandGroup,
     ConfigurationContribution,
@@ -18,7 +19,6 @@ from blitzecdn.core.plugins import (
     ValidationIssue,
     hookimpl,
 )
-from blitzecdn.capabilities.tls.policy import MANAGED_TLS_ROOT, CertificateMode
 from blitzecdn_certificates.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn_certificates.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn_certificates.certificates import cli as certificates_cli

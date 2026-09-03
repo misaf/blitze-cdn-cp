@@ -6,12 +6,20 @@ something else. What DNS contributes is ``server_names`` — the hostnames whose
 records route to this site — and nothing more. Every other fact on the model
 has exactly one writer, which is this capability.
 
-This module *composes*; it does not own. Compression, HTTP protocol, security
-and TLS policy each belong to the capability of the same name and are imported
-from there. What lives here is what only exists once the fragments are on one
-model: the rules that read across two capabilities at once — HTTP/3 needing
-edge TLS, a certificate mode agreeing with its two paths, GeoIP being required
-by either a country rule or a visitor header — and the site's identity.
+This module *composes*; it does not own. Cache, compression, HTTP protocol,
+security and TLS policy each belong to the capability of the same name and are
+imported from there, and each answers for its own capability requirements —
+this module merges them without naming one. What is left is what only exists
+once the fragments are on one model: the rules that read across two
+capabilities at once — HTTP/3 needing edge TLS, a certificate mode agreeing
+with its two paths — and the site's identity.
+
+``OriginPolicy`` and ``HeaderPolicy`` stay under ``sites/policy/`` because no
+capability owns them. Setting a ``Host`` header on the origin leg and writing
+the trusted ``BZ-*`` headers are things a managed edge does with nothing
+installed beside the control plane; there is no distribution to reunite them
+with, and inventing one to hold two value types would be the mirror of the
+problem this arrangement fixed.
 
 The public model deliberately remains flat: API v1/v2, persisted policy JSON,
 deployment snapshots, and Ansible all consume that shape. Composition is by
@@ -26,7 +34,7 @@ from typing import Self, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.validation import SITE_NAME, hostname
+from blitzecdn.capabilities.cache.policy import CachePolicy, CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode, CompressionPolicy
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
@@ -35,8 +43,6 @@ from blitzecdn.capabilities.http.policy import (
 )
 from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
 from blitzecdn.capabilities.sites.policy import (
-    CachePolicy,
-    CacheQueryStringMode,
     HeaderPolicy,
     OriginPolicy,
     SiteVisitorHeaders,
@@ -51,6 +57,8 @@ from blitzecdn.capabilities.tls.policy import (
     TlsPolicy,
     managed_certificate_paths,
 )
+from blitzecdn.core.policy import CapabilityPolicy
+from blitzecdn.core.validation import SITE_NAME, hostname
 
 __all__ = ["CdnSite", "SitePatch", "SitePolicy"]
 
@@ -88,47 +96,39 @@ class SitePolicy(
         """Optional capability tokens, and the settings that asked for each.
 
         The single place a site's dependency on a detachable implementation is
-        derived. One generic mechanism for every capability — there is no
-        ``if capability == "geoip":`` anywhere downstream, and a token this
-        repository has never heard of would travel the same path — so a new
-        capability is one entry here rather than a check in a service.
+        *answered*, and no longer the place any of it is decided: each contract
+        declares its own, and this merges them. There is no capability name in
+        this module at all — not in a branch, not in a token, not in a list of
+        contracts — so a capability this repository has never heard of travels
+        the same path as `compression`, and a new one is a property on its own
+        contract rather than a second edit here.
+
+        The contracts are read off the MRO rather than listed, for that reason:
+        what a list produces when someone forgets it is a token that is
+        silently never requested, and a deployment that proceeds without the
+        distribution that was supposed to serve it.
 
         The settings travel with the token because "capability 'geoip' is not
         installed" alone leaves an operator hunting for which of two unrelated
         switches asked for it. Names are the stable schema's own field names,
-        so what the message says to change is what a patch would set.
+        so what the message says to change is what a patch would set. Two
+        contracts may ask for one token and both sets of names survive; order
+        follows the bases as declared, so the message does not depend on which
+        switch happened to be set first.
 
         A disabled site converges no server block, so it requests nothing.
         """
         if not self.enabled:
             return {}
         requested: dict[str, list[str]] = {}
-
-        def request(capability: str, setting: str) -> None:
-            requested.setdefault(capability, []).append(setting)
-
-        if self.compression is not CompressionMode.OFF:
-            request("compression", "compression")
-        if self.cache_enabled:
-            request("cache", "cache_enabled")
-        if self.under_attack_mode:
-            request("security", "under_attack_mode")
-        if not self.firewall.empty:
-            request("security", "firewall")
-        if self.certificate_mode in {
-            CertificateMode.UPLOADED,
-            CertificateMode.REQUESTED,
-        }:
-            request("certificates", "certificate_mode")
-        elif (
-            self.certificate_mode is not CertificateMode.DISABLED
-            and self.ssl_automatic_mode is SslAutomaticMode.AUTO
-        ):
-            request("certificates", "ssl_automatic_mode")
-        if self.http3_enabled:
-            request("http3", "http3_enabled")
-        for setting in self.geoip_settings:
-            request("geoip", setting)
+        for contract in type(self).__mro__:
+            if contract in (SitePolicy, CapabilityPolicy):
+                continue
+            declared = contract.__dict__.get("capability_requirements")
+            if not isinstance(declared, property) or declared.fget is None:
+                continue
+            for token, settings in declared.fget(self).items():
+                requested.setdefault(token, []).extend(settings)
         return {name: tuple(settings) for name, settings in requested.items()}
 
     @property
@@ -143,40 +143,21 @@ class SitePolicy(
         return self
 
     @property
-    def geoip_settings(self) -> tuple[str, ...]:
-        """Which settings on this site ask the edge to resolve a country.
-
-        The one list, and the only place a country-aware setting is named.
-        Country firewall rules were the first thing to need the GeoIP2 lookup
-        and ``BZ-IPCountry`` is the second, so both consumers read this rather
-        than asking again: ``requires_geoip`` is whether it is non-empty, and
-        ``capability_requirements`` quotes it into the message an operator
-        reads. A third consumer extends this tuple and gets both for free.
-
-        Ordered as declared rather than as configured, so the message a fleet
-        produces does not depend on which switch happened to be set first.
-        """
-        return tuple(
-            name
-            for name, requested in (
-                ("firewall.allowed_countries", bool(self.firewall.allowed_countries)),
-                ("firewall.denied_countries", bool(self.firewall.denied_countries)),
-                ("visitor_headers.ip_country", self.visitor_headers.ip_country),
-            )
-            if requested
-        )
-
-    @property
     def requires_geoip(self) -> bool:
         """Whether serving this site needs ``$blitzecdn_country`` to exist.
 
-        The single question the edge role's validation asks, and the same one
-        ``capability_requirements`` turns into the ``geoip`` token — so the
-        control plane refuses such a site before a playbook runs when the
-        capability is not installed, and the role's assertion is the second
-        line, for a desired state that did not come from here.
+        Asked of the two contracts that can answer it rather than derived from
+        a token this module names: a country firewall rule needs the lookup and
+        so does ``BZ-IPCountry``, and each says so on its own model. The list of
+        country-aware settings that used to live here — and the ``geoip``
+        string beside it — went with them.
+
+        Ungated by ``enabled`` on purpose. This is what the edge role's
+        validation asks of a document it was handed; whether the site converges
+        at all is a separate question, and ``capability_requirements`` is the
+        one that asks it.
         """
-        return bool(self.geoip_settings)
+        return self.firewall.requires_geoip or self.visitor_headers.requires_geoip
 
 
 class CdnSite(SitePolicy):

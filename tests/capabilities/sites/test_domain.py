@@ -3,6 +3,7 @@ import re
 import pytest
 from pydantic import ValidationError
 
+from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.deployments.domain import (
     DEPLOYMENT_TRANSITIONS,
     TERMINAL_STATUSES,
@@ -10,7 +11,10 @@ from blitzecdn.capabilities.deployments.domain import (
     is_terminal,
     require_transition,
 )
-from blitzecdn.capabilities.deployments.snapshots import decode_snapshot, encode_snapshot
+from blitzecdn.capabilities.deployments.snapshots import (
+    decode_snapshot,
+    encode_snapshot,
+)
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
@@ -19,8 +23,12 @@ from blitzecdn.capabilities.http.policy import (
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch, SitePolicy
-from blitzecdn.capabilities.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.policy import MinimumTlsVersion, SslAutomaticMode, SslMode
+from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.tls.policy import (
+    MinimumTlsVersion,
+    SslAutomaticMode,
+    SslMode,
+)
 
 
 def test_site_normalizes_safe_hostnames(site_payload):

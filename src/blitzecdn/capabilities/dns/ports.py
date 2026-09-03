@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from blitzecdn.core.operation_ports import EventRecorder
-from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.capabilities.sites.ports import SiteReader
+from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.ports import UnitOfWork
 
 
 class SiteHostnames(SiteReader, Protocol):

@@ -153,7 +153,9 @@ def test_every_built_in_lives_in_the_control_plane_distribution():
     `blitzecdn.`, and an optional capability reaches the registry through its
     entry point or not at all.
     """
-    assert all(module.startswith("blitzecdn.capabilities.") for module in BUILTIN_PLUGINS)
+    assert all(
+        module.startswith("blitzecdn.capabilities.") for module in BUILTIN_PLUGINS
+    )
 
 
 def test_a_built_in_declares_itself_required_and_an_optional_package_does_not():
@@ -292,6 +294,7 @@ _PUBLIC_SDK_PREFIXES = (
 #: package may reach into.
 _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.capabilities.sites",
+    "blitzecdn.capabilities.cache.policy",
     "blitzecdn.capabilities.http.policy",
     "blitzecdn.capabilities.dns.domain",
     "blitzecdn.capabilities.dns.ports",
@@ -799,20 +802,54 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
     assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.sites")
 
 
+#: The two contracts allowed to name the `geoip` token, because they are the
+#: two that ask for the lookup: a country firewall rule needs a country to
+#: compare against, and so does the `BZ-IPCountry` header.
+#:
+#: It was one file — `sites/domain.py` — which is the narrower whitelist and
+#: the worse rule. `sites` named the token on both contracts' behalf, so the
+#: composition was where a third country-aware setting would have been
+#: registered, and neither contract said anywhere that it needed a lookup.
+_GEOIP_AWARE_CONTRACTS = {
+    "capabilities/security/policy.py",
+    "capabilities/sites/policy/headers.py",
+}
+
+
 def test_the_country_settings_derive_their_token_generically_in_core():
     """The derivation is core's, and it is not written as a GeoIP special case.
 
     `capability_requirements` maps every stable setting onto the token it needs
     the same way, so `geoip` arrives by the same path as `compression` or
-    `http3`. What this refuses is the shape the acceptance criteria warn about:
-    a `registry.require("geoip")` sprinkled through unrelated services.
+    `http3` — declared by the contract that wants it, merged by `sites` with no
+    branch that knows the name. What this refuses is the shape the acceptance
+    criteria warn about: a `registry.require("geoip")` sprinkled through
+    unrelated services.
     """
     offenders = [
         f"{path.relative_to(SOURCE)} names the geoip token"
         for path in sorted(SOURCE.rglob("*.py"))
-        if path != SOURCE / "capabilities/sites/domain.py"
+        if path.relative_to(SOURCE).as_posix() not in _GEOIP_AWARE_CONTRACTS
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value == "geoip"
+    ]
+    assert offenders == []
+
+
+def test_the_composition_names_no_capability_token_at_all():
+    """The property the whitelist above is only the GeoIP half of.
+
+    `sites/domain.py` composes every contract's requirements and may not name
+    one of them. It named six, in an `if` chain that restated each capability's
+    own rule beside it — two places to edit, and nothing to catch the day they
+    disagreed.
+    """
+    document = (SOURCE / "capabilities/sites/domain.py").read_text(encoding="utf-8")
+    tokens = ("geoip", "cache", "compression", "http3", "certificates", "security")
+    offenders = [
+        f"sites/domain.py names the {node.value} token"
+        for node in ast.walk(ast.parse(document))
+        if isinstance(node, ast.Constant) and node.value in tokens
     ]
     assert offenders == []
 
@@ -953,13 +990,15 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: * `dns/cli.py` carries `blitzecdn record firewall`, because a record patch
 #:   is the DNS capability's surface and `dns -> security` is a declared
 #:   contract edge in `ALLOWED_POLICY_DEPENDENCIES`;
-#: * `sites/domain.py` names only the two *country* settings, to derive the
-#:   `geoip` token — asserted separately by the GeoIP tests above.
-_FIREWALL_AWARE_MODULES = {
+#: `sites/domain.py` used to be a fourth entry, permitted to name the two
+#: *country* settings so it could derive the `geoip` token. It derives nothing
+#: now — `SecurityPolicy` declares the token beside the rule that needs it — so
+#: the exception is gone rather than documented, which is the outcome worth
+#: having for a list whose whole purpose is to stay short.
+_FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/policy.py": None,
     "api/models.py": None,
     "capabilities/sites/cli.py": None,
-    "capabilities/sites/domain.py": frozenset({"allowed_countries", "denied_countries"}),
 }
 
 
@@ -992,9 +1031,9 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     because a block that has never been configured is not the same as one whose
     switches are off.
     """
+    from blitzecdn.capabilities.sites.domain import CdnSite
     from blitzecdn.core.ansible.mapping import site_to_ansible
     from blitzecdn.core.validation import OmittedWhenEmpty
-    from blitzecdn.capabilities.sites.domain import CdnSite
 
     source = (SOURCE / "core/ansible/mapping.py").read_text(encoding="utf-8")
     mapper = next(
