@@ -18,6 +18,8 @@ from control_plane_fixtures import (
     ansible_run,
     host_run,
     origin_report,
+    seed_record,
+    seed_site,
 )
 
 from blitzecdn.bootstrap import ControlPlane
@@ -41,19 +43,8 @@ from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, Ssl
 
 
 def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
-    """Create the one zone and proxied record most tests need.
-
-    Sites can no longer be inserted directly — proxying a record is the only
-    way one comes into existence — so this is the shared setup for anything
-    that needs `cdn-example-com` to exist.
-    """
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    return control.dns.create_record(
-        DnsRecord(
-            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
-        ),
-        "alice",
-    )
+    """The zone and proxied record most tests need, deriving `cdn-example-com`."""
+    return seed_record(control)
 
 
 def _automatic_origin_report(

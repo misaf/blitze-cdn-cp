@@ -13,11 +13,16 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from blitzecdn_origins.composition import build_origin_check_service
-from control_plane_fixtures import FakeRunner, ansible_run, host_run, origin_report
+from control_plane_fixtures import (
+    FakeRunner,
+    ansible_run,
+    host_run,
+    origin_report,
+    seed_site,
+)
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.database import Repository
-from blitzecdn.features.sites.domain import CdnSite
 
 
 def origin_checks(
@@ -54,7 +59,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     report = build_origin_check_service(control).check_origins(
         "alice", host_limit="edge-*"
@@ -84,7 +89,7 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
             ]
         ),  # type: ignore[arg-type]
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     report = build_origin_check_service(control).check_origins("alice")
 
@@ -101,7 +106,7 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
         repository=repository,
         runner=FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
     )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     report = build_origin_check_service(control).check_origins("alice")
 
@@ -114,9 +119,7 @@ def test_a_disabled_site_is_not_probed(settings, site_payload):
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    repository.sites.create_site(
-        CdnSite.model_validate({**site_payload, "enabled": False})
-    )
+    seed_site(control, enabled=False)
 
     build_origin_check_service(control).check_origins("alice")
 
@@ -133,7 +136,7 @@ def test_the_check_takes_no_deployment_lock(settings, site_payload):
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     build_origin_check_service(control).check_origins("alice")
 

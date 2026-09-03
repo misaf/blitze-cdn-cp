@@ -19,26 +19,18 @@ from control_plane_fixtures import (
     cli_control_plane,
     host_run,
     origin_report,
-    repository_on,
+    seed_site,
 )
 from typer.testing import CliRunner
 
 from blitzecdn.cli import main as cli
-from blitzecdn.features.sites.domain import CdnSite
 
 runner = CliRunner()
 
 
-def _seed_origin_site(settings):
-    repository_on(settings).sites.create_site(
-        CdnSite.model_validate(
-            {
-                "name": "cdn-example-com",
-                "server_names": ["cdn.example.com"],
-                "origin_host": "origin.example.com",
-            }
-        )
-    )
+def _seed_origin_site(control):
+    """The site the origin check reports on, derived from a proxied record."""
+    return seed_site(control)
 
 
 def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
@@ -51,7 +43,7 @@ def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
     operator tell those apart, and is the whole reason the check moved off the
     controller.
     """
-    cli_control_plane(
+    control = cli_control_plane(
         settings,
         monkeypatch,
         FakeRunner(
@@ -63,7 +55,7 @@ def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
             ]
         ),
     )
-    _seed_origin_site(settings)
+    _seed_origin_site(control)
 
     result = runner.invoke(cli.app, ["origin", "check"])
 
@@ -75,12 +67,12 @@ def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
 def test_origin_check_passes_when_every_edge_reaches_every_origin(
     settings, monkeypatch
 ):
-    cli_control_plane(
+    control = cli_control_plane(
         settings,
         monkeypatch,
         FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))]),
     )
-    _seed_origin_site(settings)
+    _seed_origin_site(control)
 
     result = runner.invoke(cli.app, ["origin", "check"])
 
@@ -90,12 +82,12 @@ def test_origin_check_passes_when_every_edge_reaches_every_origin(
 
 def test_origin_check_reports_an_edge_that_said_nothing(settings, monkeypatch):
     """A silent edge is not a passing edge."""
-    cli_control_plane(
+    control = cli_control_plane(
         settings,
         monkeypatch,
         FakeRunner([ansible_run(host_run("edge-a", unreachable=1))]),
     )
-    _seed_origin_site(settings)
+    _seed_origin_site(control)
 
     result = runner.invoke(cli.app, ["origin", "check"])
 

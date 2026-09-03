@@ -22,12 +22,11 @@ from control_plane_fixtures import (
     ansible_run,
     cli_control_plane,
     host_run,
-    repository_on,
+    seed_site,
 )
 from typer.testing import CliRunner
 
 from blitzecdn.cli import main as cli
-from blitzecdn.features.sites.domain import CdnSite
 
 runner = CliRunner()
 
@@ -36,32 +35,26 @@ def _purge_ok():
     return ansible_run(host_run("edge-a", changed=1))
 
 
-def _purgeable_site(settings):
+def _purgeable_site(control):
     """A site serving TLS, because these tests purge `https://` URLs.
 
     The scheme leads the cache key, so the control plane refuses a purge for a
     scheme the site never serves. A site without TLS caches nothing under
     https.
     """
-    repository_on(settings).sites.create_site(
-        CdnSite.model_validate(
-            {
-                "name": "cdn-example-com",
-                "server_names": ["cdn.example.com"],
-                "origin_host": "o.example.com",
-                "ssl_mode": "flexible",
-                "certificate_mode": "existing",
-                "certificate_path": "/etc/ssl/certs/cdn.pem",
-                "certificate_key_path": "/etc/ssl/private/cdn.key",
-            }
-        )
+    return seed_site(
+        control,
+        ssl_mode="flexible",
+        certificate_mode="existing",
+        certificate_path="/etc/ssl/certs/cdn.pem",
+        certificate_key_path="/etc/ssl/private/cdn.key",
     )
 
 
 def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch):
     fake = FakeRunner([_purge_ok()])
-    cli_control_plane(settings, monkeypatch, fake)
-    _purgeable_site(settings)
+    control = cli_control_plane(settings, monkeypatch, fake)
+    _purgeable_site(control)
 
     result = runner.invoke(
         cli.app, ["cache", "purge", "--url", "https://cdn.example.com/app.js"]
@@ -76,8 +69,8 @@ def test_cache_purge_sends_the_url_split_into_host_and_uri(settings, monkeypatch
 def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
     """It is part of $request_uri, so '/a' and '/a?v=2' are different entries."""
     fake = FakeRunner([_purge_ok()])
-    cli_control_plane(settings, monkeypatch, fake)
-    _purgeable_site(settings)
+    control = cli_control_plane(settings, monkeypatch, fake)
+    _purgeable_site(control)
 
     runner.invoke(cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a?v=2"])
 
@@ -86,8 +79,8 @@ def test_cache_purge_keeps_the_query_string(settings, monkeypatch):
 
 def test_cache_purge_defaults_a_bare_url_to_https_and_root(settings, monkeypatch):
     fake = FakeRunner([_purge_ok()])
-    cli_control_plane(settings, monkeypatch, fake)
-    _purgeable_site(settings)
+    control = cli_control_plane(settings, monkeypatch, fake)
+    _purgeable_site(control)
 
     runner.invoke(cli.app, ["cache", "purge", "--url", "cdn.example.com"])
 
@@ -127,8 +120,8 @@ def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch
     partial = ansible_run(
         host_run("edge-a", changed=1), host_run("edge-b", ok=0, unreachable=1)
     )
-    cli_control_plane(settings, monkeypatch, FakeRunner([partial]))
-    _purgeable_site(settings)
+    control = cli_control_plane(settings, monkeypatch, FakeRunner([partial]))
+    _purgeable_site(control)
 
     result = runner.invoke(
         cli.app, ["cache", "purge", "--url", "https://cdn.example.com/a.js"]
@@ -141,8 +134,8 @@ def test_cache_purge_exits_five_when_an_edge_did_not_purge(settings, monkeypatch
 def test_cache_purge_reports_an_unserved_host_without_a_traceback(
     settings, monkeypatch
 ):
-    cli_control_plane(settings, monkeypatch, FakeRunner([_purge_ok()]))
-    _purgeable_site(settings)
+    control = cli_control_plane(settings, monkeypatch, FakeRunner([_purge_ok()]))
+    _purgeable_site(control)
     monkeypatch.setattr(
         sys,
         "argv",

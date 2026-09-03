@@ -11,6 +11,8 @@ from control_plane_fixtures import (
     RecordingBackgroundQueue,
     ansible_run,
     host_run,
+    seed_record,
+    seed_site,
 )
 
 from blitzecdn.bootstrap import ControlPlane
@@ -23,7 +25,6 @@ from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import HostRun, RunStatus
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.features.sites.domain import CdnSite
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 
 CertificateSource = (
@@ -434,7 +435,7 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
     assert runner.check_modes == [False, True]
 
 
-def test_rollback_updates_canonical_state_only_after_success(settings, site_payload):
+def test_rollback_updates_canonical_state_only_after_success(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings,
@@ -489,9 +490,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     assert original.value != current.value
 
 
-def test_rollback_holds_the_lock_across_the_canonical_state_swap(
-    settings, site_payload
-):
+def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
     """Swapping sites after the lock released would drop concurrent edits."""
     events: list[str] = []
     repository = Repository(settings.database_path)
@@ -505,6 +504,15 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
             finally:
                 events.append("unlocked")
 
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
+    )  # type: ignore[arg-type]
+    seed_record(control)
+
+    # Recording starts after the seeding, so the swap that made the site exist
+    # is not mistaken for one the rollback performed.
     original_replace = repository.sites.replace_all_sites
 
     def recording_replace(sites):
@@ -512,16 +520,13 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
         original_replace(sites)
 
     repository.sites.replace_all_sites = recording_replace  # type: ignore[method-assign]
-    control = ControlPlane(
-        settings=settings,
-        repository=repository,
-        runner=LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
-    )  # type: ignore[arg-type]
-    original = CdnSite.model_validate(site_payload)
-    repository.sites.create_site(original)
+
     successful = control.deployments.deploy("alice")
-    repository.sites.replace_site(
-        original.model_copy(update={"origin_host": "192.0.2.99"})
+    # The concurrent edit is a record edit, because that is the only kind there
+    # is: it re-derives the projection, which is the swap the rollback must not
+    # silently discard after releasing the lock.
+    control.dns.update_record(
+        "example.com", "cdn", RecordType.A, RecordPatch(value="192.0.2.99"), "bob"
     )
 
     control.deployments.rollback("alice", successful.id)
@@ -529,15 +534,14 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(
     assert events == [
         "locked",
         "unlocked",  # the initial deploy
+        "sites-replaced",  # the concurrent edit
         "locked",
         "sites-replaced",
         "unlocked",
     ]
 
 
-def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(
-    settings, site_payload
-):
+def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
     """`serial` plus `any_errors_fatal` leaves the rest of the fleet untouched.
 
     The play stops at the batch that failed, so later batches are never
@@ -557,7 +561,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([stopped])
     )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     deployment = control.deployments.deploy("alice")
 
@@ -568,7 +572,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(
     assert "never attempted" in (deployment.detail or "")
 
 
-def test_a_drift_check_that_stopped_early_is_not_in_sync(settings, site_payload):
+def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
     """An edge the check never got to is one we have no answer for."""
     repository = Repository(settings.database_path)
     partial = ansible_run(
@@ -578,7 +582,7 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings, site_payload)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([partial])
     )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     report = control.deployments.check_drift("alice")
 
