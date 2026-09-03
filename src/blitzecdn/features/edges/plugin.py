@@ -9,7 +9,7 @@ from fastapi import APIRouter
 from blitzecdn import __version__
 from blitzecdn.core.plugins import CliCommandGroup, PluginMetadata, hookimpl
 from blitzecdn.features.edges import cli
-from blitzecdn.features.edges.api import v1, v2
+from blitzecdn.features.edges.api import routes
 
 
 @hookimpl
@@ -24,7 +24,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
-    return (v1.router, v2.router)
+    return (routes.router,)
 
 
 @hookimpl

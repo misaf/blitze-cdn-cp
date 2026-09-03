@@ -29,7 +29,7 @@ from blitzecdn.core.plugins import (
     hookimpl,
 )
 from blitzecdn.features.sites import cli
-from blitzecdn.features.sites.api import v1, v2
+from blitzecdn.features.sites.api import routes
 from blitzecdn.features.sites.domain import CdnSite
 
 
@@ -51,7 +51,7 @@ def blitzecdn_site_desired_state(site: CdnSite) -> SiteStateContribution:
 
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
-    return (v1.router, v2.router)
+    return (routes.router,)
 
 
 @hookimpl

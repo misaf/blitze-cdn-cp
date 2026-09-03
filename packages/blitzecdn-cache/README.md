@@ -2,9 +2,8 @@
 
 Cache purge and cache-effectiveness reporting, as an optional distribution.
 
-Attaching it adds `POST /v1/cache/purge`, `POST /v1/cache/stats` (and the v2
-pair), the `blitzecdn cache purge` command group, and the root `blitzecdn stats`
-command.
+Attaching it adds `POST /v1/cache/purge` and `POST /v1/cache/stats`, the
+`blitzecdn cache purge` command group, and the root `blitzecdn stats` command.
 
 ```bash
 uv add --package blitzecdn blitzecdn-cache     # attach, in this workspace

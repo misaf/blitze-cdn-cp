@@ -489,11 +489,10 @@ _PACKAGE_MODULES = {
     "preflight.py",
 }
 
-#: `api/` holds the routers and the operational models, and nothing else: a
-#: version is a module, the shapes both versions share are `models.py`. A
-#: package whose HTTP surface needs a fourth module is describing something
-#: that is not an HTTP adapter.
-_API_MODULES = {"__init__.py", "models.py", "v1.py", "v2.py"}
+#: `api/` holds the routes and the package's own operational shapes, and
+#: nothing else. A package whose HTTP surface needs a third module is
+#: describing something that is not an HTTP adapter.
+_API_MODULES = {"__init__.py", "models.py", "routes.py"}
 
 #: Directories whose *contents* are named after what they implement rather
 #: than after a layer — `archive.py`, `playbooks.py` — because that is the
@@ -718,7 +717,7 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     """The other direction: the field may not follow the implementation out.
 
     `CdnSite` composes `ProtocolPolicy` by inheritance and the flat shape is
-    what the v1/v2 schemas, the persisted policy JSON and the deployment
+    what the published schemas, the persisted policy JSON and the deployment
     snapshots all consume. Moving `http3_enabled` into the package would make
     that shape depend on what is installed, and a stored site asking for HTTP/3
     would stop loading on a controller that had detached it.
@@ -777,7 +776,7 @@ def test_the_geoip_capability_is_reached_only_through_its_entry_point():
 def test_the_site_contract_keeps_every_country_setting_in_core():
     """The fields may not follow the implementation out.
 
-    `CdnSite` composes them by inheritance into the flat shape the v1/v2
+    `CdnSite` composes them by inheritance into the flat shape the published
     schemas, the persisted policy JSON and the deployment snapshots consume.
     Moving one into the package would make that shape depend on what is
     installed, and a stored site asking for a country would stop loading on a
@@ -942,9 +941,9 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: extraction: it is short, every entry is a deliberate contract, and a new
 #: entry is a decision rather than an oversight.
 #:
-#: * the two versioned API models are frozen per-version *resource* shapes;
-#:   v1 may not change when v2 does, so they restate the fields rather than
-#:   re-export the contract;
+#: * `api/models.py` holds the published *resource* shapes, which restate the
+#:   fields rather than re-export the contract, because what a client is
+#:   shown is a decision separate from what a policy happens to hold;
 #: * `dns/cli.py` carries `blitzecdn record firewall`, because a record patch
 #:   is the DNS capability's surface and `dns -> security` is a declared
 #:   contract edge in `ALLOWED_POLICY_DEPENDENCIES`;
@@ -952,8 +951,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 #:   `geoip` token — asserted separately by the GeoIP tests above.
 _FIREWALL_AWARE_MODULES = {
     "features/security/policy.py": None,
-    "api/v1_models.py": None,
-    "api/v2_models.py": None,
+    "api/models.py": None,
     "features/sites/cli.py": None,
     "features/sites/domain.py": frozenset({"allowed_countries", "denied_countries"}),
 }

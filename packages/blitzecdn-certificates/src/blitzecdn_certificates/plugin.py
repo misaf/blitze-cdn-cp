@@ -19,11 +19,9 @@ from blitzecdn.core.plugins import (
 )
 from blitzecdn.features.tls.policy import MANAGED_TLS_ROOT, CertificateMode
 from blitzecdn_certificates.automatic_ssl import cli as automatic_ssl_cli
-from blitzecdn_certificates.automatic_ssl.api import v1 as automatic_ssl_v1
-from blitzecdn_certificates.automatic_ssl.api import v2 as automatic_ssl_v2
+from blitzecdn_certificates.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn_certificates.certificates import cli as certificates_cli
-from blitzecdn_certificates.certificates.api import v1 as certificates_v1
-from blitzecdn_certificates.certificates.api import v2 as certificates_v2
+from blitzecdn_certificates.certificates.api import routes as certificates_routes
 from blitzecdn_certificates.composition import (
     __version__,
     build_automatic_ssl_service,
@@ -84,12 +82,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
-    return (
-        certificates_v1.router,
-        certificates_v2.router,
-        automatic_ssl_v1.router,
-        automatic_ssl_v2.router,
-    )
+    return (certificates_routes.router, automatic_ssl_routes.router)
 
 
 @hookimpl

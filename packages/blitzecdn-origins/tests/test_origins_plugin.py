@@ -56,7 +56,7 @@ def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None
         for router in blitzecdn_api_routers()
         for route in router.routes
     }
-    assert routes == {"/v1/origins/check", "/v2/origins/check"}
+    assert routes == {"/v1/origins/check"}
 
     groups = blitzecdn_cli_commands()
     assert [group.name for group in groups] == ["origin"]

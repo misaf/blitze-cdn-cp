@@ -11,7 +11,7 @@ purging a cache and issuing a certificate do.
 | what it adds | |
 | --- | --- |
 | `blitzecdn origin check` | exits 3 if any edge could not reach an origin |
-| `POST /v1/origins/check`, `POST /v2/origins/check` | the same report over HTTP |
+| `POST /v1/origins/check` | the same report over HTTP |
 | `blitzecdn_origins` role + `origin-check.yml` play | shipped inside the wheel and located with `importlib.resources` |
 
 ## The edges answer, not the controller

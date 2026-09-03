@@ -5,8 +5,8 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
+from blitzecdn.api.models import Edge, EdgePatch
 from blitzecdn.api.operations import EdgeRemoval, HostRun, as_operation
-from blitzecdn.api.v1_models import Edge, EdgePatch
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

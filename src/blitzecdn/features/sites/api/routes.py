@@ -5,19 +5,17 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.v2_models import CdnSiteCreateV2 as CdnSiteCreate
-from blitzecdn.api.v2_models import CdnSiteV2 as CdnSite
-from blitzecdn.api.v2_models import SitePatchV2 as SitePatch
+from blitzecdn.api.models import CdnSite, CdnSiteCreate, SitePatch
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
-@router.get("/v2/sites", response_model=list[CdnSite])
+@router.get("/v1/sites", response_model=list[CdnSite])
 def list_sites(control: ControlPlaneDependency) -> list[CdnSite]:
     return [CdnSite.from_domain(item) for item in control.sites.list_sites()]
 
 
-@router.post("/v2/sites", response_model=CdnSite, status_code=status.HTTP_201_CREATED)
+@router.post("/v1/sites", response_model=CdnSite, status_code=status.HTTP_201_CREATED)
 def create_site(
     site: CdnSiteCreate,
     operator: OperatorDependency,
@@ -29,13 +27,13 @@ def create_site(
     )
 
 
-@router.get("/v2/sites/{name}", response_model=CdnSite)
+@router.get("/v1/sites/{name}", response_model=CdnSite)
 def get_site(name: str, control: ControlPlaneDependency) -> CdnSite:
     """The fully resolved policy for one site, as handed to the edges."""
     return CdnSite.from_domain(control.sites.get_site(name))
 
 
-@router.patch("/v2/sites/{name}", response_model=CdnSite)
+@router.patch("/v1/sites/{name}", response_model=CdnSite)
 def update_site(
     name: str,
     patch: SitePatch,
@@ -47,7 +45,7 @@ def update_site(
     )
 
 
-@router.delete("/v2/sites/{name}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/v1/sites/{name}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_site(
     name: str, operator: OperatorDependency, control: ControlPlaneDependency
 ) -> None:

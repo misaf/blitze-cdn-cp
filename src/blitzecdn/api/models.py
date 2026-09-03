@@ -1,12 +1,19 @@
-"""Version 1 control-plane representations and their domain mappings."""
+"""The control-plane resource representations, and their domain mappings.
+
+These are the shapes the HTTP API publishes for sites, records, zones and
+edges. There is one set of them, serving one published version of the API:
+see :mod:`blitzecdn.api.operations` for the operational shapes and
+:mod:`blitzecdn.api.requests` for the bodies that drive them.
+"""
 
 from __future__ import annotations
 
 from enum import StrEnum
-from typing import Any, Literal, Self
+from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from blitzecdn.features.compression.policy import CompressionMode
 from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.features.dns.domain import Domain as DomainDomain
 from blitzecdn.features.dns.domain import RecordPatch as DomainRecordPatch
@@ -24,30 +31,11 @@ from blitzecdn.features.tls.policy import (
 )
 
 
-class V1Model(BaseModel):
+class Model(BaseModel):
     model_config = ConfigDict(extra="forbid", json_schema_mode_override="validation")
 
-    @classmethod
-    def _project(cls, value: BaseModel) -> dict[str, Any]:
-        """Keep only the fields this version declares.
 
-        Version 1 is frozen, and these models forbid extras, so a policy knob
-        added to the domain after v1 shipped would otherwise make every v1 read
-        of that resource raise — the version would break precisely because it
-        was not changed. Projecting here is what makes "add a field" a v2-only
-        edit instead of a v1 outage.
-
-        A v1 client that writes a whole record still gets the domain default
-        for anything v1 cannot name; only PATCH, which sends
-        ``exclude_unset``, leaves such a field untouched. That is the honest
-        reading of a frozen representation: it cannot express what it does not
-        have a word for.
-        """
-        document = value.model_dump(mode="json")
-        return {name: document[name] for name in cls.model_fields if name in document}
-
-
-class Domain(V1Model):
+class Domain(Model):
     name: str
 
     @model_validator(mode="after")
@@ -67,7 +55,7 @@ class RecordType(StrEnum):
         return DomainRecordType(self.value)
 
 
-class SiteFirewall(V1Model):
+class SiteFirewall(Model):
     allow_sources: tuple[str, ...] = Field(default=(), max_length=200)
     deny_sources: tuple[str, ...] = Field(default=(), max_length=200)
     allowed_countries: tuple[str, ...] = Field(default=(), max_length=250)
@@ -76,11 +64,20 @@ class SiteFirewall(V1Model):
     denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
 
 
-class SitePolicyV1(V1Model):
+class SiteVisitorHeaders(Model):
+    """The ``BZ-*`` headers the edge writes on the request to the origin."""
+
+    connecting_ip: bool = True
+    ip_country: bool = False
+
+
+class SitePolicy(Model):
     ssl_mode: SslMode = SslMode.OFF
     ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
+    http3_enabled: bool = False
     always_use_https: bool = False
+    under_attack_mode: bool = False
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool = True
@@ -91,18 +88,13 @@ class SitePolicyV1(V1Model):
     cache_query_string_mode: CacheQueryStringMode = CacheQueryStringMode.INCLUDE
     cache_valid_success: str = "10m"
     cache_valid_not_found: str = "1m"
+    compression: CompressionMode = CompressionMode.BROTLI
     firewall: SiteFirewall = Field(default_factory=SiteFirewall)
+    visitor_headers: SiteVisitorHeaders = Field(default_factory=SiteVisitorHeaders)
 
 
-class DnsRecord(V1Model):
-    """A record: an address of its own, or the site that answers for it.
-
-    The policy fields this carried through version 1's life are gone, and they
-    are gone from the resource rather than projected away, because there is no
-    longer anything behind them to report. They belong to ``CdnSite``, which is
-    now created and edited in its own right — see the note on
-    :class:`CdnSiteCreate`.
-    """
+class DnsRecord(Model):
+    """A record: an address of its own, or the site that answers for it."""
 
     domain: str
     name: str
@@ -121,10 +113,10 @@ class DnsRecord(V1Model):
 
     @classmethod
     def from_domain(cls, value: DomainDnsRecord) -> Self:
-        return cls.model_validate(cls._project(value))
+        return cls.model_validate(value.model_dump(mode="json"))
 
 
-class RecordPatch(V1Model):
+class RecordPatch(Model):
     """Send ``site`` as ``null`` together with a ``value`` to unroute a name."""
 
     value: str | None = None
@@ -135,23 +127,22 @@ class RecordPatch(V1Model):
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-class CdnSite(SitePolicyV1):
+class CdnSite(SitePolicy):
     name: str
     server_names: tuple[str, ...]
     origin_host: str
 
     @classmethod
     def from_domain(cls, value: DomainCdnSite) -> Self:
-        return cls.model_validate(cls._project(value))
+        return cls.model_validate(value.model_dump(mode="json"))
 
 
-class CdnSiteCreate(SitePolicyV1):
+class CdnSiteCreate(SitePolicy):
     """The body that creates a site.
 
-    ``server_names`` is absent rather than optional. It is not a property of
-    the site an operator chooses: it is the set of hostnames whose records
-    route here, so it appears on the representation that is read back and on no
-    body that writes one.
+    ``server_names`` is absent rather than optional: it is the set of hostnames
+    whose records route here, so it appears on the representation that is read
+    back and on no body that writes one.
     """
 
     name: str
@@ -166,12 +157,14 @@ class CdnSiteCreate(SitePolicyV1):
         return DomainCdnSite.model_validate(self.model_dump())
 
 
-class SitePatch(V1Model):
+class SitePatch(Model):
     origin_host: str | None = None
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None
+    http3_enabled: bool | None = None
     always_use_https: bool | None = None
+    under_attack_mode: bool | None = None
     origin_request_host: str | None = None
     origin_sni: str | None = None
     enabled: bool | None = None
@@ -182,13 +175,15 @@ class SitePatch(V1Model):
     cache_query_string_mode: CacheQueryStringMode | None = None
     cache_valid_success: str | None = None
     cache_valid_not_found: str | None = None
+    compression: CompressionMode | None = None
     firewall: SiteFirewall | None = None
+    visitor_headers: SiteVisitorHeaders | None = None
 
     def to_domain(self) -> DomainSitePatch:
         return DomainSitePatch.model_validate(self.model_dump(exclude_unset=True))
 
 
-class Edge(V1Model):
+class Edge(Model):
     name: str
     host: str
     user: str = "deploy"
@@ -207,10 +202,10 @@ class Edge(V1Model):
 
     @classmethod
     def from_domain(cls, value: DomainEdge) -> Self:
-        return cls.model_validate(cls._project(value))
+        return cls.model_validate(value.model_dump(mode="json"))
 
 
-class EdgePatch(V1Model):
+class EdgePatch(Model):
     host: str | None = None
     user: str | None = None
     port: int | None = Field(default=None, ge=1, le=65535)

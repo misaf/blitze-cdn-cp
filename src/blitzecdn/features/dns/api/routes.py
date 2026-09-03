@@ -7,40 +7,38 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.v2_models import DnsRecordV2 as DnsRecord
-from blitzecdn.api.v2_models import Domain, RecordType
-from blitzecdn.api.v2_models import RecordPatchV2 as RecordPatch
+from blitzecdn.api.models import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.core.exceptions import ConflictError
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
-@router.get("/v2/domains", response_model=list[Domain])
+@router.get("/v1/domains", response_model=list[Domain])
 def list_domains(control: ControlPlaneDependency) -> list[Domain]:
     return [Domain(name=item.name) for item in control.dns.list_domains()]
 
 
-@router.post("/v2/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
+@router.post("/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
 def create_domain(
     domain: Domain, operator: OperatorDependency, control: ControlPlaneDependency
 ) -> Domain:
     return Domain(name=control.dns.create_domain(domain.to_domain(), operator).name)
 
 
-@router.delete("/v2/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_domain(
     domain: str, operator: OperatorDependency, control: ControlPlaneDependency
 ) -> None:
     control.dns.delete_domain(domain, operator)
 
 
-@router.get("/v2/domains/{domain}/records", response_model=list[DnsRecord])
+@router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
 def list_records(domain: str, control: ControlPlaneDependency) -> list[DnsRecord]:
     return [DnsRecord.from_domain(item) for item in control.dns.list_records(domain)]
 
 
 @router.post(
-    "/v2/domains/{domain}/records",
+    "/v1/domains/{domain}/records",
     response_model=DnsRecord,
     status_code=status.HTTP_201_CREATED,
 )
@@ -60,7 +58,7 @@ def create_record(
     )
 
 
-@router.patch("/v2/domains/{domain}/records/{name}", response_model=DnsRecord)
+@router.patch("/v1/domains/{domain}/records/{name}", response_model=DnsRecord)
 def update_record(
     domain: str,
     name: str,
@@ -77,7 +75,7 @@ def update_record(
 
 
 @router.delete(
-    "/v2/domains/{domain}/records/{name}", status_code=status.HTTP_204_NO_CONTENT
+    "/v1/domains/{domain}/records/{name}", status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_record(
     domain: str,
@@ -89,6 +87,6 @@ def delete_record(
     control.dns.delete_record(domain, name, type_.to_domain(), operator)
 
 
-@router.get("/v2/dns/export")
+@router.get("/v1/dns/export")
 def dns_export(control: ControlPlaneDependency) -> list[dict[str, object]]:
     return control.dns.dns_export()

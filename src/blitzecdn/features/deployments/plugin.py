@@ -25,7 +25,7 @@ from blitzecdn.core.plugins import (
     hookimpl,
 )
 from blitzecdn.features.deployments import cli
-from blitzecdn.features.deployments.api import v1, v2
+from blitzecdn.features.deployments.api import routes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
@@ -43,7 +43,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
-    return (v1.router, v2.router)
+    return (routes.router,)
 
 
 @hookimpl

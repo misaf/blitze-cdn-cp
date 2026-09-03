@@ -122,7 +122,7 @@ The rules that shape it:
   cycle. Before extracting anything, read the "Why the site-policy capabilities
   are built in" section of [PLUGINS.md](PLUGINS.md): `CdnSite` composes
   `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy` and `TlsPolicy` by
-  inheritance into one flat frozen model that the v1/v2 schemas, the persisted
+  inheritance into one flat frozen model that the published schemas, the persisted
   policy JSON, the deployment snapshots and every edge role consume, so none of
   those four can leave.
 - **An optional package composes itself.** `bootstrap.py` builds the *required*
@@ -279,20 +279,23 @@ declaration. `core/validation.py` is for primitives two or more capabilities
 share; a table with one consumer (the ISO country list, the HTTP-method shape)
 belongs beside the contract that validates against it, and
 `tests/architecture/test_packages.py` fails a `core/` module that names a
-firewall rule kind. Keep the frozen HTTP v1
-*resource* representations — sites, records, edges — in `api/v1_models.py` and
-evolve v2 independently in `api/v2_models.py`; the *operational* ones (runs,
-deployments, drift, workflows) are identical in both versions and live
-once in `api/operations.py`, with `api/requests.py` for the bodies. An optional
-capability's operational shapes are its own — `PurgeResult` and
-`CacheStatsReport` are in `blitzecdn_cache/api/models.py`, built on core's
-`OperationModel` and `as_operation`, because core cannot carry a shape for a
-capability that may not be installed. A version
-that has to diverge from a shared shape defines its own class with the version
-in the name (`CdnSiteV2`) rather than editing the shared one — pydantic
-disambiguates a name collision by qualifying *both* sides with their module
-path, so a second `Deployment` would rename the other version's published
-schema. A deployment snapshot carries the zones, their records and the sites,
+firewall rule kind. **The HTTP API publishes one version.** The *resource*
+representations — sites, records, zones, edges — are in `api/models.py`, the
+*operational* ones (runs, deployments, drift, workflows) in `api/operations.py`
+with `api/requests.py` for the bodies, and each feature contributes a single
+`api/routes.py` under the `/v1` prefix. There was a frozen v1 beside a live v2,
+which cost two copies of every router, two model modules and a projection that
+kept the frozen half from breaking when the domain grew — insurance against
+clients that do not exist. Nothing published has shipped, so a shape change is
+an edit. Should a real second version ever be needed, it arrives as a new
+`api/routes_v2.py` and its own model module, and the *class names* are what
+must then diverge: pydantic disambiguates a name collision by qualifying
+*both* sides with their module path, so a second `Deployment` would rename the
+first one's published schema as a side effect. An optional capability's
+operational shapes are its own — `PurgeResult` and `CacheStatsReport` are in
+`blitzecdn_cache/api/models.py`, built on core's `OperationModel` and
+`as_operation`, because core cannot carry a shape for a capability that may not
+be installed. A deployment snapshot carries the zones, their records and the sites,
 and its `schema_version` is a discriminator rather than a compatibility layer:
 there is one version, a document that is not it is refused, and a shape change
 is an edit rather than an upcaster. Feature services own their small policy dataclasses
