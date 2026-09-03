@@ -73,7 +73,7 @@ answer to the question above, not a description of the code.
 | sites | **built-in required** | `CdnSite` is what every other capability composes into and every edge role renders from |
 | DNS, edges, deployments, diagnostics, maintenance | **built-in required** | a CDN with no zones, no fleet, no way to converge it and no way to see whether it worked is not a degraded CDN |
 | HTTP/1.1 and HTTP/2 | **built-in required** | baseline. An edge that speaks neither serves nothing, and there is no `blitzecdn-http1` to attach |
-| compression, security, TLS *contracts* | **built-in required** | `CompressionPolicy`, `SecurityPolicy` and `TlsPolicy` are inherited into the flat `CdnSite` that the v1/v2 schemas, the persisted policy JSON and the deployment snapshots consume; a field that travelled with a wheel would make a stored row unreadable on detachment |
+| compression, security, TLS *contracts* | **built-in required** | `CompressionPolicy`, `SecurityPolicy` and `TlsPolicy` are inherited into the flat `CdnSite` that the published schemas, the persisted policy JSON and the deployment snapshots consume; a field that travelled with a wheel would make a stored row unreadable on detachment |
 | `blitzecdn-backup` | **optional** | archiving and restoring the control plane's own state is an operational choice, and the capability has no Ansible at all |
 | `blitzecdn-cache` | **optional** | purge and cache-effectiveness *operations*, with their own roles and plays. `CachePolicy` stays in `sites/policy/` — nothing outside a site's own configuration reads it, and moving it here would make `sites` depend on a feature that already depends on `sites` |
 | `blitzecdn-certificates` | **optional** | issuance, renewal and the Automatic SSL/TLS scan. An operator may bring their own certificates and never attach it |
@@ -122,9 +122,8 @@ packages/blitzecdn-<name>/
 │   ├── adapters/             # concrete implementations of its own ports
 │   │                         #   named after what they implement, and flat
 │   ├── api/                  # its HTTP adapters, and nothing else:
-│   │   ├── models.py         #   the shapes both versions share
-│   │   ├── v1.py             #   one module per version
-│   │   └── v2.py
+│   │   ├── models.py         #   its own operational shapes
+│   │   └── routes.py         #   the routes it contributes
 │   ├── cli.py                # its command groups
 │   ├── nginx/                # *.conf.j2 fragments only
 │   └── ansible/
@@ -152,7 +151,7 @@ in `tests/architecture/test_packages.py` walks each distribution's `src/` and
 refuses a module name that is not one of the above — plus `adapters.py` and
 `preflight.py`, the single-module spellings of an adapter that
 `test_layering.py` already holds to the adapter rule. `api/` is exactly
-`models.py`, `v1.py` and `v2.py`; `adapters/` is flat and its module names are
+`models.py` and `routes.py`; `adapters/` is flat and its module names are
 the implementations they hold; `nginx/` and `ansible/` carry no Python beyond
 the one `importlib.resources` anchor.
 
@@ -177,7 +176,7 @@ refactors later.
 the reason is worth writing down because it will come up again. `CdnSite`
 composes `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy` and `TlsPolicy`
 **by inheritance** into one flat, frozen model, and that model is consumed by
-the v1 and v2 HTTP schemas, by persisted policy JSON, by the versioned
+the published HTTP schemas, by persisted policy JSON, by the versioned
 deployment snapshots, and by every edge role. Assembling it from whichever
 plugins happen to be installed would make the published schema and the on-disk
 snapshot depend on the installation, and would leave Ansible parsing a desired

@@ -1,29 +1,18 @@
-"""Operational representations shared by every version of the HTTP API.
+"""Operational representations published by the HTTP API.
 
-A resource representation is versioned because its *shape* is a promise to
-clients: `CdnSite` gained fields in v2, so `v1_models` and `v2_models` describe
-it separately and `v1_models.V1Model._project` keeps the frozen version honest.
-These models are different in kind. They describe what an *operation* did — a
-run of Ansible, a queued deployment, a purge, a drift check, a workflow — and
-both published versions have always described it identically, character for
-character. The two files that said so were maintained by copying one into the
-other, which is not a version boundary; it is the same contract written twice,
-where a fix applied to one and forgotten in the other is invisible.
+These describe what an *operation* did — a run of Ansible, a queued deployment,
+a purge, a drift check, a workflow — as opposed to the resources in
+:mod:`blitzecdn.api.models`, which describe what the control plane *holds*.
 
-So the shape lives here once, and both versions serve it.
+The split is worth keeping even with one published version, because the two
+kinds answer to different owners. A resource shape is `sites`' or `dns`' to
+change; an operational shape belongs to whatever ran the operation, and an
+optional capability's operational shapes are its own — `PurgeResult` and
+`CacheStatsReport` live in `blitzecdn_cache.api.models` and build on
+`OperationModel` and `as_operation` here, because core cannot carry a shape for
+a capability that may not be installed.
 
-**How a version diverges from this.** It does not edit these classes. The
-version that needs the new field defines its own class, in its own module, with
-the version in the name — exactly what `v2_models.CdnSiteV2` does and for the
-same reason: FastAPI names a published component after the class, and pydantic
-disambiguates a collision by qualifying *both* sides with their module path, so
-a second `Deployment` would rename the other version's schema as a side effect.
-That version's routes then bind to the new class and the other version keeps
-pointing here, unchanged and unbroken.
-
-`tests/api/test_common.py` pins the shape each version actually publishes, so
-an edit here that changed one of them fails as a contract break rather than
-shipping as a shared-code cleanup.
+`tests/api/test_common.py` pins the shape this actually publishes.
 """
 
 from __future__ import annotations

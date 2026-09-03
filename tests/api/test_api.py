@@ -3,17 +3,14 @@ import time
 from importlib import import_module
 from importlib.util import find_spec
 
-import pytest
 from control_plane_fixtures import (
     control_plane_app,
     host_run,
 )
 from fastapi.testclient import TestClient
 
-from blitzecdn.api.v1_models import CdnSite as V1CdnSite
-from blitzecdn.api.v1_models import RecordPatch as V1RecordPatch
-from blitzecdn.api.v1_models import SitePatch as V1SitePatch
-from blitzecdn.api.v1_models import SitePolicyV1
+from blitzecdn.api.models import SitePatch
+from blitzecdn.api.models import SitePolicy as SitePolicyModel
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import (
     ConfigurationError,
@@ -23,7 +20,6 @@ from blitzecdn.core.exceptions import (
 from blitzecdn.core.operations import WorkflowKind
 from blitzecdn.features.deployments import DeploymentService
 from blitzecdn.features.edges import EdgeOperationsService
-from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
 from blitzecdn.features.sites.domain import SitePolicy
 
 CertificateService = (
@@ -47,26 +43,6 @@ REQUIRES_CERTIFICATES = frozenset(
         "test_skip_preflight_is_rejected_as_a_non_boolean",
     }
 )
-
-#: Exactly the policy fields version 1 shipped with. This is a frozen list, not
-#: a derived one: the whole point is that it stops tracking `SitePolicy`.
-V1_SITE_POLICY_FIELDS = {
-    "ssl_mode",
-    "ssl_automatic_mode",
-    "minimum_tls_version",
-    "always_use_https",
-    "origin_request_host",
-    "origin_sni",
-    "enabled",
-    "certificate_mode",
-    "certificate_path",
-    "certificate_key_path",
-    "cache_enabled",
-    "cache_query_string_mode",
-    "cache_valid_success",
-    "cache_valid_not_found",
-    "firewall",
-}
 
 
 def _seed_site(client, headers, *, name="cdn-example-com", label="cdn", **policy):
@@ -92,56 +68,18 @@ def _seed_site(client, headers, *, name="cdn-example-com", label="cdn", **policy
     return created.json()
 
 
-def test_v1_policy_representation_is_frozen():
-    """v1 is a promise to clients written against it, so it cannot grow.
+def test_the_api_carries_every_policy_field_the_domain_has():
+    """A knob an operator can set but never see would fail nowhere else.
 
-    A field added to `SitePolicy` belongs to v2. Adding one here instead
-    changes a response shape that shipped, which is the thing versioning the
-    API was supposed to make impossible.
+    There is one published version, so there is no frozen representation to
+    project a new field away from: a field added to `SitePolicy` is expected
+    here and in the patch body, and this is what says so.
     """
-    assert set(SitePolicyV1.model_fields) == V1_SITE_POLICY_FIELDS
-    assert set(V1SitePatch.model_fields) == V1_SITE_POLICY_FIELDS | {"origin_host"}
-    # The record shrank to a pointer when sites took the policy, and v1's copy
-    # of it shrank with them: there is nothing behind those fields to report.
-    assert set(V1RecordPatch.model_fields) == {"value", "ttl", "site"}
+    missing = set(SitePolicy.model_fields) - set(SitePolicyModel.model_fields)
+    assert not missing, f"the API does not expose {sorted(missing)}"
 
-
-def test_v1_survives_a_domain_field_it_has_never_heard_of():
-    """The frozen version must not break *because* it was left alone.
-
-    These models forbid extras, so without the projection in `V1Model` every
-    v1 read of a record would start raising the moment a policy knob landed in
-    the domain — a version breaking by standing still.
-    """
-    assert set(SitePolicy.model_fields) - V1_SITE_POLICY_FIELDS, (
-        "this test is only meaningful while the domain is ahead of v1"
-    )
-
-    site = DomainCdnSite.model_validate(
-        {
-            "name": "cdn-example-com",
-            "server_names": ["cdn.example.com"],
-            "origin_host": "203.0.113.10",
-        }
-    )
-
-    projected = V1CdnSite.from_domain(site).model_dump()
-
-    for field in ("compression", "visitor_headers", "under_attack_mode"):
-        assert field not in projected
-
-
-def test_v1_neither_reads_nor_writes_under_attack_mode():
-    site = DomainCdnSite(
-        name="cdn-example-com",
-        server_names=("cdn.example.com",),
-        origin_host="203.0.113.10",
-        under_attack_mode=True,
-    )
-    assert "under_attack_mode" not in V1CdnSite.from_domain(site).model_dump()
-
-    with pytest.raises(ValueError):
-        V1SitePatch.model_validate({"under_attack_mode": True})
+    unpatchable = set(SitePolicy.model_fields) - set(SitePatch.model_fields)
+    assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 
 def test_interrupted_workflows_are_recovered_and_visible(settings):
@@ -905,3 +843,170 @@ def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
         assert body["decommissioned"] is True
         assert [host["host"] for host in body["hosts"]] == ["edge-01"]
         assert body["hosts"][0]["changes"][0]["task"] == "remove /etc/blitzecdn"
+
+
+def test_no_cloudflare_header_name_is_published_by_the_api(settings):
+    """The BZ- namespace is the whole surface; CF- and True-Client-IP are not
+    ours to define and must not appear as fields, defaults, or descriptions."""
+    with TestClient(control_plane_app(settings)) as client:
+        document = client.get("/openapi.json").text
+
+    for foreign in ("CF-Connecting-IP", "cf_connecting_ip", "True-Client-IP"):
+        assert foreign not in document
+
+
+def test_http3_create_read_patch_and_validation(settings):
+    site = {
+        "name": "cdn-example-com",
+        "origin_host": "198.51.100.10",
+        "ssl_mode": "flexible",
+        "http3_enabled": True,
+        "certificate_mode": "existing",
+        "certificate_path": "/etc/ssl/certs/edge.pem",
+        "certificate_key_path": "/etc/ssl/private/edge.key",
+    }
+    with TestClient(control_plane_app(settings)) as client:
+        created = client.post("/v1/sites", json=site, headers=_HEADERS)
+        assert created.status_code == 201
+        assert created.json()["http3_enabled"] is True
+        assert (
+            client.get("/v1/sites", headers=_HEADERS).json()[0]["http3_enabled"] is True
+        )
+
+        unchanged = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"http3_enabled": True},
+            headers=_HEADERS,
+        )
+        assert unchanged.status_code == 200
+        assert unchanged.json()["http3_enabled"] is True
+
+        disabled = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"http3_enabled": False},
+            headers=_HEADERS,
+        )
+        assert disabled.status_code == 200
+        assert disabled.json()["http3_enabled"] is False
+
+        rejected = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"ssl_mode": "off", "http3_enabled": True},
+            headers=_HEADERS,
+        )
+        assert rejected.status_code == 422
+        assert "requires ssl_mode" in rejected.text
+
+        events = client.get("/v1/audit-events", headers=_HEADERS).json()
+        updates = [event for event in events if event["action"] == "site.updated"]
+        assert any("http3_enabled" in event["details"]["fields"] for event in updates)
+
+
+def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
+    with TestClient(control_plane_app(settings)) as client:
+        schema = client.get("/openapi.json").json()
+        property_schema = schema["components"]["schemas"]["SitePatch"]["properties"][
+            "under_attack_mode"
+        ]
+        assert property_schema["anyOf"][0]["type"] == "boolean"
+
+        created = client.post(
+            "/v1/sites",
+            json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
+            headers=_HEADERS,
+        )
+        assert created.status_code == 201
+        assert created.json()["under_attack_mode"] is False
+
+        patched = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"under_attack_mode": True},
+            headers=_HEADERS,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["under_attack_mode"] is True
+        assert (
+            client.get("/v1/sites", headers=_HEADERS).json()[0]["under_attack_mode"]
+            is True
+        )
+
+        invalid = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"under_attack_mode": "sometimes"},
+            headers=_HEADERS,
+        )
+        assert invalid.status_code == 422
+
+
+def test_compression_is_reported_patchable_and_validated(settings):
+    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
+    with TestClient(control_plane_app(settings)) as client:
+        created = client.post("/v1/sites", json=payload, headers=_HEADERS)
+        assert created.status_code == 201
+        assert created.json()["compression"] == "brotli"
+
+        patched = client.patch(
+            "/v1/sites/cdn-example-com", json={"compression": "off"}, headers=_HEADERS
+        )
+        assert patched.status_code == 200
+        assert patched.json()["compression"] == "off"
+
+        rejected = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"compression": "deflate"},
+            headers=_HEADERS,
+        )
+        assert rejected.status_code == 422
+
+        # A patch that does not name the field leaves it where it was.
+        client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"cache_enabled": False},
+            headers=_HEADERS,
+        )
+        assert (
+            client.get("/v1/sites", headers=_HEADERS).json()[0]["compression"] == "off"
+        )
+
+
+def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings):
+    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
+    with TestClient(control_plane_app(settings)) as client:
+        created = client.post("/v1/sites", json=payload, headers=_HEADERS)
+        assert created.status_code == 201
+        assert created.json()["visitor_headers"] == {
+            "connecting_ip": True,
+            "ip_country": False,
+        }
+
+        patched = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"visitor_headers": {"connecting_ip": False, "ip_country": True}},
+            headers=_HEADERS,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["visitor_headers"] == {
+            "connecting_ip": False,
+            "ip_country": True,
+        }
+
+        # A partial block replaces the whole thing rather than merging, so the
+        # unnamed switch comes back at its default.
+        replaced = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"visitor_headers": {"ip_country": True}},
+            headers=_HEADERS,
+        )
+        assert replaced.json()["visitor_headers"] == {
+            "connecting_ip": True,
+            "ip_country": True,
+        }
+
+        # No aliases, and no Cloudflare spelling smuggled in as an extra.
+        for unknown in ({"cf_connecting_ip": True}, {"true_client_ip": True}):
+            rejected = client.patch(
+                "/v1/sites/cdn-example-com",
+                json={"visitor_headers": unknown},
+                headers=_HEADERS,
+            )
+            assert rejected.status_code == 422

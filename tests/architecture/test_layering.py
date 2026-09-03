@@ -324,8 +324,7 @@ def _entry_files() -> list[Path]:
     ]
     names = {
         "cli.py",
-        "v1.py",
-        "v2.py",
+        "routes.py",
         "readiness.py",
     }
     return [
@@ -1008,9 +1007,10 @@ def test_the_entry_layers_import_no_feature_at_all():
     registry now, and a feature that appears in neither list is a feature that
     forgot to contribute — not one somebody forgot to wire.
 
-    Only these two modules. `api/v1_models.py` projects domain values into the
-    frozen HTTP representations and has to name them; that is a *translation*,
-    and it is the assembly that had to stop knowing the feature list.
+    Only these two modules. `api/models.py` translates domain values into the
+    published HTTP representations and has to name them; that is a
+    *translation*, and it is the assembly that had to stop knowing the
+    feature list.
     """
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"

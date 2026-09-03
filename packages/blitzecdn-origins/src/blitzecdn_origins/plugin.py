@@ -31,7 +31,7 @@ from blitzecdn.core.plugins import (
     hookimpl,
 )
 from blitzecdn_origins import ansible, cli
-from blitzecdn_origins.api import v1, v2
+from blitzecdn_origins.api import routes
 from blitzecdn_origins.composition import __version__
 
 
@@ -48,7 +48,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 
 @hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
-    return (v1.router, v2.router)
+    return (routes.router,)
 
 
 @hookimpl

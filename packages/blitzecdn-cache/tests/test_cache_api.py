@@ -1,4 +1,4 @@
-"""`/v1/cache/*` and `/v2/cache/*`, over the real application.
+"""`/v1/cache/*`, over the real application.
 
 Built with `create_app` rather than the core-only app the control plane's own
 API tests use: these routes exist *because* this distribution is installed, so
@@ -6,8 +6,6 @@ the app under test is the one plugin discovery assembles. That is also what
 makes them a check on the packaging and not only on the handlers — a route that
 stopped being contributed would 404 here.
 """
-
-import json
 
 from control_plane_fixtures import FakeRunner, ansible_run, host_run
 from fastapi.testclient import TestClient
@@ -138,36 +136,12 @@ def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
     assert response.json()["failed_hosts"] == []
 
 
-def test_the_two_versions_of_each_route_publish_one_shape(settings):
-    """v1 and v2 of a cache route are the same contract, by construction.
-
-    The models are defined once in `api/models.py` and both routers use them,
-    for the same reason the control plane's own operational shapes are shared:
-    two classes would be two published schemas that pydantic disambiguates by
-    module path, and keeping them in step by hand is the failure this removes.
-
-    Asserted here rather than in the control plane's versioning suite, which
-    now builds an app without discovery and would never see these routes.
-    """
-    with TestClient(create_app(settings)) as client:
-        document = client.get("/openapi.json").json()
-
-    paths = document["paths"]
-    for suffix in ("/cache/purge", "/cache/stats"):
-        assert f"/v1{suffix}" in paths
-        assert f"/v2{suffix}" in paths
-        v1 = json.dumps(paths[f"/v1{suffix}"], sort_keys=True).replace("/v1", "")
-        v2 = json.dumps(paths[f"/v2{suffix}"], sort_keys=True).replace("/v2", "")
-        assert v1.replace("v1_", "") == v2.replace("v2_", "")
-
-
-def test_the_published_purge_result_shape_is_frozen(settings):
+def test_the_published_purge_result_shape_is_pinned(settings):
     """The operational shape this capability publishes, pinned.
 
-    It was in the control plane's frozen-shape table while `cache` was a
-    package inside it. The freeze is no less binding for having moved — a
-    client generated against v1 keeps working — it is simply owned by the
-    distribution that publishes it.
+    It was in the control plane's shape table while `cache` was a package
+    inside it. It is owned by the distribution that publishes it now, and
+    pinned here for the same reason it was pinned there.
     """
     with TestClient(create_app(settings)) as client:
         schemas = client.get("/openapi.json").json()["components"]["schemas"]

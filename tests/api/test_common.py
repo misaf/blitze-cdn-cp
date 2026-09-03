@@ -31,7 +31,6 @@ def test_health_is_public_and_controls_require_auth(settings):
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/metrics").status_code == 401
         assert client.get("/v1/sites").status_code == 401
-        assert client.get("/v2/sites").status_code == 401
         wrong = client.get("/v1/sites", headers={"X-API-Key": "wrong"})
         assert wrong.status_code == 401
         assert wrong.headers["WWW-Authenticate"] == "ApiKey"

@@ -1,10 +1,8 @@
-"""Request bodies shared by every version of the HTTP API.
+"""Request bodies accepted by the HTTP API.
 
 These describe the *input* to an operation — deploy, drift, purge, stats,
-origin check, renew, rollback — and every published version has always accepted
-the identical body. See :mod:`blitzecdn.api.operations` for why that makes them
-one definition rather than one per version, and for how a version that needs to
-diverge does so without renaming the other version's published schema.
+origin check, renew, rollback — the mirror of the results in
+:mod:`blitzecdn.api.operations`.
 """
 
 from __future__ import annotations
