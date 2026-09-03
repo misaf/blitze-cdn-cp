@@ -287,6 +287,7 @@ _PUBLIC_SDK_PREFIXES = (
 _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.features.sites",
     "blitzecdn.features.http.policy",
+    "blitzecdn.features.dns.domain",
     "blitzecdn.features.dns.ports",
     "blitzecdn.features.deployments.domain",
     "blitzecdn.features.deployments.ports",
@@ -953,7 +954,7 @@ _FIREWALL_AWARE_MODULES = {
     "features/security/policy.py": None,
     "api/v1_models.py": None,
     "api/v2_models.py": None,
-    "features/dns/cli.py": None,
+    "features/sites/cli.py": None,
     "features/sites/domain.py": frozenset({"allowed_countries", "denied_countries"}),
 }
 

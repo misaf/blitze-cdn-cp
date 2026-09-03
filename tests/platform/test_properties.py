@@ -5,10 +5,11 @@ from hypothesis import strategies as st
 
 from blitzecdn.core.validation import hostname
 from blitzecdn.features.deployments.snapshots import (
-    decode_snapshot_zones,
+    decode_snapshot_state,
     encode_snapshot,
 )
 from blitzecdn.features.dns.domain import DnsRecord, Domain
+from blitzecdn.features.sites.domain import CdnSite
 
 _LABEL = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=20
@@ -26,31 +27,21 @@ def test_hostname_normalization_is_idempotent(name: str) -> None:
 @given(label=_LABEL, address=st.ip_addresses(v=4))
 def test_zone_snapshot_round_trip(label: str, address: object) -> None:
     domains = [Domain(name=f"{label}.example.com")]
-    records = [
-        DnsRecord(
-            domain=domains[0].name,
-            name=f"cdn-{label}",
-            value=str(address),
-            proxied=True,
+    sites = [
+        CdnSite(
+            name=f"s{label}",
+            server_names=(f"cdn-{label}.{domains[0].name}",),
+            origin_host=str(address),
         )
     ]
+    records = [
+        DnsRecord(domain=domains[0].name, name=f"cdn-{label}", site=sites[0].name)
+    ]
 
-    restored_domains, restored_records = decode_snapshot_zones(
-        encode_snapshot(domains, records)
+    restored_domains, restored_records, restored_sites = decode_snapshot_state(
+        encode_snapshot(domains, records, sites)
     )
 
     assert restored_domains == domains
     assert restored_records == records
-
-
-def test_legacy_unversioned_snapshot_remains_readable() -> None:
-    snapshot = (
-        '{"domains":[{"name":"example.com"}],"records":['
-        '{"domain":"example.com","name":"cdn","type":"A",'
-        '"value":"192.0.2.1","ttl":300,"proxied":true}]}'
-    )
-
-    domains, records = decode_snapshot_zones(snapshot)
-
-    assert domains == [Domain(name="example.com")]
-    assert records[0].fqdn == "cdn.example.com"
+    assert restored_sites == sites

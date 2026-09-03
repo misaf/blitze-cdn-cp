@@ -74,7 +74,9 @@ def test_site_package_re_exports_only_what_sites_owns():
         "CdnSite",
         "HeaderPolicy",
         "OriginPolicy",
+        "SitePatch",
         "SitePolicy",
+        "SiteService",
         "SiteVisitorHeaders",
     }
     for borrowed in ("CompressionMode", "SslMode", "SiteFirewall", "HttpScheme"):

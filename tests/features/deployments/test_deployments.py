@@ -87,12 +87,8 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     assert repository.sites.get_site("cdn-example-com").certificate_mode == "uploaded"
     assert repository.sites.get_site("cdn-example-com").ssl_mode == "off"
 
-    control.dns.update_record(
-        "example.com",
-        "cdn",
-        RecordType.A,
-        RecordPatch(ssl_mode="full"),
-        "alice",
+    control.site_editor.update_site(
+        "cdn-example-com", SitePatch(ssl_mode="full"), "alice"
     )
 
     requested = control.certificates.request_certificate(
@@ -182,9 +178,9 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
     assert result.skipped == {}
     assert result.deployment is not None
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
-    record = control.dns.get_record("example.com", "cdn", RecordType.A)
-    assert record.ssl_mode is expected
-    assert record.ssl_automatic_mode is SslAutomaticMode.AUTO
+    site = control.sites.get_site("cdn-example-com")
+    assert site.ssl_mode is expected
+    assert site.ssl_automatic_mode is SslAutomaticMode.AUTO
     event = next(
         event
         for event in repository.audit_log.list_audit_events(20)
@@ -214,10 +210,7 @@ def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
     result = control.automatic_ssl.reconcile("scheduler")
 
     assert result.upgraded == {"cdn-example-com": SslMode.FLEXIBLE}
-    assert (
-        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
-        is SslMode.FLEXIBLE
-    )
+    assert control.sites.get_site("cdn-example-com").ssl_mode is SslMode.FLEXIBLE
 
 
 def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
@@ -231,10 +224,7 @@ def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
     assert result.scanned == ()
     assert result.upgraded == {}
     assert runner.playbooks == []
-    assert (
-        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
-        is SslMode.OFF
-    )
+    assert control.sites.get_site("cdn-example-com").ssl_mode is SslMode.OFF
 
 
 def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
@@ -263,10 +253,7 @@ def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
     assert result.upgraded == {}
     assert "cdn-example-com" in result.skipped
     assert result.deployment is None
-    assert (
-        control.dns.get_record("example.com", "cdn", RecordType.A).ssl_mode
-        is SslMode.FULL
-    )
+    assert control.sites.get_site("cdn-example-com").ssl_mode is SslMode.FULL
 
 
 def test_reconcile_issues_ready_first_certificate_and_deploys(
@@ -286,7 +273,7 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
         issuer=FakeIssuer(),
         preflight=FakePreflight(),
     )  # type: ignore[arg-type]
-    site_name = _seed_proxied_record(control).site_name
+    site_name = _seed_proxied_record(control).name
 
     result = control.certificates.reconcile_certificates("timer")
 
@@ -311,7 +298,7 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
         issuer=UnexpectedIssuer(),
         preflight=FakePreflight(("dns",)),
     )  # type: ignore[arg-type]
-    site_name = _seed_proxied_record(control).site_name
+    site_name = _seed_proxied_record(control).name
 
     result = control.certificates.reconcile_certificates("timer")
 
@@ -398,13 +385,9 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
 
-    # Three distinct desired states, made the only supported way: by changing
-    # records. A snapshot carries records and derives sites from them, so
-    # editing the derived table would produce three identical snapshots.
-    repository.zones.create_domain(Domain(name="example.com"))
-    repository.zones.create_record(
-        DnsRecord(domain="example.com", name="cdn", value="198.51.100.10", proxied=True)
-    )
+    # Three distinct desired states. A snapshot carries the zones, the records
+    # and the sites, so any of the three produces a different one.
+    seed_site(control, name="cdn-example-com", record="cdn")
     full = control.deployments.deploy("alice")
 
     repository.zones.delete_record("example.com", "cdn", RecordType.A)
@@ -413,11 +396,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
 
     # A third, distinct state, so both earlier snapshots are eligible and the
     # canary is the more recent of the two. Without the filter it would win.
-    repository.zones.create_record(
-        DnsRecord(
-            domain="example.com", name="other", value="198.51.100.11", proxied=True
-        )
-    )
+    seed_site(control, name="other-example-com", record="other")
     assert (
         repository.deployments.successful_rollback_target(repository.snapshot()).id
         == full.id
@@ -525,11 +504,9 @@ class _RecordingIssuer:
 
 
 def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
-    record = _seed_proxied_record(control)
-    certificate, key = certificate_pair((record.fqdn,), days=days)
-    return control.certificates.upload_certificate(
-        record.site_name, certificate, key, "alice"
-    )
+    site = _seed_proxied_record(control)
+    certificate, key = certificate_pair((site.server_names[0],), days=days)
+    return control.certificates.upload_certificate(site.name, certificate, key, "alice")
 
 
 def test_certificate_statuses_report_time_left(settings, certificate_pair):
@@ -570,26 +547,13 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
     )
     control.settings = settings
 
-    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label, days in (("due", 5), ("healthy", 80)):
-        record = control.dns.create_record(
-            DnsRecord(
-                domain="example.com",
-                name=label,
-                value="198.51.100.10",
-                proxied=True,
-            ),
-            "alice",
-        )
-        certificate, key = certificate_pair((record.fqdn,), days=days)
-        control.certificates.upload_certificate(
-            record.site_name, certificate, key, "alice"
-        )
+        site = seed_site(control, name=f"{label}-example-com", record=label)
+        certificate, key = certificate_pair((site.server_names[0],), days=days)
+        control.certificates.upload_certificate(site.name, certificate, key, "alice")
         # Uploaded certificates are never renewable, so re-request each one to
         # put it under ACME management the way a real ACME site would be.
-        control.certificates.request_certificate(
-            record.site_name, "alice", "ops@example.com"
-        )
+        control.certificates.request_certificate(site.name, "alice", "ops@example.com")
     issuer.issued.clear()
 
     # Both now carry the issuer's 90-day certificate, so nothing is due.
@@ -623,21 +587,11 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
-    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("one", "two"):
-        record = control.dns.create_record(
-            DnsRecord(
-                domain="example.com", name=label, value="198.51.100.10", proxied=True
-            ),
-            "alice",
-        )
-        certificate, key = certificate_pair((record.fqdn,), days=5)
-        control.certificates.upload_certificate(
-            record.site_name, certificate, key, "alice"
-        )
-        control.certificates.request_certificate(
-            record.site_name, "alice", "ops@example.com"
-        )
+        site = seed_site(control, name=f"{label}-example-com", record=label)
+        certificate, key = certificate_pair((site.server_names[0],), days=5)
+        control.certificates.upload_certificate(site.name, certificate, key, "alice")
+        control.certificates.request_certificate(site.name, "alice", "ops@example.com")
     issuer.issued.clear()
 
     # Time runs out the moment the first site has been renewed.
@@ -668,21 +622,11 @@ def test_renewal_without_a_budget_is_unbounded(settings, certificate_pair):
         issuer=issuer,
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
-    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("one", "two"):
-        record = control.dns.create_record(
-            DnsRecord(
-                domain="example.com", name=label, value="198.51.100.10", proxied=True
-            ),
-            "alice",
-        )
-        certificate, key = certificate_pair((record.fqdn,), days=5)
-        control.certificates.upload_certificate(
-            record.site_name, certificate, key, "alice"
-        )
-        control.certificates.request_certificate(
-            record.site_name, "alice", "ops@example.com"
-        )
+        site = seed_site(control, name=f"{label}-example-com", record=label)
+        certificate, key = certificate_pair((site.server_names[0],), days=5)
+        control.certificates.upload_certificate(site.name, certificate, key, "alice")
+        control.certificates.request_certificate(site.name, "alice", "ops@example.com")
 
     result = control.certificates.renew_certificates("alice", force=True)
 
@@ -726,22 +670,14 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
         preflight=FakePreflight(),  # type: ignore[arg-type]
     )
 
-    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("broken", "fine"):
-        record = control.dns.create_record(
-            DnsRecord(
-                domain="example.com", name=label, value="198.51.100.10", proxied=True
-            ),
-            "alice",
-        )
-        certificate, key = certificate_pair((record.fqdn,), days=5)
-        control.certificates.upload_certificate(
-            record.site_name, certificate, key, "alice"
-        )
+        site = seed_site(control, name=f"{label}-example-com", record=label)
+        certificate, key = certificate_pair((site.server_names[0],), days=5)
+        control.certificates.upload_certificate(site.name, certificate, key, "alice")
         # Restamp the stored metadata as an ACME issue registered to an
         # address, which is what a real renewable certificate looks like.
-        info = control._certificate_store.get(record.site_name)
-        path = settings.certificate_dir / record.site_name / "metadata.json"
+        info = control._certificate_store.get(site.name)
+        path = settings.certificate_dir / site.name / "metadata.json"
         path.write_text(
             info.model_copy(
                 update={"source": certificate_source.ACME, "email": "ops@example.com"}
@@ -758,21 +694,11 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
 
 def _two_acme_sites(control, certificate_pair):
     """Two sites under ACME management, both freshly issued and not yet due."""
-    control.dns.create_domain(Domain(name="example.com"), "alice")
     for label in ("first", "second"):
-        record = control.dns.create_record(
-            DnsRecord(
-                domain="example.com", name=label, value="198.51.100.10", proxied=True
-            ),
-            "alice",
-        )
-        certificate, key = certificate_pair((record.fqdn,), days=80)
-        control.certificates.upload_certificate(
-            record.site_name, certificate, key, "alice"
-        )
-        control.certificates.request_certificate(
-            record.site_name, "alice", "ops@example.com"
-        )
+        site = seed_site(control, name=f"{label}-example-com", record=label)
+        certificate, key = certificate_pair((site.server_names[0],), days=80)
+        control.certificates.upload_certificate(site.name, certificate, key, "alice")
+        control.certificates.request_certificate(site.name, "alice", "ops@example.com")
 
 
 def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):

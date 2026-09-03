@@ -25,6 +25,7 @@ from blitzecdn.core.database import Repository
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.features.dns.domain import DnsRecord, Domain
+from blitzecdn.features.sites.domain import CdnSite
 
 
 def _config(path) -> Config:
@@ -62,8 +63,11 @@ def test_migrating_an_empty_file_produces_a_usable_database(tmp_path):
 
     repository = Repository(path)
     repository.zones.create_domain(Domain(name="example.com"))
+    repository.sites.create_site(
+        CdnSite(name="cdn-example-com", origin_host="203.0.113.10")
+    )
     repository.zones.create_record(
-        DnsRecord(domain="example.com", name="cdn", value="203.0.113.10", proxied=True)
+        DnsRecord(domain="example.com", name="cdn", site="cdn-example-com")
     )
     assert [record.name for record in repository.zones.list_records()] == ["cdn"]
     assert (
@@ -117,5 +121,10 @@ def test_the_revision_reported_is_the_one_stamped(tmp_path):
 
 
 def test_the_current_schema_has_no_upgrade_chain(tmp_path):
+    """One revision, because there is no installation older than it.
+
+    A second revision means something shipped. Until then a schema change is an
+    edit to the baseline, not a migration on top of it.
+    """
     revisions = ScriptDirectory.from_config(_config(tmp_path / "unused.db"))
     assert [revision.revision for revision in revisions.walk_revisions()] == ["0001"]

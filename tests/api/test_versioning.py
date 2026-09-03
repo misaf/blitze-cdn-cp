@@ -119,39 +119,33 @@ def test_v1_is_preserved_while_v2_is_available(settings):
 
 
 def test_v2_exposes_compression_and_v1_does_not(settings):
+    """Policy is a *site* field now, so the divergence is on the site routes.
+
+    It used to be shown through the record endpoints, because a record carried
+    the policy it derived a site from. The versioning question is unchanged:
+    v1 is frozen, projects away what it cannot name, and a v1 PATCH leaves such
+    a field alone rather than resetting it.
+    """
     headers = {"X-API-Key": "x" * 32}
-    payload = {
-        "domain": "example.com",
-        "name": "cdn",
-        "value": "203.0.113.10",
-        "proxied": True,
-    }
+    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
 
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
-        created = client.post(
-            "/v2/domains/example.com/records", json=payload, headers=headers
-        )
+        created = client.post("/v2/sites", json=payload, headers=headers)
         assert created.status_code == 201
         assert created.json()["compression"] == "brotli"
 
-        # The frozen version keeps serving the same record without the field.
+        # The frozen version keeps serving the same site without the field.
         v1 = client.get("/v1/sites", headers=headers).json()
         assert "compression" not in v1[0]
 
         patched = client.patch(
-            "/v2/domains/example.com/records/cdn",
-            json={"compression": "off"},
-            headers=headers,
+            "/v2/sites/cdn-example-com", json={"compression": "off"}, headers=headers
         )
         assert patched.status_code == 200
         assert patched.json()["compression"] == "off"
-        assert (
-            client.get("/v2/sites", headers=headers).json()[0]["compression"] == "off"
-        )
 
         rejected = client.patch(
-            "/v2/domains/example.com/records/cdn",
+            "/v2/sites/cdn-example-com",
             json={"compression": "deflate"},
             headers=headers,
         )
@@ -160,7 +154,7 @@ def test_v2_exposes_compression_and_v1_does_not(settings):
         # A v1 PATCH cannot name the field, so it leaves it alone rather than
         # resetting it to the domain default.
         client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v1/sites/cdn-example-com",
             json={"cache_enabled": False},
             headers=headers,
         )
@@ -171,31 +165,23 @@ def test_v2_exposes_compression_and_v1_does_not(settings):
 
 def test_v2_exposes_visitor_headers_and_v1_does_not(settings):
     headers = {"X-API-Key": "x" * 32}
-    payload = {
-        "domain": "example.com",
-        "name": "cdn",
-        "value": "203.0.113.10",
-        "proxied": True,
-    }
+    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
 
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v2/domains", json={"name": "example.com"}, headers=headers)
-        created = client.post(
-            "/v2/domains/example.com/records", json=payload, headers=headers
-        )
+        created = client.post("/v2/sites", json=payload, headers=headers)
         assert created.status_code == 201
         assert created.json()["visitor_headers"] == {
             "connecting_ip": True,
             "ip_country": False,
         }
 
-        # The frozen version keeps serving the same record without the block.
+        # The frozen version keeps serving the same site without the block.
         assert (
             "visitor_headers" not in client.get("/v1/sites", headers=headers).json()[0]
         )
 
         patched = client.patch(
-            "/v2/domains/example.com/records/cdn",
+            "/v2/sites/cdn-example-com",
             json={"visitor_headers": {"connecting_ip": False, "ip_country": True}},
             headers=headers,
         )
@@ -204,13 +190,11 @@ def test_v2_exposes_visitor_headers_and_v1_does_not(settings):
             "connecting_ip": False,
             "ip_country": True,
         }
-        site = client.get("/v2/sites", headers=headers).json()[0]
-        assert site["visitor_headers"] == {"connecting_ip": False, "ip_country": True}
 
         # A partial block replaces the whole thing rather than merging, so the
         # unnamed switch comes back at its default.
         replaced = client.patch(
-            "/v2/domains/example.com/records/cdn",
+            "/v2/sites/cdn-example-com",
             json={"visitor_headers": {"ip_country": True}},
             headers=headers,
         )
@@ -222,7 +206,7 @@ def test_v2_exposes_visitor_headers_and_v1_does_not(settings):
         # No aliases, and no Cloudflare spelling smuggled in as an extra.
         for unknown in ({"cf_connecting_ip": True}, {"true_client_ip": True}):
             rejected = client.patch(
-                "/v2/domains/example.com/records/cdn",
+                "/v2/sites/cdn-example-com",
                 json={"visitor_headers": unknown},
                 headers=headers,
             )
@@ -231,7 +215,7 @@ def test_v2_exposes_visitor_headers_and_v1_does_not(settings):
         # A v1 PATCH cannot name the block, so it leaves it alone rather than
         # resetting it to the domain default.
         client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v1/sites/cdn-example-com",
             json={"cache_enabled": False},
             headers=headers,
         )
@@ -273,7 +257,7 @@ def test_openapi_schema_names_are_stable_across_versions(settings):
         "disambiguate it — doing that also renames the v1 schema."
     )
     # The names v1 published must still mean v1.
-    for name in ("CdnSite", "DnsRecord", "RecordPatch"):
+    for name in ("CdnSite", "CdnSiteCreate", "DnsRecord", "RecordPatch", "SitePatch"):
         assert name in schemas, f"v1 lost its published {name} schema"
         assert f"{name}V2" in schemas
 

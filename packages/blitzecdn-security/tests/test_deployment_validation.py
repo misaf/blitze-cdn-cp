@@ -5,16 +5,16 @@ control plane to what it does with that answer — refusing *before* Ansible is
 invoked is the whole reason the check exists, and only the real service can
 show that no scratch file was rendered and no playbook was handed one.
 
-Sites are seeded through DNS rather than written to the site store, because
-desired state is derived from proxied records: a site the store knows about and
-no record derives is not in the snapshot the validator reads.
+Sites are seeded with a record routed to them rather than left bare: a site no
+hostname reaches contributes no server block, so it would not be the thing the
+validator has an opinion about.
 """
 
 import json
 
 import pytest
 from blitzecdn_security.config import SECRET_VARIABLE
-from control_plane_fixtures import FakeRunner, ansible_run, host_run
+from control_plane_fixtures import FakeRunner, ansible_run, host_run, seed_site
 from pydantic import SecretStr
 from typer.testing import CliRunner
 
@@ -22,7 +22,7 @@ from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.features.sites.domain import SitePatch
 
 runner = CliRunner()
 
@@ -37,23 +37,15 @@ _REFUSAL = (
 
 
 def _control_serving(settings, runner_stub, **patch):
-    """A control plane serving one proxied site, patched with `patch`."""
+    """A control plane serving one site, patched with `patch`."""
     control = ControlPlane(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_stub,
     )  # type: ignore[arg-type]
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    control.dns.create_record(
-        DnsRecord(
-            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
-        ),
-        "alice",
-    )
+    seed_site(control, name="cdn-example-com", record="cdn")
     if patch:
-        control.dns.update_record(
-            "example.com", "cdn", RecordType.A, RecordPatch(**patch), "alice"
-        )
+        control.site_editor.update_site("cdn-example-com", SitePatch(**patch), "alice")
     return control
 
 
