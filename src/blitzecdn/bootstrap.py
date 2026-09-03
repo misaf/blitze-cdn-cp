@@ -189,10 +189,18 @@ class ControlPlane:
         # Each installed package's own configuration, resolved once here and
         # never read out of `Settings` by the packages themselves. Flat for
         # Ansible, scoped for the controller: `platform.capability_config` is
-        # how a capability reads the credential it claimed, and it can reach
-        # nothing it did not claim.
+        # how a capability reads what it claimed — a credential or a setting —
+        # and it can reach nothing it did not claim.
+        #
+        # It answers for a different contribution than the roles above.
+        # Configuration used to ride on `AnsibleContribution`, which was true
+        # of a secret forwarded into a play and false of every setting that
+        # never leaves the controller.
         self.capability_config = resolve_capability_environment(
-            contributions, self.settings.capability_environment
+            self.plugins.configuration_contributions(),
+            self.settings.capability_environment,
+            self.settings.capability_config_file,
+            self.settings.state_dir,
         )
         self._runner = runner or AnsibleRunner(
             self.settings,

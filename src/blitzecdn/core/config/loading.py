@@ -30,12 +30,6 @@ _PATH_SETTINGS = (
 
 _STATE_PATH_SETTINGS = (
     ("database_path", "BLITZE_DATABASE_PATH", "database_path", "control-plane.db"),
-    # Under the state directory for a checkout, and repointed at
-    # `/var/backups/blitzecdn` by the managed configuration a real installation
-    # gets. Both are right for where they are: a developer should not need a
-    # privileged directory to take a backup, and an installed controller should
-    # not keep its backups inside the directory an uninstall removes.
-    ("backup_dir", "BLITZE_BACKUP_DIR", "backup_dir", "backups"),
 )
 
 _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
@@ -67,47 +61,17 @@ _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
         5,
     ),
     (
-        "certificate_reconcile_interval_seconds",
-        "BLITZE_CERTIFICATE_RECONCILE_INTERVAL_SECONDS",
-        "certificate_reconcile_interval_seconds",
-        600,
-    ),
-    (
-        "certificate_renewal_interval_seconds",
-        "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS",
-        "certificate_renewal_interval_seconds",
-        43_200,
-    ),
-    (
-        "ssl_automatic_scan_interval_seconds",
-        "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS",
-        "ssl_automatic_scan_interval_seconds",
-        2_592_000,
-    ),
-    (
         "drift_check_interval_seconds",
         "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
         "drift_check_interval_seconds",
         3600,
     ),
     ("redis_url", "BLITZE_REDIS_URL", "redis_url", "redis://127.0.0.1:6379/0"),
-    (
-        "certificate_renewal_budget_seconds",
-        "BLITZE_CERTIFICATE_RENEWAL_BUDGET_SECONDS",
-        "certificate_renewal_budget_seconds",
-        300,
-    ),
-    (
-        "certificate_renewal_workers",
-        "BLITZE_CERTIFICATE_RENEWAL_WORKERS",
-        "certificate_renewal_workers",
-        2,
-    ),
+    ("api_worker_threads", "BLITZE_API_WORKER_THREADS", "api_worker_threads", 2),
 )
 
 _PROJECT_KEYS = {
     *(spec[2] for spec in (*_PATH_SETTINGS, *_STATE_PATH_SETTINGS, *_VALUE_SETTINGS)),
-    "acme_default_email",
     "preflight_dns_servers",
     "required_capabilities",
 }
@@ -116,15 +80,13 @@ _PROJECT_KEYS = {
 # compatible fresh install, but it must not replace the new host's filesystem
 # layout or local Redis endpoint with values from the failed machine.
 MACHINE_SPECIFIC_CONFIG_KEYS = frozenset(
-    {"database_path", "backup_dir", "environment_path", "redis_url"}
+    {"database_path", "environment_path", "redis_url"}
 )
-PORTABLE_CONFIG_KEYS = frozenset(_PROJECT_KEYS - MACHINE_SPECIFIC_CONFIG_KEYS)
 MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
     {
         "BLITZE_PROJECT_DIR",
         "BLITZE_CONFIG",
         "BLITZE_DATABASE_PATH",
-        "BLITZE_BACKUP_DIR",
         "BLITZE_ENVIRONMENT_PATH",
         "BLITZE_REDIS_URL",
     }
@@ -139,7 +101,6 @@ _CORE_ENVIRONMENT_KEYS = frozenset(
         ),
         "BLITZE_PROJECT_DIR",
         "BLITZE_CONFIG",
-        "BLITZE_ACME_DEFAULT_EMAIL",
         "BLITZE_PREFLIGHT_DNS_SERVERS",
         "BLITZE_REQUIRED_CAPABILITIES",
         # Controller authentication. Deliberately core-only and deliberately
@@ -149,6 +110,24 @@ _CORE_ENVIRONMENT_KEYS = frozenset(
         "BLITZE_API_KEYS",
     }
 )
+
+
+def is_portable_config_key(name: str) -> bool:
+    """Whether this `blitzecdn.toml` key survives a restore onto a fresh host.
+
+    A predicate rather than the allow-list it replaces, and for exactly the
+    reason :func:`is_portable_environment_key` became one: the list can no
+    longer be written down. An optional capability owns keys in this file now,
+    and a controller may have capabilities installed that this repository has
+    never heard of — so "is it one of ours" is unanswerable, while "does it
+    describe *this machine*" is answerable for every key core owns.
+
+    A capability's own machine-specific setting is not visible here, because
+    core does not know which of them are. It is declared on the setting, as
+    `CapabilitySetting.portable`, and the caller that has the plugins loaded
+    combines the two answers.
+    """
+    return name not in MACHINE_SPECIFIC_CONFIG_KEYS
 
 
 def is_portable_environment_key(name: str) -> bool:
@@ -240,9 +219,7 @@ def _configuration_values(
     for field, environment_name, config_name, default in _VALUE_SETTINGS:
         values[field] = value(environment_name, config_name, default)
 
-    raw_email = value("BLITZE_ACME_DEFAULT_EMAIL", "acme_default_email", "")
     values.update(
-        acme_default_email=(str(raw_email).strip().lower() if raw_email else None),
         preflight_dns_servers=_read_dns_servers(
             value("BLITZE_PREFLIGHT_DNS_SERVERS", "preflight_dns_servers", ())
         ),
@@ -250,6 +227,7 @@ def _configuration_values(
             value("BLITZE_REQUIRED_CAPABILITIES", "required_capabilities", ())
         ),
         capability_environment=_read_capability_environment(env),
+        capability_config_file=_read_capability_config_file(project_config),
         api_keys=_read_api_keys(env),
     )
     return values
@@ -292,6 +270,21 @@ def _with_local_environment(
 
 
 def _read_project_config(path: Path) -> dict[str, object]:
+    """Read `[blitzecdn]`, without deciding whether every key is meaningful.
+
+    A key core does not recognise is no longer refused here. It cannot be: an
+    optional capability's non-secret settings belong in this file — a renewal
+    interval is exactly the sort of default it exists to hold — and this
+    function runs long before any plugin has said what it claims. Refusing
+    here would mean the only configurable capability setting is one core
+    already knows about, which is the arrangement being removed.
+
+    The refusal did not go away, it moved to the one place that can make it:
+    `_read_capability_environment` stages the unrecognised keys and the plugin
+    resolver rejects any that no installed capability claims. A typo is still
+    loud; it is now loud in a sentence that can also say the package that
+    owned the name is no longer installed.
+    """
     if not path.exists():
         return {}
     try:
@@ -302,11 +295,6 @@ def _read_project_config(path: Path) -> dict[str, object]:
     raw = document.get("blitzecdn", {})
     if not isinstance(raw, dict):
         raise ConfigurationError("[blitzecdn] must be a TOML table")
-    unknown = set(raw) - _PROJECT_KEYS
-    if unknown:
-        raise ConfigurationError(
-            f"unknown project configuration: {', '.join(sorted(unknown))}"
-        )
     return raw
 
 
@@ -362,15 +350,71 @@ def _read_capability_environment(env: Mapping[str, str]) -> dict[str, SecretStr]
     than left to `os.environ` in the executor.
 
     The plugin resolver interprets ownership, not values. It accepts only
-    keys explicitly declared by one installed package and rejects typos,
+    names explicitly declared by one installed package and rejects typos,
     detached-package settings and ownership collisions before a runner is
     built. Thus collecting candidates here is not a forwarding policy.
+
+    Staged as `SecretStr` — including values that will turn out to be ordinary
+    numbers. Core does not learn which names are secrets until the plugins
+    declare it, and for a value it cannot yet attribute the safe assumption is
+    that it is one. The resolver unwraps a setting at the moment its owner says
+    it is not a secret.
     """
     return {
         name: SecretStr(value)
         for name, value in sorted(env.items())
         if name.startswith("BLITZE_") and name not in _CORE_ENVIRONMENT_KEYS
     }
+
+
+def _read_capability_config_file(
+    project_config: Mapping[str, object],
+) -> dict[str, str]:
+    """Stage the `blitzecdn.toml` keys core does not recognise.
+
+    This is what makes a non-secret capability setting configurable at all.
+    The file used to refuse every key core did not know, so the only way to
+    configure an optional capability was an environment variable — fine for
+    the secrets that were the only declarable kind, and wrong for a renewal
+    interval, which is exactly the sort of non-secret default this file exists
+    to hold. An unrecognised key is staged rather than refused; the refusal
+    moved to the plugin resolver, which is the only thing that knows what any
+    capability claims.
+
+    A TOML key is spelled the way every core key already maps to its variable:
+    `certificate_renewal_interval_seconds` becomes
+    `BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS`.
+
+    Kept apart from the environment map, and not as `SecretStr`, because this
+    file is committed and 0644 while `.env` is neither. Only a
+    `CapabilitySetting` is ever satisfied from here; a secret declared as an
+    `EnvironmentKey` is not, so a package cannot document its signing key into
+    a file an operator would commit.
+    """
+    return {
+        "BLITZE_" + str(name).upper(): _scalar(value)
+        for name, value in sorted(project_config.items())
+        if name not in _PROJECT_KEYS
+    }
+
+
+def _scalar(value: object) -> str:
+    """One TOML value as the string an environment variable would have held.
+
+    A capability setting arrives as text either way and is coerced by its
+    declaration, so the only job here is to spell a TOML scalar the way the
+    same value would have been written in a shell. `True` is the one that
+    would otherwise be wrong: Python spells it capitalised and no environment
+    variable ever does.
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (list, tuple, dict)):
+        raise ConfigurationError(
+            f"capability configuration must be a single value, not a "
+            f"{type(value).__name__}"
+        )
+    return str(value)
 
 
 def _read_api_keys(env: Mapping[str, str]) -> dict[str, SecretStr]:

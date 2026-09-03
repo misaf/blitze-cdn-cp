@@ -23,6 +23,7 @@ from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 from blitzecdn.core.plugins import (
+    CapabilitySetting,
     EnvironmentKey,
     load_plugins,
     resolve_edge_capability_roles,
@@ -99,11 +100,13 @@ def plugins(
     """
     control = common.control_plane()
     registry = control.plugins
-    declared: dict[str, list[EnvironmentKey]] = {}
-    for contribution in registry.ansible_contributions():
-        declared.setdefault(contribution.plugin, []).extend(
+    secrets: dict[str, list[EnvironmentKey]] = {}
+    settings: dict[str, list[CapabilitySetting]] = {}
+    for contribution in registry.configuration_contributions():
+        secrets.setdefault(contribution.plugin, []).extend(
             contribution.environment_keys
         )
+        settings.setdefault(contribution.plugin, []).extend(contribution.settings)
     document: dict[str, Any] = {
         "plugins": [
             {
@@ -115,6 +118,11 @@ def plugins(
                 "configuration": [
                     {
                         "name": key.name,
+                        # Which of the two kinds this is, rather than a
+                        # boolean called `secret` — there are exactly two, an
+                        # operator reads the word, and the field name is not
+                        # then one a credential scanner has to be told about.
+                        "kind": "secret",
                         "required": key.required,
                         "minimum_bytes": key.minimum_bytes,
                         # Whether a value arrived, never the value: this prints
@@ -125,7 +133,25 @@ def plugins(
                         "summary": key.summary,
                     }
                     for key in sorted(
-                        declared.get(plugin.name, ()), key=lambda key: key.name
+                        secrets.get(plugin.name, ()), key=lambda key: key.name
+                    )
+                ]
+                + [
+                    {
+                        "name": setting.name,
+                        "kind": "setting",
+                        # The resolved value, which a setting may show and a
+                        # secret may not — that difference is the whole reason
+                        # the two are declared as different things.
+                        "value": str(
+                            control.capability_config.for_plugin(plugin.name).settings[
+                                setting.name
+                            ]
+                        ),
+                        "summary": setting.summary,
+                    }
+                    for setting in sorted(
+                        settings.get(plugin.name, ()), key=lambda item: item.name
                     )
                 ],
             }

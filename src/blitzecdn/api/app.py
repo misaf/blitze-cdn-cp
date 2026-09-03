@@ -41,12 +41,17 @@ def create_app(
             process=ProcessKind.API,
             plugins=registry,
         )
-        renewal_pool = ThreadPoolExecutor(
-            max_workers=resolved.certificate_renewal_workers,
-            thread_name_prefix="blitzecdn-renewal",
+        # Where a route puts work that would otherwise block the event loop
+        # for minutes. Core's, and generic: an installed capability's route
+        # asks for it through `WorkerPoolDependency` rather than creating one,
+        # because a plugin has no way to own an application-scoped resource
+        # from a registration hook.
+        worker_pool = ThreadPoolExecutor(
+            max_workers=resolved.api_worker_threads,
+            thread_name_prefix="blitzecdn-worker",
         )
         application.state.control_plane = control
-        application.state.renewal_pool = renewal_pool
+        application.state.worker_pool = worker_pool
         # Republishing queued deployments is a plugin's startup contribution
         # now, not a line here: what a process owes at startup is the plugin's
         # business, and `RuntimeContext.process` is how it knows this is the API.
@@ -59,7 +64,7 @@ def create_app(
         finally:
             if scheduler is not None:
                 scheduler.shutdown(wait=True)
-            renewal_pool.shutdown(wait=True)
+            worker_pool.shutdown(wait=True)
             control.stop()
             control.close()
 

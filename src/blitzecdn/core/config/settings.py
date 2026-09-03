@@ -52,7 +52,6 @@ class Settings(BaseSettings):
     #: Where `backup create` writes when it is given no destination. The
     #: archives here hold private keys and the whole audit trail, so the
     #: directory is created `0700` and each archive `0600`.
-    backup_dir: Path
     #: The plays core itself owns. A capability's play is not here: it ships
     #: inside that capability's wheel and reaches ``run_playbook`` as a path
     #: the package resolved for itself, so detaching the package takes the
@@ -62,13 +61,6 @@ class Settings(BaseSettings):
     #: has to work on an installation with no capability attached at all.
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
-    certbot: str = "certbot"
-    acme_default_email: str | None = None
-    #: The CA identity a CAA record has to name for our issuance to be allowed.
-    #: Configurable because `certbot` can be pointed at another ACME server, and
-    #: a CAA check against the wrong CA is worse than none — it would pass while
-    #: the real CA is refused.
-    acme_ca_domain: str = "letsencrypt.org"
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
     #: Budget for one CAA lookup during certificate preflight. A resolver that
     #: needs longer is treated as unavailable and the check downgrades to an
@@ -108,21 +100,40 @@ class Settings(BaseSettings):
     #: on this model, which meant core carried the name of a capability that
     #: may not be installed — and a package this repository has never heard of
     #: had no way to be configured at all. Core carries neither name. During
-    #: composition, installed plugins explicitly claim keys through
-    #: `AnsibleContribution.environment_keys`; unclaimed and multiply claimed
-    #: names are configuration errors. Only the resolved subset reaches the
-    #: package role through the subprocess environment.
+    #: composition, installed plugins explicitly claim names through
+    #: `ConfigurationContribution` — as an `EnvironmentKey` when the value is a
+    #: secret and a `CapabilitySetting` when it is not; unclaimed and multiply
+    #: claimed names are configuration errors. Only the resolved *secrets*
+    #: reach the package role through the subprocess environment.
     #:
     #: `SecretStr` because core cannot know which of these are credentials, and
     #: the safe assumption for a value it cannot interpret is that it is one:
     #: a traceback or a debugger that reprs `Settings` prints `**********`.
-    #: Environment-only, like the API keys — `_read_project_config` refuses an
-    #: unknown key, so none of these can come from the committed TOML.
+    #: Not environment-only any more: a `blitzecdn.toml` key core does not
+    #: recognise is staged here as `BLITZE_<KEY>` rather than refused outright,
+    #: because a non-secret capability setting has to be writable in the file
+    #: that holds every other non-secret default. The refusal did not
+    #: disappear, it moved — an unclaimed name is rejected by the plugin
+    #: resolver, which is the only thing that knows what is claimed.
     #:
     #: Core's own names are excluded, which keeps `BLITZE_API_KEY` and
     #: `BLITZE_API_KEYS` — controller authentication, no edge's business — out
     #: of every subprocess the control plane starts.
     capability_environment: dict[str, SecretStr] = Field(default_factory=dict)
+    #: Capability configuration from `blitzecdn.toml`: keys core does not
+    #: recognise, staged under the `BLITZE_*` name they correspond to.
+    #:
+    #: Separate from `capability_environment` because of where it came from.
+    #: A non-secret capability setting belongs in the non-secret file — a
+    #: renewal interval is exactly what it exists to hold — but a *secret*
+    #: must not be settable there, and the two are indistinguishable until a
+    #: plugin says which is which. Keeping the origins apart lets the resolver
+    #: honour that: a `CapabilitySetting` reads from both, an `EnvironmentKey`
+    #: only from the environment. Plain strings, never `SecretStr`, because
+    #: nothing that reaches this map is allowed to be a credential.
+    #:
+    #: Lower precedence than the environment, like every other source here.
+    capability_config_file: dict[str, str] = Field(default_factory=dict)
     #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
@@ -148,33 +159,27 @@ class Settings(BaseSettings):
     #: anything changed. Real deployments are never pruned: they are the
     #: snapshots a rollback chooses from.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
-    certificate_reconcile_interval_seconds: int = Field(default=600, ge=0, le=86_400)
-    certificate_renewal_interval_seconds: int = Field(default=43_200, ge=0, le=604_800)
-    ssl_automatic_scan_interval_seconds: int = Field(
-        default=2_592_000, ge=0, le=31_536_000
-    )
     drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
     redis_url: RedisDsn = RedisDsn("redis://127.0.0.1:6379/0")
-    #: Wall-clock budget for one renewal sweep served over HTTP.
+    #: How many route handlers may occupy the API's offload pool at once.
     #:
-    #: A sweep runs certbot per site, each bounded only by
-    #: `deployment_timeout_seconds`, so an unbounded sweep can hold its worker
-    #: for hours. That is survivable on the CLI and on a timer, but over HTTP it
-    #: is a request nothing will wait for and a worker nothing can reclaim. When
-    #: the budget runs out the sweep stops between sites — never mid-issuance —
-    #: and reports the ones it did not reach as skipped, because the next run
-    #: picks them up and a truncated answer that says so is better than a
-    #: connection that dies holding the lock.
-    certificate_renewal_budget_seconds: int = Field(default=300, ge=30, le=7200)
-    #: How many renewal sweeps may be in flight at once.
+    #: Their own pool, not the server's. Some operations block for minutes —
+    #: a certificate renewal sweep is the standing example — and left in the
+    #: shared thread pool a handful of them starve every other endpoint,
+    #: including `/health`, so the controller would look dead to a load
+    #: balancer while working perfectly.
     #:
-    #: Their own pool, not the server's. Renewal is the one HTTP operation that
-    #: blocks for minutes, and left in the shared thread pool a handful of
-    #: concurrent sweeps starve every other endpoint — including `/health`, so
-    #: the controller would look dead to a load balancer while working
-    #: perfectly. Small on purpose: issuance serialises on the deployment lock
+    #: This is core's, and it stayed core's when the certificate settings
+    #: around it left. It was called `certificate_renewal_workers`, which read
+    #: as one capability's setting and was not: the pool is API infrastructure,
+    #: a package cannot create an application-scoped resource from a
+    #: registration hook, and an installation with no `blitzecdn-certificates`
+    #: still has the pool and still wants it bounded. Only the name named a
+    #: capability.
+    #:
+    #: Small on purpose: the work it carries serialises on the deployment lock
     #: anyway, so more workers would only queue deeper.
-    certificate_renewal_workers: int = Field(default=2, ge=1, le=16)
+    api_worker_threads: int = Field(default=2, ge=1, le=16)
     allow_empty_sites: bool = False
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
 
@@ -189,7 +194,6 @@ class Settings(BaseSettings):
         "deployment_lock_path",
         "certificate_dir",
         "environment_path",
-        "backup_dir",
         "decommission_playbook_path",
         mode="before",
     )
@@ -217,26 +221,6 @@ class Settings(BaseSettings):
         explanation, never a decision.
         """
         return self.state_dir / "logs"
-
-    @field_validator("acme_ca_domain")
-    @classmethod
-    def validate_acme_ca_domain(cls, value: str) -> str:
-        """Reject an empty CA identity rather than blocking every issuance.
-
-        The CAA check asks whether this name appears in the record's allowed
-        issuers. Empty never appears, so an unset value would turn a passing
-        preflight into a permanent, unexplained refusal.
-        """
-        candidate = value.strip().lower().rstrip(".")
-        if (
-            not candidate
-            or "." not in candidate
-            or any(character.isspace() for character in candidate)
-        ):
-            raise ValueError(
-                "acme_ca_domain must be a CA identity such as 'letsencrypt.org'"
-            )
-        return candidate
 
     @classmethod
     def from_environment(

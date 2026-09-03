@@ -30,6 +30,7 @@ from blitzecdn.core.plugins.discovery import PluginRejection
 from blitzecdn.core.plugins.types import (
     AnsibleContribution,
     CliCommandGroup,
+    ConfigurationContribution,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
@@ -222,6 +223,21 @@ class PluginRegistry:
             self._manager.hook.blitzecdn_ansible_contributions(),
             "blitzecdn_ansible_contributions",
             AnsibleContribution,
+        )
+
+    def configuration_contributions(self) -> tuple[ConfigurationContribution, ...]:
+        """Every installed plugin's claim on `BLITZE_*` names it configures.
+
+        Read once, before any adapter exists, because several adapters are
+        built from what it resolves to. Ownership, collisions and unclaimed
+        names are decided in :mod:`blitzecdn.core.plugins.resolution`, which is
+        where every other "compose one process-wide value from what happens to
+        be installed" question is already decided.
+        """
+        return _flatten(
+            self._manager.hook.blitzecdn_capability_configuration(),
+            "blitzecdn_capability_configuration",
+            ConfigurationContribution,
         )
 
     def nginx_contributions(self) -> tuple[NginxContribution, ...]:

@@ -15,7 +15,7 @@ from __future__ import annotations
 from blitzecdn.core.config.loading import (
     MACHINE_SPECIFIC_CONFIG_KEYS,
     MACHINE_SPECIFIC_ENVIRONMENT_KEYS,
-    PORTABLE_CONFIG_KEYS,
+    is_portable_config_key,
     is_portable_environment_key,
     settings_payload,
 )
@@ -24,8 +24,8 @@ from blitzecdn.core.config.settings import Settings
 __all__ = [
     "MACHINE_SPECIFIC_CONFIG_KEYS",
     "MACHINE_SPECIFIC_ENVIRONMENT_KEYS",
-    "PORTABLE_CONFIG_KEYS",
     "Settings",
+    "is_portable_config_key",
     "is_portable_environment_key",
     "settings_payload",
 ]

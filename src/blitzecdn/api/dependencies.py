@@ -19,8 +19,8 @@ def get_settings(request: Request) -> Settings:
     return cast(Settings, request.app.state.settings)
 
 
-def get_renewal_pool(request: Request) -> ThreadPoolExecutor:
-    return cast(ThreadPoolExecutor, request.app.state.renewal_pool)
+def get_worker_pool(request: Request) -> ThreadPoolExecutor:
+    return cast(ThreadPoolExecutor, request.app.state.worker_pool)
 
 
 SettingsDependency = Annotated[Settings, Depends(get_settings)]
@@ -63,4 +63,4 @@ def require_operator(
 
 ControlPlaneDependency = Annotated[ControlPlane, Depends(get_control_plane)]
 OperatorDependency = Annotated[str, Depends(require_operator)]
-RenewalPoolDependency = Annotated[ThreadPoolExecutor, Depends(get_renewal_pool)]
+WorkerPoolDependency = Annotated[ThreadPoolExecutor, Depends(get_worker_pool)]
