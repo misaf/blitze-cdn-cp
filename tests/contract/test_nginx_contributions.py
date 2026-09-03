@@ -8,12 +8,12 @@ from pydantic import SecretStr
 from blitzecdn.core.exceptions import ConfigurationError, PluginError
 from blitzecdn.core.plugins import (
     CapabilitySetting,
+    ConfigurationContribution,
     EnvironmentKey,
     NginxContribution,
     load_plugins,
 )
 from blitzecdn.core.plugins.resolution import (
-    ConfigurationContribution,
     resolve_capability_environment,
     resolve_nginx_resources,
 )
