@@ -16,6 +16,7 @@ from blitzecdn_certificates.certificates.service import (
     CertificatePolicy,
     CertificateService,
 )
+from blitzecdn_certificates.config import CertificateConfig
 
 if TYPE_CHECKING:
     from blitzecdn.bootstrap import ControlPlane
@@ -26,6 +27,7 @@ if TYPE_CHECKING:
 #: must not drift from ``pyproject.toml`` is not copied out of it.
 __version__ = distribution_version(__name__)
 
+_configs: WeakKeyDictionary[object, CertificateConfig] = WeakKeyDictionary()
 _certificate_services: WeakKeyDictionary[object, CertificateService] = (
     WeakKeyDictionary()
 )
@@ -34,12 +36,31 @@ _automatic_ssl_services: WeakKeyDictionary[object, AutomaticSslService] = (
 )
 
 
+def certificate_config(platform: ControlPlane) -> CertificateConfig:
+    """This capability's own configuration, resolved once per control plane.
+
+    Cached like the services are, and for the same reason: it is read by the
+    scheduled jobs, by the renewal route and by two adapters, and re-deriving
+    it would mean the CA-identity refusal fired in whichever of them happened
+    to run first rather than at composition.
+    """
+    existing = _configs.get(platform)
+    if existing is not None:
+        return existing
+    config = CertificateConfig.from_capability_config(
+        platform.capability_config.for_plugin("certificates")
+    )
+    _configs[platform] = config
+    return config
+
+
 def build_certificate_service(platform: ControlPlane) -> CertificateService:
     existing = _certificate_services.get(platform)
     if existing is not None:
         return existing
+    config = certificate_config(platform)
     service = CertificateService(
-        policy=CertificatePolicy(default_email=platform.settings.acme_default_email),
+        policy=CertificatePolicy(default_email=config.default_email),
         persistence=CertificatePersistence(
             sites=platform.sites,
             certificates=CertificateStore(platform.settings),
@@ -48,10 +69,11 @@ def build_certificate_service(platform: ControlPlane) -> CertificateService:
         ),
         execution=CertificateExecution(
             runner=platform.deployment_lock,
-            issuer=CertbotIssuer(platform.settings),
+            issuer=CertbotIssuer(platform.settings, config.certbot),
             preflight=CertificatePreflight(
                 platform.settings,
                 platform.edge_inventory,
+                ca_domain=config.ca_domain,
                 origin_probe=platform.origin_probe,
             ),
         ),
