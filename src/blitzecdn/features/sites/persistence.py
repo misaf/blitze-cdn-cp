@@ -9,11 +9,10 @@ side that derives it.
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-from sqlalchemy.exc import IntegrityError
 
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import ProjectionStateRow, SiteRow
-from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.features.sites.domain import CdnSite
 
 _SITE_COLUMNS = frozenset({"name", "server_names", "origin_host"})
@@ -22,8 +21,12 @@ _SITE_COLUMNS = frozenset({"name", "server_names", "origin_host"})
 class SiteStore:
     """The derived virtual hosts.
 
-    Nothing should write here except re-derivation from records: an edit made
-    directly survives only until the next record change silently reverts it.
+    Two reads and one wholesale rewrite: there is no per-site create, update or
+    delete, because re-derivation from records is the only thing entitled to
+    write here and it always writes the whole table. A row edited on its own
+    would survive exactly until the next record change reverted it, and the
+    absence of the method is what keeps a caller — a test included — from
+    planting a site the derivation would never produce.
     """
 
     def __init__(self, database: Database) -> None:
@@ -40,30 +43,6 @@ class SiteStore:
             if row is None:
                 raise NotFoundError(f"CDN site {name!r} does not exist")
             return self._site(row)
-
-    def create_site(self, site: CdnSite) -> CdnSite:
-        with self._db.session() as session:
-            session.add(self._row(site))
-            try:
-                session.flush()
-            except IntegrityError as exc:
-                raise ConflictError(f"CDN site {site.name!r} already exists") from exc
-        return site
-
-    def replace_site(self, site: CdnSite) -> CdnSite:
-        with self._db.session() as session:
-            row = session.get(SiteRow, site.name)
-            if row is None:
-                raise NotFoundError(f"CDN site {site.name!r} does not exist")
-            self._apply(row, site)
-        return site
-
-    def delete_site(self, name: str) -> None:
-        with self._db.session() as session:
-            row = session.get(SiteRow, name)
-            if row is None:
-                raise NotFoundError(f"CDN site {name!r} does not exist")
-            session.delete(row)
 
     def replace_all_sites(self, sites: list[CdnSite]) -> None:
         with self._db.session() as session:
