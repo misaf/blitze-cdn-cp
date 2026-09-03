@@ -28,6 +28,7 @@ from blitzecdn_backup.adapters import (
     TemporaryWorkspace,
     TlsComponent,
 )
+from blitzecdn_backup.config import BackupConfig
 from blitzecdn_backup.service import BackupPolicy, BackupService
 
 #: This distribution's version, asked of the environment rather than
@@ -40,7 +41,10 @@ __version__ = distribution_version(__name__)
 def build_backup_service(settings: Settings) -> BackupService:
     """Wire backup and restore, which need no repository and open none."""
     return BackupService(
-        policy=BackupPolicy(backup_dir=settings.backup_dir, version=__version__),
+        policy=BackupPolicy(
+            backup_dir=BackupConfig.from_settings(settings).backup_dir,
+            version=__version__,
+        ),
         components=(
             DatabaseComponent(settings),
             TlsComponent(settings),
