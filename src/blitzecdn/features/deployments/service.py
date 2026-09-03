@@ -3,7 +3,7 @@
 Everything here is about turning a stored snapshot into a run of Ansible and
 recording what happened. Nothing here decides *what* should be deployed; that
 is the zone editor's job, and this service reads its output through
-``DnsService.sync_sites`` only when a rollback rewrites canonical state.
+``DnsService.resync_hostnames`` only when a rollback rewrites canonical state.
 
 One service for the convergence paths, deliberately. Deploy, queued deploy,
 rollback, drift and recovery look like five use cases, but they are one run of
@@ -59,6 +59,7 @@ from blitzecdn.features.deployments.ports import (
     EventRecorder,
     LogReader,
     QueueBackgroundRunner,
+    SiteRestore,
     SiteValidator,
     UnitOfWork,
     ZoneEditor,
@@ -87,6 +88,8 @@ class DeploymentPersistence:
 
     deployments: DeploymentStore
     zones: ZoneStore
+    #: Only a rollback writes here, and only wholesale.
+    sites: SiteRestore
     uow: UnitOfWork
     requirements: DeploymentRequirements
 
@@ -128,7 +131,8 @@ class DeploymentService:
         self.persistence = persistence
         self.execution = execution
         self.events = events
-        #: Only ``sync_sites`` is ever called, and only on the rollback path.
+        #: ``resync_hostnames`` on the rollback path, ``validation_errors``
+        #: before every run, and nothing else.
         self.dns = dns
         self.workflows = workflows
         #: Built here rather than injected: every collaborator it needs is one
@@ -503,7 +507,10 @@ class DeploymentService:
                     self.persistence.deployments, deployment
                 )
                 rollback_policy.adopt_snapshot(
-                    self.persistence.zones, self.dns, snapshot
+                    self.persistence.zones,
+                    self.persistence.sites,
+                    self.dns,
+                    snapshot,
                 )
             deployment = self.persistence.deployments.transition(
                 deployment.id,

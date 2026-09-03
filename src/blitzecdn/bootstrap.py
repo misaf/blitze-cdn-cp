@@ -87,6 +87,7 @@ from blitzecdn.features.edges.probe import OriginProbe
 from blitzecdn.features.maintenance import MaintenanceService
 from blitzecdn.features.sites.domain import CdnSite
 from blitzecdn.features.sites.ports import SiteReader
+from blitzecdn.features.sites.service import SiteService
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
@@ -246,7 +247,11 @@ class ControlPlane:
         # `sites` is the read side of the site model. It is a port for the same
         # reason `audit` is: a reader is not a repository, and a package handed
         # one can answer "which hostnames does the fleet serve" without being
-        # able to write a site or reach SQLite. `fleet` runs a named play
+        # able to write a site or reach SQLite. A package that genuinely has to
+        # write one — `blitzecdn-certificates` activating a certificate it just
+        # issued — reaches `site_editor` and narrows it to the two methods it
+        # calls with a port of its own, exactly as it used to do with the zone
+        # editor. `fleet` runs a named play
         # across the edges in scope and knows nothing about what any play is
         # for. Between them they are the whole of what an optional package
         # needs and deliberately less than what a built-in service receives.
@@ -270,6 +275,16 @@ class ControlPlane:
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
+        # Both halves of the site model, and the split between them is the
+        # architecture: `site_editor` owns everything about how a site is
+        # served, `dns` owns which hostnames route to it. The same store is
+        # behind both, seen through two ports that cannot write each other's
+        # half — which is what makes "who wrote this field" answerable.
+        self.site_editor = SiteService(
+            sites=store.sites,
+            events=self.events,
+            uow=store,
+        )
         self.dns = DnsService(
             zones=store.zones,
             sites=store.sites,
@@ -299,6 +314,7 @@ class ControlPlane:
             persistence=DeploymentPersistence(
                 deployments=store.deployments,
                 zones=store.zones,
+                sites=store.sites,
                 uow=store,
                 requirements=store.deployment_requirements,
             ),

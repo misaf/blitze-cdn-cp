@@ -18,11 +18,12 @@ from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.features.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.features.deployments.ports import (
     DeploymentStore,
+    SiteRestore,
     ZoneEditor,
     ZoneStore,
 )
 from blitzecdn.features.deployments.snapshots import (
-    decode_snapshot_zones,
+    decode_snapshot_state,
     snapshot_digest,
 )
 
@@ -83,18 +84,29 @@ def require_unchanged_canonical(
         )
 
 
-def adopt_snapshot(zones: ZoneStore, dns: ZoneEditor, snapshot: str) -> None:
+def adopt_snapshot(
+    zones: ZoneStore, sites: SiteRestore, dns: ZoneEditor, snapshot: str
+) -> None:
     """Make the converged snapshot canonical desired state.
 
-    The order matters and is the reason this is one function rather than two
-    calls at the call site: the records go back first, then the sites are
-    reprojected from them. Reprojecting from records that are still the newer
-    ones would leave the control plane asserting sites the fleet was never
-    given, which is the disagreement rollback exists to end.
+    The order matters and is the reason this is one function rather than four
+    calls at the call site. A record references the site that serves its
+    hostname, so the records come out first, the sites are replaced while
+    nothing points at them, and the records go back afterwards — any other
+    order asks the database to delete a site a record still names, which the
+    foreign key refuses halfway through a restore.
+
+    The closing resync is not redundant. The snapshot's sites carry the
+    hostnames they had when it was written, and they agree with its records by
+    construction; recomputing them is what re-stamps the projection revision,
+    without which the very next validation would call the state it just
+    restored stale.
 
     Called only inside the caller's transaction, and only after
     :func:`require_unchanged_canonical` has agreed there is nothing to lose.
     """
-    domains, records = decode_snapshot_zones(snapshot)
+    domains, records, restored_sites = decode_snapshot_state(snapshot)
+    zones.delete_all_records()
+    sites.replace_all_sites(restored_sites)
     zones.replace_all_records(domains, records)
-    dns.sync_sites()
+    dns.resync_hostnames()

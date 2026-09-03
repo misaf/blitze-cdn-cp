@@ -9,11 +9,9 @@ from blitzecdn.core.database_models import DnsRecordRow, DomainRow
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 
-_RECORD_COLUMNS = frozenset({"domain", "name", "type", "value", "ttl", "proxied"})
-
 
 class ZoneStore:
-    """Zones and their records — the source of truth sites derive from."""
+    """Zones and their records."""
 
     def __init__(self, database: Database) -> None:
         self._db = database
@@ -115,6 +113,18 @@ class ZoneStore:
                 )
             session.delete(row)
 
+    def delete_all_records(self) -> None:
+        """Remove every record, leaving the zones and the sites alone.
+
+        Exists for the restore paths. A record references the site that serves
+        its hostname, so sites cannot be replaced wholesale while records still
+        point at the old ones — the foreign key refuses it, and rightly. Taking
+        the records out first is what lets the two tables be restored in the
+        order the references run.
+        """
+        with self._db.session() as session:
+            session.execute(delete(DnsRecordRow))
+
     def replace_all_records(
         self, domains: list[Domain], records: list[DnsRecord]
     ) -> None:
@@ -140,21 +150,19 @@ class ZoneStore:
     def _apply(self, row: DnsRecordRow, record: DnsRecord) -> None:
         row.value = record.value
         row.ttl = record.ttl
-        row.proxied = record.proxied
-        row.policy = record.model_dump(mode="json", exclude=set(_RECORD_COLUMNS))
+        row.site = record.site
         row.updated_at = self._db.now()
 
     @staticmethod
     def _record(row: DnsRecordRow) -> DnsRecord:
         return DnsRecord.model_validate(
             {
-                **row.policy,
                 "domain": row.domain,
                 "name": row.name,
                 "type": row.type,
                 "value": row.value,
                 "ttl": row.ttl,
-                "proxied": row.proxied,
+                "site": row.site,
             }
         )
 

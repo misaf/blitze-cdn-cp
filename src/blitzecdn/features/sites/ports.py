@@ -1,10 +1,15 @@
-"""What reading the site model looks like from outside `sites`.
+"""What this feature needs from persistence, and what it publishes outward.
 
-The projection is derived by `dns` and read by everyone else, so the read side
-is a contract of its own rather than a courtesy view of the store. An installed
-distribution is handed `SiteReader` as `platform.sites`: it can answer which
-hostnames the fleet serves without being able to write a site, reach SQLite, or
-know that a zone is where the answer came from.
+Two audiences, deliberately different. ``SiteStore`` is what ``SiteService``
+calls: the whole of the site table, because this feature owns it. ``SiteReader``
+is what an installed distribution is handed as ``platform.sites``: it can answer
+which hostnames the fleet serves without being able to write a site or reach
+SQLite.
+
+Neither of them writes ``server_names``. That column is the one part of a site
+this feature does not own — `dns` maintains it from the records routed here,
+through its own ``SiteHostnames`` port — so the write side of it is absent from
+both protocols rather than present and documented as off-limits.
 """
 
 from __future__ import annotations
@@ -15,11 +20,23 @@ from blitzecdn.features.sites.domain import CdnSite
 
 
 class SiteReader(Protocol):
-    """The derived virtual hosts, read-only."""
+    """The virtual hosts, read-only."""
 
     def list_sites(self) -> list[CdnSite]: ...
 
     def get_site(self, name: str) -> CdnSite: ...
 
 
-__all__ = ["SiteReader"]
+class SiteStore(SiteReader, Protocol):
+    """The site table, as its owning service uses it."""
+
+    def create_site(self, site: CdnSite) -> CdnSite: ...
+
+    def replace_site(self, site: CdnSite) -> CdnSite: ...
+
+    def delete_site(self, name: str) -> None: ...
+
+    def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
+
+
+__all__ = ["SiteReader", "SiteStore"]
