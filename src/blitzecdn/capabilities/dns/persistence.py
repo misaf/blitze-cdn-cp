@@ -4,10 +4,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col
 
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import DnsRecordRow, DomainRow
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 
 
 class ZoneStore:

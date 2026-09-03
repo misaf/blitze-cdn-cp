@@ -12,9 +12,9 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn_certificates.composition import build_automatic_ssl_service
 
 ssl_app = typer.Typer(

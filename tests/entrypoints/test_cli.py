@@ -19,12 +19,12 @@ from control_plane_fixtures import (
 from typer.testing import CliRunner
 
 from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.core.plugins import PluginRejection
 from blitzecdn.core.runs import RunStatus
-from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 
 certificate_domain = (
     import_module("blitzecdn_certificates.certificates.domain")

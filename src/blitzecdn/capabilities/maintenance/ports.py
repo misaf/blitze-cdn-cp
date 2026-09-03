@@ -5,8 +5,11 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Protocol
 
+from blitzecdn.capabilities.deployments.domain import (
+    Deployment,
+    DeploymentRequirementKind,
+)
 from blitzecdn.core.plugins import ScheduledJob
-from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentRequirementKind
 
 __all__ = ["Deployments", "JobTable", "Requirements"]
 

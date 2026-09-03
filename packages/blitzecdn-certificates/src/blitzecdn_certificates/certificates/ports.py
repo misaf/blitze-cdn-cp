@@ -4,9 +4,6 @@ from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
 
-from blitzecdn.core.operation_ports import EventRecorder
-from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentGateway,
     DeploymentLocker,
@@ -16,6 +13,9 @@ from blitzecdn.capabilities.dns.domain import DnsRecord
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
+from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.operations import WorkflowKind
+from blitzecdn.core.ports import UnitOfWork
 from blitzecdn_certificates.certificates.domain import (
     CertificateInfo,
     CertificateSource,

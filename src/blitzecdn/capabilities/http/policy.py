@@ -13,9 +13,12 @@ absent — the control plane then refuses the deployment by name through
 quietly serving the site over HTTP/2 as though nothing had been asked for.
 """
 
+from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
+
+from blitzecdn.core.policy import CapabilityPolicy
 
 
 class HttpScheme(StrEnum):
@@ -30,7 +33,7 @@ HTTPS_PROXY_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
 
 
-class ProtocolPolicy(BaseModel):
+class ProtocolPolicy(CapabilityPolicy):
     """HTTP protocol behavior requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -40,12 +43,12 @@ class ProtocolPolicy(BaseModel):
     http3_enabled: bool = False
 
     @property
-    def required_capabilities(self) -> frozenset[str]:
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Implementation capabilities requested by this stable policy.
 
         Empty for a site served over HTTP/1.1 and HTTP/2, which every managed
         edge does with nothing installed beside the control plane.
         """
         if not self.http3_enabled:
-            return frozenset()
-        return frozenset({"http3"})
+            return {}
+        return {"http3": ("http3_enabled",)}

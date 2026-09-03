@@ -17,18 +17,18 @@ import re
 
 from paths import CORE_ANSIBLE, REPO_ROOT
 
-from blitzecdn.core.ansible.mapping import site_to_ansible
+from blitzecdn.capabilities.cache.policy import CachePolicy
 from blitzecdn.capabilities.compression.policy import CompressionPolicy
 from blitzecdn.capabilities.http.policy import ProtocolPolicy
 from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
 from blitzecdn.capabilities.sites.policy import (
-    CachePolicy,
     HeaderPolicy,
     OriginPolicy,
     SiteVisitorHeaders,
 )
 from blitzecdn.capabilities.tls.policy import TlsPolicy
+from blitzecdn.core.ansible.mapping import site_to_ansible
 
 _ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"
 _TEMPLATE = (_ROLE / "templates/site.conf.j2").read_text(encoding="utf-8")
@@ -51,11 +51,12 @@ _NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 #: document. The class is the source of truth — this names the owner, and the
 #: fields come from the model, so a knob cannot be added without landing here.
 _CAPABILITY_POLICIES = {
+    "cache": CachePolicy,
     "compression": CompressionPolicy,
     "http": ProtocolPolicy,
     "security": SecurityPolicy,
     "tls": TlsPolicy,
-    "sites": (CachePolicy, HeaderPolicy, OriginPolicy),
+    "sites": (HeaderPolicy, OriginPolicy),
 }
 
 #: Fields on the site model that belong to no capability policy because they
@@ -96,7 +97,7 @@ def test_the_capability_owning_each_field_is_the_one_it_reads_like():
     assert owners["minimum_tls_version"] == "tls"
     assert owners["certificate_mode"] == "tls"
     assert owners["always_use_https"] == "tls"
-    assert owners["cache_enabled"] == "sites"
+    assert owners["cache_enabled"] == "cache"
     assert owners["visitor_headers"] == "sites"
     assert owners["origin_sni"] == "sites"
 

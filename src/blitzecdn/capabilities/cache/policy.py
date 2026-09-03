@@ -1,9 +1,11 @@
 """Site cache policy, distinct from cache purge and statistics operations."""
 
+from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import ConfigDict, field_validator
 
+from blitzecdn.core.policy import CapabilityPolicy
 from blitzecdn.core.validation import DURATION
 
 
@@ -14,7 +16,7 @@ class CacheQueryStringMode(StrEnum):
     IGNORE = "ignore"
 
 
-class CachePolicy(BaseModel):
+class CachePolicy(CapabilityPolicy):
     """Cache behavior requested by one site."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -33,3 +35,15 @@ class CachePolicy(BaseModel):
                 "ms, s, m, h, d, or w"
             )
         return value
+
+    @property
+    def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
+        """Implementation capabilities requested by this stable policy.
+
+        A site opts *out* of caching, so the default asks for the detachable
+        distribution. That is deliberate: an edge that silently stopped caching
+        because a wheel was missing is the failure worth being loud about.
+        """
+        if not self.cache_enabled:
+            return {}
+        return {"cache": ("cache_enabled",)}

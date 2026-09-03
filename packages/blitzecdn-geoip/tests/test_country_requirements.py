@@ -13,8 +13,8 @@ installed, which is the case this file cannot see.
 import pytest
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
-from blitzecdn.core.plugins import load_plugins
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.plugins import load_plugins
 
 #: Every setting on the stable site schema that asks the edge which country a
 #: visitor is in, and nothing else. A fourth consumer belongs on this list and

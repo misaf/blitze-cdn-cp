@@ -18,6 +18,9 @@ from pydantic import SecretStr
 
 from blitzecdn.api import create_app
 from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.cli import common as cli_common
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
@@ -30,9 +33,6 @@ from blitzecdn.core.runs import (
     TaskOutcome,
     TaskResult,
 )
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.capabilities.edges.domain import Edge
-from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 

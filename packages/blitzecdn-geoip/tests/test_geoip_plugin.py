@@ -9,12 +9,12 @@ attaching it is the only thing that makes a country-aware site deployable.
 from blitzecdn_geoip import __version__
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
+from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.plugins import (
     BUILTIN_PLUGINS,
     PluginMetadata,
     load_plugins,
 )
-from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 def _site(**policy: object) -> CdnSite:

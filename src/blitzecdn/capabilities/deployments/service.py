@@ -36,12 +36,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from blitzecdn.core.events import domain_event
-from blitzecdn.core.exceptions import DeploymentBusyError, ExecutionError
-from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.core.runs import AnsibleRun
-from blitzecdn.core.validation import validate_edge_limit
-from blitzecdn.core.workflows import WorkflowCoordinator
 from blitzecdn.capabilities.deployments import reporting
 from blitzecdn.capabilities.deployments import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.domain import (
@@ -67,6 +61,12 @@ from blitzecdn.capabilities.deployments.ports import (
 )
 from blitzecdn.capabilities.deployments.snapshots import snapshot_digest
 from blitzecdn.capabilities.deployments.validation import DeploymentValidation
+from blitzecdn.core.events import domain_event
+from blitzecdn.core.exceptions import DeploymentBusyError, ExecutionError
+from blitzecdn.core.operations import WorkflowKind
+from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.validation import validate_edge_limit
+from blitzecdn.core.workflows import WorkflowCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 

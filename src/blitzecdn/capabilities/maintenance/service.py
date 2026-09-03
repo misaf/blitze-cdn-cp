@@ -10,9 +10,9 @@ database until an operator happens to deploy for another reason.
 
 from __future__ import annotations
 
-from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.maintenance.ports import Deployments, JobTable, Requirements
+from blitzecdn.core.exceptions import NotFoundError
 
 
 class MaintenanceService:

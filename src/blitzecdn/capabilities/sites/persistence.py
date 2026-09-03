@@ -12,10 +12,10 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.exc import IntegrityError
 
+from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import ProjectionStateRow, SiteRow
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.capabilities.sites.domain import CdnSite
 
 _SITE_COLUMNS = frozenset({"name", "server_names", "origin_host"})
 

@@ -6,9 +6,9 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 
 #: Root-level verbs. They are contributed with no sub-command name, so an
 #: operator types `blitzecdn deploy` rather than `blitzecdn deployment deploy`:

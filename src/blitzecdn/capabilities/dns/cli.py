@@ -12,8 +12,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.cli import common
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.cli import common
 
 domain_app = typer.Typer(no_args_is_help=True, help="Manage DNS zones.")
 record_app = typer.Typer(

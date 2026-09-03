@@ -13,6 +13,7 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
@@ -22,7 +23,6 @@ from blitzecdn.capabilities.edges.domain import Edge as DomainEdge
 from blitzecdn.capabilities.edges.domain import EdgePatch as DomainEdgePatch
 from blitzecdn.capabilities.sites.domain import CdnSite as DomainCdnSite
 from blitzecdn.capabilities.sites.domain import SitePatch as DomainSitePatch
-from blitzecdn.capabilities.sites.policy import CacheQueryStringMode
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,

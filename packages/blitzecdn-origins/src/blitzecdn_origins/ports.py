@@ -12,8 +12,8 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.runs import AnsibleRun
 
 
 class FleetPlaybooks(Protocol):

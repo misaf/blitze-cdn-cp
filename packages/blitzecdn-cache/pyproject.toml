@@ -10,10 +10,10 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 # Points inward, and only inward. `CachePolicy` — TTLs, the query-string mode —
-# is not here: it is site configuration that every edge renders whether or not
-# this package is installed, and it stays in `blitzecdn.capabilities.sites.policy`.
-# What this distribution owns is the *operations*: purging, and reading how well
-# the cache is working.
+# is not here: it is site configuration that has to load whether or not this
+# package is installed, so it ships in the control plane as this capability's
+# contract, `blitzecdn.capabilities.cache.policy`. What this distribution owns
+# is the *operations*: purging, and reading how well the cache is working.
 dependencies = ["blitzecdn>=3.0.0,<4"]
 
 [project.entry-points."blitzecdn.plugins"]

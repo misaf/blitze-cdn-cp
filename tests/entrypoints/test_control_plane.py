@@ -17,6 +17,10 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
+from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import (
     ConflictError,
@@ -24,10 +28,6 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import HostRun, RunStatus
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 
 CertificateSource = (
     import_module("blitzecdn_certificates.certificates.domain").CertificateSource

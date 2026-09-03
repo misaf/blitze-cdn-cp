@@ -8,8 +8,8 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from blitzecdn.core.validation import hostname
 from blitzecdn.capabilities.deployments.domain import Deployment
+from blitzecdn.core.validation import hostname
 
 
 class CertificateSource(StrEnum):

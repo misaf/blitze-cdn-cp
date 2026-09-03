@@ -8,15 +8,15 @@ from uuid import uuid4
 from sqlalchemy import CursorResult, Result, delete, select, update
 from sqlmodel import col
 
-from blitzecdn.core.database_engine import Database
-from blitzecdn.core.database_models import DeploymentRow
-from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.runs import AnsibleRun, RunStatus
 from blitzecdn.capabilities.deployments.domain import (
     Deployment,
     DeploymentStatus,
     require_transition,
 )
+from blitzecdn.core.database_engine import Database
+from blitzecdn.core.database_models import DeploymentRow
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.runs import AnsibleRun, RunStatus
 
 
 def _rows_affected(result: Result[Any]) -> int:

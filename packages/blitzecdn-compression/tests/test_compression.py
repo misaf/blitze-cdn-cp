@@ -1,7 +1,7 @@
 from blitzecdn_compression.plugin import blitzecdn_plugin_metadata
 
-from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.capabilities.compression.policy import CompressionMode, CompressionPolicy
+from blitzecdn.core.plugins import PluginMetadata
 
 
 def test_gzip_and_brotli_are_strategies_of_one_capability() -> None:

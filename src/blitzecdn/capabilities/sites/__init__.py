@@ -11,8 +11,6 @@ owner, and the ownership tests refuse exactly that.
 
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch, SitePolicy
 from blitzecdn.capabilities.sites.policy import (
-    CachePolicy,
-    CacheQueryStringMode,
     HeaderPolicy,
     OriginPolicy,
     SiteVisitorHeaders,
@@ -20,8 +18,6 @@ from blitzecdn.capabilities.sites.policy import (
 from blitzecdn.capabilities.sites.service import SiteService
 
 __all__ = [
-    "CachePolicy",
-    "CacheQueryStringMode",
     "CdnSite",
     "HeaderPolicy",
     "OriginPolicy",

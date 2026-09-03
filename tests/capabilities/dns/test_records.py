@@ -6,13 +6,13 @@ import pytest
 from control_plane_fixtures import FakeRunner, seed_site
 
 from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.core.database import Repository
-from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.capabilities.deployments.snapshots import (
     decode_snapshot,
     decode_snapshot_state,
 )
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.core.database import Repository
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
 @pytest.mark.parametrize(

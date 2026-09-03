@@ -12,6 +12,9 @@ from fastapi.testclient import TestClient
 
 from blitzecdn.api.models import SitePatch
 from blitzecdn.api.models import SitePolicy as SitePolicyModel
+from blitzecdn.capabilities.deployments import DeploymentService
+from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.sites.domain import SitePolicy
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import (
     ConfigurationError,
@@ -19,9 +22,6 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
 )
 from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.capabilities.deployments import DeploymentService
-from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.sites.domain import SitePolicy
 
 CertificateService = (
     import_module("blitzecdn_certificates.certificates.service").CertificateService

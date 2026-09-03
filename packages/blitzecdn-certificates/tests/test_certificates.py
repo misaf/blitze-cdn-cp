@@ -14,8 +14,8 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 
-from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 
 
 def test_store_validates_and_persists_managed_certificate(

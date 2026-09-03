@@ -6,11 +6,11 @@ from sqlalchemy import CursorResult, Result, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import col
 
+from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import AnsibleSettingRow, DeploymentRequirementRow
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.validation import validate_setting_name
-from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 
 
 class DeploymentRequirementStore:

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
+from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.core.ansible.execution import PlaybookExecutor
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.ansible.lock import DeploymentLock
@@ -16,7 +17,6 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun
-from blitzecdn.capabilities.edges.ports import EdgeStore
 
 __all__ = ["AnsibleRunner"]
 

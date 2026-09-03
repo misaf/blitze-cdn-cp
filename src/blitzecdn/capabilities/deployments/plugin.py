@@ -16,6 +16,8 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter
 
 from blitzecdn import __version__
+from blitzecdn.capabilities.deployments import cli
+from blitzecdn.capabilities.deployments.api import routes
 from blitzecdn.core.plugins import (
     CliCommandGroup,
     PluginMetadata,
@@ -24,8 +26,6 @@ from blitzecdn.core.plugins import (
     ScheduledJob,
     hookimpl,
 )
-from blitzecdn.capabilities.deployments import cli
-from blitzecdn.capabilities.deployments.api import routes
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane

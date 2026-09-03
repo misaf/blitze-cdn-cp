@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.core.validation import OmittedWhenEmpty
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.core.validation import OmittedWhenEmpty
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:
