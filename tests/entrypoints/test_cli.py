@@ -566,7 +566,10 @@ def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch
         ]
     )
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    seed_site(control)
+    # Nothing optional: this is about the interactive flow, and a site left on
+    # its defaults asks for `cache` and `compression`, which the core-only
+    # workspace does not have and would refuse the deploy over.
+    seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
