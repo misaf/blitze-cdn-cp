@@ -23,6 +23,7 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import HostRun, RunStatus
+from blitzecdn.features.compression.policy import CompressionMode
 from blitzecdn.features.deployments.domain import DeploymentStatus
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
@@ -390,6 +391,158 @@ def test_validate_reports_a_collision_that_bypassed_the_create_check(settings):
         "a-b-example-com",
         "www-example-com",
     ]
+
+
+def test_a_second_proxied_record_for_one_hostname_is_refused(settings):
+    """An A and an AAAA record for one name derive one site, not two.
+
+    ``CdnSite`` carries a single ``origin_host`` and a single policy, so the
+    second record's origin and every setting on it would be discarded in
+    silence. The operator gets the conflict on the record they just typed.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.A,
+            value="198.51.100.10",
+            proxied=True,
+            compression=CompressionMode.BROTLI,
+        ),
+        "alice",
+    )
+    with pytest.raises(ConflictError, match="already proxied by its A record"):
+        control.dns.create_record(
+            DnsRecord(
+                domain="example.com",
+                name="www",
+                type=RecordType.AAAA,
+                value="2001:db8::1",
+                proxied=True,
+                compression=CompressionMode.OFF,
+            ),
+            "alice",
+        )
+
+
+def test_a_second_record_for_one_hostname_may_be_unproxied(settings):
+    """Only the proxy is exclusive. The pair itself is a normal dual-stack zone."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.A,
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "alice",
+    )
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.AAAA,
+            value="2001:db8::1",
+            proxied=False,
+        ),
+        "alice",
+    )
+    assert [site.name for site in repository.sites.list_sites()] == ["www-example-com"]
+
+
+def test_proxying_the_second_record_of_a_hostname_is_refused(settings):
+    """The switch is the other way in, and `set_proxied` goes through the guard."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.A,
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "alice",
+    )
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.AAAA,
+            value="2001:db8::1",
+            proxied=False,
+        ),
+        "alice",
+    )
+    with pytest.raises(ConflictError, match="already proxied by its A record"):
+        control.dns.set_proxied("example.com", "www", RecordType.AAAA, True, "alice")
+
+
+def test_a_proxied_record_may_still_be_updated_in_place(settings):
+    """The guard skips the row being replaced, which is keyed by type not fqdn."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    control.dns.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.A,
+            value="198.51.100.10",
+            proxied=True,
+        ),
+        "alice",
+    )
+    updated = control.dns.update_record(
+        "example.com",
+        "www",
+        RecordType.A,
+        RecordPatch(value="198.51.100.20"),
+        "alice",
+    )
+    assert updated.value == "198.51.100.20"
+    assert repository.sites.get_site("www-example-com").origin_host == "198.51.100.20"
+
+
+def test_validate_reports_a_dual_stack_proxy_that_bypassed_the_create_check(settings):
+    """Backstop for a pair restored from a snapshot rather than created."""
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )  # type: ignore[arg-type]
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+    for type_, value in (
+        (RecordType.A, "198.51.100.10"),
+        (RecordType.AAAA, "2001:db8::1"),
+    ):
+        repository.zones.create_record(
+            DnsRecord(
+                domain="example.com",
+                name="www",
+                type=type_,
+                value=value,
+                proxied=True,
+            )
+        )
+    assert any(
+        "proxied by both its A and its AAAA record" in error
+        for error in control.deployments.validate()
+    )
 
 
 def test_validate_rejects_acme_on_a_reserved_domain(settings):

@@ -84,7 +84,7 @@ class DnsService:
         return self.zones.get_record(domain, name, type_)
 
     def create_record(self, record: DnsRecord, operator: str) -> DnsRecord:
-        self._reject_derived_name_collision(record)
+        self._reject_conflicting_site_source(record)
         with self.uow.transaction():
             created = self.zones.create_record(record)
             self.sync_sites()
@@ -110,7 +110,7 @@ class DnsService:
         current = self.zones.get_record(domain, name, type_)
         changes = patch.model_dump(exclude_unset=True)
         updated = DnsRecord.model_validate({**current.model_dump(), **changes})
-        self._reject_derived_name_collision(updated)
+        self._reject_conflicting_site_source(updated)
         with self.uow.transaction():
             saved = self.zones.replace_record(updated, expected=current)
             self.sync_sites()
@@ -151,19 +151,38 @@ class DnsService:
                 domain_event(operator, "record.deleted", "record", record.fqdn)
             )
 
-    def _reject_derived_name_collision(self, record: DnsRecord) -> None:
-        """Refuse a record whose site name another record already derives.
+    def _reject_conflicting_site_source(self, record: DnsRecord) -> None:
+        """Refuse a proxied record that another proxied record already speaks for.
 
-        Two hostnames can flatten to one internal site name — ``a.b.example.com``
-        and ``a-b.example.com`` both give ``a-b-example-com``. Caught here the
-        operator gets a clear conflict on the record they just typed; left to
-        the derived write it surfaces as a UNIQUE constraint from SQLite.
+        Two ways that happens, and an operator reads them differently. Two
+        hostnames can flatten to one internal site name — ``a.b.example.com``
+        and ``a-b.example.com`` both give ``a-b-example-com``. And one hostname
+        can carry both an A and an AAAA record, which are two rows deriving one
+        site: ``CdnSite`` holds a single ``origin_host`` and a single policy, so
+        the second row's origin and every setting on it would be dropped in
+        silence.
+
+        A record does not conflict with the row it replaces, and that row is
+        identified by its key rather than by its hostname — the A and the AAAA
+        record for one name share an fqdn and are not the same record. Keying
+        on the fqdn is what let the dual-stack pair through.
         """
         if not record.proxied:
             return
+        key = (record.domain, record.name, record.type)
         for existing in self.zones.list_records():
-            if not existing.proxied or existing.fqdn == record.fqdn:
+            if not existing.proxied:
                 continue
+            if (existing.domain, existing.name, existing.type) == key:
+                continue
+            if existing.fqdn == record.fqdn:
+                raise ConflictError(
+                    f"{existing.fqdn!r} is already proxied by its "
+                    f"{existing.type.value} record. A proxied hostname is one "
+                    "site with one origin and one policy, so only one of its "
+                    "records may be proxied — unproxy that one, or change its "
+                    "origin instead of adding a second record."
+                )
             if existing.site_name == record.site_name:
                 raise ConflictError(
                     f"{record.fqdn!r} and {existing.fqdn!r} both map to the "
@@ -320,17 +339,26 @@ class DnsService:
         ):
             errors.append("the site projection is stale; rebuild it before deploying")
 
-        # Two records can flatten to one site name (a.b.example.com and
-        # a-b.example.com both give a-b-example-com), which would silently make
-        # one overwrite the other in the derived table.
-        derived: dict[str, str] = {}
+        # Backstop for the two conflicts `_reject_conflicting_site_source`
+        # refuses on the way in: records also arrive from a restored snapshot
+        # and from a rollback, neither of which goes through the editor. Both
+        # end the same way — one record derives the site and the other is
+        # discarded without a word — so a deploy must not start on either.
+        derived: dict[str, DnsRecord] = {}
         for record in records:
             if not record.proxied:
                 continue
-            previous = derived.setdefault(record.site_name, record.fqdn)
-            if previous != record.fqdn:
+            first = derived.setdefault(record.site_name, record)
+            if first.fqdn == record.fqdn and first.type is not record.type:
                 errors.append(
-                    f"{record.fqdn!r} and {previous!r} both derive the internal "
+                    f"{record.fqdn!r} is proxied by both its "
+                    f"{first.type.value} and its {record.type.value} record. "
+                    "One derives the site and the other is discarded, origin "
+                    "and policy alike. Unproxy one of them."
+                )
+            elif first.fqdn != record.fqdn:
+                errors.append(
+                    f"{record.fqdn!r} and {first.fqdn!r} both derive the internal "
                     f"site name {record.site_name!r}. Rename one of them."
                 )
             if record.certificate_mode is CertificateMode.REQUESTED and (
