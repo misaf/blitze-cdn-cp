@@ -1,6 +1,6 @@
 import threading
 
-from control_plane_fixtures import control_plane_app
+from control_plane_fixtures import control_plane_app, with_capability_settings
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
@@ -55,8 +55,8 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
     settings, monkeypatch
 ):
     called = threading.Event()
-    configured = settings.model_copy(
-        update={"certificate_reconcile_interval_seconds": 1}
+    configured = with_capability_settings(
+        settings, certificate_reconcile_interval_seconds=1
     )
 
     def enqueue(_url, job, *, ttl_seconds):
@@ -73,13 +73,11 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
 
 def test_api_service_runs_automatic_ssl_scans_on_their_interval(settings, monkeypatch):
     called = threading.Event()
-    configured = settings.model_copy(
-        update={
-            "certificate_reconcile_interval_seconds": 0,
-            "certificate_renewal_interval_seconds": 0,
-            "drift_check_interval_seconds": 0,
-            "ssl_automatic_scan_interval_seconds": 1,
-        }
+    configured = with_capability_settings(
+        settings,
+        certificate_reconcile_interval_seconds=0,
+        certificate_renewal_interval_seconds=0,
+        ssl_automatic_scan_interval_seconds=1,
     )
 
     def enqueue(_url, job, *, ttl_seconds):

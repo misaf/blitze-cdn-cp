@@ -9,6 +9,8 @@ out of the teardown slot leaves a decommissioned host public-key-only against a
 control plane that has forgotten it exists.
 """
 
+from importlib import import_module
+
 from blitzecdn_hardening import __version__, ansible
 from blitzecdn_hardening.plugin import (
     blitzecdn_ansible_contributions,
@@ -149,6 +151,9 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     Which is what makes attaching and detaching it invisible to every site: the
     document a rollback converges months from now is byte-identical either way.
     """
-    contribution = blitzecdn_ansible_contributions()[0]
-
-    assert contribution.environment_keys == ()
+    # Configuration is its own contribution now, and this capability makes
+    # none at all: not implementing the hook is how a package says so.
+    assert not hasattr(
+        import_module("blitzecdn_hardening.plugin"),
+        "blitzecdn_capability_configuration",
+    )

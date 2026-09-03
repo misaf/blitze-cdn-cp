@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from dramatiq.brokers.stub import StubBroker
+from pydantic import SecretStr
 
 from blitzecdn.api import create_app
 from blitzecdn.bootstrap import ControlPlane
@@ -489,10 +490,31 @@ def settings(tmp_path: Path) -> Settings:
         deployment_lock_path=state / "deployment.lock",
         certificate_dir=state / "certificates",
         environment_path=tmp_path / ".env",
-        backup_dir=state / "backups",
         decommission_playbook_path=ansible / "playbooks/decommission.yml",
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": "x" * 32},
+    )
+
+
+def with_capability_settings(settings: Settings, **values: object) -> Settings:
+    """A copy of ``settings`` carrying capability configuration.
+
+    An optional capability's settings are not fields on ``Settings`` any more,
+    so a test configures one the way an operator does — by the `BLITZE_*` name
+    its package claims — rather than by `model_copy(update=...)` against a
+    field core no longer has. Names are given unprefixed and lowercase, as they
+    are written in ``blitzecdn.toml``.
+    """
+    return settings.model_copy(
+        update={
+            "capability_environment": {
+                **settings.capability_environment,
+                **{
+                    "BLITZE_" + name.upper(): SecretStr(str(value))
+                    for name, value in values.items()
+                },
+            }
+        }
     )
 
 

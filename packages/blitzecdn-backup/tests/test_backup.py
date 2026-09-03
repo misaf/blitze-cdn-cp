@@ -21,6 +21,7 @@ from blitzecdn_backup.adapters import TarArchive, TemporaryWorkspace
 from blitzecdn_backup.adapters.components import DATABASE_MEMBER
 from blitzecdn_backup.adapters.services import ComposeRestoreGuard
 from blitzecdn_backup.composition import build_backup_service
+from blitzecdn_backup.config import BackupConfig
 from blitzecdn_backup.domain import (
     BACKUP_FORMAT_VERSION,
     BackupComponent,
@@ -42,6 +43,15 @@ from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.sites.domain import CdnSite
 
 runner = CliRunner()
+
+
+def _backup_dir(settings):
+    """Where this capability writes, resolved the way the service resolves it.
+
+    Not a field on `Settings` any more: it is this package's own setting, so a
+    test asks the package rather than core.
+    """
+    return BackupConfig.from_settings(settings).backup_dir
 
 
 # --- fixtures ---------------------------------------------------------
@@ -155,7 +165,7 @@ def test_the_filename_is_readable_utc(populated):
 
 def test_a_full_backup_takes_every_component_that_exists(service, populated):
     archive = service.create()
-    assert archive.parent == populated.backup_dir
+    assert archive.parent == _backup_dir(populated)
     assert _manifest(archive)["components"] == ["acme", "config", "database", "tls"]
 
 
@@ -200,7 +210,7 @@ def test_selecting_a_component_with_no_data_is_an_error(settings):
 
 def test_the_filename_and_directory_are_the_defaults(service, populated):
     archive = service.create()
-    assert archive.parent == populated.backup_dir
+    assert archive.parent == _backup_dir(populated)
     assert archive.name.startswith("blitzecdn-backup-")
     assert archive.name.endswith("Z.tar.gz")
 
@@ -214,7 +224,7 @@ def test_a_custom_output_path_is_used(service, populated):
 def test_the_archive_is_private_and_so_is_its_directory(service, populated):
     archive = service.create()
     assert archive.stat().st_mode & 0o777 == 0o600
-    assert populated.backup_dir.stat().st_mode & 0o777 == 0o700
+    assert _backup_dir(populated).stat().st_mode & 0o777 == 0o700
 
 
 def test_the_manifest_records_format_version_and_schema_separately(service):
@@ -284,7 +294,7 @@ def test_no_member_carries_an_absolute_path_or_a_link(service):
 
 
 def test_an_existing_destination_is_never_overwritten(service, populated):
-    target = populated.backup_dir / "taken.tar.gz"
+    target = _backup_dir(populated) / "taken.tar.gz"
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes(b"precious")
     with pytest.raises(ConfigurationError, match="refusing to overwrite"):
@@ -303,14 +313,14 @@ def test_a_failed_creation_leaves_no_temporary_files(populated, monkeypatch):
     )
     with pytest.raises(OSError, match="disk full"):
         service.create()
-    assert list(populated.backup_dir.glob("*")) == []
+    assert list(_backup_dir(populated).glob("*")) == []
     assert list((populated.state_dir / "backup-work").glob("*")) == []
 
 
 def test_a_destination_race_never_overwrites_and_cleans_the_temporary_file(
     service, populated, monkeypatch
 ):
-    target = populated.backup_dir / "raced.tar.gz"
+    target = _backup_dir(populated) / "raced.tar.gz"
 
     def lose_race(_source, destination):
         Path(destination).write_bytes(b"winner")
@@ -724,7 +734,6 @@ def _relocated(settings, root: Path):
             "database_path": root / ".state/control-plane.db",
             "certificate_dir": root / ".state/certificates",
             "environment_path": root / ".env",
-            "backup_dir": root / ".state/backups",
             "generated_vars_path": root / ".state/desired-state.yml",
             "deployment_lock_path": root / ".state/deployment.lock",
         }
@@ -872,7 +881,7 @@ def test_a_backup_service_without_a_component_refuses_to_restore_it(
     """
     archive = build_backup_service(populated).create(only=(BackupComponent.TLS,))
     partial = BackupService(
-        policy=BackupPolicy(backup_dir=populated.backup_dir, version="0"),
+        policy=BackupPolicy(backup_dir=_backup_dir(populated), version="0"),
         components=(),
         archive=TarArchive(),
         schema=DatabaseSchema(populated),
@@ -897,7 +906,7 @@ def test_cli_create_reports_where_the_backup_landed(cli_settings):
     assert result.exit_code == 0
     written = result.stdout.split("Backup created: ")[1].strip()
     assert Path(written).is_file()
-    assert Path(written).parent == cli_settings.backup_dir
+    assert Path(written).parent == _backup_dir(cli_settings)
 
 
 def test_cli_create_only_selects_components(cli_settings):

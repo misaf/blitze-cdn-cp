@@ -8,6 +8,8 @@ a capability that puts a file on a host must be able to take it off again
 without core knowing the path.
 """
 
+from importlib import import_module
+
 from blitzecdn_resolver import __version__, ansible
 from blitzecdn_resolver.plugin import (
     blitzecdn_ansible_contributions,
@@ -130,6 +132,8 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     Which is what makes attaching and detaching it invisible to every site: the
     document a rollback converges months from now is byte-identical either way.
     """
-    contribution = blitzecdn_ansible_contributions()[0]
-
-    assert contribution.environment_keys == ()
+    # Configuration is its own contribution now, and this capability makes
+    # none at all: not implementing the hook is how a package says so.
+    assert not hasattr(
+        import_module("blitzecdn_resolver.plugin"), "blitzecdn_capability_configuration"
+    )

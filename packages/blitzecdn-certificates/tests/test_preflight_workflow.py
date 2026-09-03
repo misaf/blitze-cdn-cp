@@ -27,7 +27,7 @@ def _preflight_control(settings, certificate_pair, failures=()):
         runner=runner,  # type: ignore[arg-type]
     )
     control.certificates = CertificateService(  # type: ignore[attr-defined]
-        policy=CertificatePolicy(default_email=settings.acme_default_email),
+        policy=CertificatePolicy(default_email=None),
         persistence=CertificatePersistence(
             sites=control.sites,
             certificates=CertificateStore(settings),

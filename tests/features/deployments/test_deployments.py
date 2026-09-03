@@ -264,7 +264,9 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
             assert email == "ops@example.com"
             return certificate_pair((site.server_names[0],))
 
-    configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
+    configured = with_capability_settings(
+        settings, acme_default_email="ops@example.com"
+    )
     repository = Repository(configured.database_path)
     control = ControlPlane(
         settings=configured,

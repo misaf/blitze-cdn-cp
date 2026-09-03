@@ -20,6 +20,7 @@ from control_plane_fixtures import (
     origin_report,
     seed_record,
     seed_site,
+    with_capability_settings,
 )
 
 from blitzecdn.bootstrap import ControlPlane
