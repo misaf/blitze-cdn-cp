@@ -266,7 +266,12 @@ def test_feature_domains_are_framework_and_io_independent():
 #: Application policy that lives beside a service rather than inside it. Held
 #: to the service rule, because moving code out of `service.py` must not be a
 #: way to escape it.
-_APPLICATION_MODULES = {"service.py", "rollback.py", "reporting.py"}
+_APPLICATION_MODULES = {
+    "service.py",
+    "rollback.py",
+    "reporting.py",
+    "validation.py",
+}
 
 
 def test_feature_services_depend_on_contracts_not_concrete_adapters():
@@ -535,6 +540,28 @@ def test_removed_subsystems_do_not_return():
         or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
     ]
     assert offenders == []
+
+
+def test_the_site_projection_offers_no_per_site_write():
+    """A derived table with create, update and delete on it is an invitation.
+
+    Re-derivation from records rewrites the whole table, so a per-site write
+    can only plant a row the next record change reverts. That rule used to be
+    a docstring while `SiteStore` carried `create_site`, `replace_site` and
+    `delete_site` regardless — reached by nothing in production and by forty
+    tests, which is how the suite came to assert on site shapes the derivation
+    cannot produce. Listing the read side explicitly rather than banning three
+    names keeps a fourth spelling from getting in.
+    """
+    from blitzecdn.features.sites.persistence import SiteStore
+
+    assert {name for name in vars(SiteStore) if not name.startswith("_")} == {
+        "list_sites",
+        "get_site",
+        "replace_all_sites",
+        "projection_revision",
+        "set_projection_revision",
+    }
 
 
 #: Which feature may know that another exists. Derived from the graph the code

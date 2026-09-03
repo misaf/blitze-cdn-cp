@@ -5,35 +5,44 @@ recording what happened. Nothing here decides *what* should be deployed; that
 is the zone editor's job, and this service reads its output through
 ``DnsService.sync_sites`` only when a rollback rewrites canonical state.
 
-One service rather than several, deliberately. Deploy, queued deploy, rollback,
-drift and recovery look like five use cases, but they are one run of Ansible
-reached five ways: each has to take the same cross-process lock, move the same
-record through the same transition table, and finalise inside the same
-transaction. Splitting them into handlers would hand each a copy of the same
+One service for the convergence paths, deliberately. Deploy, queued deploy,
+rollback, drift and recovery look like five use cases, but they are one run of
+Ansible reached five ways: each has to take the same cross-process lock, move
+the same record through the same transition table, and finalise inside the same
+transaction. Splitting *those* into handlers would hand each a copy of the same
 four collaborators and leave the lock ordering — the part that is actually
-difficult — spread across the pieces rather than stated once. What *has* been
-lifted out is the policy that has its own reason to change and does not touch
-the lock: :mod:`blitzecdn.features.deployments.rollback` owns what rolling back
-means, and ``domain.aborted_run`` is a pure value.
+difficult — spread across the pieces rather than stated once.
+
+What is lifted out is everything with its own reason to change that does not
+touch the lock, because keeping it here made "must hold the lock" and "must
+never take it" neighbours in one class:
+
+* :mod:`blitzecdn.features.deployments.rollback` owns what rolling back means.
+* :mod:`blitzecdn.features.deployments.validation` owns whether desired state
+  could be converged at all — asked without the lock, and answered against a
+  scratch file precisely so it cannot publish over a deploy in flight.
+* :mod:`blitzecdn.features.deployments.reporting` owns what a *recorded* run
+  may be read as evidence of, which is a rule about stored rows and touches
+  neither Ansible nor the lock.
+
+``domain.aborted_run`` is a pure value. What is left here is the run.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from uuid import uuid4
 
 from blitzecdn.core.events import domain_event
-from blitzecdn.core.exceptions import ConflictError, DeploymentBusyError, ExecutionError
+from blitzecdn.core.exceptions import DeploymentBusyError, ExecutionError
 from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.core.plugins import Severity
 from blitzecdn.core.runs import AnsibleRun
 from blitzecdn.core.validation import validate_edge_limit
 from blitzecdn.core.workflows import WorkflowCoordinator
+from blitzecdn.features.deployments import reporting
 from blitzecdn.features.deployments import rollback as rollback_policy
 from blitzecdn.features.deployments.domain import (
     Deployment,
@@ -55,13 +64,10 @@ from blitzecdn.features.deployments.ports import (
     ZoneEditor,
     ZoneStore,
 )
-from blitzecdn.features.deployments.snapshots import (
-    decode_snapshot,
-    snapshot_digest,
-)
+from blitzecdn.features.deployments.snapshots import snapshot_digest
+from blitzecdn.features.deployments.validation import DeploymentValidation
 
 _LOGGER = logging.getLogger(__name__)
-_DEPLOYMENT_LOOKBACK = 50
 
 
 @dataclass(frozen=True)
@@ -125,6 +131,21 @@ class DeploymentService:
         #: Only ``sync_sites`` is ever called, and only on the rollback path.
         self.dns = dns
         self.workflows = workflows
+        #: Built here rather than injected: every collaborator it needs is one
+        #: this service was already given, and asking the composition root for
+        #: a second object assembled from the same nine would put the fact that
+        #: they are the same nine in a place no test of this feature can see.
+        self._validation = DeploymentValidation(
+            runtime_errors=policy.runtime_errors,
+            dns=dns,
+            deployments=persistence.deployments,
+            validator=execution.validator,
+            runner=execution.runner,
+            renderer=execution.renderer,
+            read_log=execution.read_log,
+            run_dir=policy.run_dir,
+            output_limit_bytes=policy.output_limit_bytes,
+        )
 
     def initialize(self) -> int:
         """Recover durable work a previous controller process left in flight.
@@ -162,64 +183,13 @@ class DeploymentService:
     def validate(self) -> list[str]:
         """Answer whether desired state is coherent and the play parses.
 
-        Renders to a scratch file rather than to ``generated_vars_path``.
-        Validation is a question, not a publication, and it takes no lock — so
-        writing to the real file would let it land between the moment a deploy
-        in another process wrote its snapshot there and the moment Ansible read
-        it. A rollback is where that hurts most: the fleet would converge to
-        current state while the rollback still rewrote canonical records to the
-        old snapshot's zones, leaving the control plane and the edges disagreeing
-        in exactly the way rollback exists to end.
+        The answer is :mod:`blitzecdn.features.deployments.validation`'s, and
+        deliberately not reached under the lock this service otherwise holds
+        for everything: validating is a question about the current desired
+        state, and taking the lock to ask it would make ``blitzecdn validate``
+        block behind a fleet convergence that has nothing to do with it.
         """
-        errors = self.policy.runtime_errors()
-        errors.extend(self.dns.validation_errors())
-        snapshot = self.persistence.deployments.snapshot()
-        errors.extend(self._plugin_errors(snapshot))
-        if not errors:
-            with self._scratch_desired_state(snapshot) as variables:
-                run = self.execution.runner.validate(variables)
-            if not run.succeeded:
-                # The one place a log is read back. `--syntax-check` executes no
-                # play, so there is no structured result to explain a refusal —
-                # the return code decides, and Ansible's own message is quoted
-                # so the operator does not have to go and find it.
-                errors.append(
-                    self.execution.read_log(
-                        run.log_path, limit=self.policy.output_limit_bytes
-                    )
-                    or run.summary()
-                )
-        return errors
-
-    def _plugin_errors(self, snapshot: str) -> list[str]:
-        """Ask every installed plugin what it knows about each site.
-
-        A blocking issue refuses the deployment; a warning is logged and
-        converged anyway. Both are attributed to the plugin that raised them,
-        because the operator reading the refusal may have installed it
-        yesterday and has to know which package is objecting.
-        """
-        errors: list[str] = []
-        for site in decode_snapshot(snapshot):
-            for issue in self.execution.validator.validate_site(site).issues:
-                message = f"{issue.plugin}: {issue.site}: {issue.message}"
-                if issue.severity is Severity.BLOCKING:
-                    errors.append(message)
-                else:
-                    _LOGGER.warning("%s", message)
-        return errors
-
-    @contextmanager
-    def _scratch_desired_state(self, snapshot: str) -> Iterator[Path]:
-        """Render a snapshot somewhere only this call can see, then drop it."""
-        directory = self.policy.run_dir
-        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
-        path = directory / f"validate-{uuid4().hex}.yml"
-        try:
-            self.write_desired_state(snapshot, path)
-            yield path
-        finally:
-            path.unlink(missing_ok=True)
+        return self._validation.errors()
 
     # -- Deploying -----------------------------------------------------
 
@@ -371,22 +341,8 @@ class DeploymentService:
         return report
 
     def drift_report(self, deployment_id: str) -> DriftReport:
-        """Read a recorded check-mode run as a drift report.
-
-        Derived from the stored deployment rather than only from a live run, so
-        the CLI and the API share one interpretation and an operator can revisit
-        the answer a scheduled check produced without re-running it. The stored
-        result is the structured one, so this reads the same object a live run
-        produced rather than re-deriving anything.
-        """
-        deployment = self.persistence.deployments.get_deployment(deployment_id)
-        if not deployment.check_mode:
-            raise ConflictError(
-                f"deployment {deployment.id} applied changes rather than "
-                "previewing them, so its result describes what it did, not "
-                "what had drifted. Run 'blitzecdn drift' instead."
-            )
-        return DriftReport.of(deployment)
+        """Read a recorded check-mode run as a drift report."""
+        return reporting.drift_report(self.persistence.deployments, deployment_id)
 
     # -- History -------------------------------------------------------
 
@@ -399,25 +355,8 @@ class DeploymentService:
         return self.persistence.deployments.list_deployments(limit)
 
     def site_is_deployed(self, site_name: str) -> bool:
-        """Whether the most recent real deployment carried this site.
-
-        Check-mode runs are skipped: they proved the play parses, not that any
-        edge is serving the vhost. A run narrowed by ``host_limit`` counts,
-        because it did install the site somewhere — which makes this check
-        necessary rather than sufficient, the same caveat rollback carries about
-        canaries. Only the newest successful run is consulted; an older one
-        listing the site says nothing about whether it is still deployed.
-        """
-        for deployment in self.persistence.deployments.list_deployments(
-            limit=_DEPLOYMENT_LOOKBACK
-        ):
-            if deployment.status is not DeploymentStatus.SUCCEEDED:
-                continue
-            if deployment.check_mode:
-                continue
-            snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
-            return any(site.name == site_name for site in decode_snapshot(snapshot))
-        return False
+        """Whether the most recent real deployment carried this site."""
+        return reporting.site_is_deployed(self.persistence.deployments, site_name)
 
     # -- Internals -----------------------------------------------------
 
