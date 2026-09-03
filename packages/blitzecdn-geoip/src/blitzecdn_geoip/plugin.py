@@ -49,6 +49,7 @@ from collections.abc import Sequence
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
+    ConfigurationContribution,
     EdgeModule,
     EnvironmentKey,
     NginxContribution,
@@ -84,6 +85,39 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 
 
 @hookimpl
+def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
+    """Claim the MaxMind credentials the GeoLite2 updater authenticates with.
+
+    Deliberately not `required`. A controller with no MaxMind credentials is a
+    working controller: the role provisions no database,
+    `blitzecdn_geoip_enabled` stays the fleet's answer, and a site that asks
+    for a country is refused by capability token rather than by a startup
+    failure nobody asked for.
+    """
+    return (
+        ConfigurationContribution(
+            plugin="geoip",
+            environment_keys=(
+                EnvironmentKey(
+                    name="BLITZE_MAXMIND_ACCOUNT_ID",
+                    summary=(
+                        "The MaxMind account id the GeoLite2 updater "
+                        "authenticates with."
+                    ),
+                ),
+                EnvironmentKey(
+                    name="BLITZE_MAXMIND_LICENSE_KEY",
+                    summary=(
+                        "The MaxMind license key the GeoLite2 updater "
+                        "authenticates with."
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+@hookimpl
 def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
     # The role, and the fact that the edge play should run it. Core adds the
     # directory to Ansible's search path, adds the name to the play's
@@ -109,27 +143,6 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
                 EdgeModule(
                     name="geoip2",
                     objects=("ngx_http_geoip2_module.so",),
-                ),
-            ),
-            # Claimed, and deliberately not `required`. A controller with no
-            # MaxMind credentials is a working controller: the role provisions
-            # no database, `blitzecdn_geoip_enabled` stays the fleet's answer,
-            # and a site that asks for a country is refused by capability
-            # token rather than by a startup failure nobody asked for.
-            environment_keys=(
-                EnvironmentKey(
-                    name="BLITZE_MAXMIND_ACCOUNT_ID",
-                    summary=(
-                        "The MaxMind account id the GeoLite2 updater "
-                        "authenticates with."
-                    ),
-                ),
-                EnvironmentKey(
-                    name="BLITZE_MAXMIND_LICENSE_KEY",
-                    summary=(
-                        "The MaxMind license key the GeoLite2 updater "
-                        "authenticates with."
-                    ),
                 ),
             ),
         ),
