@@ -251,48 +251,60 @@ def run_role_tasks(
     )
 
 
+def _seed_site(repository, *, name, label, origin, **policy):
+    """One site and the record that routes a hostname to it.
+
+    Written through the stores rather than the services because these fixtures
+    describe *state*, not the operations that produce it, and the desired-state
+    document is what is under test. The hostname is stamped explicitly for the
+    same reason: `dns` maintains that column and no service is involved here.
+    """
+    repository.sites.create_site(
+        CdnSite.model_validate({"name": name, "origin_host": origin, **policy})
+    )
+    record = DnsRecord(domain="example.com", name=label, site=name)
+    repository.zones.create_record(record)
+    repository.sites.set_server_names(name, (record.fqdn,))
+
+
 @pytest.fixture
 def desired_state(settings, tmp_path) -> dict[str, Any]:
     repository = Repository(settings.database_path)
     control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
-    repository.zones.create_record(
-        DnsRecord.model_validate(
-            {
-                "domain": "example.com",
-                "name": "cdn",
-                "value": "198.51.100.20",
-                "proxied": True,
-                "ssl_mode": SslMode.OFF,
-                "origin_request_host": "origin.example.com",
-                "origin_sni": "origin.example.com",
-                "cache_enabled": True,
-                "cache_valid_success": "10m",
-                "cache_valid_not_found": "1m",
-            }
-        )
+    _seed_site(
+        repository,
+        name="cdn-example-com",
+        label="cdn",
+        origin="198.51.100.20",
+        **{
+            "ssl_mode": SslMode.OFF,
+            "origin_request_host": "origin.example.com",
+            "origin_sni": "origin.example.com",
+            "cache_enabled": True,
+            "cache_valid_success": "10m",
+            "cache_valid_not_found": "1m",
+        },
     )
-    repository.zones.create_record(
-        DnsRecord.model_validate(
-            {
-                "domain": "example.com",
-                "name": "static",
-                "value": "192.0.2.10",
-                "proxied": True,
-                "ssl_mode": SslMode.FLEXIBLE,
-                "enabled": False,
-                "cache_enabled": False,
-                "certificate_mode": CertificateMode.EXISTING,
-                "certificate_path": "/etc/ssl/plain/fullchain.pem",
-                "certificate_key_path": "/etc/ssl/plain/privkey.pem",
-                "firewall": {
-                    "allow_sources": ["203.0.113.9"],
-                    "deny_sources": ["203.0.113.0/24", "2001:db8::/32"],
-                    "denied_methods": ["DELETE", "TRACE"],
-                    "denied_paths": ["/admin", "/.git"],
-                },
-            }
-        )
+    _seed_site(
+        repository,
+        name="static-example-com",
+        label="static",
+        origin="192.0.2.10",
+        **{
+            "ssl_mode": SslMode.FLEXIBLE,
+            "enabled": False,
+            "cache_enabled": False,
+            "certificate_mode": CertificateMode.EXISTING,
+            "certificate_path": "/etc/ssl/plain/fullchain.pem",
+            "certificate_key_path": "/etc/ssl/plain/privkey.pem",
+            "firewall": {
+                "allow_sources": ["203.0.113.9"],
+                "deny_sources": ["203.0.113.0/24", "2001:db8::/32"],
+                "denied_methods": ["DELETE", "TRACE"],
+                "denied_paths": ["/admin", "/.git"],
+            },
+        },
     )
     control.deployments.write_desired_state(
         repository.snapshot(), settings.generated_vars_path

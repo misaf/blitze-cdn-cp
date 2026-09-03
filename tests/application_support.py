@@ -38,13 +38,13 @@ from blitzecdn.features.deployments.domain import (
 )
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.features.http.policy import HttpScheme
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.sites.domain import CdnSite, SitePatch
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 
 
-def _seed_proxied_record(control: ControlPlane) -> DnsRecord:
-    """The zone and proxied record most tests need, deriving `cdn-example-com`."""
-    return seed_record(control)
+def _seed_proxied_record(control: ControlPlane) -> CdnSite:
+    """The site and routed record most tests need: `cdn-example-com`."""
+    return seed_site(control)
 
 
 def _automatic_origin_report(
@@ -86,22 +86,13 @@ def _seed_automatic_ssl_record(
     mode: SslMode = SslMode.OFF,
     automatic: SslAutomaticMode = SslAutomaticMode.AUTO,
 ) -> None:
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    control.dns.create_record(
-        DnsRecord.model_validate(
-            {
-                "domain": "example.com",
-                "name": "cdn",
-                "value": "198.51.100.10",
-                "proxied": True,
-                "ssl_mode": mode,
-                "ssl_automatic_mode": automatic,
-                "certificate_mode": "existing",
-                "certificate_path": "/etc/ssl/certs/edge.pem",
-                "certificate_key_path": "/etc/ssl/private/edge.key",
-            }
-        ),
-        "alice",
+    seed_site(
+        control,
+        ssl_mode=mode,
+        ssl_automatic_mode=automatic,
+        certificate_mode="existing",
+        certificate_path="/etc/ssl/certs/edge.pem",
+        certificate_key_path="/etc/ssl/private/edge.key",
     )
 
 
@@ -121,11 +112,9 @@ class _RecordingIssuer:
 
 
 def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
-    record = _seed_proxied_record(control)
-    certificate, key = certificate_pair((record.fqdn,), days=days)
-    return control.certificates.upload_certificate(
-        record.site_name, certificate, key, "alice"
-    )
+    site = _seed_proxied_record(control)
+    certificate, key = certificate_pair((site.server_names[0],), days=days)
+    return control.certificates.upload_certificate(site.name, certificate, key, "alice")
 
 
 def _purge_run():

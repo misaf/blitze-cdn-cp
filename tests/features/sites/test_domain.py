@@ -1,4 +1,3 @@
-import json
 import re
 
 import pytest
@@ -12,7 +11,6 @@ from blitzecdn.features.deployments.domain import (
     require_transition,
 )
 from blitzecdn.features.deployments.snapshots import decode_snapshot, encode_snapshot
-from blitzecdn.features.dns.domain import DnsRecord, RecordPatch
 from blitzecdn.features.http.policy import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
@@ -20,7 +18,7 @@ from blitzecdn.features.http.policy import (
     HttpScheme,
 )
 from blitzecdn.features.security.policy import SiteFirewall
-from blitzecdn.features.sites.domain import CdnSite, SitePolicy
+from blitzecdn.features.sites.domain import CdnSite, SitePatch, SitePolicy
 from blitzecdn.features.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
 from blitzecdn.features.tls.policy import MinimumTlsVersion, SslAutomaticMode, SslMode
 
@@ -50,8 +48,10 @@ def test_a_disabled_site_requires_no_optional_implementation(site_payload):
     "snapshot",
     [
         "{}",
-        '{"domains": [], "records": [], "unknown": []}',
-        '{"domains": {}, "records": []}',
+        '{"domains": [], "records": [], "sites": []}',
+        '{"schema_version": 1, "domains": [], "records": [], "sites": [], "x": []}',
+        '{"schema_version": 1, "domains": {}, "records": [], "sites": []}',
+        '{"schema_version": 1, "domains": [], "records": []}',
     ],
 )
 def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
@@ -60,7 +60,7 @@ def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
 
 
 def test_snapshots_fail_closed_on_unknown_schema_versions():
-    snapshot = '{"schema_version":999,"domains":[],"records":[]}'
+    snapshot = '{"schema_version":999,"domains":[],"records":[],"sites":[]}'
     with pytest.raises(ValueError, match="unsupported deployment snapshot"):
         decode_snapshot(snapshot)
 
@@ -353,7 +353,7 @@ def test_removed_origin_scheme_is_rejected(site_payload):
     site_payload["origin_scheme"] = "http"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         CdnSite.model_validate(site_payload)
-    assert "origin_scheme" not in RecordPatch.model_fields
+    assert "origin_scheme" not in SitePatch.model_fields
 
 
 @pytest.mark.parametrize(
@@ -393,12 +393,11 @@ def test_managed_certificate_modes_accept_their_own_paths(site_payload):
     assert CdnSite.model_validate(site_payload).certificate_mode == "uploaded"
 
 
-def _managed_record(**overrides: object) -> dict[str, object]:
+def _managed_site(**overrides: object) -> dict[str, object]:
     return {
-        "domain": "example.com",
-        "name": "cdn",
-        "value": "198.51.100.10",
-        "proxied": True,
+        "name": "cdn-example-com",
+        "server_names": ["cdn.example.com"],
+        "origin_host": "198.51.100.10",
         "certificate_mode": "uploaded",
         "certificate_path": "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem",
         "certificate_key_path": "/etc/blitzecdn/tls/cdn-example-com/privkey.pem",
@@ -406,33 +405,32 @@ def _managed_record(**overrides: object) -> dict[str, object]:
     }
 
 
-def test_record_patch_cannot_redirect_a_managed_certificate():
-    """The escalation path: aim a managed record's cert at an arbitrary file.
+def test_site_patch_cannot_redirect_a_managed_certificate():
+    """The escalation path: aim a managed site's cert at an arbitrary file.
 
-    A deploy writes these paths as root, so the record has to be refused before
-    it reaches the derived desired state.
+    A deploy writes these paths as root, so the site has to be refused before
+    it reaches the desired state.
     """
-    record = DnsRecord.model_validate(_managed_record())
-    patch = RecordPatch(certificate_path="/etc/cron.d/blitzecdn")
+    site = CdnSite.model_validate(_managed_site())
+    patch = SitePatch(certificate_path="/etc/cron.d/blitzecdn")
     with pytest.raises(ValidationError):
-        DnsRecord.model_validate(
-            {**record.model_dump(), **patch.model_dump(exclude_unset=True)}
+        CdnSite.model_validate(
+            {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
         )
 
 
-def test_record_patch_revalidates_the_whole_record():
-    record = DnsRecord.model_validate(_managed_record())
-    patch = RecordPatch(value="192.0.2.20", cache_enabled=False)
-    updated = DnsRecord.model_validate(
-        {**record.model_dump(), **patch.model_dump(exclude_unset=True)}
+def test_site_patch_revalidates_the_whole_site():
+    site = CdnSite.model_validate(_managed_site())
+    patch = SitePatch(origin_host="192.0.2.20", cache_enabled=False)
+    updated = CdnSite.model_validate(
+        {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
-    assert updated.value == "192.0.2.20"
+    assert updated.origin_host == "192.0.2.20"
     assert updated.cache_enabled is False
-    assert updated.to_site().origin_host == "192.0.2.20"
 
 
-def test_record_patch_covers_every_shared_policy_field():
-    """`RecordPatch` cannot inherit `SitePolicy`, so nothing else keeps it honest.
+def test_site_patch_covers_every_shared_policy_field():
+    """`SitePatch` cannot inherit `SitePolicy`, so nothing else keeps it honest.
 
     Every policy field has to be patchable. One missing is not an error anyone
     sees: the API accepts the request, silently drops the unknown key under
@@ -440,43 +438,37 @@ def test_record_patch_covers_every_shared_policy_field():
     creation but never change. Adding a field to `SitePolicy` should fail here
     until it is added below it too.
     """
-    assert set(SitePolicy.model_fields) <= set(RecordPatch.model_fields), (
-        "RecordPatch is missing "
-        f"{sorted(set(SitePolicy.model_fields) - set(RecordPatch.model_fields))}. "
-        "Add the field to RecordPatch as an optional defaulting to None."
+    assert set(SitePolicy.model_fields) <= set(SitePatch.model_fields), (
+        "SitePatch is missing "
+        f"{sorted(set(SitePolicy.model_fields) - set(SitePatch.model_fields))}. "
+        "Add the field to SitePatch as an optional defaulting to None."
     )
+
+
+def test_the_patch_cannot_reach_the_field_dns_owns():
+    """`server_names` is maintained from the records, so a patch has no word for
+    it. Everything else about a site is patchable; this one thing is not."""
+    assert "server_names" not in SitePatch.model_fields
+    assert "origin_host" in SitePatch.model_fields
 
 
 def test_every_patchable_policy_field_is_optional():
     """An inherited required field would arrive here with a default and apply
     itself on every unrelated patch."""
     for name in SitePolicy.model_fields:
-        assert RecordPatch.model_fields[name].default is None, (
-            f"RecordPatch.{name} must default to None so an unset field means "
+        assert SitePatch.model_fields[name].default is None, (
+            f"SitePatch.{name} must default to None so an unset field means "
             "'leave alone' rather than 'reset to this value'"
-        )
-
-
-def test_a_site_derived_from_a_record_carries_every_policy_field():
-    """`to_site()` copies the policy by name; prove nothing is lost in transit."""
-    record = DnsRecord.model_validate(
-        _managed_record(cache_valid_success="30m", origin_sni="o.test")
-    )
-    site = record.to_site()
-    for name in SitePolicy.model_fields:
-        assert getattr(site, name) == getattr(record, name), (
-            f"{name} did not survive DnsRecord.to_site()"
         )
 
 
 def test_under_attack_mode_defaults_off_and_is_patchable():
     assert SitePolicy().under_attack_mode is False
-    assert RecordPatch(under_attack_mode=True).under_attack_mode is True
-
-    record = DnsRecord.model_validate(_managed_record(under_attack_mode=True))
-    site = record.to_site()
-    assert site is not None
-    assert site.under_attack_mode is True
+    assert SitePatch(under_attack_mode=True).under_attack_mode is True
+    assert (
+        CdnSite.model_validate(_managed_site(under_attack_mode=True)).under_attack_mode
+        is True
+    )
 
 
 def test_visitor_headers_default_to_the_address_and_not_the_country(site_payload):
@@ -612,18 +604,12 @@ def test_a_disabled_site_names_no_capability_and_no_setting(site_payload):
 def test_a_patch_replaces_the_whole_visitor_header_block():
     """Like the firewall, and for the same reason: partial merges cannot
     express turning the last switch off."""
-    record = DnsRecord.model_validate(
-        {
-            "domain": "example.com",
-            "name": "cdn",
-            "value": "203.0.113.10",
-            "proxied": True,
-            "visitor_headers": {"connecting_ip": True, "ip_country": True},
-        }
+    site = CdnSite.model_validate(
+        _managed_site(visitor_headers={"connecting_ip": True, "ip_country": True})
     )
-    patch = RecordPatch(visitor_headers=SiteVisitorHeaders())
-    updated = DnsRecord.model_validate(
-        {**record.model_dump(), **patch.model_dump(exclude_unset=True)}
+    patch = SitePatch(visitor_headers=SiteVisitorHeaders())
+    updated = CdnSite.model_validate(
+        {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
 
     assert updated.visitor_headers.connecting_ip is True
@@ -632,16 +618,10 @@ def test_a_patch_replaces_the_whole_visitor_header_block():
 
 def test_visitor_headers_survive_a_snapshot_round_trip():
     """Desired state is JSON on the way to a run and back from a rollback."""
-    record = DnsRecord.model_validate(
-        {
-            "domain": "example.com",
-            "name": "cdn",
-            "value": "203.0.113.10",
-            "proxied": True,
-            "visitor_headers": {"connecting_ip": False, "ip_country": True},
-        }
+    stored = CdnSite.model_validate(
+        _managed_site(visitor_headers={"connecting_ip": False, "ip_country": True})
     )
-    snapshot = encode_snapshot([], [record])
+    snapshot = encode_snapshot([], [], [stored])
 
     (site,) = decode_snapshot(snapshot)
 
@@ -651,51 +631,22 @@ def test_visitor_headers_survive_a_snapshot_round_trip():
 
 
 def test_http3_survives_a_snapshot_round_trip():
-    record = DnsRecord.model_validate(
-        _managed_record(ssl_mode="flexible", http3_enabled=True)
+    stored = CdnSite.model_validate(
+        _managed_site(ssl_mode="flexible", http3_enabled=True)
     )
-    (site,) = decode_snapshot(encode_snapshot([], [record]))
+    (site,) = decode_snapshot(encode_snapshot([], [], [stored]))
     assert site.http3_enabled is True
 
 
 def test_http3_changes_snapshot_identity_only_when_the_value_changes():
-    disabled = DnsRecord.model_validate(
-        _managed_record(ssl_mode="flexible", http3_enabled=False)
+    disabled = CdnSite.model_validate(
+        _managed_site(ssl_mode="flexible", http3_enabled=False)
     )
     enabled = disabled.model_copy(update={"http3_enabled": True})
 
-    baseline = encode_snapshot([], [disabled])
-    assert encode_snapshot([], [disabled]) == baseline
-    assert encode_snapshot([], [enabled]) != baseline
-
-
-def test_a_snapshot_written_before_visitor_headers_still_decodes():
-    """Successful deployments are rollback targets forever.
-
-    Nothing in the repository persists a record without the block, so this is
-    the only place the shape can be proven readable: the defaults apply, and a
-    rollback to a pre-feature snapshot converges the pre-feature behaviour.
-    """
-    legacy = json.dumps(
-        {
-            "domains": [{"name": "example.com"}],
-            "records": [
-                {
-                    "domain": "example.com",
-                    "name": "cdn",
-                    "type": "A",
-                    "value": "203.0.113.10",
-                    "ttl": 300,
-                    "proxied": True,
-                }
-            ],
-        }
-    )
-
-    (site,) = decode_snapshot(legacy)
-
-    assert site.visitor_headers == SiteVisitorHeaders()
-    assert site.http3_enabled is False
+    baseline = encode_snapshot([], [], [disabled])
+    assert encode_snapshot([], [], [disabled]) == baseline
+    assert encode_snapshot([], [], [enabled]) != baseline
 
 
 def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():

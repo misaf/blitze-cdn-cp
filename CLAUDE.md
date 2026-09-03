@@ -66,9 +66,9 @@ blitze-cdn-cp/
 │   │   ├── security/       #   policy.py + plugin.py — firewall, Under Attack Mode
 │   │   ├── tls/            #   policy.py + certificates/ + automatic_ssl/
 │   │   ├── sites/          #   domain.py composes every contract; policy/ its own;
-│   │   │                   #   ports.py + persistence.py + api/ + cli.py are the
-│   │   │                   #   derived projection, which `dns` writes and
-│   │   │                   #   everyone else reads
+│   │   │                   #   service.py owns the site — canonical, not derived
+│   │   │                   #   — behind ports.py + persistence.py + api/ + cli.py.
+│   │   │                   #   `dns` writes one column of it: server_names
 │   │   └── dns/  edges/  deployments/  diagnostics/  maintenance/
 │   ├── core/               # shared runtime and infrastructure implementations:
 │   │   │                   # SQLite, Ansible, Certbot, filesystem, process, config
@@ -131,8 +131,10 @@ The rules that shape it:
   its service in its own `composition.py` from what the control plane publishes:
   `platform.settings`, `platform.events`, `platform.sites`
   (`features/sites/ports.py`'s `SiteReader` — list and get, and nothing that
-  writes: the projection's write side is `dns.ports.SiteProjection` and stays
-  with the feature that derives it), `platform.origin_probe` and `platform.fleet` (a
+  writes), `platform.site_editor` (the `SiteService` itself, for the one package
+  that genuinely writes a site: `blitzecdn-certificates` narrows it to the two
+  methods it calls with a `SiteEditor` port of its own),
+  `platform.origin_probe` and `platform.fleet` (a
   `PlaybookRunner`: run this named play with these variables against these
   hosts, and nothing feature-shaped). Core's `AnsibleRunner` therefore has no
   `run_cache_purge` or `run_origin_check` any more — building a purge document
@@ -253,7 +255,7 @@ The rules that shape it:
   overridden with `blitzecdn config set`; nothing about an optional capability
   belongs in `src/blitzecdn/ansible/inventory/group_vars/`.
 - **One top-level package is one capability.** A strategy, a protocol version, a mode or a single switch is not one: `capability → feature internals → strategy/mode/option`. gzip and Brotli are `CompressionMode` values inside `compression`; HTTP/3 is a switch in `http`; Under Attack Mode is a switch in `security`; certificate issuance and the Automatic SSL/TLS scan are `tls/certificates` and `tls/automatic_ssl`. `test_no_strategy_mode_or_option_becomes_a_top_level_feature` refuses a `features/gzip`, `features/http3`, `features/certificates` or `features/under_attack` package by name. That rule is about the *feature tree* only: an optional distribution is named after the implementation an operator attaches, which is why `blitzecdn-certificates` and `blitzecdn-http3` are wheels while those feature directories stay refused. HTTP/1.1 and HTTP/2 are baseline and never optional — there is no `blitzecdn-http1` or `blitzecdn-http2`. Before adding a feature, answer **which existing capability owns this?** — a new top-level package is the exception.
-- **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. The *derived* projection of that model lives with it too — `sites/persistence.py` behind `sites/ports.py`, plus the read-only `site` commands and `/v{1,2}/sites` routes — while `dns` keeps deriving it and writes through its own `SiteProjection`, so the `dns → sites` arrow is unchanged and nobody looking for the site API has to find it under `dns`. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
+- **Each capability splits into a contract and an implementation.** `policy.py` (or `policy/`) holds pure configuration values and imports only `core` and other capabilities' contracts. Everything else consumes `CdnSite` and therefore sits above the contract layer. `sites/domain.py` composes the four borrowed contracts into the flat `CdnSite` and owns only the rules that read across two capabilities at once. **A site is canonical**: `sites/service.py` creates, edits and deletes one, `sites/persistence.py` behind `sites/ports.py` stores it, and the `site` commands and `/v{1,2}/sites` routes write it. A DNS record is a *pointer* — it either answers with an address of its own or names the site that answers for its hostname — and the one thing `dns` still writes on a site is `server_names`, the set of hostnames routed to it, through its own `SiteHostnames` port. That is why the `dns → sites` arrow survived the inversion pointing the same way while meaning something much smaller. The rule that replaced "the projection has no write side" is its mirror: **nothing in `sites` may write `server_names`** — not `SitePatch`, not `SiteService` — because that column has a writer outside the feature and a site write carrying hostnames would silently revert a record change made between the read and the write. Two declared graphs enforce this — `ALLOWED_FEATURE_DEPENDENCIES` and `ALLOWED_POLICY_DEPENDENCIES` — plus the layer rule that makes them compose: **a contract never imports an implementation.**
 - **Features own their business logic.** A feature's `domain.py` (plus every `policy` module, `origins.py`, and `snapshots.py`) is pure: no I/O, no framework, no adapter package (fastapi, typer, sqlite3, subprocess, ansible, dns, cryptography, yaml). DNS owns records and may derive sites from public contracts, never the reverse.
 - **The consumer owns the port.** A feature's `ports.py` holds the narrow `Protocol` interfaces *that feature* calls. A port belongs to whoever calls it, never to whoever implements it — a port describing a run some other feature performs is what forces a cycle, and `test_no_feature_port_declares_another_feature_s_playbook` refuses it.
 - **Concrete infrastructure implements those ports.** `core/` and a feature's own `adapters/` supply the implementations. A feature *service* (`service.py`, `rollback.py`, `reporting.py`) names its ports and never a concrete adapter.
@@ -291,13 +293,16 @@ that has to diverge from a shared shape defines its own class with the version
 in the name (`CdnSiteV2`) rather than editing the shared one — pydantic
 disambiguates a name collision by qualifying *both* sides with their module
 path, so a second `Deployment` would rename the other version's published
-schema. Persisted deployment snapshots are a
-versioned compatibility contract; add an upcaster and a legacy fixture before
-changing their shape. Feature services own their small policy dataclasses
+schema. A deployment snapshot carries the zones, their records and the sites,
+and its `schema_version` is a discriminator rather than a compatibility layer:
+there is one version, a document that is not it is refused, and a shape change
+is an edit rather than an upcaster. Feature services own their small policy dataclasses
 and receive those rather than the global `Settings` model. A plugin reads
 intervals off `platform.settings` at registration only.
 
-**`core/database.py`, `core/database_engine.py` and `core/database_models.py` stay where they are.** They look like they belong under `core/persistence/` beside the stores, but the committed `0001_initial_schema.py` names `blitzecdn.core.database_models.UtcDateTime()` fifteen times and `migrations/script.py.mako` imports the same module into every migration it generates. Moving the module breaks that migration at import time, which breaks fresh installs and the forward-migrate step of `backup restore`; the only ways out are editing a historical migration or leaving a shim, and both are worse than the current names. `core/persistence/` holds the stores, `core/database*` holds the engine and the mapped rows they sit on — that split is already the real seam.
+**There is one Alembic revision, and a schema change edits it.** Nothing is installed anywhere, so `0001_initial_schema.py` is the schema rather than a historical artefact: change the models, change that file, and `tests/platform/test_migrations.py` holds the two to each other and refuses a second revision. A migration chain starts existing the day something ships.
+
+**`core/database.py`, `core/database_engine.py` and `core/database_models.py` stay where they are.** They look like they belong under `core/persistence/` beside the stores, but `0001_initial_schema.py` names `blitzecdn.core.database_models.UtcDateTime()` fifteen times and `migrations/script.py.mako` imports the same module into every migration it generates. Moving the module breaks that migration at import time, which breaks fresh installs and the forward-migrate step of `backup restore`; the only ways out are editing a historical migration or leaving a shim, and both are worse than the current names. `core/persistence/` holds the stores, `core/database*` holds the engine and the mapped rows they sit on — that split is already the real seam.
 
 Rules that the layering tests exist to defend, each guarding a failure that is invisible in review:
 

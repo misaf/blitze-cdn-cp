@@ -12,7 +12,7 @@ from blitzecdn.features.deployments.domain import (
     DeploymentStatus,
 )
 from blitzecdn.features.deployments.snapshots import decode_snapshot
-from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.features.dns.domain import DnsRecord, Domain
 from blitzecdn.features.sites.domain import CdnSite
 
 
@@ -81,27 +81,43 @@ def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_pa
     assert repository.audit_log.list_audit_events()[0] == event
 
 
-def test_visitor_headers_survive_persistence_and_derivation(
-    settings, domain_payload, record_payload
+def _seed(repository, domain_payload, record_payload, site_payload, **policy):
+    """Zone, site, record — the three rows a snapshot is made of.
+
+    Store-level, so it deliberately goes through the stores rather than the
+    services: the point of these tests is what survives a round trip through
+    SQLite, not what the services do on the way.
+    """
+    repository.zones.create_domain(Domain.model_validate(domain_payload))
+    repository.sites.create_site(
+        CdnSite.model_validate({**site_payload, "server_names": [], **policy})
+    )
+    repository.zones.create_record(DnsRecord.model_validate(record_payload))
+    repository.sites.set_server_names(
+        site_payload["name"], (DnsRecord.model_validate(record_payload).fqdn,)
+    )
+    return repository.sites.get_site(site_payload["name"])
+
+
+def test_visitor_headers_survive_persistence_and_the_snapshot(
+    settings, domain_payload, record_payload, site_payload
 ):
     """The block lives in the `policy` JSON column, not in a column of its own.
 
     Nothing queries inside it, so the only way it can be lost is a round trip
-    that drops what it does not recognise. This is that round trip: record in,
-    record out, and the derived site the deployment actually converges.
+    that drops what it does not recognise. This is that round trip: site in,
+    site out, and the snapshot the deployment actually converges.
     """
     repository = Repository(settings.database_path)
-    repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.zones.create_record(
-        DnsRecord.model_validate(
-            record_payload
-            | {"visitor_headers": {"connecting_ip": False, "ip_country": True}}
-        )
+    _seed(
+        repository,
+        domain_payload,
+        record_payload,
+        site_payload,
+        visitor_headers={"connecting_ip": False, "ip_country": True},
     )
 
-    stored = repository.zones.get_record(
-        record_payload["domain"], record_payload["name"], RecordType.A
-    )
+    stored = repository.sites.get_site(site_payload["name"])
     assert stored.visitor_headers.connecting_ip is False
     assert stored.visitor_headers.ip_country is True
 
@@ -111,41 +127,31 @@ def test_visitor_headers_survive_persistence_and_derivation(
 
 
 def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_payload, site_payload
 ):
     repository = Repository(settings.database_path)
-    repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.zones.create_record(
-        DnsRecord.model_validate(record_payload | {"under_attack_mode": True})
+    _seed(
+        repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
-    stored = repository.zones.get_record(
-        record_payload["domain"], record_payload["name"], RecordType.A
-    )
-    assert stored.under_attack_mode is True
+    assert repository.sites.get_site(site_payload["name"]).under_attack_mode is True
     assert decode_snapshot(repository.snapshot())[0].under_attack_mode is True
 
     connection = sqlite3.connect(settings.database_path)
     try:
         connection.execute(
-            "UPDATE dns_records SET policy = json_remove(policy, '$.under_attack_mode')"
+            "UPDATE sites SET policy = json_remove(policy, '$.under_attack_mode')"
         )
         connection.commit()
     finally:
         connection.close()
-    old = repository.zones.get_record(
-        record_payload["domain"], record_payload["name"], RecordType.A
-    )
-    assert old.under_attack_mode is False
+    assert repository.sites.get_site(site_payload["name"]).under_attack_mode is False
 
 
 def test_deployment_transitions_snapshots_and_recovery(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_payload, site_payload
 ):
     repository = Repository(settings.database_path)
-    # A snapshot carries records, not the sites derived from them, so the
-    # fixture has to create the canonical thing.
-    repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.zones.create_record(DnsRecord.model_validate(record_payload))
+    _seed(repository, domain_payload, record_payload, site_payload)
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     assert (
         decode_snapshot(repository.deployments.deployment_snapshot(deployment.id))[
@@ -176,11 +182,10 @@ def test_deployment_transitions_snapshots_and_recovery(
 
 
 def test_rollback_target_requires_different_success(
-    settings, domain_payload, record_payload
+    settings, domain_payload, record_payload, site_payload
 ):
     repository = Repository(settings.database_path)
-    repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.zones.create_record(DnsRecord.model_validate(record_payload))
+    _seed(repository, domain_payload, record_payload, site_payload)
     current = repository.snapshot()
     deployment = repository.deployments.create_deployment("alice", check_mode=False)
     repository.deployments.transition(

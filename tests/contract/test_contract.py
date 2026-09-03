@@ -208,61 +208,73 @@ def _capability_defaults() -> dict[str, Any]:
     return defaults
 
 
+def _seed_site(repository, *, name, label, origin, **policy):
+    """One site and the record that routes a hostname to it.
+
+    Written through the stores rather than the services because these fixtures
+    describe *state*, not the operations that produce it, and the desired-state
+    document is what is under test. The hostname is stamped explicitly for the
+    same reason: `dns` maintains that column and no service is involved here.
+    """
+    repository.sites.create_site(
+        CdnSite.model_validate({"name": name, "origin_host": origin, **policy})
+    )
+    record = DnsRecord(domain="example.com", name=label, site=name)
+    repository.zones.create_record(record)
+    repository.sites.set_server_names(name, (record.fqdn,))
+
+
 @pytest.fixture
 def desired_state(settings, tmp_path) -> dict[str, Any]:
     """Render desired state the way a real deployment would.
 
-    From records, because that is the only way a site comes to exist. The
-    snapshot this renders from carries records and derives the sites on read,
-    so writing to the derived table here would describe a state no deployment
-    can actually produce.
+    Through the stores rather than by hand-writing a document: the snapshot
+    carries the zones, the records and the sites, and this fixture is what
+    proves the three of them render into what the edge roles read.
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
-    repository.zones.create_record(
-        DnsRecord.model_validate(
-            {
-                "domain": "example.com",
-                "name": "cdn",
-                # An A record's value is an address, so the origin *hostname*
-                # travels in origin_request_host and origin_sni instead.
-                "value": "198.51.100.20",
-                "proxied": True,
-                "ssl_mode": SslMode.OFF,
-                "origin_request_host": "origin.example.com",
-                "origin_sni": "origin.example.com",
-                "cache_enabled": True,
-                "cache_valid_success": "10m",
-                "cache_valid_not_found": "1m",
-            }
-        )
+    _seed_site(
+        repository,
+        name="cdn-example-com",
+        label="cdn",
+        # An A record has no address of its own once it routes to a site, so the
+        # origin lives here — and the origin *hostname* travels in
+        # origin_request_host and origin_sni beside it.
+        origin="198.51.100.20",
+        **{
+            "ssl_mode": SslMode.OFF,
+            "origin_request_host": "origin.example.com",
+            "origin_sni": "origin.example.com",
+            "cache_enabled": True,
+            "cache_valid_success": "10m",
+            "cache_valid_not_found": "1m",
+        },
     )
-    repository.zones.create_record(
-        DnsRecord.model_validate(
-            {
-                "domain": "example.com",
-                "name": "static",
-                "value": "192.0.2.10",
-                "proxied": True,
-                "ssl_mode": SslMode.FLEXIBLE,
-                "enabled": False,
-                "cache_enabled": False,
-                "certificate_mode": CertificateMode.EXISTING,
-                "certificate_path": "/etc/ssl/plain/fullchain.pem",
-                "certificate_key_path": "/etc/ssl/plain/privkey.pem",
-                # No country rules here on purpose. CI feeds this fixture to a
-                # real playbook, where blitzecdn_nginx_geoip_enabled is false
-                # and the role is supposed to refuse them. Country rendering is
-                # covered against the template directly, below.
-                "firewall": {
-                    "allow_sources": ["203.0.113.9"],
-                    "deny_sources": ["203.0.113.0/24", "2001:db8::/32"],
-                    "denied_methods": ["DELETE", "TRACE"],
-                    "denied_paths": ["/admin", "/.git"],
-                },
-            }
-        )
+    _seed_site(
+        repository,
+        name="static-example-com",
+        label="static",
+        origin="192.0.2.10",
+        **{
+            "ssl_mode": SslMode.FLEXIBLE,
+            "enabled": False,
+            "cache_enabled": False,
+            "certificate_mode": CertificateMode.EXISTING,
+            "certificate_path": "/etc/ssl/plain/fullchain.pem",
+            "certificate_key_path": "/etc/ssl/plain/privkey.pem",
+            # No country rules here on purpose. CI feeds this fixture to a
+            # real playbook, where blitzecdn_nginx_geoip_enabled is false
+            # and the role is supposed to refuse them. Country rendering is
+            # covered against the template directly, below.
+            "firewall": {
+                "allow_sources": ["203.0.113.9"],
+                "deny_sources": ["203.0.113.0/24", "2001:db8::/32"],
+                "denied_methods": ["DELETE", "TRACE"],
+                "denied_paths": ["/admin", "/.git"],
+            },
+        },
     )
     control.deployments.write_desired_state(
         repository.snapshot(), settings.generated_vars_path
@@ -576,20 +588,16 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
     control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     for name in ("zeta", "alpha"):
-        repository.zones.create_record(
-            DnsRecord.model_validate(
-                {
-                    "domain": "example.com",
-                    "name": name,
-                    "value": "198.51.100.20",
-                    "proxied": True,
-                    "ssl_mode": "flexible",
-                    "http3_enabled": True,
-                    "certificate_mode": "existing",
-                    "certificate_path": "/etc/ssl/certs/edge.pem",
-                    "certificate_key_path": "/etc/ssl/private/edge.key",
-                }
-            )
+        _seed_site(
+            repository,
+            name=f"{name}-example-com",
+            label=name,
+            origin="198.51.100.20",
+            ssl_mode="flexible",
+            http3_enabled=True,
+            certificate_mode="existing",
+            certificate_path="/etc/ssl/certs/edge.pem",
+            certificate_key_path="/etc/ssl/private/edge.key",
         )
     output = tmp_path / "http3.yml"
     control.deployments.write_desired_state(repository.snapshot(), output)

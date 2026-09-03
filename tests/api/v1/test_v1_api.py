@@ -11,8 +11,8 @@ from control_plane_fixtures import (
 from fastapi.testclient import TestClient
 
 from blitzecdn.api.v1_models import CdnSite as V1CdnSite
-from blitzecdn.api.v1_models import DnsRecord as V1DnsRecord
 from blitzecdn.api.v1_models import RecordPatch as V1RecordPatch
+from blitzecdn.api.v1_models import SitePatch as V1SitePatch
 from blitzecdn.api.v1_models import SitePolicyV1
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import (
@@ -22,8 +22,8 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn.core.operations import WorkflowKind
 from blitzecdn.features.deployments import DeploymentService
-from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.features.edges import EdgeOperationsService
+from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
 from blitzecdn.features.sites.domain import SitePolicy
 
 CertificateService = (
@@ -69,6 +69,29 @@ V1_SITE_POLICY_FIELDS = {
 }
 
 
+def _seed_site(client, headers, *, name="cdn-example-com", label="cdn", **policy):
+    """Zone, site, record — over HTTP, the way a client would.
+
+    Three calls where there used to be two, and the middle one is the change:
+    a site is created in its own right rather than appearing because a record
+    was proxied.
+    """
+    client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
+    created = client.post(
+        "/v1/sites",
+        json={"name": name, "origin_host": "198.51.100.10", **policy},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    routed = client.post(
+        "/v1/domains/example.com/records",
+        json={"domain": "example.com", "name": label, "site": name},
+        headers=headers,
+    )
+    assert routed.status_code == 201, routed.text
+    return created.json()
+
+
 def test_v1_policy_representation_is_frozen():
     """v1 is a promise to clients written against it, so it cannot grow.
 
@@ -77,11 +100,10 @@ def test_v1_policy_representation_is_frozen():
     API was supposed to make impossible.
     """
     assert set(SitePolicyV1.model_fields) == V1_SITE_POLICY_FIELDS
-    assert set(V1RecordPatch.model_fields) == V1_SITE_POLICY_FIELDS | {
-        "value",
-        "ttl",
-        "proxied",
-    }
+    assert set(V1SitePatch.model_fields) == V1_SITE_POLICY_FIELDS | {"origin_host"}
+    # The record shrank to a pointer when sites took the policy, and v1's copy
+    # of it shrank with them: there is nothing behind those fields to report.
+    assert set(V1RecordPatch.model_fields) == {"value", "ttl", "site"}
 
 
 def test_v1_survives_a_domain_field_it_has_never_heard_of():
@@ -95,37 +117,31 @@ def test_v1_survives_a_domain_field_it_has_never_heard_of():
         "this test is only meaningful while the domain is ahead of v1"
     )
 
-    record = DomainDnsRecord.model_validate(
+    site = DomainCdnSite.model_validate(
         {
-            "domain": "example.com",
-            "name": "cdn",
-            "value": "203.0.113.10",
-            "proxied": True,
+            "name": "cdn-example-com",
+            "server_names": ["cdn.example.com"],
+            "origin_host": "203.0.113.10",
         }
     )
 
-    representation = V1DnsRecord.from_domain(record)
-
-    for field in ("compression", "visitor_headers", "under_attack_mode"):
-        assert field not in representation.model_dump()
-    site = record.to_site()
-    assert site is not None
     projected = V1CdnSite.from_domain(site).model_dump()
+
     for field in ("compression", "visitor_headers", "under_attack_mode"):
         assert field not in projected
 
 
 def test_v1_neither_reads_nor_writes_under_attack_mode():
-    record = DomainDnsRecord(
-        domain="example.com",
-        name="cdn",
-        value="203.0.113.10",
+    site = DomainCdnSite(
+        name="cdn-example-com",
+        server_names=("cdn.example.com",),
+        origin_host="203.0.113.10",
         under_attack_mode=True,
     )
-    assert "under_attack_mode" not in V1DnsRecord.from_domain(record).model_dump()
+    assert "under_attack_mode" not in V1CdnSite.from_domain(site).model_dump()
 
     with pytest.raises(ValueError):
-        V1RecordPatch.model_validate({"under_attack_mode": True})
+        V1SitePatch.model_validate({"under_attack_mode": True})
 
 
 def test_interrupted_workflows_are_recovered_and_visible(settings):
@@ -165,11 +181,26 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         )
         assert orphan.status_code == 404
 
+        # A record cannot route to a site that does not exist either.
+        assert (
+            client.post(
+                "/v1/domains/example.com/records", json=record_payload, headers=headers
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                "/v1/sites",
+                json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
+                headers=headers,
+            ).status_code
+            == 201
+        )
         created = client.post(
             "/v1/domains/example.com/records", json=record_payload, headers=headers
         )
         assert created.status_code == 201
-        assert created.json()["proxied"] is True
+        assert created.json()["site"] == "cdn-example-com"
 
         # The body's domain must agree with the path.
         mismatched = client.post(
@@ -179,27 +210,24 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         )
         assert mismatched.status_code == 409
 
-        # Proxying a record is what creates the edge virtual host.
+        # Routing a record is what puts a hostname on the virtual host.
         sites = client.get("/v1/sites", headers=headers).json()
         assert len(sites) == 1
+        assert sites[0]["server_names"] == ["cdn.example.com"]
         assert sites[0]["always_use_https"] is False
         assert sites[0]["minimum_tls_version"] == "1.2"
         assert sites[0]["cache_query_string_mode"] == "include"
 
         redirect = client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v1/sites/cdn-example-com",
             json={"always_use_https": True},
             headers=headers,
         )
         assert redirect.status_code == 200
         assert redirect.json()["always_use_https"] is True
-        assert (
-            client.get("/v1/sites", headers=headers).json()[0]["always_use_https"]
-            is True
-        )
 
         policy = client.patch(
-            "/v1/domains/example.com/records/cdn",
+            "/v1/sites/cdn-example-com",
             json={
                 "minimum_tls_version": "1.3",
                 "cache_query_string_mode": "ignore",
@@ -210,14 +238,21 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert policy.json()["minimum_tls_version"] == "1.3"
         assert policy.json()["cache_query_string_mode"] == "ignore"
 
-        toggled = client.patch(
+        # Unrouting takes the hostname off the site and leaves the site.
+        unrouted = client.patch(
             "/v1/domains/example.com/records/cdn",
-            json={"proxied": False},
+            json={"site": None, "value": "203.0.113.7"},
             headers=headers,
         )
-        assert toggled.json()["proxied"] is False
-        assert client.get("/v1/sites", headers=headers).json() == []
+        assert unrouted.json()["site"] is None
+        assert unrouted.json()["value"] == "203.0.113.7"
+        assert client.get("/v1/sites", headers=headers).json()[0]["server_names"] == []
 
+        # And a site nothing routes to can be deleted; one with hostnames cannot.
+        assert (
+            client.delete("/v1/sites/cdn-example-com", headers=headers).status_code
+            == 204
+        )
         assert (
             client.delete(
                 "/v1/domains/example.com/records/cdn", headers=headers
@@ -230,31 +265,50 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert client.get("/v1/deployments/missing", headers=headers).status_code == 404
 
 
-def test_sites_are_read_only(settings, site_payload):
-    """Sites are derived, so the mutation routes must not exist."""
+def test_a_site_is_created_and_deleted_but_its_hostnames_are_not_writable(settings):
+    """The write routes exist now; `server_names` still is not a field a client sets.
+
+    It is the set of records routed to the site, so a body carrying it is
+    refused rather than quietly ignored — the alternative is a client that
+    believes it set the hostnames and a site that never served them.
+    """
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
         assert (
-            client.post("/v1/sites", json=site_payload, headers=headers).status_code
-            == 405
+            client.post(
+                "/v1/sites",
+                json={
+                    "name": "cdn-example-com",
+                    "origin_host": "198.51.100.10",
+                    "server_names": ["cdn.example.com"],
+                },
+                headers=headers,
+            ).status_code
+            == 422
+        )
+        assert (
+            client.post(
+                "/v1/sites",
+                json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
+                headers=headers,
+            ).json()["server_names"]
+            == []
         )
         schema = client.get("/openapi.json").json()
-        assert set(schema["paths"]["/v1/sites"]) == {"get"}
+        assert set(schema["paths"]["/v1/sites"]) == {"get", "post"}
+        assert set(schema["paths"]["/v1/sites/{name}"]) == {"get", "patch", "delete"}
 
 
 def test_dns_export_omits_addresses_for_proxied_records(
     settings, domain_payload, record_payload
 ):
-    """A proxied name must resolve to an edge, and edge IPs are not ours."""
+    """A routed name must resolve to an edge, and edge IPs are not ours."""
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=headers)
-        client.post(
-            "/v1/domains/example.com/records", json=record_payload, headers=headers
-        )
+        _seed_site(client, headers)
         client.post(
             "/v1/domains/example.com/records",
-            json={**record_payload, "name": "db", "proxied": False},
+            json={"domain": "example.com", "name": "db", "value": "198.51.100.10"},
             headers=headers,
         )
         exported = {
@@ -262,7 +316,7 @@ def test_dns_export_omits_addresses_for_proxied_records(
             for row in client.get("/v1/dns/export", headers=headers).json()
         }
         assert "value" not in exported["cdn.example.com"]
-        assert exported["cdn.example.com"]["origin"] == "198.51.100.10"
+        assert exported["cdn.example.com"]["site"] == "cdn-example-com"
         assert exported["db.example.com"]["value"] == "198.51.100.10"
 
 
@@ -272,20 +326,7 @@ def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
     """A convergence can outlast any HTTP client, so the request must not block."""
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
-        assert (
-            client.post(
-                "/v1/domains/example.com/records",
-                json={
-                    "domain": "example.com",
-                    "name": "cdn",
-                    "value": "198.51.100.10",
-                    "proxied": True,
-                },
-                headers=headers,
-            ).status_code
-            == 201
-        )
+        _seed_site(client, headers)
         queued = client.post("/v1/deployments", json={"check": True}, headers=headers)
         assert queued.status_code == 202
         deployment_id = queued.json()["id"]
@@ -299,20 +340,7 @@ def test_certificate_upload_and_metadata_api(settings, site_payload, certificate
     headers = {"X-API-Key": "x" * 32}
     certificate, key = certificate_pair()
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
-        assert (
-            client.post(
-                "/v1/domains/example.com/records",
-                json={
-                    "domain": "example.com",
-                    "name": "cdn",
-                    "value": "198.51.100.10",
-                    "proxied": True,
-                },
-                headers=headers,
-            ).status_code
-            == 201
-        )
+        _seed_site(client, headers)
         uploaded = client.post(
             "/v1/sites/cdn-example-com/certificate/upload",
             files={
@@ -401,21 +429,16 @@ def test_certificates_are_readable(settings):
         )
 
 
-def test_a_single_site_is_readable_by_name(settings, domain_payload, record_payload):
+def test_a_single_site_is_readable_by_name(settings):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
-        client.post(
-            "/v1/domains/example.com/records",
-            json={**record_payload, "proxied": True},
-            headers=_HEADERS,
-        )
+        _seed_site(client, _HEADERS)
         name = client.get("/v1/sites", headers=_HEADERS).json()[0]["name"]
 
         response = client.get(f"/v1/sites/{name}", headers=_HEADERS)
 
         assert response.status_code == 200
         assert response.json()["name"] == name
-        # The derived defaults, which the record never carried.
+        # The defaults the create body never mentioned.
         assert response.json()["ssl_mode"] == "off"
         assert response.json()["ssl_automatic_mode"] == "auto"
         assert "origin_scheme" not in response.json()
@@ -623,17 +646,7 @@ def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkey
 
 
 def _seed_proxied_record(client) -> None:
-    client.post("/v1/domains", json={"name": "example.com"}, headers=_HEADERS)
-    client.post(
-        "/v1/domains/example.com/records",
-        json={
-            "domain": "example.com",
-            "name": "cdn",
-            "value": "198.51.100.10",
-            "proxied": True,
-        },
-        headers=_HEADERS,
-    )
+    _seed_site(client, _HEADERS)
 
 
 def _stub_preflight(monkeypatch, *failures: str) -> None:

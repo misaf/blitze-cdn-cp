@@ -128,6 +128,7 @@ def attach_certificate_test_services(monkeypatch):
             ),
             events=control.events,
             dns=control.dns,
+            site_editor=control.site_editor,
             deployments=control.deployments,
             workflows=control.workflows,
         )
@@ -140,28 +141,62 @@ def attach_certificate_test_services(monkeypatch):
     yield
 
 
+def seed_site(
+    control,
+    *,
+    name: str = "cdn-example-com",
+    origin: str = "198.51.100.10",
+    domain: str = "example.com",
+    record: str = "cdn",
+    record_type: RecordType = RecordType.A,
+    ttl: int = 300,
+    routed: bool = True,
+    operator: str = "alice",
+    **policy,
+) -> CdnSite:
+    """Create a site and, unless ``routed=False``, a record that reaches it.
+
+    Two calls, because there are two things now: the site holds the origin and
+    the policy, and the record puts a hostname on it. ``routed=False`` gives
+    the state that could not be expressed before — a configured site nothing
+    answers for yet.
+
+    ``policy`` is any `SitePolicy` field. The zone is created on first use, so
+    several sites can be seeded into one domain without the caller tracking
+    which call was first.
+    """
+    control.site_editor.create_site(
+        CdnSite.model_validate({"name": name, "origin_host": origin, **policy}),
+        operator,
+    )
+    if routed:
+        seed_record(
+            control,
+            domain=domain,
+            name=record,
+            record_type=record_type,
+            ttl=ttl,
+            site=name,
+            operator=operator,
+        )
+    return control.sites.get_site(name)
+
+
 def seed_record(
     control,
     *,
     domain: str = "example.com",
     name: str = "cdn",
-    value: str = "198.51.100.10",
+    value: str | None = None,
+    site: str | None = None,
     record_type: RecordType = RecordType.A,
+    ttl: int = 300,
     operator: str = "alice",
-    **policy,
 ) -> DnsRecord:
-    """Make a site exist the only way the control plane can: proxy a record.
+    """Add one record, routed to ``site`` or answering with ``value``.
 
-    `SiteStore` has no write API — re-derivation from records is the one thing
-    that writes the projection — so a test needing a site creates the record
-    that derives it. That is the point rather than an inconvenience: seeding the
-    projection directly let tests assert on site shapes the derivation would
-    never produce, and the dual-stack case it hid went uncovered for exactly
-    that reason.
-
-    ``policy`` is any `SitePolicy` field, which a record carries and hands to
-    the site it derives. The zone is created on first use, so several sites can
-    be seeded into one domain without the caller tracking which call was first.
+    A record carries no policy any more, so this takes none. Use
+    :func:`seed_site` for a site with settings on it.
     """
     with suppress(ConflictError):
         control.dns.create_domain(Domain(name=domain), operator)
@@ -171,18 +206,12 @@ def seed_record(
                 "domain": domain,
                 "name": name,
                 "type": record_type,
-                "value": value,
-                "proxied": True,
-                **policy,
+                "ttl": ttl,
+                **({"site": site} if site is not None else {"value": value}),
             }
         ),
         operator,
     )
-
-
-def seed_site(control, **kwargs) -> CdnSite:
-    """The site `seed_record` derives, for a test that wants the site itself."""
-    return control.sites.get_site(seed_record(control, **kwargs).site_name)
 
 
 def host_run(
@@ -469,11 +498,11 @@ def settings(tmp_path: Path) -> Settings:
 
 @pytest.fixture
 def site_payload() -> dict[str, object]:
-    """A site as a proxied record derives it.
+    """A site with one hostname routed to it.
 
-    ``name`` is not free-form any more: it is what ``derive_site_name`` produces
-    for ``cdn.example.com``, so a test that builds a site by hand still matches
-    one the control plane would derive.
+    ``server_names`` is here because this payload is also used to *build* a
+    `CdnSite` in tests that never touch a database. Through the API and the
+    services it is maintained by `dns` and cannot be set.
     """
     return {
         "name": "cdn-example-com",
@@ -493,23 +522,20 @@ def record_payload() -> dict[str, object]:
         "domain": "example.com",
         "name": "cdn",
         "type": "A",
-        "value": "198.51.100.10",
-        "proxied": True,
+        "site": "cdn-example-com",
     }
 
 
 @pytest.fixture
 def seeded(settings):
-    """A control plane holding one zone with one proxied record.
+    """A control plane holding one site with one hostname routed to it.
 
-    Returns ``(control, repository)``. Most tests need a site to exist, and the
-    only supported way to make one now is to proxy a record.
+    Returns ``(control, repository)``.
     """
 
     def build(runner=None):
         from blitzecdn.bootstrap import ControlPlane
         from blitzecdn.core.database import Repository
-        from blitzecdn.features.dns.domain import DnsRecord, Domain
 
         repository = Repository(settings.database_path)
         control = ControlPlane(
@@ -518,16 +544,7 @@ def seeded(settings):
             runner=runner or FakeRunner(),
             preflight=FakePreflight(),
         )
-        control.dns.create_domain(Domain(name="example.com"), "tester")
-        control.dns.create_record(
-            DnsRecord(
-                domain="example.com",
-                name="cdn",
-                value="198.51.100.10",
-                proxied=True,
-            ),
-            "tester",
-        )
+        seed_site(control, operator="tester")
         return control, repository
 
     return build

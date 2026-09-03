@@ -542,26 +542,41 @@ def test_removed_subsystems_do_not_return():
     assert offenders == []
 
 
-def test_the_site_projection_offers_no_per_site_write():
-    """A derived table with create, update and delete on it is an invitation.
+def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
+    """One field on `CdnSite` has a writer outside this feature. Keep it that way.
 
-    Re-derivation from records rewrites the whole table, so a per-site write
-    can only plant a row the next record change reverts. That rule used to be
-    a docstring while `SiteStore` carried `create_site`, `replace_site` and
-    `delete_site` regardless — reached by nothing in production and by forty
-    tests, which is how the suite came to assert on site shapes the derivation
-    cannot produce. Listing the read side explicitly rather than banning three
-    names keeps a fourth spelling from getting in.
+    Sites are canonical, so `SiteStore` has the per-site create, update and
+    delete a canonical table needs. What it must not have is a second way to
+    set ``server_names``: that list is the set of records routed to the site,
+    `dns` maintains it through ``SiteHostnames``, and a site write that also
+    carried hostnames would silently revert a record change made between the
+    read and the write.
+
+    ``replace_all_sites`` is the deliberate exception and the reason this test
+    lists names rather than banning a substring: a rollback restores records
+    and sites from one snapshot in which the two already agree.
+
+    The mirror of this rule is on the patch: ``SitePatch`` has a field for every
+    `SitePolicy` knob and none for ``server_names``.
     """
+    from blitzecdn.features.sites.domain import CdnSite, SitePatch
     from blitzecdn.features.sites.persistence import SiteStore
+    from blitzecdn.features.sites.service import SiteService
 
     assert {name for name in vars(SiteStore) if not name.startswith("_")} == {
         "list_sites",
         "get_site",
+        "create_site",
+        "replace_site",
+        "delete_site",
+        "set_server_names",
         "replace_all_sites",
         "projection_revision",
         "set_projection_revision",
     }
+    assert "set_server_names" not in vars(SiteService)
+    assert "server_names" not in SitePatch.model_fields
+    assert "server_names" in CdnSite.model_fields
 
 
 #: Which feature may know that another exists. Derived from the graph the code
@@ -570,10 +585,17 @@ def test_the_site_projection_offers_no_per_site_write():
 #:
 #: Implementation edges only — see `ALLOWED_POLICY_DEPENDENCIES` for the
 #: contract layer. The direction is the point. `sites` composes the capability
-#: contracts and knows no other implementation. DNS derives sites from records;
-#: cache, TLS, deployments and edges consume public site contracts without
-#: reaching into DNS persistence or adapters. Diagnostics reports on the
-#: capabilities above it.
+#: contracts and knows no other implementation. DNS points records at sites and
+#: maintains the one field on them it owns; cache, TLS, deployments and edges
+#: consume public site contracts without reaching into DNS persistence or
+#: adapters. Diagnostics reports on the capabilities above it.
+#:
+#: The `dns -> sites` arrow survived the inversion, and it is worth saying why
+#: it did not simply turn around. Sites became canonical, so `dns` no longer
+#: derives one — but a record still names the site that serves its hostname,
+#: and the hostname projection is still written from this side. Both are `dns`
+#: reaching for `sites`, so the arrow points the way it always did while
+#: meaning something much smaller.
 #:
 #: Shared foundations under `core` are deliberately outside this graph: `core`
 #: is what a feature is allowed to build on without that counting as knowing
@@ -612,7 +634,7 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "compression": set(),
     "deployments": set(),
     "diagnostics": set(),
-    "dns": {"compression", "security", "sites", "tls"},
+    "dns": set(),
     "edges": {"http", "tls"},
     "http": set(),
     "maintenance": set(),

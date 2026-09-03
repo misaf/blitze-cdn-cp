@@ -1,72 +1,58 @@
-"""DNS records and the site derivation that turns proxied ones into vhosts."""
+"""DNS records: what they answer with, and the site they route a hostname to."""
 
 from __future__ import annotations
 
 import pytest
-from control_plane_fixtures import FakeRunner
+from control_plane_fixtures import FakeRunner, seed_site
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.features.deployments.snapshots import (
     decode_snapshot,
-    decode_snapshot_zones,
+    decode_snapshot_state,
 )
-from blitzecdn.features.dns.domain import (
-    DnsRecord,
-    Domain,
-    RecordType,
-    derive_site_name,
-)
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 
 
 @pytest.mark.parametrize(
-    ("label", "expected_fqdn", "expected_site"),
+    ("label", "expected_fqdn"),
     [
-        ("@", "example.com", "example-com"),
-        ("api", "api.example.com", "api-example-com"),
-        ("*", "*.example.com", "wildcard-example-com"),
-        ("a.b", "a.b.example.com", "a-b-example-com"),
+        ("@", "example.com"),
+        ("api", "api.example.com"),
+        ("*", "*.example.com"),
+        ("a.b", "a.b.example.com"),
     ],
 )
-def test_derivation_covers_apex_subdomain_and_wildcard(
-    label, expected_fqdn, expected_site
-):
-    record = DnsRecord(
-        domain="example.com", name=label, value="198.51.100.10", proxied=True
-    )
+def test_the_hostname_covers_apex_subdomain_and_wildcard(label, expected_fqdn):
+    record = DnsRecord(domain="example.com", name=label, site="cdn-example-com")
     assert record.fqdn == expected_fqdn
-    assert record.site_name == expected_site
-    site = record.to_site()
-    assert site is not None
-    assert site.server_names == (expected_fqdn,)
-    assert site.origin_host == "198.51.100.10"
+    assert record.proxied
 
 
-def test_unproxied_record_derives_no_site():
-    """Bypassing the CDN must leave nothing behind, not a disabled site.
+def test_a_record_answers_with_an_address_or_routes_to_a_site_never_both():
+    """The switch is which field is set, and the two are mutually exclusive.
 
-    A disabled site would still occupy its name and still be removed from the
-    edge by name on the next run; the record should simply not be there.
+    Before the inversion this was a ``proxied`` boolean beside a ``value`` that
+    meant the origin when it was true and the DNS answer when it was false. One
+    field with two meanings is what let an unproxied record keep publishing the
+    origin address; two fields, one of them null, cannot.
     """
+    with pytest.raises(ValueError, match="exactly one"):
+        DnsRecord(domain="example.com", name="x", value="198.51.100.1", site="a-site")
+    with pytest.raises(ValueError, match="exactly one"):
+        DnsRecord(domain="example.com", name="x")
+
+
+def test_an_unrouted_record_is_not_proxied():
     record = DnsRecord(domain="example.com", name="db", value="198.51.100.11")
-    assert record.to_site() is None
+    assert not record.proxied
+    assert record.site is None
 
 
-def test_derived_name_stays_within_the_site_name_limit():
-    """Certificates are keyed by site name, so it must fit and stay stable."""
-    long_fqdn = f"{'a' * 60}.{'b' * 60}.example.com"
-    slug = derive_site_name(long_fqdn)
-    assert len(slug) <= 63
-    assert derive_site_name(long_fqdn) == slug  # deterministic
-    assert slug != derive_site_name(f"{'a' * 60}.{'c' * 60}.example.com")
-    CdnSite(name=slug, server_names=("x.example.com",), origin_host="198.51.100.1")
-
-
-def test_label_starting_with_a_digit_still_yields_a_valid_site_name():
-    slug = derive_site_name("1api.example.com")
-    CdnSite(name=slug, server_names=("1api.example.com",), origin_host="198.51.100.1")
+def test_a_site_reference_must_look_like_a_site_name():
+    with pytest.raises(ValueError, match="site must start with a letter"):
+        DnsRecord(domain="example.com", name="x", site="Not A Site")
 
 
 @pytest.mark.parametrize(
@@ -106,20 +92,125 @@ def test_duplicate_records_conflict(settings):
     assert len(repository.zones.list_records("example.com")) == 2
 
 
-def test_snapshot_round_trips_zones(settings):
+def _control(settings, repository):
+    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())  # type: ignore[arg-type]
+
+
+def test_routing_a_record_to_an_unknown_site_is_refused(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    control = _control(settings, repository)
     control.dns.create_domain(Domain(name="example.com"), "alice")
+    with pytest.raises(NotFoundError, match="does not exist; create it"):
+        control.dns.create_record(
+            DnsRecord(domain="example.com", name="www", site="absent-site"), "alice"
+        )
+
+
+def test_a_dual_stack_hostname_is_one_site_with_one_origin(settings):
+    """The case the old model could not express, and got wrong in silence.
+
+    Two records for one hostname used to be two sites' worth of policy and two
+    origins, of which the derivation kept whichever it saw first. Here they are
+    two records naming one site: one origin, one policy, one ``server_name``.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="www-example-com", record="www")
     control.dns.create_record(
         DnsRecord(
-            domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+            domain="example.com",
+            name="www",
+            type=RecordType.AAAA,
+            site="www-example-com",
         ),
         "alice",
     )
+    site = control.sites.get_site("www-example-com")
+    assert site.server_names == ("www.example.com",)
+    assert site.origin_host == "198.51.100.10"
+    assert control.dns.validation_errors() == []
+
+
+def test_one_hostname_cannot_be_routed_to_two_sites(settings):
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="www-example-com", record="www")
+    seed_site(control, name="other-site", routed=False)
+    with pytest.raises(ConflictError, match="is already served by site"):
+        control.dns.create_record(
+            DnsRecord(
+                domain="example.com",
+                name="www",
+                type=RecordType.AAAA,
+                site="other-site",
+            ),
+            "alice",
+        )
+
+
+def test_hostnames_accumulate_and_drop_as_records_come_and_go(settings):
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="www-example-com", record="www")
+    control.dns.create_record(
+        DnsRecord(domain="example.com", name="@", site="www-example-com"), "alice"
+    )
+    assert control.sites.get_site("www-example-com").server_names == (
+        "example.com",
+        "www.example.com",
+    )
+    control.dns.delete_record("example.com", "@", RecordType.A, "alice")
+    assert control.sites.get_site("www-example-com").server_names == (
+        "www.example.com",
+    )
+
+
+def test_unrouting_requires_the_address_dns_should_answer_with(settings):
+    """The site's origin is not silently promoted to the public answer."""
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="www-example-com", record="www")
+    record = control.dns.stop_routing(
+        "example.com", "www", RecordType.A, "203.0.113.7", "alice"
+    )
+    assert record.value == "203.0.113.7"
+    assert record.site is None
+    assert control.sites.get_site("www-example-com").server_names == ()
+
+    # And clearing the route without naming a replacement is not expressible:
+    # the record would then answer with nothing at all.
+    control.dns.create_record(
+        DnsRecord(domain="example.com", name="api", site="www-example-com"), "alice"
+    )
+    with pytest.raises(ValueError, match="exactly one"):
+        control.dns.update_record(
+            "example.com", "api", RecordType.A, RecordPatch(site=None), "alice"
+        )
+
+
+def test_deleting_a_zone_takes_its_hostnames_off_the_sites(settings):
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="www-example-com", record="www")
+    control.dns.delete_domain("example.com", "alice")
+    site = control.sites.get_site("www-example-com")
+    assert site.server_names == ()
+    assert not site.serves_traffic
+    assert control.dns.validation_errors() == []
+
+
+def test_snapshot_round_trips_zones_records_and_sites(settings):
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="cdn-example-com", record="cdn")
+    # A site nothing routes to is desired state the old snapshot could not hold.
+    seed_site(control, name="staged-site", routed=False)
     snapshot = repository.snapshot()
-    domains, records = decode_snapshot_zones(snapshot)
+    domains, records, sites = decode_snapshot_state(snapshot)
     assert [domain.name for domain in domains] == ["example.com"]
     assert [record.fqdn for record in records] == ["cdn.example.com"]
-    assert [site.name for site in decode_snapshot(snapshot)] == ["cdn-example-com"]
+    assert sorted(site.name for site in sites) == ["cdn-example-com", "staged-site"]
+    assert sorted(site.name for site in decode_snapshot(snapshot)) == [
+        "cdn-example-com",
+        "staged-site",
+    ]
