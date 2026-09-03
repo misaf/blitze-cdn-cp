@@ -6,6 +6,7 @@ from importlib.util import find_spec
 from control_plane_fixtures import (
     control_plane_app,
     host_run,
+    with_capability_settings,
 )
 from fastapi.testclient import TestClient
 
@@ -551,7 +552,9 @@ def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
         seen["operator"] = operator
         return {"renewed": [], "skipped": [], "failed": []}
 
-    configured = settings.model_copy(update={"certificate_renewal_budget_seconds": 42})
+    configured = with_capability_settings(
+        settings, certificate_renewal_budget_seconds=42
+    )
     monkeypatch.setattr(CertificateService, "renew_certificates", renew)
     with TestClient(control_plane_app(configured)) as client:
         response = client.post("/v1/certificates/renew", json={}, headers=_HEADERS)
@@ -580,7 +583,7 @@ def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkey
             == 200
         )
 
-    assert names and names[0].startswith("blitzecdn-renewal")
+    assert names and names[0].startswith("blitzecdn-worker")
 
 
 def _seed_proxied_record(client) -> None:

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from pathlib import Path
 
 import pytest
 from blitzecdn_security import plugin
@@ -41,7 +42,12 @@ def _platform(secret: str) -> _Platform:
     configured = {SECRET_VARIABLE: SecretStr(secret)} if secret else {}
     return _Platform(
         resolve_capability_environment(
-            plugin.blitzecdn_ansible_contributions(), configured
+            plugin.blitzecdn_capability_configuration(),
+            configured,
+            # No `blitzecdn.toml`: this capability's only configuration is a
+            # secret, and a secret is never satisfied from the committed file.
+            {},
+            Path("/nonexistent"),
         )
     )
 

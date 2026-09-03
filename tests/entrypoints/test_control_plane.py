@@ -13,6 +13,7 @@ from control_plane_fixtures import (
     ansible_run,
     host_run,
     seed_site,
+    with_capability_settings,
 )
 
 from blitzecdn.bootstrap import ControlPlane
@@ -738,7 +739,9 @@ def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
     interruption after the PEM was stored, which the next issuance corrects for
     free. Both used to arrive as one undifferentiated NEEDS_REVIEW.
     """
-    configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
+    configured = with_capability_settings(
+        settings, acme_default_email="ops@example.com"
+    )
     repository = Repository(configured.database_path)
     control = ControlPlane(
         settings=configured,

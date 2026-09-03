@@ -22,6 +22,7 @@ from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     BUILTIN_PLUGINS,
     ENTRY_POINT_GROUP,
+    CapabilityConfig,
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
@@ -62,6 +63,20 @@ def builtins() -> PluginRegistry:
     return load_plugins(entry_point_group=None)
 
 
+def _capability_config(**values: object) -> SimpleNamespace:
+    """A `ResolvedCapabilityEnvironment` double scoped the way the real one is.
+
+    A plugin reads its own configuration through
+    `platform.capability_config.for_plugin(<name>)`, so a double has to answer
+    that call rather than expose a flat namespace — which is the point of the
+    seam being tested.
+    """
+    resolved = {"BLITZE_" + name.upper(): value for name, value in values.items()}
+    return SimpleNamespace(
+        for_plugin=lambda _name: CapabilityConfig("certificates", {}, resolved)
+    )
+
+
 @pytest.fixture
 def platform() -> SimpleNamespace:
     """Enough of a control plane for a plugin to register against.
@@ -72,11 +87,14 @@ def platform() -> SimpleNamespace:
     """
     return SimpleNamespace(
         settings=SimpleNamespace(
+            drift_check_interval_seconds=900,
+            deployment_timeout_seconds=900,
+        ),
+        capability_config=_capability_config(
             certificate_reconcile_interval_seconds=3600,
             certificate_renewal_interval_seconds=3600,
             certificate_renewal_budget_seconds=300,
             ssl_automatic_scan_interval_seconds=86_400,
-            drift_check_interval_seconds=900,
         ),
     )
 
@@ -111,6 +129,7 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
         "blitzecdn_api_routers",
         "blitzecdn_cli_commands",
         "blitzecdn_ansible_contributions",
+        "blitzecdn_capability_configuration",
         "blitzecdn_nginx_contributions",
         "blitzecdn_health_checks",
         "blitzecdn_scheduled_jobs",
@@ -701,12 +720,15 @@ def test_every_built_in_job_calls_the_service_that_owns_its_work(builtins):
 def test_a_disabled_interval_is_how_a_job_is_turned_off(builtins):
     platform = SimpleNamespace(
         settings=SimpleNamespace(
+            drift_check_interval_seconds=0,
+            deployment_timeout_seconds=900,
+        ),
+        capability_config=_capability_config(
             certificate_reconcile_interval_seconds=0,
             certificate_renewal_interval_seconds=0,
             certificate_renewal_budget_seconds=300,
             ssl_automatic_scan_interval_seconds=0,
-            drift_check_interval_seconds=0,
-        )
+        ),
     )
 
     assert all(

@@ -59,6 +59,7 @@ def build(settings, monkeypatch):
 
     def make(
         *,
+        ca_domain: str = "letsencrypt.org",
         addresses: dict[str, set[str]] | None = None,
         caa: tuple[str, list[tuple[str, str]]] | None = None,
         caa_error: Exception | None = None,
@@ -82,6 +83,7 @@ def build(settings, monkeypatch):
         return CertificatePreflight(
             settings,
             FakeEdgeStore(edges),  # type: ignore[arg-type]
+            ca_domain=ca_domain,
             origin_probe=FakeOriginProbe(ok=origin_ok),  # type: ignore[arg-type]
         )
 
@@ -216,6 +218,7 @@ def test_an_unreadable_fleet_does_not_raise(settings, monkeypatch, site):
     report = CertificatePreflight(
         settings,
         ExplodingEdgeStore(),  # type: ignore[arg-type]
+        ca_domain="letsencrypt.org",
         origin_probe=FakeOriginProbe(),  # type: ignore[arg-type]
     ).check(site, deployed=True)
     assert not _check(report, "dns").passed
@@ -290,17 +293,16 @@ def test_a_broken_resolver_is_an_advisory_not_a_block(build, site):
     assert report.ok
 
 
-def test_a_configured_ca_is_what_caa_is_checked_against(build, site, settings):
+def test_a_configured_ca_is_what_caa_is_checked_against(build, site):
     """Pointing certbot at another ACME server must move the CAA check with it."""
-    moved = settings.model_copy(update={"acme_ca_domain": "other-ca.example"})
     checker = build(
+        ca_domain="other-ca.example",
         addresses={
             "cdn.example.com": {"203.0.113.5"},
             "edge1.example.net": {"203.0.113.5"},
         },
         caa=("example.com", [("issue", "other-ca.example")]),
     )
-    checker._settings = moved
     assert _check(checker.check(site, deployed=True), "caa").passed
 
 
@@ -412,9 +414,9 @@ def test_closest_caa_stops_at_the_first_ancestor_that_answers(settings, monkeypa
             raise AssertionError("the walk should have stopped at example.com")
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
-    found = CertificatePreflight(settings, FakeEdgeStore())._closest_caa(
-        "cdn.example.com"
-    )
+    found = CertificatePreflight(
+        settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+    )._closest_caa("cdn.example.com")
 
     assert found == ("example.com", [("issue", "letsencrypt.org")])
     assert asked == ["cdn.example.com", "example.com"]
@@ -430,7 +432,9 @@ def test_closest_caa_returns_none_when_no_ancestor_has_a_record(settings, monkey
 
     monkeypatch.setattr(dns.resolver, "Resolver", FakeResolver)
     assert (
-        CertificatePreflight(settings, FakeEdgeStore())._closest_caa("cdn.example.com")
+        CertificatePreflight(
+            settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+        )._closest_caa("cdn.example.com")
         is None
     )
 
@@ -483,7 +487,9 @@ def test_configured_servers_are_used_instead_of_the_host_resolver(
     )
     addresses = preflight_module._resolve(
         "www.example.com",
-        CertificatePreflight(configured, FakeEdgeStore())._address_resolver(),
+        CertificatePreflight(
+            configured, FakeEdgeStore(), ca_domain="letsencrypt.org"
+        )._address_resolver(),
     )
     assert addresses == {"203.0.113.9"}
     assert recording_resolver.instances[-1].nameservers == ["1.1.1.1", "1.0.0.1"]
@@ -491,7 +497,12 @@ def test_configured_servers_are_used_instead_of_the_host_resolver(
 
 def test_without_configured_servers_the_host_resolver_is_still_used(settings):
     """Default behaviour is unchanged, so /etc/hosts keeps applying."""
-    assert CertificatePreflight(settings, FakeEdgeStore())._address_resolver() is None
+    assert (
+        CertificatePreflight(
+            settings, FakeEdgeStore(), ca_domain="letsencrypt.org"
+        )._address_resolver()
+        is None
+    )
 
 
 def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build):
@@ -504,7 +515,10 @@ def test_the_dns_check_names_the_resolver_it_asked(settings, monkeypatch, build)
     monkeypatch.setattr(CertificatePreflight, "_closest_caa", lambda self, name: None)
 
     report = CertificatePreflight(
-        configured, FakeEdgeStore(), origin_probe=FakeOriginProbe()
+        configured,
+        FakeEdgeStore(),
+        ca_domain="letsencrypt.org",
+        origin_probe=FakeOriginProbe(),
     ).check(
         CdnSite(
             name="site",

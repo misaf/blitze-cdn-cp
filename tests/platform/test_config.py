@@ -87,19 +87,33 @@ def test_a_capabilitys_settings_are_kept_environment_only_and_masked(tmp_path):
     assert "s" * 32 not in repr(settings)
 
 
-def test_a_capabilitys_settings_may_not_come_from_the_committed_toml(tmp_path):
-    """`.env` is 0600 and uncommitted; blitzecdn.toml is neither.
+def test_a_capabilitys_settings_may_come_from_the_committed_toml(tmp_path):
+    """A capability's *non-secret* settings belong in the non-secret file.
 
-    The TOML reader refuses a key it does not know, and no capability name is
-    among the ones it knows, so a credential cannot arrive that way whatever a
-    package documents.
+    This reverses an earlier rule, and the reversal is the point. The TOML
+    reader used to refuse every key core did not recognise, which kept
+    credentials out of a committed file — and also made a renewal interval, a
+    certbot path and a backup directory unconfigurable anywhere but the
+    environment, because a capability could declare nothing else.
+
+    So an unrecognised key is staged rather than refused, under the `BLITZE_`
+    name it corresponds to, and ownership is decided later by the plugin that
+    claims it. Secrets stay out by a narrower route than before: the file's
+    keys are staged *separately* from the environment's, only a
+    `CapabilitySetting` is ever satisfied from them, and a name a package
+    declared as an `EnvironmentKey` is refused outright when it appears here.
     """
     (tmp_path / "blitzecdn.toml").write_text(
-        '[blitzecdn]\nunder_attack_secret = "s"\n', encoding="utf-8"
+        "[blitzecdn]\ncertificate_renewal_interval_seconds = 3600\n", encoding="utf-8"
     )
 
-    with pytest.raises(ConfigurationError, match="unknown project configuration"):
-        Settings.from_environment({}, project_dir=tmp_path)
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+
+    assert settings.capability_config_file == {
+        "BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS": "3600"
+    }
+    # And not into the map a secret is read from.
+    assert settings.capability_environment == {}
 
 
 def test_the_controllers_own_names_are_not_handed_to_a_capability(tmp_path):

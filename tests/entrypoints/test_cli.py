@@ -2,6 +2,7 @@ import json
 import sys
 from importlib import import_module
 from importlib.util import find_spec
+from pathlib import Path
 
 import pytest
 from click.utils import strip_ansi
@@ -13,6 +14,7 @@ from control_plane_fixtures import (
     host_run,
     repository_on,
     seed_site,
+    with_capability_settings,
 )
 from typer.testing import CliRunner
 
@@ -32,6 +34,21 @@ certificate_domain = (
 PreflightCheck = getattr(certificate_domain, "PreflightCheck", None)
 PreflightSeverity = getattr(certificate_domain, "PreflightSeverity", None)
 RenewalResult = getattr(certificate_domain, "RenewalResult", None)
+
+#: Two of the assertions below are about what an *installed capability*
+#: contributes, so they cannot hold in the core-only workspace where nothing
+#: contributes anything. Skipped there by name, like the contract suite's, so
+#: `just test-core-only` keeps running every other assertion in this file.
+REQUIRES_CAPABILITIES = {
+    "test_plugins_shows_a_settings_value_and_only_a_secrets_presence": (
+        "certificates",
+        "security",
+    ),
+    "test_ansible_slots_answers_for_all_three_of_cores_plays": (
+        "hardening",
+        "resolver",
+    ),
+}
 
 REQUIRES_CERTIFICATES = frozenset(
     {
@@ -484,7 +501,9 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
 
 def test_deploy_can_issue_ready_certificates_and_install_them(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
+    configured = with_capability_settings(
+        settings, acme_default_email="ops@example.com"
+    )
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = ControlPlane(settings=configured, repository=repository, runner=fake)  # type: ignore[arg-type]
     site = seed_site(control)
@@ -1513,3 +1532,77 @@ def test_plugins_names_a_skipped_package_on_stderr(settings, monkeypatch):
 
     assert "waf (blitzecdn_waf.plugin) was not registered" in result.output
     assert "import failed: no module" in result.output
+
+
+def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
+    settings, monkeypatch
+):
+    """Two kinds of configuration, and the difference is what may be printed.
+
+    This command prints to a terminal and into whatever captures its JSON, so
+    a secret is only ever reported as set or unset. A setting is reported with
+    its resolved value, which is the answer to "what is this controller
+    actually using" — and the reason the two are declared as different things
+    rather than as one list with a flag.
+    """
+    _control(settings, monkeypatch)
+
+    result = runner.invoke(cli.app, ["plugins", "--json"])
+    document = json.loads(result.stdout)
+    configuration = {
+        entry["name"]: entry
+        for plugin in document["plugins"]
+        for entry in plugin["configuration"]
+    }
+
+    secret = configuration["BLITZE_UNDER_ATTACK_SECRET"]
+    assert secret["kind"] == "secret"
+    assert secret["set"] is False
+    assert "value" not in secret
+
+    setting = configuration["BLITZE_CERTIFICATE_RENEWAL_INTERVAL_SECONDS"]
+    assert setting["kind"] == "setting"
+    assert setting["value"] == "43200"
+
+
+def test_ansible_roles_path_is_what_a_deployment_would_resolve():
+    """Core's roles first, then each contributing distribution's, by plugin name.
+
+    The justfile used to spell all nine directories out, so a checkout could
+    syntax-check an edge play against a role set no deployment would resolve.
+    Asking the same function the composition root calls is what removed that.
+    """
+    result = runner.invoke(cli.app, ["ansible", "roles-path"])
+    entries = result.stdout.strip().split(":")
+
+    # Core's is always first and is the only entry a core-only workspace has,
+    # which is why this assertion needs no capability installed.
+    assert entries[0].endswith("src/blitzecdn/ansible/roles")
+    assert all(Path(entry).is_dir() for entry in entries)
+    # Ordered by plugin name after core's, which is what makes two controllers
+    # with the same packages installed resolve every role identically.
+    contributed = [Path(entry).parents[2].name for entry in entries[1:]]
+    assert contributed == sorted(contributed)
+
+
+def test_ansible_slots_answers_for_all_three_of_cores_plays():
+    """A slot is declared by the contributing package and cannot be read off
+    this repository, which is why the hand-written copy had drifted in both
+    directions: an edge role missing, and the teardown slot never passed.
+    """
+    result = runner.invoke(cli.app, ["ansible", "slots"])
+    document = json.loads(result.stdout)
+
+    assert set(document) == {
+        "blitzecdn_capability_roles",
+        "blitzecdn_host_capability_roles",
+        "blitzecdn_teardown_capability_roles",
+    }
+    # The one the justfile's literal omitted: `blitzecdn-resolver` declares an
+    # edge role, and nothing in this repository says so except its own package.
+    assert "blitzecdn_resolver" in document["blitzecdn_capability_roles"]
+    assert document["blitzecdn_teardown_capability_roles"]
+    # Emitted even when empty, so a caller diffing this can see a slot is empty
+    # rather than guess whether the question was asked.
+    for roles in document.values():
+        assert isinstance(roles, list)
