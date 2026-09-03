@@ -33,14 +33,14 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import HostRun, RunStatus
-from blitzecdn.features.deployments.domain import (
+from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.features.http.policy import HttpScheme
-from blitzecdn.features.sites.domain import CdnSite, SitePatch
-from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
+from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 
 
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:

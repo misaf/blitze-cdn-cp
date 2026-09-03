@@ -5,7 +5,7 @@ state: no deployment record is written and the deployment lock is deliberately
 not taken, because the moment a purge is most needed is the moment a deploy is
 most likely to already be running.
 
-Separate from :mod:`blitzecdn.features.edges.service` despite also acting on the
+Separate from :mod:`blitzecdn.capabilities.edges.service` despite also acting on the
 fleet. That service answers "which hosts exist"; this one answers "what is
 stored on them", which is a different question with its own domain module
 (:mod:`blitzecdn_cache.domain`) and its own entry-point module. They were one
@@ -22,10 +22,10 @@ from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.runs import HostRun
-from blitzecdn.features.http.policy import HttpScheme
-from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.sites.policy import CacheQueryStringMode
-from blitzecdn.features.sites.ports import SiteReader
+from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.policy import CacheQueryStringMode
+from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn_cache.domain import (
     CacheStatsReport,
     EdgeStats,

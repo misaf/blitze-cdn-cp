@@ -30,8 +30,8 @@ import dns.rdatatype
 import dns.resolver
 
 from blitzecdn.core.config import Settings
-from blitzecdn.features.edges.ports import EdgeStore, OriginProbe
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
+from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn_certificates.certificates.domain import (
     TTL_CUTOVER_ADVISORY_SECONDS,
     PreflightCheck,

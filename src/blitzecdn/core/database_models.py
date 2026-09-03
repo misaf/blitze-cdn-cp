@@ -14,7 +14,7 @@ policy, the ``AnsibleRun`` a deployment produced, or a workflow's steps — stay
 whole in a JSON column.
 
 That line is deliberate rather than lazy. Normalising a site policy into tables
-would give the feature domain models a rival definition of
+would give the capability domain models a rival definition of
 the same invariants, with nothing to keep the two honest. Storing everything as
 one opaque blob instead would bury facts SQL needs to see — an edge's host and
 port, a record's TTL. A column per queryable fact and JSON for the policy is
@@ -166,7 +166,7 @@ class SiteRow(Base, table=True):
     ``policy`` stays whole because nothing queries inside it: it is written and
     read back as one document and validated by the domain model on the way out.
 
-    ``server_names`` is the one column with a writer outside this feature. It is
+    ``server_names`` is the one column with a writer outside this capability. It is
     maintained by `dns` from the records routed to the site, so it is a
     projection of a *relationship* rather than of the site — which is why the
     row it lives on is canonical and this column is not.
@@ -266,7 +266,7 @@ class DeploymentRow(Base, table=True):
     result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
     #: The desired state this deployment converged, and can roll back to.
     #: Opaque here on purpose — its shape is versioned by
-    #: :mod:`blitzecdn.features.deployments.snapshots`, not by this schema.
+    #: :mod:`blitzecdn.capabilities.deployments.snapshots`, not by this schema.
     snapshot: str
     #: For a rollback: a digest of the canonical desired state as it stood when
     #: this rollback was queued. Adoption compares it against canonical state

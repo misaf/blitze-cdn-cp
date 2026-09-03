@@ -51,7 +51,7 @@ __version__ = distribution_version(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
-    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 #: The Jinja fragments this capability contributes to the edge's Nginx

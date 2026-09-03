@@ -20,8 +20,8 @@ from pydantic import Field
 
 from blitzecdn.api.operations import OperationModel
 from blitzecdn.api.requests import FleetRequest
-from blitzecdn.features.http.policy import HttpScheme
-from blitzecdn.features.tls.policy import SslMode
+from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.tls.policy import SslMode
 
 
 class OriginCheck(OperationModel):

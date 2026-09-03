@@ -24,10 +24,10 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import HostRun, RunStatus
-from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.features.sites.domain import CdnSite, SitePatch
-from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
+from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 
 CertificateSource = (
     import_module("blitzecdn_certificates.certificates.domain").CertificateSource

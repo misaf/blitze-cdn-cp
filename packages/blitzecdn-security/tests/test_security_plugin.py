@@ -11,7 +11,7 @@ from blitzecdn.core.plugins import (
     ResolvedCapabilityEnvironment,
     resolve_capability_environment,
 )
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 def _site(*, under_attack: bool, enabled: bool = True) -> CdnSite:

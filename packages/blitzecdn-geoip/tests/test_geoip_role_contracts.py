@@ -181,7 +181,7 @@ def _sites_with(**site_overrides: Any) -> list[dict[str, Any]]:
 
 
 def test_the_role_refuses_country_rules_when_the_capability_is_off(tmp_path):
-    """The deploy must stop, and say which setting turns the feature on."""
+    """The deploy must stop, and say which setting turns the capability on."""
     sites = _sites_with(firewall={"denied_countries": ["RU"]})
 
     refused = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)

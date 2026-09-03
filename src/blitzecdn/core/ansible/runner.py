@@ -16,7 +16,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.runs import AnsibleRun
-from blitzecdn.features.edges.ports import EdgeStore
+from blitzecdn.capabilities.edges.ports import EdgeStore
 
 __all__ = ["AnsibleRunner"]
 
@@ -35,7 +35,7 @@ class AnsibleRunner:
     given. Reading a separate copy is precisely the drift that removing the
     static inventory file was meant to end.
 
-    One adapter, several playbooks. Each feature declares the slice of this it
+    One adapter, several playbooks. Each capability declares the slice of this it
     actually needs as its own port — ``DeploymentRunner``, ``EdgeRunner``,
     ``DeploymentLocker`` — and the composition root is the only place that
     knows one object satisfies all of them. An installed capability's own
@@ -137,8 +137,8 @@ class AnsibleRunner:
         The primitive an installed capability reaches for. Purging a cache and
         collecting statistics were methods on this class while `cache` was a
         package inside this distribution, which meant core knew what a
-        `PurgeEntry` was — a feature's domain type in the adapter every other
-        feature also uses. They are the cache package's business now, and what
+        `PurgeEntry` was — a capability's domain type in the adapter every other
+        capability also uses. They are the cache package's business now, and what
         core still owns is the part that is genuinely its own: which hosts a
         limit expands to, where the variables file is staged, and the timeout.
 

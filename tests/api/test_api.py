@@ -19,9 +19,9 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
 )
 from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.features.deployments import DeploymentService
-from blitzecdn.features.edges import EdgeOperationsService
-from blitzecdn.features.sites.domain import SitePolicy
+from blitzecdn.capabilities.deployments import DeploymentService
+from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.sites.domain import SitePolicy
 
 CertificateService = (
     import_module("blitzecdn_certificates.certificates.service").CertificateService

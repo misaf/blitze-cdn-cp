@@ -1,6 +1,6 @@
 """The HTTP/3 capability: its metadata, and the fleet state it derives.
 
-These are the tests that moved out of `tests/features/http/` with the code. The
+These are the tests that moved out of `tests/capabilities/http/` with the code. The
 derivation is asserted here because it is this distribution's behavior; what
 core keeps — the switch, the baseline listener stance — is asserted there.
 """
@@ -14,11 +14,11 @@ from blitzecdn_http3.plugin import (
 )
 
 from blitzecdn.core.plugins import PluginMetadata, load_plugins, merge_variables
-from blitzecdn.features.http.plugin import (
+from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state as baseline_fleet_desired_state,
 )
-from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.policy import managed_certificate_paths
+from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.tls.policy import managed_certificate_paths
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:

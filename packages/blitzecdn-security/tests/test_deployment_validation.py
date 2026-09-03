@@ -21,8 +21,8 @@ from typer.testing import CliRunner
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
-from blitzecdn.features.deployments.domain import DeploymentStatus
-from blitzecdn.features.sites.domain import SitePatch
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.sites.domain import SitePatch
 
 runner = CliRunner()
 

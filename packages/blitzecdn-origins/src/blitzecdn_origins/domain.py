@@ -26,7 +26,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.capabilities.edges.origins import OriginCheck
 
 
 class EdgeOriginChecks(BaseModel):

@@ -1,1 +1,1 @@
-"""Cross-cutting primitives and infrastructure shared by feature packages."""
+"""Cross-cutting primitives and infrastructure shared by capability packages."""

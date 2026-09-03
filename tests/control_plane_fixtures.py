@@ -30,9 +30,9 @@ from blitzecdn.core.runs import (
     TaskOutcome,
     TaskResult,
 )
-from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.features.edges.domain import Edge
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 

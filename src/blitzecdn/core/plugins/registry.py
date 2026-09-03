@@ -47,14 +47,14 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
 
     from blitzecdn.bootstrap import ControlPlane
-    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 def _flatten[T](results: Sequence[Any], hook: str, kind: type[T]) -> tuple[T, ...]:
     """One typed tuple, in registration order, from a hook's list of lists.
 
     Reversed because pluggy calls implementations last-registered-first, and
-    the order features were registered in is the order an operator sees them:
+    the order capabilities were registered in is the order an operator sees them:
     the command tree and the published route list should not depend on an
     implementation detail of the hook caller.
     """
@@ -178,7 +178,7 @@ class PluginRegistry:
 
         Deterministic and generic: the tokens come from configuration, the
         answer comes from plugin metadata, and nothing between them names a
-        feature. Detaching a package that a configuration still asks for is a
+        capability. Detaching a package that a configuration still asks for is a
         startup failure with the token in it, not a control plane that comes up
         and quietly serves the capability's absence as if it were its default.
         """
@@ -340,7 +340,7 @@ class PluginRegistry:
     def contributions_for(self, platform: ControlPlane) -> StateContributions:
         """The desired-state hooks with the platform they need already supplied.
 
-        The renderer that calls these lives in `features/deployments` and has no
+        The renderer that calls these lives in `capabilities/deployments` and has no
         business knowing what a plugin manager is, so it is handed this instead:
         two functions with the shape it actually needs. Binding here rather than
         passing the platform down through the deployment service also keeps the

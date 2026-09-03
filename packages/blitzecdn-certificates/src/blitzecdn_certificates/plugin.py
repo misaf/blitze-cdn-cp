@@ -18,7 +18,7 @@ from blitzecdn.core.plugins import (
     ValidationIssue,
     hookimpl,
 )
-from blitzecdn.features.tls.policy import MANAGED_TLS_ROOT, CertificateMode
+from blitzecdn.capabilities.tls.policy import MANAGED_TLS_ROOT, CertificateMode
 from blitzecdn_certificates.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn_certificates.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn_certificates.certificates import cli as certificates_cli
@@ -33,7 +33,7 @@ from blitzecdn_certificates.config import SETTINGS
 
 if TYPE_CHECKING:
     from blitzecdn.bootstrap import ControlPlane
-    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.capabilities.sites.domain import CdnSite
 
 _CONTROLLER_MANAGED = frozenset({CertificateMode.UPLOADED, CertificateMode.REQUESTED})
 

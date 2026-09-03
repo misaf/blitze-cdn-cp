@@ -6,7 +6,7 @@ which is what keeps this module free of imports from its own package.
 
 That first sentence is the rule rather than a description of the contents.
 Country codes, HTTP method shapes and the alias table lived here with exactly
-one consumer — :mod:`blitzecdn.features.security.policy` — which left core
+one consumer — :mod:`blitzecdn.capabilities.security.policy` — which left core
 carrying the vocabulary of a capability an operator can detach. They now live
 with the contract that validates against them.
 """

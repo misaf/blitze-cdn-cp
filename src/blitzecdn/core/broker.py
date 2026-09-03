@@ -87,7 +87,7 @@ def publish(actor_name: str, queue_name: str, *args: object) -> None:
 class DramatiqBackgroundRunner:
     """Queues deployment identifiers for the worker entry point.
 
-    Satisfies :class:`~blitzecdn.features.deployments.ports.QueueBackgroundRunner`
+    Satisfies :class:`~blitzecdn.capabilities.deployments.ports.QueueBackgroundRunner`
     structurally; the port is not imported here so the adapter keeps facing
     outward only.
     """

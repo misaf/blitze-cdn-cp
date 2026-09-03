@@ -50,7 +50,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
 
     from blitzecdn.bootstrap import ControlPlane
-    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.capabilities.sites.domain import CdnSite
 
 hookspec = pluggy.HookspecMarker(PROJECT_NAME)
 

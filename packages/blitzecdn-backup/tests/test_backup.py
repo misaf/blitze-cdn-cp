@@ -39,8 +39,8 @@ from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.schema import DatabaseSchema
-from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 runner = CliRunner()
 

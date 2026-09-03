@@ -21,9 +21,9 @@ from blitzecdn_certificates.certificates.preflight import (
 )
 from control_plane_fixtures import FakeEdgeStore
 
-from blitzecdn.features.edges.domain import Edge
-from blitzecdn.features.edges.origins import OriginCheck
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.edges.origins import OriginCheck
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 class FakeOriginProbe:

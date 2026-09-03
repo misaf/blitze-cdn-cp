@@ -10,7 +10,7 @@ Backup is the case that makes the shape obvious. It has to work on a host where
 the control plane *cannot* start — a fresh install with an empty database, or
 one whose configuration was lost with the disk — so opening a repository to
 restore a database would create and migrate the very file about to be replaced.
-It therefore takes no repository, holds no port onto another feature, and is
+It therefore takes no repository, holds no port onto another capability, and is
 buildable from ``Settings`` alone.
 """
 

@@ -23,9 +23,9 @@ from blitzecdn.core.exceptions import (
     NotFoundError,
 )
 from blitzecdn.core.operations import WorkflowKind
-from blitzecdn.features.deployments.domain import DeploymentRequirementKind
-from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.policy import CertificateMode
+from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
+from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn_certificates.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateInfo,
@@ -373,7 +373,7 @@ class CertificateService:
         """Where this controller keeps the material it will ship to the edges.
 
         Public because rendering desired state needs it: the site model can say
-        a host is in a controller-managed mode, but only this feature knows the
+        a host is in a controller-managed mode, but only this capability knows the
         fingerprinted filenames the material is stored under. The alternative —
         handing the certificate *store* to whoever renders — would put an
         install-and-list capability in the hands of a caller that wants two

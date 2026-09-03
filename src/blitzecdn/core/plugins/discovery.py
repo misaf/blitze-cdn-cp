@@ -3,7 +3,7 @@
 Two sources, deliberately not one:
 
 * **Built-ins** are the tuple below, imported by module path. They are not
-  optional and not really "discovered" — the control plane *is* these features —
+  optional and not really "discovered" — the control plane *is* these capabilities —
   so resolving them through installation metadata would turn a broken editable
   install into a control plane that starts happily and quietly serves an empty
   fleet. An explicit tuple fails at import, names the module, and can be read.
@@ -53,8 +53,8 @@ from blitzecdn.core.plugins.types import (
 
 _LOGGER = logging.getLogger(__name__)
 
-#: Every feature this distribution ships, in dependency order — a plugin is
-#: registered after the features it builds on, which is what makes the CLI's
+#: Every capability this distribution ships, in dependency order — a plugin is
+#: registered after the capabilities it builds on, which is what makes the CLI's
 #: command order and the API's route order stable rather than incidental.
 #:
 #: Order is a presentation decision here and nothing more. Desired-state
@@ -62,15 +62,15 @@ _LOGGER = logging.getLogger(__name__)
 #: so moving a line in this tuple can never change what an edge converges to.
 BUILTIN_PLUGINS: tuple[str, ...] = (
     # The capability contracts first: nothing they contribute depends on
-    # another feature being registered, and `sites` composes their policy.
-    "blitzecdn.features.http.plugin",
-    "blitzecdn.features.sites.plugin",
-    "blitzecdn.features.dns.plugin",
-    "blitzecdn.features.edges.plugin",
-    "blitzecdn.features.deployments.plugin",
-    "blitzecdn.features.tls.plugin",
-    "blitzecdn.features.maintenance.plugin",
-    "blitzecdn.features.diagnostics.plugin",
+    # another capability being registered, and `sites` composes their policy.
+    "blitzecdn.capabilities.http.plugin",
+    "blitzecdn.capabilities.sites.plugin",
+    "blitzecdn.capabilities.dns.plugin",
+    "blitzecdn.capabilities.edges.plugin",
+    "blitzecdn.capabilities.deployments.plugin",
+    "blitzecdn.capabilities.tls.plugin",
+    "blitzecdn.capabilities.maintenance.plugin",
+    "blitzecdn.capabilities.diagnostics.plugin",
 )
 
 
@@ -161,7 +161,7 @@ class Discovery:
 def register_builtins(
     manager: pluggy.PluginManager, modules: Sequence[str] = BUILTIN_PLUGINS
 ) -> tuple[PluginMetadata, ...]:
-    """Register the features this distribution ships. Any failure is fatal."""
+    """Register the capabilities this distribution ships. Any failure is fatal."""
     found: list[PluginMetadata] = []
     for path in modules:
         try:
@@ -174,7 +174,7 @@ def register_builtins(
         if not metadata.required:
             raise PluginError(
                 f"built-in plugin {metadata.name} declares itself optional; "
-                "a feature this distribution ships is part of the control plane"
+                "a capability this distribution ships is part of the control plane"
             )
         found.append(metadata)
     return tuple(found)

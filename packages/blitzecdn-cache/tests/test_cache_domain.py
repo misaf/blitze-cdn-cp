@@ -1,6 +1,6 @@
 """The cache capability's own domain rules: purge entries and the hit ratio.
 
-They were in `tests/features/sites/test_domain.py` while `cache` was a package
+They were in `tests/capabilities/sites/test_domain.py` while `cache` was a package
 inside the control plane. They are not site rules — a purge entry is keyed by
 the hostname nginx saw, and the hit ratio is arithmetic over what the edges
 reported — so they travel with the distribution that defines them.

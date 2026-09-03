@@ -1,8 +1,8 @@
-"""One SQLite database, exposed as focused feature stores.
+"""One SQLite database, exposed as focused capability stores.
 
 ``Repository`` opens the database and hands out the focused stores that sit on
 it. It is a bundle, not a layer: each store already satisfies its port in
-feature ports structurally, so the composition root passes
+capability ports structurally, so the composition root passes
 ``repository.zones`` to whatever asked for a ``ZoneStore`` and no service is
 ever handed more of persistence than it declared.
 
@@ -23,11 +23,11 @@ from blitzecdn.core.persistence.configuration import (
     DeploymentRequirementStore,
 )
 from blitzecdn.core.persistence.workflows import WorkflowStore
-from blitzecdn.features.deployments.persistence import DeploymentStore
-from blitzecdn.features.deployments.snapshots import encode_snapshot
-from blitzecdn.features.dns.persistence import ZoneStore
-from blitzecdn.features.edges.persistence import EdgeStore
-from blitzecdn.features.sites.persistence import SiteStore
+from blitzecdn.capabilities.deployments.persistence import DeploymentStore
+from blitzecdn.capabilities.deployments.snapshots import encode_snapshot
+from blitzecdn.capabilities.dns.persistence import ZoneStore
+from blitzecdn.capabilities.edges.persistence import EdgeStore
+from blitzecdn.capabilities.sites.persistence import SiteStore
 
 __all__ = [
     "AuditLog",
@@ -43,7 +43,7 @@ __all__ = [
 class Repository:
     """SQLite persistence with explicit transactions and immutable snapshots.
 
-    A composition of the feature stores, and nothing more. Reach through it
+    A composition of the capability stores, and nothing more. Reach through it
     for the store you want —
     ``repository.zones.list_records()`` — rather than expecting a method here;
     forwarding every store method onto this class only made ``Repository`` look

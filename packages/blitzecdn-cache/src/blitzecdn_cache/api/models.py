@@ -21,7 +21,7 @@ from pydantic import Field, field_validator
 
 from blitzecdn.api.operations import HostRun, OperationModel
 from blitzecdn.api.requests import FleetRequest
-from blitzecdn.features.http.policy import HttpScheme
+from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn_cache.domain import PurgeEntry as DomainPurgeEntry
 
 

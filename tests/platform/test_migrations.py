@@ -24,8 +24,8 @@ from sqlalchemy import create_engine
 from blitzecdn.core.database import Repository
 from blitzecdn.core.database_engine import Database
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.features.dns.domain import DnsRecord, Domain
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 def _config(path) -> Config:

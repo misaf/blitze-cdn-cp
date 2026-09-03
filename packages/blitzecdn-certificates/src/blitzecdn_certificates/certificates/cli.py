@@ -8,7 +8,7 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.features.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn_certificates.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 from blitzecdn_certificates.composition import build_certificate_service
 

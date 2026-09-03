@@ -10,7 +10,7 @@ from blitzecdn.core.database_engine import Database
 from blitzecdn.core.database_models import AnsibleSettingRow, DeploymentRequirementRow
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.validation import validate_setting_name
-from blitzecdn.features.deployments.domain import DeploymentRequirementKind
+from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 
 
 class DeploymentRequirementStore:

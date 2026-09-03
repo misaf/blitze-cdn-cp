@@ -19,7 +19,7 @@ from blitzecdn import worker
 from blitzecdn.core import broker as queue
 from blitzecdn.core.exceptions import DeploymentBusyError, NotFoundError
 from blitzecdn.core.plugins import ScheduledJob
-from blitzecdn.features.maintenance import MaintenanceService
+from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 

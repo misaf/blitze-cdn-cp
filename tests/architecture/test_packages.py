@@ -153,7 +153,7 @@ def test_every_built_in_lives_in_the_control_plane_distribution():
     `blitzecdn.`, and an optional capability reaches the registry through its
     entry point or not at all.
     """
-    assert all(module.startswith("blitzecdn.features.") for module in BUILTIN_PLUGINS)
+    assert all(module.startswith("blitzecdn.capabilities.") for module in BUILTIN_PLUGINS)
 
 
 def test_a_built_in_declares_itself_required_and_an_optional_package_does_not():
@@ -286,20 +286,20 @@ _PUBLIC_SDK_PREFIXES = (
 )
 
 #: A capability contract another capability owns. Allowed, and named one by one
-#: rather than by a wildcard over `blitzecdn.features.*`: `CdnSite` and
+#: rather than by a wildcard over `blitzecdn.capabilities.*`: `CdnSite` and
 #: `HttpScheme` are contracts every capability already consumes, while a
-#: feature's `service` or `adapters` module is not something an installed
+#: capability's `service` or `adapters` module is not something an installed
 #: package may reach into.
 _PUBLIC_CAPABILITY_MODULES = (
-    "blitzecdn.features.sites",
-    "blitzecdn.features.http.policy",
-    "blitzecdn.features.dns.domain",
-    "blitzecdn.features.dns.ports",
-    "blitzecdn.features.deployments.domain",
-    "blitzecdn.features.deployments.ports",
-    "blitzecdn.features.edges.origins",
-    "blitzecdn.features.edges.ports",
-    "blitzecdn.features.tls.policy",
+    "blitzecdn.capabilities.sites",
+    "blitzecdn.capabilities.http.policy",
+    "blitzecdn.capabilities.dns.domain",
+    "blitzecdn.capabilities.dns.ports",
+    "blitzecdn.capabilities.deployments.domain",
+    "blitzecdn.capabilities.deployments.ports",
+    "blitzecdn.capabilities.edges.origins",
+    "blitzecdn.capabilities.edges.ports",
+    "blitzecdn.capabilities.tls.policy",
 )
 
 _FORBIDDEN_SDK_MODULES = (
@@ -468,7 +468,7 @@ def test_an_optional_capability_is_discovered_only_through_its_entry_point():
 
 
 #: The modules a package's Python is organised into. Held to a closed set for
-#: the same reason `ALLOWED_FEATURE_DEPENDENCIES` is one: ten packages that
+#: the same reason `ALLOWED_CAPABILITY_DEPENDENCIES` is one: ten packages that
 #: converged on a shape by imitation give the eleventh author ten examples and
 #: no rule, and the shape is what makes a capability readable without reading
 #: it — `plugin.py` is what it contributes, `composition.py` is how it is
@@ -668,7 +668,7 @@ def test_http3_ships_as_an_optional_distribution_and_http1_and_http2_do_not():
 
     assert "blitzecdn-http3" in distributions
     assert not {"blitzecdn-http1", "blitzecdn-http2", "blitzecdn-http"} & distributions
-    assert "blitzecdn.features.http.plugin" in BUILTIN_PLUGINS
+    assert "blitzecdn.capabilities.http.plugin" in BUILTIN_PLUGINS
 
 
 def test_the_http3_capability_is_reached_only_through_its_entry_point():
@@ -700,9 +700,9 @@ def test_the_http_capability_contributes_the_quic_baseline_without_deriving_it()
     derivation, and two plugins deriving these two variables from one fleet is
     a merge conflict at deploy time rather than a design anybody chose.
     """
-    plugin = SOURCE / "features/http/plugin.py"
+    plugin = SOURCE / "capabilities/http/plugin.py"
     offenders = [
-        "features/http/plugin.py reads .http3_enabled"
+        "capabilities/http/plugin.py reads .http3_enabled"
         for node in ast.walk(ast.parse(plugin.read_text(encoding="utf-8")))
         if isinstance(node, ast.Attribute) and node.attr == "http3_enabled"
     ]
@@ -728,12 +728,12 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     that shape depend on what is installed, and a stored site asking for HTTP/3
     would stop loading on a controller that had detached it.
     """
-    from blitzecdn.features.http.policy import ProtocolPolicy
-    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.capabilities.http.policy import ProtocolPolicy
+    from blitzecdn.capabilities.sites.domain import CdnSite
 
     assert "http3_enabled" in ProtocolPolicy.model_fields
     assert "http3_enabled" in CdnSite.model_fields
-    assert ProtocolPolicy.__module__.startswith("blitzecdn.features.http")
+    assert ProtocolPolicy.__module__.startswith("blitzecdn.capabilities.http")
 
 
 # --- GeoIP is optional; the settings that ask for a country are not ---------
@@ -788,15 +788,15 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
     installed, and a stored site asking for a country would stop loading on a
     controller that had detached it.
     """
-    from blitzecdn.features.security.policy import SiteFirewall
-    from blitzecdn.features.sites.domain import CdnSite
-    from blitzecdn.features.sites.policy.headers import SiteVisitorHeaders
+    from blitzecdn.capabilities.security.policy import SiteFirewall
+    from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.capabilities.sites.policy.headers import SiteVisitorHeaders
 
     assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
     assert "ip_country" in SiteVisitorHeaders.model_fields
     assert {"firewall", "visitor_headers"} <= set(CdnSite.model_fields)
-    assert SiteFirewall.__module__.startswith("blitzecdn.features.security")
-    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.features.sites")
+    assert SiteFirewall.__module__.startswith("blitzecdn.capabilities.security")
+    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.sites")
 
 
 def test_the_country_settings_derive_their_token_generically_in_core():
@@ -810,7 +810,7 @@ def test_the_country_settings_derive_their_token_generically_in_core():
     offenders = [
         f"{path.relative_to(SOURCE)} names the geoip token"
         for path in sorted(SOURCE.rglob("*.py"))
-        if path != SOURCE / "features/sites/domain.py"
+        if path != SOURCE / "capabilities/sites/domain.py"
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value == "geoip"
     ]
@@ -885,7 +885,7 @@ def test_automatic_ssl_declares_the_origin_probe_it_runs():
 #: validated against. `SiteFirewall` is the source of the first six, so a
 #: seventh rule kind lands here without this list being edited.
 def _firewall_rule_kinds() -> frozenset[str]:
-    from blitzecdn.features.security.policy import SiteFirewall
+    from blitzecdn.capabilities.security.policy import SiteFirewall
 
     return frozenset(SiteFirewall.model_fields)
 
@@ -956,10 +956,10 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: * `sites/domain.py` names only the two *country* settings, to derive the
 #:   `geoip` token — asserted separately by the GeoIP tests above.
 _FIREWALL_AWARE_MODULES = {
-    "features/security/policy.py": None,
+    "capabilities/security/policy.py": None,
     "api/models.py": None,
-    "features/sites/cli.py": None,
-    "features/sites/domain.py": frozenset({"allowed_countries", "denied_countries"}),
+    "capabilities/sites/cli.py": None,
+    "capabilities/sites/domain.py": frozenset({"allowed_countries", "denied_countries"}),
 }
 
 
@@ -994,7 +994,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     """
     from blitzecdn.core.ansible.mapping import site_to_ansible
     from blitzecdn.core.validation import OmittedWhenEmpty
-    from blitzecdn.features.sites.domain import CdnSite
+    from blitzecdn.capabilities.sites.domain import CdnSite
 
     source = (SOURCE / "core/ansible/mapping.py").read_text(encoding="utf-8")
     mapper = next(

@@ -1,4 +1,4 @@
-"""An external plugin claiming a name a built-in feature already answers to."""
+"""An external plugin claiming a name a built-in capability already answers to."""
 
 from __future__ import annotations
 
