@@ -16,14 +16,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from blitzecdn.core.resources import distribution_version
 from blitzecdn_cache.adapters import CachePlaybooks
 from blitzecdn_cache.service import CacheService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
 
-#: This distribution's version, released on its own cadence.
-__version__ = "3.0.0"
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
 
 
 def build_cache_service(platform: ControlPlane) -> CacheService:

@@ -5,6 +5,7 @@ from weakref import WeakKeyDictionary
 
 from blitzecdn_origins.adapters import OriginCheckPlaybook
 
+from blitzecdn.core.resources import distribution_version
 from blitzecdn_certificates.automatic_ssl.service import AutomaticSslService
 from blitzecdn_certificates.certificates.adapters import CertbotIssuer, CertificateStore
 from blitzecdn_certificates.certificates.ports import WorkflowCoordinator
@@ -19,7 +20,11 @@ from blitzecdn_certificates.certificates.service import (
 if TYPE_CHECKING:
     from blitzecdn.bootstrap import ControlPlane
 
-__version__ = "3.0.0"
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
 
 _certificate_services: WeakKeyDictionary[object, CertificateService] = (
     WeakKeyDictionary()

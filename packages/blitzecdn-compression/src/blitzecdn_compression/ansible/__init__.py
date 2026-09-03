@@ -1,8 +1,35 @@
-"""Filesystem location of the compression capability's edge role."""
+"""This capability's Ansible implementation, and where it landed on disk.
 
-from pathlib import Path
+The role that converges gzip and Brotli on an edge ships *inside this wheel*,
+beside the Python that declares the capability. That is what makes the
+capability a whole vertical slice: installing the distribution brings the edge
+implementation with it, and uninstalling takes it away, with no directory in
+the control plane's checkout to add to or prune.
 
-ROLES_PATH = Path(__file__).with_name("roles")
-EDGE_ROLE = "blitzecdn_compression"
+Located through :func:`blitzecdn.core.resources.package_directory` rather than
+by counting ``..`` from ``__file__``. This module used to do the latter — three
+lines and no check — which was correct in a checkout and correct in an ordinary
+wheel, and silent in exactly the case the check exists for: a distribution that
+is not unpacked, where Ansible is handed something that is not a filesystem
+path at all.
+"""
+
+from __future__ import annotations
+
+from blitzecdn.core.resources import package_directory
 
 __all__ = ["EDGE_ROLE", "ROLES_PATH"]
+
+
+_DIRECTORY = package_directory(
+    __name__,
+    resolves="Ansible resolves its roles by filesystem path",
+)
+
+
+#: Handed to the control plane through ``blitzecdn_ansible_contributions``.
+ROLES_PATH = _DIRECTORY / "roles"
+
+#: The role core's edge play runs for this capability. Named once, here, so the
+#: contribution and the directory cannot disagree about it.
+EDGE_ROLE = "blitzecdn_compression"

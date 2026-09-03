@@ -1,7 +1,6 @@
 """Register gzip and Brotli as one detachable compression capability."""
 
 from collections.abc import Sequence
-from pathlib import Path
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
@@ -10,9 +9,28 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
+from blitzecdn.core.resources import distribution_version, package_directory
 from blitzecdn_compression import ansible
 
-__version__ = "3.0.0"
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
+
+
+#: The Jinja fragments this capability contributes to the edge's Nginx
+#: configuration, resolved under the same guard its roles are. A sibling of
+#: ``ansible/`` rather than a child: core's ``blitzecdn_nginx`` renders these
+#: from the resolved contribution, so they are not part of any role this
+#: package ships.
+NGINX_TEMPLATES = (
+    package_directory(
+        __name__,
+        resolves="Nginx templates are rendered from a filesystem path",
+    )
+    / "nginx"
+)
 
 
 @hookimpl
@@ -31,7 +49,7 @@ def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
     return (
         NginxContribution(
             plugin="compression",
-            templates_path=Path(__file__).with_name("nginx"),
+            templates_path=NGINX_TEMPLATES,
             server_fragments=("compression-server.conf.j2",),
         ),
     )

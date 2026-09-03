@@ -1,0 +1,35 @@
+# Dockerfile linting policy for the two images this distribution builds.
+#
+# The Python is held to ruff and a strict mypy, the shell that runs as root to
+# shellcheck, and every role and play to ansible-lint. The Dockerfiles were the
+# one artifact with no static analysis at all — and they are not the simplest
+# thing here: the edge image runs a two-stage module build against nginx's own
+# pkg-oss tooling and asserts the resulting binary's ABI from a shell loop.
+
+failure-threshold: warning
+
+# Reported, never gating. `info` is hadolint's level for style preferences and
+# for the shellcheck findings that are correct in general and wrong here — the
+# edge image's `for object in ${LOADED_MODULES}` wants exactly the word
+# splitting SC2086 exists to warn about, because the build argument is a
+# space-separated list by construction (see `blitzecdn edge image spec`).
+# Silencing those per-line would put a directive above most of the file; a
+# threshold says the same thing once.
+
+ignored:
+  # Pin versions in apt-get install.
+  #
+  # Deliberate, and not laziness. The four packages are `ca-certificates`,
+  # `certbot`, `git` and `openssh-client` from Debian bookworm, whose point
+  # release is what actually decides those versions — the base image tag is
+  # the pin. Naming versions here would break the build on every security
+  # update Debian ships and pin nothing that `python:3.13-slim-bookworm` has
+  # not already pinned.
+  - DL3008
+  # Pin versions in apk add.
+  #
+  # The same answer, and a stronger one on the edge: the module builder must
+  # install whatever `abuild` resolves for the *base image's own* nginx
+  # version, which is read out of the image at build time. A pinned toolchain
+  # here would be pinned against an nginx ABI nobody chose.
+  - DL3018

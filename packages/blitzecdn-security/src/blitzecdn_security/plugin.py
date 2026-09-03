@@ -22,7 +22,6 @@ Nginx insertion contexts and renders the resources discovered from this plugin.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from blitzecdn.core.plugins import (
@@ -35,6 +34,7 @@ from blitzecdn.core.plugins import (
     ValidationIssue,
     hookimpl,
 )
+from blitzecdn.core.resources import distribution_version, package_directory
 from blitzecdn_security import ansible
 from blitzecdn_security.config import (
     MINIMUM_SECRET_BYTES,
@@ -42,11 +42,29 @@ from blitzecdn_security.config import (
     SecurityConfig,
 )
 
-__version__ = "3.0.0"
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
     from blitzecdn.features.sites.domain import CdnSite
+
+
+#: The Jinja fragments this capability contributes to the edge's Nginx
+#: configuration, resolved under the same guard its roles are. A sibling of
+#: ``ansible/`` rather than a child: core's ``blitzecdn_nginx`` renders these
+#: from the resolved contribution, so they are not part of any role this
+#: package ships.
+NGINX_TEMPLATES = (
+    package_directory(
+        __name__,
+        resolves="Nginx templates are rendered from a filesystem path",
+    )
+    / "nginx"
+)
 
 
 @hookimpl
@@ -139,7 +157,7 @@ def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
     return (
         NginxContribution(
             plugin="security",
-            templates_path=Path(__file__).with_name("nginx"),
+            templates_path=NGINX_TEMPLATES,
             http_fragments=("security-http.conf.j2",),
             server_fragments=("security-server.conf.j2",),
             access_fragments=("security-access.conf.j2",),

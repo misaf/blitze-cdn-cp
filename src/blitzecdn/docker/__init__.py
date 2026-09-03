@@ -11,9 +11,9 @@ workflow and six contract tests each spelled the path again, and an air-gapped
 fleet that has to build its edge image on the controller had nothing to build
 from.
 
-Located through :mod:`importlib.resources`, not by counting ``..`` from
-``__file__``, so the paths are the same whether they are read from a checkout
-or from a virtualenv on a controller.
+Located through :func:`blitzecdn.core.resources.package_directory`, not by
+counting ``..`` from ``__file__``, so the paths are the same whether they are
+read from a checkout or from a virtualenv on a controller.
 
 What is deliberately *not* here is a build context for the control-plane image.
 Its context is the whole distribution source, which is exactly the thing this
@@ -22,8 +22,9 @@ package must not name — see :data:`CONTROL_PLANE_DOCKERFILE`.
 
 from __future__ import annotations
 
-from importlib import resources
 from pathlib import Path
+
+from blitzecdn.core.resources import package_directory
 
 __all__ = [
     "CONTROL_PLANE_DOCKERFILE",
@@ -34,30 +35,17 @@ __all__ = [
 ]
 
 
-def _directory() -> Path:
-    """This package's directory as a real filesystem path.
-
-    ``docker build`` takes a context and a Dockerfile by path, so a
-    ``Traversable`` that is not one — a package imported from inside a zip —
-    cannot be used at all. Wheels are unpacked on install, so this is the
-    ordinary case and not a fallback; the check exists to fail with a sentence
-    rather than with a ``TypeError`` deep inside a build invocation.
-    """
-    anchor = resources.files(__name__)
-    if not isinstance(anchor, Path):
-        raise RuntimeError(
-            "blitzecdn must be installed as an unpacked distribution: Docker "
-            "resolves a build context and a Dockerfile by filesystem path, and "
-            f"this installation exposes them as {type(anchor).__name__}."
-        )
-    return anchor
+_DIRECTORY = package_directory(
+    __name__,
+    resolves="Docker resolves a build context and a Dockerfile by filesystem path",
+)
 
 
 #: The edge runtime image's build context, and the whole of it. Everything the
 #: image needs is in this directory, so a build is ``docker build`` against this
 #: path with no ``--file`` and no wider context — which is what makes building
 #: an edge image from an installed controller possible at all.
-EDGE_CONTEXT = _directory() / "edge"
+EDGE_CONTEXT = _DIRECTORY / "edge"
 
 #: Named separately for the contract tests and for a caller that wants to pass
 #: ``--file`` explicitly; it is the default Dockerfile of :data:`EDGE_CONTEXT`.
@@ -83,7 +71,7 @@ EDGE_MODULE_PROBE_CONF = EDGE_CONTEXT / "module-probe.conf"
 #: that just stopped depending on one. The role that builds this image supplies
 #: the context, and only until the control plane is delivered as a published
 #: image like the edge already is.
-CONTROL_PLANE_DOCKERFILE = _directory() / "control-plane" / "Dockerfile"
+CONTROL_PLANE_DOCKERFILE = _DIRECTORY / "control-plane" / "Dockerfile"
 
 #: BuildKit resolves a Dockerfile-specific ignore file as ``<dockerfile>``
 #: suffixed with ``.dockerignore``, falling back to ``.dockerignore`` at the

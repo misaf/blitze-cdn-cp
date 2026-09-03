@@ -1,11 +1,12 @@
-"""The hardening capability: its metadata, and which slot it asks for.
+"""The hardening capability: its metadata, and which slots it asks for.
 
-The narrowest optional distribution in the workspace — two Ansible roles and
-nothing else — so what is worth asserting is exactly the boundary: that it
-registers as optional, that no site can request it, and that the roles it names
-land in the play's *host* slot rather than the edge one. The last is not
-cosmetic; running SSH hardening in the edge slot would put it before the
-firewall has been validated.
+A narrow optional distribution — three Ansible roles and nothing else — so what
+is worth asserting is exactly the boundary: that it registers as optional, that
+no site can request it, and that each role it names lands in the slot it was
+written for. Neither position is cosmetic. Running SSH hardening in the edge
+slot would put it before the firewall has been validated; leaving the withdrawal
+out of the teardown slot leaves a decommissioned host public-key-only against a
+control plane that has forgotten it exists.
 """
 
 from blitzecdn_hardening import __version__, ansible
@@ -18,6 +19,7 @@ from blitzecdn.core.plugins import BUILTIN_PLUGINS, PluginMetadata, load_plugins
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
+    resolve_teardown_capability_roles,
 )
 
 # --- registration -----------------------------------------------------------
@@ -105,9 +107,39 @@ def test_fail2ban_follows_ssh_within_the_contribution() -> None:
     assert resolved.index("blitzecdn_sshd") < resolved.index("blitzecdn_fail2ban")
 
 
+def test_the_capability_withdraws_its_own_files_in_the_teardown_slot() -> None:
+    """The mirror of the host slot, and the reason core stopped naming these.
+
+    An SSH drop-in and a Fail2Ban jail are in no tree `blitzecdn_teardown`
+    removes, and neither is a systemd unit matching the managed prefix. Core
+    used to carry both paths in that role's defaults and reload both services
+    from its own handlers — a role installed on every controller holding the
+    paths of a capability that may not be installed. Declaring the slot here is
+    what let those come out.
+    """
+    contributions = blitzecdn_ansible_contributions()
+
+    assert contributions[0].teardown_roles == ("blitzecdn_hardening_teardown",)
+    assert resolve_teardown_capability_roles(contributions) == (
+        "blitzecdn_hardening_teardown",
+    )
+
+
+def test_converging_and_withdrawing_are_different_roles() -> None:
+    """A role in both slots would run twice on a decommission.
+
+    The host slot is in the edge play and the teardown slot is in the
+    decommission play, so a name in both would converge the very policy the
+    same run is removing — on a host nothing can reach afterwards.
+    """
+    contribution = blitzecdn_ansible_contributions()[0]
+
+    assert not set(contribution.host_roles) & set(contribution.teardown_roles)
+
+
 def test_the_wheel_actually_carries_the_roles_it_names() -> None:
     """The path a deployment resolves by, not a directory in the checkout."""
-    for role in ansible.HOST_ROLES:
+    for role in ansible.HOST_ROLES + ansible.TEARDOWN_ROLES:
         assert (ansible.ROLES_PATH / role / "tasks/main.yml").is_file(), role
 
 

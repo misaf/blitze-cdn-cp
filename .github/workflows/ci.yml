@@ -83,6 +83,8 @@ jobs:
           if-no-files-found: error
       - name: YAML and Ansible lint
         run: just ansible-check
+      - name: Dockerfile lint
+        run: just docker-lint
       - name: Security checks
         run: just audit
       - name: Build package

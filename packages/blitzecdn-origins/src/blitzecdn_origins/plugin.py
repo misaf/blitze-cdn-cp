@@ -30,9 +30,8 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
-from blitzecdn_origins import ansible, cli
+from blitzecdn_origins import __version__, ansible, cli
 from blitzecdn_origins.api import routes
-from blitzecdn_origins.composition import __version__
 
 
 @hookimpl

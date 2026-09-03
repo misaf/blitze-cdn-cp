@@ -15,7 +15,6 @@ makes them go away, with no line of core edited either way.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 
 from fastapi import APIRouter
 
@@ -26,9 +25,23 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
+from blitzecdn.core.resources import package_directory
 from blitzecdn_cache import ansible, cli
 from blitzecdn_cache.api import routes
 from blitzecdn_cache.composition import __version__
+
+#: The Jinja fragments this capability contributes to the edge's Nginx
+#: configuration, resolved under the same guard its roles are. A sibling of
+#: ``ansible/`` rather than a child: core's ``blitzecdn_nginx`` renders these
+#: from the resolved contribution, so they are not part of any role this
+#: package ships.
+NGINX_TEMPLATES = (
+    package_directory(
+        __name__,
+        resolves="Nginx templates are rendered from a filesystem path",
+    )
+    / "nginx"
+)
 
 
 @hookimpl
@@ -67,7 +80,7 @@ def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
     return (
         NginxContribution(
             plugin="cache",
-            templates_path=Path(__file__).with_name("nginx"),
+            templates_path=NGINX_TEMPLATES,
             http_fragments=("cache-http.conf.j2",),
             upstream_fragments=("cache-upstream.conf.j2",),
         ),

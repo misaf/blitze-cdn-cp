@@ -84,6 +84,14 @@ LABEL org.opencontainers.image.title="BlitzeCDN edge" \
       org.opencontainers.image.version="${BLITZECDN_EDGE_VERSION}" \
       org.opencontainers.image.revision="${BLITZECDN_EDGE_REVISION}"
 
+# Repeated rather than inherited: `SHELL` is per-stage, and the builder's
+# declaration above does not reach here. Without it every pipeline in this
+# stage reports only its *last* command's status — which for the module probe
+# below means `nginx -V | grep` would pass on an nginx that failed to run at
+# all, and the image would publish with the HTTP/3 assertion never evaluated.
+# Each `RUN` still sets its own `-eux`; this is the part a `set` cannot state.
+SHELL ["/bin/ash", "-eo", "pipefail", "-c"]
+
 # Whatever the builder stage produced, against this exact official base. Each
 # package's filename has to carry the base image's Nginx version: pkg-oss
 # builds them that way by construction, so a package that does not is a build

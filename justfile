@@ -20,20 +20,12 @@ export ANSIBLE_COLLECTIONS_PATH := ".state/collections"
 
 collections := ".state/collections"
 
-# Ansible's role search path, composed the way the control plane composes it:
-# core's roles, then the roles each optional capability ships inside its own
-# distribution. Spelled out here rather than globbed because `just` has no
-# glob, and because a package that gains a roles directory should be a visible
-# line in this file rather than a silent change in behaviour.
-roles_path := "src/blitzecdn/ansible/roles" + ":" + \
-    "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles" + ":" + \
-    "packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles" + ":" + \
-    "packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" + ":" + \
-    "packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles" + ":" + \
-    "packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles" + ":" + \
-    "packages/blitzecdn-origins/src/blitzecdn_origins/ansible/roles" + ":" + \
-    "packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles" + ":" + \
-    "packages/blitzecdn-security/src/blitzecdn_security/ansible/roles"
+# Ansible's role search path is deliberately not a variable here any more.
+# `blitzecdn ansible roles-path` composes it from the installed distributions
+# with the function the composition root calls, so the path a lint step checks
+# against is the path a deployment resolves against. Spelling it out was a
+# second answer to a question that already had one, and it could disagree
+# with the first without anything saying so.
 
 # List the available recipes.
 default:
@@ -224,55 +216,84 @@ test-profile *args:
 # not need hosts; production keeps using the strict inventory in
 # `src/blitzecdn/ansible/inventory/blitzecdn.yml`, where a missing database must stop a run.
 #
-# `ANSIBLE_ROLES_PATH` is composed the way the control plane composes it at run
-# time: core's roles plus the roles each installed capability ships inside its
-# own wheel. A package's play — the ACME challenge, the cache purge — resolves
-# both its own roles and core's, exactly as a deployment does.
+# `ANSIBLE_ROLES_PATH` and the capability slot lists are not written out here.
+# Both are asked of the control plane, which composes them from the installed
+# distributions with the very functions the composition root calls at run time
+# — so what this recipe checks is what a deployment would actually resolve.
+#
+# They used to be two literals in this file, and both had drifted. The slot
+# list omitted `blitzecdn_resolver`, which declares an edge role, and named no
+# teardown slot at all, so the decommission play had never been checked with a
+# capability in it. Neither mistake is visible by reading: a slot is declared
+# by the contributing package, and this file cannot see a declaration.
+#
+# A shebang recipe so both values are resolved once and shared by every command
+# below, rather than reloading the plugin tree per line.
 ansible-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
     uv run yamllint .
-    ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
+    export ANSIBLE_ROLES_PATH="$(uv run blitzecdn ansible roles-path)"
+    slots="$(uv run blitzecdn ansible slots)"
+    uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
         src/blitzecdn/ansible/playbooks/edge.yml --syntax-check \
         --extra-vars @tests/fixtures/desired-state.yml \
-        --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_cache_config", "blitzecdn_compression", "blitzecdn_geoip", "blitzecdn_http3", "blitzecdn_security"], "blitzecdn_host_capability_roles": ["blitzecdn_sshd", "blitzecdn_fail2ban"]}'
-    ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-playbook \
+        --extra-vars "$slots"
+    uv run ansible-playbook \
+        -i tests/fixtures/blitzecdn.yml \
+        src/blitzecdn/ansible/playbooks/decommission.yml --syntax-check \
+        --extra-vars "$slots"
+    uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
         packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
         --syntax-check
-    uv run ansible-playbook -i localhost, \
-        tests/integration/http3-edge.yml --syntax-check
-    uv run ansible-playbook -i localhost, \
-        tests/integration/http3-firewall-disabled.yml --syntax-check
-    uv run ansible-playbook -i localhost, \
-        tests/integration/edge-teardown.yml --syntax-check
-    uv run ansible-playbook -i localhost, \
-        tests/integration/docker-engine.yml --syntax-check
-    uv run ansible-playbook -i localhost, \
-        src/blitzecdn/ansible/playbooks/control-plane.yml --syntax-check
-    uv run ansible-playbook -i localhost, \
-        src/blitzecdn/ansible/playbooks/uninstall.yml --syntax-check
-    ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml \
-    ANSIBLE_ROLES_PATH="{{roles_path}}" uv run ansible-lint \
-        src/blitzecdn/ansible/playbooks/edge.yml \
-        src/blitzecdn/ansible/playbooks/control-plane.yml src/blitzecdn/ansible/playbooks/decommission.yml \
-        src/blitzecdn/ansible/playbooks/uninstall.yml \
-        packages/blitzecdn-origins/src/blitzecdn_origins/ansible/playbooks/origin-check.yml \
-        packages/blitzecdn-origins/src/blitzecdn_origins/ansible/roles/blitzecdn_origins \
-        packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/cache-purge.yml \
-        packages/blitzecdn-cache/src/blitzecdn_cache/ansible/playbooks/stats.yml \
-        packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles/blitzecdn_cache_config \
-        packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
-        packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles/blitzecdn_compression \
-        packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles/blitzecdn_geoip \
-        packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles/blitzecdn_sshd \
-        packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles/blitzecdn_fail2ban \
-        packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles/blitzecdn_http3 \
-        packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles/blitzecdn_resolver \
-        packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles/blitzecdn_resolver_teardown \
-        packages/blitzecdn-security/src/blitzecdn_security/ansible/roles/blitzecdn_security \
-        tests/integration/http3-edge.yml \
-        tests/integration/http3-firewall-disabled.yml \
-        tests/integration/edge-teardown.yml tests/integration/docker-engine.yml
+    for play in \
+        tests/integration/*.yml \
+        src/blitzecdn/ansible/playbooks/control-plane.yml \
+        src/blitzecdn/ansible/playbooks/uninstall.yml
+    do
+        uv run ansible-playbook -i localhost, "$play" --syntax-check
+    done
+    # Globs, not a list. Which plays and roles exist is a property of the
+    # checkout, and a package that gains one should be linted because it is
+    # there — not because somebody remembered to add a line here. The two
+    # cache roles reached only by cache's own plays were already being linted
+    # transitively; naming them by glob makes that explicit and costs nothing.
+    ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
+        src/blitzecdn/ansible/playbooks/*.yml \
+        packages/*/src/*/ansible/playbooks/*.yml \
+        packages/*/src/*/ansible/roles/*/ \
+        tests/integration/*.yml
+
+# Lint the two Dockerfiles this distribution ships.
+#
+# Policy and the reasoning behind every ignore live in `.hadolint.yaml`, which
+# hadolint reads from the working directory — which is why the container form
+# below mounts the repository and works from it rather than piping a file in.
+#
+# A local binary is preferred when there is one, because it is instantly
+# faster and because a contributor should not need a running Docker daemon to
+# lint a Dockerfile. Neither available is an error rather than a skip: a gate
+# that quietly passes when its tool is missing is worse than no gate, since it
+# reports green on exactly the machine that checked nothing.
+docker-lint version="v2.15.1":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    files=(
+        src/blitzecdn/docker/edge/Dockerfile
+        src/blitzecdn/docker/control-plane/Dockerfile
+    )
+    if command -v hadolint >/dev/null 2>&1; then
+        exec hadolint "${files[@]}"
+    fi
+    if ! docker info >/dev/null 2>&1; then
+        echo "docker-lint needs either hadolint on PATH or a running Docker" >&2
+        echo "daemon: brew install hadolint, or start Docker and re-run." >&2
+        exit 1
+    fi
+    exec docker run --rm --volume "$PWD":/repo:ro --workdir /repo \
+        "hadolint/hadolint:{{version}}" hadolint "${files[@]}"
 
 # Static security analysis and a dependency vulnerability audit.
 audit:
@@ -296,10 +317,15 @@ build:
 # running it instead a fair trade.
 #
 # Not a substitute for `check` before pushing. It is not what CI runs.
+#
+# `docker-lint` is left out for the same reason as the rest: without a local
+# hadolint it pulls an image, and requiring a running Docker daemon for the
+# inner loop would cost more than the gate catches on an edit that changes no
+# Dockerfile. Run `just docker-lint` directly when one changes.
 check-quick: lint types shell-lint ansible-check test-fast
 
 # Everything CI runs. Run this before pushing.
-check: lock-check lint types shell-lint test test-core-only ansible-check audit build
+check: lock-check lint types shell-lint test test-core-only ansible-check docker-lint audit build
 
 # --- database -----------------------------------------------------------
 
