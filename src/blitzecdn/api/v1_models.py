@@ -14,6 +14,7 @@ from blitzecdn.features.dns.domain import RecordType as DomainRecordType
 from blitzecdn.features.edges.domain import Edge as DomainEdge
 from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
 from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
+from blitzecdn.features.sites.domain import SitePatch as DomainSitePatch
 from blitzecdn.features.sites.policy import CacheQueryStringMode
 from blitzecdn.features.tls.policy import (
     CertificateMode,
@@ -93,13 +94,22 @@ class SitePolicyV1(V1Model):
     firewall: SiteFirewall = Field(default_factory=SiteFirewall)
 
 
-class DnsRecord(SitePolicyV1):
+class DnsRecord(V1Model):
+    """A record: an address of its own, or the site that answers for it.
+
+    The policy fields this carried through version 1's life are gone, and they
+    are gone from the resource rather than projected away, because there is no
+    longer anything behind them to report. They belong to ``CdnSite``, which is
+    now created and edited in its own right — see the note on
+    :class:`CdnSiteCreate`.
+    """
+
     domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
-    value: str
+    value: str | None = None
     ttl: int = Field(default=300, ge=1, le=604800)
-    proxied: bool = False
+    site: str | None = None
 
     @model_validator(mode="after")
     def valid_record(self) -> Self:
@@ -115,9 +125,49 @@ class DnsRecord(SitePolicyV1):
 
 
 class RecordPatch(V1Model):
+    """Send ``site`` as ``null`` together with a ``value`` to unroute a name."""
+
     value: str | None = None
     ttl: int | None = Field(default=None, ge=1, le=604800)
-    proxied: bool | None = None
+    site: str | None = None
+
+    def to_domain(self) -> DomainRecordPatch:
+        return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
+
+
+class CdnSite(SitePolicyV1):
+    name: str
+    server_names: tuple[str, ...]
+    origin_host: str
+
+    @classmethod
+    def from_domain(cls, value: DomainCdnSite) -> Self:
+        return cls.model_validate(cls._project(value))
+
+
+class CdnSiteCreate(SitePolicyV1):
+    """The body that creates a site.
+
+    ``server_names`` is absent rather than optional. It is not a property of
+    the site an operator chooses: it is the set of hostnames whose records
+    route here, so it appears on the representation that is read back and on no
+    body that writes one.
+    """
+
+    name: str
+    origin_host: str
+
+    @model_validator(mode="after")
+    def valid_site(self) -> Self:
+        self.to_domain()
+        return self
+
+    def to_domain(self) -> DomainCdnSite:
+        return DomainCdnSite.model_validate(self.model_dump())
+
+
+class SitePatch(V1Model):
+    origin_host: str | None = None
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None
@@ -134,18 +184,8 @@ class RecordPatch(V1Model):
     cache_valid_not_found: str | None = None
     firewall: SiteFirewall | None = None
 
-    def to_domain(self) -> DomainRecordPatch:
-        return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
-
-
-class CdnSite(SitePolicyV1):
-    name: str
-    server_names: tuple[str, ...]
-    origin_host: str
-
-    @classmethod
-    def from_domain(cls, value: DomainCdnSite) -> Self:
-        return cls.model_validate(cls._project(value))
+    def to_domain(self) -> DomainSitePatch:
+        return DomainSitePatch.model_validate(self.model_dump(exclude_unset=True))
 
 
 class Edge(V1Model):

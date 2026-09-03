@@ -1,41 +1,41 @@
-"""Zones, records, and the sites derived from them.
+"""Zones, records, and the hostnames they route to a site.
 
-Records are the source of truth. Sites are derived and rewritten by
-:meth:`DnsService.sync_sites` after every change, so nothing should write to
-the sites table directly — an edit made there survives only until the next
-record change silently reverts it.
+The zone editor no longer decides how anything is served. It owns records, and
+the one thing a record decides about a site: which hostnames answer for it.
+``resync_hostnames`` rewrites that projection after every record change, and it
+is the only writer of ``CdnSite.server_names``.
+
+What left this module is worth naming, because it is most of what used to be
+here: the derivation of a whole site from a record, the flattening of a
+hostname into an internal site name, and the two certificate writes that had to
+reach into a record because the derived site could not hold them. Sites are
+canonical now; all three went with them.
 """
 
 from __future__ import annotations
 
 import hashlib
+from collections import defaultdict
 
 from blitzecdn.core.events import domain_event
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.features.dns.ports import (
     EventRecorder,
-    SiteProjection,
+    SiteHostnames,
     UnitOfWork,
     ZoneStore,
-)
-from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.tls.policy import (
-    CertificateMode,
-    SslAutomaticMode,
-    SslMode,
-    managed_certificate_paths,
 )
 
 
 class DnsService:
-    """The zone editor. Every other service reads sites this one derives."""
+    """The zone editor."""
 
     def __init__(
         self,
         *,
         zones: ZoneStore,
-        sites: SiteProjection,
+        sites: SiteHostnames,
         events: EventRecorder,
         uow: UnitOfWork,
     ) -> None:
@@ -43,10 +43,6 @@ class DnsService:
         self.sites = sites
         self.events = events
         self.uow = uow
-
-    # Reading a site is not this service's job: `platform.sites` is the read
-    # side and answers without going through the zone editor at all. What is
-    # here is the write side — `sync_sites` and the operations that call it.
 
     # -- Domains -------------------------------------------------------
 
@@ -64,12 +60,14 @@ class DnsService:
     def delete_domain(self, name: str, operator: str) -> None:
         """Remove a zone and every record in it.
 
-        The records go by cascade, so their virtual hosts have to come off the
-        edge in the same breath — hence the re-derivation before returning.
+        The records go by cascade, so the hostnames they routed have to come
+        off their sites in the same breath — hence the resync before returning.
+        A site left holding a hostname whose record no longer exists would
+        converge a server block for a name DNS no longer answers.
         """
         with self.uow.transaction():
             self.zones.delete_domain(name)
-            self.sync_sites()
+            self.resync_hostnames()
             self.events.record(domain_event(operator, "domain.deleted", "domain", name))
 
     # -- Records -------------------------------------------------------
@@ -84,17 +82,18 @@ class DnsService:
         return self.zones.get_record(domain, name, type_)
 
     def create_record(self, record: DnsRecord, operator: str) -> DnsRecord:
-        self._reject_conflicting_site_source(record)
+        self._require_site_exists(record)
+        self._reject_split_hostname(record)
         with self.uow.transaction():
             created = self.zones.create_record(record)
-            self.sync_sites()
+            self.resync_hostnames()
             self.events.record(
                 domain_event(
                     operator,
                     "record.created",
                     "record",
                     created.fqdn,
-                    {"type": created.type.value, "proxied": created.proxied},
+                    {"type": created.type.value, "site": created.site},
                 )
             )
         return created
@@ -110,10 +109,11 @@ class DnsService:
         current = self.zones.get_record(domain, name, type_)
         changes = patch.model_dump(exclude_unset=True)
         updated = DnsRecord.model_validate({**current.model_dump(), **changes})
-        self._reject_conflicting_site_source(updated)
+        self._require_site_exists(updated)
+        self._reject_split_hostname(updated)
         with self.uow.transaction():
             saved = self.zones.replace_record(updated, expected=current)
-            self.sync_sites()
+            self.resync_hostnames()
             self.events.record(
                 domain_event(
                     operator,
@@ -125,19 +125,31 @@ class DnsService:
             )
         return saved
 
-    def set_proxied(
-        self, domain: str, name: str, type_: RecordType, proxied: bool, operator: str
+    def route_to_site(
+        self, domain: str, name: str, type_: RecordType, site: str, operator: str
     ) -> DnsRecord:
-        """Turn the CDN on or off for one record.
+        """Put a hostname on the edge, served by ``site``.
 
-        Only half the switch. The edge stops or starts serving the hostname on
-        the next deploy, but the record only reaches clients once DNS answers
-        with the matching address — the edge's for a proxied record, ``value``
-        for an unproxied one. Until DNS agrees, an unproxied hostname still
-        pointed at an edge gets the catch-all's 444.
+        Only half the switch. The edge starts serving the hostname on the next
+        deploy, but the record only reaches clients once DNS answers with an
+        edge address rather than with whatever it answered with before.
         """
         return self.update_record(
-            domain, name, type_, RecordPatch(proxied=proxied), operator
+            domain, name, type_, RecordPatch(site=site, value=None), operator
+        )
+
+    def stop_routing(
+        self, domain: str, name: str, type_: RecordType, value: str, operator: str
+    ) -> DnsRecord:
+        """Take a hostname off the edge, answering with ``value`` instead.
+
+        The address is required rather than inferred. Unproxying used to leave
+        the site's origin behind as the public answer, which published the
+        origin to anyone who looked; naming the replacement is one field more
+        and one surprise fewer.
+        """
+        return self.update_record(
+            domain, name, type_, RecordPatch(site=None, value=value), operator
         )
 
     def delete_record(
@@ -146,81 +158,85 @@ class DnsService:
         record = self.zones.get_record(domain, name, type_)
         with self.uow.transaction():
             self.zones.delete_record(domain, name, type_)
-            self.sync_sites()
+            self.resync_hostnames()
             self.events.record(
                 domain_event(operator, "record.deleted", "record", record.fqdn)
             )
 
-    def _reject_conflicting_site_source(self, record: DnsRecord) -> None:
-        """Refuse a proxied record that another proxied record already speaks for.
+    def _require_site_exists(self, record: DnsRecord) -> None:
+        """Refuse a record routed to a site that is not there.
 
-        Two ways that happens, and an operator reads them differently. Two
-        hostnames can flatten to one internal site name — ``a.b.example.com``
-        and ``a-b.example.com`` both give ``a-b-example-com``. And one hostname
-        can carry both an A and an AAAA record, which are two rows deriving one
-        site: ``CdnSite`` holds a single ``origin_host`` and a single policy, so
-        the second row's origin and every setting on it would be dropped in
-        silence.
-
-        A record does not conflict with the row it replaces, and that row is
-        identified by its key rather than by its hostname — the A and the AAAA
-        record for one name share an fqdn and are not the same record. Keying
-        on the fqdn is what let the dual-stack pair through.
+        The foreign key would refuse it too, as an IntegrityError on flush with
+        the driver's wording. An operator who mistyped a site name should read
+        the site name back, so it is checked here first.
         """
-        if not record.proxied:
+        if record.site is None:
+            return
+        try:
+            self.sites.get_site(record.site)
+        except NotFoundError:
+            raise NotFoundError(
+                f"CDN site {record.site!r} does not exist; create it before "
+                f"routing {record.fqdn!r} to it"
+            ) from None
+
+    def _reject_split_hostname(self, record: DnsRecord) -> None:
+        """Refuse a hostname whose records disagree about which site serves it.
+
+        One hostname is one virtual host. Its A and its AAAA record may both be
+        routed — that is an ordinary dual-stack hostname and they name the same
+        site — but they cannot name different ones, because nginx would be
+        handed one ``server_name`` claimed by two server blocks and the first
+        would win in silence.
+        """
+        if record.site is None:
             return
         key = (record.domain, record.name, record.type)
-        for existing in self.zones.list_records():
-            if not existing.proxied:
+        for existing in self.zones.list_records(record.domain):
+            if existing.site is None or existing.fqdn != record.fqdn:
                 continue
             if (existing.domain, existing.name, existing.type) == key:
                 continue
-            if existing.fqdn == record.fqdn:
+            if existing.site != record.site:
                 raise ConflictError(
-                    f"{existing.fqdn!r} is already proxied by its "
-                    f"{existing.type.value} record. A proxied hostname is one "
-                    "site with one origin and one policy, so only one of its "
-                    "records may be proxied — unproxy that one, or change its "
-                    "origin instead of adding a second record."
-                )
-            if existing.site_name == record.site_name:
-                raise ConflictError(
-                    f"{record.fqdn!r} and {existing.fqdn!r} both map to the "
-                    f"internal site name {record.site_name!r}. Rename one."
+                    f"{record.fqdn!r} is already served by site "
+                    f"{existing.site!r} through its {existing.type.value} "
+                    f"record. A hostname is one virtual host, so its records "
+                    f"cannot name two sites — repoint that record, or route "
+                    f"this one to {existing.site!r} as well."
                 )
 
-    # -- Derivation ----------------------------------------------------
+    # -- The hostname projection ---------------------------------------
 
-    def sync_sites(self) -> None:
-        """Rewrite the derived sites table from the records that produce it."""
+    def resync_hostnames(self) -> None:
+        """Rewrite every site's ``server_names`` from the records routed to it."""
         records = self.zones.list_records()
-        self.sites.replace_all_sites(self._derive_sites(records))
+        routed = self._hostnames_by_site(records)
+        for site in self.sites.list_sites():
+            self.sites.set_server_names(site.name, routed.get(site.name, ()))
         self.sites.set_projection_revision(self._records_revision(records))
 
-    def rebuild_site_projection(self) -> None:
-        """Repair the site read model from its canonical DNS records."""
+    def rebuild_hostname_projection(self) -> None:
+        """Repair the hostname projection from its canonical records."""
         with self.uow.transaction():
-            self.sync_sites()
-
-    def derive_sites(self) -> list[CdnSite]:
-        """Derive the virtual hosts the edge should serve.
-
-        Deduplicated by name rather than trusting the collision check in
-        ``_reject_derived_name_collision``: records can also arrive from a
-        restored snapshot, and a duplicate there must not turn into a SQLite
-        integrity error deep inside a rollback. ``validation_errors()`` still
-        reports it.
-        """
-        return self._derive_sites(self.zones.list_records())
+            self.resync_hostnames()
 
     @staticmethod
-    def _derive_sites(records: list[DnsRecord]) -> list[CdnSite]:
-        sites: dict[str, CdnSite] = {}
+    def _hostnames_by_site(
+        records: list[DnsRecord],
+    ) -> dict[str, tuple[str, ...]]:
+        """Which hostnames route to each site, deduplicated and ordered.
+
+        Deduplicated because a dual-stack hostname is two records and one
+        ``server_name``; sorted because the desired-state document is compared
+        by value and an order that depended on insertion would show up as drift
+        that is not there.
+        """
+        names: defaultdict[str, set[str]] = defaultdict(set)
         for record in records:
-            site = record.to_site()
-            if site is not None:
-                sites.setdefault(site.name, site)
-        return list(sites.values())
+            if record.site is not None:
+                names[record.site].add(record.fqdn)
+        return {site: tuple(sorted(items)) for site, items in names.items()}
 
     @staticmethod
     def _records_revision(records: list[DnsRecord]) -> str:
@@ -233,82 +249,29 @@ class DnsService:
         return hashlib.sha256(canonical.encode()).hexdigest()
 
     def record_for_site(self, site_name: str) -> DnsRecord:
-        """Find the record a derived site came from.
+        """A record routing a hostname to this site.
 
-        Certificate state has to land on the record: writing it to the sites
-        table would survive only until the next record change re-derived over
-        it.
+        Certificate preflight needs one, for its TTL. Any of them will do — a
+        dual-stack hostname's two records carry the same TTL in every case
+        worth distinguishing, and the site is what both of them point at.
         """
         for record in self.zones.list_records():
-            if record.proxied and record.site_name == site_name:
+            if record.site == site_name:
                 return record
         raise NotFoundError(
-            f"no proxied DNS record produces site {site_name!r}. Certificates "
-            "belong to a proxied record; enable the proxy first."
+            f"no DNS record routes a hostname to site {site_name!r}. A "
+            "certificate is issued for a name the edge answers on; route one "
+            "to this site first."
         )
-
-    def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode
-    ) -> CdnSite:
-        """Point a site's record at the managed certificate paths and re-derive."""
-        certificate_path, certificate_key_path = managed_certificate_paths(site.name)
-        record = self.record_for_site(site.name)
-        with self.uow.transaction():
-            self.zones.replace_record(
-                DnsRecord.model_validate(
-                    {
-                        **record.model_dump(),
-                        "certificate_mode": mode,
-                        "certificate_path": certificate_path,
-                        "certificate_key_path": certificate_key_path,
-                    }
-                ),
-                expected=record,
-            )
-            self.sync_sites()
-            return self.sites.get_site(site.name)
-
-    def apply_automatic_ssl_upgrade(
-        self, site_name: str, target: SslMode, operator: str
-    ) -> CdnSite | None:
-        """Persist an upgrade only while the record remains enrolled in Auto.
-
-        The checks happen outside this service, but the decision is re-checked
-        against canonical record state at write time. An operator opting out or
-        choosing an equal/stronger mode while a scan is running therefore wins.
-        """
-        record = self.record_for_site(site_name)
-        if record.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
-            return None
-        if target.security_rank <= record.ssl_mode.security_rank:
-            return None
-        updated = DnsRecord.model_validate({**record.model_dump(), "ssl_mode": target})
-        with self.uow.transaction():
-            self.zones.replace_record(updated, expected=record)
-            self.sync_sites()
-            self.events.record(
-                domain_event(
-                    operator,
-                    "ssl.automatic.upgraded",
-                    "record",
-                    updated.fqdn,
-                    {
-                        "from": record.ssl_mode.value,
-                        "to": target.value,
-                        "site": site_name,
-                    },
-                )
-            )
-        return self.sites.get_site(site_name)
 
     # -- Reporting -----------------------------------------------------
 
     def dns_export(self) -> list[dict[str, object]]:
         """Every record, for the system that publishes DNS.
 
-        A proxied record deliberately carries no address: it must resolve to an
+        A routed record deliberately carries no address: it must resolve to an
         edge, and edge addressing belongs to the DNS system rather than here.
-        ``value`` is still reported as ``origin`` so the two can be reconciled.
+        The site it routes to is reported so the two can be reconciled.
         """
         return [
             {
@@ -318,65 +281,52 @@ class DnsService:
                 "type": record.type.value,
                 "ttl": record.ttl,
                 "proxied": record.proxied,
-                "origin": record.value,
-                **({} if record.proxied else {"value": record.value}),
+                **({"site": record.site} if record.site else {"value": record.value}),
             }
             for record in self.zones.list_records()
         ]
 
     def validation_errors(self) -> list[str]:
-        """Ways the stored zones and their derived sites contradict each other."""
+        """Ways canonical state contradicts itself.
+
+        Every check here is a backstop as well as a gate: records and sites also
+        arrive from a restored backup and from a rollback's wholesale rewrite,
+        neither of which goes through an editor.
+
+        Only contradictions between zones, records and sites. Whether a *site*
+        is coherent on its own terms is the owning capability's question, asked
+        through ``blitzecdn_deployment_checks`` — which is where the "ACME
+        cannot issue for a reserved name" refusal went when this stopped being
+        the module that knew what a certificate was.
+        """
         errors: list[str] = []
         records = self.zones.list_records()
-        revision = self.sites.projection_revision()
-        expected_revision = self._records_revision(records)
-        stored_sites = self.sites.list_sites()
-        projection_differs = stored_sites != sorted(
-            self._derive_sites(records), key=lambda site: site.name
+        sites = self.sites.list_sites()
+        known = {site.name for site in sites}
+
+        errors.extend(
+            f"{record.fqdn!r} routes to site {record.site!r}, which does not exist"
+            for record in records
+            if record.site is not None and record.site not in known
         )
-        if (revision != expected_revision or projection_differs) and (
-            records or revision is not None
-        ):
-            errors.append("the site projection is stale; rebuild it before deploying")
 
-        # Backstop for the two conflicts `_reject_conflicting_site_source`
-        # refuses on the way in: records also arrive from a restored snapshot
-        # and from a rollback, neither of which goes through the editor. Both
-        # end the same way — one record derives the site and the other is
-        # discarded without a word — so a deploy must not start on either.
-        derived: dict[str, DnsRecord] = {}
+        claimed: dict[str, str] = {}
         for record in records:
-            if not record.proxied:
+            if record.site is None:
                 continue
-            first = derived.setdefault(record.site_name, record)
-            if first.fqdn == record.fqdn and first.type is not record.type:
+            owner = claimed.setdefault(record.fqdn, record.site)
+            if owner != record.site:
                 errors.append(
-                    f"{record.fqdn!r} is proxied by both its "
-                    f"{first.type.value} and its {record.type.value} record. "
-                    "One derives the site and the other is discarded, origin "
-                    "and policy alike. Unproxy one of them."
-                )
-            elif first.fqdn != record.fqdn:
-                errors.append(
-                    f"{record.fqdn!r} and {first.fqdn!r} both derive the internal "
-                    f"site name {record.site_name!r}. Rename one of them."
-                )
-            if record.certificate_mode is CertificateMode.REQUESTED and (
-                record.domain.endswith((".test", ".invalid", ".localhost", ".example"))
-            ):
-                errors.append(
-                    f"{record.fqdn!r} requests an ACME certificate, but "
-                    f"{record.domain!r} is a reserved name (RFC 6761/2606) that "
-                    "no public CA will issue for. Upload a certificate instead."
+                    f"{record.fqdn!r} is routed to both {owner!r} and "
+                    f"{record.site!r}. One hostname is one virtual host."
                 )
 
-        names: dict[str, str] = {}
-        for site in self.sites.list_sites():
-            for server_name in site.server_names:
-                previous = names.setdefault(server_name, site.name)
-                if previous != site.name:
-                    errors.append(
-                        f"server name {server_name!r} belongs to both "
-                        f"{previous!r} and {site.name!r}"
-                    )
+        routed = self._hostnames_by_site(records)
+        stale = self.sites.projection_revision() != self._records_revision(records)
+        if stale or any(
+            site.server_names != routed.get(site.name, ()) for site in sites
+        ):
+            errors.append(
+                "the site hostname projection is stale; rebuild it before deploying"
+            )
         return errors

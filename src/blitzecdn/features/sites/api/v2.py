@@ -1,19 +1,55 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
+from blitzecdn.api.dependencies import (
+    ControlPlaneDependency,
+    OperatorDependency,
+    require_operator,
+)
+from blitzecdn.api.v2_models import CdnSiteCreateV2 as CdnSiteCreate
 from blitzecdn.api.v2_models import CdnSiteV2 as CdnSite
+from blitzecdn.api.v2_models import SitePatchV2 as SitePatch
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
-# Sites are derived from DNS records and are therefore read-only here. Create,
-# change, or remove a record instead; the site follows.
 @router.get("/v2/sites", response_model=list[CdnSite])
 def list_sites(control: ControlPlaneDependency) -> list[CdnSite]:
     return [CdnSite.from_domain(item) for item in control.sites.list_sites()]
+
+
+@router.post("/v2/sites", response_model=CdnSite, status_code=status.HTTP_201_CREATED)
+def create_site(
+    site: CdnSiteCreate,
+    operator: OperatorDependency,
+    control: ControlPlaneDependency,
+) -> CdnSite:
+    """Add a site. It serves nothing until a record routes a hostname to it."""
+    return CdnSite.from_domain(
+        control.site_editor.create_site(site.to_domain(), operator)
+    )
 
 
 @router.get("/v2/sites/{name}", response_model=CdnSite)
 def get_site(name: str, control: ControlPlaneDependency) -> CdnSite:
     """The fully resolved policy for one site, as handed to the edges."""
     return CdnSite.from_domain(control.sites.get_site(name))
+
+
+@router.patch("/v2/sites/{name}", response_model=CdnSite)
+def update_site(
+    name: str,
+    patch: SitePatch,
+    operator: OperatorDependency,
+    control: ControlPlaneDependency,
+) -> CdnSite:
+    return CdnSite.from_domain(
+        control.site_editor.update_site(name, patch.to_domain(), operator)
+    )
+
+
+@router.delete("/v2/sites/{name}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_site(
+    name: str, operator: OperatorDependency, control: ControlPlaneDependency
+) -> None:
+    """Refused while records still route hostnames here."""
+    control.site_editor.delete_site(name, operator)
