@@ -12,7 +12,9 @@ from blitzecdn.core.plugins import (
     CliCommandGroup,
     PluginMetadata,
     ScheduledJob,
+    Severity,
     SiteStateContribution,
+    ValidationIssue,
     hookimpl,
 )
 from blitzecdn.features.tls.policy import MANAGED_TLS_ROOT, CertificateMode
@@ -33,6 +35,40 @@ if TYPE_CHECKING:
     from blitzecdn.features.sites.domain import CdnSite
 
 _CONTROLLER_MANAGED = frozenset({CertificateMode.UPLOADED, CertificateMode.REQUESTED})
+
+#: Names no public CA will issue for (RFC 6761/2606).
+_RESERVED_SUFFIXES = (".test", ".invalid", ".localhost", ".example")
+
+
+@hookimpl
+def blitzecdn_deployment_checks(
+    site: CdnSite, platform: ControlPlane
+) -> Sequence[ValidationIssue]:
+    """Refuse a site whose ACME request can never be answered.
+
+    This check used to live in the zone editor's ``validation_errors``, back
+    when a site was derived from a record and the reserved suffix was read off
+    the record's zone. It reads the site's own hostnames now — and it belongs
+    here rather than in core either way: what a public CA will issue for is
+    knowledge of the capability that asks one, and an installation without this
+    distribution cannot reach ``certificate_mode='requested'`` at all.
+    """
+    if not site.enabled or site.certificate_mode is not CertificateMode.REQUESTED:
+        return ()
+    return tuple(
+        ValidationIssue(
+            plugin="certificates",
+            site=site.name,
+            severity=Severity.BLOCKING,
+            message=(
+                f"an ACME certificate is requested for {server_name!r}, a "
+                "reserved name (RFC 6761/2606) that no public CA will issue "
+                "for. Upload a certificate instead."
+            ),
+        )
+        for server_name in site.server_names
+        if server_name.endswith(_RESERVED_SUFFIXES)
+    )
 
 
 @hookimpl
