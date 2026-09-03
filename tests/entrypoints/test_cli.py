@@ -896,7 +896,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    seed_site(control)
+    seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")
