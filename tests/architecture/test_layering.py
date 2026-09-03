@@ -10,7 +10,7 @@ services, adapters, routers and commands that act on those values.
 ``sites`` composes every capability's contract into one flat virtual host, and
 most capabilities' implementations consume ``CdnSite``. Counting both as one
 kind of edge would make that a cycle and force the contracts back into
-``sites`` — which is exactly the "one feature owns every setting" shape this
+``sites`` — which is exactly the "one capability owns every setting" shape this
 replaced. So contract edges and implementation edges are declared and checked
 separately, and the layer rule that keeps the whole thing a DAG is asserted
 directly: **a contract never imports an implementation.**
@@ -31,7 +31,7 @@ from blitzecdn.core.plugins import BUILTIN_PLUGINS
 
 _SOURCE = SOURCE
 _COMPOSITION_ROOT = "blitzecdn.bootstrap"
-_FEATURES = _SOURCE / "features"
+_CAPABILITIES = _SOURCE / "capabilities"
 _IO_IMPORTS = (
     "fastapi",
     "starlette",
@@ -61,7 +61,7 @@ _ADAPTER_PARTS = {
     "preflight.py",
     "desired_state.py",
 }
-_PUBLIC_CROSS_FEATURE_MODULES = {
+_PUBLIC_CROSS_CAPABILITY_MODULES = {
     "domain",
     "origins",
     "policy",
@@ -71,13 +71,13 @@ _PUBLIC_CROSS_FEATURE_MODULES = {
 }
 
 #: Capabilities large enough to be organised into named parts. A sub-capability
-#: is not a feature: it has no `plugin.py`, it is not in `BUILTIN_PLUGINS`, and
+#: is not a capability: it has no `plugin.py`, it is not in `BUILTIN_PLUGINS`, and
 #: it shares its parent's node in both dependency graphs. TLS is the only one,
 #: and it exists because issuing material and deciding when to upgrade a mode
 #: are genuinely different jobs on the same capability.
 _SUB_CAPABILITIES: dict[str, set[str]] = {}
 
-#: Names that must never become a top-level feature package. Each is a
+#: Names that must never become a top-level capability package. Each is a
 #: strategy, a protocol version, a mode or an implementation detail of a
 #: capability that already exists — `http3` and `certificates` were both
 #: top-level once. A new one belongs *inside* its capability, and a developer
@@ -184,12 +184,12 @@ def _banned(imported: str, forbidden: tuple[str, ...]) -> bool:
     )
 
 
-def _feature_files() -> list[Path]:
-    return sorted(_FEATURES.rglob("*.py"))
+def _capability_files() -> list[Path]:
+    return sorted(_CAPABILITIES.rglob("*.py"))
 
 
-def _feature_name(path: Path) -> str:
-    return path.relative_to(_FEATURES).parts[0]
+def _capability_name(path: Path) -> str:
+    return path.relative_to(_CAPABILITIES).parts[0]
 
 
 def _policy_files() -> list[Path]:
@@ -201,14 +201,14 @@ def _policy_files() -> list[Path]:
     """
     return sorted(
         path
-        for path in _feature_files()
+        for path in _capability_files()
         if "policy" in {part.removesuffix(".py") for part in path.parts}
     )
 
 
 def _is_policy_import(imported: str) -> bool:
     """Whether an import names another capability's contract rather than it."""
-    parts = imported.removeprefix("blitzecdn.features.").split(".")
+    parts = imported.removeprefix("blitzecdn.capabilities.").split(".")
     return len(parts) > 1 and parts[1] == "policy"
 
 
@@ -219,7 +219,7 @@ def test_legacy_layer_first_packages_have_no_source_modules():
 
 
 @pytest.mark.parametrize(
-    "feature",
+    "capability",
     [
         "compression",
         "deployments",
@@ -233,15 +233,15 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "tls",
     ],
 )
-def test_required_feature_packages_exist(feature: str):
-    assert (_FEATURES / feature / "__init__.py").is_file()
+def test_required_capability_packages_exist(capability: str):
+    assert (_CAPABILITIES / capability / "__init__.py").is_file()
 
 
-def test_feature_domains_are_framework_and_io_independent():
+def test_capability_domains_are_framework_and_io_independent():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _feature_files()
-        if path.name in _DOMAIN_FILES or "policy" in path.relative_to(_FEATURES).parts
+        for path in _capability_files()
+        if path.name in _DOMAIN_FILES or "policy" in path.relative_to(_CAPABILITIES).parts
         for imported in sorted(_imports(path))
         if _banned(
             imported,
@@ -274,7 +274,7 @@ _APPLICATION_MODULES = {
 }
 
 
-def test_feature_services_depend_on_contracts_not_concrete_adapters():
+def test_capability_services_depend_on_contracts_not_concrete_adapters():
     forbidden = (
         *_IO_IMPORTS,
         "blitzecdn.api",
@@ -288,7 +288,7 @@ def test_feature_services_depend_on_contracts_not_concrete_adapters():
     )
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _feature_files()
+        for path in _capability_files()
         if path.name in _APPLICATION_MODULES
         for imported in sorted(_imports(path))
         if _banned(imported, forbidden)
@@ -297,10 +297,10 @@ def test_feature_services_depend_on_contracts_not_concrete_adapters():
     assert offenders == []
 
 
-def test_feature_adapters_never_import_entry_layers_or_composition():
+def test_capability_adapters_never_import_entry_layers_or_composition():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _feature_files()
+        for path in _capability_files()
         if any(part in _ADAPTER_PARTS for part in path.parts)
         for imported in sorted(_imports(path))
         if _banned(
@@ -318,7 +318,7 @@ def test_feature_adapters_never_import_entry_layers_or_composition():
 
 def _entry_files() -> list[Path]:
     candidates = [
-        *_feature_files(),
+        *_capability_files(),
         *(_SOURCE / "api").rglob("*.py"),
         *(_SOURCE / "cli").rglob("*.py"),
     ]
@@ -354,11 +354,11 @@ def test_entry_adapters_never_reach_persistence_or_database_directly():
     assert offenders == []
 
 
-def test_cross_feature_imports_use_contract_modules():
+def test_cross_capability_imports_use_contract_modules():
     offenders: list[str] = []
-    prefix = "blitzecdn.features."
-    for path in _feature_files():
-        owner = _feature_name(path)
+    prefix = "blitzecdn.capabilities."
+    for path in _capability_files():
+        owner = _capability_name(path)
         for imported in sorted(_imports(path)):
             if not imported.startswith(prefix):
                 continue
@@ -371,14 +371,14 @@ def test_cross_feature_imports_use_contract_modules():
                 parts = parts[1:]
                 if len(parts) == 1:
                     continue
-            if parts[1] not in _PUBLIC_CROSS_FEATURE_MODULES:
+            if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES:
                 offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
     assert offenders == []
 
 
 def test_control_plane_is_the_only_production_composition_root():
     imports = _imports(_SOURCE / "bootstrap.py")
-    assert any(name.startswith("blitzecdn.features") for name in imports)
+    assert any(name.startswith("blitzecdn.capabilities") for name in imports)
     assert any(name.startswith("blitzecdn.core") for name in imports)
     assert not any(name.startswith("blitzecdn.worker") for name in imports)
 
@@ -423,21 +423,21 @@ def test_only_a_composition_root_names_a_concrete_adapter():
     assert offenders == []
 
 
-def test_core_carries_no_cross_feature_application_service():
-    """`core` is what a feature builds on, not a place to put a workflow.
+def test_core_carries_no_cross_capability_application_service():
+    """`core` is what a capability builds on, not a place to put a workflow.
 
-    `MaintenanceService` lived here and orchestrated three features, which
+    `MaintenanceService` lived here and orchestrated three capabilities, which
     pointed the arrow back from the foundation into the tree it supports and
     hid a genuine vertical slice where nobody would look for it. It is
-    `features/maintenance` now. Persistence is the deliberate exception:
-    `core.database` bundles the feature stores because there is one SQLite
+    `capabilities/maintenance` now. Persistence is the deliberate exception:
+    `core.database` bundles the capability stores because there is one SQLite
     file, and it imports their `persistence` modules to do it.
     """
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in (_SOURCE / "core").rglob("*.py")
         for imported in sorted(_imports(path))
-        if imported.startswith("blitzecdn.features.")
+        if imported.startswith("blitzecdn.capabilities.")
         and imported.endswith((".service", ".adapters"))
     ]
     assert offenders == []
@@ -522,7 +522,7 @@ def test_domain_models_do_not_render_adapter_documents():
     forbidden = {"to_ansible", "to_inventory", "to_api", "to_http"}
     offenders = [
         f"{path.relative_to(_SOURCE)}:{node.lineno} defines {node.name}"
-        for path in _feature_files()
+        for path in _capability_files()
         if path.name in _DOMAIN_FILES
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
@@ -542,7 +542,7 @@ def test_removed_subsystems_do_not_return():
 
 
 def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
-    """One field on `CdnSite` has a writer outside this feature. Keep it that way.
+    """One field on `CdnSite` has a writer outside this capability. Keep it that way.
 
     Sites are canonical, so `SiteStore` has the per-site create, update and
     delete a canonical table needs. What it must not have is a second way to
@@ -558,9 +558,9 @@ def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
     The mirror of this rule is on the patch: ``SitePatch`` has a field for every
     `SitePolicy` knob and none for ``server_names``.
     """
-    from blitzecdn.features.sites.domain import CdnSite, SitePatch
-    from blitzecdn.features.sites.persistence import SiteStore
-    from blitzecdn.features.sites.service import SiteService
+    from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
+    from blitzecdn.capabilities.sites.persistence import SiteStore
+    from blitzecdn.capabilities.sites.service import SiteService
 
     assert {name for name in vars(SiteStore) if not name.startswith("_")} == {
         "list_sites",
@@ -578,7 +578,7 @@ def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
     assert "server_names" in CdnSite.model_fields
 
 
-#: Which feature may know that another exists. Derived from the graph the code
+#: Which capability may know that another exists. Derived from the graph the code
 #: actually has, and enforced both ways: an undeclared edge fails, and so does
 #: a declared edge nothing uses any more.
 #:
@@ -597,15 +597,15 @@ def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
 #: meaning something much smaller.
 #:
 #: Shared foundations under `core` are deliberately outside this graph: `core`
-#: is what a feature is allowed to build on without that counting as knowing
-#: another feature.
-ALLOWED_FEATURE_DEPENDENCIES = {
+#: is what a capability is allowed to build on without that counting as knowing
+#: another capability.
+ALLOWED_CAPABILITY_DEPENDENCIES = {
     "compression": set(),
     "deployments": {"dns", "sites"},
     "diagnostics": set(),
     "dns": {"sites"},
     # `dns` left this set with `check_origins`. Probing an origin needed the
-    # site list, and `edges` reached it through a port on the zone feature —
+    # site list, and `edges` reached it through a port on the zone capability —
     # the one place the fleet roster depended on it. The roster itself never
     # needed a site: `blitzecdn-origins` reads `platform.sites` for itself, and
     # an edge is added, updated and removed without either. Reading a site does
@@ -651,7 +651,7 @@ def test_a_capability_contract_never_imports_an_implementation():
     module, the contract layer stops being below the implementation layer and
     the two declared graphs stop composing into an order at all.
     """
-    prefix = "blitzecdn.features."
+    prefix = "blitzecdn.capabilities."
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _policy_files()
@@ -665,43 +665,43 @@ def test_sites_composes_the_capability_contracts_and_owns_no_other_capability():
     """`sites` is the composition, not the owner of every setting.
 
     It was: compression, HTTP, security and TLS policy all lived under
-    `sites/policy/` while the behaviour they describe lived in features that
+    `sites/policy/` while the behaviour they describe lived in capabilities that
     imported `sites` to reach it. Reuniting each contract with its capability
     is what this asserts, from both directions — `sites` imports the four, and
     defines none of them.
     """
-    graph = _feature_graph()
+    graph = _capability_graph()
     assert graph["sites"] == set()
     assert _policy_graph()["sites"] == {"compression", "http", "security", "tls"}
     assert "sites" in graph["dns"]
 
-    site_imports = _imports(_FEATURES / "sites/domain.py")
+    site_imports = _imports(_CAPABILITIES / "sites/domain.py")
     assert all("dns" not in imported for imported in site_imports)
     for capability in ("compression", "http", "security", "tls"):
-        assert f"blitzecdn.features.{capability}.policy" in site_imports
+        assert f"blitzecdn.capabilities.{capability}.policy" in site_imports
 
-    owned = {path.stem for path in (_FEATURES / "sites/policy").glob("*.py")}
+    owned = {path.stem for path in (_CAPABILITIES / "sites/policy").glob("*.py")}
     assert owned == {"__init__", "cache", "headers", "origin"}
 
 
-def test_no_strategy_mode_or_option_becomes_a_top_level_feature():
+def test_no_strategy_mode_or_option_becomes_a_top_level_capability():
     """The fundamental rule, checked by name.
 
-    A top-level package under `features/` is a product capability. gzip and
+    A top-level package under `capabilities/` is a product capability. gzip and
     Brotli are strategies of compression; HTTP/1, /2 and /3 are versions of one
     protocol; Under Attack Mode is a mode of security; certificate issuance and
     the Automatic SSL/TLS scan are parts of TLS. Each of these has been, or
     could plausibly become, a package of its own — `http3` and `certificates`
-    both were — and each time the result is a feature list that answers "what
+    both were — and each time the result is a capability list that answers "what
     settings exist" instead of "what can this product do".
     """
     packages = {
         path.name
-        for path in _FEATURES.iterdir()
+        for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
     offenders = [
-        f"features/{name} belongs inside the {owner} capability"
+        f"capabilities/{name} belongs inside the {owner} capability"
         for name in sorted(packages)
         for owner in [_STRATEGIES_OWNED_BY_A_CAPABILITY.get(name)]
         if owner is not None
@@ -709,7 +709,7 @@ def test_no_strategy_mode_or_option_becomes_a_top_level_feature():
     assert offenders == []
 
 
-def test_a_sub_capability_is_not_a_feature():
+def test_a_sub_capability_is_not_a_capability():
     """`tls/certificates` is organisation inside a capability, not a capability.
 
     It has no `plugin.py`, it is not in `BUILTIN_PLUGINS`, and it shares TLS's
@@ -718,10 +718,10 @@ def test_a_sub_capability_is_not_a_feature():
     """
     for parent, children in _SUB_CAPABILITIES.items():
         for child in children:
-            package = _FEATURES / parent / child
+            package = _CAPABILITIES / parent / child
             assert (package / "__init__.py").is_file()
             assert not (package / "plugin.py").exists()
-            assert f"blitzecdn.features.{parent}.{child}.plugin" not in BUILTIN_PLUGINS
+            assert f"blitzecdn.capabilities.{parent}.{child}.plugin" not in BUILTIN_PLUGINS
 
 
 def test_policy_dependencies_match_what_is_declared():
@@ -732,9 +732,9 @@ def test_the_capability_contract_graph_is_acyclic():
     _assert_acyclic(_policy_graph(), "capability contract")
 
 
-#: Which `ControlPlane` attribute belongs to which feature. A `plugin.py` that
-#: reads one is depending on that feature just as surely as an import would, so
-#: `_feature_graph` counts both — otherwise moving a call from a service into a
+#: Which `ControlPlane` attribute belongs to which capability. A `plugin.py` that
+#: reads one is depending on that capability just as surely as an import would, so
+#: `_capability_graph` counts both — otherwise moving a call from a service into a
 #: registration hook would be a way to leave the declared graph.
 _PLATFORM_SERVICES = {
     # Two attributes, one owner. `certificates` and `automatic_ssl` are parts
@@ -748,7 +748,7 @@ _PLATFORM_SERVICES = {
 }
 
 #: What every plugin may read off the platform without that being a dependency
-#: on a feature: configuration, the cross-cutting journals, and the registry's
+#: on a capability: configuration, the cross-cutting journals, and the registry's
 #: own accessors.
 _PLATFORM_COMMON = {
     "audit",
@@ -759,7 +759,7 @@ _PLATFORM_COMMON = {
     # ports rather than services, and neither belongs to a capability: `fleet`
     # runs a named play and knows nothing about what any play is for, and
     # `sites` is the read side of the model every capability already consumes.
-    # A plugin reading either is not depending on a feature, which is the whole
+    # A plugin reading either is not depending on a capability, which is the whole
     # reason they are shaped this way.
     "fleet",
     "health_checks",
@@ -789,33 +789,33 @@ def _platform_reads(path: Path) -> set[str]:
 def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """The implementation graph and the contract graph, in that order.
 
-    An import of `blitzecdn.features.<other>.policy` is a *contract* edge and
+    An import of `blitzecdn.capabilities.<other>.policy` is a *contract* edge and
     lands in the second. Everything else — the package itself, a domain module,
     a port, a service — is an implementation edge and lands in the first.
     """
-    prefix = "blitzecdn.features."
+    prefix = "blitzecdn.capabilities."
     implementation: dict[str, set[str]] = {
-        name: set() for name in ALLOWED_FEATURE_DEPENDENCIES
+        name: set() for name in ALLOWED_CAPABILITY_DEPENDENCIES
     }
     contract: dict[str, set[str]] = {
         name: set() for name in ALLOWED_POLICY_DEPENDENCIES
     }
-    for path in _feature_files():
-        owner = _feature_name(path)
+    for path in _capability_files():
+        owner = _capability_name(path)
         if owner not in implementation:
             continue
         for imported in _imports(path):
             if not imported.startswith(prefix):
                 continue
             depends_on = imported.removeprefix(prefix).split(".")[0]
-            # Any form counts, `from blitzecdn.features.x import y` included:
-            # importing another feature's package is depending on it.
+            # Any form counts, `from blitzecdn.capabilities.x import y` included:
+            # importing another capability's package is depending on it.
             if depends_on == owner:
                 continue
             target = contract if _is_policy_import(imported) else implementation
             target[owner].add(depends_on)
-    for path in _FEATURES.glob("*/plugin.py"):
-        owner = _feature_name(path)
+    for path in _CAPABILITIES.glob("*/plugin.py"):
+        owner = _capability_name(path)
         for attribute in _platform_reads(path):
             depends_on = _PLATFORM_SERVICES.get(attribute)
             if depends_on is not None and depends_on != owner:
@@ -823,7 +823,7 @@ def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     return implementation, contract
 
 
-def _feature_graph() -> dict[str, set[str]]:
+def _capability_graph() -> dict[str, set[str]]:
     return _graphs()[0]
 
 
@@ -851,46 +851,46 @@ def _assert_acyclic(graph: dict[str, set[str]], label: str) -> None:
         visit(node)
 
 
-def test_every_feature_package_is_in_the_declared_graph():
+def test_every_capability_package_is_in_the_declared_graph():
     packages = {
         path.name
-        for path in _FEATURES.iterdir()
+        for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
-    assert packages == set(ALLOWED_FEATURE_DEPENDENCIES)
+    assert packages == set(ALLOWED_CAPABILITY_DEPENDENCIES)
 
 
-def test_feature_dependencies_match_what_is_declared():
-    assert _feature_graph() == ALLOWED_FEATURE_DEPENDENCIES
+def test_capability_dependencies_match_what_is_declared():
+    assert _capability_graph() == ALLOWED_CAPABILITY_DEPENDENCIES
 
 
-def test_the_feature_dependency_graph_is_acyclic():
-    """A cycle between features is a modular monolith turning back into a ball.
+def test_the_capability_dependency_graph_is_acyclic():
+    """A cycle between capabilities is a modular monolith turning back into a ball.
 
     There were four, and every one of them ran through a single fat port:
     `DeploymentRunner` used to declare the purge, stats, origin-check and
     decommission plays as well as the deploy, so `cache` and `edges` had to
     import the deployment package to reach their own playbook, while
     `deployments` imported `cache.domain` for the purge entries it named and
-    `certificates.ports` for two certificate paths. Each feature declares the
+    `certificates.ports` for two certificate paths. Each capability declares the
     slice it uses now, the composition root is the only place that knows one
     adapter satisfies all of them, and the graph is a DAG.
     """
-    _assert_acyclic(_feature_graph(), "feature dependency")
+    _assert_acyclic(_capability_graph(), "capability dependency")
 
 
-def test_no_feature_port_declares_another_feature_s_playbook():
+def test_no_capability_port_declares_another_capability_s_playbook():
     """The rule that keeps the graph a DAG rather than merely making it one.
 
-    A port belongs to whoever calls it. The moment one feature's port module
-    describes a run another feature performs, that other feature has to import
+    A port belongs to whoever calls it. The moment one capability's port module
+    describes a run another capability performs, that other capability has to import
     this one to type its own collaborator — which is exactly how the cycles got
     there.
     """
     # `run_cache_purge`, `run_stats` and `run_origin_check` belong to no
-    # feature at all any more — they left with the distributions that run
+    # capability at all any more — they left with the distributions that run
     # those plays, and a core `ports.py` naming one would be core declaring an
-    # optional capability's operation. `None` says exactly that: no feature
+    # optional capability's operation. `None` says exactly that: no capability
     # may declare it, not even the one it used to live beside.
     owners: dict[str, str | None] = {
         "run_cache_purge": None,
@@ -900,17 +900,17 @@ def test_no_feature_port_declares_another_feature_s_playbook():
     }
     offenders = [
         f"{path.relative_to(_SOURCE)} declares {node.name}, which belongs to {owner}"
-        for path in _FEATURES.glob("*/ports.py")
+        for path in _CAPABILITIES.glob("*/ports.py")
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.FunctionDef)
-        for owner in [owners.get(node.name, _feature_name(path))]
-        if owner != _feature_name(path)
+        for owner in [owners.get(node.name, _capability_name(path))]
+        if owner != _capability_name(path)
     ]
     assert offenders == []
 
 
-def test_every_feature_registers_itself_through_a_plugin_module():
-    """A feature the plugin manager has never heard of is a feature nothing runs.
+def test_every_capability_registers_itself_through_a_plugin_module():
+    """A capability the plugin manager has never heard of is a capability nothing runs.
 
     Both directions: a package without a `plugin.py` contributes nothing, and a
     `plugin.py` missing from `BUILTIN_PLUGINS` is never imported — either way
@@ -919,20 +919,20 @@ def test_every_feature_registers_itself_through_a_plugin_module():
     """
     packages = {
         path.name
-        for path in _FEATURES.iterdir()
+        for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
     contract_only = {"compression", "security"}
-    assert {path.parent.name for path in _FEATURES.glob("*/plugin.py")} == (
+    assert {path.parent.name for path in _CAPABILITIES.glob("*/plugin.py")} == (
         packages - contract_only
     )
     assert set(BUILTIN_PLUGINS) == {
-        f"blitzecdn.features.{name}.plugin" for name in packages - contract_only
+        f"blitzecdn.capabilities.{name}.plugin" for name in packages - contract_only
     }
 
 
 def test_only_a_plugin_module_may_name_the_composition_root():
-    """Registration may know the platform. Everything else in a feature may not.
+    """Registration may know the platform. Everything else in a capability may not.
 
     `plugin.py` is handed the built control plane so it can say which service a
     scheduled job calls and which one a health check probes. That is the whole
@@ -940,7 +940,7 @@ def test_only_a_plugin_module_may_name_the_composition_root():
     it would be resolving its collaborators at call time instead of receiving
     them, which is the service-locator architecture this design refuses.
 
-    A feature's *entry* modules are outside the rule for the same reason
+    A capability's *entry* modules are outside the rule for the same reason
     `cli/common.py` is: a command has to get a control plane from somewhere.
     `backup/cli.py` is the pointed case — it builds a backup service directly,
     because restore has to work on a host where the control plane cannot start.
@@ -948,7 +948,7 @@ def test_only_a_plugin_module_may_name_the_composition_root():
     entry = set(_entry_files())
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _feature_files()
+        for path in _capability_files()
         if path.name != "plugin.py" and path not in entry
         for imported in sorted(_imports(path))
         if imported.startswith(_COMPOSITION_ROOT)
@@ -959,12 +959,12 @@ def test_only_a_plugin_module_may_name_the_composition_root():
 def test_a_plugin_module_names_the_composition_root_only_for_typing():
     """And even there, never at runtime.
 
-    A feature importing the composition root for real would point the arrow
+    A capability importing the composition root for real would point the arrow
     back at the thing that builds it. `plugin.py` needs the *type* to annotate
     its hooks, which `TYPE_CHECKING` gives it without an import ever executing.
     """
     offenders: list[str] = []
-    for path in _FEATURES.glob("*/plugin.py"):
+    for path in _CAPABILITIES.glob("*/plugin.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         guarded = {
             node
@@ -987,41 +987,41 @@ def test_a_plugin_reads_only_the_platform_services_its_graph_declares():
     """`platform.x` in a registration hook is a declared dependency or a bug."""
     offenders = [
         f"{path.relative_to(_SOURCE)} reads platform.{attribute}"
-        for path in _FEATURES.glob("*/plugin.py")
+        for path in _CAPABILITIES.glob("*/plugin.py")
         for attribute in sorted(_platform_reads(path))
         if attribute not in _PLATFORM_COMMON
         and _PLATFORM_SERVICES.get(attribute)
         not in {
-            _feature_name(path),
-            *ALLOWED_FEATURE_DEPENDENCIES[_feature_name(path)],
+            _capability_name(path),
+            *ALLOWED_CAPABILITY_DEPENDENCIES[_capability_name(path)],
         }
     ]
     assert offenders == []
 
 
-def test_the_entry_layers_import_no_feature_at_all():
+def test_the_entry_layers_import_no_capability_at_all():
     """The point of the whole exercise, asserted where it can be checked.
 
     `api/app.py` used to name seventeen router modules and `cli/main.py` eleven
-    command groups, so adding a feature meant editing both. They ask the plugin
-    registry now, and a feature that appears in neither list is a feature that
+    command groups, so adding a capability meant editing both. They ask the plugin
+    registry now, and a capability that appears in neither list is a capability that
     forgot to contribute — not one somebody forgot to wire.
 
     Only these two modules. `api/models.py` translates domain values into the
     published HTTP representations and has to name them; that is a
     *translation*, and it is the assembly that had to stop knowing the
-    feature list.
+    capability list.
     """
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in (_SOURCE / "api/app.py", _SOURCE / "cli/main.py")
         for imported in sorted(_imports(path))
-        if imported.startswith("blitzecdn.features")
+        if imported.startswith("blitzecdn.capabilities")
     ]
     assert offenders == []
 
 
-def test_the_plugin_infrastructure_depends_on_no_feature():
+def test_the_plugin_infrastructure_depends_on_no_capability():
     """`core.plugins` is the mechanism, not a participant in it.
 
     Runtime imports only. The hookspecs annotate their arguments with the
@@ -1033,6 +1033,6 @@ def test_the_plugin_infrastructure_depends_on_no_feature():
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in (_SOURCE / "core/plugins").rglob("*.py")
         for imported in sorted(_runtime_imports(path))
-        if imported.startswith(("blitzecdn.features", _COMPOSITION_ROOT))
+        if imported.startswith(("blitzecdn.capabilities", _COMPOSITION_ROOT))
     ]
     assert offenders == []

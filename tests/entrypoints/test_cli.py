@@ -23,8 +23,8 @@ from blitzecdn.cli import main as cli
 from blitzecdn.core.database import Repository
 from blitzecdn.core.plugins import PluginRejection
 from blitzecdn.core.runs import RunStatus
-from blitzecdn.features.diagnostics import cli as diagnostics_cli
-from blitzecdn.features.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 
 certificate_domain = (
     import_module("blitzecdn_certificates.certificates.domain")

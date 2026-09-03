@@ -43,7 +43,7 @@ def load_plugins(
     tree an operator sees begins with the commands this distribution ships.
 
     ``entry_point_group=None`` skips external discovery entirely. That is what
-    the unit suite uses: a test asserting on the built-in feature set should
+    the unit suite uses: a test asserting on the built-in capability set should
     not change its answer because a developer happens to have an unrelated
     BlitzeCDN plugin installed in the same virtualenv.
     """

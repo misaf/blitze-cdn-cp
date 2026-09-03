@@ -93,7 +93,7 @@ def create_app(
     application.state.settings = resolved
 
     _register_exception_handlers(application)
-    # The application does not know which features exist. Every router is a
+    # The application does not know which capabilities exist. Every router is a
     # plugin's contribution, in registration order, so a separately installed
     # package adds routes without a line changing here.
     for router in registry.api_routers():

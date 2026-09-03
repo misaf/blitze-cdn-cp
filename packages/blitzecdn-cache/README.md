@@ -13,7 +13,7 @@ uv remove --package blitzecdn blitzecdn-cache  # detach
 ## What this package is not
 
 It is not cache *policy*. A site's TTLs and its query-string mode are
-`CachePolicy` in `blitzecdn.features.sites.policy`, part of the flat `CdnSite`
+`CachePolicy` in `blitzecdn.capabilities.sites.policy`, part of the flat `CdnSite`
 every edge renders, and they stay in the control plane whether or not this
 package is installed. Edges keep caching exactly as configured with this
 package detached — what disappears is the ability to *ask* them to drop

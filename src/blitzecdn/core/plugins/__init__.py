@@ -1,6 +1,6 @@
 """BlitzeCDN's extension mechanism.
 
-Pluggy is used for **registration**: telling the control plane that a feature
+Pluggy is used for **registration**: telling the control plane that a capability
 exists and what it contributes — routes, commands, jobs, health checks, desired
 state, deployment checks, lifecycle work. It is never used for business
 communication. A caller that wants work done calls the service that owns it,
@@ -14,7 +14,7 @@ one to ask for a certificate would trade every one of them for indirection
 nothing here needs.
 
 A plugin is a module (or any object) carrying ``@hookimpl`` functions. A
-built-in feature is listed in :data:`~blitzecdn.core.plugins.discovery.BUILTIN_PLUGINS`;
+built-in capability is listed in :data:`~blitzecdn.core.plugins.discovery.BUILTIN_PLUGINS`;
 an external distribution advertises itself in the ``blitzecdn.plugins``
 entry-point group and needs no change here at all.
 """

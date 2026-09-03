@@ -1,6 +1,6 @@
 """The extension mechanism: discovery, registration, and what it refuses.
 
-Two things are being held here. The first is that the built-in features really
+Two things are being held here. The first is that the built-in capabilities really
 do reach the API, the CLI, the scheduler and the desired-state document through
 plugin registration and not through a list somebody maintains. The second is
 that a package this repository has never heard of can do the same — so most of
@@ -42,7 +42,7 @@ from blitzecdn.core.plugins import (
     register_external,
 )
 from blitzecdn.core.plugins.resolution import resolve_role_search_path
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 _FIXTURES = "external_plugins"
 
@@ -54,10 +54,10 @@ def entry_point(name: str, module: str) -> EntryPoint:
 
 @pytest.fixture
 def builtins() -> PluginRegistry:
-    """The features this distribution ships, and nothing an environment added.
+    """The capabilities this distribution ships, and nothing an environment added.
 
     `entry_point_group=None` on purpose: a test asserting on the built-in
-    feature set must not change its answer because a developer happens to have
+    capability set must not change its answer because a developer happens to have
     an unrelated BlitzeCDN plugin installed in the same virtualenv.
     """
     return load_plugins(entry_point_group=None)
@@ -144,9 +144,9 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
 # --- built-in discovery -----------------------------------------------------
 
 
-def test_every_built_in_feature_registers_and_declares_itself_required(builtins):
+def test_every_built_in_capability_registers_and_declares_itself_required(builtins):
     assert {plugin.name for plugin in builtins.plugins} == {
-        path.removeprefix("blitzecdn.features.").removesuffix(".plugin")
+        path.removeprefix("blitzecdn.capabilities.").removesuffix(".plugin")
         for path in BUILTIN_PLUGINS
     }
     assert all(plugin.required for plugin in builtins.plugins)
@@ -163,11 +163,11 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
     """
     for capability in ("http", "tls", "sites"):
         assert capability in builtins
-        assert f"blitzecdn.features.{capability}.plugin" in BUILTIN_PLUGINS
+        assert f"blitzecdn.capabilities.{capability}.plugin" in BUILTIN_PLUGINS
 
     for capability in ("compression", "security"):
         assert capability not in builtins
-        assert f"blitzecdn.features.{capability}.plugin" not in BUILTIN_PLUGINS
+        assert f"blitzecdn.capabilities.{capability}.plugin" not in BUILTIN_PLUGINS
 
     for option in (
         "gzip",
@@ -179,13 +179,13 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
         "geoip",
     ):
         assert option not in builtins
-        assert f"blitzecdn.features.{option}.plugin" not in BUILTIN_PLUGINS
+        assert f"blitzecdn.capabilities.{option}.plugin" not in BUILTIN_PLUGINS
 
 
 def test_a_built_in_that_cannot_be_imported_stops_the_process():
     """No degraded mode: a control plane missing `dns` renders an empty fleet."""
     with pytest.raises(PluginError, match="could not be imported"):
-        load_plugins(builtins=("blitzecdn.features.nonexistent.plugin",))
+        load_plugins(builtins=("blitzecdn.capabilities.nonexistent.plugin",))
 
 
 def test_a_built_in_that_declares_itself_optional_is_refused():
@@ -277,7 +277,7 @@ def test_the_roles_of_an_absent_plugin_are_absent_from_the_search_path(
     assert (attached[1] / "blitzecdn_waf").is_dir()
 
 
-def test_core_needs_no_change_for_an_external_feature(builtins):
+def test_core_needs_no_change_for_an_external_capability(builtins):
     """The acceptance criterion, stated as a diff that is not required.
 
     Everything the WAF plugin adds — a route, a command, a job, a check, its
@@ -338,7 +338,7 @@ def test_two_plugins_cannot_claim_one_name(builtins, platform):
 
     Built-ins register first, so the impostor collides with `dns` rather than
     displacing it — an installed package must not be able to take a built-in
-    feature's identity and quietly answer for it.
+    capability's identity and quietly answer for it.
     """
     found = register_external(
         builtins._manager, points=[entry_point("impostor", "impostor")]

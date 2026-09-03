@@ -13,17 +13,17 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from blitzecdn.features.compression.policy import CompressionMode
-from blitzecdn.features.dns.domain import DnsRecord as DomainDnsRecord
-from blitzecdn.features.dns.domain import Domain as DomainDomain
-from blitzecdn.features.dns.domain import RecordPatch as DomainRecordPatch
-from blitzecdn.features.dns.domain import RecordType as DomainRecordType
-from blitzecdn.features.edges.domain import Edge as DomainEdge
-from blitzecdn.features.edges.domain import EdgePatch as DomainEdgePatch
-from blitzecdn.features.sites.domain import CdnSite as DomainCdnSite
-from blitzecdn.features.sites.domain import SitePatch as DomainSitePatch
-from blitzecdn.features.sites.policy import CacheQueryStringMode
-from blitzecdn.features.tls.policy import (
+from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
+from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
+from blitzecdn.capabilities.dns.domain import RecordPatch as DomainRecordPatch
+from blitzecdn.capabilities.dns.domain import RecordType as DomainRecordType
+from blitzecdn.capabilities.edges.domain import Edge as DomainEdge
+from blitzecdn.capabilities.edges.domain import EdgePatch as DomainEdgePatch
+from blitzecdn.capabilities.sites.domain import CdnSite as DomainCdnSite
+from blitzecdn.capabilities.sites.domain import SitePatch as DomainSitePatch
+from blitzecdn.capabilities.sites.policy import CacheQueryStringMode
+from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,

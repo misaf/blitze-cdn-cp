@@ -9,7 +9,7 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.features.http.policy import HttpScheme
+from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn_cache.composition import build_cache_service
 from blitzecdn_cache.domain import CacheStatsReport, PurgeEntry
 
@@ -23,7 +23,7 @@ cache_app = typer.Typer(
 #: capability became a distribution, so it stays one — the registration
 #: mechanism does not get to reshape the command tree. It lived in
 #: `diagnostics` while `cache` was a package inside the control plane, which
-#: put a command that reads this capability's report in a feature that had to
+#: put a command that reads this capability's report in a capability that had to
 #: import it. The report is this package's, so the command is too.
 stats_app = typer.Typer()
 

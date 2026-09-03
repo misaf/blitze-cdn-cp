@@ -24,7 +24,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.runs import RunStatus, TaskOutcome
-from blitzecdn.features.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 
 
 class OperationModel(BaseModel):

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Protocol
 
 from blitzecdn.core.runs import AnsibleRun
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 class FleetPlaybooks(Protocol):

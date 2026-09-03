@@ -1,14 +1,14 @@
 """The `blitzecdn` command line.
 
 The command tree is assembled from what the installed plugins contribute, not
-from a list of imports here. A feature's commands appear because its plugin
+from a list of imports here. A capability's commands appear because its plugin
 returns a :class:`~blitzecdn.core.plugins.CliCommandGroup`, so a separately
 installed package adds `blitzecdn waf ...` without this module changing.
 
 Two things stay here because they are the command line itself rather than a
-feature: the root callback in :mod:`blitzecdn.cli.root` with the global options,
+capability: the root callback in :mod:`blitzecdn.cli.root` with the global options,
 and `config`, `init` and `setup`, which configure the control plane that
-features are then loaded into.
+capabilities are then loaded into.
 
 Discovery does not build a control plane. The tree has to exist before an
 argument is parsed, and a command resolves its services when it runs — otherwise

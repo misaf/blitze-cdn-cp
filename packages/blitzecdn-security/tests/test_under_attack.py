@@ -1,10 +1,10 @@
 """Execute the rendered edge challenge module against hostile token inputs.
 
-Here rather than in `tests/features/security/` because this is the security
+Here rather than in `tests/capabilities/security/` because this is the security
 capability's edge behaviour, and this distribution is where that capability
 lives. What core keeps — the `under_attack_mode` switch and the firewall rule
 contract that a detached controller must still be able to read back — is
-asserted beside the contract, in `tests/features/security/test_security_policy.py`.
+asserted beside the contract, in `tests/capabilities/security/test_security_policy.py`.
 
 The template belongs to the `blitzecdn_security` role, which ships inside this
 wheel beside the plugin that declares the capability — so the module under test

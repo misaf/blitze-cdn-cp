@@ -34,7 +34,7 @@ dependencies = [
   # dependency that is really required has to say so here.
   "ansible-core>=2.21,<2.22",
   "pydantic-settings>=2.12,<3",
-  # The extension mechanism. Features register through it; business calls never
+  # The extension mechanism. Capabilities register through it; business calls never
   # go through it. See src/blitzecdn/core/plugins/__init__.py.
   "pluggy>=1.6,<2",
   "apscheduler>=3.11,<4",

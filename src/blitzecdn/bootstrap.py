@@ -1,7 +1,7 @@
 """The composition root.
 
 This is the one module that knows both halves: it builds concrete adapters from
-:mod:`blitzecdn.core` and the feature packages, then injects them into feature
+:mod:`blitzecdn.core` and the capability packages, then injects them into capability
 services. Production wiring lives here and nowhere else, so
 "what does a real control plane consist of" is answerable by reading one
 constructor.
@@ -18,7 +18,7 @@ Nothing flows the other way, and no service is ever *looked up*:
 `platform.cache` in a `plugin.py` is a typed attribute read once at
 registration, not a resolution step in a request.
 
-``ControlPlane`` is that constructor and nothing else. It holds the feature
+``ControlPlane`` is that constructor and nothing else. It holds the capability
 services and the ports the entry layers read through, and it forwards no calls:
 the CLI and the API reach the service that owns the work —
 ``control_plane.dns.create_record(...)`` — rather than a method here that would
@@ -65,35 +65,35 @@ from blitzecdn.core.plugins import (
 )
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.workflows import WorkflowCoordinator
-from blitzecdn.features.deployments.desired_state import DesiredStateRenderer
-from blitzecdn.features.deployments.ports import (
+from blitzecdn.capabilities.deployments.desired_state import DesiredStateRenderer
+from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
     DeploymentRunner,
     QueueBackgroundRunner,
 )
-from blitzecdn.features.deployments.service import (
+from blitzecdn.capabilities.deployments.service import (
     DeploymentExecution,
     DeploymentPersistence,
     DeploymentPolicy,
     DeploymentService,
 )
-from blitzecdn.features.dns import DnsService
-from blitzecdn.features.edges import EdgeOperationsService
-from blitzecdn.features.edges.ports import EdgeRunner
-from blitzecdn.features.edges.ports import EdgeStore as EdgeStorePort
-from blitzecdn.features.edges.ports import OriginProbe as OriginProbePort
-from blitzecdn.features.edges.probe import OriginProbe
-from blitzecdn.features.maintenance import MaintenanceService
-from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.sites.ports import SiteReader
-from blitzecdn.features.sites.service import SiteService
+from blitzecdn.capabilities.dns import DnsService
+from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.edges.ports import EdgeRunner
+from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
+from blitzecdn.capabilities.edges.probe import OriginProbe
+from blitzecdn.capabilities.maintenance import MaintenanceService
+from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.ports import SiteReader
+from blitzecdn.capabilities.sites.service import SiteService
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
     """Every playbook capability one Ansible adapter happens to provide.
 
-    Each feature declares the slice it actually uses — ``DeploymentRunner``,
+    Each capability declares the slice it actually uses — ``DeploymentRunner``,
     ``EdgeRunner``, ``DeploymentLocker`` — and none of them knows the others
     exist. That one object satisfies all of them is a fact about the adapter,
     so it is stated here, where knowing which concrete thing is wired in is the
@@ -101,9 +101,9 @@ class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
     other implementer.
 
     ``PlaybookRunner`` is the odd one out and deliberately so. It is not a
-    feature's port but core's own, published as ``ControlPlane.fleet``, and it
+    capability's port but core's own, published as ``ControlPlane.fleet``, and it
     is what an *installed* capability is handed: the generic "run this play"
-    and nothing feature-shaped. A detachable package declares its own narrow
+    and nothing capability-shaped. A detachable package declares its own narrow
     port over it — ``blitzecdn_cache.ports.CacheRunner`` — which is why no
     ``CacheRunner`` appears in this list any more. That is the difference
     between a built-in, whose port core may name, and a distribution core has
@@ -149,7 +149,7 @@ class ControlPlane:
         # but a configuration that still asks for it must fail here, with the
         # token named, rather than start and behave as if the capability had
         # been switched off. The tokens are configuration and the answer is
-        # plugin metadata; nothing in between names a feature.
+        # plugin metadata; nothing in between names a capability.
         self.plugins.require(
             self.settings.required_capabilities,
             subject="this installation's `required_capabilities`",
@@ -243,7 +243,7 @@ class ControlPlane:
         )
 
     def _wire_services(self, store: Repository) -> None:
-        """Build cross-cutting services, then feature-oriented services."""
+        """Build cross-cutting services, then capability-oriented services."""
 
         # Entry layers receive only the read side of the audit trail, so they
         # cannot manufacture an event for an action no service performed.
@@ -299,13 +299,13 @@ class ControlPlane:
             events=self.events,
             uow=store,
         )
-        self._wire_feature_services(store)
+        self._wire_capability_services(store)
 
-    def _wire_feature_services(self, store: Repository) -> None:
+    def _wire_capability_services(self, store: Repository) -> None:
         """Build required deployment, edge, and maintenance capabilities."""
         # Every variable in a desired-state document comes from a plugin. This
         # is the one place that knows the plugin registry can answer for all of
-        # them, which is what keeps `features/deployments` free of it.
+        # them, which is what keeps `capabilities/deployments` free of it.
         renderer = DesiredStateRenderer(
             allow_empty_sites=self.settings.allow_empty_sites,
             contributors=self.plugins.contributions_for(self),

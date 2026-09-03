@@ -5,7 +5,7 @@ from datetime import datetime
 from pydantic import Field, field_validator
 
 from blitzecdn.api.operations import Deployment, OperationModel
-from blitzecdn.features.tls.policy import SslMode
+from blitzecdn.capabilities.tls.policy import SslMode
 from blitzecdn_certificates.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateSource,

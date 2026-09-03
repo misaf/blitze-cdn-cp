@@ -256,7 +256,7 @@ class Environment:
         program = (
             "import json,sys;"
             "from blitzecdn.core.plugins import load_plugins;"
-            "from blitzecdn.features.sites import CdnSite;"
+            "from blitzecdn.capabilities.sites import CdnSite;"
             "values={'name':'cdn-example-com',"
             "'server_names':['cdn.example.com'],"
             "'origin_host':'198.51.100.10',**json.loads(sys.argv[1])};"
@@ -288,7 +288,7 @@ class Environment:
         program = (
             "import json,sys;"
             "from blitzecdn.core.plugins import load_plugins;"
-            "from blitzecdn.features.sites import CdnSite;"
+            "from blitzecdn.capabilities.sites import CdnSite;"
             "sites=tuple(CdnSite.model_validate(v) for v in json.loads(sys.argv[1]));"
             "print(json.dumps(load_plugins().fleet_variables(sites, object())))"
         )

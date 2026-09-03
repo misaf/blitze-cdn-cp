@@ -14,7 +14,7 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     load_plugins,
 )
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 def _site(**policy: object) -> CdnSite:

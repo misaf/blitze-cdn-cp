@@ -7,15 +7,15 @@ from typing import Any, Protocol
 from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.operations import WorkflowKind
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.features.deployments.ports import (
+from blitzecdn.capabilities.deployments.ports import (
     DeploymentGateway,
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.features.dns.domain import DnsRecord
-from blitzecdn.features.sites.domain import CdnSite
-from blitzecdn.features.sites.ports import SiteReader
-from blitzecdn.features.tls.policy import CertificateMode, SslMode
+from blitzecdn.capabilities.dns.domain import DnsRecord
+from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.sites.ports import SiteReader
+from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn_certificates.certificates.domain import (
     CertificateInfo,
     CertificateSource,

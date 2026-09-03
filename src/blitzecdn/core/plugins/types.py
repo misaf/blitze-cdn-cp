@@ -5,7 +5,7 @@ crosses a package boundary — often one shipped as a separate distribution — 
 "which keys does this have" has to be answerable by reading a type rather than
 by reading whichever plugin happened to produce the value.
 
-Nothing in this module imports a feature. `core` is what a feature builds on;
+Nothing in this module imports a capability. `core` is what a capability builds on;
 the two runtime-bound hooks that need built services take the composition root
 as an argument instead, which keeps the arrow pointing one way.
 """

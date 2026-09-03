@@ -36,17 +36,17 @@ from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.database import Repository
 from blitzecdn.core.plugins import load_plugins
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
-from blitzecdn.features.compression.policy import CompressionMode
-from blitzecdn.features.dns.domain import DnsRecord, Domain
-from blitzecdn.features.http.policy import (
+from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.http.policy import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     HttpScheme,
 )
-from blitzecdn.features.security.policy import SiteFirewall
-from blitzecdn.features.sites.domain import CdnSite, SitePolicy
-from blitzecdn.features.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
-from blitzecdn.features.tls.policy import (
+from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
+from blitzecdn.capabilities.sites.policy import CacheQueryStringMode, SiteVisitorHeaders
+from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,
@@ -844,7 +844,7 @@ def test_visitor_headers_never_reach_the_cache_key():
 
 
 def test_visitor_headers_do_not_disturb_the_existing_forwarding_headers():
-    """X-Real-IP and X-Forwarded-For keep their pre-feature behaviour."""
+    """X-Real-IP and X-Forwarded-For keep their pre-capability behaviour."""
     rendered = _render(_with_visitor_headers())
 
     assert "proxy_set_header X-Real-IP $remote_addr;" in rendered
@@ -1041,7 +1041,7 @@ def test_every_ssl_mode_renders_its_transport(
 def test_the_visitor_port_is_preserved_toward_the_origin(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """The whole feature, stated once: origin port == listener port.
+    """The whole capability, stated once: origin port == listener port.
 
     A request to :8080 must reach the origin's 8080, not its 80 — the bug this
     replaces sent every alternate port to the scheme's default.

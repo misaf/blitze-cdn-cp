@@ -7,12 +7,12 @@ from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
 from blitzecdn.api.dependencies import get_control_plane
-from blitzecdn.features.deployments.api import routes as deployment_routes
-from blitzecdn.features.diagnostics.api import readiness as diagnostics
-from blitzecdn.features.diagnostics.api import routes as diagnostic_routes
-from blitzecdn.features.dns.api import routes as zone_routes
-from blitzecdn.features.edges.api import routes as edge_routes
-from blitzecdn.features.sites.api import routes as site_routes
+from blitzecdn.capabilities.deployments.api import routes as deployment_routes
+from blitzecdn.capabilities.diagnostics.api import readiness as diagnostics
+from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
+from blitzecdn.capabilities.dns.api import routes as zone_routes
+from blitzecdn.capabilities.edges.api import routes as edge_routes
+from blitzecdn.capabilities.sites.api import routes as site_routes
 
 REQUIRES_CERTIFICATES = frozenset({"test_published_operational_shapes_are_pinned"})
 
@@ -46,12 +46,12 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
         if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/")
     }
     assert modules == {
-        "blitzecdn.features.diagnostics.api.readiness",
-        "blitzecdn.features.deployments.api.routes",
-        "blitzecdn.features.diagnostics.api.routes",
-        "blitzecdn.features.edges.api.routes",
-        "blitzecdn.features.sites.api.routes",
-        "blitzecdn.features.dns.api.routes",
+        "blitzecdn.capabilities.diagnostics.api.readiness",
+        "blitzecdn.capabilities.deployments.api.routes",
+        "blitzecdn.capabilities.diagnostics.api.routes",
+        "blitzecdn.capabilities.edges.api.routes",
+        "blitzecdn.capabilities.sites.api.routes",
+        "blitzecdn.capabilities.dns.api.routes",
     }
 
     def dependency_calls(route: APIRoute) -> set[object]:

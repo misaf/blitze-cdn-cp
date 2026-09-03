@@ -4,7 +4,7 @@ One copy. There were two before this package existed — core's, behind
 ``EdgeOperationsService.check_origins``, and a near-identical one inside
 ``blitzecdn-certificates``' Automatic SSL/TLS scan — because the play was
 core's while one of its two callers was not, and a package cannot reach into
-core's feature internals. Both callers now read the report through this module,
+core's capability internals. Both callers now read the report through this module,
 so a change to the row the role publishes is made once.
 
 Deliberately defensive at every step. The document comes off an edge's
@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from blitzecdn.core.runs import HostRun
-from blitzecdn.features.edges.origins import OriginCheck
+from blitzecdn.capabilities.edges.origins import OriginCheck
 from blitzecdn_origins.domain import EdgeOriginChecks
 
 

@@ -7,13 +7,13 @@ from sqlalchemy.pool import NullPool, QueuePool
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus, WorkflowStep
-from blitzecdn.features.deployments.domain import (
+from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.features.deployments.snapshots import decode_snapshot
-from blitzecdn.features.dns.domain import DnsRecord, Domain
-from blitzecdn.features.sites.domain import CdnSite
+from blitzecdn.capabilities.deployments.snapshots import decode_snapshot
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 def test_database_does_not_retain_idle_connections(settings):

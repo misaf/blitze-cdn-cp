@@ -205,7 +205,7 @@ def test_a_value_shorter_than_the_capability_declared_is_refused(tmp_path):
 
     A signing secret somebody meant to replace used to start a controller, be
     forwarded to every play, and be reported only by the first site that turned
-    the feature on. The length is a rule core can hold without knowing what the
+    the capability on. The length is a rule core can hold without knowing what the
     value means, so it holds it.
     """
     roles = tmp_path / "roles"
