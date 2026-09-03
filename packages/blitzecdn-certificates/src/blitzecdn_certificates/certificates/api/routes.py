@@ -7,8 +7,7 @@ from fastapi import APIRouter, Depends, File, Query, UploadFile
 from blitzecdn.api.dependencies import (
     ControlPlaneDependency,
     OperatorDependency,
-    RenewalPoolDependency,
-    SettingsDependency,
+    WorkerPoolDependency,
     require_operator,
 )
 from blitzecdn.api.operations import as_operation
@@ -21,7 +20,10 @@ from blitzecdn_certificates.api.models import (
     RenewalResult,
     RenewRequest,
 )
-from blitzecdn_certificates.composition import build_certificate_service
+from blitzecdn_certificates.composition import (
+    build_certificate_service,
+    certificate_config,
+)
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -51,19 +53,18 @@ async def renew_certificates(
     request: RenewRequest,
     operator: OperatorDependency,
     control: ControlPlaneDependency,
-    settings: SettingsDependency,
-    renewal_pool: RenewalPoolDependency,
+    worker_pool: WorkerPoolDependency,
 ) -> RenewalResult:
     """Reissue ACME certificates close to expiry within a bounded worker pool."""
     result = await asyncio.get_running_loop().run_in_executor(
-        renewal_pool,
+        worker_pool,
         functools.partial(
             build_certificate_service(control).renew_certificates,
             operator,
             within_days=request.within_days,
             force=request.force,
             sites=request.sites,
-            budget_seconds=settings.certificate_renewal_budget_seconds,
+            budget_seconds=certificate_config(control).renewal_budget_seconds,
         ),
     )
     return as_operation(result, RenewalResult)

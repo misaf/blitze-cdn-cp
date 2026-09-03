@@ -209,15 +209,19 @@ class CertificateStore:
 
 
 class CertbotIssuer:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, certbot: str) -> None:
         self._settings = settings
+        # Passed rather than read off `Settings`, which no longer carries it:
+        # which certbot to run is this capability's configuration, and an
+        # installation without this distribution has no certbot to name.
+        self._certbot = certbot
 
     def issue(self, site: CdnSite, email: str) -> tuple[bytes, bytes]:
         if any(name.startswith("*.") for name in site.server_names):
             raise ConfigurationError(
                 "HTTP-01 cannot issue wildcard certificates; upload one or use DNS-01"
             )
-        executable = self._settings.certbot
+        executable = self._certbot
         if "/" in executable:
             available = Path(executable).is_file()
         else:

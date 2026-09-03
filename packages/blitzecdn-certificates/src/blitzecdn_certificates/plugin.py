@@ -10,6 +10,7 @@ from fastapi import APIRouter
 
 from blitzecdn.core.plugins import (
     CliCommandGroup,
+    ConfigurationContribution,
     PluginMetadata,
     ScheduledJob,
     Severity,
@@ -26,7 +27,9 @@ from blitzecdn_certificates.composition import (
     __version__,
     build_automatic_ssl_service,
     build_certificate_service,
+    certificate_config,
 )
+from blitzecdn_certificates.config import SETTINGS
 
 if TYPE_CHECKING:
     from blitzecdn.bootstrap import ControlPlane
@@ -81,6 +84,17 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 
 
 @hookimpl
+def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
+    """Claim this capability's seven controller-side names.
+
+    None of them is a secret, which is why they were the last configuration
+    still living on core's ``Settings``: an ``EnvironmentKey`` was the only
+    thing a capability could declare, and none of these is one.
+    """
+    return (ConfigurationContribution(plugin="certificates", settings=SETTINGS),)
+
+
+@hookimpl
 def blitzecdn_api_routers() -> Sequence[APIRouter]:
     return (certificates_routes.router, automatic_ssl_routes.router)
 
@@ -119,10 +133,11 @@ def blitzecdn_site_desired_state(
 def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
     certificates = build_certificate_service(platform)
     automatic_ssl = build_automatic_ssl_service(platform)
-    renewal_interval = platform.settings.certificate_renewal_interval_seconds
-    budget = platform.settings.certificate_renewal_budget_seconds
-    scan_interval = platform.settings.ssl_automatic_scan_interval_seconds
-    reconcile_interval = platform.settings.certificate_reconcile_interval_seconds
+    config = certificate_config(platform)
+    renewal_interval = config.renewal_interval_seconds
+    budget = config.renewal_budget_seconds
+    scan_interval = config.scan_interval_seconds
+    reconcile_interval = config.reconcile_interval_seconds
 
     def renew(operator: str) -> None:
         certificates.renew_certificates(operator, budget_seconds=budget)
@@ -145,6 +160,12 @@ def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
             interval_seconds=renewal_interval,
             run=renew,
             jitter_seconds=min(3600, renewal_interval // 10),
+            # The one job that declares its own lease. A sweep is bounded by
+            # its budget rather than by its cadence, so "twice the interval"
+            # — the default every other job takes — is not the right floor
+            # for it. The scheduler used to apply this capability's budget to
+            # every job in the installation to get the same effect.
+            lease_seconds=platform.settings.deployment_timeout_seconds + budget,
         ),
         ScheduledJob(
             name="automatic-ssl-scan",

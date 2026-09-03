@@ -54,10 +54,16 @@ class CertificatePreflight:
         self,
         settings: Settings,
         edges: EdgeStore,
+        *,
+        ca_domain: str,
         origin_probe: OriginProbe | None = None,
     ) -> None:
         self._settings = settings
         self._edges = edges
+        # The DNS budget and the resolver list below are core's — every
+        # capability that predicts what a CA will see wants the same answers.
+        # Which CA is being predicted is this capability's, and is passed.
+        self._ca_domain = ca_domain
         self._origin_probe = origin_probe
 
     def _resolver(self) -> dns.resolver.Resolver:
@@ -171,7 +177,7 @@ class CertificatePreflight:
     # ------------------------------------------------------------------
 
     def _check_caa(self, site: CdnSite) -> PreflightCheck:
-        issuer = self._settings.acme_ca_domain
+        issuer = self._ca_domain
         for name in site.server_names:
             wildcard = name.startswith("*.")
             base = name[2:] if wildcard else name
