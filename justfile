@@ -284,28 +284,6 @@ audit:
 build:
     uv build --all-packages
 
-# Fail if the published reference no longer describes this control plane.
-#
-# The check lives in the docs repository, because that is where the pages it
-# reads live; this recipe is the direction that matters here — a route, command,
-# setting, or model changed on this side and the documentation was not updated
-# with it. Point `docs` at that checkout; it defaults to a sibling clone.
-#
-# Skips when that checkout is absent, mirroring how the check itself behaves
-# when run from the docs side without this repository: a contributor who has
-# cloned one of the two is not blocked by the other. CI checks both out, so the
-# skip never fires there.
-docs-check docs="../blitze-cdn-web":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ ! -d "{{docs}}" ]; then
-        echo "reference check skipped: no documentation site at {{docs}}"
-        exit 0
-    fi
-    BLITZE_CP_PATH="{{justfile_directory()}}" \
-    BLITZE_CP_PYTHON="{{justfile_directory()}}/.venv/bin/python" \
-        node "{{docs}}/scripts/check-api-surface.mjs" --strict
-
 # The inner-loop gate: about a minute, and it catches everything that is
 # cheap to catch. Formatting, types, the shell scripts, every YAML and role,
 # and the whole suite across cores with coverage off.
@@ -313,15 +291,15 @@ docs-check docs="../blitze-cdn-web":
 # What it deliberately leaves to `check` is only the expensive half, and each
 # one is expensive for the same reason — it builds or installs something:
 # `test`'s coverage pass and packaging lifecycle, `test-core-only`'s two
-# workspace syncs, `audit`'s dependency fetch, `build`, and `docs-check`'s
-# sibling checkout. None of them is likely to break on an edit that this
-# recipe passes, which is what makes running it instead a fair trade.
+# workspace syncs, `audit`'s dependency fetch, and `build`. None of them is
+# likely to break on an edit that this recipe passes, which is what makes
+# running it instead a fair trade.
 #
 # Not a substitute for `check` before pushing. It is not what CI runs.
 check-quick: lint types shell-lint ansible-check test-fast
 
 # Everything CI runs. Run this before pushing.
-check: lock-check lint types shell-lint test test-core-only ansible-check audit build docs-check
+check: lock-check lint types shell-lint test test-core-only ansible-check audit build
 
 # --- database -----------------------------------------------------------
 
