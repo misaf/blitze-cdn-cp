@@ -23,9 +23,6 @@ from blitzecdn_origins.service import OriginCheckService
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane
 
-#: This distribution's version, released on its own cadence.
-__version__ = "3.0.0"
-
 
 def build_origin_check_service(platform: ControlPlane) -> OriginCheckService:
     """Wire the origin-check capability from what the control plane publishes."""
@@ -39,4 +36,4 @@ def build_origin_check_service(platform: ControlPlane) -> OriginCheckService:
     )
 
 
-__all__ = ["__version__", "build_origin_check_service"]
+__all__ = ["build_origin_check_service"]

@@ -17,6 +17,7 @@ buildable from ``Settings`` alone.
 from __future__ import annotations
 
 from blitzecdn.core.config import Settings
+from blitzecdn.core.resources import distribution_version
 from blitzecdn.core.schema import DatabaseSchema
 from blitzecdn_backup.adapters import (
     AcmeComponent,
@@ -29,10 +30,11 @@ from blitzecdn_backup.adapters import (
 )
 from blitzecdn_backup.service import BackupPolicy, BackupService
 
-#: The archive format's own version, and this distribution's. Deliberately not
-#: the core version: an optional package is released on its own cadence and its
-#: metadata should say which *package* is installed.
-__version__ = "3.0.0"
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
 
 
 def build_backup_service(settings: Settings) -> BackupService:

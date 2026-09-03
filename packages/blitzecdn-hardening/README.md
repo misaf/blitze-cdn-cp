@@ -11,6 +11,16 @@ SSH. This distribution owns the second one's front door, and nothing else:
 | --- | --- |
 | `blitzecdn_sshd` | writes `/etc/ssh/sshd_config.d/50-blitzecdn.conf`, disables password and keyboard-interactive authentication, then reads the effective policy back with `sshd -T` and fails if it did not take |
 | `blitzecdn_fail2ban` | installs Fail2Ban and writes the `sshd` jail at `/etc/fail2ban/jail.d/blitzecdn-sshd.local` |
+| `blitzecdn_hardening_teardown` | on decommission, removes both files in the reverse order and settles both services, so a host leaving inventory governs its own SSH access again |
+
+The first two run in the edge play's *host* slot, after the firewall has been
+validated and the runtime is serving; the third runs in the decommission play's
+slot, before `blitzecdn_teardown` passes its verdict on the host. Core used to
+carry those two paths in `blitzecdn_teardown`'s own defaults and reload both
+services from its own handlers, which put a capability's paths in a role that
+is installed whether or not the capability is — and left a fleet that had
+detached this distribution with a decommission asserting against files nothing
+on its controller could write.
 
 No site setting asks for this capability, so no site is ever refused for its
 absence, and `blitzecdn validate` says nothing about it. Attaching or detaching

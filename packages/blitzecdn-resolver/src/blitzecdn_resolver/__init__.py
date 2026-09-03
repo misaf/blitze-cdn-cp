@@ -24,6 +24,12 @@ Nothing here is imported by the control plane. Discovery is the
 else.
 """
 
-__version__ = "3.0.0"
+from blitzecdn.core.resources import distribution_version
+
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
 
 __all__ = ["__version__"]

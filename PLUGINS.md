@@ -79,10 +79,10 @@ answer to the question above, not a description of the code.
 | `blitzecdn-certificates` | **optional** | issuance, renewal and the Automatic SSL/TLS scan. An operator may bring their own certificates and never attach it |
 | `blitzecdn-compression` | **optional** | gzip and Brotli are `CompressionMode` values inside one capability, not two wheels. The per-vhost directives stay in `site.conf.j2`: they are site settings, and an absent capability is refused by name before a play starts |
 | `blitzecdn-geoip` | **optional** | one lookup, two consumers — the `BZ-IPCountry` header and the country firewall lists — so one wheel, and it brings its whole edge implementation |
-| `blitzecdn-hardening` | **optional** | the edge *host's* front door: public-key-only SSH and a Fail2Ban jail. No site setting asks for it, so its absence is silent by design — detaching is how a fleet says something else owns `sshd_config` |
+| `blitzecdn-hardening` | **optional** | the edge *host's* front door: public-key-only SSH and a Fail2Ban jail, and the role that takes both off a decommissioned host. No site setting asks for it, so its absence is silent by design — detaching is how a fleet says something else owns `sshd_config` |
 | `blitzecdn-http3` | **optional** | the QUIC listener and its fleet derivation. The *switch* stays a field on `ProtocolPolicy`; what detaches is the implementation behind it |
 | `blitzecdn-origins` | **optional** | asking the edges whether they can reach the origins they proxy to. An *operation*, like a purge: no lock, no desired state, nothing converged. `OriginCheck` — the single-origin row — stays in core, because certificate preflight's controller-side probe produces one without running any play |
-| `blitzecdn-resolver` | **optional** | what an edge *host* resolves names with. Like `hardening`, no site setting asks for it and detaching is how a fleet says its DNS belongs to the network. The only capability using the decommission slot: its drop-in lives at a path core must not name |
+| `blitzecdn-resolver` | **optional** | what an edge *host* resolves names with. Like `hardening`, no site setting asks for it and detaching is how a fleet says its DNS belongs to the network. Its drop-in lives at a path core must not name, so it fills the decommission slot too |
 | `blitzecdn-security` | **optional** | the njs challenge and the per-site rule validation. The rule *vocabulary* stays in `SecurityPolicy` for the same reason as the other site contracts |
 
 Two that came up and were deliberately **not** split:
@@ -127,7 +127,7 @@ packages/blitzecdn-<name>/
 │   ├── cli.py                # its command groups
 │   ├── nginx/                # *.conf.j2 fragments only
 │   └── ansible/
-│       ├── __init__.py       # ROLES_PATH and EDGE_ROLE, via importlib.resources
+│       ├── __init__.py       # ROLES_PATH and EDGE_ROLE, via package_directory
 │       ├── roles/<role>/     # defaults, tasks, handlers, templates, argument_specs
 │       └── playbooks/        # plays only this capability runs
 └── tests/                    # including its role's contract tests
@@ -153,7 +153,7 @@ refuses a module name that is not one of the above — plus `adapters.py` and
 `test_layering.py` already holds to the adapter rule. `api/` is exactly
 `models.py` and `routes.py`; `adapters/` is flat and its module names are
 the implementations they hold; `nginx/` and `ansible/` carry no Python beyond
-the one `importlib.resources` anchor.
+the one `core.resources.package_directory` anchor.
 
 Growing the vocabulary is allowed and is a *decision*: add the name to the set
 in the test with the sentence saying what belongs in it, and to the tree above.
@@ -447,7 +447,15 @@ broken optional package is reported by name and skipped, and the node still
 serves. `provides` is the set of capability *tokens* the package supplies, which
 is what configuration depends on; it defaults to the plugin's own name.
 
+`__version__` is `distribution_version(__name__)`, never a literal: it is
+what `blitzecdn plugins` shows an operator, so it is read back from the
+installed metadata rather than copied out of `pyproject.toml` and left behind
+by a release.
+
 ```python
+__version__ = distribution_version(__name__)
+
+
 @hookimpl
 def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
@@ -485,6 +493,10 @@ from blitzecdn.core.plugins import (
 )
 from blitzecdn.core.config import Settings  # configuration
 from blitzecdn.core.operation_ports import PlaybookRunner  # ports it is handed
+from blitzecdn.core.resources import (  # where its own files landed, and its version
+    distribution_version,
+    package_directory,
+)
 from blitzecdn.api.operations import OperationModel  # to build a router
 from blitzecdn.cli.common import ExitCode  # to build a command
 from blitzecdn.features.sites import CdnSite  # a public capability contract
@@ -878,14 +890,19 @@ challenge play; `blitzecdn-geoip` ships the role that provisions the GeoLite2
 database, its updater's Compose project, the systemd timer that refreshes it and
 the `conf.d` snippet defining `$blitzecdn_country`; `blitzecdn-security` ships
 the njs challenge module, its fleet secret and the snippet that imports it;
-`blitzecdn-hardening` ships the SSH drop-in that makes an edge public-key-only
-and the Fail2Ban jail in front of it; `blitzecdn-resolver` ships the
+`blitzecdn-hardening` ships the SSH drop-in that makes an edge public-key-only,
+the Fail2Ban jail in front of it, and the role that takes both off again on
+decommission; `blitzecdn-resolver` ships the
 systemd-resolved drop-in that decides what the host resolves names with, and
 the role that takes it off again on decommission.
 
-A package locates its own files with `importlib.resources` — never a
-repository-relative path, a working directory, or an editable checkout — and
-answers `blitzecdn_ansible_contributions` with what it brought:
+A package locates its own files with `core.resources.package_directory` —
+never a repository-relative path, a working directory, or an editable checkout,
+and never `Path(__file__)`, which is the same answer with the unpacked-
+distribution check left out. Pass `__name__`: from `ansible/__init__.py` it
+resolves that directory, and from `plugin.py` the package root the `nginx`
+templates sit under. Then answer `blitzecdn_ansible_contributions` with what it
+brought:
 
 ```python
 @hookimpl
@@ -946,7 +963,9 @@ same refusal of a name the wheel does not ship — and it reaches Ansible as
 `blitzecdn_host_capability_roles`. The play uses `blitzecdn_capabilities` twice,
 once per slot, with the list as a role parameter: one mechanism told where it is
 standing, rather than two loops to drift apart. `blitzecdn-hardening` is the
-whole of the host slot's current use, and it declares no edge role at all.
+whole of the host slot's current use, and it declares no edge role at all —
+though it does declare a teardown one, because the two files it writes are
+exactly the kind the next slot exists for.
 
 `teardown_roles` is the third slot, and the only one that is not in the edge
 play at all. It runs in `decommission.yml`, before `blitzecdn_teardown`, and it
@@ -956,9 +975,12 @@ knows when a capability has been detached: its own trees, the shared runtime
 directories, and every systemd unit matching the managed prefix — matched
 rather than listed, precisely so a unit only `blitzecdn-geoip` writes needs no
 line in a core role. A file like `blitzecdn-resolver`'s drop-in under
-`/etc/systemd/resolved.conf.d` fits none of those patterns, and naming it in
+`/etc/systemd/resolved.conf.d`, or `blitzecdn-hardening`'s SSH policy under
+`/etc/ssh/sshd_config.d`, fits none of those patterns, and naming it in
 core would be putting a wheel's path into a role that runs whether or not the
-wheel is installed.
+wheel is installed. Both of those did sit in `blitzecdn_teardown` once — the
+hardening pair for longer, together with two handlers reloading `ssh` and
+`fail2ban` on every decommission, installed or not.
 
 The position is forced the same way the other two are, and by the strictest
 constraint of the three: `blitzecdn_teardown` *ends* by asserting the host is
@@ -1190,15 +1212,16 @@ by every edge whether or not the package is installed.
 4. If it owns Ansible, put it in `src/blitzecdn_<name>/ansible/` — `roles/` for
    roles, `playbooks/` for plays, each role with its own `defaults/`,
    `templates/`, `handlers/` and `meta/argument_specs.yml` — locate it with
-   `importlib.resources`, and contribute it through
+   `core.resources.package_directory`, and contribute it through
    `blitzecdn_ansible_contributions`. Name the role in `edge_roles` if a deploy
    should run it, and in `teardown_roles` if it writes something core's
    teardown could not find — a path outside the state tree, the data directory
    and the managed unit prefix; leave `edge_roles` empty if only the package's
    own plays
-   reach it. Add the roles directory to `roles_path` in the justfile so the
-   checkout's lint and syntax gates see it too, and add the role to the
-   `ansible-lint` argument list.
+   reach it. Nothing has to be added to the justfile: the checkout's syntax and
+   lint gates ask `blitzecdn ansible roles-path` and `blitzecdn ansible slots`
+   for the same values the composition root resolves, and reach the roles
+   themselves by glob. A declaration is the whole of the registration.
    If the capability needs a credential, give it a `BLITZE_*` name, document it
    in the package README, and read it with `lookup('env', ...)` in the role's
    defaults — and claim it in `AnsibleContribution.environment_keys` as an

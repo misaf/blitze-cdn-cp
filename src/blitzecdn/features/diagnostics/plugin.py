@@ -45,7 +45,15 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    return (CliCommandGroup(name=None, app=cli.diagnostics_app),)
+    # `ansible` is a named group rather than more root verbs because neither of
+    # its commands is an operator's verb: both answer "what did the installed
+    # capabilities compose into this process-wide Ansible value", which is a
+    # question a *caller driving ansible-playbook itself* asks — the justfile,
+    # a lint step, an air-gapped controller running a play by hand.
+    return (
+        CliCommandGroup(name=None, app=cli.diagnostics_app),
+        CliCommandGroup(name="ansible", app=cli.ansible_app),
+    )
 
 
 @hookimpl

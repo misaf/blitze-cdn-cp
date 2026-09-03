@@ -1,0 +1,95 @@
+---
+# Withdraw this capability's two files from a host that is leaving inventory,
+# in the reverse of the order the host slot converged them.
+#
+# Fail2Ban first. Converging goes SSH then Fail2Ban so the jail protects a
+# daemon that has already stopped accepting passwords; withdrawing has to undo
+# that in the other direction, or there is a window in which the jail is gone
+# and password authentication is back.
+#
+# Nothing here is guarded by blitzecdn_sshd_enabled. A host is usually
+# decommissioned by a controller whose configuration has drifted from the one
+# that converged it, and a fleet that turned hardening off after enabling it
+# once would then leave both files behind forever. Removing a file that is not
+# there is free; leaving one on a host nothing can reach again is not.
+- name: Remove the managed Fail2Ban jail
+  ansible.builtin.file:
+    path: "{{ blitzecdn_hardening_teardown_fail2ban_file }}"
+    state: absent
+  register: blitzecdn_hardening_teardown_jail_removed
+
+# Not a handler. Handlers flush at the end of the play, which here is after
+# blitzecdn_teardown has run and passed its verdict on the host; both services
+# have to be settled before then, and this role has to fail the decommission
+# itself if they are not.
+#
+# Only when the file was actually there: on a host this capability never
+# converged, Fail2Ban may not be installed at all, and restarting a unit that
+# does not exist would fail a decommission for the absence of the very thing
+# this role just confirmed is absent.
+- name: Restart Fail2Ban without the managed jail
+  ansible.builtin.systemd_service:
+    name: "{{ blitzecdn_hardening_teardown_fail2ban_service }}"
+    state: restarted
+  when:
+    - blitzecdn_hardening_teardown_jail_removed.changed
+    - not ansible_check_mode
+
+- name: Remove the managed SSH policy
+  ansible.builtin.file:
+    path: "{{ blitzecdn_hardening_teardown_sshd_file }}"
+    state: absent
+  register: blitzecdn_hardening_teardown_policy_removed
+
+# Validate before reloading, exactly as the converging role's handler does. A
+# reload against a configuration sshd will not accept leaves the daemon on the
+# old policy with no way to say so, and this is the last run that can reach the
+# host: the failure has to surface here rather than as an unreachable machine
+# after the inventory entry is gone.
+- name: Validate SSH configuration without the managed policy
+  ansible.builtin.command:
+    argv: [/usr/sbin/sshd, -t]
+  changed_when: false
+  when:
+    - blitzecdn_hardening_teardown_policy_removed.changed
+    - not ansible_check_mode
+
+# Reload, never restart: a reload re-reads the configuration without dropping
+# established sessions, so the connection Ansible is running over survives the
+# host returning to the distribution's own SSH policy.
+- name: Reload SSH without the managed policy
+  ansible.builtin.systemd_service:
+    name: "{{ blitzecdn_hardening_teardown_sshd_service }}"
+    state: reloaded
+  when:
+    - blitzecdn_hardening_teardown_policy_removed.changed
+    - not ansible_check_mode
+
+- name: Confirm both files are gone
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  register: blitzecdn_hardening_teardown_residue
+  loop:
+    - "{{ blitzecdn_hardening_teardown_fail2ban_file }}"
+    - "{{ blitzecdn_hardening_teardown_sshd_file }}"
+  when: not ansible_check_mode
+
+# The same rule core's teardown applies to its own files, applied by the
+# package that owns these two: a decommission that reports success while
+# leaving BlitzeCDN's host-access policy on the machine is the failure worth
+# failing for, because the inventory entry goes next and nothing can reach the
+# host afterwards.
+- name: Fail if either file survived
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_hardening_teardown_residue.results
+        | selectattr('stat.exists') | list | length == 0
+    fail_msg: >-
+      Host hardening survived on {{ inventory_hostname }}:
+      {{ blitzecdn_hardening_teardown_residue.results | selectattr('stat.exists')
+         | map(attribute='item') | join(', ') }}.
+      Remove them before the host leaves inventory; afterwards no playbook can
+      reach it.
+    success_msg: >-
+      {{ inventory_hostname }} governs its own SSH access again.
+  when: not ansible_check_mode

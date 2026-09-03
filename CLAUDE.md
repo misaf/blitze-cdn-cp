@@ -100,9 +100,9 @@ blitze-cdn-cp/
 │   ├── blitzecdn-http3/    #   QUIC listener state; HTTP/1.1 and /2 stay core
 │   ├── blitzecdn-origins/  #   probing site origins *from the edges*: role,
 │   │                       #   play, `origin check`, POST /v{1,2}/origins/check
-│   ├── blitzecdn-resolver/ #   host DNS an edge can trust — and the only user
-│   │                       #   of the decommission slot, because its drop-in
-│   │                       #   is at a path core must not name
+│   ├── blitzecdn-resolver/ #   host DNS an edge can trust; its drop-in is at a
+│   │                       #   path core must not name, so it fills the
+│   │                       #   decommission slot as `hardening` does
 │   └── blitzecdn-security/ #   site firewall and Under Attack validation
 └── tests/                  # core behavior, plugin contracts, architecture,
                             # cross-package contracts, integration
@@ -195,7 +195,9 @@ The rules that shape it:
   the whole decommission and must not be passed before half the removal has
   happened. It exists because core cannot remove what it may not name: a file
   at a path only a wheel knows — `blitzecdn-resolver`'s drop-in under
-  `/etc/systemd/resolved.conf.d` is the case — would otherwise sit in a role
+  `/etc/systemd/resolved.conf.d`, and `blitzecdn-hardening`'s SSH policy under
+  `/etc/ssh/sshd_config.d` and Fail2Ban jail under `/etc/fail2ban/jail.d` —
+  would otherwise sit in a role
   that is installed whether or not that wheel is, and a host is usually
   decommissioned by a controller whose package set has drifted from the one
   that converged it. What core still removes on its own is what core wrote: its

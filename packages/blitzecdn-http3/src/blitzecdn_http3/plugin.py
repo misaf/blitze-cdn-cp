@@ -21,7 +21,6 @@ Ansible roles, which remain the provisioning authority.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from blitzecdn.core.plugins import (
@@ -31,6 +30,7 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
+from blitzecdn.core.resources import package_directory
 from blitzecdn_http3 import __version__, ansible
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -42,6 +42,20 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 #: lists disagreeing is how a merge conflict at deploy time would be written.
 QUIC_FLEET_VARIABLES = frozenset(
     {"blitzecdn_edge_http3_enabled", "blitzecdn_nginx_http3_listener_owner"}
+)
+
+
+#: The Jinja fragments this capability contributes to the edge's Nginx
+#: configuration, resolved under the same guard its roles are. A sibling of
+#: ``ansible/`` rather than a child: core's ``blitzecdn_nginx`` renders these
+#: from the resolved contribution, so they are not part of any role this
+#: package ships.
+NGINX_TEMPLATES = (
+    package_directory(
+        __name__,
+        resolves="Nginx templates are rendered from a filesystem path",
+    )
+    / "nginx"
 )
 
 
@@ -61,7 +75,7 @@ def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
     return (
         NginxContribution(
             plugin="http3",
-            templates_path=Path(__file__).with_name("nginx"),
+            templates_path=NGINX_TEMPLATES,
             server_fragments=("http3-server.conf.j2",),
             upstream_fragments=("http3-upstream.conf.j2",),
         ),

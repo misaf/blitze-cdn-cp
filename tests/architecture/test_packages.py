@@ -271,6 +271,12 @@ _PUBLIC_SDK_PREFIXES = (
     "blitzecdn.core.schema",
     "blitzecdn.core.validation",
     "blitzecdn.core.filesystem",
+    # How a wheel finds its own roles, plays and templates on disk, and which
+    # version of itself it is. Published because every capability needs both
+    # and each one used to answer them itself: eight copies of one guard, two
+    # of which were never written, and eleven `__version__` literals that a
+    # release could leave behind.
+    "blitzecdn.core.resources",
     "blitzecdn.core.ports",
     "blitzecdn.core.process",
     "blitzecdn.api.dependencies",
@@ -1056,6 +1062,9 @@ CORE_ANSIBLE = REPO_ROOT / "src/blitzecdn/ansible"
 #: teardown role, so core neither creates nor deletes it. It used to be listed
 #: in `blitzecdn_teardown`'s defaults, which meant a role installed on every
 #: controller carried the path of a capability that may not be installed.
+#: `sshd_config.d` and `fail2ban` are the same case one package later: both
+#: files are `blitzecdn-hardening`'s, and `blitzecdn_hardening_teardown` is
+#: what removes them.
 #:
 #: `$blitzecdn_country` and `under_attack_mode` are deliberately *not* here.
 #: They are site settings core renders from desired state, and a site that asks
@@ -1213,25 +1222,30 @@ def test_core_s_teardown_removes_no_path_that_belongs_to_a_wheel():
     """A role installed on every controller may not know a wheel's paths.
 
     `blitzecdn_teardown` is core's, so it runs on every decommission whatever
-    is installed. Every path in its defaults is therefore a claim core can
-    still make when a capability has been detached — its own trees, the shared
-    runtime directories, and units matched by prefix rather than listed. A
-    capability's own file is removed by that capability's teardown role, in the
-    slot before this one.
-    """
-    defaults = (CORE_ANSIBLE / "roles/blitzecdn_teardown/defaults/main.yml").read_text(
-        encoding="utf-8"
-    )
-    contributed_paths = ("resolved.conf.d",)
+    is installed. Every path in it is therefore a claim core can still make
+    when a capability has been detached — its own trees, the shared runtime
+    directories, and units matched by prefix rather than listed. A capability's
+    own file is removed by that capability's teardown role, in the slot before
+    this one.
 
-    for path in contributed_paths:
-        for line in defaults.splitlines():
+    The whole role rather than only its defaults, because the leak this refuses
+    has appeared in all three files: the SSH policy and the Fail2Ban jail were
+    paths in `defaults`, a task removing them, *and* two handlers reloading
+    services only `blitzecdn-hardening` installs. A defaults-only check would
+    have passed while core still restarted `fail2ban` on every decommission.
+    """
+    role = CORE_ANSIBLE / "roles/blitzecdn_teardown"
+    contributed_paths = ("resolved.conf.d", "sshd_config.d", "fail2ban", "sshd")
+
+    for source in sorted(role.rglob("*.yml")):
+        for line in source.read_text(encoding="utf-8").splitlines():
             if line.lstrip().startswith("#"):
                 continue
-            assert path not in line, (
-                f"blitzecdn_teardown names {path}, which belongs to a wheel it "
-                "cannot depend on being installed"
-            )
+            for path in contributed_paths:
+                assert path not in line, (
+                    f"{source.relative_to(CORE_ANSIBLE)} names {path}, which "
+                    "belongs to a wheel core cannot depend on being installed"
+                )
 
 
 def test_the_edge_play_names_no_capability_and_fills_both_slots():

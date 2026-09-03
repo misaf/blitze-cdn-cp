@@ -18,14 +18,29 @@ import dns.resolver
 import typer
 import uvicorn
 
+from blitzecdn import ansible as core_ansible
 from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.core.plugins import EnvironmentKey
+from blitzecdn.core.plugins import (
+    EnvironmentKey,
+    load_plugins,
+    resolve_edge_capability_roles,
+    resolve_host_capability_roles,
+    resolve_role_search_path,
+    resolve_teardown_capability_roles,
+)
 
 #: Root-level verbs, like the deployment group: `blitzecdn status`, not
 #: `blitzecdn diagnostics status`.
 diagnostics_app = typer.Typer()
+
+#: `blitzecdn ansible ...`: what the installed capabilities contribute to the
+#: two process-wide Ansible values core composes for itself at run time.
+ansible_app = typer.Typer(
+    no_args_is_help=True,
+    help="The Ansible inputs composed from the installed capabilities.",
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +144,74 @@ def plugins(
         typer.echo(
             f"\n{rejection.source} was not registered: {rejection.reason}", err=True
         )
+
+
+@ansible_app.command("roles-path")
+def ansible_roles_path() -> None:
+    """Print `ANSIBLE_ROLES_PATH` for this set of installed capabilities.
+
+    Core's roles first, then each contributing distribution's, ordered by
+    plugin name — the exact value the composition root hands the runner, from
+    the exact function that composes it. A caller invoking `ansible-playbook`
+    directly needs that same path, and until this command existed the only way
+    to get one was to write it out again: the justfile spelled all nine
+    directories by hand, so a checkout could syntax-check an edge play against
+    a role set no deployment would ever resolve, and nothing would say so.
+
+    Composing it here rather than restating it also brings the refusals along.
+    A capability shipping a role name core already owns is caught by the same
+    check that catches it at startup, in a command that costs nothing to run,
+    rather than by an operator noticing that `blitzecdn_nginx` renders
+    something nobody wrote.
+
+    The plugins are loaded here rather than taken from a control plane because
+    the answer depends only on what is installed: this runs in a lint step,
+    where there is no database to open and no fleet to read.
+    """
+    search = resolve_role_search_path(
+        core_ansible.ROLES_PATH, load_plugins().ansible_contributions()
+    )
+    typer.echo(":".join(str(path) for path in search))
+
+
+@ansible_app.command("slots")
+def ansible_slots() -> None:
+    """Print the capability role lists core's own plays run, as extra-vars.
+
+    Three slots, one document, in the form `ansible-playbook --extra-vars`
+    takes:
+
+        ansible-playbook edge.yml --extra-vars "$(blitzecdn ansible slots)"
+
+    A slot list is not something a caller can write out correctly by reading
+    the repository, which is what separates this from the search path above.
+    Whether a role converges in the edge slot, the host slot or the
+    decommission slot is a fact the *contributing package* declares, and the
+    justfile's hand-written copy had already drifted from it in both
+    directions: `blitzecdn_resolver` declares an edge role and was missing, and
+    the teardown slot was not passed at all, so the decommission play was never
+    syntax-checked with a capability in it.
+
+    Empty lists are emitted rather than omitted. Core's plays default them, so
+    an absent key and an empty one converge identically — but a caller
+    diffing this output wants to see that a slot is empty rather than guess
+    whether the question was asked.
+    """
+    contributions = load_plugins().ansible_contributions()
+    common.emit(
+        {
+            "blitzecdn_capability_roles": list(
+                resolve_edge_capability_roles(contributions)
+            ),
+            "blitzecdn_host_capability_roles": list(
+                resolve_host_capability_roles(contributions)
+            ),
+            "blitzecdn_teardown_capability_roles": list(
+                resolve_teardown_capability_roles(contributions)
+            ),
+        },
+        json_output=True,
+    )
 
 
 @diagnostics_app.command()

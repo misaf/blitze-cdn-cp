@@ -13,15 +13,16 @@ argument_specs:
         configuration it loaded, including the key files this role deletes.
       - >-
         Leaves the container engine and shared packages installed, but withdraws
-        the dedicated Nginx configuration, firewall, SSH, Fail2Ban and kernel
-        artifacts written by the edge roles, and every systemd unit any
-        installed capability's role added. It does not alter unrelated
-        administrator configuration.
+        the dedicated Nginx configuration, firewall and kernel artifacts written
+        by the platform's edge roles, and every systemd unit any installed
+        capability's role added. It does not alter unrelated administrator
+        configuration.
       - >-
         What it does not withdraw is a file at a path only a wheel knows — the
-        resolver drop-in blitzecdn-resolver writes is the example. Those are
-        removed by that capability's own role, in the decommission play's
-        capability slot, which runs before this one.
+        resolver drop-in blitzecdn-resolver writes, and the SSH policy and
+        Fail2Ban jail blitzecdn-hardening writes. Those are removed by that
+        capability's own role, in the decommission play's capability slot, which
+        runs before this one.
       - >-
         Must run while the host is still in inventory. Once the control plane
         drops the inventory entry no playbook can reach the host again, and
@@ -48,15 +49,10 @@ argument_specs:
       blitzecdn_teardown_firewall_registry:
         type: path
         required: true
-      blitzecdn_teardown_sshd_file:
-        type: path
-        required: true
-      blitzecdn_teardown_fail2ban_file:
-        type: path
-        required: true
       blitzecdn_teardown_sysctl_file:
         type: path
         required: true
+        description: Must equal the drop-in blitzecdn_kernel writes on the same host.
       blitzecdn_teardown_unit_prefix: {type: str, required: true}
       blitzecdn_teardown_marker:
         type: str

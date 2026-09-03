@@ -3,18 +3,6 @@
   ansible.builtin.systemd_service:
     daemon_reload: true
 
-- name: Reload SSH after edge teardown
-  ansible.builtin.systemd_service:
-    name: ssh
-    state: reloaded
-  failed_when: false
-
-- name: Reload Fail2Ban after edge teardown
-  ansible.builtin.systemd_service:
-    name: fail2ban
-    state: reloaded
-  failed_when: false
-
 - name: Reapply kernel settings after edge teardown
   ansible.builtin.command:
     argv: [/usr/sbin/sysctl, --system]

@@ -10,8 +10,13 @@ blitzecdn_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
 blitzecdn_teardown_acme_root: /var/lib/blitzecdn/acme
 blitzecdn_teardown_state_path: /etc/blitzecdn
 blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
-blitzecdn_teardown_sshd_file: /etc/ssh/sshd_config.d/50-blitzecdn.conf
-blitzecdn_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.local
+# blitzecdn_kernel's drop-in, and the only host-level file left here. The SSH
+# policy and the Fail2Ban jail used to sit beside it and no longer do: both are
+# written by `blitzecdn-hardening`'s roles and removed by that same package's
+# teardown role, in the slot before this one. Naming them here put a
+# capability's paths in a role that is installed whether or not the capability
+# is, and left a detached fleet with a decommission asserting against files
+# nothing on its controller could write.
 blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
 # Systemd units this collection installs, matched rather than listed.
 #

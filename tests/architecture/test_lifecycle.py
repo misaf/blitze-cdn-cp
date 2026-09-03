@@ -961,19 +961,33 @@ EDGE_ROLE = "blitzecdn_geoip"
 
 #: And the capability that fills the play's *host* slot instead. A third
 #: package in the same environment, because the property worth proving is that
-#: the two slots are composed independently: this one contributes no edge role
-#: and no Nginx resource, and its roles must still arrive — in the host list,
-#: never in the edge one.
+#: the slots are composed independently: this one contributes no edge role and
+#: no Nginx resource, and its roles must still arrive — in the host list, never
+#: in the edge one.
+#:
+#: It pairs its host roles with a teardown role, so it reaches the decommission
+#: slot too. That pairing is the point rather than an extra: the two files it
+#: writes are at paths only this wheel knows, and core's `blitzecdn_teardown`
+#: used to name both — which is the leak the third slot exists to close.
 HOST_ROLE_PACKAGE = "blitzecdn-hardening"
 HOST_ROLES = ("blitzecdn_sshd", "blitzecdn_fail2ban")
+HOST_TEARDOWN_ROLE = "blitzecdn_hardening_teardown"
 
 #: And the capability that fills two slots at once, one of them in a different
-#: play. `blitzecdn-resolver` converges in the edge slot and withdraws in the
-#: decommission slot, which is the pairing the third slot exists for: it writes
-#: a file at a path core does not know, so core cannot remove it either.
+#: play. `blitzecdn-resolver` converges in the *edge* slot and withdraws in the
+#: decommission slot, which is the other shape the pairing takes: `hardening`
+#: converges in the host slot and withdraws in the same decommission one. Two
+#: packages reaching that slot from different halves of the edge play is what
+#: makes it visible that core composes the list rather than either of them.
 TEARDOWN_ROLE_PACKAGE = "blitzecdn-resolver"
 TEARDOWN_EDGE_ROLE = "blitzecdn_resolver"
 TEARDOWN_ROLE = "blitzecdn_resolver_teardown"
+
+#: Both halves of the decommission slot, in the order core composes it: sorted
+#: by plugin name, so `hardening` precedes `resolver`. Removal order is not the
+#: reverse of convergence order and does not need to be — each role withdraws
+#: only what its own package wrote.
+TEARDOWN_ROLES = (HOST_TEARDOWN_ROLE, TEARDOWN_ROLE)
 
 
 @pytest.fixture(scope="session")
@@ -1059,7 +1073,7 @@ def test_installing_a_distribution_makes_its_roles_resolvable(
                 EDGE_ROLE,
                 *HOST_ROLES,
                 TEARDOWN_EDGE_ROLE,
-                TEARDOWN_ROLE,
+                *TEARDOWN_ROLES,
             ]
         )
         == attached["roles"]
@@ -1119,12 +1133,14 @@ def test_installing_a_host_capability_fills_the_other_slot_only(
 ):
     """The two slots are composed independently, from one set of contributions.
 
-    `blitzecdn-hardening` declares `host_roles` and nothing else: no edge role,
-    no Nginx resource, no environment key, no desired-state variable. So its
-    roles must appear in the list the play's host slot loops over and in
-    neither of the others — a package landing in the edge slot instead would
-    run SSH hardening before the firewall was validated, which is how a host
-    ends up key-only and unreachable at once.
+    `blitzecdn-hardening` declares `host_roles` and `teardown_roles` and
+    nothing else: no edge role, no Nginx resource, no environment key, no
+    desired-state variable. So its converging roles must appear in the list the
+    play's host slot loops over and in neither of the others — a package
+    landing in the edge slot instead would run SSH hardening before the
+    firewall was validated, which is how a host ends up key-only and
+    unreachable at once. Its withdrawal is a third role and is asserted
+    separately, below.
 
     Declared order inside the contribution is kept, because that package alone
     owns both roles and Fail2Ban's jail has to protect a daemon that has
@@ -1146,28 +1162,40 @@ def test_a_capability_that_writes_outside_core_s_trees_can_take_it_off_again(
 ):
     """The decommission slot, and the pairing it exists for.
 
-    `blitzecdn-resolver` writes a drop-in under /etc/systemd/resolved.conf.d.
-    Core's `blitzecdn_teardown` removes the trees it wrote, the shared runtime
-    directories and every systemd unit matching the managed prefix — that file
-    is none of those, and core naming it would put a path belonging to a wheel
-    into a role that is installed whether or not the wheel is.
+    `blitzecdn-resolver` writes a drop-in under /etc/systemd/resolved.conf.d;
+    `blitzecdn-hardening` writes an SSH policy under /etc/ssh/sshd_config.d and
+    a jail under /etc/fail2ban/jail.d. Core's `blitzecdn_teardown` removes the
+    trees it wrote, the shared runtime directories and every systemd unit
+    matching the managed prefix — none of those three files is any of those,
+    and core naming one would put a path belonging to a wheel into a role that
+    is installed whether or not the wheel is. It did name two of them, which is
+    what this pair of packages between them now takes out of core.
 
-    So the removal travels with the capability, in a slot of its own. The two
-    halves must land in different slots: converging before `nginx -t`, and
-    withdrawing in a play that only ever runs on a host leaving inventory. A
-    teardown role that turned up in the edge slot would strip resolution from
-    every edge on every deploy.
+    So the removal travels with the capability, in a slot of its own, and both
+    packages reach that slot from a different half of the edge play: resolver
+    converges in the edge slot, hardening in the host slot. Whichever half a
+    capability converges from, its withdrawal lands here — and never in either
+    of the other two, since a teardown role in the edge slot would strip
+    resolution, or host access, from every edge on every deploy.
     """
     attached = ansible_cycle["attached"]
 
-    assert attached["teardown_roles"] == [TEARDOWN_ROLE]
-    assert TEARDOWN_ROLE not in attached["edge_roles"]
-    assert TEARDOWN_ROLE not in attached["host_roles"]
+    # Sorted by plugin name, like every slot: two independent packages, one
+    # list, composed by core rather than by either of them.
+    assert attached["teardown_roles"] == list(TEARDOWN_ROLES)
+    for role in TEARDOWN_ROLES:
+        assert role not in attached["edge_roles"]
+        assert role not in attached["host_roles"]
+    # And neither package's *converging* roles leak the other way. Withdrawing
+    # is a separate role in both cases, which is what keeps a decommission from
+    # re-converging the very policy it is removing.
     assert TEARDOWN_EDGE_ROLE not in attached["teardown_roles"]
-    # And the packages filling the other slots contribute nothing to this one:
-    # a capability writes only what it wrote, and most write nothing core does
-    # not already remove.
     assert not set(HOST_ROLES) & set(attached["teardown_roles"])
+    # `blitzecdn-cache` and `blitzecdn-geoip` are installed in this same
+    # environment and reach this slot with nothing: a capability that writes
+    # only inside the trees core already removes declares no teardown role, and
+    # absence here is the correct answer rather than an omission.
+    assert not {*ANSIBLE_ROLES, EDGE_ROLE} & set(attached["teardown_roles"])
 
 
 def test_uninstalling_a_distribution_takes_its_roles_with_it(

@@ -92,9 +92,10 @@ a site's whole configuration from the merged desired-state document.
 
 An optional capability's roles are not here. They ship inside that
 capability's wheel — `blitzecdn_geoip` in `blitzecdn-geoip`, `blitzecdn_cache`
-and `blitzecdn_stats` in `blitzecdn-cache`, `blitzecdn_sshd` and
-`blitzecdn_fail2ban` in `blitzecdn-hardening`, `blitzecdn_resolver` in
-`blitzecdn-resolver`, and so on — and the control plane
+and `blitzecdn_stats` in `blitzecdn-cache`, `blitzecdn_sshd`,
+`blitzecdn_fail2ban` and `blitzecdn_hardening_teardown` in
+`blitzecdn-hardening`, `blitzecdn_resolver` and
+`blitzecdn_resolver_teardown` in `blitzecdn-resolver`, and so on — and the control plane
 composes the real role search path from core's directory plus the directory
 each installed plugin reports. `roles_path` in `ansible.cfg` is only what a
 bare `ansible-playbook` in a checkout resolves against; every run the control
@@ -111,16 +112,24 @@ one. There are three slots, and each position is a contract:
 | host | `blitzecdn_host_capability_roles` | after `blitzecdn_edge_stack` in `playbooks/edge.yml` | a capability configuring the host underneath a runtime that is already serving; an edge whose containers are all broken must still be reachable for Ansible to repair it |
 | teardown | `blitzecdn_teardown_capability_roles` | before `blitzecdn_teardown` in `playbooks/decommission.yml` | a capability withdrawing what it wrote from a host that is leaving inventory, while the state tree is still there and before core's clean-host assertion passes the verdict |
 
-To run the edge play by hand against a fleet with capabilities attached, pass
-the roles path and the list:
+To run the edge play by hand against a fleet with capabilities attached, ask
+the control plane for the roles path and the slot lists rather than writing
+either out. Both are composed by the functions the composition root itself
+calls, so a play run this way resolves exactly what a deployment would:
 
 ```bash
 ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg \
 ANSIBLE_LOCAL_TEMP=.state/ansible-local \
-ANSIBLE_ROLES_PATH="src/blitzecdn/ansible/roles:packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles" \
+ANSIBLE_ROLES_PATH="$(blitzecdn ansible roles-path)" \
   ansible-playbook src/blitzecdn/ansible/playbooks/edge.yml \
-  --extra-vars '{"blitzecdn_capability_roles": ["blitzecdn_geoip"]}'
+  --extra-vars "$(blitzecdn ansible slots)"
 ```
+
+Which slot a role belongs to is declared by the package that ships it and
+cannot be worked out by reading this repository, which is why writing the list
+by hand is the one part of this that reliably goes wrong: the justfile's copy
+had drifted in both directions before these commands existed — one edge role
+missing, and the teardown slot never passed at all.
 
 `just ansible-check` does exactly this for the syntax and lint gates.
 

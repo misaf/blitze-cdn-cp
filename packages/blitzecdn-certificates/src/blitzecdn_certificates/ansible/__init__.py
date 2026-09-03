@@ -14,21 +14,15 @@ contract exists.
 
 from __future__ import annotations
 
-from importlib import resources
-from pathlib import Path
+from blitzecdn.core.resources import package_directory
 
 __all__ = ["ACME_CHALLENGE_PLAYBOOK"]
 
 
-def _directory() -> Path:
-    anchor = resources.files(__name__)
-    if not isinstance(anchor, Path):
-        raise RuntimeError(
-            "blitzecdn-certificates must be installed as an unpacked "
-            "distribution: Ansible resolves its plays by filesystem path, and "
-            f"this installation exposes them as {type(anchor).__name__}."
-        )
-    return anchor
+_DIRECTORY = package_directory(
+    __name__,
+    resolves="Ansible resolves its plays by filesystem path",
+)
 
 
-ACME_CHALLENGE_PLAYBOOK = _directory() / "playbooks" / "acme-challenge.yml"
+ACME_CHALLENGE_PLAYBOOK = _DIRECTORY / "playbooks" / "acme-challenge.yml"
