@@ -14,6 +14,16 @@ argument_specs:
       blitzecdn_controlplane_config_dir: {type: path, required: true}
       blitzecdn_controlplane_state_dir: {type: path, required: true}
       blitzecdn_controlplane_backup_dir: {type: path, required: true}
+      blitzecdn_controlplane_capabilities:
+        type: list
+        elements: str
+        required: false
+        default: [backup, cache, hardening, origins, resolver]
+        description: >-
+          The optional distributions this controller is installed with. The
+          managed blitzecdn.toml writes a capability's configuration only when
+          that capability is in this list, because the control plane refuses to
+          start on configuration no installed capability claims.
       blitzecdn_controlplane_deploy_user: {type: str, required: true}
       blitzecdn_controlplane_cli_wrapper: {type: path, required: true}
       blitzecdn_controlplane_sudoers_file: {type: path, required: true}

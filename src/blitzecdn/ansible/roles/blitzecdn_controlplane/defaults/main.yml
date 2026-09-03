@@ -34,6 +34,18 @@ blitzecdn_controlplane_dockerfile: src/blitzecdn/docker/control-plane/Dockerfile
 # had to install them to build the virtualenv this play is running from.
 blitzecdn_controlplane_packages: [git, openssh-server, openssl, sudo]
 
+# Which optional distributions this controller is being installed with.
+#
+# The role needs it because this file's capability-owned keys are only valid on
+# an installation that has the owning distribution attached: the control plane
+# refuses to start on a `BLITZE_*` name or a `[blitzecdn]` key that no
+# installed capability claims. Writing an ACME email onto a controller with no
+# `blitzecdn-certificates` would be configuring something that is not there.
+#
+# The default matches `install.sh`'s, and `install.sh` passes the list it is
+# actually installing with, so the two cannot disagree on a real run.
+blitzecdn_controlplane_capabilities: [backup, cache, hardening, origins, resolver]
+
 # Set on a first installation only. An existing environment file keeps its
 # credentials; supplying an address repoints the ACME account, and omitting it
 # leaves the file alone on a repair run.

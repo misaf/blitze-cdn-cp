@@ -1,6 +1,6 @@
 """The hook specifications: every extension point BlitzeCDN has.
 
-There are eleven, and the list is meant to stay that short. A hook earns its place
+There are twelve, and the list is meant to stay that short. A hook earns its place
 by being a *registration* point — somewhere the core has to be told that
 something exists — and nothing else. Business communication is not here and
 must not come here: a caller that wants a certificate issued calls
@@ -35,6 +35,7 @@ from blitzecdn.core.plugins.types import (
     PROJECT_NAME,
     AnsibleContribution,
     CliCommandGroup,
+    ConfigurationContribution,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
@@ -105,6 +106,28 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
     for a wheel-installed package. Core adds the directory to the search path,
     refuses two packages that ship the same role name, and knows nothing else
     about what is in there.
+    """
+
+
+@hookspec
+def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
+    """Claim the `BLITZE_*` names this capability asks an operator to set.
+
+    Takes nothing, like the other static contributions: a package answering
+    this is naming what it owns, not asking anything of a control plane that
+    does not exist yet. Configuration has to be resolved before the first
+    adapter is built — it is what several of them are built *from* — so this
+    is among the earliest things core asks.
+
+    Both halves of the claim are here, secrets and settings alike, because an
+    operator asking "what does this capability need configured" is asking one
+    question. See :class:`ConfigurationContribution`.
+
+    Claiming is the whole mechanism. Core stages every non-core `BLITZE_*`
+    name it can see and matches it against these claims; an unclaimed name is
+    refused by the name that was set, and a claimed one is resolved, checked
+    and handed back to its owner alone. A capability that needs no
+    configuration does not implement this hook.
     """
 
 
