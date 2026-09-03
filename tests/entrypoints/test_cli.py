@@ -12,6 +12,7 @@ from control_plane_fixtures import (
     cli_control_plane,
     host_run,
     repository_on,
+    seed_site,
 )
 from typer.testing import CliRunner
 
@@ -22,7 +23,6 @@ from blitzecdn.core.plugins import PluginRejection
 from blitzecdn.core.runs import RunStatus
 from blitzecdn.features.diagnostics import cli as diagnostics_cli
 from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.features.sites.domain import CdnSite
 
 certificate_domain = (
     import_module("blitzecdn_certificates.certificates.domain")
@@ -443,9 +443,8 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
     assert "value" not in exported[0]
 
 
-def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch):
+def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
     fake = FakeRunner(
         [
             ansible_run(host_run("edge-a")),
@@ -454,6 +453,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch
         ]
     )
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    seed_site(control)
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
@@ -468,15 +468,12 @@ def test_cli_plan_deploy_status_and_rollback(settings, site_payload, monkeypatch
     )
 
 
-def test_deploy_can_issue_ready_certificates_and_install_them(
-    settings, site_payload, monkeypatch
-):
+def test_deploy_can_issue_ready_certificates_and_install_them(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    site = CdnSite.model_validate(site_payload)
-    repository.sites.create_site(site)
     configured = settings.model_copy(update={"acme_default_email": "ops@example.com"})
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = ControlPlane(settings=configured, repository=repository, runner=fake)  # type: ignore[arg-type]
+    site = seed_site(control)
     report = FakePreflight().check(site, deployed=True, record_ttl=300)
     requested: list[str] = []
     monkeypatch.setattr(
@@ -514,16 +511,15 @@ def test_deploy_refuses_certificate_issuance_for_a_canary(settings, monkeypatch)
 
 
 def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
-    settings, site_payload, monkeypatch
+    settings, monkeypatch
 ):
     repository = Repository(settings.database_path)
-    site = CdnSite.model_validate(site_payload)
-    repository.sites.create_site(site)
     control = ControlPlane(
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a"))]),
     )  # type: ignore[arg-type]
+    site = seed_site(control)
     report = FakePreflight(("dns",)).check(site, deployed=True, record_ttl=300)
     monkeypatch.setattr(
         control.certificates, "certificate_preflight", lambda _name: report
@@ -545,11 +541,8 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
     assert "No such option" in strip_ansi(result.output)
 
 
-def test_interactive_deploy_validates_previews_and_applies(
-    settings, site_payload, monkeypatch
-):
+def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
     # `validate` reads the first result without consuming it, so one entry
     # serves both it and the preview; the second is the apply.
     fake = FakeRunner(
@@ -559,6 +552,7 @@ def test_interactive_deploy_validates_previews_and_applies(
         ]
     )
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    seed_site(control)
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
@@ -852,9 +846,8 @@ def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
     assert "playbook is missing" in result.output
 
 
-def test_plan_exits_five_when_check_mode_fails(settings, site_payload, monkeypatch):
+def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(
         settings=settings,
         repository=repository,
@@ -890,12 +883,12 @@ def test_interactive_deploy_refuses_to_preview_an_invalid_configuration(
 
 
 def test_interactive_deploy_applies_nothing_when_the_operator_declines(
-    settings, site_payload, monkeypatch
+    settings, monkeypatch
 ):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    seed_site(control)
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")

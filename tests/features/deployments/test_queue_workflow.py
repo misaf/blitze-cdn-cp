@@ -2,7 +2,7 @@
 from application_support import *
 
 
-def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_payload):
+def test_submit_deployment_queues_and_converges_on_a_worker(settings):
     repository = Repository(settings.database_path)
 
     class Queue:
@@ -19,7 +19,7 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_paylo
         runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
     assert queued.status is DeploymentStatus.QUEUED
@@ -31,7 +31,7 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings, site_paylo
     )
 
 
-def test_durable_queue_receives_only_the_deployment_id(settings, site_payload):
+def test_durable_queue_receives_only_the_deployment_id(settings):
     repository = Repository(settings.database_path)
 
     class Queue:
@@ -48,7 +48,7 @@ def test_durable_queue_receives_only_the_deployment_id(settings, site_payload):
         runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
 
@@ -63,7 +63,7 @@ def test_durable_queue_receives_only_the_deployment_id(settings, site_payload):
     assert queue.ids == [queued.id, queued.id]
 
 
-def test_durable_queue_delivery_is_idempotent(settings, site_payload):
+def test_durable_queue_delivery_is_idempotent(settings):
     repository = Repository(settings.database_path)
 
     class Queue:
@@ -77,7 +77,7 @@ def test_durable_queue_delivery_is_idempotent(settings, site_payload):
         runner=runner,  # type: ignore[arg-type]
         background=Queue(),
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
     queued = control.deployments.submit_deployment("alice")
 
     first = control.deployments.run_queued(queued.id)
@@ -88,7 +88,7 @@ def test_durable_queue_delivery_is_idempotent(settings, site_payload):
     assert runner.check_modes == [False]
 
 
-def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
+def test_a_queued_deployment_leaves_a_workflow_record(settings):
     """The queued path is the one that most needs a durable trace.
 
     It answers before the convergence happens, so the run outlives the call
@@ -104,7 +104,7 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
         runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
@@ -117,7 +117,7 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings, site_payload):
     assert [step.name for step in workflows[0].steps] == ["converged"]
 
 
-def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
+def test_a_failed_queued_deployment_fails_its_workflow(settings):
     """A workflow that succeeded while its deployment failed would mislead."""
     repository = Repository(settings.database_path)
     queue = RecordingBackgroundQueue()
@@ -135,7 +135,7 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings, site_payload):
         ),
         background=queue,
     )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
@@ -155,7 +155,7 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
         control.deployments.submit_rollback("alice")
 
 
-def test_submit_releases_the_lock_after_queue_publication(settings, site_payload):
+def test_submit_releases_the_lock_after_queue_publication(settings):
     repository = Repository(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = ControlPlane(
@@ -164,7 +164,7 @@ def test_submit_releases_the_lock_after_queue_publication(settings, site_payload
         runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
@@ -176,9 +176,7 @@ def test_submit_releases_the_lock_after_queue_publication(settings, site_payload
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
-def test_a_queued_deployment_converges_when_its_identifier_is_delivered(
-    settings, site_payload
-):
+def test_a_queued_deployment_converges_when_its_identifier_is_delivered(settings):
     repository = Repository(settings.database_path)
     queue = RecordingBackgroundQueue()
     control = ControlPlane(
@@ -187,7 +185,7 @@ def test_a_queued_deployment_converges_when_its_identifier_is_delivered(
         runner=FakeRunner(),  # type: ignore[arg-type]
         background=queue,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
     control.deployments.run_queued(queue.ids.pop())
@@ -197,7 +195,7 @@ def test_a_queued_deployment_converges_when_its_identifier_is_delivered(
     )
 
 
-def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payload):
+def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     """A transient failure must not become a permanent outage.
 
     The lock is released by whoever owns the deployment, and until the worker is
@@ -217,7 +215,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payl
         runner=FakeRunner(),  # type: ignore[arg-type]
         background=refusing,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     with pytest.raises(RuntimeError):
         control.deployments.submit_deployment("alice")
@@ -236,7 +234,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings, site_payl
     assert _await_terminal(repository, again.id) is DeploymentStatus.SUCCEEDED
 
 
-def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
+def test_runner_errors_are_recorded_and_reraised(settings):
     class ExplodingRunner(FakeRunner):
         def run(self, *, check, host_limit=None):
             raise ExecutionError("unable to execute Ansible")
@@ -245,7 +243,7 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
     control = ControlPlane(
         settings=settings, repository=repository, runner=ExplodingRunner()
     )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     with pytest.raises(ExecutionError):
         control.deployments.deploy("alice")
@@ -264,7 +262,7 @@ def test_runner_errors_are_recorded_and_reraised(settings, site_payload):
     )
 
 
-def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_payload):
+def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
     """An exception in a worker must not strand the deployment lock."""
     repository = Repository(settings.database_path)
     calls: list[int] = []
@@ -290,7 +288,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings, site_pay
         runner=ExplodingOnceRunner(),  # type: ignore[arg-type]
         background=queue,
     )
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     first = control.deployments.submit_deployment("alice")
     with pytest.raises(ExecutionError, match="boom"):

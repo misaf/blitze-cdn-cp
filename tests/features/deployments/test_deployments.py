@@ -62,9 +62,7 @@ def _await_workflow(
     raise AssertionError(f"no workflow for {resource_id} finished")
 
 
-def test_upload_and_request_certificate_preserve_ssl_mode(
-    settings, site_payload, certificate_pair
-):
+def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_pair):
     class FakeIssuer:
         def issue(self, site, email):
             assert site.name == "cdn-example-com"
@@ -322,21 +320,19 @@ def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificat
     assert result.deployment is None
 
 
-def test_request_certificate_requires_email(settings, site_payload):
+def test_request_certificate_requires_email(settings):
     repository = Repository(settings.database_path)
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
+    seed_site(control)
     from blitzecdn.core.exceptions import ConflictError
 
     with pytest.raises(ConflictError, match="email"):
         control.certificates.request_certificate("cdn-example-com", "alice")
 
 
-def test_certificate_upload_holds_deployment_lock(
-    settings, site_payload, certificate_pair
-):
+def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
     events: list[str] = []
 
     class LockingRunner(FakeRunner):
@@ -380,11 +376,11 @@ def test_certificate_upload_holds_deployment_lock(
     assert events == ["locked", "installed", "unlocked"]
 
 
-def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings, site_payload):
+def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     result = control.deployments.deploy("alice", host_limit=" edge-a ")
 
@@ -428,14 +424,12 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
     )
 
 
-def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(
-    settings, site_payload
-):
+def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     with pytest.raises(ValueError, match="only narrow a deploy"):
         control.deployments.deploy("alice", host_limit="edge-a:!edge-b")
@@ -462,11 +456,11 @@ def _drifted_run():
     )
 
 
-def test_drift_check_runs_without_changing_anything(settings, site_payload):
+def test_drift_check_runs_without_changing_anything(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_in_sync_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     report = control.deployments.check_drift("alice")
 
@@ -475,11 +469,11 @@ def test_drift_check_runs_without_changing_anything(settings, site_payload):
     assert report.drifted == ()
 
 
-def test_drift_check_names_the_edges_that_moved(settings, site_payload):
+def test_drift_check_names_the_edges_that_moved(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     report = control.deployments.check_drift("alice")
 
@@ -491,13 +485,11 @@ def test_drift_check_names_the_edges_that_moved(settings, site_payload):
     )
 
 
-def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
-    settings, site_payload
-):
+def test_a_drift_report_can_be_reread_from_the_recorded_deployment(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     first = control.deployments.check_drift("alice")
     again = control.deployments.drift_report(first.deployment_id)
@@ -505,12 +497,12 @@ def test_a_drift_report_can_be_reread_from_the_recorded_deployment(
     assert again.hosts == first.hosts
 
 
-def test_an_applied_deployment_is_not_a_drift_report(settings, site_payload):
+def test_an_applied_deployment_is_not_a_drift_report(settings):
     """Its output says what it did, not what had drifted."""
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
-    repository.sites.create_site(CdnSite.model_validate(site_payload))
+    seed_site(control)
 
     applied = control.deployments.deploy("alice")
     with pytest.raises(ConflictError, match="applied changes"):

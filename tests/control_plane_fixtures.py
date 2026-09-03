@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from contextlib import nullcontext
+from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from importlib.util import find_spec
@@ -29,7 +29,9 @@ from blitzecdn.core.runs import (
     TaskOutcome,
     TaskResult,
 )
+from blitzecdn.features.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.features.edges.domain import Edge
+from blitzecdn.features.sites.domain import CdnSite
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
@@ -136,6 +138,51 @@ def attach_certificate_test_services(monkeypatch):
 
     monkeypatch.setattr(ControlPlane, "__init__", initialize)
     yield
+
+
+def seed_record(
+    control,
+    *,
+    domain: str = "example.com",
+    name: str = "cdn",
+    value: str = "198.51.100.10",
+    record_type: RecordType = RecordType.A,
+    operator: str = "alice",
+    **policy,
+) -> DnsRecord:
+    """Make a site exist the only way the control plane can: proxy a record.
+
+    `SiteStore` has no write API — re-derivation from records is the one thing
+    that writes the projection — so a test needing a site creates the record
+    that derives it. That is the point rather than an inconvenience: seeding the
+    projection directly let tests assert on site shapes the derivation would
+    never produce, and the dual-stack case it hid went uncovered for exactly
+    that reason.
+
+    ``policy`` is any `SitePolicy` field, which a record carries and hands to
+    the site it derives. The zone is created on first use, so several sites can
+    be seeded into one domain without the caller tracking which call was first.
+    """
+    with suppress(ConflictError):
+        control.dns.create_domain(Domain(name=domain), operator)
+    return control.dns.create_record(
+        DnsRecord.model_validate(
+            {
+                "domain": domain,
+                "name": name,
+                "type": record_type,
+                "value": value,
+                "proxied": True,
+                **policy,
+            }
+        ),
+        operator,
+    )
+
+
+def seed_site(control, **kwargs) -> CdnSite:
+    """The site `seed_record` derives, for a test that wants the site itself."""
+    return control.sites.get_site(seed_record(control, **kwargs).site_name)
 
 
 def host_run(

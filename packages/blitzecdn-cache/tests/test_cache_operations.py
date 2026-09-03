@@ -13,30 +13,21 @@ def _purge_run():
     return ansible_run(host_run("edge-a", changed=1))
 
 
-def _site(
-    control,
-    repository,
-    name="cdn-example-com",
-    server="cdn.example.com",
-    **policy,
-):
-    repository.sites.create_site(
-        CdnSite.model_validate(
-            {
-                "name": name,
-                "server_names": [server],
-                "origin_host": "o.example.com",
-                **policy,
-            }
-        )
-    )
+def _site(control, name="cdn", domain="example.com", **policy):
+    """A site to purge, made the way the control plane makes one.
+
+    The projection has no write side, so this proxies a record and lets the
+    derivation produce the site — which is also what keeps these tests about a
+    site shape the control plane can actually hold.
+    """
+    return seed_site(control, domain=domain, name=name, **policy)
 
 
 def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     result = build_cache_service(control).purge_cache(
         "alice",
@@ -58,7 +49,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
         build_cache_service(control).purge_cache(
@@ -72,7 +63,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    _site(control, repository, server="*.assets.example.com")
+    _site(control, name="*", domain="assets.example.com")
 
     result = build_cache_service(control).purge_cache(
         "alice",
@@ -89,7 +80,7 @@ def test_a_purge_drops_the_query_when_the_site_ignores_it(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    _site(control, repository, cache_query_string_mode="ignore")
+    _site(control, cache_query_string_mode="ignore")
 
     result = build_cache_service(control).purge_cache(
         "alice",
@@ -117,7 +108,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     with pytest.raises(ConflictError, match="scheme"):
         build_cache_service(control).purge_cache(
@@ -136,18 +127,13 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    repository.sites.create_site(
-        CdnSite.model_validate(
-            {
-                "name": "tls-example-com",
-                "server_names": ["tls.example.com"],
-                "origin_host": "o.example.com",
-                "ssl_mode": "flexible",
-                "certificate_mode": "existing",
-                "certificate_path": "/etc/ssl/certs/tls.pem",
-                "certificate_key_path": "/etc/ssl/private/tls.key",
-            }
-        )
+    _site(
+        control,
+        name="tls",
+        ssl_mode="flexible",
+        certificate_mode="existing",
+        certificate_path="/etc/ssl/certs/tls.pem",
+        certificate_key_path="/etc/ssl/private/tls.key",
     )
 
     with pytest.raises(ConflictError, match="scheme"):
@@ -166,16 +152,7 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
-    repository.sites.create_site(
-        CdnSite.model_validate(
-            {
-                "name": "off-example-com",
-                "server_names": ["off.example.com"],
-                "origin_host": "o.example.com",
-                "enabled": False,
-            }
-        )
-    )
+    _site(control, name="off", enabled=False)
 
     with pytest.raises(NotFoundError):
         build_cache_service(control).purge_cache(
@@ -188,7 +165,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     with pytest.raises(ConflictError):
         build_cache_service(control).purge_cache(
@@ -232,7 +209,7 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([partial])
     )  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     result = build_cache_service(control).purge_cache(
         "alice",
@@ -253,7 +230,7 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
         repository=repository,
         runner=FakeRunner([ansible_run(status=RunStatus.FAILED, return_code=1)]),
     )  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     with pytest.raises(ExecutionError, match="no edge reported"):
         build_cache_service(control).purge_cache(
@@ -269,7 +246,7 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([_purge_run()])
     )  # type: ignore[arg-type]
-    _site(control, repository)
+    _site(control)
 
     build_cache_service(control).purge_cache(
         "alice",
