@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 
 from blitzecdn.core.plugins import (
     AnsibleContribution,
+    ConfigurationContribution,
     EdgeModule,
     EnvironmentKey,
     NginxContribution,
@@ -111,6 +112,34 @@ def blitzecdn_deployment_checks(
 
 
 @hookimpl
+def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
+    """Claim the fleet-wide key the Under Attack Mode challenge is signed with.
+
+    Not `required`: a controller with no signing secret is a working control
+    plane with one site setting it will refuse, which is a deployment check
+    and not a startup failure. The length is core's to enforce, and it is
+    declared rather than re-checked in this package, so a placeholder is
+    refused at composition instead of at the first site that asks for the
+    challenge.
+    """
+    return (
+        ConfigurationContribution(
+            plugin="security",
+            environment_keys=(
+                EnvironmentKey(
+                    name=SECRET_VARIABLE,
+                    minimum_bytes=MINIMUM_SECRET_BYTES,
+                    summary=(
+                        "The fleet-wide key the Under Attack Mode challenge is "
+                        "signed with."
+                    ),
+                ),
+            ),
+        ),
+    )
+
+
+@hookimpl
 def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
     # The role, and the fact that the edge play should run it. Core adds the
     # directory to Ansible's role search path, adds the name to the play's
@@ -130,22 +159,6 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
                     objects=("ngx_http_js_module.so",),
                     build=False,
                     probe="js_path /etc/nginx;",
-                ),
-            ),
-            # Not `required`: a controller with no signing secret is a
-            # working control plane with one site setting it will refuse,
-            # which is the deployment check above and not a startup failure.
-            # The length is core's to enforce, and it is declared rather than
-            # re-checked here, so a placeholder is refused at composition
-            # instead of at the first site that asks for the challenge.
-            environment_keys=(
-                EnvironmentKey(
-                    name=SECRET_VARIABLE,
-                    minimum_bytes=MINIMUM_SECRET_BYTES,
-                    summary=(
-                        "The fleet-wide key the Under Attack Mode challenge is "
-                        "signed with."
-                    ),
                 ),
             ),
         ),
