@@ -13,20 +13,9 @@
 # Relative values are resolved from the project directory.
 database_path = ".state/control-plane.db"
 
-# Where `blitzecdn backup create` writes when given no destination. An archive
-# here holds every TLS private key and the whole audit trail, so the directory
-# is created 0700 and each archive 0600. An installed control plane is pointed
-# at /var/backups/blitzecdn, which is outside the directory an uninstall
-# removes; a checkout defaults to .state/backups.
-backup_dir = ".state/backups"
-
 # Installed controllers keep this under /etc/blitzecdn; checkouts use `.env`.
 # Restore preserves the fresh host's path while recovering portable secrets.
 environment_path = ".env"
-
-# Registration and expiry-notification email used when an ACME request does not
-# provide its own email address.
-acme_default_email = "admin@example.com"
 
 # |--------------------------------------------------------------------------
 # | Operation Timeouts and Scheduled Maintenance
@@ -50,25 +39,9 @@ preflight_dns_timeout_seconds = 5
 # Default: 5 seconds per check. Allowed: 1 to 60 seconds.
 origin_check_timeout_seconds = 5
 
-# Frequency of Automatic SSL/TLS origin scans and safe mode upgrades.
-# Default: 2592000 seconds (30 days). Set to 0 to disable automatic scans.
-ssl_automatic_scan_interval_seconds = 2592000
-
-# Frequency of repairing incomplete or interrupted certificate state.
-# Default: 600 seconds (10 minutes). Set to 0 to disable reconciliation.
-certificate_reconcile_interval_seconds = 600
-
-# Frequency of checking managed certificates for renewal eligibility.
-# Default: 43200 seconds (12 hours). Set to 0 to disable renewal checks.
-certificate_renewal_interval_seconds = 43200
-
-# Maximum wall-clock budget for one HTTP-triggered renewal sweep. The sweep
-# stops between certificates when exhausted. Default: 300 seconds (5 minutes).
-certificate_renewal_budget_seconds = 300
-
-# Maximum simultaneous HTTP renewal sweeps. Keep this small because certificate
-# issuance ultimately serializes on the deployment lock. Default: 2.
-certificate_renewal_workers = 2
+# Maximum route handlers occupying the API's offload pool at once. Keep this
+# small: the work it carries serializes on the deployment lock anyway. Default: 2.
+api_worker_threads = 2
 
 # Frequency of checking deployed edges for configuration drift.
 # Default: 3600 seconds (1 hour). Set to 0 to disable scheduled drift checks.
@@ -150,3 +123,59 @@ preflight_dns_servers = []
 # fresh install. Set this only for a capability the installation genuinely
 # depends on, such as "backup" on a controller that is updated in place.
 required_capabilities = []
+
+# |--------------------------------------------------------------------------
+# | Optional Capability Configuration
+# |--------------------------------------------------------------------------
+#
+# Everything above is core's. A key below belongs to an optional distribution
+# and is only valid while that distribution is attached: the control plane
+# refuses to start on a key no installed capability claims, which is what makes
+# a typo, or a setting left behind by a package that was detached, loud rather
+# than silently ignored. Comment a block out when you detach its capability.
+#
+# `blitzecdn plugins` lists every name the installed capabilities claim,
+# alongside what each one is for and what this controller resolved it to.
+#
+# Secrets are not here and cannot be: they are environment-only, so a
+# credential is never committed to this file. Set those in `.env`.
+#
+
+# --- blitzecdn-backup -------------------------------------------------------
+
+# Where `blitzecdn backup create` writes when given no destination. An archive
+# here holds every TLS private key and the whole audit trail, so the directory
+# is created 0700 and each archive 0600. An installed control plane is pointed
+# at /var/backups/blitzecdn, which is outside the directory an uninstall
+# removes; a relative value is resolved under the state directory.
+# backup_dir = "backups"
+
+# --- blitzecdn-certificates -------------------------------------------------
+
+# Registration and expiry-notification email used when an ACME request does not
+# provide its own email address.
+# acme_default_email = "admin@example.com"
+
+# The CA identity a CAA record must name for issuance to be allowed. Change it
+# together with the ACME server certbot is pointed at: a CAA check against the
+# wrong CA is worse than none, because it passes while the real CA is refused.
+# acme_ca_domain = "letsencrypt.org"
+
+# The certbot executable, by name on PATH or by absolute path.
+# certbot = "certbot"
+
+# Frequency of Automatic SSL/TLS origin scans and safe mode upgrades.
+# Default: 2592000 seconds (30 days). Set to 0 to disable automatic scans.
+# ssl_automatic_scan_interval_seconds = 2592000
+
+# Frequency of repairing incomplete or interrupted certificate state.
+# Default: 600 seconds (10 minutes). Set to 0 to disable reconciliation.
+# certificate_reconcile_interval_seconds = 600
+
+# Frequency of checking managed certificates for renewal eligibility.
+# Default: 43200 seconds (12 hours). Set to 0 to disable renewal checks.
+# certificate_renewal_interval_seconds = 43200
+
+# Maximum wall-clock budget for one HTTP-triggered renewal sweep. The sweep
+# stops between certificates when exhausted. Default: 300 seconds (5 minutes).
+# certificate_renewal_budget_seconds = 300
