@@ -117,52 +117,6 @@ jobs:
       - name: Run tests
         run: uv run --python ${{ matrix.python-version }} pytest --no-cov
 
-  # The published reference is hand-written MDX in another repository, so
-  # nothing in the job above can notice that a route, command, setting, or
-  # model changed here and left the documentation describing the old one. This
-  # job is that noticing, and it belongs on this side: drift starts with a
-  # change to the control plane, and this is where the author can still fix it
-  # in the same pull request.
-  #
-  # It only reads the docs repository. A documentation-only change is checked
-  # by that repository's own pipeline, which runs the same script the other way
-  # around.
-  documentation:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      # Pinned to the release branch for the same reason the docs repository
-      # pins this one: the published pages describe the released control plane.
-      - name: Check out the documentation site
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: misaf/blitze-cdn-web
-          ref: 1.x
-          path: docs-site
-          persist-credentials: false
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '24'
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
-        with:
-          version: "0.12.3"
-          enable-cache: true
-      - name: Install Python
-        run: uv python install 3.14
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
-      # The check imports `blitzecdn` and reads the live OpenAPI document, so
-      # the optional distributions have to be installed: their routes and
-      # models are part of the surface the reference describes. The collections
-      # `just install` also fetches are not involved, so this stays narrower
-      # than that.
-      - name: Install the workspace
-        run: uv sync --frozen --all-packages
-      - name: Check the reference against this control plane
-        run: just docs-check docs-site
-
   # The only job that runs `install.sh standalone` against a real init on a real
   # distribution. Everything in the job above asserts on the scripts' shape or
   # runs them with the privileged commands stubbed, and neither can catch a

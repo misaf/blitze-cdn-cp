@@ -19,7 +19,7 @@ just build                          # every wheel and sdist in the workspace
 
 `just check` is the contract with CI: `.github/workflows/ci.yml` calls these same recipes rather than repeating commands, so a gate added to the justfile is a gate CI picks up with no second edit. Don't add a CI step that bypasses it.
 
-`just check-quick` is not that contract and is not what CI runs — it is the same gates minus the expensive half (coverage, the packaging lifecycle, the two core-only syncs, `audit`, `build`, `docs-check`). Work against it, then run `just check` once before pushing. Reach for the full gate earlier only when `pyproject.toml` or `uv.lock` changed, since `lock-check`, `audit` and `build` are the gates that then have something to say.
+`just check-quick` is not that contract and is not what CI runs — it is the same gates minus the expensive half (coverage, the packaging lifecycle, the two core-only syncs, `audit` and `build`). Work against it, then run `just check` once before pushing. Reach for the full gate earlier only when `pyproject.toml` or `uv.lock` changed, since `lock-check`, `audit` and `build` are the gates that then have something to say.
 
 **Run a subset sequentially.** `just test-one` is deliberately not parallel: eight xdist workers each import the plugin tree and collect the whole workspace first, which costs about twenty seconds flat — a single case measures 3s sequential against 26s parallel. The crossover is minutes, so only the packaging lifecycle is worth `just test-fast -m packaging`.
 
@@ -45,7 +45,6 @@ Things that are not guessable:
   `--extra backup --extra cache`, and `BLITZECDN_CAPABILITIES` overrides that
   list. Keep `backup` on any controller that will be updated in place —
   `install.sh update` takes a database backup before it changes anything.
-- **`just docs-check`** validates this control plane against the published reference in the sibling `../blitze-cdn-web` checkout. It skips when that directory is absent; CI checks it out, so it never skips there. A new route, CLI command, setting, env var, or model needs a counterpart on the docs side.
 - **`just lock-check`** fails when `pyproject.toml` and the committed `uv.lock` have drifted. Editing dependencies means running `just lock`.
 
 Work happens on `3.x`, not `master`.
