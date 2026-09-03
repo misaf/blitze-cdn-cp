@@ -24,6 +24,23 @@ the CLI and the API reach the service that owns the work —
 ``control_plane.dns.create_record(...)`` — rather than a method here that would
 restate a signature already written on the service.
 
+What it decides is *which concrete thing*, never *how a capability is put
+together*. Each capability is built by a ``composition.py`` beside its own
+service, so that "how is this assembled" has one answer whichever side of the
+packaging boundary a capability is on — ``capabilities/deployments`` and
+``blitzecdn-cache`` answer it in a file of the same name doing the same job.
+This file passes each one the persistence slice it declared a port for and the
+adapters chosen above, and that argument list is the whole of a built-in's
+privilege over a package: everything else both kinds read from ``platform``.
+
+The difference is deliberate and is why the two are not one. A package is
+handed only what core publishes — ``settings``, ``sites``, ``events``,
+``fleet`` — and a built-in is additionally handed a store, because the built-in
+services *are* what the platform publishes. Putting those stores on
+``ControlPlane`` so that every capability could build itself from one argument
+would publish the write side of the site model to every entry layer, which is
+the next paragraph's rule.
+
 Everything reachable from here is a service or a port. The concrete
 ``Repository`` is deliberately not an attribute: an entry layer that could
 reach it would be one import away from calling SQLite directly, which is easy
@@ -41,34 +58,31 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Protocol
 
-from blitzecdn.capabilities.deployments.desired_state import DesiredStateRenderer
+from blitzecdn.capabilities.deployments.composition import build_deployment_service
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
     DeploymentRunner,
     QueueBackgroundRunner,
 )
-from blitzecdn.capabilities.deployments.service import (
-    DeploymentExecution,
-    DeploymentPersistence,
-    DeploymentPolicy,
-    DeploymentService,
-)
+from blitzecdn.capabilities.deployments.service import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
+from blitzecdn.capabilities.dns.composition import build_dns_service
 from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.edges.composition import build_edge_operations_service
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.edges.probe import OriginProbe
 from blitzecdn.capabilities.maintenance import MaintenanceService
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
+from blitzecdn.capabilities.sites.composition import build_site_service
 from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.capabilities.sites.service import SiteService
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.core.config import Settings
 from blitzecdn.core.database import Repository
-from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.core.operation_ports import AuditTrail, PlaybookRunner
 from blitzecdn.core.plugins import (
     HealthCheck,
@@ -76,7 +90,6 @@ from blitzecdn.core.plugins import (
     ProcessKind,
     RuntimeContext,
     ScheduledJob,
-    ValidationResult,
     load_plugins,
     resolve_capability_environment,
     resolve_edge_capability_roles,
@@ -288,65 +301,35 @@ class ControlPlane:
         # served, `dns` owns which hostnames route to it. The same store is
         # behind both, seen through two ports that cannot write each other's
         # half — which is what makes "who wrote this field" answerable.
-        self.site_editor = SiteService(
-            sites=store.sites,
-            events=self.events,
-            uow=store,
-        )
-        self.dns = DnsService(
-            zones=store.zones,
-            sites=store.sites,
-            events=self.events,
-            uow=store,
+        self.site_editor: SiteService = build_site_service(self, sites=store.sites)
+        self.dns: DnsService = build_dns_service(
+            self, zones=store.zones, sites=store.sites
         )
         self._wire_capability_services(store)
 
     def _wire_capability_services(self, store: Repository) -> None:
-        """Build required deployment, edge, and maintenance capabilities."""
-        # Every variable in a desired-state document comes from a plugin. This
-        # is the one place that knows the plugin registry can answer for all of
-        # them, which is what keeps `capabilities/deployments` free of it.
-        renderer = DesiredStateRenderer(
-            allow_empty_sites=self.settings.allow_empty_sites,
-            contributors=self.plugins.contributions_for(self),
-            write_yaml=atomic_write_yaml,
-        )
-        self.deployments = DeploymentService(
-            policy=DeploymentPolicy(
-                run_dir=self.settings.run_dir,
-                generated_vars_path=self.settings.generated_vars_path,
-                output_limit_bytes=self.settings.output_limit_bytes,
-                history_retention=self.settings.history_retention,
-                runtime_errors=self.settings.validate_runtime,
-            ),
-            persistence=DeploymentPersistence(
-                deployments=store.deployments,
-                zones=store.zones,
-                sites=store.sites,
-                uow=store,
-                requirements=store.deployment_requirements,
-            ),
-            execution=DeploymentExecution(
-                runner=self._runner,
-                background=self._background,
-                read_log=read_log_tail,
-                renderer=renderer,
-                validator=_SiteValidator(self.plugins, self),
-            ),
-            events=self.events,
-            dns=self.dns,
-            workflows=self.workflows,
-        )
-        self.edges = EdgeOperationsService(
-            events=self.events,
-            runner=self._runner,
-            edges=self._edges_store,
-            uow=store,
-        )
-        self.maintenance = MaintenanceService(
-            jobs=lambda: self.jobs,
-            deployments=self.deployments,
+        """Hand each remaining capability the slice of persistence it declared.
+
+        One call per capability, and each one names only what this root had to
+        decide: which store, which runner. How a capability puts those together
+        is its own `composition.py`, beside the service it builds — so a
+        collaborator added to `DeploymentService` is a change to `deployments`
+        and not to the file that wires the whole control plane.
+        """
+        self.deployments: DeploymentService = build_deployment_service(
+            self,
+            deployments=store.deployments,
+            zones=store.zones,
+            sites=store.sites,
             requirements=store.deployment_requirements,
+            runner=self._runner,
+            background=self._background,
+        )
+        self.edges: EdgeOperationsService = build_edge_operations_service(
+            self, edges=self._edges_store, runner=self._runner
+        )
+        self.maintenance: MaintenanceService = build_maintenance_service(
+            self, requirements=store.deployment_requirements
         )
 
     @property
@@ -394,22 +377,6 @@ class ControlPlane:
         repository, self._owned_repository = self._owned_repository, None
         if repository is not None:
             repository.close()
-
-
-class _SiteValidator:
-    """The deployment service's view of "what do the plugins object to".
-
-    A two-line class rather than a lambda so the deployment service is handed
-    something that reads like the port it declared, and so the binding of a
-    registry to a platform stays here in the composition root.
-    """
-
-    def __init__(self, plugins: PluginRegistry, platform: ControlPlane) -> None:
-        self._plugins = plugins
-        self._platform = platform
-
-    def validate_site(self, site: CdnSite) -> ValidationResult:
-        return self._plugins.validate_site(site, self._platform)
 
 
 def build_control_plane(

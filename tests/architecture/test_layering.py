@@ -956,14 +956,26 @@ def test_every_capability_registers_itself_through_a_plugin_module():
     }
 
 
-def test_only_a_plugin_module_may_name_the_composition_root():
-    """Registration may know the platform. Everything else in a capability may not.
+#: The two modules in a capability that may name the platform, and why each
+#: may. `plugin.py` is handed the built control plane so it can say which
+#: service a scheduled job calls and which one a health check probes.
+#: `composition.py` is handed it to build the capability's own service out of
+#: what core publishes — the same file, doing the same job, that every optional
+#: distribution already carries.
+#:
+#: Both are the *seam*, which is what makes the allowance safe: neither is
+#: imported by anything inside the capability, so the platform never reaches a
+#: service, a domain module or an adapter.
+_PLATFORM_AWARE_MODULES = {"plugin.py", "composition.py"}
 
-    `plugin.py` is handed the built control plane so it can say which service a
-    scheduled job calls and which one a health check probes. That is the whole
-    of the allowance: a service, a domain module or an adapter that reached for
-    it would be resolving its collaborators at call time instead of receiving
-    them, which is the service-locator architecture this design refuses.
+
+def test_only_the_seam_modules_may_name_the_composition_root():
+    """Registration and composition may know the platform. Nothing else may.
+
+    That is the whole of the allowance: a service, a domain module or an
+    adapter that reached for it would be resolving its collaborators at call
+    time instead of receiving them, which is the service-locator architecture
+    this design refuses.
 
     A capability's *entry* modules are outside the rule for the same reason
     `cli/common.py` is: a command has to get a control plane from somewhere.
@@ -974,22 +986,28 @@ def test_only_a_plugin_module_may_name_the_composition_root():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _capability_files()
-        if path.name != "plugin.py" and path not in entry
+        if path.name not in _PLATFORM_AWARE_MODULES and path not in entry
         for imported in sorted(_imports(path))
         if imported.startswith(_COMPOSITION_ROOT)
     ]
     assert offenders == []
 
 
-def test_a_plugin_module_names_the_composition_root_only_for_typing():
+def test_a_seam_module_names_the_composition_root_only_for_typing():
     """And even there, never at runtime.
 
     A capability importing the composition root for real would point the arrow
-    back at the thing that builds it. `plugin.py` needs the *type* to annotate
-    its hooks, which `TYPE_CHECKING` gives it without an import ever executing.
+    back at the thing that builds it. Both seam modules need the *type* — one
+    to annotate its hooks, the other its builder — and `TYPE_CHECKING` gives it
+    to them without an import ever executing.
     """
+    seams = sorted(
+        path
+        for name in _PLATFORM_AWARE_MODULES
+        for path in _CAPABILITIES.glob(f"*/{name}")
+    )
     offenders: list[str] = []
-    for path in _CAPABILITIES.glob("*/plugin.py"):
+    for path in seams:
         tree = ast.parse(path.read_text(encoding="utf-8"))
         guarded = {
             node
