@@ -1,7 +1,7 @@
 """Issuing, uploading, renewing and reporting on TLS certificates.
 
 Certificate state is written to the *record*, through
-``DnsService.activate_managed_certificate`` — writing it to the derived sites
+``SiteService.activate_managed_certificate`` — it used to be written to the
 table would survive only until the next record change re-derived over it.
 """
 
@@ -43,11 +43,12 @@ from blitzecdn_certificates.certificates.ports import (
     EventRecorder,
     Issuer,
     Preflight,
+    RecordReader,
+    SiteEditor,
     SiteReader,
     UnitOfWork,
     WorkflowCoordinator,
     WorkflowProgress,
-    ZoneEditor,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,7 +90,8 @@ class CertificateService:
         persistence: CertificatePersistence,
         execution: CertificateExecution,
         events: EventRecorder,
-        dns: ZoneEditor,
+        dns: RecordReader,
+        site_editor: SiteEditor,
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
     ) -> None:
@@ -98,6 +100,7 @@ class CertificateService:
         self.execution = execution
         self.events = events
         self.dns = dns
+        self.site_editor = site_editor
         self.deployments = deployments
         self.workflows = workflows
 
@@ -123,7 +126,9 @@ class CertificateService:
             )
             progress.checkpoint("installed", {"site": name})
             with self.persistence.uow.transaction():
-                self.dns.activate_managed_certificate(site, CertificateMode.UPLOADED)
+                self.site_editor.activate_managed_certificate(
+                    site, CertificateMode.UPLOADED
+                )
                 self.persistence.requirements.require(
                     DeploymentRequirementKind.CERTIFICATES
                 )
@@ -281,7 +286,9 @@ class CertificateService:
         if progress is not None:
             progress.checkpoint("stored", {"site": site.name})
         with self.persistence.uow.transaction():
-            self.dns.activate_managed_certificate(site, CertificateMode.REQUESTED)
+            self.site_editor.activate_managed_certificate(
+                site, CertificateMode.REQUESTED
+            )
             self.persistence.requirements.require(
                 DeploymentRequirementKind.CERTIFICATES
             )

@@ -8,7 +8,6 @@ from blitzecdn_origins.domain import OriginReport
 from blitzecdn_origins.reporting import edge_origins
 
 from blitzecdn.features.deployments.ports import DeploymentGateway
-from blitzecdn.features.dns.ports import ZoneEditor
 from blitzecdn.features.edges.origins import OriginCheck
 from blitzecdn.features.edges.ports import OriginProbe
 from blitzecdn.features.sites.domain import CdnSite
@@ -16,6 +15,7 @@ from blitzecdn.features.sites.ports import SiteReader
 from blitzecdn.features.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 from blitzecdn_certificates.automatic_ssl.domain import SslAutomaticReconciliation
 from blitzecdn_certificates.automatic_ssl.ports import OriginCheckRunner
+from blitzecdn_certificates.certificates.ports import SiteEditor
 
 
 class AutomaticSslService:
@@ -35,13 +35,13 @@ class AutomaticSslService:
         sites: SiteReader,
         runner: OriginCheckRunner,
         origin_probe: OriginProbe,
-        dns: ZoneEditor,
+        site_editor: SiteEditor,
         deployments: DeploymentGateway,
     ) -> None:
         self.sites = sites
         self.runner = runner
         self.origin_probe = origin_probe
-        self.dns = dns
+        self.site_editor = site_editor
         self.deployments = deployments
 
     def reconcile(self, operator: str) -> SslAutomaticReconciliation:
@@ -85,7 +85,7 @@ class AutomaticSslService:
             if recommendation is None:
                 skipped[site.name] = reason
                 continue
-            applied = self.dns.apply_automatic_ssl_upgrade(
+            applied = self.site_editor.apply_automatic_ssl_upgrade(
                 site.name, recommendation, operator
             )
             if applied is None:

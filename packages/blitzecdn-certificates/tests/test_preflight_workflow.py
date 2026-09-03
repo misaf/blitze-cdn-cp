@@ -41,6 +41,7 @@ def _preflight_control(settings, certificate_pair, failures=()):
         ),
         events=control.events,
         dns=control.dns,
+        site_editor=control.site_editor,
         deployments=control.deployments,
         workflows=control.workflows,
     )
@@ -100,19 +101,9 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
 
 
 def test_preflight_is_told_the_records_ttl(settings, certificate_pair):
-    """The TTL advisory is only possible if the record's own value reaches it."""
+    """The TTL is the record's, not the site's, so it has to come from `dns`."""
     control, _, _, preflight = _preflight_control(settings, certificate_pair)
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    control.dns.create_record(
-        DnsRecord(
-            domain="example.com",
-            name="cdn",
-            value="198.51.100.10",
-            proxied=True,
-            ttl=7200,
-        ),
-        "alice",
-    )
+    seed_site(control, name="cdn-example-com", record="cdn", ttl=7200)
 
     control.certificates.request_certificate(
         "cdn-example-com", "alice", "ops@example.com"
