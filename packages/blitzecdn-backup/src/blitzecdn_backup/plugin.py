@@ -23,9 +23,15 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from blitzecdn.core.plugins import CliCommandGroup, PluginMetadata, hookimpl
+from blitzecdn.core.plugins import (
+    CliCommandGroup,
+    ConfigurationContribution,
+    PluginMetadata,
+    hookimpl,
+)
 from blitzecdn_backup import cli
 from blitzecdn_backup.composition import __version__
+from blitzecdn_backup.config import CONFIGURATION
 
 
 @hookimpl
@@ -37,6 +43,19 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
         provides=frozenset({"backup"}),
         summary="Archive and restore the control plane's own state.",
     )
+
+
+@hookimpl
+def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
+    """Claim where this capability writes its archives.
+
+    The same declaration this package resolves for itself in
+    :mod:`blitzecdn_backup.config` when it is reached from the command line
+    with no control plane. Claimed here as well, and it has to be: claiming is
+    what makes `BLITZE_BACKUP_DIR` a name the installation recognises rather
+    than one the startup check rejects as belonging to nobody.
+    """
+    return (CONFIGURATION,)
 
 
 @hookimpl

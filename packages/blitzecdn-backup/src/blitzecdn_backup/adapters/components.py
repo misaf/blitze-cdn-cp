@@ -14,6 +14,7 @@ import os
 import re
 import sqlite3
 import tomllib
+from functools import cache
 from pathlib import Path
 from shutil import rmtree
 from uuid import uuid4
@@ -21,13 +22,13 @@ from uuid import uuid4
 from sqlalchemy import create_engine
 
 from blitzecdn.core.config import (
-    MACHINE_SPECIFIC_CONFIG_KEYS,
-    PORTABLE_CONFIG_KEYS,
     Settings,
+    is_portable_config_key,
     is_portable_environment_key,
 )
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.filesystem import atomic_write_bytes
+from blitzecdn.core.plugins import load_plugins
 from blitzecdn.core.schema import DatabaseSchema
 from blitzecdn_backup.domain import BackupComponent
 
@@ -41,6 +42,36 @@ DATABASE_MEMBER = "blitzecdn.db"
 LINKS_MEMBER = ".links.json"
 
 _SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+@cache
+def _machine_specific_capability_keys() -> frozenset[str]:
+    """The `blitzecdn.toml` keys installed capabilities call non-portable.
+
+    Core answers for its own settings and cannot answer for a capability's, so
+    the two halves are asked separately and combined below. Read from the
+    installed plugins rather than from a control plane: this runs on the
+    command line, where a restore is wanted precisely when no control plane
+    will start.
+
+    Cached because a restore asks it once per key of a file it reads three
+    times, and discovery walks every installed distribution's metadata.
+    """
+    return frozenset(
+        setting.name.removeprefix("BLITZE_").lower()
+        for contribution in load_plugins().configuration_contributions()
+        for setting in contribution.settings
+        if not setting.portable
+    )
+
+
+def _portable_config(key: str) -> bool:
+    """Whether one `blitzecdn.toml` key may be carried onto a fresh host."""
+    return (
+        is_portable_config_key(key) and key not in _machine_specific_capability_keys()
+    )
+
+
 _ASSIGNMENT = re.compile(r"^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
 
 
@@ -387,7 +418,7 @@ class ConfigComponent:
     def present(self) -> bool:
         config = self._files["blitzecdn.toml"]
         if config.is_file() and any(
-            key in PORTABLE_CONFIG_KEYS for key in _toml_document(config.read_bytes())
+            _portable_config(key) for key in _toml_document(config.read_bytes())
         ):
             return True
         environment = self._files["env"]
@@ -412,7 +443,7 @@ class ConfigComponent:
                         {
                             key: value
                             for key, value in values.items()
-                            if key in PORTABLE_CONFIG_KEYS
+                            if _portable_config(key)
                         }
                     )
                 elif name == "env":
@@ -445,13 +476,11 @@ class ConfigComponent:
         meaningful = False
         if config.is_file():
             keys = set(_toml_document(config.read_bytes()))
-            unsafe = sorted(keys & MACHINE_SPECIFIC_CONFIG_KEYS)
-            unknown = sorted(keys - PORTABLE_CONFIG_KEYS)
-            if unsafe or unknown:
-                names = unsafe or unknown
+            unsafe = sorted(key for key in keys if not _portable_config(key))
+            if unsafe:
                 raise ConfigurationError(
                     "config/blitzecdn.toml contains non-portable keys: "
-                    + ", ".join(names)
+                    + ", ".join(unsafe)
                 )
             meaningful = meaningful or bool(keys)
         environment = staging / "env"
@@ -483,10 +512,13 @@ class ConfigComponent:
                     current = (
                         _toml_document(path.read_bytes()) if path.is_file() else {}
                     )
+                    # The fresh host keeps every key that describes it — core's
+                    # own and any an installed capability declared non-portable
+                    # — and takes the rest from the archive.
                     machine = {
                         key: value
                         for key, value in current.items()
-                        if key in MACHINE_SPECIFIC_CONFIG_KEYS
+                        if not _portable_config(key)
                     }
                     payload = _render_toml({**portable, **machine})
                 elif name == "env":
