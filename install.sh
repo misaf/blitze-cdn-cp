@@ -15,6 +15,12 @@ readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
 readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
+# The optional distributions a controller is attached to when nothing says
+# otherwise. Spelled once: it drives both the `uv sync --extra` flags and the
+# capability list the control-plane role is given, and those two disagreeing
+# would write one capability's configuration onto a controller that does not
+# have it — which the control plane refuses to start on, by design.
+readonly DEFAULT_CAPABILITIES="backup cache hardening origins resolver"
 
 # Captured before dispatch strips the subcommand so destructive modes can
 # re-exec a private copy after deleting the checkout that contained this file.
@@ -458,7 +464,7 @@ if sys.version_info[:2] < (3, 12):
   local -a sync_flags=(--frozen --python "${python_command}")
   local -a capability_flags=()
   local capability
-  for capability in ${BLITZECDN_CAPABILITIES:-backup cache hardening origins resolver}; do
+  for capability in ${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}; do
     capability_flags+=(--extra "${capability}")
   done
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
@@ -578,8 +584,21 @@ PY
   # processes are installed into the image built by the role, never the host.
   bootstrap_runtime ansible-only
 
+  # The capability list travels with the convergence. The managed
+  # blitzecdn.toml writes a capability's configuration only when that
+  # capability is attached, because the control plane refuses to start on
+  # configuration no installed capability claims. Under-reporting is safe —
+  # an unwritten key leaves the capability's own default in force — which is
+  # why BLITZECDN_DEV, which attaches every package, still reports this list.
+  local capability_json=""
+  local capability
+  for capability in ${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}; do
+    capability_json+="${capability_json:+,}\"${capability}\""
+  done
+
   converge_control_plane \
-    --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}"
+    --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
+    --extra-vars "{\"blitzecdn_controlplane_capabilities\": [${capability_json}]}"
 
   local handoff_args=(standalone --admin-cidr "${parsed_admin_cidr}")
   local public_address
