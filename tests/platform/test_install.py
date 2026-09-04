@@ -38,6 +38,8 @@ import pytest
 import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
+from blitzecdn.capabilities.deployments.adapters import desired_state
+
 PROJECT_DIR = REPO_ROOT
 SCRIPT = PROJECT_DIR / "install.sh"
 BASH = "/bin/bash"
@@ -543,10 +545,18 @@ def test_standalone_defaults_to_no_deployment():
 
 
 def test_standalone_guards_existing_sites_from_empty_desired_state():
+    """The installer's flag and the variable it ends up as, in one assertion.
+
+    The module is located by importing it rather than by a path written here.
+    A path went stale the moment `desired_state.py` moved into `adapters/`,
+    and the failure said only that a file was missing — not that the two halves
+    of this contract had stopped meeting.
+    """
     standalone = _section("standalone")
     assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
-    assert "blitzecdn_nginx_allow_empty_sites" in (
-        PROJECT_DIR / "src/blitzecdn/capabilities/deployments/desired_state.py"
+    assert desired_state.__file__ is not None
+    assert "blitzecdn_nginx_allow_empty_sites" in Path(
+        desired_state.__file__
     ).read_text(encoding="utf-8")
 
 
