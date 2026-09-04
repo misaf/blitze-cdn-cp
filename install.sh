@@ -22,6 +22,32 @@ readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
 # have it — which the control plane refuses to start on, by design.
 readonly DEFAULT_CAPABILITIES="backup cache hardening origins resolver"
 
+# The capabilities this controller installs, and the two shapes they are needed
+# in. One reader, two projections: the list was expanded by hand in both places
+# before, which is exactly the disagreement the comment above warns about.
+capabilities() {
+  printf '%s\n' "${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}"
+}
+
+# One `--extra NAME` pair per capability, one per line for the caller to read
+# into an array.
+capability_extras() {
+  local capability
+  for capability in $(capabilities); do
+    printf -- '--extra\n%s\n' "${capability}"
+  done
+}
+
+# The same list as a JSON array body, for --extra-vars.
+capability_json() {
+  local capability separator='' rendered=''
+  for capability in $(capabilities); do
+    rendered+="${separator}\"${capability}\""
+    separator=,
+  done
+  printf '%s\n' "${rendered}"
+}
+
 # Captured before dispatch strips the subcommand so destructive modes can
 # re-exec a private copy after deleting the checkout that contained this file.
 original_args=("$@")
@@ -70,6 +96,46 @@ die() {
   shift
   printf '%s\n' "$@" >&2
   exit "${status}"
+}
+
+# Temporary paths this run is responsible for, removed however it ends.
+#
+# Registering a path is what makes the many `die` paths below safe: each one
+# used to have to remember its own `rm`, and any exit that nobody had thought
+# of — a `set -e` abort between a clone and the rename that consumes it — left
+# the work behind. The emptiness guard is for Bash 3.2, where expanding an
+# empty array under `set -u` is an error rather than nothing.
+cleanup_paths=()
+on_exit() {
+  [[ ${#cleanup_paths[@]} -eq 0 ]] || rm -rf -- "${cleanup_paths[@]}"
+}
+trap on_exit EXIT
+
+# mktemp, with the result registered for cleanup. Takes mktemp's arguments.
+#
+# Only for callers that run in this shell. A function whose output is taken
+# with `$(...)` runs in a subshell, and neither the array push nor this trap
+# survives it — such a caller has to clean up after itself, which is why
+# `ensure_uv` still does.
+temp_path() {
+  local path
+  path=$(mktemp "$@")
+  cleanup_paths+=("${path}")
+  printf '%s\n' "${path}"
+}
+
+# Stop treating a path as this run's to delete.
+#
+# For the moment a temporary thing becomes the real one. `--fresh` stages a
+# clone that is disposable right up until teardown succeeds; past that point it
+# is the only copy of the release on the host, and the recovery advice for a
+# failed rename depends on it still being there.
+unregister_path() {
+  local keep=$1 path remaining=()
+  for path in ${cleanup_paths[@]+"${cleanup_paths[@]}"}; do
+    [[ ${path} == "${keep}" ]] || remaining+=("${path}")
+  done
+  cleanup_paths=(${remaining[@]+"${remaining[@]}"})
 }
 
 # The uv release this installer pins, and the checksum of each build of it.
@@ -164,6 +230,8 @@ ensure_uv() {
   command -v curl >/dev/null 2>&1 ||
     die 1 "error: curl is required to download uv; install it and rerun"
 
+  # Its own cleanup, not the shared stack: this function's output is read with
+  # `$(...)`, so it runs in a subshell that the stack cannot reach.
   local archive
   archive="$(mktemp)"
 
@@ -218,20 +286,45 @@ parsed_email=''
 parsed_deploy=0
 parsed_allow_empty_sites=0
 parsed_no_backup=0
-parsed_ref=''
 parsed_public_addresses=()
 parsed_forward_args=()
 
+# Every subcommand, in one table: name, its usage function, what to call it in
+# the sudo error (empty when it does not need root), and the options it takes.
+#
+# These four facts used to live in four hand-maintained lists — an
+# `option_allowed` case, the two dispatch cases, and a `require_root` call in
+# each cmd_* — so adding a subcommand meant editing all four and noticing if
+# you missed one. A row is the whole declaration now.
+#
+# A string rather than an associative array on purpose: macOS still ships Bash
+# 3.2, which has neither associative arrays nor namerefs, and the default
+# install form runs on developer machines.
+readonly COMMAND_TABLE='
+install|usage_root||
+standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address
+update|usage_update|updater|--yes --no-backup
+uninstall|usage_uninstall|uninstaller|--yes
+fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --yes
+'
+
+# Print one field of one command's row. Fields: 2 usage, 3 root label, 4 options.
+command_field() {
+  local name=$1 field=$2 row
+  while IFS= read -r row; do
+    [[ ${row%%|*} == "${name}" ]] || continue
+    printf '%s\n' "${row}" | cut -d'|' -f"${field}"
+    return 0
+  done <<EOF
+${COMMAND_TABLE}
+EOF
+  return 1
+}
+
 option_allowed() {
-  local command=$1 option=$2
-  case "${command}:${option}" in
-    standalone:--admin-cidr|standalone:--email|standalone:--deploy|\
-    standalone:--allow-empty-sites|standalone:--public-address|\
-    fresh:--admin-cidr|fresh:--email|fresh:--deploy|fresh:--allow-empty-sites|\
-    fresh:--public-address|fresh:--yes|uninstall:--yes|\
-    update:--ref|update:--yes|update:--no-backup) return 0 ;;
-    *) return 1 ;;
-  esac
+  local command=$1 option=$2 allowed
+  allowed=" $(command_field "${command}" 4) "
+  [[ ${allowed} == *" ${option} "* ]]
 }
 
 reject_option() {
@@ -258,24 +351,31 @@ parse_options() {
         ;;
       --yes|--deploy|--allow-empty-sites|--no-backup)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
-        [[ ${option} == --yes ]] && parsed_yes=1
-        [[ ${option} == --deploy ]] && parsed_deploy=1
-        [[ ${option} == --allow-empty-sites ]] && parsed_allow_empty_sites=1
-        [[ ${option} == --no-backup ]] && parsed_no_backup=1
-        [[ ${command} == fresh && ${option} != --yes ]] &&
+        # A case, not a chain of `[[ ... ]] && assign`: under `set -e` the last
+        # such test to evaluate false is the function's exit status, so that
+        # shape only worked because `shift` happened to follow it.
+        case "${option}" in
+          --yes) parsed_yes=1 ;;
+          --deploy) parsed_deploy=1 ;;
+          --allow-empty-sites) parsed_allow_empty_sites=1 ;;
+          --no-backup) parsed_no_backup=1 ;;
+        esac
+        if [[ ${command} == fresh && ${option} != --yes ]]; then
           parsed_forward_args+=("${option}")
+        fi
         shift
         ;;
-      --admin-cidr|--email|--public-address|--ref)
+      --admin-cidr|--email|--public-address)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
         [[ $# -ge 2 ]] || die 2 "error: ${option} needs a value"
         case "${option}" in
           --admin-cidr) parsed_admin_cidr=$2 ;;
           --email) parsed_email=$2 ;;
-          --ref) parsed_ref=$2 ;;
           --public-address) parsed_public_addresses+=("$2") ;;
         esac
-        [[ ${command} == fresh ]] && parsed_forward_args+=("${option}" "$2")
+        if [[ ${command} == fresh ]]; then
+          parsed_forward_args+=("${option}" "$2")
+        fi
         shift 2
         ;;
       *) reject_option "${option}" "${usage}" ;;
@@ -293,10 +393,14 @@ parse_options() {
 reexec_from_private_copy() {
   local guard=$1 label=$2
   if [[ ${!guard:-0} == 1 ]]; then
-    # Deferred expansion: $0 is the copy, and functions do not change it.
-    trap 'rm -f -- "$0"' EXIT
+    # Registered rather than trapped: a second `trap ... EXIT` here would
+    # replace the shared handler, and with it every other path this run has
+    # asked to have cleaned up. $0 is already the copy in this pass.
+    cleanup_paths+=("$0")
     return 0
   fi
+  # Deliberately not temp_path: this copy has to outlive the current process
+  # image, because the exec below is what it exists for.
   local copy
   copy=$(mktemp "/tmp/blitzecdn-${label}.XXXXXX")
   install -m 0700 -- "$0" "${copy}"
@@ -338,17 +442,26 @@ run_install_handoff() {
 # account, explicit container-state ownership, sudo, loopback SSH trust, CLI
 # wrapper, environment, runtime image, and Compose project. The installer only
 # makes this call possible.
+# Run one playbook against this host. The invariant half of both convergences.
+#
+# Ansible's temporary files must not land in .state. These plays run as root and
+# give the persistent state bind mount to the image's non-root account; a
+# root-owned leftover there would break the next container invocation. The
+# directory is registered rather than removed here, so a play that aborts the
+# script still has its scratch space cleaned up.
+run_playbook() {
+  local playbook=$1
+  shift
+  local ansible_tmp
+  ansible_tmp=$(temp_path -d)
+  ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/ansible/ansible.cfg" \
+    ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
+    "${INSTALL_DIR}/.venv/bin/ansible-playbook" -i localhost, "${playbook}" "$@"
+}
+
 converge_control_plane() {
-  local ansible_tmp status=0
-  ansible_tmp=$(mktemp -d)
-  # Ansible's temporary files must not land in .state. This play runs as root
-  # and gives the persistent state bind mount to the image's non-root account;
-  # a root-owned leftover there would break the next container invocation.
-  ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
-    "${INSTALL_DIR}/.venv/bin/ansible-playbook" \
-    -i localhost, src/blitzecdn/ansible/playbooks/control-plane.yml "$@" || status=$?
-  rm -rf -- "${ansible_tmp}"
-  return "${status}"
+  run_playbook \
+    "${INSTALL_DIR}/src/blitzecdn/ansible/playbooks/control-plane.yml" "$@"
 }
 
 # Ansible is the only implementation of system teardown. This must finish
@@ -363,11 +476,11 @@ converge_uninstall() {
     "error: cannot uninstall: playbook is missing at ${playbook}" \
     "Repair the installation first, then rerun --uninstall."
 
-  local ansible_tmp status=0
-  ansible_tmp=$(mktemp -d)
-  ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/ansible/ansible.cfg" ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
-    "${executable}" -i localhost, "${playbook}" || status=$?
-  rm -rf -- "${ansible_tmp}"
+  # The preconditions are what differ; the run itself is the shared one. Both
+  # callers test the status, so the failure must reach them as a return value
+  # rather than aborting under `set -e`.
+  local status=0
+  run_playbook "${playbook}" || status=$?
   return "${status}"
 }
 
@@ -391,7 +504,9 @@ handoff_user_wrapper() {
     *":${wrapper_dir}:"*) echo "Run 'blitzecdn' from any directory." ;;
     *)
       local login_rc=.profile
-      [[ ${SHELL##*/} == zsh ]] && login_rc=.zprofile
+      if [[ ${SHELL##*/} == zsh ]]; then
+        login_rc=.zprofile
+      fi
       echo "${wrapper_dir}/blitzecdn is not on your PATH yet. Add it with:"
       echo "  echo 'export PATH=\"${wrapper_dir}:\${PATH}\"' >> \"\${HOME}\"/${login_rc}"
       ;;
@@ -463,10 +578,10 @@ if sys.version_info[:2] < (3, 12):
   # the hosts that had.
   local -a sync_flags=(--frozen --python "${python_command}")
   local -a capability_flags=()
-  local capability
-  for capability in ${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}; do
-    capability_flags+=(--extra "${capability}")
-  done
+  local flag
+  while IFS= read -r flag; do
+    capability_flags+=("${flag}")
+  done < <(capability_extras)
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
     "${uv}" sync "${sync_flags[@]}" --all-packages
   elif [[ ${mode} == ansible-only ]]; then
@@ -539,7 +654,6 @@ EOF
 }
 
 cmd_standalone() {
-  require_root
   [[ -n ${parsed_admin_cidr} ]] || die 2 "error: --admin-cidr is required"
   [[ -n ${parsed_email} ]] || die 2 "error: --email is required"
 
@@ -590,22 +704,21 @@ PY
   # configuration no installed capability claims. Under-reporting is safe —
   # an unwritten key leaves the capability's own default in force — which is
   # why BLITZECDN_DEV, which attaches every package, still reports this list.
-  local capability_json=""
-  local capability
-  for capability in ${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}; do
-    capability_json+="${capability_json:+,}\"${capability}\""
-  done
+  local rendered_capabilities
+  rendered_capabilities=$(capability_json)
 
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
-    --extra-vars "{\"blitzecdn_controlplane_capabilities\": [${capability_json}]}"
+    --extra-vars "{\"blitzecdn_controlplane_capabilities\": [${rendered_capabilities}]}"
 
   local handoff_args=(standalone --admin-cidr "${parsed_admin_cidr}")
   local public_address
   for public_address in "${parsed_public_addresses[@]}"; do
     handoff_args+=(--public-address "${public_address}")
   done
-  [[ ${parsed_deploy} -eq 1 ]] && handoff_args+=(--deploy)
+  if [[ ${parsed_deploy} -eq 1 ]]; then
+    handoff_args+=(--deploy)
+  fi
   BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}" \
     run_install_handoff "${handoff_args[@]}"
 
@@ -626,16 +739,23 @@ usage_update() {
   cat <<'EOF'
 Usage: sudo ./install.sh update [OPTIONS]
 
-Move this installation onto a newer release and leave its state intact: fetch
-the code, rebuild the bootstrap tooling and application image, migrate state,
-and recreate the Compose services on the new release.
+Move this installation onto the newest release of its own major line and leave
+its state intact: fetch the code, rebuild the bootstrap tooling and application
+image, migrate state, and recreate the Compose services on the new release.
+
+There is nothing to choose. The release line comes from the installed version,
+the target is the newest vMAJOR.MINOR.PATCH tag in that line, and the update
+never crosses a major version and never moves backwards. It leaves the checkout
+detached at that tag, which is what a release installation looks like: a host
+installed from the 3.x branch follows tags from its first update onwards, and a
+later --fresh reinstalls the exact release that was running rather than the
+branch tip. A major upgrade is a separate, documented step.
 
 Nothing is rewritten that an operator owns. The database, the certificates, the
 inventory, and the API credentials in /etc/blitzecdn all survive — this is the
 non-destructive counterpart to --fresh, which destroys all four.
 
 Options:
-  --ref REF    Tag or branch to update to (default: the tracked branch)
   --yes        Do not ask for confirmation
   --no-backup  Skip the database backup taken before anything changes
   -h, --help   Show this help
@@ -644,6 +764,68 @@ The checkout must be /opt/blitzecdn, must have the upstream origin, and must
 have no local modifications. The persistent containers are stopped while the
 schema and immutable image are replaced.
 EOF
+}
+
+# Print the release version recorded in the checkout at HEAD, or fail.
+#
+# The major of this version is the release line the host follows. That is sound
+# because .github/workflows/ci.yml refuses to build a tag whose name is not
+# "v" plus this exact field, so a tag name and a project version are the same
+# statement about which release this is.
+#
+# Read through `git show` rather than off disk: the working tree is verified
+# clean before this is reached, so the two agree, and the git form is the one
+# the installer's tests can answer. The loop is deliberate — a `grep | head`
+# pipeline that matched nothing would abort the whole script under pipefail,
+# where an empty read loop just returns 1 for the caller to handle.
+head_project_version() {
+  local line
+  while IFS= read -r line; do
+    if [[ ${line} =~ ^version[[:space:]]*=[[:space:]]*\"([0-9]+\.[0-9]+\.[0-9]+)\" ]]; then
+      printf '%s\n' "${BASH_REMATCH[1]}"
+      return 0
+    fi
+  done < <(repo_git show HEAD:pyproject.toml 2>/dev/null)
+  return 1
+}
+
+# Print the newest release tag in one major line, or fail if it has none.
+#
+# The glob is anchored to the major, so this cannot return a release from
+# another line no matter what origin carries. The pattern test is what keeps a
+# pre-release or a moving pointer — v3.1.0-rc1, or a branch-shaped v3.x tag —
+# out of a server: only a complete vMAJOR.MINOR.PATCH is installable.
+latest_release_tag() {
+  local major=$1 tag
+  while IFS= read -r tag; do
+    [[ ${tag} =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+    printf '%s\n' "${tag}"
+    return 0
+  done < <(repo_git tag --list "v${major}.*" --sort=-v:refname)
+  return 1
+}
+
+# Print the release this host is on, as an operator would name it.
+#
+# A tagged checkout is the ordinary case and prints as the bare version. The
+# other two forms exist so a host that is *not* on a release still says so
+# rather than pretending: a branch checkout reports the release it has moved
+# past and by how far, and a checkout with no tag in its history falls back to
+# the recorded version and the commit. Never fails — this only ever describes.
+describe_installed_release() {
+  local tag base drift version sha
+  if tag=$(repo_git describe --tags --exact-match HEAD 2>/dev/null); then
+    printf '%s\n' "${tag}"
+    return 0
+  fi
+  if base=$(repo_git describe --tags --abbrev=0 HEAD 2>/dev/null); then
+    drift=$(repo_git rev-list --count "${base}..HEAD")
+    printf '%s (+%s commits)\n' "${base}" "${drift}"
+    return 0
+  fi
+  version=$(head_project_version) || version=unknown
+  sha=$(repo_git rev-parse --short HEAD)
+  printf 'v%s (%s)\n' "${version}" "${sha}"
 }
 
 # Stop persistent containers before replacing the code and image they run.
@@ -677,7 +859,7 @@ confirm_update() {
 Updating the BlitzeCDN control plane on this host:
 
   from  ${current}
-  to    ${target}  (${commits} commit(s) ahead)
+  to    ${target}   (${commits} commits)
 
 The containers are stopped, the schema is migrated, and they are recreated on
 the new image. State is preserved; a migration is not reversible.
@@ -689,7 +871,6 @@ EOF
 }
 
 cmd_update() {
-  require_root updater
 
   [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
     die 1 "error: run the updater from the installation at ${INSTALL_DIR}"
@@ -713,36 +894,42 @@ cmd_update() {
   repo_git fetch --tags --prune origin ||
     die 1 "error: could not fetch from origin; nothing was changed"
 
-  # An explicit ref wins. Without one the tracked branch is the only safe
-  # default: a checkout pinned to a tag has no "next" release to infer, and
-  # guessing the newest tag would upgrade a host across a major line.
-  local target
-  if [[ -n ${parsed_ref} ]]; then
-    target=${parsed_ref}
-  else
-    local branch
-    branch=$(repo_git symbolic-ref --quiet --short HEAD 2>/dev/null) || die 1 \
-      "error: ${INSTALL_DIR} is not on a branch, so there is no tracked release to follow" \
-      "Pass --ref TAG or --ref BRANCH to say what to update to."
-    target="origin/${branch}"
-  fi
+  # There is nothing for an operator to choose here. A host follows its own
+  # release line and the newest tag in it: crossing a major line is a migration
+  # somebody opts into deliberately, not something an updater performs, and
+  # following a branch tip would install commits no release was ever cut from.
+  local version major target current commits
+  version=$(head_project_version) || die 1 \
+    "error: could not read the project version from pyproject.toml at HEAD; nothing was changed"
+  major=${version%%.*}
 
-  repo_git rev-parse --verify --quiet "${target}^{commit}" >/dev/null ||
-    die 1 "error: ${target} does not exist in the fetched repository; nothing was changed"
+  target=$(latest_release_tag "${major}") || die 1 \
+    "error: no v${major}.x release tag exists in the fetched repository; nothing was changed" \
+    "Only tagged releases are installable. Check 'git -C ${INSTALL_DIR} tag --list'."
 
-  local current_description target_description commits
-  current_description=$(repo_git describe --tags --always HEAD)
-  target_description=$(repo_git describe --tags --always "${target}")
-  commits=$(repo_git rev-list --count "HEAD..${target}")
+  current=$(describe_installed_release)
 
-  if [[ ${commits} -eq 0 ]] &&
-    [[ $(repo_git rev-parse HEAD) == $(repo_git rev-parse "${target}^{commit}") ]]; then
-    echo "Already on ${target_description}; nothing to update."
+  # Only an exact tag can equal the target: the other two descriptions carry a
+  # commit count or a SHA, so this is precisely "HEAD is the newest release".
+  if [[ ${current} == "${target}" ]]; then
+    echo "Already on ${target}; nothing to update."
     return 0
   fi
 
-  confirm_update "${parsed_yes}" \
-    "${current_description}" "${target_description}" "${commits}"
+  # Forward only. A checkout that is not an ancestor of the release has commits
+  # origin does not, or is already past it, and moving it would discard them —
+  # --fresh is the tool that rebuilds such a host from origin. Asked here rather
+  # than at the checkout below so the refusal costs no downtime; the equivalent
+  # question used to be answered by a fast-forward merge refusing, after the
+  # containers had already been stopped.
+  repo_git merge-base --is-ancestor HEAD "${target}^{commit}" || die 1 \
+    "error: ${INSTALL_DIR} is not an ancestor of ${target}; nothing was changed" \
+    "The checkout has commits origin does not, or is on a newer release." \
+    "Use --fresh to rebuild from origin."
+
+  commits=$(repo_git rev-list --count "HEAD..${target}")
+
+  confirm_update "${parsed_yes}" "${current}" "${target}" "${commits}"
 
   # Before anything is touched, and through the wrapper so it runs as the
   # image's non-root account against the service environment. The database component
@@ -766,21 +953,14 @@ cmd_update() {
   # release it is migrating away from.
   stop_control_plane_services
 
-  echo "Checking out ${target_description}..."
-  if [[ -n ${parsed_ref} ]]; then
-    # A tag checks out detached, which is what a release installation looks
-    # like and what --fresh reads back to reinstall the same release.
-    repo_git checkout --quiet "${parsed_ref}" ||
-      die 1 "error: could not check out ${parsed_ref}; the containers are stopped — " \
-        "restore with 'git -C ${INSTALL_DIR} checkout ${current_description}' and rerun"
-  else
-    # Fast-forward only: an update must never quietly merge or rewrite history
-    # on a server, and a branch that cannot fast-forward means the checkout has
-    # commits origin does not, which --fresh is the tool for.
-    repo_git merge --ff-only "${target}" ||
-      die 1 "error: ${INSTALL_DIR} cannot fast-forward to ${target}" \
-        "The checkout has commits origin does not. Use --fresh to rebuild from origin."
-  fi
+  echo "Checking out ${target}..."
+  # A tag checks out detached, which is what a release installation looks like
+  # and what --fresh reads back to reinstall the same release. Never a merge, a
+  # pull, a reset or a force: an update moves a server forward onto a release it
+  # has already been shown to be behind, or it refuses above.
+  repo_git checkout --quiet "${target}" ||
+    die 1 "error: could not check out ${target}; the containers are stopped —" \
+      "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
 
   # Same two steps a standalone install runs, in the same order and through the
   # same functions: bootstrap tooling from the new lockfile, then the role,
@@ -789,7 +969,7 @@ cmd_update() {
   converge_control_plane
 
   echo
-  echo "Updated to ${target_description}."
+  echo "Updated to ${target}."
   echo "Services:"
   report_control_plane_services
 }
@@ -797,6 +977,27 @@ cmd_update() {
 # ---------------------------------------------------------------------------
 # uninstall / fresh — remove every artifact, or wipe and rebuild clean
 # ---------------------------------------------------------------------------
+
+# Everything the two removal paths delete, spelled once.
+#
+# This list is read twice: in `--uninstall --help`, and in the confirmation an
+# operator answers before an irreversible action. Those two drifted while they
+# were separate copies — the help grew the cache and the nginx drop-ins, and
+# the confirmation, the one that actually guards the action, did not. One
+# function means the prompt cannot again understate what is about to happen.
+removal_manifest() {
+  cat <<'EOF'
+  - the installation directory /opt/blitzecdn and everything in it: source,
+    .venv, .env, and .state (database, certificates, collections, locks, logs)
+  - the control-plane Compose project and BlitzeCDN host timers
+  - /etc/blitzecdn and the API credentials it holds
+  - the /usr/local/bin/blitzecdn command
+  - the sudo rule /etc/sudoers.d/blitzecdn-deploy
+  - the deploy account and its home
+  - the edge-managed nginx sites, certificates, cache, and drop-ins this host
+    converged as an edge
+EOF
+}
 
 usage_uninstall() {
   cat <<'EOF'
@@ -810,15 +1011,9 @@ Options:
   -h, --help   Show this help
 
 Removed:
-  - the installation directory /opt/blitzecdn and everything in it: source,
-    .venv, .env, and .state (database, certificates, collections, locks, logs)
-  - the control-plane Compose project and BlitzeCDN host timers
-  - /etc/blitzecdn and the API credentials it holds
-  - the /usr/local/bin/blitzecdn command
-  - the sudo rule /etc/sudoers.d/blitzecdn-deploy
-  - the deploy account and its home
-  - the edge-managed nginx sites, certificates, cache, and drop-ins this host
-    converged as an edge
+EOF
+  removal_manifest
+  cat <<'EOF'
 
 Nothing outside those paths is changed and no packages are removed. Ansible
 must still be available in the installation: it performs all system teardown.
@@ -848,23 +1043,16 @@ Options:
 
 The current checkout must be a Git clone whose origin is the upstream
 repository, so the rebuild reinstalls the exact release that is running. Run
+--uninstall instead to remove BlitzeCDN without installing it again.
 EOF
 }
 
 confirm_destructive() {
   local assume_yes="$1" mode="$2"
   [[ ${assume_yes} == 1 ]] && return 0
-  cat >&2 <<'EOF'
-This removes every BlitzeCDN artifact on this host and cannot be undone:
-
-  - /opt/blitzecdn and all state in it (database, certificates, collections)
-  - the control-plane Compose project and BlitzeCDN host timers
-  - /etc/blitzecdn and the API credentials it holds
-  - the /usr/local/bin/blitzecdn command
-  - the sudo rule /etc/sudoers.d/blitzecdn-deploy
-  - the deploy account and its home
-  - the edge-managed nginx sites and certificates on this host
-EOF
+  echo >&2 "This removes every BlitzeCDN artifact on this host and cannot be undone:"
+  echo >&2
+  removal_manifest >&2
   if [[ ${mode} == fresh ]]; then
     echo >&2 "Afterwards it re-clones the current release and reinstalls it."
   fi
@@ -874,7 +1062,6 @@ EOF
 }
 
 cmd_uninstall() {
-  require_root uninstaller
 
   # The cleanup deletes the directory this file lives in.
   reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC uninstall
@@ -889,7 +1076,6 @@ cmd_uninstall() {
 }
 
 cmd_fresh() {
-  require_root
 
   # Same reason as --uninstall, and it shares the guard: --fresh runs that
   # cleanup before it re-clones.
@@ -926,30 +1112,29 @@ cmd_fresh() {
   # usable, not turn `--fresh` into a successful uninstall followed by a failed
   # clone. The staging directory shares /opt with the final checkout, so the
   # handoff after teardown is a same-filesystem rename.
+  # Registered, so every refusal below simply reports: the staged clone is
+  # removed on the way out whether it was this run's own `die` that ended
+  # things or an abort nobody wrote a handler for.
   local staging
-  staging=$(mktemp -d "${INSTALL_DIR%/*}/.blitzecdn-fresh.XXXXXX")
+  staging=$(temp_path -d "${INSTALL_DIR%/*}/.blitzecdn-fresh.XXXXXX")
   if [[ ${named_revision} -eq 1 ]]; then
-    if ! git clone --branch "${revision}" "${remote_url}" "${staging}"; then
-      rm -rf -- "${staging}"
+    git clone --branch "${revision}" "${remote_url}" "${staging}" ||
       die 1 "error: could not stage release ${revision}; the current installation was not changed"
-    fi
   else
     if ! git clone "${remote_url}" "${staging}" ||
       ! git -C "${staging}" checkout --detach "${revision}"; then
-      rm -rf -- "${staging}"
       die 1 "error: could not stage commit ${revision}; the current installation was not changed"
     fi
   fi
-  if [[ ! -x ${staging}/install.sh ]]; then
-    rm -rf -- "${staging}"
+  [[ -x ${staging}/install.sh ]] ||
     die 1 "error: staged release has no executable install.sh; the current installation was not changed"
-  fi
 
-  if ! converge_uninstall; then
-    rm -rf -- "${staging}"
+  converge_uninstall ||
     die 1 "error: teardown failed; the current checkout remains, but inspect and repair any partially removed host state before retrying"
-  fi
   remove_installation_directory
+  # The host has no installation from here until the rename lands, so the
+  # staged clone is no longer disposable.
+  unregister_path "${staging}"
   mv -- "${staging}" "${INSTALL_DIR}" ||
     die 1 "error: teardown succeeded but the staged release remains at ${staging}; move it to ${INSTALL_DIR} and rerun standalone"
 
@@ -965,38 +1150,46 @@ cmd_fresh() {
 # Dispatch
 # ---------------------------------------------------------------------------
 
-subcommand=install
-if [[ $# -gt 0 ]]; then
-  case "$1" in
-    standalone|update)
-      subcommand=$1
-      shift
-      ;;
-    install)
-      subcommand=install
-      shift
-      ;;
-    --uninstall)
-      subcommand=uninstall
-      shift
-      ;;
-    --fresh)
-      subcommand=fresh
-      shift
-      ;;
-    help|-h|--help)
-      usage_root
-      exit 0
-      ;;
-  esac
+main() {
+  local subcommand=install
+  if [[ $# -gt 0 ]]; then
+    case "$1" in
+      standalone|update|install)
+        subcommand=$1
+        shift
+        ;;
+      --uninstall)
+        subcommand=uninstall
+        shift
+        ;;
+      --fresh)
+        subcommand=fresh
+        shift
+        ;;
+      help|-h|--help)
+        usage_root
+        exit 0
+        ;;
+    esac
+  fi
+
+  local usage root_label
+  usage=$(command_field "${subcommand}" 2)
+  root_label=$(command_field "${subcommand}" 3)
+
+  # Parsing first, so `--help` still answers without sudo. The privileged
+  # commands used to open with their own require_root call; the table says it
+  # once, and says it for a command that forgets to.
+  parse_options "${subcommand}" "${usage}" "$@"
+  [[ -z ${root_label} ]] || require_root "${root_label}"
+
+  # No arguments: every cmd_* reads the parsed globals, and passing the
+  # leftovers implied a contract none of them had.
+  "cmd_${subcommand}"
+}
+
+# Sourcing this file defines its functions and runs nothing, so the helpers can
+# be exercised directly instead of through a subprocess that provisions a host.
+if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
+  main "$@"
 fi
-
-case "${subcommand}" in
-  install) parse_options install usage_root "$@" ;;
-  standalone) parse_options standalone usage_standalone "$@" ;;
-  update) parse_options update usage_update "$@" ;;
-  uninstall) parse_options uninstall usage_uninstall "$@" ;;
-  fresh) parse_options fresh usage_fresh "$@" ;;
-esac
-
-"cmd_${subcommand}" "$@"
