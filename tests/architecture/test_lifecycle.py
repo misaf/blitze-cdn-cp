@@ -167,8 +167,8 @@ class Environment:
         """
         program = (
             "import json;"
-            "from blitzecdn.core.plugins import load_plugins;"
-            "r = load_plugins();"
+            "from blitzecdn.bootstrap import load_control_plane_plugins;"
+            "r = load_control_plane_plugins();"
             "print(json.dumps({"
             "'plugins': sorted(p.name for p in r.plugins),"
             "'capabilities': sorted(r.capabilities),"
@@ -200,7 +200,7 @@ class Environment:
         program = (
             "import json;"
             "from pathlib import Path;"
-            "from blitzecdn.core.plugins import load_plugins;"
+            "from blitzecdn.bootstrap import load_control_plane_plugins;"
             "from blitzecdn.core.plugins.resolution import ("
             "  resolve_edge_capability_roles, resolve_host_capability_roles,"
             "  resolve_role_search_path, resolve_teardown_capability_roles);"
@@ -210,7 +210,7 @@ class Environment:
             # used to be a fabricated path, because core resolved its tree from
             # the checkout and there was nothing to point at in a virtualenv.
             "from blitzecdn.ansible import ROLES_PATH as core;"
-            "path = resolve_role_search_path(core, load_plugins()"
+            "path = resolve_role_search_path(core, load_control_plane_plugins()"
             ".ansible_contributions());"
             "print(json.dumps({"
             "'paths': [str(p) for p in path],"
@@ -220,26 +220,26 @@ class Environment:
             # same way and from the same contributions. Two questions with one
             # source: a package may ship a role only its own plays reach.
             "'edge_roles': list(resolve_edge_capability_roles("
-            "  load_plugins().ansible_contributions())),"
+            "  load_control_plane_plugins().ansible_contributions())),"
             # And the play's other slot, which is a separate list because it is
             # a separate position in the play: what a capability does to the
             # host once the edge is already serving.
             "'host_roles': list(resolve_host_capability_roles("
-            "  load_plugins().ansible_contributions())),"
+            "  load_control_plane_plugins().ansible_contributions())),"
             # And the decommission play's slot, which is the one a capability
             # uses to take its own files off a host that is leaving.
             "'teardown_roles': list(resolve_teardown_capability_roles("
-            "  load_plugins().ansible_contributions())),"
+            "  load_control_plane_plugins().ansible_contributions())),"
             # And the Nginx dynamic modules those roles' configuration needs
             # loaded. The image is built from this list and the edge renders
             # its own from it, so a detached capability whose module still
             # appeared here would be an edge loading it forever.
             "'modules': [[m.plugin, m.name] for m in resolve_edge_modules("
-            "  load_plugins().ansible_contributions())],"
+            "  load_control_plane_plugins().ansible_contributions())],"
             "'nginx': {context:[{'plugin':r.plugin,'name':r.name,"
             "  'exists':r.template.is_file()} for r in resources]"
             "  for context,resources in resolve_nginx_resources("
-            "    load_plugins().nginx_contributions()).items()},"
+            "    load_control_plane_plugins().nginx_contributions()).items()},"
             "}))"
         )
         finished = subprocess.run(
@@ -255,13 +255,13 @@ class Environment:
         """Required and missing tokens for a real installed site schema."""
         program = (
             "import json,sys;"
-            "from blitzecdn.core.plugins import load_plugins;"
+            "from blitzecdn.bootstrap import load_control_plane_plugins;"
             "from blitzecdn.capabilities.sites import CdnSite;"
             "values={'name':'cdn-example-com',"
             "'server_names':['cdn.example.com'],"
             "'origin_host':'198.51.100.10',**json.loads(sys.argv[1])};"
             "site=CdnSite.model_validate(values);"
-            "registry=load_plugins();"
+            "registry=load_control_plane_plugins();"
             "print(json.dumps({"
             "'required':sorted(site.required_capabilities),"
             "'missing':list(registry.missing(site.required_capabilities)),"
@@ -287,10 +287,11 @@ class Environment:
         """
         program = (
             "import json,sys;"
-            "from blitzecdn.core.plugins import load_plugins;"
+            "from blitzecdn.bootstrap import load_control_plane_plugins;"
             "from blitzecdn.capabilities.sites import CdnSite;"
             "sites=tuple(CdnSite.model_validate(v) for v in json.loads(sys.argv[1]));"
-            "print(json.dumps(load_plugins().fleet_variables(sites, object())))"
+            "registry = load_control_plane_plugins();"
+            "print(json.dumps(registry.fleet_variables(sites, object())))"
         )
         finished = subprocess.run(
             [str(self.python), "-c", program, json.dumps(sites)],

@@ -15,9 +15,14 @@ from typing import Any
 import typer
 import yaml
 
-from blitzecdn.bootstrap import ControlPlane, build_control_plane
+from blitzecdn.bootstrap import (
+    ControlPlane,
+    build_control_plane,
+    load_control_plane_plugins,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
+from blitzecdn.core.plugins import PluginRegistry
 
 
 class ExitCode(IntEnum):
@@ -44,6 +49,19 @@ def settings() -> Settings:
 
 def control_plane() -> ControlPlane:
     return build_control_plane(settings())
+
+
+def installed_plugins() -> PluginRegistry:
+    """What is installed, for the commands whose answer needs nothing else.
+
+    `blitzecdn ansible search-path` and `blitzecdn edges modules` run where
+    there is no database to open and no fleet to read — a lint step, an image
+    build — so they ask the registry rather than build a control plane to get
+    at its. They come through here for the same reason every command comes
+    through `control_plane()`: the composition root is named in one module of
+    the command line, not in each command group that happens to need it.
+    """
+    return load_control_plane_plugins()
 
 
 def emit(value: Any, *, json_output: bool) -> None:

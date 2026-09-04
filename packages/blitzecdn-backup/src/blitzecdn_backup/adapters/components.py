@@ -21,6 +21,7 @@ from uuid import uuid4
 
 from sqlalchemy import create_engine
 
+from blitzecdn.cli.common import installed_plugins
 from blitzecdn.core.config import (
     Settings,
     is_portable_config_key,
@@ -28,7 +29,6 @@ from blitzecdn.core.config import (
 )
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.schema import DatabaseSchema
-from blitzecdn.core.plugins import load_plugins
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 from blitzecdn_backup.domain import BackupComponent
 
@@ -59,7 +59,7 @@ def _machine_specific_capability_keys() -> frozenset[str]:
     """
     return frozenset(
         setting.name.removeprefix("BLITZE_").lower()
-        for contribution in load_plugins().configuration_contributions()
+        for contribution in installed_plugins().configuration_contributions()
         for setting in contribution.settings
         if not setting.portable
     )

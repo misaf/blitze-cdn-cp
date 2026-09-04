@@ -17,7 +17,8 @@ from blitzecdn_hardening.plugin import (
     blitzecdn_plugin_metadata,
 )
 
-from blitzecdn.core.plugins import BUILTIN_PLUGINS, PluginMetadata, load_plugins
+from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
@@ -47,7 +48,7 @@ def test_hardening_is_never_a_built_in() -> None:
 
 
 def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
 
     assert "hardening" in {plugin.name for plugin in registry.plugins}
 
@@ -62,7 +63,7 @@ def test_no_site_can_ask_for_this_capability() -> None:
     that made a site depend on `hardening` would turn detaching from a
     supported choice into a fleet-wide validation failure.
     """
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
     hardening = next(p for p in registry.plugins if p.name == "hardening")
 
     assert hardening.capabilities == frozenset({"hardening"})

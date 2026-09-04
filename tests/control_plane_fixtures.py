@@ -16,7 +16,7 @@ from dramatiq.brokers.stub import StubBroker
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
-from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.bootstrap import ControlPlane, load_control_plane_plugins
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.domain import CdnSite
@@ -30,7 +30,6 @@ from blitzecdn.core.domain.runs import (
     TaskResult,
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.plugins import load_plugins
 from blitzecdn.persistence import Repository
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
@@ -581,7 +580,7 @@ def repository_on(settings):
 
 def control_plane_app(settings):
     """The all-package workspace API used by cross-capability integration tests."""
-    return create_app(settings, plugins=load_plugins())
+    return create_app(settings, plugins=load_control_plane_plugins())
 
 
 #: The API key `settings` configures, as the header a client sends. Shared

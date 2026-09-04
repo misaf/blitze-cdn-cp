@@ -5,13 +5,13 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+from blitzecdn.bootstrap import load_control_plane_plugins
 from blitzecdn.core.exceptions import ConfigurationError, PluginError
 from blitzecdn.core.plugins import (
     CapabilitySetting,
     ConfigurationContribution,
     EnvironmentKey,
     NginxContribution,
-    load_plugins,
 )
 from blitzecdn.core.plugins.resolution import (
     resolve_capability_environment,
@@ -87,7 +87,7 @@ def test_installed_packages_supply_only_package_owned_templates():
     invariant is the same either way — core contributes no fragment of its own,
     and every fragment that exists ships inside the distribution that owns it.
     """
-    plugins = load_plugins()
+    plugins = load_control_plane_plugins()
     optional = {plugin.name for plugin in plugins.plugins if not plugin.required}
     resources = resolve_nginx_resources(plugins.nginx_contributions())
     flattened = [resource for context in resources.values() for resource in context]

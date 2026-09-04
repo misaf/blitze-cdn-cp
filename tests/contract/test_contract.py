@@ -31,7 +31,7 @@ import yaml
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 
-from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.bootstrap import ControlPlane, load_control_plane_plugins
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
@@ -50,7 +50,6 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.core.plugins import load_plugins
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 from blitzecdn.persistence import Repository
 
@@ -143,7 +142,7 @@ def _nginx_resources() -> dict[str, list[dict[str, str]]]:
             for resource in resources
         ]
         for context, resources in resolve_nginx_resources(
-            load_plugins().nginx_contributions()
+            load_control_plane_plugins().nginx_contributions()
         ).items()
     }
 
@@ -202,7 +201,7 @@ def _capability_defaults() -> dict[str, Any]:
     edit every time a capability is attached or detached.
     """
     defaults: dict[str, Any] = {}
-    for contribution in load_plugins().ansible_contributions():
+    for contribution in load_control_plane_plugins().ansible_contributions():
         for role in sorted(contribution.roles_path.iterdir()):
             if (role / "defaults/main.yml").is_file():
                 defaults |= _defaults_of(role)
