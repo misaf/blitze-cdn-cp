@@ -25,6 +25,7 @@ and uninstalls a real wheel.
 from __future__ import annotations
 
 import ast
+import re
 import tomllib
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -661,6 +662,87 @@ def test_a_package_ships_its_ansible_and_its_templates_where_the_layout_says(
             and not path.name.endswith(_NGINX_SUFFIX)
         ]
     assert offenders == []
+
+
+#: The contract a capability keeps behind when its wheel is detached: the
+#: `__init__` re-exporting it, the contract itself, and the registration that
+#: makes core aware of it. A capability holding anything else — a service, an
+#: adapter, a router, a command — is implemented here.
+_CONTRACT_MODULES = {"__init__.py", "policy.py", "plugin.py"}
+
+
+def _implemented_here(capability: Path) -> bool:
+    return any(
+        path.name not in _CONTRACT_MODULES and "policy" not in path.parts
+        for path in capability.rglob("*.py")
+        if "__pycache__" not in path.parts
+    )
+
+
+def _capability_map() -> list[tuple[tuple[str, ...], str]]:
+    """The table in `capabilities/__init__.py`, as rows of (capabilities, by)."""
+    rows: list[tuple[tuple[str, ...], str]] = []
+    for line in (
+        (SOURCE / "capabilities/__init__.py").read_text(encoding="utf-8").splitlines()
+    ):
+        if not line.startswith("| "):
+            continue
+        cells = [cell.strip() for cell in line.strip("| ").split("|")]
+        if len(cells) != 3 or cells[1] in {"implemented by", "---"}:
+            continue
+        rows.append((tuple(re.findall(r"`([^`]+)`", cells[0])), cells[1]))
+    return rows
+
+
+def test_the_capability_map_says_what_the_tree_does():
+    """`capabilities/__init__.py` carries the map. This is why it can be trusted.
+
+    Two kinds of directory sit under `capabilities/` and look identical from
+    the tree: a full slice, and a contract whose implementation ships as a
+    wheel. That is deliberate — a contract has to load when its wheel is
+    detached, so a stored site reads back and the deployment is refused by
+    *name* rather than failing to parse — and the map is the only place the
+    difference is written down.
+
+    It was written down and nothing checked it, which for a table of eleven
+    capabilities and ten distributions is a table that drifts. Each half is
+    answerable from the tree: a capability implemented here holds more than its
+    contract and its registration, and a wheel named in the second column
+    either exists in `packages/` or does not.
+
+    Every distribution has to appear in the docstring somewhere, including the
+    three that own no site setting and so have no row —
+    `blitzecdn-backup`, `blitzecdn-hardening`, `blitzecdn-resolver` — so an
+    eleventh wheel cannot arrive without the map acknowledging it.
+    """
+    document = (SOURCE / "capabilities/__init__.py").read_text(encoding="utf-8")
+    rows = _capability_map()
+    directories = {path.name for path in _built_in_capabilities()}
+    distributions = {path.name for path in optional_packages()}
+
+    assert {name for names, _ in rows for name in names} == directories
+    pairs = [(name, by) for names, by in rows for name in names]
+    assert sorted(pairs) == sorted(set(pairs)), "a row is repeated"
+
+    said_itself = {name for names, by in rows if by == "itself" for name in names}
+    said_wheel = {name for names, by in rows if by != "itself" for name in names}
+    assert said_itself == {
+        path.name for path in _built_in_capabilities() if _implemented_here(path)
+    }
+    assert said_wheel == directories - said_itself
+
+    named = {
+        wheel
+        for _, by in rows
+        for wheel in re.findall(r"`([^`]+)`", by)
+        if by != "itself"
+    }
+    assert named <= distributions, (
+        f"named but not shipped: {sorted(named - distributions)}"
+    )
+    assert [wheel for wheel in sorted(distributions) if wheel not in document] == [], (
+        "every distribution appears in the map, row or not"
+    )
 
 
 def test_the_documented_layout_and_the_enforced_one_are_the_same():
