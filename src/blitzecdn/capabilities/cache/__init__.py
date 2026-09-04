@@ -12,3 +12,7 @@ rather than by failing to parse.
 
 The same split as ``compression``, ``http`` and ``tls``, for the same reason.
 """
+
+from blitzecdn.capabilities.cache.policy import CachePolicy, CacheQueryStringMode
+
+__all__ = ["CachePolicy", "CacheQueryStringMode"]
