@@ -16,7 +16,7 @@ from blitzecdn.core.exceptions import ExecutionError
 from blitzecdn.core.ports.operations import EventRecorder
 from blitzecdn_origins.domain import OriginReport
 from blitzecdn_origins.ports import OriginCheckRunner, OriginProbe, SiteReader
-from blitzecdn_origins.reporting import edge_origins
+from blitzecdn_origins.service.reporting import edge_origins
 
 
 class OriginCheckService:

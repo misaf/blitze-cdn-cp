@@ -6,7 +6,7 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
 )
 from blitzecdn.capabilities.deployments.ports import DeploymentGateway, DeploymentRunner
-from blitzecdn.capabilities.deployments.service import DeploymentService
+from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 
 __all__ = [
     "Deployment",

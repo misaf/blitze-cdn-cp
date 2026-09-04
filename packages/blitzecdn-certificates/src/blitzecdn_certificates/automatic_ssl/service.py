@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from blitzecdn_origins.domain import OriginReport
-from blitzecdn_origins.reporting import edge_origins
+from blitzecdn_origins.service.reporting import edge_origins
 
 from blitzecdn.capabilities.deployments.ports import DeploymentGateway
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck

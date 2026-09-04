@@ -65,7 +65,7 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentRunner,
     QueueBackgroundRunner,
 )
-from blitzecdn.capabilities.deployments.service import DeploymentService
+from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.composition import build_dns_service
 from blitzecdn.capabilities.edges import EdgeOperationsService

@@ -499,13 +499,7 @@ _PACKAGE_MODULES = {
     "domain.py",  # pure rules
     "ports.py",  # the narrow Protocols this capability calls
     "service.py",  # the capability's behaviour
-    "reporting.py",  # application policy beside the service, held to its rule
     "cli.py",  # its command groups
-    # A capability small enough for one adapter *module* rather than an
-    # `adapters/` package is still an adapter, and `test_layering` already
-    # holds both spellings to the adapter rule.
-    "adapters.py",
-    "preflight.py",
 }
 
 #: `api/` holds the routes and the package's own operational shapes, and
@@ -513,11 +507,19 @@ _PACKAGE_MODULES = {
 #: describing something that is not an HTTP adapter.
 _API_MODULES = {"__init__.py", "models.py", "routes.py"}
 
-#: Directories whose *contents* are named after what they implement rather
-#: than after a layer — `archive.py`, `playbooks.py` — because that is the
-#: point of an adapter. Flat: an adapter package with a package inside it is a
-#: layer split this size of code does not have.
-_FREE_FORM_DIRECTORIES = {"adapters"}
+#: The three layers a capability may spell as a directory when it outgrows one
+#: file, whose *contents* are then named after what they are rather than after
+#: the layer: `archive.py`, `playbooks.py`, `checks.py`, `reporting.py`,
+#: `snapshots.py`. Flat — a layer package with a package inside it is a split
+#: this size of code does not have.
+#:
+#: `adapters.py`, `preflight.py` and `reporting.py` were single names in the
+#: module set beside `service.py`, which meant the same job was documented
+#: twice depending on whether a capability had grown past one file, and a
+#: second adapter arriving as `renderer.py` was undocumented. The directory
+#: says which layer it is, and `test_layering` reads the same directories to
+#: decide which rule a file lives under.
+_FREE_FORM_DIRECTORIES = {"adapters", "domain", "service"}
 
 #: What a package ships for something other than Python to read. `ansible/`
 #: carries one module — the `importlib.resources` anchor — and its roles and
