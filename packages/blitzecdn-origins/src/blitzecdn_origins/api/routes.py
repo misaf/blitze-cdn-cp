@@ -5,7 +5,7 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.operations import as_operation
+from blitzecdn.api.models import as_operation
 from blitzecdn_origins.api.models import OriginCheckRequest, OriginReport
 from blitzecdn_origins.composition import build_origin_check_service
 

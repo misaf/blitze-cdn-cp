@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 
 from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
-from blitzecdn.api.operations import AuditEvent, as_operation
+from blitzecdn.api.models import AuditEvent, as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

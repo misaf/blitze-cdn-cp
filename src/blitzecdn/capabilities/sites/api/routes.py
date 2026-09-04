@@ -5,7 +5,11 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.models import CdnSite, CdnSiteCreate, SitePatch
+from blitzecdn.capabilities.sites.api.models import (
+    CdnSite,
+    CdnSiteCreate,
+    SitePatch,
+)
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

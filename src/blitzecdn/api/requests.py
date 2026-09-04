@@ -1,8 +1,10 @@
-"""Request bodies accepted by the HTTP API.
+"""The request vocabulary core owns.
 
-These describe the *input* to an operation — deploy, drift, purge, stats,
-origin check, renew, rollback — the mirror of the results in
-:mod:`blitzecdn.api.operations`.
+The mirror of :mod:`blitzecdn.api.models`: what every request body is built
+from, and the one body shape more than one capability accepts. A deploy, a
+drift check, a purge and an origin check all take a host limit, so
+`FleetRequest` is core's; `DeployRequest` and `RollbackRequest` are
+`deployments`' and live with the routes that accept them.
 """
 
 from __future__ import annotations
@@ -24,14 +26,4 @@ class FleetRequest(RequestModel):
     )
 
 
-class DeployRequest(FleetRequest):
-    check: bool = False
-
-
-class DriftRequest(FleetRequest):
-    pass
-
-
-class RollbackRequest(RequestModel):
-    deployment_id: str | None = Field(default=None, min_length=32, max_length=32)
-    check: bool = False
+__all__ = ["FleetRequest", "RequestModel"]
