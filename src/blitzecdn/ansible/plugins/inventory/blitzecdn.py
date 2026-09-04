@@ -78,7 +78,7 @@ plugin: blitzecdn
 #: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
-#: Mirrors ``blitzecdn.core.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
+#: Mirrors ``blitzecdn.core.domain.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
 #: step by ``tests/test_inventory.py``.
 #:
 #: The control plane refuses to store a setting under one of these names, so a

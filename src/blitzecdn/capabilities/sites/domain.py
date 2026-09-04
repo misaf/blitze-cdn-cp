@@ -57,8 +57,8 @@ from blitzecdn.capabilities.tls.policy import (
     TlsPolicy,
     managed_certificate_paths,
 )
-from blitzecdn.core.policy import CapabilityPolicy
-from blitzecdn.core.validation import SITE_NAME, hostname
+from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.validation import SITE_NAME, hostname
 
 __all__ = ["CdnSite", "SitePatch", "SitePolicy"]
 

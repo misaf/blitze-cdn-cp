@@ -14,7 +14,7 @@ is the whole point of the registration mechanism.
 
 The broker itself — connecting to Redis, publishing a message, the
 single-flight key that keeps one scheduled job in flight — lives in
-:mod:`blitzecdn.core.broker`, which is where the composition root reaches for
+:mod:`blitzecdn.core.runtime.broker`, which is where the composition root reaches for
 it. A publisher never imports this module.
 """
 
@@ -24,15 +24,15 @@ import logging
 
 import dramatiq
 
-from blitzecdn.core.broker import (
+from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import DeploymentBusyError
+from blitzecdn.core.plugins import ProcessKind
+from blitzecdn.core.runtime.broker import (
     DEPLOYMENT_QUEUE,
     SCHEDULED_QUEUE,
     configure_broker,
     release_schedule_key,
 )
-from blitzecdn.core.config import Settings
-from blitzecdn.core.exceptions import DeploymentBusyError
-from blitzecdn.core.plugins import ProcessKind
 
 _LOGGER = logging.getLogger(__name__)
 _DEPLOYMENT_LOCK_RETRIES = 260

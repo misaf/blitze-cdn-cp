@@ -6,8 +6,8 @@ from fnmatch import fnmatch
 
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP
 from blitzecdn.capabilities.edges.ports import EdgeStore
+from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.validation import validate_edge_limit
 
 __all__ = ["resolve_limit", "targeted_hosts"]
 

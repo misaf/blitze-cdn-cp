@@ -7,7 +7,7 @@ capability a whole vertical slice: installing the distribution brings the edge
 implementation with it, and uninstalling takes it away, with no directory in
 the control plane's checkout to add to or prune.
 
-Located through :func:`blitzecdn.core.resources.package_directory` rather than
+Located through :func:`blitzecdn.core.runtime.resources.package_directory` rather than
 by counting ``..`` from ``__file__``. The difference matters in exactly the
 case that has to work: a wheel installed into a virtualenv on a controller,
 where there is no repository and no working directory to be relative to.
@@ -15,7 +15,7 @@ where there is no repository and no working directory to be relative to.
 
 from __future__ import annotations
 
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 
 __all__ = ["EDGE_ROLE", "ROLES_PATH"]
 

@@ -13,7 +13,7 @@ distribution: ``pip install blitzecdn`` produced a control plane that could
 converge nothing, and the only reason a real controller worked was that
 ``install.sh`` and the container image copied the tree in behind it.
 
-Located through :func:`blitzecdn.core.resources.package_directory` rather than
+Located through :func:`blitzecdn.core.runtime.resources.package_directory` rather than
 by counting ``..`` from ``__file__``. The difference matters in exactly the
 case that has to work: a wheel installed into a virtualenv on a controller,
 where there is no repository and no working directory to be relative to.
@@ -21,7 +21,7 @@ where there is no repository and no working directory to be relative to.
 
 from __future__ import annotations
 
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 
 __all__ = [
     "CONTROL_PLANE_PLAYBOOK",

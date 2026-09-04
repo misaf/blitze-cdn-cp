@@ -18,9 +18,9 @@ from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.cli import main as cli
-from blitzecdn.core.database import Repository
+from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.core.plugins import PluginRejection
-from blitzecdn.core.runs import RunStatus
 
 #: Two of the assertions below are about what an *installed capability*
 #: contributes, so they cannot hold in the core-only workspace where nothing

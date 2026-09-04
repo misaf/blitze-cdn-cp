@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
-from blitzecdn.core.filesystem import atomic_write_yaml
+from blitzecdn.core.runtime.filesystem import atomic_write_yaml
 
 __all__ = ["run_variables"]
 

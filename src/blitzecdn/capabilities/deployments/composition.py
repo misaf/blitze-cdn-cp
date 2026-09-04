@@ -35,8 +35,8 @@ from blitzecdn.capabilities.deployments.service import (
 )
 from blitzecdn.capabilities.dns.ports import ZoneStore
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.filesystem import atomic_write_yaml, read_log_tail
 from blitzecdn.core.plugins import PluginRegistry, ValidationResult
+from blitzecdn.core.runtime.filesystem import atomic_write_yaml, read_log_tail
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane

@@ -5,8 +5,8 @@ from enum import StrEnum
 
 from pydantic import ConfigDict, field_validator
 
-from blitzecdn.core.policy import CapabilityPolicy
-from blitzecdn.core.validation import DURATION
+from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.validation import DURATION
 
 
 class CacheQueryStringMode(StrEnum):

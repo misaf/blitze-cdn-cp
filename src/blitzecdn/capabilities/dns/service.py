@@ -24,7 +24,7 @@ from blitzecdn.capabilities.dns.ports import (
     UnitOfWork,
     ZoneStore,
 )
-from blitzecdn.core.events import domain_event
+from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 

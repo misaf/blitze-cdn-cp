@@ -232,7 +232,7 @@ class AnsibleSettingRow(Base, table=True):
 class DeploymentRow(Base, table=True):
     """Convergence history.
 
-    ``result`` is the JSON of one :class:`~blitzecdn.core.runs.AnsibleRun`:
+    ``result`` is the JSON of one :class:`~blitzecdn.core.domain.runs.AnsibleRun`:
     per-host counters, the tasks that changed, the tasks that failed. Raw
     stdout and stderr are deliberately not here — they are the largest thing a
     run produces and every reader would have to re-parse them to learn

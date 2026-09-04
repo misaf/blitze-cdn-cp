@@ -12,15 +12,15 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, delete, select
 from sqlmodel import col
 
-from blitzecdn.core.database_engine import Database
-from blitzecdn.core.database_models import WorkflowRow
-from blitzecdn.core.exceptions import NotFoundError
-from blitzecdn.core.operations import (
+from blitzecdn.core.domain.operations import (
     Workflow,
     WorkflowKind,
     WorkflowStatus,
     WorkflowStep,
 )
+from blitzecdn.core.exceptions import NotFoundError
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.models import WorkflowRow
 
 
 class WorkflowStore:

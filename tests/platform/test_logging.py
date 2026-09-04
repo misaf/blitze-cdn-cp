@@ -1,7 +1,7 @@
 import json
 import logging
 
-from blitzecdn.core.logging import JsonFormatter, configure_logging
+from blitzecdn.core.runtime.logging import JsonFormatter, configure_logging
 
 
 def test_json_formatter_and_configuration():

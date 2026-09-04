@@ -6,7 +6,7 @@ whole vertical slice: installing the distribution brings the edge
 implementation with it, and uninstalling takes it away, with no directory in
 the control plane's checkout to add to or prune.
 
-Located through :func:`blitzecdn.core.resources.package_directory` rather than
+Located through :func:`blitzecdn.core.runtime.resources.package_directory` rather than
 by counting ``..`` from ``__file__``. This module used to do the latter — three
 lines and no check — which was correct in a checkout and correct in an ordinary
 wheel, and silent in exactly the case the check exists for: a distribution that
@@ -16,7 +16,7 @@ path at all.
 
 from __future__ import annotations
 
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 
 __all__ = ["EDGE_ROLE", "ROLES_PATH"]
 

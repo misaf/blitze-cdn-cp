@@ -13,9 +13,9 @@ from blitzecdn.capabilities.dns.domain import DnsRecord
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
-from blitzecdn.core.operation_ports import EventRecorder
-from blitzecdn.core.operations import WorkflowKind
+from blitzecdn.core.domain.operations import WorkflowKind
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.operations import EventRecorder
 from blitzecdn_certificates.certificates.domain import (
     CertificateInfo,
     CertificateSource,

@@ -17,7 +17,7 @@ import yaml
 
 from blitzecdn.bootstrap import ControlPlane, build_control_plane
 from blitzecdn.core.config import Settings
-from blitzecdn.core.runs import HostRun
+from blitzecdn.core.domain.runs import HostRun
 
 
 class ExitCode(IntEnum):

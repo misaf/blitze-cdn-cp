@@ -6,7 +6,7 @@ from typing import Any
 
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.validation import OmittedWhenEmpty
+from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:
@@ -16,7 +16,7 @@ def site_to_ansible(site: CdnSite) -> dict[str, Any]:
     site.firewall.empty``, which is a capability's own vocabulary in a generic
     adapter: core knew what a firewall was, and a second such block would have
     been a second branch here. A block opts in by subclassing
-    :class:`~blitzecdn.core.validation.OmittedWhenEmpty`, and this asks nothing
+    :class:`~blitzecdn.core.domain.validation.OmittedWhenEmpty`, and this asks nothing
     about what it holds.
     """
     document = site.model_dump(mode="json", exclude_none=True)

@@ -47,7 +47,7 @@ reach it would be one import away from calling SQLite directly, which is easy
 to do by accident in a read path and invisible in review — so the rule is
 written down rather than assumed.
 
-The queue is reached through :mod:`blitzecdn.core.broker` and never
+The queue is reached through :mod:`blitzecdn.core.runtime.broker` and never
 through :mod:`blitzecdn.worker`. The worker is an entry point that builds a
 control plane, so importing it from here would point the arrow both ways;
 ``tests/architecture/test_layering.py`` refuses that import by name.
@@ -80,10 +80,9 @@ from blitzecdn.capabilities.sites.composition import build_site_service
 from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.capabilities.sites.service import SiteService
 from blitzecdn.core.ansible import AnsibleRunner
-from blitzecdn.core.broker import DramatiqBackgroundRunner, redis_ready
+from blitzecdn.core.application.workflows import WorkflowCoordinator
 from blitzecdn.core.config import Settings
-from blitzecdn.core.database import Repository
-from blitzecdn.core.operation_ports import AuditTrail, PlaybookRunner
+from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.core.plugins import (
     HealthCheck,
     PluginRegistry,
@@ -100,7 +99,8 @@ from blitzecdn.core.plugins import (
     resolve_teardown_capability_roles,
 )
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.workflows import WorkflowCoordinator
+from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
+from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):

@@ -7,10 +7,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import col
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.core.database_engine import Database
-from blitzecdn.core.database_models import AnsibleSettingRow, DeploymentRequirementRow
+from blitzecdn.core.domain.validation import validate_setting_name
 from blitzecdn.core.exceptions import NotFoundError
-from blitzecdn.core.validation import validate_setting_name
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.models import (
+    AnsibleSettingRow,
+    DeploymentRequirementRow,
+)
 
 
 class DeploymentRequirementStore:

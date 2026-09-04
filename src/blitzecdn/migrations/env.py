@@ -15,7 +15,7 @@ from alembic import context
 from sqlalchemy import create_engine
 
 from blitzecdn.core.config import Settings
-from blitzecdn.core.database_models import Base
+from blitzecdn.core.persistence.models import Base
 
 config = context.config
 

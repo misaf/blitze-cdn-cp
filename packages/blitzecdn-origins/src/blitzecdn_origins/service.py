@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from blitzecdn.core.events import domain_event
+from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.ports.operations import EventRecorder
 from blitzecdn_origins.domain import OriginReport
 from blitzecdn_origins.ports import OriginCheckRunner, OriginProbe, SiteReader
 from blitzecdn_origins.reporting import edge_origins

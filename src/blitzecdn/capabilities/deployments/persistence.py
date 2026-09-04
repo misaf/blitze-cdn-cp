@@ -13,10 +13,10 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
     require_transition,
 )
-from blitzecdn.core.database_engine import Database
-from blitzecdn.core.database_models import DeploymentRow
+from blitzecdn.core.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.runs import AnsibleRun, RunStatus
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.models import DeploymentRow
 
 
 def _rows_affected(result: Result[Any]) -> int:

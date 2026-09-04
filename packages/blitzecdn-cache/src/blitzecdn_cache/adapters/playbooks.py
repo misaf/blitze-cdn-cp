@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn_cache import ansible
 from blitzecdn_cache.domain import PurgeEntry
 from blitzecdn_cache.ports import FleetPlaybooks

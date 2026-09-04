@@ -2,7 +2,7 @@
 
 Every invocation produces one retained artefact. An Ansible Runner event handler turns
 structured task and recap events into an
-:class:`~blitzecdn.core.runs.AnsibleRun` — that is the only thing the
+:class:`~blitzecdn.core.domain.runs.AnsibleRun` — that is the only thing the
 application layer sees. Raw terminal output goes to a log file under
 ``state_dir/logs`` that nothing here parses; it is kept so an operator has the
 full account of a run, and so a process that died before Ansible could report
@@ -11,7 +11,7 @@ anything still leaves evidence behind.
 The parts, each with its own reason to change:
 
 ``events``
-    Runner's event stream to :class:`~blitzecdn.core.runs.AnsibleRun`
+    Runner's event stream to :class:`~blitzecdn.core.domain.runs.AnsibleRun`
     components. The boundary that lets the layering tests refuse textual
     reasoning everywhere above.
 ``execution``

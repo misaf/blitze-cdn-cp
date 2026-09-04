@@ -7,8 +7,8 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 from blitzecdn.capabilities.http.policy import HttpScheme
-from blitzecdn.core.runs import HostRun
-from blitzecdn.core.validation import hostname
+from blitzecdn.core.domain.runs import HostRun
+from blitzecdn.core.domain.validation import hostname
 
 
 class PurgeEntry(BaseModel):

@@ -9,7 +9,7 @@ from blitzecdn.capabilities.deployments.snapshots import (
 )
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.validation import hostname
+from blitzecdn.core.domain.validation import hostname
 
 _LABEL = st.text(
     alphabet="abcdefghijklmnopqrstuvwxyz0123456789", min_size=1, max_size=20

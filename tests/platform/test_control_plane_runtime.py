@@ -10,7 +10,7 @@ import jinja2
 import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
-from blitzecdn.core import broker
+from blitzecdn.core.runtime import broker
 from blitzecdn.docker import (
     CONTROL_PLANE_DOCKERFILE,
     CONTROL_PLANE_DOCKERIGNORE,

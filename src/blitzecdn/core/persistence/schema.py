@@ -3,7 +3,7 @@
 Core owns this because core owns the schema. A backup records the Alembic
 revision it was taken at and a restore refuses a revision this installation has
 never heard of, but "which revision is this file stamped with" is a question
-about `core.database`, not about tar files — and asking it must never migrate
+about the engine beside it, not about tar files — and asking it must never migrate
 the file being asked about, which is why it is read over `sqlite3` in read-only
 mode rather than through the engine.
 
@@ -24,9 +24,17 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from blitzecdn.core.config import Settings
+from blitzecdn.core.runtime.resources import package_directory
 
-#: The Alembic tree this installation migrates with.
-MIGRATIONS_PATH = Path(__file__).parents[1] / "migrations"
+#: The Alembic tree this installation migrates with. Located through the same
+#: helper the Ansible tree uses rather than by counting ``..`` from
+#: ``__file__``: that count was silently wrong the moment this module moved one
+#: directory deeper, and it is exactly the idiom `runtime.resources` exists to
+#: replace.
+MIGRATIONS_PATH = (
+    package_directory("blitzecdn", resolves="Alembic reads its migration tree by path")
+    / "migrations"
+)
 
 
 @cache
@@ -88,7 +96,7 @@ class DatabaseSchema:
         Core's job, not a caller's. A restore puts back a database taken at an
         older revision and has to forward-migrate it before anything reads it,
         but "how this schema moves" is owned here — the alternative was the
-        backup adapter importing `core.database_engine` directly, which made a
+        backup adapter importing `persistence.engine` directly, which made a
         detachable package depend on the storage implementation rather than on
         a contract.
 
@@ -97,7 +105,7 @@ class DatabaseSchema:
         would be a cycle; and opening it costs Alembic, which every command
         that only wants to *read* a revision should not pay.
         """
-        from blitzecdn.core.database_engine import Database
+        from blitzecdn.core.persistence.engine import Database
 
         Database(path).close()
 

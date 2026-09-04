@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn_cache.domain import PurgeEntry
 
 __all__ = ["CacheRunner", "FleetPlaybooks"]
@@ -46,7 +46,7 @@ class FleetPlaybooks(Protocol):
 class CacheRunner(Protocol):
     """The two plays this capability runs, in the terms it thinks in.
 
-    Both answer with an :class:`~blitzecdn.core.runs.AnsibleRun`: statistics
+    Both answer with an :class:`~blitzecdn.core.domain.runs.AnsibleRun`: statistics
     come back on ``HostRun.report``, published by the role as the
     ``blitzecdn_report`` fact, and nothing here reads Ansible's output.
     """

@@ -56,7 +56,7 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 from blitzecdn_geoip import __version__, ansible
 
 #: The Jinja fragments this capability contributes to the edge's Nginx

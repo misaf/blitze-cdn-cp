@@ -14,7 +14,7 @@ contract exists.
 
 from __future__ import annotations
 
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 
 __all__ = ["ACME_CHALLENGE_PLAYBOOK"]
 

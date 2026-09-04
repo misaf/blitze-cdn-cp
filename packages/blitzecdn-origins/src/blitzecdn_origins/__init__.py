@@ -28,7 +28,7 @@ Nothing here is imported by the control plane. Discovery is the
 else.
 """
 
-from blitzecdn.core.resources import distribution_version
+from blitzecdn.core.runtime.resources import distribution_version
 
 #: This distribution's version, asked of the environment rather than
 #: written down here: it is what ``PluginMetadata.version`` reports and

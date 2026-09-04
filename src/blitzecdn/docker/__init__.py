@@ -11,7 +11,7 @@ workflow and six contract tests each spelled the path again, and an air-gapped
 fleet that has to build its edge image on the controller had nothing to build
 from.
 
-Located through :func:`blitzecdn.core.resources.package_directory`, not by
+Located through :func:`blitzecdn.core.runtime.resources.package_directory`, not by
 counting ``..`` from ``__file__``, so the paths are the same whether they are
 read from a checkout or from a virtualenv on a controller.
 
@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 
 __all__ = [
     "CONTROL_PLANE_DOCKERFILE",

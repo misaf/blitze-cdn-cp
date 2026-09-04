@@ -11,8 +11,8 @@ from blitzecdn.capabilities.deployments.snapshots import (
     decode_snapshot_state,
 )
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.persistence.repository import Repository
 
 
 @pytest.mark.parametrize(

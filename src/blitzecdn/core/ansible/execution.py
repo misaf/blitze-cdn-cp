@@ -2,7 +2,7 @@
 
 Everything about *how* Ansible is run lives here — the environment, the
 artifact tree, the operator log and its retention, and the mapping from
-Runner's result to a :class:`~blitzecdn.core.runs.AnsibleRun`. What to run and
+Runner's result to a :class:`~blitzecdn.core.domain.runs.AnsibleRun`. What to run and
 against which edges is :mod:`blitzecdn.core.ansible.runner`'s decision; by the
 time it reaches this module the playbook, the variables file and the resolved
 limit are all settled.
@@ -30,9 +30,9 @@ from pydantic import SecretStr
 
 from blitzecdn.core.ansible.events import RunnerEvents
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.core.exceptions import ExecutionError
 from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
-from blitzecdn.core.runs import AnsibleRun, HostRun, RunStatus
 
 __all__ = ["PlaybookExecutor"]
 

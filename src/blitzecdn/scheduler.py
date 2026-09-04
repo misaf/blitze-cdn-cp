@@ -22,9 +22,9 @@ from apscheduler.schedulers.background import (  # type: ignore[import-untyped]
     BackgroundScheduler,
 )
 
-from blitzecdn.core.broker import enqueue_scheduled_once
 from blitzecdn.core.config import Settings
 from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.runtime.broker import enqueue_scheduled_once
 
 
 def build_scheduler(

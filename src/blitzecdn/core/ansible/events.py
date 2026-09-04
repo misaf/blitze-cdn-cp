@@ -3,7 +3,7 @@
 This module is the whole of the translation, and the reason the rest of the
 control plane can be held to "never reason from Ansible's textual output": a
 structured task or recap event goes in, an
-:class:`~blitzecdn.core.runs.AnsibleRun` component comes out, and nothing above
+:class:`~blitzecdn.core.domain.runs.AnsibleRun` component comes out, and nothing above
 this ever sees the terminal output that also happened.
 """
 
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.core.runs import HostRun, TaskOutcome, TaskResult
+from blitzecdn.core.domain.runs import HostRun, TaskOutcome, TaskResult
 
 __all__ = ["RunnerEvents"]
 

@@ -18,7 +18,7 @@ from blitzecdn_cache.domain import (
 )
 from pydantic import ValidationError
 
-from blitzecdn.core.runs import HostRun
+from blitzecdn.core.domain.runs import HostRun
 
 
 def test_a_purge_uri_must_be_an_absolute_path():

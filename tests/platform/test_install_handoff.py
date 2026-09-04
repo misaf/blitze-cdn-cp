@@ -4,7 +4,7 @@ import subprocess
 from control_plane_fixtures import FakeRunner
 
 from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.core.database import Repository
+from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.install_handoff import finalize_standalone, install_wrapper
 
 

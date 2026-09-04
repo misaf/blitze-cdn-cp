@@ -5,7 +5,7 @@ from weakref import WeakKeyDictionary
 
 from blitzecdn_origins.adapters import OriginCheckPlaybook
 
-from blitzecdn.core.resources import distribution_version
+from blitzecdn.core.runtime.resources import distribution_version
 from blitzecdn_certificates.automatic_ssl.service import AutomaticSslService
 from blitzecdn_certificates.certificates.adapters import CertbotIssuer, CertificateStore
 from blitzecdn_certificates.certificates.ports import WorkflowCoordinator
