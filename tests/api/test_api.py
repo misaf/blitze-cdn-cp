@@ -1,12 +1,10 @@
-import threading
 import time
-from importlib import import_module
-from importlib.util import find_spec
 
 from control_plane_fixtures import (
+    API_HEADERS,
     control_plane_app,
     host_run,
-    with_capability_settings,
+    seed_site_over_http,
 )
 from fastapi.testclient import TestClient
 
@@ -22,51 +20,6 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
 )
 from blitzecdn.core.operations import WorkflowKind
-
-CertificateService = (
-    import_module("blitzecdn_certificates.certificates.service").CertificateService
-    if find_spec("blitzecdn_certificates") is not None
-    else None
-)
-
-REQUIRES_CERTIFICATES = frozenset(
-    {
-        "test_certificate_upload_and_metadata_api",
-        "test_certificates_are_readable",
-        "test_automatic_ssl_reconciliation_is_exposed_by_the_api",
-        "test_renewal_can_be_narrowed_to_named_sites",
-        "test_an_empty_renewal_selector_is_a_422",
-        "test_renewal_is_bounded_by_the_configured_budget",
-        "test_renewal_does_not_occupy_the_shared_request_thread_pool",
-        "test_the_preflight_endpoint_reports_readiness",
-        "test_the_preflight_endpoint_requires_auth",
-        "test_a_blocked_preflight_makes_a_request_a_409",
-        "test_skip_preflight_is_rejected_as_a_non_boolean",
-    }
-)
-
-
-def _seed_site(client, headers, *, name="cdn-example-com", label="cdn", **policy):
-    """Zone, site, record — over HTTP, the way a client would.
-
-    Three calls where there used to be two, and the middle one is the change:
-    a site is created in its own right rather than appearing because a record
-    was proxied.
-    """
-    client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
-    created = client.post(
-        "/v1/sites",
-        json={"name": name, "origin_host": "198.51.100.10", **policy},
-        headers=headers,
-    )
-    assert created.status_code == 201, created.text
-    routed = client.post(
-        "/v1/domains/example.com/records",
-        json={"domain": "example.com", "name": label, "site": name},
-        headers=headers,
-    )
-    assert routed.status_code == 201, routed.text
-    return created.json()
 
 
 def test_the_api_carries_every_policy_field_the_domain_has():
@@ -244,7 +197,7 @@ def test_dns_export_omits_addresses_for_proxied_records(
     """A routed name must resolve to an edge, and edge IPs are not ours."""
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
-        _seed_site(client, headers)
+        seed_site_over_http(client, headers)
         client.post(
             "/v1/domains/example.com/records",
             json={"domain": "example.com", "name": "db", "value": "198.51.100.10"},
@@ -265,7 +218,7 @@ def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
     """A convergence can outlast any HTTP client, so the request must not block."""
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
-        _seed_site(client, headers)
+        seed_site_over_http(client, headers)
         queued = client.post("/v1/deployments", json={"check": True}, headers=headers)
         assert queued.status_code == 202
         deployment_id = queued.json()["id"]
@@ -275,36 +228,12 @@ def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(
         assert body["status"] == "queued"
 
 
-def test_certificate_upload_and_metadata_api(settings, site_payload, certificate_pair):
-    headers = {"X-API-Key": "x" * 32}
-    certificate, key = certificate_pair()
-    with TestClient(control_plane_app(settings)) as client:
-        _seed_site(client, headers)
-        uploaded = client.post(
-            "/v1/sites/cdn-example-com/certificate/upload",
-            files={
-                "certificate": ("fullchain.pem", certificate, "application/x-pem-file"),
-                "private_key": ("privkey.pem", key, "application/x-pem-file"),
-            },
-            headers=headers,
-        )
-        assert uploaded.status_code == 200
-        body = uploaded.json()
-        assert body["source"] == "uploaded"
-        assert "private_key" not in body
-        metadata = client.get("/v1/sites/cdn-example-com/certificate", headers=headers)
-        assert metadata.json() == body
-
-
-_HEADERS = {"X-API-Key": "x" * 32}
-
-
 def test_a_deploy_can_be_narrowed_to_some_edges(settings):
     with TestClient(control_plane_app(settings)) as client:
         accepted = client.post(
             "/v1/deployments",
             json={"check": True, "host_limit": "edge-a"},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert accepted.status_code == 202
         assert accepted.json()["host_limit"] == "edge-a"
@@ -317,22 +246,22 @@ def test_a_limit_that_could_widen_a_deploy_is_a_422(settings):
             response = client.post(
                 "/v1/deployments",
                 json={"host_limit": pattern},
-                headers=_HEADERS,
+                headers=API_HEADERS,
             )
             assert response.status_code == 422, pattern
-        assert client.get("/v1/deployments", headers=_HEADERS).json() == []
+        assert client.get("/v1/deployments", headers=API_HEADERS).json() == []
 
 
 def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
     with TestClient(control_plane_app(settings)) as client:
-        queued = client.post("/v1/drift", json={}, headers=_HEADERS)
+        queued = client.post("/v1/drift", json={}, headers=API_HEADERS)
         assert queued.status_code == 202
         assert queued.json()["check_mode"] is True
 
         deployment_id = queued.json()["id"]
         for _ in range(50):
             report = client.get(
-                f"/v1/deployments/{deployment_id}/drift", headers=_HEADERS
+                f"/v1/deployments/{deployment_id}/drift", headers=API_HEADERS
             )
             if report.status_code == 200:
                 break
@@ -343,37 +272,22 @@ def test_drift_queues_a_check_run_and_reads_back_as_a_report(settings):
 
 def test_an_applied_deployment_is_not_readable_as_drift(settings):
     with TestClient(control_plane_app(settings)) as client:
-        queued = client.post("/v1/deployments", json={"check": False}, headers=_HEADERS)
+        queued = client.post(
+            "/v1/deployments", json={"check": False}, headers=API_HEADERS
+        )
         deployment_id = queued.json()["id"]
         response = client.get(
-            f"/v1/deployments/{deployment_id}/drift", headers=_HEADERS
+            f"/v1/deployments/{deployment_id}/drift", headers=API_HEADERS
         )
         assert response.status_code == 409
 
 
-def test_certificates_are_readable(settings):
-    # Origins are no longer among these: the check runs a playbook across the
-    # fleet now, so it is a POST like the cache-statistics route rather than a
-    # read the controller can answer by itself.
-    with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/certificates", headers=_HEADERS).json() == []
-        assert (
-            client.get("/v1/certificates?expiring_in=30", headers=_HEADERS).json() == []
-        )
-        assert (
-            client.post("/v1/certificates/renew", json={}, headers=_HEADERS).json()[
-                "renewed"
-            ]
-            == []
-        )
-
-
 def test_a_single_site_is_readable_by_name(settings):
     with TestClient(control_plane_app(settings)) as client:
-        _seed_site(client, _HEADERS)
-        name = client.get("/v1/sites", headers=_HEADERS).json()[0]["name"]
+        seed_site_over_http(client, API_HEADERS)
+        name = client.get("/v1/sites", headers=API_HEADERS).json()[0]["name"]
 
-        response = client.get(f"/v1/sites/{name}", headers=_HEADERS)
+        response = client.get(f"/v1/sites/{name}", headers=API_HEADERS)
 
         assert response.status_code == 200
         assert response.json()["name"] == name
@@ -383,31 +297,15 @@ def test_a_single_site_is_readable_by_name(settings):
         assert "origin_scheme" not in response.json()
 
 
-def test_automatic_ssl_reconciliation_is_exposed_by_the_api(settings):
-    with TestClient(control_plane_app(settings)) as client:
-        response = client.post(
-            "/v1/ssl/automatic/reconcile",
-            headers=_HEADERS,
-        )
-
-    assert response.status_code == 200
-    assert response.json() == {
-        "scanned": [],
-        "upgraded": {},
-        "skipped": {},
-        "deployment": None,
-    }
-
-
 def test_removed_origin_scheme_is_rejected_on_create(
     settings, domain_payload, record_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
         response = client.post(
             "/v1/domains/example.com/records",
             json={**record_payload, "origin_scheme": "https"},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert response.status_code == 422
 
@@ -416,17 +314,17 @@ def test_removed_origin_scheme_is_rejected_on_patch(
     settings, domain_payload, record_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
         client.post(
             "/v1/domains/example.com/records",
             json=record_payload,
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         response = client.patch(
             "/v1/domains/example.com/records/cdn",
             params={"type": "A"},
             json={"origin_scheme": "http"},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert response.status_code == 422
 
@@ -435,11 +333,11 @@ def test_removed_origin_port_is_rejected_on_create(
     settings, domain_payload, record_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
         response = client.post(
             "/v1/domains/example.com/records",
             json={**record_payload, "origin_port": 8080},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert response.status_code == 422
 
@@ -448,45 +346,24 @@ def test_removed_origin_port_is_rejected_on_patch(
     settings, domain_payload, record_payload
 ):
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/domains", json=domain_payload, headers=_HEADERS)
+        client.post("/v1/domains", json=domain_payload, headers=API_HEADERS)
         client.post(
             "/v1/domains/example.com/records",
             json=record_payload,
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         response = client.patch(
             "/v1/domains/example.com/records/cdn",
             params={"type": "A"},
             json={"origin_port": 8080},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert response.status_code == 422
 
 
 def test_an_unknown_site_is_a_404(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/sites/absent", headers=_HEADERS).status_code == 404
-
-
-def test_renewal_can_be_narrowed_to_named_sites(settings):
-    with TestClient(control_plane_app(settings)) as client:
-        response = client.post(
-            "/v1/certificates/renew",
-            json={"sites": ["absent-example-com"]},
-            headers=_HEADERS,
-        )
-        # No certificate by that name, so the selector is a 404 rather than an
-        # empty success an automated caller would read as "nothing was due".
-        assert response.status_code == 404
-
-
-def test_an_empty_renewal_selector_is_a_422(settings):
-    """`[]` would otherwise mean 'renew nothing' while reading as a filter."""
-    with TestClient(control_plane_app(settings)) as client:
-        response = client.post(
-            "/v1/certificates/renew", json={"sites": []}, headers=_HEADERS
-        )
-        assert response.status_code == 422
+        assert client.get("/v1/sites/absent", headers=API_HEADERS).status_code == 404
 
 
 # ----------------------------------------------------------------------
@@ -512,7 +389,7 @@ def test_a_configuration_error_is_a_400_rather_than_a_503(settings, monkeypatch)
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
+        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
     assert response.status_code == 400
     assert response.json()["detail"] == "edge does not exist: edge-01"
 
@@ -526,7 +403,7 @@ def test_an_execution_error_is_a_502(settings, monkeypatch):
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
+        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
     assert response.status_code == 502
 
 
@@ -538,135 +415,9 @@ def test_a_busy_deployment_is_a_409_that_says_when_to_come_back(settings, monkey
 
     monkeypatch.setattr(DeploymentService, "submit_deployment", busy)
     with TestClient(control_plane_app(settings)) as client:
-        response = client.post("/v1/deployments", json={}, headers=_HEADERS)
+        response = client.post("/v1/deployments", json={}, headers=API_HEADERS)
     assert response.status_code == 409
     assert response.headers["Retry-After"] == "30"
-
-
-def test_renewal_is_bounded_by_the_configured_budget(settings, monkeypatch):
-    """A sweep served over HTTP must not run until the CA gets bored."""
-    seen: dict[str, object] = {}
-
-    def renew(_self, operator, **kwargs):
-        seen.update(kwargs)
-        seen["operator"] = operator
-        return {"renewed": [], "skipped": [], "failed": []}
-
-    configured = with_capability_settings(
-        settings, certificate_renewal_budget_seconds=42
-    )
-    monkeypatch.setattr(CertificateService, "renew_certificates", renew)
-    with TestClient(control_plane_app(configured)) as client:
-        response = client.post("/v1/certificates/renew", json={}, headers=_HEADERS)
-
-    assert response.status_code == 200
-    assert seen["budget_seconds"] == 42
-
-
-def test_renewal_does_not_occupy_the_shared_request_thread_pool(settings, monkeypatch):
-    """It runs on the renewal pool, so /health keeps answering during a sweep.
-
-    The whole failure this guards against is a controller that looks dead to a
-    load balancer while it is working perfectly, so the assertion is the thread
-    name rather than a timing measurement.
-    """
-    names: list[str] = []
-
-    def renew(_self, _operator, **_kwargs):
-        names.append(threading.current_thread().name)
-        return {"renewed": [], "skipped": [], "failed": []}
-
-    monkeypatch.setattr(CertificateService, "renew_certificates", renew)
-    with TestClient(control_plane_app(settings)) as client:
-        assert (
-            client.post("/v1/certificates/renew", json={}, headers=_HEADERS).status_code
-            == 200
-        )
-
-    assert names and names[0].startswith("blitzecdn-worker")
-
-
-def _seed_proxied_record(client) -> None:
-    _seed_site(client, _HEADERS)
-
-
-def _stub_preflight(monkeypatch, *failures: str) -> None:
-    """Replace the real checks, which would resolve names and probe an origin."""
-    domain = import_module("blitzecdn_certificates.certificates.domain")
-    preflight = import_module("blitzecdn_certificates.certificates.preflight")
-    preflight_check = domain.PreflightCheck
-    preflight_report = domain.PreflightReport
-    preflight_severity = domain.PreflightSeverity
-    certificate_preflight = preflight.CertificatePreflight
-
-    def check(self, site, *, deployed, record_ttl=None):
-        return preflight_report(
-            site=site.name,
-            checks=tuple(
-                preflight_check(
-                    name=name,
-                    passed=False,
-                    severity=preflight_severity.BLOCKING,
-                    detail=f"{name} failed",
-                )
-                for name in failures
-            ),
-        )
-
-    monkeypatch.setattr(certificate_preflight, "check", check)
-
-
-def test_the_preflight_endpoint_reports_readiness(settings, monkeypatch):
-    _stub_preflight(monkeypatch)
-    with TestClient(control_plane_app(settings)) as client:
-        _seed_proxied_record(client)
-
-        response = client.get(
-            "/v1/sites/cdn-example-com/certificate/preflight", headers=_HEADERS
-        )
-
-        assert response.status_code == 200
-        assert response.json() == {"site": "cdn-example-com", "checks": []}
-
-
-def test_the_preflight_endpoint_requires_auth(settings, monkeypatch):
-    _stub_preflight(monkeypatch)
-    with TestClient(control_plane_app(settings)) as client:
-        assert (
-            client.get("/v1/sites/cdn-example-com/certificate/preflight").status_code
-            == 401
-        )
-
-
-def test_a_blocked_preflight_makes_a_request_a_409(settings, monkeypatch):
-    _stub_preflight(monkeypatch, "dns")
-    with TestClient(control_plane_app(settings)) as client:
-        _seed_proxied_record(client)
-
-        response = client.post(
-            "/v1/sites/cdn-example-com/certificate/request",
-            json={"email": "ops@example.com"},
-            headers=_HEADERS,
-        )
-
-        assert response.status_code == 409
-        assert "preflight failed" in response.json()["detail"]
-
-
-def test_skip_preflight_is_rejected_as_a_non_boolean(settings, monkeypatch):
-    """`extra="forbid"` plus a typed field: a typo cannot silently disable this."""
-    _stub_preflight(monkeypatch, "dns")
-    with TestClient(control_plane_app(settings)) as client:
-        _seed_proxied_record(client)
-
-        assert (
-            client.post(
-                "/v1/sites/cdn-example-com/certificate/request",
-                json={"email": "ops@example.com", "skip_preflght": True},
-                headers=_HEADERS,
-            ).status_code
-            == 422
-        )
 
 
 # ----------------------------------------------------------------------
@@ -684,27 +435,29 @@ _EDGE = {
 
 def test_edge_crud_over_http(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/edges", headers=_HEADERS).json() == []
+        assert client.get("/v1/edges", headers=API_HEADERS).json() == []
 
-        created = client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        created = client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
         assert created.status_code == 201
         assert created.json()["name"] == "edge-01"
         # Defaults are resolved by the model, not left for the plugin to guess.
         assert created.json()["user"] == "deploy"
         assert created.json()["port"] == 22
 
-        assert client.post("/v1/edges", json=_EDGE, headers=_HEADERS).status_code == 409
-        assert len(client.get("/v1/edges", headers=_HEADERS).json()) == 1
         assert (
-            client.get("/v1/edges/edge-01", headers=_HEADERS).json()["host"]
+            client.post("/v1/edges", json=_EDGE, headers=API_HEADERS).status_code == 409
+        )
+        assert len(client.get("/v1/edges", headers=API_HEADERS).json()) == 1
+        assert (
+            client.get("/v1/edges/edge-01", headers=API_HEADERS).json()["host"]
             == "192.0.2.10"
         )
-        assert client.get("/v1/edges/absent", headers=_HEADERS).status_code == 404
+        assert client.get("/v1/edges/absent", headers=API_HEADERS).status_code == 404
 
         patched = client.patch(
             "/v1/edges/edge-01",
             json={"port": 7845, "public_addresses": ["203.0.113.10"]},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert patched.status_code == 200
         assert patched.json()["port"] == 7845
@@ -714,7 +467,7 @@ def test_edge_crud_over_http(settings):
 
         assert (
             client.patch(
-                "/v1/edges/absent", json={"port": 22}, headers=_HEADERS
+                "/v1/edges/absent", json={"port": 22}, headers=API_HEADERS
             ).status_code
             == 404
         )
@@ -728,10 +481,10 @@ def test_an_edge_patch_cannot_rename_the_host(settings):
     caller believing a rename had happened.
     """
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
 
         response = client.patch(
-            "/v1/edges/edge-01", json={"name": "edge-99"}, headers=_HEADERS
+            "/v1/edges/edge-01", json={"name": "edge-99"}, headers=API_HEADERS
         )
 
         assert response.status_code == 422
@@ -743,11 +496,11 @@ def test_an_invalid_management_cidr_is_a_422_not_a_stored_edge(settings):
         response = client.post(
             "/v1/edges",
             json={**_EDGE, "ssh_sources": ["anywhere"]},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
 
         assert response.status_code == 422
-        assert client.get("/v1/edges", headers=_HEADERS).json() == []
+        assert client.get("/v1/edges", headers=API_HEADERS).json() == []
 
 
 def test_removing_an_edge_without_decommissioning_says_so(settings):
@@ -758,10 +511,10 @@ def test_removing_an_edge_without_decommissioning_says_so(settings):
     the body reports which one happened.
     """
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
 
         response = client.delete(
-            "/v1/edges/edge-01?decommission=false", headers=_HEADERS
+            "/v1/edges/edge-01?decommission=false", headers=API_HEADERS
         )
 
         assert response.status_code == 200
@@ -770,7 +523,7 @@ def test_removing_an_edge_without_decommissioning_says_so(settings):
             "decommissioned": False,
             "hosts": [],
         }
-        assert client.get("/v1/edges", headers=_HEADERS).json() == []
+        assert client.get("/v1/edges", headers=API_HEADERS).json() == []
 
 
 def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
@@ -788,23 +541,23 @@ def test_a_failed_teardown_keeps_the_edge_registered(settings, monkeypatch):
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
 
-        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
+        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
 
         assert response.status_code == 502
         assert [
-            edge["name"] for edge in client.get("/v1/edges", headers=_HEADERS).json()
+            edge["name"] for edge in client.get("/v1/edges", headers=API_HEADERS).json()
         ] == ["edge-01"]
 
 
 def test_registering_an_edge_is_audited(settings):
     """Unanswerable before: edges never went through a service, so never a bus."""
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
-        client.patch("/v1/edges/edge-01", json={"port": 7845}, headers=_HEADERS)
+        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
+        client.patch("/v1/edges/edge-01", json={"port": 7845}, headers=API_HEADERS)
 
-        events = client.get("/v1/audit-events", headers=_HEADERS).json()
+        events = client.get("/v1/audit-events", headers=API_HEADERS).json()
 
         actions = [event["action"] for event in events]
         assert "edge.added" in actions
@@ -837,9 +590,9 @@ def test_a_successful_teardown_reports_what_it_did(settings, monkeypatch):
         ),
     )
     with TestClient(control_plane_app(settings)) as client:
-        client.post("/v1/edges", json=_EDGE, headers=_HEADERS)
+        client.post("/v1/edges", json=_EDGE, headers=API_HEADERS)
 
-        response = client.delete("/v1/edges/edge-01", headers=_HEADERS)
+        response = client.delete("/v1/edges/edge-01", headers=API_HEADERS)
 
         assert response.status_code == 200
         body = response.json()
@@ -869,17 +622,18 @@ def test_http3_create_read_patch_and_validation(settings):
         "certificate_key_path": "/etc/ssl/private/edge.key",
     }
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=site, headers=_HEADERS)
+        created = client.post("/v1/sites", json=site, headers=API_HEADERS)
         assert created.status_code == 201
         assert created.json()["http3_enabled"] is True
         assert (
-            client.get("/v1/sites", headers=_HEADERS).json()[0]["http3_enabled"] is True
+            client.get("/v1/sites", headers=API_HEADERS).json()[0]["http3_enabled"]
+            is True
         )
 
         unchanged = client.patch(
             "/v1/sites/cdn-example-com",
             json={"http3_enabled": True},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert unchanged.status_code == 200
         assert unchanged.json()["http3_enabled"] is True
@@ -887,7 +641,7 @@ def test_http3_create_read_patch_and_validation(settings):
         disabled = client.patch(
             "/v1/sites/cdn-example-com",
             json={"http3_enabled": False},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert disabled.status_code == 200
         assert disabled.json()["http3_enabled"] is False
@@ -895,12 +649,12 @@ def test_http3_create_read_patch_and_validation(settings):
         rejected = client.patch(
             "/v1/sites/cdn-example-com",
             json={"ssl_mode": "off", "http3_enabled": True},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert rejected.status_code == 422
         assert "requires ssl_mode" in rejected.text
 
-        events = client.get("/v1/audit-events", headers=_HEADERS).json()
+        events = client.get("/v1/audit-events", headers=API_HEADERS).json()
         updates = [event for event in events if event["action"] == "site.updated"]
         assert any("http3_enabled" in event["details"]["fields"] for event in updates)
 
@@ -916,7 +670,7 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         created = client.post(
             "/v1/sites",
             json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert created.status_code == 201
         assert created.json()["under_attack_mode"] is False
@@ -924,19 +678,19 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         patched = client.patch(
             "/v1/sites/cdn-example-com",
             json={"under_attack_mode": True},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert patched.status_code == 200
         assert patched.json()["under_attack_mode"] is True
         assert (
-            client.get("/v1/sites", headers=_HEADERS).json()[0]["under_attack_mode"]
+            client.get("/v1/sites", headers=API_HEADERS).json()[0]["under_attack_mode"]
             is True
         )
 
         invalid = client.patch(
             "/v1/sites/cdn-example-com",
             json={"under_attack_mode": "sometimes"},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert invalid.status_code == 422
 
@@ -944,12 +698,14 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
 def test_compression_is_reported_patchable_and_validated(settings):
     payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=payload, headers=_HEADERS)
+        created = client.post("/v1/sites", json=payload, headers=API_HEADERS)
         assert created.status_code == 201
         assert created.json()["compression"] == "brotli"
 
         patched = client.patch(
-            "/v1/sites/cdn-example-com", json={"compression": "off"}, headers=_HEADERS
+            "/v1/sites/cdn-example-com",
+            json={"compression": "off"},
+            headers=API_HEADERS,
         )
         assert patched.status_code == 200
         assert patched.json()["compression"] == "off"
@@ -957,7 +713,7 @@ def test_compression_is_reported_patchable_and_validated(settings):
         rejected = client.patch(
             "/v1/sites/cdn-example-com",
             json={"compression": "deflate"},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert rejected.status_code == 422
 
@@ -965,17 +721,18 @@ def test_compression_is_reported_patchable_and_validated(settings):
         client.patch(
             "/v1/sites/cdn-example-com",
             json={"cache_enabled": False},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert (
-            client.get("/v1/sites", headers=_HEADERS).json()[0]["compression"] == "off"
+            client.get("/v1/sites", headers=API_HEADERS).json()[0]["compression"]
+            == "off"
         )
 
 
 def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings):
     payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=payload, headers=_HEADERS)
+        created = client.post("/v1/sites", json=payload, headers=API_HEADERS)
         assert created.status_code == 201
         assert created.json()["visitor_headers"] == {
             "connecting_ip": True,
@@ -985,7 +742,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         patched = client.patch(
             "/v1/sites/cdn-example-com",
             json={"visitor_headers": {"connecting_ip": False, "ip_country": True}},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert patched.status_code == 200
         assert patched.json()["visitor_headers"] == {
@@ -998,7 +755,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         replaced = client.patch(
             "/v1/sites/cdn-example-com",
             json={"visitor_headers": {"ip_country": True}},
-            headers=_HEADERS,
+            headers=API_HEADERS,
         )
         assert replaced.json()["visitor_headers"] == {
             "connecting_ip": True,
@@ -1010,6 +767,6 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
             rejected = client.patch(
                 "/v1/sites/cdn-example-com",
                 json={"visitor_headers": unknown},
-                headers=_HEADERS,
+                headers=API_HEADERS,
             )
             assert rejected.status_code == 422

@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
-from importlib import import_module
 from importlib.util import find_spec
 from pathlib import Path
 
@@ -57,17 +56,6 @@ def dramatiq_stub_broker(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def skip_detached_certificate_integrations(request):
-    """Run package-crossing root tests only while their provider is attached."""
-    required = getattr(request.module, "REQUIRES_CERTIFICATES", frozenset())
-    if request.function.__name__ not in required:
-        return
-    request.node.add_marker(pytest.mark.requires_certificates)
-    if find_spec("blitzecdn_certificates") is None:
-        pytest.skip("blitzecdn-certificates is detached")
-
-
-@pytest.fixture(autouse=True)
 def skip_tests_a_detached_capability_cannot_answer(request):
     """Run a root test that reads a capability's own output only while it is attached.
 
@@ -89,57 +77,6 @@ def skip_tests_a_detached_capability_cannot_answer(request):
     )
     if detached:
         pytest.skip(f"detached: {', '.join(detached)}")
-
-
-@pytest.fixture(autouse=True)
-def attach_certificate_test_services(monkeypatch):
-    """Adapt legacy cross-capability integration tests to the detached package.
-
-    Production core never constructs these services. The all-package test
-    workspace does so explicitly, while core-only wheel tests exercise the
-    real detached shape in a separate interpreter.
-    """
-    if find_spec("blitzecdn_certificates") is None:
-        yield
-        return
-
-    original = ControlPlane.__init__
-
-    def initialize(control, *args, **kwargs):
-        certificate_store = kwargs.pop("certificate_store", None)
-        issuer = kwargs.pop("issuer", None)
-        preflight = kwargs.pop("preflight", None)
-        original(control, *args, **kwargs)
-
-        composition = import_module("blitzecdn_certificates.composition")
-        service_module = import_module("blitzecdn_certificates.certificates.service")
-        default = composition.build_certificate_service(control)
-        certificates = service_module.CertificateService(
-            policy=default.policy,
-            persistence=service_module.CertificatePersistence(
-                sites=control.sites,
-                certificates=certificate_store or default.persistence.certificates,
-                uow=control.transactions,
-                requirements=control.deployment_requirements,
-            ),
-            execution=service_module.CertificateExecution(
-                runner=control.deployment_lock,
-                issuer=issuer or default.execution.issuer,
-                preflight=preflight or default.execution.preflight,
-            ),
-            events=control.events,
-            dns=control.dns,
-            site_editor=control.site_editor,
-            deployments=control.deployments,
-            workflows=control.workflows,
-        )
-        control.certificates = certificates
-        composition._certificate_services[control] = certificates
-        control.automatic_ssl = composition.build_automatic_ssl_service(control)
-        control._certificate_store = certificates.persistence.certificates
-
-    monkeypatch.setattr(ControlPlane, "__init__", initialize)
-    yield
 
 
 def seed_site(
@@ -432,39 +369,6 @@ class RefusingBackgroundQueue(RecordingBackgroundQueue):
         super().enqueue(deployment_id)
 
 
-class FakePreflight:
-    """Stands in for ``CertificatePreflight`` without touching the network.
-
-    Certificate preflight resolves hostnames, queries CAA and probes origins,
-    none of which a test can do. The default is a clean report so tests about
-    issuance stay about issuance; ``failures`` makes it block, for the tests
-    that are about the refusal itself.
-    """
-
-    def __init__(self, failures: tuple[str, ...] = ()) -> None:
-        self.failures = failures
-        self.calls: list[tuple[str, bool, int | None]] = []
-
-    def check(self, site, *, deployed: bool, record_ttl: int | None = None):
-        from importlib import import_module
-
-        domain = import_module("blitzecdn_certificates.certificates.domain")
-
-        self.calls.append((site.name, deployed, record_ttl))
-        return domain.PreflightReport(
-            site=site.name,
-            checks=tuple(
-                domain.PreflightCheck(
-                    name=name,
-                    passed=False,
-                    severity=domain.PreflightSeverity.BLOCKING,
-                    detail=f"{name} failed",
-                )
-                for name in self.failures
-            ),
-        )
-
-
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     ansible = tmp_path / "ansible"
@@ -564,7 +468,6 @@ def seeded(settings):
             settings=settings,
             repository=repository,
             runner=runner or FakeRunner(),
-            preflight=FakePreflight(),
         )
         seed_site(control, operator="tester")
         return control, repository
@@ -647,7 +550,7 @@ def certificate_pair():
     return generate
 
 
-def cli_control_plane(settings, monkeypatch, runner_double=None, preflight=None):
+def cli_control_plane(settings, monkeypatch, runner_double=None):
     """A control plane wired to doubles, with the CLI pointed at it.
 
     Shared because more than one distribution's CLI tests need it: the command
@@ -655,16 +558,10 @@ def cli_control_plane(settings, monkeypatch, runner_double=None, preflight=None)
     of `blitzecdn cache purge` drives the same root application as a test of
     `blitzecdn deploy` and needs the same substitution to do it.
     """
-    certificate_options = (
-        {"preflight": preflight or FakePreflight()}
-        if find_spec("blitzecdn_certificates") is not None
-        else {}
-    )
     control = ControlPlane(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_double or FakeRunner(),
-        **certificate_options,
     )  # type: ignore[arg-type]
     monkeypatch.setattr(cli_common, "control_plane", lambda: control)
     monkeypatch.setattr(cli_common, "settings", lambda: settings)
@@ -685,3 +582,35 @@ def repository_on(settings):
 def control_plane_app(settings):
     """The all-package workspace API used by cross-capability integration tests."""
     return create_app(settings, plugins=load_plugins())
+
+
+#: The API key `settings` configures, as the header a client sends. Shared
+#: rather than spelled per module: every HTTP suite in the workspace needs it,
+#: and an optional distribution's tests cannot reach a helper defined inside
+#: `tests/api/test_api.py`.
+API_HEADERS = {"X-API-Key": "x" * 32}
+
+
+def seed_site_over_http(
+    client, headers=API_HEADERS, *, name="cdn-example-com", label="cdn", **policy
+):
+    """Zone, site, record — over HTTP, the way a client would.
+
+    Three calls where there used to be two, and the middle one is the change:
+    a site is created in its own right rather than appearing because a record
+    was proxied.
+    """
+    client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
+    created = client.post(
+        "/v1/sites",
+        json={"name": name, "origin_host": "198.51.100.10", **policy},
+        headers=headers,
+    )
+    assert created.status_code == 201, created.text
+    routed = client.post(
+        "/v1/domains/example.com/records",
+        json={"domain": "example.com", "name": label, "site": name},
+        headers=headers,
+    )
+    assert routed.status_code == 201, routed.text
+    return created.json()

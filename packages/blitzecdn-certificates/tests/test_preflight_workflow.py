@@ -1,11 +1,10 @@
 # ruff: noqa: F403,F405
 from application_support import *
-from blitzecdn_certificates.certificates.adapters import CertificateStore
-from blitzecdn_certificates.certificates.service import (
-    CertificateExecution,
-    CertificatePersistence,
-    CertificatePolicy,
-    CertificateService,
+from certificate_support import (
+    FakePreflight,
+    _proxied_site_with_certificate,
+    _RecordingIssuer,
+    certificate_control_plane,
 )
 
 # ----------------------------------------------------------------------
@@ -17,35 +16,19 @@ from blitzecdn_certificates.certificates.service import (
 
 
 def _preflight_control(settings, certificate_pair, failures=()):
-    repository = Repository(settings.database_path)
+    """The control plane these cases share, with the CA and the checks faked.
+
+    It used to assemble `CertificateService` field by field — the only place in
+    the suite that did — because core's fixtures could not build one. It now
+    goes through the same helper every other suite here uses, so a change to
+    the composition root reaches this file too.
+    """
     issuer = _RecordingIssuer(certificate_pair)
     preflight = FakePreflight(failures)
-    runner = FakeRunner()
-    control = ControlPlane(
-        settings=settings,
-        repository=repository,
-        runner=runner,  # type: ignore[arg-type]
+    control = certificate_control_plane(
+        settings, runner=FakeRunner(), issuer=issuer, preflight=preflight
     )
-    control.certificates = CertificateService(  # type: ignore[attr-defined]
-        policy=CertificatePolicy(default_email=None),
-        persistence=CertificatePersistence(
-            sites=control.sites,
-            certificates=CertificateStore(settings),
-            uow=control.transactions,
-            requirements=control.deployment_requirements,
-        ),
-        execution=CertificateExecution(
-            runner=runner,
-            issuer=issuer,
-            preflight=preflight,
-        ),
-        events=control.events,
-        dns=control.dns,
-        site_editor=control.site_editor,
-        deployments=control.deployments,
-        workflows=control.workflows,
-    )
-    return control, repository, issuer, preflight
+    return control, Repository(settings.database_path), issuer, preflight
 
 
 def test_a_blocked_preflight_refuses_before_reaching_the_ca(settings, certificate_pair):

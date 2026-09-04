@@ -11,7 +11,6 @@ import pytest
 import yaml
 from control_plane_fixtures import (
     FakeEdgeStore,
-    FakePreflight,
     FakeRunner,
     RecordingBackgroundQueue,
     RefusingBackgroundQueue,
@@ -46,76 +45,6 @@ from blitzecdn.core.runs import HostRun, RunStatus
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:
     """The site and routed record most tests need: `cdn-example-com`."""
     return seed_site(control)
-
-
-def _automatic_origin_report(
-    mode: SslMode,
-    *,
-    reachable: bool = True,
-    tls_verified: bool | None = None,
-    status: int = 200,
-) -> HostRun:
-    scheme = "https" if mode in {SslMode.FULL, SslMode.FULL_STRICT} else "http"
-    return host_run(
-        "edge-a",
-        report={
-            "host": "edge-a",
-            "collected_at": "2026-01-01T00:00:00Z",
-            "origins": [
-                {
-                    "site": "cdn-example-com",
-                    "origin": f"198.51.100.10:{443 if scheme == 'https' else 80}",
-                    "scheme": scheme,
-                    "ssl_mode": mode.value,
-                    "sni": "198.51.100.10" if scheme == "https" else None,
-                    "reachable": str(reachable),
-                    "tls_verified": (
-                        "None" if tls_verified is None else str(tls_verified)
-                    ),
-                    "status": str(status) if reachable else "-1",
-                    "content_sha256": "a" * 64 if reachable else None,
-                    "detail": "",
-                }
-            ],
-        },
-    )
-
-
-def _seed_automatic_ssl_record(
-    control: ControlPlane,
-    *,
-    mode: SslMode = SslMode.OFF,
-    automatic: SslAutomaticMode = SslAutomaticMode.AUTO,
-) -> None:
-    seed_site(
-        control,
-        ssl_mode=mode,
-        ssl_automatic_mode=automatic,
-        certificate_mode="existing",
-        certificate_path="/etc/ssl/certs/edge.pem",
-        certificate_key_path="/etc/ssl/private/edge.key",
-    )
-
-
-class _RecordingIssuer:
-    """Stands in for certbot: hands back a fresh pair and remembers the call."""
-
-    def __init__(self, certificate_pair, *, fails: set[str] | None = None) -> None:
-        self._pair = certificate_pair
-        self._fails = fails or set()
-        self.issued: list[tuple[str, str]] = []
-
-    def issue(self, site, email):
-        if site.name in self._fails:
-            raise ExecutionError("challenge failed")
-        self.issued.append((site.name, email))
-        return self._pair((site.server_names[0],), days=90)
-
-
-def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
-    site = _seed_proxied_record(control)
-    certificate, key = certificate_pair((site.server_names[0],), days=days)
-    return control.certificates.upload_certificate(site.name, certificate, key, "alice")
 
 
 def _purge_run():

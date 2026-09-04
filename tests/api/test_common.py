@@ -1,17 +1,8 @@
-import threading
-
-from control_plane_fixtures import control_plane_app, with_capability_settings
+from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
 from blitzecdn.core.persistence.workflows import WorkflowStore
-
-REQUIRES_CERTIFICATES = frozenset(
-    {
-        "test_api_service_runs_certificate_reconciliation_on_its_interval",
-        "test_api_service_runs_automatic_ssl_scans_on_their_interval",
-    }
-)
 
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):
@@ -49,47 +40,6 @@ def test_health_reports_redis_unavailable(settings, monkeypatch):
         "check": "broker",
         "detail": "ConnectionError",
     }
-
-
-def test_api_service_runs_certificate_reconciliation_on_its_interval(
-    settings, monkeypatch
-):
-    called = threading.Event()
-    configured = with_capability_settings(
-        settings, certificate_reconcile_interval_seconds=1
-    )
-
-    def enqueue(_url, job, *, ttl_seconds):
-        assert job == "certificate-reconciliation"
-        assert ttl_seconds >= 2
-        called.set()
-        return True
-
-    monkeypatch.setattr("blitzecdn.scheduler.enqueue_scheduled_once", enqueue)
-
-    with TestClient(create_app(configured)):
-        assert called.wait(2)
-
-
-def test_api_service_runs_automatic_ssl_scans_on_their_interval(settings, monkeypatch):
-    called = threading.Event()
-    configured = with_capability_settings(
-        settings,
-        certificate_reconcile_interval_seconds=0,
-        certificate_renewal_interval_seconds=0,
-        ssl_automatic_scan_interval_seconds=1,
-    )
-
-    def enqueue(_url, job, *, ttl_seconds):
-        assert job == "automatic-ssl-scan"
-        assert ttl_seconds >= 2
-        called.set()
-        return True
-
-    monkeypatch.setattr("blitzecdn.scheduler.enqueue_scheduled_once", enqueue)
-
-    with TestClient(create_app(configured)):
-        assert called.wait(2)
 
 
 def test_openapi_declares_the_api_key_as_a_security_scheme(settings):

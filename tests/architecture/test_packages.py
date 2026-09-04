@@ -647,6 +647,62 @@ def test_the_control_plane_suite_names_no_optional_package():
     assert offenders == []
 
 
+def _dynamic_package_names(path: Path) -> set[str]:
+    """Optional distributions a module names as a *string* rather than imports.
+
+    `import_module("blitzecdn_cache...")` and `find_spec("blitzecdn_cache")`
+    are imports that `ast.Import` cannot see, which is how the rule above came
+    to be satisfied by fifty-six tests that were certificate tests all along:
+    each was written as a conditional import at module scope and then held in
+    a hand-maintained set of names for the fixtures to skip.
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        callee = node.func
+        name = (
+            callee.attr
+            if isinstance(callee, ast.Attribute)
+            else getattr(callee, "id", None)
+        )
+        if name not in {"import_module", "find_spec"}:
+            continue
+        for argument in node.args:
+            if isinstance(argument, ast.Constant) and isinstance(argument.value, str):
+                found.add(argument.value.split(".")[0])
+    return found
+
+
+def test_the_control_plane_suite_does_not_reach_a_package_by_name_either():
+    """The same rule, against the spelling that evades the one above.
+
+    A conditional import is still core knowing an implementation, and it is
+    strictly worse than a plain one: the module imports either way, so the
+    dependency shows up as a test skipped in the core-only run rather than as
+    an error anyone reads. The one permitted use is the fixture that skips a
+    *cross-package rendering* contract — an assertion about a fragment another
+    distribution contributes to core's own template, which has no single owner
+    to move to — and it is allowed by file, not by test name.
+    """
+    optional = _optional_import_roots()
+    allowed = {
+        "test_packages.py",
+        "test_lifecycle.py",
+        # `skip_tests_a_detached_capability_cannot_answer` lives here.
+        "control_plane_fixtures.py",
+    }
+    offenders = [
+        f"{path.name} names {named}"
+        for path in sorted(Path(__file__).parents[1].rglob("*.py"))
+        if path.name not in allowed
+        for named in sorted(_dynamic_package_names(path))
+        if named in optional
+    ]
+    assert offenders == []
+
+
 # --- HTTP/3 is optional; the protocol it is a version of is not -------------
 
 
