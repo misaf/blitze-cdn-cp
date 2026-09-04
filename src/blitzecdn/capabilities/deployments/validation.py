@@ -22,6 +22,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from uuid import uuid4
 
+from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentRunner,
     DeploymentStore,
@@ -30,7 +31,6 @@ from blitzecdn.capabilities.deployments.ports import (
     SiteValidator,
     ZoneEditor,
 )
-from blitzecdn.capabilities.deployments.snapshots import decode_snapshot
 from blitzecdn.core.plugins import Severity
 
 _LOGGER = logging.getLogger(__name__)

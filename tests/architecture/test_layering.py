@@ -49,25 +49,38 @@ _IO_IMPORTS = (
     "sqlalchemy",
     "sqlmodel",
 )
-_DOMAIN_FILES = {"domain.py", "origins.py", "snapshots.py"}
-_ADAPTER_PARTS = {
-    "adapters",
-    # A capability small enough for one adapter module rather than a package
-    # is still an adapter. `tls/certificates/adapters.py` was outside this set
-    # purely because it is a file and the others are a directory.
-    "adapters.py",
-    "persistence.py",
-    "probe.py",
-    "preflight.py",
-    "desired_state.py",
-}
+
+
+#: A slice's parts are named by the directory they sit in, not by a list kept
+#: here. Both of these were lists: `_DOMAIN_FILES` named `domain.py`,
+#: `origins.py` and `snapshots.py`, and the adapter set named `probe.py`,
+#: `preflight.py`, `desired_state.py` and a `persistence.py` beside an
+#: `adapters.py` that meant the same thing. Two modules doing the same job were
+#: held to different rules depending on which name somebody had thought of, and
+#: the module nobody thought of was held to none — a new adapter written as
+#: `renderer.py` would have been free to import `bootstrap`.
+#:
+#: `domain` and `adapters` are directories in every capability now, so a file
+#: is inside the rule the moment it is put where it belongs, and choosing the
+#: directory is choosing the rule.
+def _is_domain(path: Path) -> bool:
+    """A capability's values: `domain/`, and the contract in `policy`."""
+    parts = path.relative_to(_CAPABILITIES).parts
+    return "domain" in {part.removesuffix(".py") for part in parts} or "policy" in {
+        part.removesuffix(".py") for part in parts
+    }
+
+
+def _is_adapter(path: Path) -> bool:
+    """A capability's contact with the outside: everything under `adapters/`."""
+    return "adapters" in path.parts
+
+
 _PUBLIC_CROSS_CAPABILITY_MODULES = {
     "domain",
-    "origins",
     "policy",
     "ports",
     "reporting",
-    "snapshots",
 }
 
 #: Capabilities large enough to be organised into named parts. A sub-capability
@@ -242,8 +255,7 @@ def test_capability_domains_are_framework_and_io_independent():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _capability_files()
-        if path.name in _DOMAIN_FILES
-        or "policy" in path.relative_to(_CAPABILITIES).parts
+        if _is_domain(path)
         for imported in sorted(_imports(path))
         if _banned(
             imported,
@@ -292,8 +304,7 @@ def test_capability_services_depend_on_contracts_not_concrete_adapters():
         for path in _capability_files()
         if path.name in _APPLICATION_MODULES
         for imported in sorted(_imports(path))
-        if _banned(imported, forbidden)
-        or any(part in imported for part in (".adapters", ".persistence", ".probe"))
+        if _banned(imported, forbidden) or ".adapters" in imported
     ]
     assert offenders == []
 
@@ -302,7 +313,7 @@ def test_capability_adapters_never_import_entry_layers_or_composition():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _capability_files()
-        if any(part in _ADAPTER_PARTS for part in path.parts)
+        if _is_adapter(path)
         for imported in sorted(_imports(path))
         if _banned(
             imported,
@@ -520,7 +531,7 @@ def test_domain_models_do_not_render_adapter_documents():
     offenders = [
         f"{path.relative_to(_SOURCE)}:{node.lineno} defines {node.name}"
         for path in _capability_files()
-        if path.name in _DOMAIN_FILES
+        if _is_domain(path)
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         and node.name in forbidden
@@ -555,8 +566,8 @@ def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
     The mirror of this rule is on the patch: ``SitePatch`` has a field for every
     `SitePolicy` knob and none for ``server_names``.
     """
+    from blitzecdn.capabilities.sites.adapters.persistence import SiteStore
     from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-    from blitzecdn.capabilities.sites.persistence import SiteStore
     from blitzecdn.capabilities.sites.service import SiteService
 
     assert {name for name in vars(SiteStore) if not name.startswith("_")} == {

@@ -318,8 +318,8 @@ class CdnSite(SitePolicy):
         The edge preserves the visitor's port toward the origin, so a site has
         one origin endpoint per public proxy port rather than one overall.
         Preflight deliberately checks only this one; see
-        :class:`blitzecdn.capabilities.edges.probe.OriginProbe` for why, and for
-        what it means for a site whose origin serves only 80 and 443.
+        :class:`blitzecdn.capabilities.edges.adapters.probe.OriginProbe` for
+        why, and for what it means for a site serving only 80 and 443.
 
         Under Flexible this is the HTTP origin, because the canonical HTTPS
         listener is 443 and Flexible on 443 does not encrypt the origin leg.

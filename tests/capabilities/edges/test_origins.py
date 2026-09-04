@@ -15,9 +15,9 @@ from contextlib import contextmanager
 import pytest
 from pydantic import ValidationError
 
-import blitzecdn.capabilities.edges.probe as origins_module
-from blitzecdn.capabilities.edges.origins import OriginCheck
-from blitzecdn.capabilities.edges.probe import OriginProbe
+import blitzecdn.capabilities.edges.adapters.probe as origins_module
+from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
+from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import SslMode

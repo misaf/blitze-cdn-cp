@@ -8,7 +8,7 @@ from blitzecdn_origins.domain import OriginReport
 from blitzecdn_origins.reporting import edge_origins
 
 from blitzecdn.capabilities.deployments.ports import DeploymentGateway
-from blitzecdn.capabilities.edges.origins import OriginCheck
+from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.edges.ports import OriginProbe
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.sites.ports import SiteReader

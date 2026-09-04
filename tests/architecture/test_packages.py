@@ -312,7 +312,7 @@ _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.capabilities.deployments.api.models",
     "blitzecdn.capabilities.deployments.domain",
     "blitzecdn.capabilities.deployments.ports",
-    "blitzecdn.capabilities.edges.origins",
+    "blitzecdn.capabilities.edges.domain.origins",
     "blitzecdn.capabilities.edges.ports",
     "blitzecdn.capabilities.tls.policy",
 )

@@ -8,7 +8,7 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.deployments.snapshots import decode_snapshot
+from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep

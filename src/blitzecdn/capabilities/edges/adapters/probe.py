@@ -27,7 +27,7 @@ from collections.abc import Mapping
 from contextlib import suppress
 from typing import Any
 
-from blitzecdn.capabilities.edges.origins import OriginCheck
+from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.config import Settings

@@ -69,11 +69,11 @@ from blitzecdn.capabilities.deployments.service import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.composition import build_dns_service
 from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.composition import build_edge_operations_service
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
-from blitzecdn.capabilities.edges.probe import OriginProbe
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
 from blitzecdn.capabilities.sites.composition import build_site_service
