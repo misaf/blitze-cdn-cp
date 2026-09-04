@@ -6,8 +6,9 @@ returns a :class:`~blitzecdn.core.plugins.CliCommandGroup`, so a separately
 installed package adds `blitzecdn waf ...` without this module changing.
 
 Two things stay here because they are the command line itself rather than a
-capability: the root callback in :mod:`blitzecdn.cli.root` with the global options,
-and `config`, `init` and `setup`, which configure the control plane that
+capability: the root callback in :mod:`blitzecdn.cli.root` with the global
+options, and `config`, `init` and `setup` — in :mod:`blitzecdn.cli.setup` and
+:mod:`blitzecdn.cli.configuration` — which configure the control plane that
 capabilities are then loaded into.
 
 Discovery does not build a control plane. The tree has to exist before an
@@ -27,7 +28,7 @@ from __future__ import annotations
 import typer
 from pydantic import ValidationError
 
-from blitzecdn.cli import bootstrap, common, configuration
+from blitzecdn.cli import common, configuration, setup
 from blitzecdn.cli.common import ExitCode, control_plane, emit, settings
 from blitzecdn.cli.root import app, main
 from blitzecdn.core.config import Settings
@@ -65,7 +66,6 @@ __all__ = [
     "ExitCode",
     "Settings",
     "app",
-    "bootstrap",
     "common",
     "configuration",
     "control_plane",
@@ -74,6 +74,7 @@ __all__ = [
     "register_commands",
     "run",
     "settings",
+    "setup",
 ]
 
 

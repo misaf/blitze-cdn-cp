@@ -27,7 +27,7 @@ from blitzecdn.capabilities.dns.adapters import tables as _dns  # noqa: F401
 from blitzecdn.capabilities.edges.adapters import tables as _edges  # noqa: F401
 from blitzecdn.capabilities.sites.adapters import tables as _sites  # noqa: F401
 from blitzecdn.core.config import Settings
-from blitzecdn.core.persistence.models import Base
+from blitzecdn.core.persistence.tables import Base
 
 config = context.config
 
