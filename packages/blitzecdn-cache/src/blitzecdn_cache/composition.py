@@ -1,6 +1,6 @@
 """This package's own composition root.
 
-``blitzecdn.bootstrap`` builds the control plane's required services and knows
+``blitzecdn.composition`` builds the control plane's required services and knows
 nothing about what is installed beside it, so an optional distribution wires
 itself out of the public contracts core publishes: ``platform.settings``,
 ``platform.sites`` (the read side of the site model), ``platform.events`` (the
@@ -21,7 +21,7 @@ from blitzecdn_cache.adapters import CachePlaybooks
 from blitzecdn_cache.service import CacheService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 #: This distribution's version, asked of the environment rather than
 #: written down here: it is what ``PluginMetadata.version`` reports and

@@ -8,8 +8,8 @@ audit log, the configuration tables, the workflow journal.
 
 What is deliberately *not* here is the bundle. `Repository` puts a capability
 store on this engine for each slice, and choosing that set is composition, so
-it sits beside `bootstrap` as `blitzecdn.persistence`. Core supplies the
-database; it does not decide who is on it.
+it lives in `blitzecdn.composition.repository`. Core supplies the database; it
+does not decide who is on it.
 
 Private by construction. An entry layer reaches a store through the port its
 service declared, never through this package, and an installed distribution may

@@ -12,7 +12,7 @@ from blitzecdn.capabilities.maintenance.ports import Requirements
 from blitzecdn.capabilities.maintenance.service import MaintenanceService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 __all__ = ["build_maintenance_service"]
 

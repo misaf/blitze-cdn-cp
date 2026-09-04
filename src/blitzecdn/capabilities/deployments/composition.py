@@ -8,7 +8,7 @@ capability's own: what belongs in ``DeploymentPolicy`` rather than in
 changing deployments, and it was being answered in the composition root — the
 one file that is supposed to know *which* concrete things are wired and not how
 any capability is put together internally. Adding a collaborator here used to
-mean editing ``bootstrap.py``.
+mean editing the composition root.
 
 The site validator lands here for the same reason. It is a two-line adapter
 from the plugin registry to this capability's ``SiteValidator`` port, and the
@@ -41,7 +41,7 @@ from blitzecdn.core.plugins import PluginRegistry, ValidationResult
 from blitzecdn.core.runtime.filesystem import atomic_write_yaml, read_log_tail
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 __all__ = ["build_deployment_service"]
 

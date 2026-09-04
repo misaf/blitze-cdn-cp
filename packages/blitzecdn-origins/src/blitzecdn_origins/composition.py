@@ -1,6 +1,6 @@
 """This package's own composition root.
 
-``blitzecdn.bootstrap`` builds the control plane's required services and knows
+``blitzecdn.composition`` builds the control plane's required services and knows
 nothing about what is installed beside it, so an optional distribution wires
 itself out of the public contracts core publishes: ``platform.sites`` (the read
 side of the site model), ``platform.events`` (the domain-event recorder),
@@ -21,7 +21,7 @@ from blitzecdn_origins.adapters import OriginCheckPlaybook
 from blitzecdn_origins.service.checks import OriginCheckService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 
 def build_origin_check_service(platform: ControlPlane) -> OriginCheckService:

@@ -16,11 +16,11 @@ from dramatiq.brokers.stub import StubBroker
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
-from blitzecdn.bootstrap import ControlPlane, load_control_plane_plugins
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.cli import common as cli_common
+from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import (
     AnsibleRun,
@@ -30,7 +30,6 @@ from blitzecdn.core.domain.runs import (
     TaskResult,
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.persistence import Repository
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
@@ -38,7 +37,9 @@ from blitzecdn.worker import run_deployment, run_scheduled_job
 def dramatiq_stub_broker(monkeypatch):
     """Keep unit and API tests independent of an external Redis process."""
     broker = StubBroker()
-    monkeypatch.setattr("blitzecdn.bootstrap.redis_ready", lambda _url: True)
+    monkeypatch.setattr(
+        "blitzecdn.composition.control_plane.redis_ready", lambda _url: True
+    )
     previous_broker = dramatiq.get_broker()
     actors = (run_deployment, run_scheduled_job)
     previous_actor_brokers = [actor.broker for actor in actors]
@@ -459,8 +460,7 @@ def seeded(settings):
     """
 
     def build(runner=None):
-        from blitzecdn.bootstrap import ControlPlane
-        from blitzecdn.persistence import Repository
+        from blitzecdn.composition import ControlPlane, Repository
 
         repository = Repository(settings.database_path)
         control = ControlPlane(

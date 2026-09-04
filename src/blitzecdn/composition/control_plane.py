@@ -80,6 +80,7 @@ from blitzecdn.capabilities.maintenance.composition import build_maintenance_ser
 from blitzecdn.capabilities.sites.composition import build_site_service
 from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.capabilities.sites.service import SiteService
+from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.application.workflows import WorkflowCoordinator
 from blitzecdn.core.config import Settings
@@ -102,7 +103,6 @@ from blitzecdn.core.plugins.types import ENTRY_POINT_GROUP
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
 from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
-from blitzecdn.persistence import Repository
 
 #: Every capability this distribution ships, in dependency order — a plugin is
 #: registered after the capabilities it builds on, which is what makes the CLI's

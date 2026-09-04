@@ -19,7 +19,7 @@ from blitzecdn_certificates.certificates.service import (
 from blitzecdn_certificates.config import CertificateConfig
 
 if TYPE_CHECKING:
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 #: This distribution's version, asked of the environment rather than
 #: written down here: it is what ``PluginMetadata.version`` reports and

@@ -36,7 +36,7 @@ def load_plugins(
 
     ``builtins`` is an argument rather than a default read from this package,
     because which capabilities a distribution ships is the composition root's
-    answer and not core's. `blitzecdn.bootstrap.load_control_plane_plugins` is
+    answer and not core's. `blitzecdn.composition.load_control_plane_plugins` is
     the call that pairs this mechanism with that roster; everything outside
     core wants that one.
 

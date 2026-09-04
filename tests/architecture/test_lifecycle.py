@@ -167,7 +167,7 @@ class Environment:
         """
         program = (
             "import json;"
-            "from blitzecdn.bootstrap import load_control_plane_plugins;"
+            "from blitzecdn.composition import load_control_plane_plugins;"
             "r = load_control_plane_plugins();"
             "print(json.dumps({"
             "'plugins': sorted(p.name for p in r.plugins),"
@@ -200,7 +200,7 @@ class Environment:
         program = (
             "import json;"
             "from pathlib import Path;"
-            "from blitzecdn.bootstrap import load_control_plane_plugins;"
+            "from blitzecdn.composition import load_control_plane_plugins;"
             "from blitzecdn.core.plugins.resolution import ("
             "  resolve_edge_capability_roles, resolve_host_capability_roles,"
             "  resolve_role_search_path, resolve_teardown_capability_roles);"
@@ -255,7 +255,7 @@ class Environment:
         """Required and missing tokens for a real installed site schema."""
         program = (
             "import json,sys;"
-            "from blitzecdn.bootstrap import load_control_plane_plugins;"
+            "from blitzecdn.composition import load_control_plane_plugins;"
             "from blitzecdn.capabilities.sites import CdnSite;"
             "values={'name':'cdn-example-com',"
             "'server_names':['cdn.example.com'],"
@@ -287,7 +287,7 @@ class Environment:
         """
         program = (
             "import json,sys;"
-            "from blitzecdn.bootstrap import load_control_plane_plugins;"
+            "from blitzecdn.composition import load_control_plane_plugins;"
             "from blitzecdn.capabilities.sites import CdnSite;"
             "sites=tuple(CdnSite.model_validate(v) for v in json.loads(sys.argv[1]));"
             "registry = load_control_plane_plugins();"

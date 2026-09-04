@@ -13,13 +13,13 @@ from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.sites.api.models import SitePatch
 from blitzecdn.capabilities.sites.api.models import SitePolicy as SitePolicyModel
 from blitzecdn.capabilities.sites.domain import SitePolicy
+from blitzecdn.composition import Repository
 from blitzecdn.core.domain.operations import WorkflowKind
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
     ExecutionError,
 )
-from blitzecdn.persistence import Repository
 
 
 def test_the_api_carries_every_policy_field_the_domain_has():

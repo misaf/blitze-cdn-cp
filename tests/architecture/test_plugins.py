@@ -18,8 +18,8 @@ import pytest
 from fastapi import APIRouter
 from typer import Typer
 
-from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     ENTRY_POINT_GROUP,

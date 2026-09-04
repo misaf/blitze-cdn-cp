@@ -28,7 +28,7 @@ from blitzecdn.core.plugins import (
 )
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 
 @hookimpl

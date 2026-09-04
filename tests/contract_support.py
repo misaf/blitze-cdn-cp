@@ -16,7 +16,6 @@ import pytest
 import yaml
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
-from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.security.policy import SiteFirewall
@@ -28,7 +27,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.persistence import Repository
+from blitzecdn.composition import ControlPlane, Repository
 
 jinja2 = pytest.importorskip("jinja2")
 

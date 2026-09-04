@@ -49,8 +49,8 @@ from blitzecdn.core.plugins.types import (
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
 
-    from blitzecdn.bootstrap import ControlPlane
     from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.composition import ControlPlane
 
 hookspec = pluggy.HookspecMarker(PROJECT_NAME)
 

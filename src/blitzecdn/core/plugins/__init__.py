@@ -15,7 +15,7 @@ nothing here needs.
 
 A plugin is a module (or any object) carrying ``@hookimpl`` functions. A
 built-in capability is listed in
-:data:`~blitzecdn.bootstrap.BUILTIN_PLUGINS` — in the composition root, not
+:data:`~blitzecdn.composition.BUILTIN_PLUGINS` — in the composition root, not
 here, because this package is the mechanism and not a participant in it; an
 external distribution advertises itself in the ``blitzecdn.plugins``
 entry-point group and needs no change anywhere at all.

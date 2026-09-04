@@ -26,7 +26,7 @@ from blitzecdn.capabilities.sites.ports import SiteStore
 from blitzecdn.capabilities.sites.service import SiteService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 __all__ = ["build_site_service"]
 

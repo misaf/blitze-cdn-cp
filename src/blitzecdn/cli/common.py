@@ -15,7 +15,7 @@ from typing import Any
 import typer
 import yaml
 
-from blitzecdn.bootstrap import (
+from blitzecdn.composition import (
     ControlPlane,
     build_control_plane,
     load_control_plane_plugins,

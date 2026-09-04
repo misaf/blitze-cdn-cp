@@ -21,8 +21,7 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.persistence import Repository
+from blitzecdn.composition import ControlPlane, Repository
 
 
 def origin_checks(
