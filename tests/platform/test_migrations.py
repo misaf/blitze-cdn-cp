@@ -25,6 +25,7 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.models import Base
 from blitzecdn.persistence import Repository
 
 
@@ -118,6 +119,53 @@ def test_the_revision_reported_is_the_one_stamped(tmp_path):
     finally:
         engine.dispose()
     assert _revision(path) == stamped
+
+
+def test_every_capability_table_module_reaches_the_metadata():
+    """A table is on disk only if Alembic can see it.
+
+    A capability keeps its tables beside the store that reads them, so
+    `Base.metadata` is complete only once every one of those modules has been
+    imported. `migrations/env.py` is where that happens, and a new
+    `adapters/tables.py` that nobody added to it would not fail loudly: it
+    would look to autogenerate like a table somebody had dropped.
+    """
+    declared = {
+        path.parent.parent.name
+        for path in (SOURCE / "capabilities").rglob("adapters/tables.py")
+    }
+    env = (SOURCE / "migrations/env.py").read_text(encoding="utf-8")
+    missing = {
+        capability
+        for capability in declared
+        if f"blitzecdn.capabilities.{capability}.adapters" not in env
+    }
+    assert declared, "no capability declares a table module; the rule moved"
+    assert missing == set()
+
+
+def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
+    """The same check from the other end: metadata against a migrated file.
+
+    `_assert_schema_matches` is Alembic's own comparison, so a table left out
+    of `env.py` shows up here as a table the migration created and the
+    metadata does not know about.
+    """
+    path = tmp_path / "control.db"
+    Database(path).close()
+    tables = set(Base.metadata.tables)
+    assert {
+        "sites",
+        "dns_records",
+        "domains",
+        "edges",
+        "deployments",
+        "deployment_requirements",
+        "projection_state",
+        "audit_events",
+        "workflows",
+        "ansible_settings",
+    } <= tables
 
 
 def test_the_current_schema_has_no_upgrade_chain(tmp_path):

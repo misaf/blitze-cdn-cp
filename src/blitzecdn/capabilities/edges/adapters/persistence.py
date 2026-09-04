@@ -3,10 +3,10 @@
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
+from blitzecdn.capabilities.edges.adapters.tables import EdgeRow
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import EdgeRow
 
 
 class EdgeStore:
