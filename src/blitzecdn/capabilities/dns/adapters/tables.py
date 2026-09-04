@@ -6,7 +6,7 @@ query reaches, no invariants here that the domain model does not own — and
 Alembic still compares against `Base.metadata`, which these rows register
 themselves in by importing that base.
 
-They sat in `core.persistence.models` with every other capability's tables,
+They sat in `core.persistence.tables` with every other capability's tables,
 which meant the capability that owned the store did not own the table under
 it: adding a column here was an edit to a shared module no slice owned and
 every slice had to change. A table belongs beside the store that reads it, for
@@ -20,7 +20,7 @@ from datetime import datetime
 from sqlalchemy import CheckConstraint, Column, ForeignKey, String
 from sqlmodel import Field
 
-from blitzecdn.core.persistence.models import Base, UtcDateTime, utcnow
+from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
 class DomainRow(Base, table=True):

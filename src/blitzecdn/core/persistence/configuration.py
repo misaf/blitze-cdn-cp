@@ -15,7 +15,7 @@ from sqlmodel import col
 from blitzecdn.core.domain.validation import validate_setting_name
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import AnsibleSettingRow
+from blitzecdn.core.persistence.tables import AnsibleSettingRow
 
 
 def _rows_affected(result: Result[Any]) -> int:

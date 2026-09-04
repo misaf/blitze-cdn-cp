@@ -20,7 +20,7 @@ from blitzecdn.core.domain.operations import (
 )
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import WorkflowRow
+from blitzecdn.core.persistence.tables import WorkflowRow
 
 
 class WorkflowStore:

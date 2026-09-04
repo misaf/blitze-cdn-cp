@@ -9,7 +9,7 @@ from blitzecdn.core.domain.audit import AuditEvent
 from blitzecdn.core.domain.events import DomainEvent
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import AuditEventRow
+from blitzecdn.core.persistence.tables import AuditEventRow
 
 
 class AuditLog:

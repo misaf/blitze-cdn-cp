@@ -25,7 +25,7 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import Base
+from blitzecdn.core.persistence.tables import Base
 from blitzecdn.persistence import Repository
 
 
