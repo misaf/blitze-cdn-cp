@@ -50,7 +50,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
 from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.core.database import Repository
+from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.core.plugins import load_plugins
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 

@@ -8,14 +8,14 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
-from blitzecdn.core.operation_ports import WorkflowJournal
-from blitzecdn.core.operations import (
+from blitzecdn.core.domain.operations import (
     Workflow,
     WorkflowKind,
     WorkflowStatus,
     WorkflowStep,
 )
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.operations import WorkflowJournal
 
 
 class WorkflowProgress:

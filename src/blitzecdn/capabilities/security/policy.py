@@ -5,7 +5,7 @@ that makes a rule renderable, and the vocabulary that validation is written
 against. What the edge does with them is this capability's nginx contribution;
 what a site does is compose them.
 
-The country and method tables below were in :mod:`blitzecdn.core.validation`,
+The country and method tables below were in :mod:`blitzecdn.core.domain.validation`,
 which is for primitives *two or more* capabilities share. These have one
 consumer and describe request filtering, so core held the vocabulary of a
 capability an operator can detach. They belong to the rules that use them.
@@ -20,8 +20,8 @@ from typing import Self
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.policy import CapabilityPolicy
-from blitzecdn.core.validation import OmittedWhenEmpty, unique
+from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.validation import OmittedWhenEmpty, unique
 
 COUNTRY_CODE = re.compile(r"^[A-Z]{2}$")
 
@@ -67,7 +67,7 @@ class SiteFirewall(OmittedWhenEmpty):
     """Per-hostname request filtering applied by Nginx at the edge.
 
     Absent from the edge document rather than present and empty — see
-    :class:`~blitzecdn.core.validation.OmittedWhenEmpty`, which is also where
+    :class:`~blitzecdn.core.domain.validation.OmittedWhenEmpty`, which is also where
     ``empty`` comes from.
     """
 

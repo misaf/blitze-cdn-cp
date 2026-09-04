@@ -30,7 +30,7 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 from blitzecdn_http3 import __version__, ansible
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime

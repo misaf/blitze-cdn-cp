@@ -28,7 +28,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
 from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.core.database import Repository
+from blitzecdn.core.persistence.repository import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 

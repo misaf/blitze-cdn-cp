@@ -17,9 +17,9 @@ from dramatiq.brokers.stub import StubBroker
 
 from blitzecdn import worker
 from blitzecdn.capabilities.maintenance import MaintenanceService
-from blitzecdn.core import broker as queue
 from blitzecdn.core.exceptions import DeploymentBusyError, NotFoundError
 from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.runtime import broker as queue
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 

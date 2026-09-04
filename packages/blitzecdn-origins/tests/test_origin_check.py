@@ -22,7 +22,7 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.core.database import Repository
+from blitzecdn.core.persistence.repository import Repository
 
 
 def origin_checks(

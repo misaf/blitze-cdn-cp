@@ -11,9 +11,9 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.deployments.snapshots import decode_snapshot
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.database import Repository
+from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.operations import WorkflowKind, WorkflowStatus, WorkflowStep
+from blitzecdn.core.persistence.repository import Repository
 
 
 def test_database_does_not_retain_idle_connections(settings):

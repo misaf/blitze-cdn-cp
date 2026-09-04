@@ -8,7 +8,7 @@ import typer
 import yaml
 
 from blitzecdn.cli import common
-from blitzecdn.core.validation import validate_setting_name
+from blitzecdn.core.domain.validation import validate_setting_name
 
 config_app = typer.Typer(no_args_is_help=True, help="Manage global edge policy.")
 

@@ -4,7 +4,7 @@ import pytest
 import yaml
 
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.filesystem import atomic_write_yaml
+from blitzecdn.core.runtime.filesystem import atomic_write_yaml
 
 
 def test_atomic_yaml_is_restrictive(tmp_path):

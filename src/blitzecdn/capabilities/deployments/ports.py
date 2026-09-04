@@ -12,10 +12,10 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.operation_ports import EventRecorder
+from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.plugins import StateValue, ValidationResult
 from blitzecdn.core.ports import UnitOfWork
-from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.ports.operations import EventRecorder
 
 
 class SiteRestore(Protocol):
@@ -122,7 +122,7 @@ class DeploymentLocker(Protocol):
 class DeploymentRunner(DeploymentLocker, Protocol):
     """Converges the fleet, under the lock it inherits.
 
-    Both methods answer with an :class:`~blitzecdn.core.runs.AnsibleRun`, which
+    Both methods answer with an :class:`~blitzecdn.core.domain.runs.AnsibleRun`, which
     is the whole of what the application layer learns about a run. There is
     deliberately no way through this port to reach the raw output.
 

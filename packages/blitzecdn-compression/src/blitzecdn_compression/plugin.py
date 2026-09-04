@@ -9,7 +9,7 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
-from blitzecdn.core.resources import distribution_version, package_directory
+from blitzecdn.core.runtime.resources import distribution_version, package_directory
 from blitzecdn_compression import ansible
 
 #: This distribution's version, asked of the environment rather than

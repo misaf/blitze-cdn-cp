@@ -22,7 +22,7 @@ from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.sites.domain import SitePatch
 from blitzecdn.cli import main as cli
-from blitzecdn.core.database import Repository
+from blitzecdn.core.persistence.repository import Repository
 
 runner = CliRunner()
 

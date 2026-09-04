@@ -35,7 +35,7 @@ from blitzecdn.core.plugins import (
     ValidationIssue,
     hookimpl,
 )
-from blitzecdn.core.resources import distribution_version, package_directory
+from blitzecdn.core.runtime.resources import distribution_version, package_directory
 from blitzecdn_security import ansible
 from blitzecdn_security.config import (
     MINIMUM_SECRET_BYTES,

@@ -27,9 +27,9 @@ from blitzecdn.core.config import (
     is_portable_environment_key,
 )
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.filesystem import atomic_write_bytes
+from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.plugins import load_plugins
-from blitzecdn.core.schema import DatabaseSchema
+from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 from blitzecdn_backup.domain import BackupComponent
 
 #: The archived database's name inside the archive. Fixed rather than derived

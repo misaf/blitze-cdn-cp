@@ -5,7 +5,7 @@ from typing import Protocol
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.origins import OriginCheck
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.domain.runs import AnsibleRun
 
 
 class EdgeRunner(Protocol):

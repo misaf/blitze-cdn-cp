@@ -22,16 +22,16 @@ from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.cli import common as cli_common
 from blitzecdn.core.config import Settings
-from blitzecdn.core.database import Repository
-from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.plugins import load_plugins
-from blitzecdn.core.runs import (
+from blitzecdn.core.domain.runs import (
     AnsibleRun,
     HostRun,
     RunStatus,
     TaskOutcome,
     TaskResult,
 )
+from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.core.plugins import load_plugins
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
@@ -461,7 +461,7 @@ def seeded(settings):
 
     def build(runner=None):
         from blitzecdn.bootstrap import ControlPlane
-        from blitzecdn.core.database import Repository
+        from blitzecdn.core.persistence.repository import Repository
 
         repository = Repository(settings.database_path)
         control = ControlPlane(

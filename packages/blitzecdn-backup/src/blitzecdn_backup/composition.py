@@ -17,8 +17,8 @@ buildable from ``Settings`` alone.
 from __future__ import annotations
 
 from blitzecdn.core.config import Settings
-from blitzecdn.core.resources import distribution_version
-from blitzecdn.core.schema import DatabaseSchema
+from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.runtime.resources import distribution_version
 from blitzecdn_backup.adapters import (
     AcmeComponent,
     ComposeRestoreGuard,

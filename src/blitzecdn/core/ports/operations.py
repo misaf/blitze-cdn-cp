@@ -4,15 +4,15 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.core.audit import AuditEvent
-from blitzecdn.core.events import DomainEvent
-from blitzecdn.core.operations import (
+from blitzecdn.core.domain.audit import AuditEvent
+from blitzecdn.core.domain.events import DomainEvent
+from blitzecdn.core.domain.operations import (
     Workflow,
     WorkflowKind,
     WorkflowStatus,
     WorkflowStep,
 )
-from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.domain.runs import AnsibleRun
 
 
 class AuditTrail(Protocol):

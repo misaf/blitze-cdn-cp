@@ -22,8 +22,8 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.tls.policy import CertificateMode
+from blitzecdn.core.domain.operations import WorkflowStatus
 from blitzecdn.core.exceptions import DeploymentBusyError
-from blitzecdn.core.operations import WorkflowStatus
 
 
 def test_validate_rejects_acme_on_a_reserved_domain(settings):

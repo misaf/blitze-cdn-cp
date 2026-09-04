@@ -32,8 +32,8 @@ from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP, Edge, firewall_sources
 from blitzecdn.core.ansible.mapping import edge_to_inventory
-from blitzecdn.core.database import Repository
-from blitzecdn.core.validation import RESERVED_ANSIBLE_SETTINGS
+from blitzecdn.core.domain.validation import RESERVED_ANSIBLE_SETTINGS
+from blitzecdn.core.persistence.repository import Repository
 
 PROJECT_DIR = REPO_ROOT
 ANSIBLE_DIR = CORE_ANSIBLE

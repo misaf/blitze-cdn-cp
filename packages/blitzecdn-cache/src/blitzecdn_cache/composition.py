@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from blitzecdn.core.resources import distribution_version
+from blitzecdn.core.runtime.resources import distribution_version
 from blitzecdn_cache.adapters import CachePlaybooks
 from blitzecdn_cache.service import CacheService
 

@@ -11,7 +11,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn import __version__
-from blitzecdn.core.logging import configure_logging
+from blitzecdn.core.runtime.logging import configure_logging
 
 app = typer.Typer(
     no_args_is_help=True,

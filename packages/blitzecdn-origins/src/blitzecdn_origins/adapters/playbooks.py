@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from blitzecdn.core.runs import AnsibleRun
+from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn_origins import ansible
 from blitzecdn_origins.ports import FleetPlaybooks
 

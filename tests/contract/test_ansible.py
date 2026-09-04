@@ -14,12 +14,12 @@ from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.ansible import runner as ansible_runner_module
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.config import Settings
+from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
     ExecutionError,
 )
-from blitzecdn.core.runs import RunStatus
 
 #: The package under test, for the subprocess in the lock test below.
 PROJECT_SRC = REPO_ROOT / "src"

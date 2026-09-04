@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.core.policy import CapabilityPolicy
+from blitzecdn.core.domain.policy import CapabilityPolicy
 
 
 class SiteVisitorHeaders(BaseModel):

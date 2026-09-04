@@ -32,8 +32,8 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
-from blitzecdn.core.runs import RunStatus, TaskOutcome
+from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus
+from blitzecdn.core.domain.runs import RunStatus, TaskOutcome
 
 
 class Model(BaseModel):

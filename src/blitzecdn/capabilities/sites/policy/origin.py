@@ -7,8 +7,8 @@ so this contract is answered by the default on :class:`CapabilityPolicy`.
 
 from pydantic import ConfigDict, field_validator
 
-from blitzecdn.core.policy import CapabilityPolicy
-from blitzecdn.core.validation import hostname
+from blitzecdn.core.domain.policy import CapabilityPolicy
+from blitzecdn.core.domain.validation import hostname
 
 
 class OriginPolicy(CapabilityPolicy):

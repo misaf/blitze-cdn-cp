@@ -25,7 +25,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.validation import DNS_LABEL, SITE_NAME, hostname
+from blitzecdn.core.domain.validation import DNS_LABEL, SITE_NAME, hostname
 
 
 class RecordType(StrEnum):

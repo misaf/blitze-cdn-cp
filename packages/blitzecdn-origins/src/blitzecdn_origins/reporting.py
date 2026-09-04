@@ -19,7 +19,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from blitzecdn.capabilities.edges.origins import OriginCheck
-from blitzecdn.core.runs import HostRun
+from blitzecdn.core.domain.runs import HostRun
 from blitzecdn_origins.domain import EdgeOriginChecks
 
 

@@ -25,7 +25,7 @@ from blitzecdn.core.plugins import (
     PluginMetadata,
     hookimpl,
 )
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 from blitzecdn_cache import ansible, cli
 from blitzecdn_cache.api import routes
 from blitzecdn_cache.composition import __version__

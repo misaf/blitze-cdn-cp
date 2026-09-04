@@ -18,7 +18,7 @@ from enum import StrEnum
 
 from pydantic import ConfigDict
 
-from blitzecdn.core.policy import CapabilityPolicy
+from blitzecdn.core.domain.policy import CapabilityPolicy
 
 
 class HttpScheme(StrEnum):

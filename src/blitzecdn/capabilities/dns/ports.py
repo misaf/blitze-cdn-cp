@@ -4,8 +4,8 @@ from typing import Protocol
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.capabilities.sites.ports import SiteReader
-from blitzecdn.core.operation_ports import EventRecorder
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.operations import EventRecorder
 
 
 class SiteHostnames(SiteReader, Protocol):

@@ -16,13 +16,13 @@ from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-from blitzecdn.core.database import Repository
+from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus
+from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
     ConflictError,
     DeploymentBusyError,
 )
-from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
-from blitzecdn.core.runs import RunStatus
+from blitzecdn.core.persistence.repository import Repository
 
 
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:

@@ -27,7 +27,7 @@ from sqlalchemy.pool import NullPool, QueuePool
 from sqlmodel import Session, create_engine
 
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.schema import MIGRATIONS_PATH
+from blitzecdn.core.persistence.schema import MIGRATIONS_PATH
 
 
 def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:

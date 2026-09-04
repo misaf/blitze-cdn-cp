@@ -149,7 +149,7 @@ def _module_scope_imports(path: Path) -> set[str]:
 
     An import inside a function body executes when that function is *called*,
     so it cannot produce a circular import at load time — it is the documented
-    way to break one, and `worker.py` and `core.schema` both use it
+    way to break one, and `worker.py` and `core.persistence.schema` both use it
     deliberately. Counting it as an edge would make the cycle test refuse the
     remedy for the problem it exists to detect.
 
@@ -252,13 +252,14 @@ def test_capability_domains_are_framework_and_io_independent():
                 "blitzecdn.api",
                 "blitzecdn.cli",
                 "blitzecdn.bootstrap",
+                # Two packages, not seven module names. `core.runtime` is
+                # everything of core's that touches the machine and
+                # `core.persistence` everything that touches the database, so
+                # a module added to either is refused here the day it is
+                # written rather than when somebody remembers this tuple.
                 "blitzecdn.core.ansible",
-                "blitzecdn.core.broker",
-                "blitzecdn.core.database",
-                "blitzecdn.core.database_engine",
-                "blitzecdn.core.database_models",
-                "blitzecdn.core.filesystem",
-                "blitzecdn.core.process",
+                "blitzecdn.core.persistence",
+                "blitzecdn.core.runtime",
             ),
         )
     ]
@@ -283,10 +284,8 @@ def test_capability_services_depend_on_contracts_not_concrete_adapters():
         "blitzecdn.cli",
         "blitzecdn.bootstrap",
         "blitzecdn.core.ansible",
-        "blitzecdn.core.broker",
-        "blitzecdn.core.database",
-        "blitzecdn.core.database_engine",
-        "blitzecdn.core.database_models",
+        "blitzecdn.core.persistence",
+        "blitzecdn.core.runtime.broker",
     )
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
@@ -345,11 +344,7 @@ def test_entry_adapters_never_reach_persistence_or_database_directly():
         for imported in sorted(_imports(path))
         if _banned(
             imported,
-            (
-                "blitzecdn.core.database",
-                "blitzecdn.core.database_engine",
-                "blitzecdn.core.database_models",
-            ),
+            ("blitzecdn.core.persistence",),
         )
         or ".persistence" in imported
     ]
@@ -432,8 +427,8 @@ def test_core_carries_no_cross_capability_application_service():
     pointed the arrow back from the foundation into the tree it supports and
     hid a genuine vertical slice where nobody would look for it. It is
     `capabilities/maintenance` now. Persistence is the deliberate exception:
-    `core.database` bundles the capability stores because there is one SQLite
-    file, and it imports their `persistence` modules to do it.
+    `core.persistence.repository` bundles the capability stores because there is
+    one SQLite file, and it imports their `persistence` modules to do it.
     """
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
@@ -454,7 +449,7 @@ def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
         and any(name.startswith("blitzecdn.worker") for name in _imports(path))
     ]
     assert offenders == []
-    broker_imports = _imports(_SOURCE / "core/broker.py")
+    broker_imports = _imports(_SOURCE / "core/runtime/broker.py")
     assert not any(
         name.startswith(("blitzecdn.worker", "blitzecdn.bootstrap"))
         for name in broker_imports
@@ -487,8 +482,8 @@ def test_no_internal_module_dependency_cycles():
     """No module in this distribution can fail to import because of another.
 
     Module-scope imports only. A deferred import is how a genuine two-way
-    dependency is made safe — `core.schema` owns the migration tree that
-    `core.database_engine` migrates with, and reaches back for the engine
+    dependency is made safe — `core.persistence.schema` owns the migration tree
+    that `core.persistence.engine` migrates with, and reaches back for the engine
     inside the one method that runs one — and the loader never sees a loop.
     """
     modules = {

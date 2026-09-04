@@ -16,7 +16,7 @@ from enum import StrEnum
 from pydantic import ConfigDict
 
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
-from blitzecdn.core.policy import CapabilityPolicy
+from blitzecdn.core.domain.policy import CapabilityPolicy
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")

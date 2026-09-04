@@ -21,12 +21,12 @@ from blitzecdn.capabilities.deployments.snapshots import encode_snapshot
 from blitzecdn.capabilities.dns.persistence import ZoneStore
 from blitzecdn.capabilities.edges.persistence import EdgeStore
 from blitzecdn.capabilities.sites.persistence import SiteStore
-from blitzecdn.core.database_engine import Database
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import (
     AnsibleSettingStore,
     DeploymentRequirementStore,
 )
+from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.workflows import WorkflowStore
 
 __all__ = [

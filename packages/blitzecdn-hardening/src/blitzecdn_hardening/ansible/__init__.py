@@ -12,7 +12,7 @@ its wheel: both files are at paths only this package knows, and core's
 role that is installed whether or not the capability is, and left them there
 for any fleet that had detached this distribution.
 
-Located through :func:`blitzecdn.core.resources.package_directory` rather than
+Located through :func:`blitzecdn.core.runtime.resources.package_directory` rather than
 by counting ``..`` from ``__file__``. The difference matters in exactly the
 case that has to work: a wheel installed into a virtualenv on a controller,
 where there is no repository and no working directory to be relative to.
@@ -20,7 +20,7 @@ where there is no repository and no working directory to be relative to.
 
 from __future__ import annotations
 
-from blitzecdn.core.resources import package_directory
+from blitzecdn.core.runtime.resources import package_directory
 
 __all__ = ["HOST_ROLES", "ROLES_PATH", "TEARDOWN_ROLES"]
 

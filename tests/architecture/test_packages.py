@@ -257,30 +257,38 @@ def test_optional_packages_depend_on_each_other_only_when_they_say_so(package: P
 #: entry-layer toolkits a contributed router or command is built from.
 #:
 #: The exclusions are the point. `blitzecdn.bootstrap` is the control plane's
-#: composition root and a package composes itself; `blitzecdn.core.database*`
-#: and `*.persistence` are storage implementations reached through ports;
-#: `blitzecdn.api.app` and `blitzecdn.cli.main` are the two application
-#: compositions, and a plugin that imported either would be assembling the
-#: thing that is assembling it.
+#: composition root and a package composes itself; `blitzecdn.core.persistence`
+#: and a capability's `*.persistence` are storage implementations reached
+#: through ports; `blitzecdn.api.app` and `blitzecdn.cli.main` are the two
+#: application compositions, and a plugin that imported either would be
+#: assembling the thing that is assembling it.
+#:
+#: Two packages are published whole and the rest module by module, which is
+#: the shape of core rather than an inconsistency. `core.domain` is values and
+#: `core.ports` is protocols: everything in either is publishable by
+#: construction, and a module added to one is a new value or a new protocol.
+#: `core.runtime` and `core.persistence` do I/O, so each published module there
+#: is a separate promise — `resources` is one, `schema` is one, and neither
+#: makes the package beside it public.
 _PUBLIC_SDK_PREFIXES = (
     "blitzecdn.core.plugins",
     "blitzecdn.core.config",
     "blitzecdn.core.exceptions",
-    "blitzecdn.core.events",
-    "blitzecdn.core.operations",
-    "blitzecdn.core.operation_ports",
-    "blitzecdn.core.runs",
-    "blitzecdn.core.schema",
-    "blitzecdn.core.validation",
-    "blitzecdn.core.filesystem",
+    "blitzecdn.core.domain",
+    "blitzecdn.core.ports",
+    "blitzecdn.core.runtime.filesystem",
+    "blitzecdn.core.runtime.process",
     # How a wheel finds its own roles, plays and templates on disk, and which
     # version of itself it is. Published because every capability needs both
     # and each one used to answer them itself: eight copies of one guard, two
     # of which were never written, and eleven `__version__` literals that a
     # release could leave behind.
-    "blitzecdn.core.resources",
-    "blitzecdn.core.ports",
-    "blitzecdn.core.process",
+    "blitzecdn.core.runtime.resources",
+    # The one module of persistence an installed package may name: a backup
+    # records the Alembic revision it was taken at, and a restore refuses one
+    # this installation has never heard of. The engine, the models and the
+    # stores stay private.
+    "blitzecdn.core.persistence.schema",
     "blitzecdn.api.dependencies",
     "blitzecdn.api.models",
     "blitzecdn.api.requests",
@@ -315,11 +323,9 @@ _FORBIDDEN_SDK_MODULES = (
     "blitzecdn.scheduler",
     "blitzecdn.api.app",
     "blitzecdn.cli.main",
-    "blitzecdn.core.database",
-    "blitzecdn.core.database_engine",
-    "blitzecdn.core.database_models",
+    "blitzecdn.core.persistence",
     "blitzecdn.core.ansible",
-    "blitzecdn.core.broker",
+    "blitzecdn.core.runtime.broker",
 )
 
 
@@ -1093,7 +1099,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     """
     from blitzecdn.capabilities.sites.domain import CdnSite
     from blitzecdn.core.ansible.mapping import site_to_ansible
-    from blitzecdn.core.validation import OmittedWhenEmpty
+    from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
     source = (SOURCE / "core/ansible/mapping.py").read_text(encoding="utf-8")
     mapper = next(

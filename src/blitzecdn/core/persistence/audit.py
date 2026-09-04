@@ -5,11 +5,11 @@ from typing import Any
 from sqlalchemy import select
 from sqlmodel import col
 
-from blitzecdn.core.audit import AuditEvent
-from blitzecdn.core.database_engine import Database
-from blitzecdn.core.database_models import AuditEventRow
-from blitzecdn.core.events import DomainEvent
+from blitzecdn.core.domain.audit import AuditEvent
+from blitzecdn.core.domain.events import DomainEvent
 from blitzecdn.core.exceptions import NotFoundError
+from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.persistence.models import AuditEventRow
 
 
 class AuditLog:

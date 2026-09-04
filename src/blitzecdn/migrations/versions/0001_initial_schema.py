@@ -10,7 +10,7 @@ exists so that a *future* schema change has a base to migrate from, and so the
 shape on disk is reviewable as code rather than only as model definitions.
 
 Generated with `just db-revision`, which diffs
-:mod:`blitzecdn.core.database_models` against the database.
+:mod:`blitzecdn.core.persistence.models` against the database.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sqlalchemy.dialects import sqlite
 # that defines them has to be importable here. Without this line every
 # migration touching a timestamp column fails on a NameError at upgrade time —
 # on a server, mid-install.
-import blitzecdn.core.database_models
+import blitzecdn.core.persistence.models
 
 revision = "0001"
 down_revision = None
@@ -38,7 +38,9 @@ def upgrade() -> None:
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("value", sqlite.JSON(), nullable=False),
         sa.Column(
-            "updated_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "updated_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("name"),
     )
@@ -46,7 +48,9 @@ def upgrade() -> None:
         "audit_events",
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column(
-            "created_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "created_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.Column("operator", sa.String(), nullable=False),
         sa.Column("action", sa.String(), nullable=False),
@@ -69,13 +73,17 @@ def upgrade() -> None:
         sa.Column("rollback_of", sa.String(), nullable=True),
         sa.Column("host_limit", sa.String(), nullable=True),
         sa.Column(
-            "created_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "created_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.Column(
-            "started_at", blitzecdn.core.database_models.UtcDateTime(), nullable=True
+            "started_at", blitzecdn.core.persistence.models.UtcDateTime(), nullable=True
         ),
         sa.Column(
-            "finished_at", blitzecdn.core.database_models.UtcDateTime(), nullable=True
+            "finished_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=True,
         ),
         sa.Column("result", sqlite.JSON(), nullable=True),
         sa.Column("snapshot", sa.String(), nullable=False),
@@ -107,7 +115,9 @@ def upgrade() -> None:
         "domains",
         sa.Column("name", sa.String(), nullable=False),
         sa.Column(
-            "updated_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "updated_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
         sa.PrimaryKeyConstraint("name"),
@@ -117,7 +127,7 @@ def upgrade() -> None:
         sa.Column("kind", sa.String(), nullable=False),
         sa.Column(
             "requested_at",
-            blitzecdn.core.database_models.UtcDateTime(),
+            blitzecdn.core.persistence.models.UtcDateTime(),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("kind"),
@@ -132,7 +142,9 @@ def upgrade() -> None:
         sa.Column("public_addresses", sqlite.JSON(), nullable=False),
         sa.Column("ssh_sources", sqlite.JSON(), nullable=False),
         sa.Column(
-            "updated_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "updated_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.CheckConstraint("port BETWEEN 1 AND 65535", name="edges_port_check"),
         sa.CheckConstraint("length(host) > 0", name="edges_host_nonempty_check"),
@@ -145,7 +157,7 @@ def upgrade() -> None:
         sa.Column("source_revision", sa.String(), nullable=False),
         sa.Column(
             "projected_at",
-            blitzecdn.core.database_models.UtcDateTime(),
+            blitzecdn.core.persistence.models.UtcDateTime(),
             nullable=False,
         ),
         sa.PrimaryKeyConstraint("name"),
@@ -157,7 +169,9 @@ def upgrade() -> None:
         sa.Column("origin_host", sa.String(), nullable=False),
         sa.Column("policy", sqlite.JSON(), nullable=False),
         sa.Column(
-            "updated_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "updated_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("name"),
     )
@@ -169,10 +183,14 @@ def upgrade() -> None:
         sa.Column("status", sa.String(), nullable=False),
         sa.Column("operator", sa.String(), nullable=False),
         sa.Column(
-            "created_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "created_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "updated_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.Column("steps", sqlite.JSON(), nullable=False),
         sa.Column("error", sa.String(), nullable=True),
@@ -200,7 +218,9 @@ def upgrade() -> None:
         sa.Column("ttl", sa.Integer(), nullable=False),
         sa.Column("site", sa.String(), nullable=True),
         sa.Column(
-            "updated_at", blitzecdn.core.database_models.UtcDateTime(), nullable=False
+            "updated_at",
+            blitzecdn.core.persistence.models.UtcDateTime(),
+            nullable=False,
         ),
         sa.ForeignKeyConstraint(["domain"], ["domains.name"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(

@@ -18,14 +18,14 @@ from typing import Literal
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
-from blitzecdn.core.events import domain_event
+from blitzecdn.core.domain.events import domain_event
+from blitzecdn.core.domain.operations import WorkflowKind
 from blitzecdn.core.exceptions import (
     BlitzeError,
     ConflictError,
     DeploymentBusyError,
     NotFoundError,
 )
-from blitzecdn.core.operations import WorkflowKind
 from blitzecdn_certificates.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
     CertificateInfo,

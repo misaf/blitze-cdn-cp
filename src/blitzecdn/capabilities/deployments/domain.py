@@ -1,7 +1,7 @@
 """Convergence history, and the drift reading of a check-mode run.
 
 A ``Deployment`` is the record: who asked, what snapshot, and — once it has
-finished — the :class:`~blitzecdn.core.runs.AnsibleRun` it produced. A
+finished — the :class:`~blitzecdn.core.domain.runs.AnsibleRun` it produced. A
 ``DriftReport`` is the same run read as a question rather than an instruction.
 """
 
@@ -13,8 +13,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.core.operations import DeploymentId, Operator
-from blitzecdn.core.runs import AnsibleRun, HostRun, RunStatus
+from blitzecdn.core.domain.operations import DeploymentId, Operator
+from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 
 
 class DeploymentRequirementKind(StrEnum):

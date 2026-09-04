@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.core.validation import EDGE_LIMIT
+from blitzecdn.core.domain.validation import EDGE_LIMIT
 
 
 class RequestModel(BaseModel):
