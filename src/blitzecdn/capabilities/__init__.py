@@ -17,10 +17,11 @@ map is worth having in one place:
 | `http` | `blitzecdn-http3` | the QUIC listener (1.1 and 2 are baseline) |
 | `tls` | `blitzecdn-certificates` | issuance, renewal, upload, Automatic SSL |
 
-Three optional distributions appear nowhere above — `blitzecdn-backup`,
-`blitzecdn-hardening` and `blitzecdn-resolver` — because no site setting asks
-for them. They change what the controller and the host do, not what a virtual
-host is, so they have no contract here to be the other half of.
+Four optional distributions appear nowhere above — `blitzecdn-backup`,
+`blitzecdn-hardening`, `blitzecdn-origins` and `blitzecdn-resolver` — because no
+site setting asks for them. Each adds an operation, or changes what the
+controller and the host do, rather than adding a property a virtual host
+carries, so none has a contract here to be the other half of.
 
 The contract stays behind when the wheel goes because a stored site has to read
 back either way: a controller with `blitzecdn-cache` detached must still load a

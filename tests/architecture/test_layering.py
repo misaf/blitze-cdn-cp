@@ -1053,24 +1053,42 @@ def test_no_capability_port_declares_another_capability_s_playbook():
 def test_every_capability_registers_itself_through_a_plugin_module():
     """A capability the plugin manager has never heard of is a capability nothing runs.
 
-    Both directions: a package without a `plugin.py` contributes nothing, and a
-    `plugin.py` missing from `composition.BUILTIN_PLUGINS` is never imported —
-    either way
-    the routes and commands quietly are not there, which is exactly the failure
-    a discovery mechanism is supposed to make impossible.
+    Both directions: a capability without a `plugin.py` contributes nothing, and
+    a `plugin.py` missing from `composition.BUILTIN_PLUGINS` is never imported —
+    either way the routes and commands quietly are not there, which is exactly
+    the failure a discovery mechanism is supposed to make impossible.
+
+    Which capabilities may go unregistered was the set `{"cache",
+    "compression", "security"}` written here, which made the test circular: it
+    asserted that the capabilities with a `plugin.py` are the ones not on a
+    list of the capabilities without one. A capability may skip registration
+    when it has *nothing to register* — when it is a contract and its
+    implementation ships as a wheel that registers itself — and that is a
+    question the tree answers. `test_the_capability_map_says_what_the_tree_does`
+    holds the other half: that the map in `capabilities/__init__.py` names the
+    wheel each of them is waiting for.
     """
-    packages = {
+    capabilities = {
         path.name
         for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
-    contract_only = {"cache", "compression", "security"}
-    assert {path.parent.name for path in _CAPABILITIES.glob("*/plugin.py")} == (
-        packages - contract_only
-    )
+    registered = {path.parent.name for path in _CAPABILITIES.glob("*/plugin.py")}
     assert set(BUILTIN_PLUGINS) == {
-        f"blitzecdn.capabilities.{name}.plugin" for name in packages - contract_only
+        f"blitzecdn.capabilities.{name}.plugin" for name in registered
     }
+    # Anything beyond `__init__.py` and the contract is something that would
+    # have had to be registered to run. These have no `plugin.py` by
+    # construction, so this is the same question
+    # `test_packages._implemented_here` asks with `plugin.py` allowed.
+    offenders = [
+        f"{name} registers nothing but holds {path.relative_to(_CAPABILITIES)}"
+        for name in sorted(capabilities - registered)
+        for path in sorted((_CAPABILITIES / name).rglob("*.py"))
+        if path.name != "__init__.py"
+        and "policy" not in {part.removesuffix(".py") for part in path.parts}
+    ]
+    assert offenders == []
 
 
 #: The two modules in a capability that may name the platform, and why each
