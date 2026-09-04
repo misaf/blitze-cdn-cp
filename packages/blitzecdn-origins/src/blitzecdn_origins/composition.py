@@ -18,7 +18,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from blitzecdn_origins.adapters import OriginCheckPlaybook
-from blitzecdn_origins.service import OriginCheckService
+from blitzecdn_origins.service.checks import OriginCheckService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.bootstrap import ControlPlane

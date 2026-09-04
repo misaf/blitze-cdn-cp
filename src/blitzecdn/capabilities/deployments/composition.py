@@ -29,7 +29,7 @@ from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     SiteRestore,
 )
-from blitzecdn.capabilities.deployments.service import (
+from blitzecdn.capabilities.deployments.service.convergence import (
     DeploymentExecution,
     DeploymentPersistence,
     DeploymentPolicy,

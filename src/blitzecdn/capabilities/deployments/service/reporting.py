@@ -9,8 +9,8 @@ none of them takes the deployment lock, moves a record through the transition
 table, or runs Ansible.
 
 Written as functions over ``DeploymentStore`` for the same reason
-:mod:`blitzecdn.capabilities.deployments.rollback` is: the service still owns the
-lock and the ordering, and this owns only what a stored run means.
+``service.rollback`` is: the service still owns the lock and the ordering, and
+this owns only what a stored run means.
 """
 
 from __future__ import annotations

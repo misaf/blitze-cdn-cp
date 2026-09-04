@@ -76,6 +76,19 @@ def _is_adapter(path: Path) -> bool:
     return "adapters" in path.parts
 
 
+def _is_application(path: Path) -> bool:
+    """A capability's decisions: `service.py`, or everything under `service/`.
+
+    Application policy that lives beside a service rather than inside it is
+    held to the service rule, because moving code out of a service must not be
+    a way to escape it. That was four file names — `service.py`, `rollback.py`,
+    `reporting.py`, `validation.py` — and the three that were not `service.py`
+    were only on the list because somebody put them there.
+    """
+    parts = path.relative_to(_CAPABILITIES).parts
+    return "service" in {part.removesuffix(".py") for part in parts}
+
+
 _PUBLIC_CROSS_CAPABILITY_MODULES = {
     "domain",
     "policy",
@@ -278,17 +291,6 @@ def test_capability_domains_are_framework_and_io_independent():
     assert offenders == []
 
 
-#: Application policy that lives beside a service rather than inside it. Held
-#: to the service rule, because moving code out of `service.py` must not be a
-#: way to escape it.
-_APPLICATION_MODULES = {
-    "service.py",
-    "rollback.py",
-    "reporting.py",
-    "validation.py",
-}
-
-
 def test_capability_services_depend_on_contracts_not_concrete_adapters():
     forbidden = (
         *_IO_IMPORTS,
@@ -302,7 +304,7 @@ def test_capability_services_depend_on_contracts_not_concrete_adapters():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
         for path in _capability_files()
-        if path.name in _APPLICATION_MODULES
+        if _is_application(path)
         for imported in sorted(_imports(path))
         if _banned(imported, forbidden) or ".adapters" in imported
     ]

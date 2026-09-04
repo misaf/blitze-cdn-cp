@@ -17,13 +17,12 @@ What is lifted out is everything with its own reason to change that does not
 touch the lock, because keeping it here made "must hold the lock" and "must
 never take it" neighbours in one class:
 
-* :mod:`blitzecdn.capabilities.deployments.rollback` owns what rolling back means.
-* :mod:`blitzecdn.capabilities.deployments.validation` owns whether desired state
-  could be converged at all — asked without the lock, and answered against a
-  scratch file precisely so it cannot publish over a deploy in flight.
-* :mod:`blitzecdn.capabilities.deployments.reporting` owns what a *recorded* run
-  may be read as evidence of, which is a rule about stored rows and touches
-  neither Ansible nor the lock.
+* ``service.rollback`` owns what rolling back means.
+* ``service.validation`` owns whether desired state could be converged at all —
+  asked without the lock, and answered against a scratch file precisely so it
+  cannot publish over a deploy in flight.
+* ``service.reporting`` owns what a *recorded* run may be read as evidence of,
+  which is a rule about stored rows and touches neither Ansible nor the lock.
 
 ``domain.aborted_run`` is a pure value. What is left here is the run.
 """
@@ -36,8 +35,6 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from blitzecdn.capabilities.deployments import reporting
-from blitzecdn.capabilities.deployments import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.domain import (
     Deployment,
     DeploymentRequirementKind,
@@ -60,7 +57,9 @@ from blitzecdn.capabilities.deployments.ports import (
     ZoneEditor,
     ZoneStore,
 )
-from blitzecdn.capabilities.deployments.validation import DeploymentValidation
+from blitzecdn.capabilities.deployments.service import reporting
+from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
+from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
 from blitzecdn.core.application.workflows import WorkflowCoordinator
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.operations import WorkflowKind
@@ -187,8 +186,8 @@ class DeploymentService:
     def validate(self) -> list[str]:
         """Answer whether desired state is coherent and the play parses.
 
-        The answer is :mod:`blitzecdn.capabilities.deployments.validation`'s, and
-        deliberately not reached under the lock this service otherwise holds
+        The answer is ``service.validation``'s, and deliberately not reached
+        under the lock this service otherwise holds
         for everything: validating is a question about the current desired
         state, and taking the lock to ask it would make ``blitzecdn validate``
         block behind a fleet convergence that has nothing to do with it.
