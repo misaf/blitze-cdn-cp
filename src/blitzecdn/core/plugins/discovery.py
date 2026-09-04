@@ -2,11 +2,17 @@
 
 Two sources, deliberately not one:
 
-* **Built-ins** are the tuple below, imported by module path. They are not
-  optional and not really "discovered" — the control plane *is* these capabilities —
-  so resolving them through installation metadata would turn a broken editable
-  install into a control plane that starts happily and quietly serves an empty
-  fleet. An explicit tuple fails at import, names the module, and can be read.
+* **Built-ins** are module paths the composition root passes in, imported by
+  name. They are not optional and not really "discovered" — the control plane
+  *is* these capabilities — so resolving them through installation metadata
+  would turn a broken editable install into a control plane that starts happily
+  and quietly serves an empty fleet. An explicit roster fails at import, names
+  the module, and can be read.
+
+  Which capabilities that roster holds is not a fact this module knows.
+  ``blitzecdn.bootstrap.BUILTIN_PLUGINS`` is the list, because "what does this
+  distribution ship" is a composition decision, and core naming the tree it
+  supports is the direction this package exists to refuse.
 
 * **External plugins** come from the ``blitzecdn.plugins`` entry-point group.
   That is the whole extension story for a separately installable package:
@@ -52,26 +58,6 @@ from blitzecdn.core.plugins.types import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-#: Every capability this distribution ships, in dependency order — a plugin is
-#: registered after the capabilities it builds on, which is what makes the CLI's
-#: command order and the API's route order stable rather than incidental.
-#:
-#: Order is a presentation decision here and nothing more. Desired-state
-#: merging is deliberately order-independent (see `registry.merge_variables`),
-#: so moving a line in this tuple can never change what an edge converges to.
-BUILTIN_PLUGINS: tuple[str, ...] = (
-    # The capability contracts first: nothing they contribute depends on
-    # another capability being registered, and `sites` composes their policy.
-    "blitzecdn.capabilities.http.plugin",
-    "blitzecdn.capabilities.sites.plugin",
-    "blitzecdn.capabilities.dns.plugin",
-    "blitzecdn.capabilities.edges.plugin",
-    "blitzecdn.capabilities.deployments.plugin",
-    "blitzecdn.capabilities.tls.plugin",
-    "blitzecdn.capabilities.maintenance.plugin",
-    "blitzecdn.capabilities.diagnostics.plugin",
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,9 +145,14 @@ class Discovery:
 
 
 def register_builtins(
-    manager: pluggy.PluginManager, modules: Sequence[str] = BUILTIN_PLUGINS
+    manager: pluggy.PluginManager, modules: Sequence[str]
 ) -> tuple[PluginMetadata, ...]:
-    """Register the capabilities this distribution ships. Any failure is fatal."""
+    """Register the capabilities the caller ships. Any failure is fatal.
+
+    ``modules`` has no default. A default would be this module's own answer to
+    "which capabilities exist", which is the one question core must not hold an
+    opinion about — and a default is an opinion nothing has to pass to inherit.
+    """
     found: list[PluginMetadata] = []
     for path in modules:
         try:
@@ -227,7 +218,6 @@ def register_external(
 
 
 __all__ = [
-    "BUILTIN_PLUGINS",
     "Discovery",
     "PluginRejection",
     "register",

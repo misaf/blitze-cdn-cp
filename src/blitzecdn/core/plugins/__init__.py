@@ -15,13 +15,13 @@ nothing here needs.
 
 A plugin is a module (or any object) carrying ``@hookimpl`` functions. A
 built-in capability is listed in
-:data:`~blitzecdn.core.plugins.discovery.BUILTIN_PLUGINS`; an external
-distribution advertises itself in the ``blitzecdn.plugins`` entry-point group
-and needs no change here at all.
+:data:`~blitzecdn.bootstrap.BUILTIN_PLUGINS` — in the composition root, not
+here, because this package is the mechanism and not a participant in it; an
+external distribution advertises itself in the ``blitzecdn.plugins``
+entry-point group and needs no change anywhere at all.
 """
 
 from blitzecdn.core.plugins.discovery import (
-    BUILTIN_PLUGINS,
     Discovery,
     PluginRejection,
     register,
@@ -71,7 +71,6 @@ from blitzecdn.core.plugins.types import (
 )
 
 __all__ = [
-    "BUILTIN_PLUGINS",
     "ENTRY_POINT_GROUP",
     "HOOK_API_VERSION",
     "PROJECT_NAME",

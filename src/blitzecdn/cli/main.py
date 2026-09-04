@@ -40,7 +40,7 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
     NotFoundError,
 )
-from blitzecdn.core.plugins import PluginRegistry, load_plugins
+from blitzecdn.core.plugins import PluginRegistry
 
 app.add_typer(configuration.config_app, name="config")
 
@@ -59,7 +59,7 @@ def register_commands(registry: PluginRegistry, root: typer.Typer = app) -> None
             root.add_typer(group.app, name=group.name)
 
 
-register_commands(load_plugins())
+register_commands(common.installed_plugins())
 
 
 __all__ = [

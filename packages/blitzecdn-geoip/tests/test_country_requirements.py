@@ -13,8 +13,8 @@ installed, which is the case this file cannot see.
 import pytest
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
+from blitzecdn.bootstrap import load_control_plane_plugins
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.plugins import load_plugins
 
 #: Every setting on the stable site schema that asks the edge which country a
 #: visitor is in, and nothing else. A fourth consumer belongs on this list and
@@ -51,7 +51,8 @@ def test_every_country_setting_requests_this_capability(
 def test_every_country_setting_deploys_once_the_capability_is_installed(
     _setting: str, policy: dict[str, object]
 ) -> None:
-    assert load_plugins().missing(_site(**policy).required_capabilities) == ()
+    registry = load_control_plane_plugins()
+    assert registry.missing(_site(**policy).required_capabilities) == ()
 
 
 def test_the_country_header_and_the_country_rules_are_one_capability() -> None:

@@ -14,11 +14,7 @@ from collections.abc import Sequence
 import pluggy
 
 from blitzecdn.core.plugins import hooks
-from blitzecdn.core.plugins.discovery import (
-    BUILTIN_PLUGINS,
-    register_builtins,
-    register_external,
-)
+from blitzecdn.core.plugins.discovery import register_builtins, register_external
 from blitzecdn.core.plugins.registry import PluginRegistry
 from blitzecdn.core.plugins.types import ENTRY_POINT_GROUP, PROJECT_NAME
 
@@ -31,12 +27,18 @@ def build_plugin_manager() -> pluggy.PluginManager:
 
 
 def load_plugins(
+    builtins: Sequence[str],
     *,
-    builtins: Sequence[str] = BUILTIN_PLUGINS,
     entry_point_group: str | None = ENTRY_POINT_GROUP,
     manager: pluggy.PluginManager | None = None,
 ) -> PluginRegistry:
     """Discover and register everything, built-in first.
+
+    ``builtins`` is an argument rather than a default read from this package,
+    because which capabilities a distribution ships is the composition root's
+    answer and not core's. `blitzecdn.bootstrap.load_control_plane_plugins` is
+    the call that pairs this mechanism with that roster; everything outside
+    core wants that one.
 
     Built-ins go first so an external plugin that claims a built-in's name
     collides with the built-in rather than displacing it, and so the command

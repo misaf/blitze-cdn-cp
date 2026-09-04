@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 from paths import SOURCE
 
-from blitzecdn.core.plugins import BUILTIN_PLUGINS
+from blitzecdn.bootstrap import BUILTIN_PLUGINS
 
 _SOURCE = SOURCE
 _COMPOSITION_ROOT = "blitzecdn.bootstrap"
@@ -461,6 +461,51 @@ def test_core_imports_no_capability():
         for imported in sorted(_runtime_imports(path))
         if imported.startswith("blitzecdn.capabilities")
     ]
+    assert offenders == []
+
+
+def test_core_names_no_capability_even_in_a_string():
+    """The same rule, asked of the text rather than of the import graph.
+
+    `core.plugins.discovery` held `BUILTIN_PLUGINS` — eight
+    `blitzecdn.capabilities.*.plugin` paths, imported by name at load time. The
+    test above stayed green throughout, because a module path in a tuple is not
+    an `ast.Import` and the foundation was reaching up into the tree it
+    supports anyway: adding a built-in capability meant editing `core`, and
+    `register_builtins` had an opinion, as a default argument, about which
+    capabilities exist.
+
+    A deferred import is still knowledge, so knowledge is what this asks about.
+    The roster lives in `blitzecdn.bootstrap` now, beside `Repository`, for the
+    reason that module already gives: choosing which parts make one control
+    plane is composition.
+
+    Docstrings are exempt. `core.plugins` has to be able to say where the
+    roster went, and prose pointing *at* the composition root is the opposite
+    of core holding the list.
+    """
+    offenders: list[str] = []
+    for path in sorted((_SOURCE / "core").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        docstrings = {
+            id(scope.body[0].value)
+            for scope in ast.walk(tree)
+            if isinstance(
+                scope,
+                (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef),
+            )
+            and scope.body
+            and isinstance(scope.body[0], ast.Expr)
+            and isinstance(scope.body[0].value, ast.Constant)
+        }
+        offenders.extend(
+            f"{path.relative_to(_SOURCE)}:{node.lineno} names {node.value!r}"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and "blitzecdn.capabilities" in node.value
+            and id(node) not in docstrings
+        )
     assert offenders == []
 
 
@@ -940,7 +985,8 @@ def test_every_capability_registers_itself_through_a_plugin_module():
     """A capability the plugin manager has never heard of is a capability nothing runs.
 
     Both directions: a package without a `plugin.py` contributes nothing, and a
-    `plugin.py` missing from `BUILTIN_PLUGINS` is never imported — either way
+    `plugin.py` missing from `bootstrap.BUILTIN_PLUGINS` is never imported —
+    either way
     the routes and commands quietly are not there, which is exactly the failure
     a discovery mechanism is supposed to make impossible.
     """

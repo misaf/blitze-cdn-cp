@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from blitzecdn import __version__
-from blitzecdn.bootstrap import build_control_plane
+from blitzecdn.bootstrap import build_control_plane, load_control_plane_plugins
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -19,7 +19,7 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
     NotFoundError,
 )
-from blitzecdn.core.plugins import PluginRegistry, ProcessKind, load_plugins
+from blitzecdn.core.plugins import PluginRegistry, ProcessKind
 from blitzecdn.scheduler import build_scheduler
 
 
@@ -31,7 +31,7 @@ def create_app(
     # the control plane the lifespan builds is handed the same registry rather
     # than repeating discovery. `plugins` is injectable so a test can serve an
     # app built from exactly the plugins the test is about.
-    registry = plugins if plugins is not None else load_plugins()
+    registry = plugins if plugins is not None else load_control_plane_plugins()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:

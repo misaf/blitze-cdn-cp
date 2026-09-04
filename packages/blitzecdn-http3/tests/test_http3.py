@@ -13,12 +13,13 @@ from blitzecdn_http3.plugin import (
     blitzecdn_plugin_metadata,
 )
 
+from blitzecdn.bootstrap import load_control_plane_plugins
 from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state as baseline_fleet_desired_state,
 )
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
-from blitzecdn.core.plugins import PluginMetadata, load_plugins, merge_variables
+from blitzecdn.core.plugins import PluginMetadata, merge_variables
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
@@ -171,14 +172,14 @@ def test_claiming_the_override_twice_is_refused() -> None:
 def test_the_installed_entry_point_derives_the_fleet_state_end_to_end() -> None:
     """Discovery, registration and the merge, in one pass over real metadata.
 
-    `load_plugins` reads this distribution's installed `blitzecdn.plugins`
+    `load_control_plane_plugins` reads this distribution's installed `blitzecdn.plugins`
     entry point exactly as a running control plane does, and `fleet_variables`
     is the call the deployment renderer makes. So this fails if the entry point
     is misspelled, if the hook is not picked up, or if the `overrides` claim
     stops resolving against core's baseline — none of which the unit tests
     above would notice.
     """
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
 
     assert "http3" in registry.capabilities
     assert registry.fleet_variables((_site("bravo"), _site("alpha")), object()) == {
@@ -197,6 +198,6 @@ def test_an_installed_http3_capability_clears_the_site_validation() -> None:
     Same site, same token, opposite answer — which is the whole of what
     attaching this distribution changes for a deployment.
     """
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
 
     assert registry.missing(_site("alpha").required_capabilities) == ()

@@ -31,11 +31,10 @@ from pathlib import Path
 import pytest
 from paths import CORE_DOCKER, REPO_ROOT, SOURCE, optional_packages
 
+from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.plugins import (
-    BUILTIN_PLUGINS,
     ENTRY_POINT_GROUP,
     build_plugin_manager,
-    load_plugins,
     register_builtins,
 )
 
@@ -169,12 +168,13 @@ def test_a_built_in_declares_itself_required_and_an_optional_package_does_not():
     a fault in a capability the operator chose to add.
     """
     manager = build_plugin_manager()
-    assert all(metadata.required for metadata in register_builtins(manager))
+    assert all(
+        metadata.required for metadata in register_builtins(manager, BUILTIN_PLUGINS)
+    )
 
-    installed = load_plugins()
-    builtin_names = {
-        metadata.name for metadata in load_plugins(entry_point_group=None).plugins
-    }
+    installed = load_control_plane_plugins()
+    builtins = load_control_plane_plugins(entry_point_group=None)
+    builtin_names = {metadata.name for metadata in builtins.plugins}
     external = [
         metadata for metadata in installed.plugins if metadata.name not in builtin_names
     ]
@@ -468,8 +468,8 @@ def test_an_optional_capability_is_discovered_only_through_its_entry_point():
     capability an optional distribution supplies is absent from it and present
     with it, and nothing in core was consulted either way.
     """
-    builtins = load_plugins(entry_point_group=None)
-    installed = load_plugins()
+    builtins = load_control_plane_plugins(entry_point_group=None)
+    installed = load_control_plane_plugins()
 
     added = installed.capabilities - builtins.capabilities
     assert added, "no optional capability is installed in this environment"
@@ -750,8 +750,8 @@ def test_the_http3_capability_is_reached_only_through_its_entry_point():
     capability whose token nothing supplied would fail as a validation error on
     every HTTP/3 site rather than as anything obviously packaging-shaped.
     """
-    builtins = load_plugins(entry_point_group=None)
-    installed = load_plugins()
+    builtins = load_control_plane_plugins(entry_point_group=None)
+    installed = load_control_plane_plugins()
 
     assert "http3" not in builtins.capabilities
     assert "http3" in installed.capabilities
@@ -841,8 +841,8 @@ def test_geoip_ships_as_an_optional_distribution_and_no_consumer_of_it_does():
 
 def test_the_geoip_capability_is_reached_only_through_its_entry_point():
     """Attached and detached are both real, and neither touches core."""
-    builtins = load_plugins(entry_point_group=None)
-    installed = load_plugins()
+    builtins = load_control_plane_plugins(entry_point_group=None)
+    installed = load_control_plane_plugins()
 
     assert "geoip" not in builtins.capabilities
     assert "geoip" in installed.capabilities

@@ -9,12 +9,9 @@ attaching it is the only thing that makes a country-aware site deployable.
 from blitzecdn_geoip import __version__
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
+from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.plugins import (
-    BUILTIN_PLUGINS,
-    PluginMetadata,
-    load_plugins,
-)
+from blitzecdn.core.plugins import PluginMetadata
 
 
 def _site(**policy: object) -> CdnSite:
@@ -60,12 +57,13 @@ def test_geoip_is_never_a_built_in() -> None:
     message would blame the entry point rather than the leftover line.
     """
     assert not any("geoip" in module for module in BUILTIN_PLUGINS)
-    assert "geoip" not in load_plugins(entry_point_group=None).capabilities
+    builtins = load_control_plane_plugins(entry_point_group=None)
+    assert "geoip" not in builtins.capabilities
 
 
 def test_the_installed_entry_point_is_how_the_capability_appears() -> None:
     """Discovery over the real installed metadata, as a control plane does it."""
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
 
     assert "geoip" in registry.capabilities
     assert "geoip" in {plugin.name for plugin in registry.plugins}
@@ -81,7 +79,7 @@ def test_an_installed_geoip_capability_clears_the_site_validation() -> None:
     Same site, same token, opposite answer — which is the whole of what
     attaching this distribution changes for a deployment.
     """
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
 
     for policy in (
         {"visitor_headers": {"ip_country": True}},
@@ -114,7 +112,7 @@ def test_the_capability_contributes_no_desired_state() -> None:
     distribution installed. A contribution added here later would silently
     override what an operator set in group vars.
     """
-    registry = load_plugins()
+    registry = load_control_plane_plugins()
     sites = (_site(visitor_headers={"ip_country": True}),)
 
     assert "geoip" not in str(registry.fleet_variables(sites, object()))

@@ -25,7 +25,6 @@ from blitzecdn.cli.common import ExitCode
 from blitzecdn.core.plugins import (
     CapabilitySetting,
     EnvironmentKey,
-    load_plugins,
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
     resolve_role_search_path,
@@ -195,7 +194,7 @@ def ansible_roles_path() -> None:
     where there is no database to open and no fleet to read.
     """
     search = resolve_role_search_path(
-        core_ansible.ROLES_PATH, load_plugins().ansible_contributions()
+        core_ansible.ROLES_PATH, common.installed_plugins().ansible_contributions()
     )
     typer.echo(":".join(str(path) for path in search))
 
@@ -223,7 +222,7 @@ def ansible_slots() -> None:
     diffing this output wants to see that a slot is empty rather than guess
     whether the question was asked.
     """
-    contributions = load_plugins().ansible_contributions()
+    contributions = common.installed_plugins().ansible_contributions()
     common.emit(
         {
             "blitzecdn_capability_roles": list(

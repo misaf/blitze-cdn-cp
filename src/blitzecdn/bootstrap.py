@@ -98,10 +98,58 @@ from blitzecdn.core.plugins import (
     resolve_role_search_path,
     resolve_teardown_capability_roles,
 )
+from blitzecdn.core.plugins.types import ENTRY_POINT_GROUP
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
 from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
 from blitzecdn.persistence import Repository
+
+#: Every capability this distribution ships, in dependency order — a plugin is
+#: registered after the capabilities it builds on, which is what makes the CLI's
+#: command order and the API's route order stable rather than incidental.
+#:
+#: Order is a presentation decision here and nothing more. Desired-state
+#: merging is deliberately order-independent (see `registry.merge_variables`),
+#: so moving a line in this tuple can never change what an edge converges to.
+#:
+#: It lives here rather than in `core.plugins.discovery`, where it was, for the
+#: same reason `Repository` lives beside it: choosing which parts make one
+#: control plane is composition. Core held these eight strings without
+#: importing them, so `test_core_imports_no_capability` stayed green while the
+#: foundation carried the roster of the tree it supports, and adding a built-in
+#: capability meant editing `core`. Naming is knowing.
+BUILTIN_PLUGINS: tuple[str, ...] = (
+    # The capability contracts first: nothing they contribute depends on
+    # another capability being registered, and `sites` composes their policy.
+    "blitzecdn.capabilities.http.plugin",
+    "blitzecdn.capabilities.sites.plugin",
+    "blitzecdn.capabilities.dns.plugin",
+    "blitzecdn.capabilities.edges.plugin",
+    "blitzecdn.capabilities.deployments.plugin",
+    "blitzecdn.capabilities.tls.plugin",
+    "blitzecdn.capabilities.maintenance.plugin",
+    "blitzecdn.capabilities.diagnostics.plugin",
+)
+
+
+def load_control_plane_plugins(
+    *,
+    entry_point_group: str | None = ENTRY_POINT_GROUP,
+) -> PluginRegistry:
+    """The roster above, loaded by core's mechanism. The call everyone wants.
+
+    `core.plugins.load_plugins` registers whatever module paths it is given and
+    knows no capability by name. This pairs it with what this distribution
+    actually ships, so a caller asking "what is installed here" — the API
+    building its routers, the CLI building its command tree, `blitzecdn ansible
+    search-path` in an image build — asks once and asks in one place.
+
+    ``entry_point_group=None`` skips external discovery, which is what a test
+    asserting on the built-in set wants: its answer should not change because a
+    developer happens to have an unrelated BlitzeCDN plugin in the same
+    virtualenv.
+    """
+    return load_plugins(BUILTIN_PLUGINS, entry_point_group=entry_point_group)
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
@@ -156,7 +204,7 @@ class ControlPlane:
         # known before the runner exists. Nothing else reads the registry this
         # early — plugins are still *given* the control plane last, once every
         # service they might register against has been built.
-        self.plugins = plugins if plugins is not None else load_plugins()
+        self.plugins = plugins if plugins is not None else load_control_plane_plugins()
         # Before anything is wired: an optional capability this installation
         # says it depends on has to actually be installed. Detaching a package
         # is a supported operation, so its absence is not an error on its own —

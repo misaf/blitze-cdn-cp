@@ -13,7 +13,7 @@ load-bearing rather than descriptive:
 | | where it lives | how it registers | can it be absent? |
 | --- | --- | --- | --- |
 | **1. Core** | `src/blitzecdn/core/` | it *is* the control plane | no |
-| **2. Built-in required capabilities** | `src/blitzecdn/capabilities/` | `BUILTIN_PLUGINS` | no — a failure is fatal |
+| **2. Built-in required capabilities** | `src/blitzecdn/capabilities/` | `bootstrap.BUILTIN_PLUGINS` | no — a failure is fatal |
 | **3. Installable optional capabilities** | `packages/blitzecdn-*/` | the `blitzecdn.plugins` entry-point group | yes, and that is normal |
 
 The third category is a real Python distribution. The official optional wheels
@@ -413,7 +413,8 @@ merged order-independently:
 * unless exactly one of them declares the variable in `overrides`
 * two plugins both claiming an override is also a `PluginError`
 
-So `BUILTIN_PLUGINS` can be reordered freely and no edge converges differently.
+So `bootstrap.BUILTIN_PLUGINS` can be reordered freely and no edge converges
+differently.
 Never concatenate configuration text through a hook — contribute typed values
 and let the edge roles render them.
 
@@ -429,8 +430,11 @@ operate coherently without belongs in `packages/`, not here. Then:
    one file per layer until there are two things in it.
 2. Write `plugin.py` with `blitzecdn_plugin_metadata` (`required=True`) and the
    hooks it contributes through.
-3. Add the module path to `BUILTIN_PLUGINS` in `core/plugins/discovery.py`.
-4. Build the service in `bootstrap.py` with explicit constructor injection.
+3. Add the module path to `BUILTIN_PLUGINS` in `bootstrap.py`. The roster is
+   the composition root's, not `core`'s: `core.plugins` registers the module
+   paths it is handed and names no capability at all, which
+   `test_core_names_no_capability_even_in_a_string` holds.
+4. Build the service in the same file with explicit constructor injection.
 5. Add the capability to `ALLOWED_CAPABILITY_DEPENDENCIES` in
    `tests/architecture/test_layering.py`, declaring every other capability it
    depends on — and to `ALLOWED_POLICY_DEPENDENCIES` if it has a `policy.py`

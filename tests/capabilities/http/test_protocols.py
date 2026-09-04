@@ -7,6 +7,7 @@ whether or not that distribution is installed: the scheme, the port sets, the
 plugin writes into the fleet document.
 """
 
+from blitzecdn.bootstrap import load_control_plane_plugins
 from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state,
     blitzecdn_plugin_metadata,
@@ -20,7 +21,6 @@ from blitzecdn.capabilities.http.policy import (
 )
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
-from blitzecdn.core.plugins import load_plugins
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
@@ -93,11 +93,12 @@ def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
 def test_core_alone_refuses_a_site_that_asks_for_http3():
     """The one intended semantic change, asserted against the built-in set.
 
-    `load_plugins(entry_point_group=None)` is a control plane with no optional
+    `load_control_plane_plugins(entry_point_group=None)` is a control plane with no
+    optional
     distribution installed at all, which is what an operator who never attached
     `blitzecdn-http3` is running.
     """
-    builtins = load_plugins(entry_point_group=None)
+    builtins = load_control_plane_plugins(entry_point_group=None)
 
     assert "http3" not in builtins.capabilities
     assert "http3" not in _site("alpha", http3=False).required_capabilities

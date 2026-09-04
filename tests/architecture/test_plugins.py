@@ -18,10 +18,10 @@ import pytest
 from fastapi import APIRouter
 from typer import Typer
 
+from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
-    BUILTIN_PLUGINS,
     ENTRY_POINT_GROUP,
     CapabilityConfig,
     CliCommandGroup,
@@ -60,7 +60,7 @@ def builtins() -> PluginRegistry:
     capability set must not change its answer because a developer happens to have
     an unrelated BlitzeCDN plugin installed in the same virtualenv.
     """
-    return load_plugins(entry_point_group=None)
+    return load_control_plane_plugins(entry_point_group=None)
 
 
 def _capability_config(**values: object) -> SimpleNamespace:
