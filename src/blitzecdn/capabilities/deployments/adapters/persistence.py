@@ -1,4 +1,4 @@
-"""Persistence for deployment history and snapshots."""
+"""Persistence for deployment history, snapshots, and requirements."""
 
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -6,17 +6,22 @@ from typing import Any, cast
 from uuid import uuid4
 
 from sqlalchemy import CursorResult, Result, delete, select, update
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import col
 
+from blitzecdn.capabilities.deployments.adapters.tables import (
+    DeploymentRequirementRow,
+    DeploymentRow,
+)
 from blitzecdn.capabilities.deployments.domain import (
     Deployment,
+    DeploymentRequirementKind,
     DeploymentStatus,
     require_transition,
 )
 from blitzecdn.core.domain.runs import AnsibleRun, RunStatus
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import DeploymentRow
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -254,4 +259,32 @@ class DeploymentStore:
         )
 
 
-__all__ = ["DeploymentStore"]
+class DeploymentRequirementStore:
+    def __init__(self, database: Database) -> None:
+        self._db = database
+
+    def require(self, kind: DeploymentRequirementKind) -> None:
+        with self._db.session() as session:
+            session.execute(
+                sqlite_insert(DeploymentRequirementRow)
+                .values(kind=kind.value, requested_at=self._db.now())
+                .on_conflict_do_update(
+                    index_elements=[DeploymentRequirementRow.kind],
+                    set_={"requested_at": self._db.now()},
+                )
+            )
+
+    def clear(self, kind: DeploymentRequirementKind) -> None:
+        with self._db.session() as session:
+            session.execute(
+                delete(DeploymentRequirementRow).where(
+                    col(DeploymentRequirementRow.kind) == kind.value
+                )
+            )
+
+    def pending(self, kind: DeploymentRequirementKind) -> bool:
+        with self._db.session() as session:
+            return session.get(DeploymentRequirementRow, kind.value) is not None
+
+
+__all__ = ["DeploymentRequirementStore", "DeploymentStore"]

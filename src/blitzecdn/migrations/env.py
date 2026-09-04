@@ -14,6 +14,18 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import create_engine
 
+# Every table module, imported for its side effect: a row registers itself on
+# `Base.metadata` when its module is imported, and a capability keeps its
+# tables beside the store that reads them. Autogenerate compares the database
+# against this metadata, so a table module missing from this list would look
+# to Alembic like a table somebody dropped. `test_migrations.py` walks the
+# capability tree and fails if one is missing here.
+from blitzecdn.capabilities.deployments.adapters import (
+    tables as _deployments,  # noqa: F401
+)
+from blitzecdn.capabilities.dns.adapters import tables as _dns  # noqa: F401
+from blitzecdn.capabilities.edges.adapters import tables as _edges  # noqa: F401
+from blitzecdn.capabilities.sites.adapters import tables as _sites  # noqa: F401
 from blitzecdn.core.config import Settings
 from blitzecdn.core.persistence.models import Base
 

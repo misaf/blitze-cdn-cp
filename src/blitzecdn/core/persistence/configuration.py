@@ -1,4 +1,10 @@
-"""Persistence for deployment requirements and fleet-wide settings."""
+"""Persistence for the fleet-wide Ansible settings core itself owns.
+
+``DeploymentRequirementStore`` was here too, and with it an import of
+``blitzecdn.capabilities.deployments`` — the last thing under ``core`` that
+named a capability at runtime. Both the store and the table it reads are
+``deployments``' own now.
+"""
 
 from typing import Any, cast
 
@@ -6,42 +12,10 @@ from sqlalchemy import CursorResult, Result, delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import col
 
-from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.core.domain.validation import validate_setting_name
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.models import (
-    AnsibleSettingRow,
-    DeploymentRequirementRow,
-)
-
-
-class DeploymentRequirementStore:
-    def __init__(self, database: Database) -> None:
-        self._db = database
-
-    def require(self, kind: DeploymentRequirementKind) -> None:
-        with self._db.session() as session:
-            session.execute(
-                sqlite_insert(DeploymentRequirementRow)
-                .values(kind=kind.value, requested_at=self._db.now())
-                .on_conflict_do_update(
-                    index_elements=[DeploymentRequirementRow.kind],
-                    set_={"requested_at": self._db.now()},
-                )
-            )
-
-    def clear(self, kind: DeploymentRequirementKind) -> None:
-        with self._db.session() as session:
-            session.execute(
-                delete(DeploymentRequirementRow).where(
-                    col(DeploymentRequirementRow.kind) == kind.value
-                )
-            )
-
-    def pending(self, kind: DeploymentRequirementKind) -> bool:
-        with self._db.session() as session:
-            return session.get(DeploymentRequirementRow, kind.value) is not None
+from blitzecdn.core.persistence.models import AnsibleSettingRow
 
 
 def _rows_affected(result: Result[Any]) -> int:
@@ -99,4 +73,4 @@ class AnsibleSettingStore:
                 raise NotFoundError(f"Ansible setting {name!r} does not exist")
 
 
-__all__ = ["AnsibleSettingStore", "DeploymentRequirementStore"]
+__all__ = ["AnsibleSettingStore"]
