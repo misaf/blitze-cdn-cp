@@ -500,18 +500,14 @@ _PACKAGE_MODULES = {
     "ports.py",  # the narrow Protocols this capability calls
     "service.py",  # the capability's behaviour
     "cli.py",  # its command groups
+    "policy.py",  # its configuration contract: the values a site carries
 }
 
-#: `api/` holds the routes and the package's own operational shapes, and
-#: nothing else. A package whose HTTP surface needs a third module is
-#: describing something that is not an HTTP adapter.
-_API_MODULES = {"__init__.py", "models.py", "routes.py"}
-
-#: The three layers a capability may spell as a directory when it outgrows one
-#: file, whose *contents* are then named after what they are rather than after
-#: the layer: `archive.py`, `playbooks.py`, `checks.py`, `reporting.py`,
-#: `snapshots.py`. Flat — a layer package with a package inside it is a split
-#: this size of code does not have.
+#: The layers a capability may spell as a directory when it outgrows one file,
+#: whose *contents* are then named after what they are rather than after the
+#: layer: `archive.py`, `playbooks.py`, `checks.py`, `reporting.py`,
+#: `snapshots.py`, `readiness.py`. Flat — a layer package with a package inside
+#: it is a split this size of code does not have.
 #:
 #: `adapters.py`, `preflight.py` and `reporting.py` were single names in the
 #: module set beside `service.py`, which meant the same job was documented
@@ -519,7 +515,16 @@ _API_MODULES = {"__init__.py", "models.py", "routes.py"}
 #: second adapter arriving as `renderer.py` was undocumented. The directory
 #: says which layer it is, and `test_layering` reads the same directories to
 #: decide which rule a file lives under.
-_FREE_FORM_DIRECTORIES = {"adapters", "domain", "service"}
+#:
+#: `api` is one of them rather than the fixed `{models.py, routes.py}` it was.
+#: That set said "a package whose HTTP surface needs a third module is
+#: describing something that is not an HTTP adapter", and
+#: `diagnostics/api/readiness.py` is the counter-example: `/health` and
+#: `/ready` are a second router because they carry a different auth posture
+#: from the operator routes beside them, which is as HTTP-adapter as it gets.
+#: A layer that has outgrown one file names its parts after what they are —
+#: the rule every other layer here already follows.
+_FREE_FORM_DIRECTORIES = {"adapters", "api", "domain", "policy", "service"}
 
 #: What a package ships for something other than Python to read. `ansible/`
 #: carries one module — the `importlib.resources` anchor — and its roles and
@@ -548,10 +553,6 @@ def _module_offence(parts: tuple[str, ...], *, nested: bool) -> str | None:
         return "ansible/ ships roles and plays; its only module is the anchor"
     if head == "nginx":
         return "nginx/ ships templates, not Python"
-    if head == "api":
-        if len(rest) == 1 and rest[0] in _API_MODULES:
-            return None
-        return f"api/{'/'.join(rest)} is not a router, a version or the shared models"
     if head in _FREE_FORM_DIRECTORIES:
         return None if len(rest) == 1 else f"{head}/ is flat"
     if nested:
@@ -577,6 +578,53 @@ def test_a_package_organises_its_python_into_the_documented_modules(package: Pat
         for parts in (path.relative_to(root).parts,)
         if not (len(parts) == 1 and parts[0] in allowed_extra)
         for offence in (_module_offence(parts, nested=False),)
+        if offence
+    ]
+    assert offenders == []
+
+
+def _built_in_capabilities() -> list[Path]:
+    root = SOURCE / "capabilities"
+    return sorted(
+        path
+        for path in root.iterdir()
+        if path.is_dir() and (path / "__init__.py").is_file()
+    )
+
+
+@pytest.mark.parametrize(
+    "capability", _built_in_capabilities(), ids=lambda path: path.name
+)
+def test_a_built_in_capability_organises_its_python_the_same_way(capability: Path):
+    """One vocabulary, whichever side of the packaging boundary a slice is on.
+
+    The rule above walked `packages/` only, so the eight capabilities in
+    `src/` — the ones an author reads first, and copies — were held to nothing.
+    `tests/architecture/test_layering.py` then had to identify a slice's entry
+    adapters from a literal set of file names, `{"cli.py", "routes.py",
+    "readiness.py"}`, because a name it did not list was a name no rule
+    described. `readiness.py` was on that list because somebody remembered to
+    add it, and a slice growing a `commands.py` or a `websocket.py` would have
+    had no entry rule at all.
+
+    Applying this here closes the set instead of lengthening the list: a
+    capability's root modules are the documented eight, everything else is
+    inside a layer directory, and `_entry_files` can say `api/` and `cli.py`
+    and be exhaustive rather than hopeful.
+
+    The built-in vocabulary is the package one exactly. `policy.py` reads as
+    the exception and is not: PLUGINS.md has always listed it in the canonical
+    package, and a wheel may own a contract — what a wheel *cannot* do is be
+    the only place one lives, because a detached capability's settings still
+    have to parse.
+    """
+    offenders = [
+        f"{path.relative_to(capability)}: {offence}"
+        for path in sorted(capability.rglob("*.py"))
+        if "__pycache__" not in path.parts
+        for offence in (
+            _module_offence(path.relative_to(capability).parts, nested=False),
+        )
         if offence
     ]
     assert offenders == []
@@ -625,7 +673,7 @@ def test_the_documented_layout_and_the_enforced_one_are_the_same():
     documented = (REPO_ROOT / "PLUGINS.md").read_text(encoding="utf-8")
     missing = sorted(
         name
-        for name in _PACKAGE_MODULES | _API_MODULES | _FREE_FORM_DIRECTORIES
+        for name in _PACKAGE_MODULES | _FREE_FORM_DIRECTORIES
         if name != "__init__.py" and name not in documented
     )
     assert missing == []
