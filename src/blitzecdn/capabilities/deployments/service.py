@@ -45,6 +45,7 @@ from blitzecdn.capabilities.deployments.domain import (
     DriftReport,
     aborted_run,
 )
+from blitzecdn.capabilities.deployments.domain.snapshots import snapshot_digest
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentRequirements,
     DeploymentRunner,
@@ -59,7 +60,6 @@ from blitzecdn.capabilities.deployments.ports import (
     ZoneEditor,
     ZoneStore,
 )
-from blitzecdn.capabilities.deployments.snapshots import snapshot_digest
 from blitzecdn.capabilities.deployments.validation import DeploymentValidation
 from blitzecdn.core.application.workflows import WorkflowCoordinator
 from blitzecdn.core.domain.events import domain_event

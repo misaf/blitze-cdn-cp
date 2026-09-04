@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from blitzecdn.capabilities.edges.domain import Edge
-from blitzecdn.capabilities.edges.origins import OriginCheck
+from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.domain.runs import AnsibleRun
 

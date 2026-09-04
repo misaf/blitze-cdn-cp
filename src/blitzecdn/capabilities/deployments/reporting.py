@@ -16,8 +16,8 @@ lock and the ordering, and this owns only what a stored run means.
 from __future__ import annotations
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus, DriftReport
+from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.deployments.ports import DeploymentStore
-from blitzecdn.capabilities.deployments.snapshots import decode_snapshot
 from blitzecdn.core.exceptions import ConflictError
 
 #: How far back :func:`site_is_deployed` will look for a run to read. A bound

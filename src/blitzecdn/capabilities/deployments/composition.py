@@ -19,7 +19,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from blitzecdn.capabilities.deployments.desired_state import DesiredStateRenderer
+from blitzecdn.capabilities.deployments.adapters.desired_state import (
+    DesiredStateRenderer,
+)
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentRequirements,
     DeploymentRunner,

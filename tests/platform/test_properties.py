@@ -3,7 +3,7 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from blitzecdn.capabilities.deployments.snapshots import (
+from blitzecdn.capabilities.deployments.domain.snapshots import (
     decode_snapshot_state,
     encode_snapshot,
 )

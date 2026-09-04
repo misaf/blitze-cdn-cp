@@ -11,7 +11,7 @@ from blitzecdn.capabilities.deployments.domain import (
     is_terminal,
     require_transition,
 )
-from blitzecdn.capabilities.deployments.snapshots import (
+from blitzecdn.capabilities.deployments.domain.snapshots import (
     decode_snapshot,
     encode_snapshot,
 )

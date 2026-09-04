@@ -16,11 +16,11 @@ from __future__ import annotations
 from contextlib import AbstractContextManager
 from pathlib import Path
 
-from blitzecdn.capabilities.deployments.persistence import DeploymentStore
-from blitzecdn.capabilities.deployments.snapshots import encode_snapshot
-from blitzecdn.capabilities.dns.persistence import ZoneStore
-from blitzecdn.capabilities.edges.persistence import EdgeStore
-from blitzecdn.capabilities.sites.persistence import SiteStore
+from blitzecdn.capabilities.deployments.adapters.persistence import DeploymentStore
+from blitzecdn.capabilities.deployments.domain.snapshots import encode_snapshot
+from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
+from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
+from blitzecdn.capabilities.sites.adapters.persistence import SiteStore
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import (
     AnsibleSettingStore,

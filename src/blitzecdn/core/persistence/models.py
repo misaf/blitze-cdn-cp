@@ -266,7 +266,7 @@ class DeploymentRow(Base, table=True):
     result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
     #: The desired state this deployment converged, and can roll back to.
     #: Opaque here on purpose — its shape is versioned by
-    #: :mod:`blitzecdn.capabilities.deployments.snapshots`, not by this schema.
+    #: :mod:`blitzecdn.capabilities.deployments.domain.snapshots`, not by this schema.
     snapshot: str
     #: For a rollback: a digest of the canonical desired state as it stood when
     #: this rollback was queued. Adoption compares it against canonical state

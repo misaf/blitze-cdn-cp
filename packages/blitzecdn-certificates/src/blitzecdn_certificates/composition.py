@@ -8,8 +8,8 @@ from blitzecdn_origins.adapters import OriginCheckPlaybook
 from blitzecdn.core.runtime.resources import distribution_version
 from blitzecdn_certificates.automatic_ssl.service import AutomaticSslService
 from blitzecdn_certificates.certificates.adapters import CertbotIssuer, CertificateStore
+from blitzecdn_certificates.certificates.adapters.preflight import CertificatePreflight
 from blitzecdn_certificates.certificates.ports import WorkflowCoordinator
-from blitzecdn_certificates.certificates.preflight import CertificatePreflight
 from blitzecdn_certificates.certificates.service import (
     CertificateExecution,
     CertificatePersistence,

@@ -15,15 +15,15 @@ still owns the lock, the transaction and the ordering; this owns the policy.
 from __future__ import annotations
 
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
+from blitzecdn.capabilities.deployments.domain.snapshots import (
+    decode_snapshot_state,
+    snapshot_digest,
+)
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentStore,
     SiteRestore,
     ZoneEditor,
     ZoneStore,
-)
-from blitzecdn.capabilities.deployments.snapshots import (
-    decode_snapshot_state,
-    snapshot_digest,
 )
 from blitzecdn.core.exceptions import ConflictError
 

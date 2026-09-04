@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.deployments.ports import StateContributors, YamlWriter
-from blitzecdn.capabilities.deployments.snapshots import decode_snapshot
 
 
 class DesiredStateRenderer:

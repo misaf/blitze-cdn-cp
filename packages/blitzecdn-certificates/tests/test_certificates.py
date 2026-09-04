@@ -6,8 +6,8 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from blitzecdn_certificates.certificates import adapters as certificates_module
 from blitzecdn_certificates.certificates.adapters import CertbotIssuer, CertificateStore
+from blitzecdn_certificates.certificates.adapters import store as certificates_module
 from blitzecdn_certificates.certificates.domain import CertificateSource
 from control_plane_fixtures import private_key_pem
 from cryptography import x509

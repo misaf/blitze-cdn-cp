@@ -6,7 +6,7 @@ import pytest
 from control_plane_fixtures import FakeRunner, seed_site
 
 from blitzecdn.bootstrap import ControlPlane
-from blitzecdn.capabilities.deployments.snapshots import (
+from blitzecdn.capabilities.deployments.domain.snapshots import (
     decode_snapshot,
     decode_snapshot_state,
 )

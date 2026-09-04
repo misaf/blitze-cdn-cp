@@ -17,12 +17,12 @@ from __future__ import annotations
 
 import threading
 
+from blitzecdn_certificates.certificates.adapters.preflight import CertificatePreflight
 from blitzecdn_certificates.certificates.domain import (
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
 )
-from blitzecdn_certificates.certificates.preflight import CertificatePreflight
 from blitzecdn_certificates.certificates.service import CertificateService
 from control_plane_fixtures import (
     API_HEADERS,
