@@ -50,8 +50,8 @@ from blitzecdn_security.config import (
 __version__ = distribution_version(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
     from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.composition import ControlPlane
 
 
 #: The Jinja fragments this capability contributes to the edge's Nginx

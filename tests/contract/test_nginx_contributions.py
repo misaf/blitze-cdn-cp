@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from blitzecdn.bootstrap import load_control_plane_plugins
+from blitzecdn.composition import load_control_plane_plugins
 from blitzecdn.core.exceptions import ConfigurationError, PluginError
 from blitzecdn.core.plugins import (
     CapabilitySetting,

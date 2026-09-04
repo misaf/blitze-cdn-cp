@@ -18,11 +18,10 @@ from control_plane_fixtures import FakeRunner, ansible_run, host_run, seed_site
 from pydantic import SecretStr
 from typer.testing import CliRunner
 
-from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.sites.domain import SitePatch
 from blitzecdn.cli import main as cli
-from blitzecdn.persistence import Repository
+from blitzecdn.composition import ControlPlane, Repository
 
 runner = CliRunner()
 

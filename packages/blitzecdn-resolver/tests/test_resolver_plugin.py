@@ -16,7 +16,7 @@ from blitzecdn_resolver.plugin import (
     blitzecdn_plugin_metadata,
 )
 
-from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,

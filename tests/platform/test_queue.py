@@ -312,7 +312,7 @@ def test_a_scheduled_actor_always_releases_its_key(monkeypatch):
         close=lambda: None,
     )
     monkeypatch.setattr(
-        "blitzecdn.bootstrap.build_control_plane",
+        "blitzecdn.composition.build_control_plane",
         lambda _settings, **_kwargs: control,
     )
     monkeypatch.setattr(

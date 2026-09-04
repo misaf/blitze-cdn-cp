@@ -11,7 +11,7 @@ from blitzecdn.capabilities.edges.ports import EdgeRunner, EdgeStore
 from blitzecdn.capabilities.edges.service import EdgeOperationsService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 __all__ = ["build_edge_operations_service"]
 

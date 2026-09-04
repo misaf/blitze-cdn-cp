@@ -10,7 +10,7 @@ Two sources, deliberately not one:
   the module, and can be read.
 
   Which capabilities that roster holds is not a fact this module knows.
-  ``blitzecdn.bootstrap.BUILTIN_PLUGINS`` is the list, because "what does this
+  ``blitzecdn.composition.BUILTIN_PLUGINS`` is the list, because "what does this
   distribution ship" is a composition decision, and core naming the tree it
   supports is the direction this package exists to refuse.
 

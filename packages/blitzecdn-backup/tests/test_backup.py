@@ -34,13 +34,12 @@ from blitzecdn_backup.service import BackupPolicy, BackupService
 from control_plane_fixtures import FakeRunner
 from typer.testing import CliRunner
 
-from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.cli import main as cli
+from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
-from blitzecdn.persistence import Repository
 
 runner = CliRunner()
 

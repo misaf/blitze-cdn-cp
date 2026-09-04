@@ -9,7 +9,11 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from blitzecdn import __version__
-from blitzecdn.bootstrap import build_control_plane, load_control_plane_plugins
+from blitzecdn.composition import (
+    build_control_plane,
+    build_scheduler,
+    load_control_plane_plugins,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -20,7 +24,6 @@ from blitzecdn.core.exceptions import (
     NotFoundError,
 )
 from blitzecdn.core.plugins import PluginRegistry, ProcessKind
-from blitzecdn.scheduler import build_scheduler
 
 
 def create_app(

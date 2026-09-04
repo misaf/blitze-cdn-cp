@@ -13,7 +13,7 @@ load-bearing rather than descriptive:
 | | where it lives | how it registers | can it be absent? |
 | --- | --- | --- | --- |
 | **1. Core** | `src/blitzecdn/core/` | it *is* the control plane | no |
-| **2. Built-in required capabilities** | `src/blitzecdn/capabilities/` | `bootstrap.BUILTIN_PLUGINS` | no — a failure is fatal |
+| **2. Built-in required capabilities** | `src/blitzecdn/capabilities/` | `composition.BUILTIN_PLUGINS` | no — a failure is fatal |
 | **3. Installable optional capabilities** | `packages/blitzecdn-*/` | the `blitzecdn.plugins` entry-point group | yes, and that is normal |
 
 The third category is a real Python distribution. The official optional wheels
@@ -321,10 +321,19 @@ it. Cache *operations* — purging, and reading how well the cache is working �
 are the `blitzecdn-cache` distribution. Edge runtime and build capability
 remains an edge concern.
 
-**`bootstrap.py`** is the composition root, and the only place production wiring
-lives. It builds adapters, injects them into services through constructors,
-loads the plugins, and hands each plugin the finished control plane so it can
-register what it contributes.
+**`blitzecdn.composition`** is the composition root, and the only place
+production wiring lives. `control_plane.py` builds adapters, injects them into
+services through constructors, loads the plugins, and hands each plugin the
+finished control plane so it can register what it contributes; `repository.py`
+chooses which capability stores sit on one SQLite file, and `scheduler.py`
+which of the contributed jobs get triggers.
+
+It is a package rather than three loose modules at `src/blitzecdn/`'s root
+because the root answers a different question: which processes exist. `api/`,
+`cli/`, `worker.py` and `install_handoff.py` are the four, and
+`test_a_loose_module_at_the_root_starts_a_process` holds the line by checking
+that something outside Python — the installer, a compose file — names each
+one.
 
 ```
 adapters  →  services  →  plugins  →  contributions
@@ -429,7 +438,7 @@ merged order-independently:
 * unless exactly one of them declares the variable in `overrides`
 * two plugins both claiming an override is also a `PluginError`
 
-So `bootstrap.BUILTIN_PLUGINS` can be reordered freely and no edge converges
+So `composition.BUILTIN_PLUGINS` can be reordered freely and no edge converges
 differently.
 Never concatenate configuration text through a hook — contribute typed values
 and let the edge roles render them.
@@ -446,7 +455,8 @@ operate coherently without belongs in `packages/`, not here. Then:
    one file per layer until there are two things in it.
 2. Write `plugin.py` with `blitzecdn_plugin_metadata` (`required=True`) and the
    hooks it contributes through.
-3. Add the module path to `BUILTIN_PLUGINS` in `bootstrap.py`. The roster is
+3. Add the module path to `BUILTIN_PLUGINS` in `composition/control_plane.py`.
+   The roster is
    the composition root's, not `core`'s: `core.plugins` registers the module
    paths it is handed and names no capability at all, which
    `test_core_names_no_capability_even_in_a_string` holds.
@@ -569,7 +579,7 @@ from blitzecdn.capabilities.sites import CdnSite  # a public capability contract
 and never:
 
 ```
-blitzecdn.bootstrap          # the control plane composes itself; a package composes itself
+blitzecdn.composition        # the control plane composes itself; a package composes itself
 blitzecdn.api.app            # the application composition
 blitzecdn.cli.main           # the command-line composition
 blitzecdn.core.persistence   # storage implementations, reached through ports
@@ -586,9 +596,9 @@ concretely needs it.
 
 ### How it composes itself
 
-`bootstrap.py` builds the control plane's *required* services and knows nothing
-about what is installed beside it, so a package builds its own service in its
-own `composition.py`, from what the control plane publishes:
+`blitzecdn.composition` builds the control plane's *required* services and
+knows nothing about what is installed beside it, so a package builds its own
+service in its own `composition.py`, from what the control plane publishes:
 
 ```python
 def build_cache_service(platform: ControlPlane) -> CacheService:
@@ -1455,7 +1465,8 @@ claiming a built-in's name collides with it rather than displacing it.
 
 * An **optional package** may depend only on the public SDK above, on public
   capability contracts, and on its own modules — never on another optional
-  package's internals, and never on `bootstrap`, the entry-layer compositions,
+  package's internals, and never on `blitzecdn.composition`, the entry-layer
+  compositions,
   or the storage implementations.
 * A feature may depend on core contracts, on ports it declares itself, and on
   another feature's public contract modules (`domain`, `policy`, `origins`,

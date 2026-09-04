@@ -35,11 +35,10 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
+from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.persistence import Repository
 
 
 def _with_seams(service, *, certificate_store=None, issuer=None, preflight=None):

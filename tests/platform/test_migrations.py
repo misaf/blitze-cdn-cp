@@ -23,10 +23,10 @@ from sqlalchemy import create_engine
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.tables import Base
-from blitzecdn.persistence import Repository
 
 
 def _config(path) -> Config:

@@ -36,7 +36,9 @@ def test_api_service_runs_certificate_reconciliation_on_its_interval(
         called.set()
         return True
 
-    monkeypatch.setattr("blitzecdn.scheduler.enqueue_scheduled_once", enqueue)
+    monkeypatch.setattr(
+        "blitzecdn.composition.scheduler.enqueue_scheduled_once", enqueue
+    )
 
     with TestClient(create_app(configured)):
         assert called.wait(2)
@@ -57,7 +59,9 @@ def test_api_service_runs_automatic_ssl_scans_on_their_interval(settings, monkey
         called.set()
         return True
 
-    monkeypatch.setattr("blitzecdn.scheduler.enqueue_scheduled_once", enqueue)
+    monkeypatch.setattr(
+        "blitzecdn.composition.scheduler.enqueue_scheduled_once", enqueue
+    )
 
     with TestClient(create_app(configured)):
         assert called.wait(2)

@@ -13,7 +13,7 @@ from blitzecdn.capabilities.dns.ports import SiteHostnames, ZoneStore
 from blitzecdn.capabilities.dns.service import DnsService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.bootstrap import ControlPlane
+    from blitzecdn.composition import ControlPlane
 
 __all__ = ["build_dns_service"]
 

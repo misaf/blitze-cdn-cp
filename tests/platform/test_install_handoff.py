@@ -3,9 +3,8 @@ import subprocess
 
 from control_plane_fixtures import FakeRunner
 
-from blitzecdn.bootstrap import ControlPlane
+from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.install_handoff import finalize_standalone, install_wrapper
-from blitzecdn.persistence import Repository
 
 
 def test_install_wrapper_pins_and_repoints_the_checkout(tmp_path):

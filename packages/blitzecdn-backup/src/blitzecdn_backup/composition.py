@@ -1,6 +1,6 @@
 """This package's own composition root.
 
-An optional distribution wires itself. ``blitzecdn.bootstrap`` builds the
+An optional distribution wires itself. ``blitzecdn.composition`` builds the
 control plane's required services and knows nothing about what is installed
 beside it, so a package that needs a service builds it here, out of the public
 core contracts it is allowed to name: :class:`~blitzecdn.core.config.Settings`,

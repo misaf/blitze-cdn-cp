@@ -4,7 +4,8 @@ The rule the whole packaging layer rests on is one sentence: **core knows the
 extension contracts and never the implementations.** Everything here is a way
 of checking that sentence against the real source tree and the real installed
 metadata, because every violation of it is invisible in review — an import
-added to `bootstrap.py`, a package name that crept into `BUILTIN_PLUGINS`, a
+added to the composition root, a package name that crept into
+`BUILTIN_PLUGINS`, a
 test left behind in `tests/` when its capability moved out — and each one turns
 "detach the package" from a supported operation into a broken control plane.
 
@@ -31,7 +32,7 @@ from pathlib import Path
 import pytest
 from paths import CORE_DOCKER, REPO_ROOT, SOURCE, optional_packages
 
-from blitzecdn.bootstrap import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.plugins import (
     ENTRY_POINT_GROUP,
     build_plugin_manager,
@@ -85,7 +86,7 @@ def _optional_import_roots() -> set[str]:
 def test_core_never_imports_an_optional_package():
     """The load-bearing rule, checked by name over the whole distribution.
 
-    Not scoped to `bootstrap.py`, because the composition root is only the
+    Not scoped to `composition/`, because the composition root is only the
     likeliest place for it rather than the only one: a router, a service or a
     `core` module importing `blitzecdn_cache` would make the control plane
     refuse to start the moment that package was uninstalled, which is the
@@ -256,7 +257,7 @@ def test_optional_packages_depend_on_each_other_only_when_they_say_so(package: P
 #: shared value types, the ports an installed capability is handed, and the
 #: entry-layer toolkits a contributed router or command is built from.
 #:
-#: The exclusions are the point. `blitzecdn.bootstrap` is the control plane's
+#: The exclusions are the point. `blitzecdn.composition` is the control plane's
 #: composition root and a package composes itself; `blitzecdn.core.persistence`
 #: and a capability's `*.persistence` are storage implementations reached
 #: through ports; `blitzecdn.api.app` and `blitzecdn.cli.main` are the two
@@ -318,9 +319,8 @@ _PUBLIC_CAPABILITY_MODULES = (
 )
 
 _FORBIDDEN_SDK_MODULES = (
-    "blitzecdn.bootstrap",
+    "blitzecdn.composition",
     "blitzecdn.worker",
-    "blitzecdn.scheduler",
     "blitzecdn.api.app",
     "blitzecdn.cli.main",
     "blitzecdn.core.persistence",
@@ -339,7 +339,7 @@ def test_an_optional_package_imports_only_public_contracts(package: Path):
     deliberate decision about what BlitzeCDN promises an installed capability.
 
     `TYPE_CHECKING` imports count. `ControlPlane` is annotated by every package
-    that receives one, and that is knowledge of `blitzecdn.bootstrap` whichever
+    that receives one, and that is knowledge of `blitzecdn.composition` whichever
     block it sits in — so it is written as a guarded, annotation-only import
     that this test allows by name, rather than excused by a rule that would
     also let a runtime import through.
@@ -537,7 +537,7 @@ _NGINX_SUFFIX = ".conf.j2"
 #: `acme_hook` is a process entry point rather than part of the capability's
 #: composition: certbot execs it as a one-shot subprocess with no control
 #: plane in the picture, which is why `test_layering` also names it beside
-#: `bootstrap.py` as a second composition root.
+#: `blitzecdn.composition` as a second composition root.
 _DECLARED_EXTRA_MODULES = {"blitzecdn-certificates": {"acme_hook.py"}}
 
 

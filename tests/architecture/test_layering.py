@@ -25,12 +25,12 @@ from collections import defaultdict
 from pathlib import Path
 
 import pytest
-from paths import SOURCE
+from paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
 
-from blitzecdn.bootstrap import BUILTIN_PLUGINS
+from blitzecdn.composition import BUILTIN_PLUGINS
 
 _SOURCE = SOURCE
-_COMPOSITION_ROOT = "blitzecdn.bootstrap"
+_COMPOSITION_ROOT = "blitzecdn.composition"
 _CAPABILITIES = _SOURCE / "capabilities"
 _IO_IMPORTS = (
     "fastapi",
@@ -58,7 +58,7 @@ _IO_IMPORTS = (
 #: `adapters.py` that meant the same thing. Two modules doing the same job were
 #: held to different rules depending on which name somebody had thought of, and
 #: the module nobody thought of was held to none — a new adapter written as
-#: `renderer.py` would have been free to import `bootstrap`.
+#: `renderer.py` would have been free to import the composition root.
 #:
 #: `domain` and `adapters` are directories in every capability now, so a file
 #: is inside the rule the moment it is put where it belongs, and choosing the
@@ -269,7 +269,7 @@ def test_capability_domains_are_framework_and_io_independent():
                 *_IO_IMPORTS,
                 "blitzecdn.api",
                 "blitzecdn.cli",
-                "blitzecdn.bootstrap",
+                "blitzecdn.composition",
                 # Two packages, not seven module names. `core.runtime` is
                 # everything of core's that touches the machine and
                 # `core.persistence` everything that touches the database, so
@@ -289,7 +289,7 @@ def test_capability_services_depend_on_contracts_not_concrete_adapters():
         *_IO_IMPORTS,
         "blitzecdn.api",
         "blitzecdn.cli",
-        "blitzecdn.bootstrap",
+        "blitzecdn.composition",
         "blitzecdn.core.ansible",
         "blitzecdn.core.persistence",
         "blitzecdn.core.runtime.broker",
@@ -315,7 +315,7 @@ def test_capability_adapters_never_import_entry_layers_or_composition():
             (
                 "blitzecdn.api",
                 "blitzecdn.cli",
-                "blitzecdn.bootstrap",
+                "blitzecdn.composition",
                 "blitzecdn.worker",
             ),
         )
@@ -388,7 +388,7 @@ def test_cross_capability_imports_use_contract_modules():
 
 
 def test_control_plane_is_the_only_production_composition_root():
-    imports = _imports(_SOURCE / "bootstrap.py")
+    imports = _imports(_SOURCE / "composition/control_plane.py")
     assert any(name.startswith("blitzecdn.capabilities") for name in imports)
     assert any(name.startswith("blitzecdn.core") for name in imports)
     assert not any(name.startswith("blitzecdn.worker") for name in imports)
@@ -405,21 +405,31 @@ _CONCRETE_ADAPTERS = {
     "Repository",
 }
 
-#: `bootstrap` is the composition root for the control plane. `acme_hook`
-#: is a second, deliberate one: certbot runs it as a one-shot subprocess with
-#: no control plane in the picture, and it builds the two adapters an HTTP-01
-#: challenge needs and nothing else. `persistence` is the third: choosing which
-#: capability stores sit on one SQLite file is composition, which is why it is
-#: a sibling of `bootstrap` and not a module of `core.persistence`. Named here
-#: so a fourth does not appear quietly beside them.
-_COMPOSITION_MODULES = {"bootstrap.py", "acme_hook.py", "persistence.py"}
+#: `blitzecdn.composition` is the composition root for the control plane:
+#: `control_plane` wires the services, `repository` chooses which capability
+#: stores sit on one SQLite file, `scheduler` chooses which contributed jobs
+#: get triggers. Membership is the directory, so a fourth module added there is
+#: inside the allowance by being put where it belongs.
+#:
+#: `acme_hook` is the one composition root outside it, and deliberate: certbot
+#: runs it as a one-shot subprocess with no control plane in the picture, and it
+#: builds the two adapters an HTTP-01 challenge needs and nothing else. It is
+#: named here — a name, because it is the exception — so a second one does not
+#: appear quietly beside it.
+_COMPOSITION_EXCEPTIONS = {"acme_hook.py"}
+
+
+def _is_composition(path: Path) -> bool:
+    return (
+        _SOURCE / "composition" in path.parents or path.name in _COMPOSITION_EXCEPTIONS
+    )
 
 
 def test_only_a_composition_root_names_a_concrete_adapter():
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {name}"
         for path in _SOURCE.rglob("*.py")
-        if path.name not in _COMPOSITION_MODULES
+        if not _is_composition(path)
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.ImportFrom)
         and node.module
@@ -490,7 +500,7 @@ def test_core_names_no_capability_even_in_a_string():
     capabilities exist.
 
     A deferred import is still knowledge, so knowledge is what this asks about.
-    The roster lives in `blitzecdn.bootstrap` now, beside `Repository`, for the
+    The roster lives in `blitzecdn.composition` now, beside `Repository`, for the
     reason that module already gives: choosing which parts make one control
     plane is composition.
 
@@ -524,7 +534,7 @@ def test_core_names_no_capability_even_in_a_string():
 
 
 def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
-    assert "blitzecdn.bootstrap" in _imports(_SOURCE / "worker.py")
+    assert "blitzecdn.composition" in _imports(_SOURCE / "worker.py")
     offenders = [
         str(path.relative_to(_SOURCE))
         for path in _SOURCE.rglob("*.py")
@@ -534,9 +544,54 @@ def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
     assert offenders == []
     broker_imports = _imports(_SOURCE / "core/runtime/broker.py")
     assert not any(
-        name.startswith(("blitzecdn.worker", "blitzecdn.bootstrap"))
+        name.startswith(("blitzecdn.worker", "blitzecdn.composition"))
         for name in broker_imports
     )
+
+
+#: Where a process is actually started from, other than a Python import: the
+#: installer, the compose files an edge and a controller converge to, and the
+#: project's own scripts and recipes.
+def _deployment_artifacts() -> list[Path]:
+    return [
+        REPO_ROOT / "install.sh",
+        REPO_ROOT / "pyproject.toml",
+        REPO_ROOT / "justfile",
+        *sorted(CORE_ANSIBLE.rglob("*.j2")),
+    ]
+
+
+def test_a_loose_module_at_the_root_starts_a_process():
+    """`blitzecdn/` holds the processes. Everything else is in a package.
+
+    The root was answering two questions at once and answering neither.
+    `bootstrap.py`, `persistence.py` and `scheduler.py` — how a control plane is
+    assembled — sat beside `worker.py` and `install_handoff.py` — which
+    processes exist — with nothing to say which kind a file was, so "what runs
+    here" could only be answered by opening all five. The three moved into
+    `composition/`.
+
+    A process is checked rather than declared: something outside Python has to
+    name the module, because that is what starting a process looks like from
+    here. `dramatiq blitzecdn.worker` is in the controller's compose file and
+    `python -m blitzecdn.install_handoff` is in `install.sh`, so both are
+    answerable without trusting a list in this test. A helper dropped at the
+    root is named by nothing and fails.
+
+    `api/` and `cli/` are processes too and are packages, because each has a
+    surface — dependencies, models, the root Typer app — that a single module
+    would not hold. The rule is about loose modules, which is where a helper
+    lands when nobody decides where it goes.
+    """
+    artifacts = "\n".join(
+        path.read_text(encoding="utf-8") for path in _deployment_artifacts()
+    )
+    offenders = [
+        f"{path.name} is not started by anything outside Python"
+        for path in sorted(SOURCE.glob("*.py"))
+        if path.name != "__init__.py" and f"blitzecdn.{path.stem}" not in artifacts
+    ]
+    assert offenders == []
 
 
 def test_entry_layers_cannot_reach_private_control_plane_adapters_or_stores():
@@ -999,7 +1054,7 @@ def test_every_capability_registers_itself_through_a_plugin_module():
     """A capability the plugin manager has never heard of is a capability nothing runs.
 
     Both directions: a package without a `plugin.py` contributes nothing, and a
-    `plugin.py` missing from `bootstrap.BUILTIN_PLUGINS` is never imported —
+    `plugin.py` missing from `composition.BUILTIN_PLUGINS` is never imported —
     either way
     the routes and commands quietly are not there, which is exactly the failure
     a discovery mechanism is supposed to make impossible.

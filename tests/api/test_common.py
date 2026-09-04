@@ -31,7 +31,9 @@ def test_health_is_public_and_controls_require_auth(settings):
 
 
 def test_health_reports_redis_unavailable(settings, monkeypatch):
-    monkeypatch.setattr("blitzecdn.bootstrap.redis_ready", lambda _url: False)
+    monkeypatch.setattr(
+        "blitzecdn.composition.control_plane.redis_ready", lambda _url: False
+    )
     with TestClient(control_plane_app(settings)) as client:
         response = client.get("/health")
     assert response.status_code == 503

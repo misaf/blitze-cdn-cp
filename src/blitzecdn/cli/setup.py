@@ -1,9 +1,11 @@
 """First-run commands: scaffold the local configuration a controller needs.
 
 Named for the command it carries. It was `cli/bootstrap.py`, which made
-`bootstrap` two unrelated things one import apart — the composition root that
-wires a control plane, and the two commands that scaffold a `.env` before one
-can be wired. `configuration.py` next door is named for `config` the same way.
+`bootstrap` two unrelated things one import apart — what was then the
+composition root, and the two commands that scaffold a `.env` before a control
+plane can be wired. `configuration.py` next door is named for `config` the same
+way, and the composition root is `blitzecdn.composition` now, so the word is
+free.
 
 ``setup`` creates no inventory file. The fleet lives in the ``edges`` table and
 Ansible reads it through the ``blitzecdn`` inventory plugin, so the only

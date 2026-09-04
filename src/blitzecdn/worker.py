@@ -60,7 +60,7 @@ def _retry_locked_deployment(retries: int, exception: BaseException) -> bool:
 )
 def run_deployment(deployment_id: str) -> None:
     """Converge one already-recorded queued deployment."""
-    from blitzecdn.bootstrap import build_control_plane
+    from blitzecdn.composition import build_control_plane
 
     settings = Settings.from_environment()
     control = build_control_plane(settings, process=ProcessKind.WORKER)
@@ -76,7 +76,7 @@ def run_deployment(deployment_id: str) -> None:
 @dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
 def run_scheduled_job(job: str, token: str) -> None:
     """Run one plugin-contributed scheduled job in the worker process."""
-    from blitzecdn.bootstrap import build_control_plane
+    from blitzecdn.composition import build_control_plane
 
     settings = Settings.from_environment()
     control = build_control_plane(settings, process=ProcessKind.WORKER)

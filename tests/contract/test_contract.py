@@ -31,7 +31,6 @@ import yaml
 from contract_support import _role_defaults, _runtime_defaults, _split_runtime
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 
-from blitzecdn.bootstrap import ControlPlane, load_control_plane_plugins
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
@@ -50,8 +49,8 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
 )
+from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
-from blitzecdn.persistence import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 

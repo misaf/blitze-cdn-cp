@@ -22,7 +22,6 @@ from control_plane_fixtures import (
     with_capability_settings,
 )
 
-from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
@@ -31,6 +30,7 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, Re
 from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.domain.runs import HostRun, RunStatus
 from blitzecdn.core.exceptions import (
@@ -39,7 +39,6 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
     NotFoundError,
 )
-from blitzecdn.persistence import Repository
 
 
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:
