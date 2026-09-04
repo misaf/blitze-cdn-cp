@@ -96,13 +96,6 @@ _PUBLIC_CROSS_CAPABILITY_MODULES = {
     "reporting",
 }
 
-#: Capabilities large enough to be organised into named parts. A sub-capability
-#: is not a capability: it has no `plugin.py`, it is not in `BUILTIN_PLUGINS`, and
-#: it shares its parent's node in both dependency graphs. TLS is the only one,
-#: and it exists because issuing material and deciding when to upgrade a mode
-#: are genuinely different jobs on the same capability.
-_SUB_CAPABILITIES: dict[str, set[str]] = {}
-
 #: Names that must never become a top-level capability package. Each is a
 #: strategy, a protocol version, a mode or an implementation detail of a
 #: capability that already exists — `http3` and `certificates` were both
@@ -375,12 +368,6 @@ def test_cross_capability_imports_use_contract_modules():
             parts = imported.removeprefix(prefix).split(".")
             if parts[0] == owner or len(parts) == 1:
                 continue
-            if parts[1] in _SUB_CAPABILITIES.get(parts[0], set()):
-                # A sub-capability's package is its public face, and below it
-                # the same rule applies one level down.
-                parts = parts[1:]
-                if len(parts) == 1:
-                    continue
             if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES:
                 offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
     assert offenders == []
@@ -738,23 +725,6 @@ def test_no_strategy_mode_or_option_becomes_a_top_level_capability():
         if owner is not None
     ]
     assert offenders == []
-
-
-def test_a_sub_capability_is_not_a_capability():
-    """`tls/certificates` is organisation inside a capability, not a capability.
-
-    It has no `plugin.py`, it is not in `BUILTIN_PLUGINS`, and it shares TLS's
-    node in both graphs. Giving it one of its own is how `certificates` and
-    `automatic_ssl` came to be two owners of `SslMode`.
-    """
-    for parent, children in _SUB_CAPABILITIES.items():
-        for child in children:
-            package = _CAPABILITIES / parent / child
-            assert (package / "__init__.py").is_file()
-            assert not (package / "plugin.py").exists()
-            assert (
-                f"blitzecdn.capabilities.{parent}.{child}.plugin" not in BUILTIN_PLUGINS
-            )
 
 
 def test_policy_dependencies_match_what_is_declared():
