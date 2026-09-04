@@ -14,8 +14,6 @@ from blitzecdn.capabilities.dns.api import routes as zone_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
 from blitzecdn.capabilities.sites.api import routes as site_routes
 
-REQUIRES_CERTIFICATES = frozenset({"test_published_operational_shapes_are_pinned"})
-
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
     """Every router this *distribution* ships, and where its endpoints live.
@@ -86,6 +84,24 @@ def _schemas(settings) -> dict[str, dict]:
         return client.get("/openapi.json").json()["components"]["schemas"]
 
 
+def _pinned_shapes(schemas: dict[str, dict], expected) -> dict[str, tuple[str, str]]:
+    """The published field names and required fields of every named schema.
+
+    A missing name yields `("", "")` rather than being skipped, so a schema
+    that disappears from the document fails the comparison instead of quietly
+    dropping out of it.
+    """
+    return {
+        name: (
+            " ".join(sorted(schemas[name]["properties"])),
+            " ".join(sorted(schemas[name].get("required", ()))),
+        )
+        if name in schemas
+        else ("", "")
+        for name in expected
+    }
+
+
 def test_published_document_has_no_dangling_schema_references(settings):
     """Every `$ref` resolves. A generated client is only as good as this.
 
@@ -118,11 +134,19 @@ def test_no_published_component_leaks_a_python_module_path(settings):
     assert leaked == []
 
 
-#: The operational shapes the API publishes, as field names and required
-#: fields. Pinned rather than derived: these are what a generated client binds
-#: to, and `blitzecdn.api.operations` is shared by every route that reports an
-#: operation, so an edit there reaches all of them at once. Changing this table
-#: is how such a change is declared.
+#: The operational shapes *this distribution* publishes, as field names and
+#: required fields. Pinned rather than derived: these are what a generated
+#: client binds to, and `blitzecdn.api.operations` is shared by every route
+#: that reports an operation, so an edit there reaches all of them at once.
+#: Changing this table is how such a change is declared.
+#:
+#: Core's own shapes only. `ReconciliationResult` and
+#: `SslAutomaticReconciliation` were here too, which meant this test could not
+#: run at all with `blitzecdn-certificates` detached — two rows the document
+#: no longer defines made the whole comparison fail, so the entire table went
+#: unchecked in the core-only workspace. Each distribution pins what it
+#: publishes: see `test_published_certificate_shapes_are_pinned` beside the
+#: capability that adds those two.
 PUBLISHED_OPERATION_SHAPES = {
     "AnsibleRun": (
         "error finished_at hosts id log_path playbook return_code started_at "
@@ -148,11 +172,6 @@ PUBLISHED_OPERATION_SHAPES = {
         "skipped unreachable",
         "host",
     ),
-    "ReconciliationResult": ("deployment failed issued skipped", ""),
-    "SslAutomaticReconciliation": (
-        "deployment scanned skipped upgraded",
-        "",
-    ),
     "TaskResult": ("action message outcome role task", "outcome task"),
     "Workflow": (
         "created_at error id kind operator resource_id status steps updated_at",
@@ -163,15 +182,9 @@ PUBLISHED_OPERATION_SHAPES = {
 
 def test_published_operational_shapes_are_pinned(settings):
     schemas = _schemas(settings)
-    actual = {
-        name: (
-            " ".join(sorted(schemas[name]["properties"])),
-            " ".join(sorted(schemas[name].get("required", ()))),
-        )
-        for name in PUBLISHED_OPERATION_SHAPES
-        if name in schemas
-    }
-    assert actual == PUBLISHED_OPERATION_SHAPES
+    assert _pinned_shapes(schemas, PUBLISHED_OPERATION_SHAPES) == (
+        PUBLISHED_OPERATION_SHAPES
+    )
 
 
 def test_openapi_generation_is_deterministic(settings):

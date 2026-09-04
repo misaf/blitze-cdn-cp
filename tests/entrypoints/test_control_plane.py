@@ -2,110 +2,32 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import replace
-from importlib import import_module
-from importlib.util import find_spec
 
 import pytest
 from control_plane_fixtures import (
-    FakePreflight,
     FakeRunner,
     RecordingBackgroundQueue,
     ansible_run,
     host_run,
     seed_site,
-    with_capability_settings,
 )
 
 from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import (
     ConflictError,
     DeploymentBusyError,
 )
 from blitzecdn.core.operations import WorkflowKind, WorkflowStatus
-from blitzecdn.core.runs import HostRun, RunStatus
-
-CertificateSource = (
-    import_module("blitzecdn_certificates.certificates.domain").CertificateSource
-    if find_spec("blitzecdn_certificates") is not None
-    else None
-)
-
-REQUIRES_CERTIFICATES = frozenset(
-    {
-        "test_validate_rejects_acme_on_a_reserved_domain",
-        "test_busy_external_work_does_not_create_a_false_workflow",
-        "test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed",
-        "test_an_interrupted_issuance_says_how_far_it_got",
-    }
-)
+from blitzecdn.core.runs import RunStatus
 
 
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:
     """The zone, site and record most tests need: `cdn-example-com`."""
     return seed_site(control)
-
-
-def _automatic_origin_report(
-    mode: SslMode,
-    *,
-    reachable: bool = True,
-    tls_verified: bool | None = None,
-    status: int = 200,
-) -> HostRun:
-    scheme = "https" if mode in {SslMode.FULL, SslMode.FULL_STRICT} else "http"
-    return host_run(
-        "edge-a",
-        report={
-            "host": "edge-a",
-            "collected_at": "2026-01-01T00:00:00Z",
-            "origins": [
-                {
-                    "site": "cdn-example-com",
-                    "origin": f"198.51.100.10:{443 if scheme == 'https' else 80}",
-                    "scheme": scheme,
-                    "ssl_mode": mode.value,
-                    "sni": "198.51.100.10" if scheme == "https" else None,
-                    "reachable": str(reachable),
-                    "tls_verified": (
-                        "None" if tls_verified is None else str(tls_verified)
-                    ),
-                    "status": str(status) if reachable else "-1",
-                    "content_sha256": "a" * 64 if reachable else None,
-                    "detail": "",
-                }
-            ],
-        },
-    )
-
-
-def _seed_automatic_ssl_record(
-    control: ControlPlane,
-    *,
-    mode: SslMode = SslMode.OFF,
-    automatic: SslAutomaticMode = SslAutomaticMode.AUTO,
-) -> None:
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    control.dns.create_record(
-        DnsRecord.model_validate(
-            {
-                "domain": "example.com",
-                "name": "cdn",
-                "value": "198.51.100.10",
-                "proxied": True,
-                "ssl_mode": mode,
-                "ssl_automatic_mode": automatic,
-                "certificate_mode": "existing",
-                "certificate_path": "/etc/ssl/certs/edge.pem",
-                "certificate_key_path": "/etc/ssl/private/edge.key",
-            }
-        ),
-        "alice",
-    )
 
 
 def _await_terminal(
@@ -421,24 +343,6 @@ def test_a_routed_record_may_still_be_updated_in_place(settings):
     )
 
 
-def test_validate_rejects_acme_on_a_reserved_domain(settings):
-    """No public CA issues for .test, so catch it before certbot is invoked."""
-    repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
-    seed_site(
-        control,
-        name="api-vendra-test",
-        domain="vendra.test",
-        record="api",
-        certificate_mode=CertificateMode.REQUESTED,
-        certificate_path="/etc/blitzecdn/tls/api-vendra-test/fullchain.pem",
-        certificate_key_path="/etc/blitzecdn/tls/api-vendra-test/privkey.pem",
-    )
-    assert any("reserved name" in error for error in control.deployments.validate())
-
-
 def test_failed_and_timed_out_deployments_are_recorded(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner(
@@ -668,109 +572,6 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
         repository.deployments.get_deployment(live.id).status is DeploymentStatus.QUEUED
     )
     assert repository.workflows.get(workflow.id).status is WorkflowStatus.RUNNING
-
-
-def test_busy_external_work_does_not_create_a_false_workflow(settings):
-    """A workflow starts only after this process owns the external-work lock.
-
-    Otherwise an API restart can see the journal entry, fail to acquire the
-    lock held by the real worker, and report the refused attempt as interrupted
-    work even though that attempt never touched an edge or a CA.
-    """
-    repository = Repository(settings.database_path)
-
-    class BusyRunner(FakeRunner):
-        def lock(self):
-            raise DeploymentBusyError("another deployment is already running")
-
-    control = ControlPlane(
-        settings=settings, repository=repository, runner=BusyRunner()
-    )  # type: ignore[arg-type]
-
-    with pytest.raises(DeploymentBusyError):
-        control.deployments.deploy("alice")
-    with pytest.raises(DeploymentBusyError):
-        control.certificates.request_certificate(
-            "cdn-example-com", "alice", email="ops@example.com"
-        )
-
-    assert repository.workflows.list_workflows(10) == []
-
-
-def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
-    settings, certificate_pair, monkeypatch
-):
-    """Lock contention is "come back later", not "the CA refused".
-
-    Issuance takes the deployment lock, so a fleet deploy can span a whole
-    sweep. Filed under `failed` it read exactly like a CA rejection, which is
-    the one thing a renewal report must not get wrong near an expiry — and the
-    next run picks the site up regardless.
-    """
-    repository = Repository(settings.database_path)
-    control = ControlPlane(
-        settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
-    _seed_proxied_record(control)
-    site = repository.sites.list_sites()[0]
-    certificate, key = certificate_pair((site.server_names[0],), days=5)
-    control._certificate_store.install(
-        site, certificate, key, source=CertificateSource.ACME, email="ops@example.com"
-    )
-
-    def busy(*_args, **_kwargs):
-        raise DeploymentBusyError("another deployment is already running")
-
-    monkeypatch.setattr(control.certificates, "request_certificate", busy)
-
-    result = control.certificates.renew_certificates("alice")
-
-    assert result.failed == ()
-    assert len(result.skipped) == 1
-    assert "a deployment was running" in result.skipped[0]
-    assert result.ok is True
-
-
-def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
-    """The CA may have issued a certificate that reached no disk here.
-
-    That is a rate-limited issuance spent on nothing, and it is the state worth
-    recognising before retrying — so the journal has to distinguish it from an
-    interruption after the PEM was stored, which the next issuance corrects for
-    free. Both used to arrive as one undifferentiated NEEDS_REVIEW.
-    """
-    configured = with_capability_settings(
-        settings, acme_default_email="ops@example.com"
-    )
-    repository = Repository(configured.database_path)
-    control = ControlPlane(
-        settings=configured,
-        repository=repository,
-        runner=FakeRunner(),
-        preflight=FakePreflight(),
-    )  # type: ignore[arg-type]
-    _seed_proxied_record(control)
-
-    class DyingStore:
-        def install(self, *_args, **_kwargs):
-            raise OSError("disk full")
-
-    control.certificates.persistence = replace(
-        control.certificates.persistence, certificates=DyingStore()
-    )  # type: ignore[arg-type]
-    monkeypatch.setattr(
-        control.certificates.execution.issuer,
-        "issue",
-        lambda *_a, **_k: (b"cert", b"key"),
-    )
-
-    with pytest.raises(OSError):
-        control.certificates.request_certificate("cdn-example-com", "alice")
-
-    workflow = repository.workflows.list_workflows(10)[0]
-    assert workflow.status is WorkflowStatus.FAILED
-    # It got past the CA and no further, which is the whole distinction.
-    assert [step.name for step in workflow.steps] == ["issued"]
 
 
 def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):

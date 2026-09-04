@@ -139,7 +139,6 @@ markers = [
   # not milliseconds, so it is deselectable: `just test-fast` skips it and
   # `just check` does not.
   "packaging: exercises real distribution build, install and uninstall",
-  "requires_certificates: cross-capability integration needing blitzecdn-certificates",
 ]
 addopts = "--strict-config --strict-markers --cov=blitzecdn --cov=blitzecdn_backup --cov=blitzecdn_cache --cov=blitzecdn_compression --cov=blitzecdn_certificates --cov=blitzecdn_security --cov=blitzecdn_http3 --cov=blitzecdn_geoip --cov=blitzecdn_hardening --cov=blitzecdn_origins --cov=blitzecdn_resolver --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = ["error"]
