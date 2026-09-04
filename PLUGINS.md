@@ -121,9 +121,11 @@ packages/blitzecdn-<name>/
 │   │                         #   directory once policy sits beside the service
 │   ├── adapters/             # concrete implementations of its own ports
 │   │                         #   named after what they implement, and flat
-│   ├── api/                  # its HTTP adapters, and nothing else:
-│   │   ├── models.py         #   its own operational shapes
-│   │   └── routes.py         #   the routes it contributes
+│   ├── policy.py             # its configuration contract, if it has one
+│   ├── api/                  # its HTTP adapters — flat, named for what they
+│   │   ├── models.py         #   are: its own operational shapes,
+│   │   └── routes.py         #   the routes it contributes, a second router
+│   │                         #   where the auth posture differs
 │   ├── cli.py                # its command groups
 │   ├── nginx/                # *.conf.j2 fragments only
 │   └── ansible/
@@ -174,10 +176,24 @@ on a shape by imitation give the eleventh author ten examples and no rule,
 which is how one package's settings ended up in `config.py` and another's
 inline in `plugin.py`. `test_a_package_organises_its_python_into_the_documented_modules`
 in `tests/architecture/test_packages.py` walks each distribution's `src/` and
-refuses a module name that is not one of the above. `api/` is exactly
-`models.py` and `routes.py`; `domain/`, `service/` and `adapters/` are flat and
-their module names are the things they hold; `nginx/` and `ansible/` carry no
-Python beyond the one `core.runtime.resources.package_directory` anchor.
+refuses a module name that is not one of the above, and
+`test_a_built_in_capability_organises_its_python_the_same_way` walks
+`src/blitzecdn/capabilities/` and holds the built-ins to the same set — one
+vocabulary, whichever side of the packaging boundary a capability is on.
+`adapters/`, `api/`, `domain/`, `policy/` and `service/` are flat and their
+module names are the things they hold; `nginx/` and `ansible/` carry no Python
+beyond the one `core.runtime.resources.package_directory` anchor.
+
+That the set is *closed* is what lets the layering rules be positional rather
+than hopeful. `_entry_files` in `test_layering.py` identifies a capability's
+delivery adapters as "everything under `api/`, and `cli.py`" — it was a literal
+list of file names, so `readiness.py` was covered because somebody remembered
+to add it and a slice growing a `commands.py` would have been covered by
+nothing. A name outside the vocabulary cannot appear now, so naming `cli.py` is
+exhaustive. `api/` and `cli.py` stay outside `adapters/`, which would make both
+positional, because they are not private the way an adapter is: `api/models.py`
+is a published contract, and `adapters/` is a directory the entry layers are
+forbidden to reach.
 
 Growing the vocabulary is allowed and is a *decision*: add the name to the set
 in the test with the sentence saying what belongs in it, and to the tree above.

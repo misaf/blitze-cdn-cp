@@ -323,23 +323,37 @@ def test_capability_adapters_never_import_entry_layers_or_composition():
     assert offenders == []
 
 
+#: A capability's contact with a caller: everything under `api/`, and `cli.py`.
+#:
+#: This was a set of file names — `cli.py`, `routes.py`, `readiness.py` — and a
+#: name it did not list was a delivery module under no rule at all.
+#: `readiness.py` was on it because somebody remembered; a slice growing a
+#: `commands.py` or a `websocket.py` would not have been. It is the same defect
+#: `_is_domain` and `_is_adapter` were written to fix, left in the one place
+#: the fix had not reached.
+#:
+#: `api/` is positional now, like `adapters/`. `cli.py` is still a name, and is
+#: exhaustive rather than hopeful because
+#: `test_a_built_in_capability_organises_its_python_the_same_way` closes the
+#: set: a capability's root modules are the eight the vocabulary documents, and
+#: anything else has to be inside a layer directory to exist at all.
+#:
+#: `api/` and `cli.py` stay where they are rather than moving under `adapters/`,
+#: which would make membership positional for both. They are not private the
+#: way an adapter is — `capabilities.deployments.api.models` is a published
+#: contract an installed package may name, and
+#: `test_entry_layers_cannot_reach_private_control_plane_adapters_or_stores`
+#: exists to keep `adapters/` unreachable. Filing the published surface under
+#: the private one would put those two rules in each other's way.
+def _is_entry(path: Path) -> bool:
+    return "api" in path.relative_to(_CAPABILITIES).parts or path.name == "cli.py"
+
+
 def _entry_files() -> list[Path]:
-    candidates = [
-        *_capability_files(),
+    return [
+        *(path for path in _capability_files() if _is_entry(path)),
         *(_SOURCE / "api").rglob("*.py"),
         *(_SOURCE / "cli").rglob("*.py"),
-    ]
-    names = {
-        "cli.py",
-        "routes.py",
-        "readiness.py",
-    }
-    return [
-        path
-        for path in candidates
-        if path.name in names
-        or _SOURCE / "api" in path.parents
-        or _SOURCE / "cli" in path.parents
     ]
 
 
