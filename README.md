@@ -93,10 +93,13 @@ protect them as secrets.
 Update an installed standalone server with:
 
 ```bash
-sudo /opt/blitzecdn/install.sh update [--ref REF] [--yes]
+sudo /opt/blitzecdn/install.sh update [--yes] [--no-backup]
 ```
 
-Run `install.sh update --help` before changing release lines.
+There is no release to choose: the server moves to the newest `vMAJOR.MINOR.PATCH`
+tag in its own major line, and tells you which two versions it is moving between
+before it changes anything. It never crosses a major line — that upgrade is a
+separate, deliberate step.
 
 ## Extending BlitzeCDN
 

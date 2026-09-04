@@ -56,6 +56,25 @@ def _script() -> str:
     return SCRIPT.read_text(encoding="utf-8")
 
 
+def _query(expression: str) -> str:
+    """Source install.sh and evaluate one expression against its functions.
+
+    The script guards its dispatch on ``BASH_SOURCE[0] == $0``, so sourcing it
+    defines everything and provisions nothing. That is what lets a pure helper
+    be tested by calling it, instead of by asserting that some literal string
+    appears in the file — assertions of that shape broke on every refactor that
+    changed no behaviour at all.
+    """
+    result = subprocess.run(  # noqa: S603 - fixed executable and repository script
+        [BASH, "-c", f'source "{SCRIPT}"\n{expression}'],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, f"{expression!r} failed: {result.stderr.strip()}"
+    return result.stdout.strip()
+
+
 def _section(name: str) -> str:
     """Return one subcommand's body.
 
@@ -399,13 +418,23 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--admin-cidr"),
         ("standalone", "--email"),
         ("standalone", "--public-address"),
-        ("update", "--ref"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
     result = _run(subcommand, option)
     assert result.returncode == 2
     assert "needs a value" in result.stderr
+
+
+def test_update_does_not_take_a_ref():
+    """A server follows its own release line; the target is not an operator's
+
+    to choose. The option existed, so rejecting it explicitly is what tells an
+    operator running the old command that the contract changed.
+    """
+    result = _run("update", "--ref", "v3.1.0")
+    assert result.returncode == 2
+    assert "unknown option" in result.stderr
 
 
 @pytest.mark.parametrize("subcommand", ["standalone", "update"])
@@ -420,7 +449,7 @@ def test_unknown_options_are_rejected_with_usage(subcommand: str):
     ("subcommand", "expected"),
     [
         ("standalone", ["--admin-cidr CIDR", "--email ADDRESS", "--deploy"]),
-        ("update", ["--ref REF", "--yes", "--no-backup"]),
+        ("update", ["--yes", "--no-backup"]),
     ],
 )
 def test_subcommand_help_does_not_require_root(subcommand: str, expected: list[str]):
@@ -493,10 +522,24 @@ def test_standalone_keeps_the_management_api_on_loopback():
 
 
 def test_standalone_defaults_to_no_deployment():
-    assert "parsed_deploy=0" in _script()
-    assert "[[ ${parsed_deploy} -eq 1 ]] && handoff_args+=(--deploy)" in _section(
-        "standalone"
+    """Preparing a server and deploying to it are separate decisions."""
+    required = "--admin-cidr 203.0.113.8/32 --email operator@example.com"
+    assert (
+        _query(
+            f"parse_options standalone usage_standalone {required}\n"
+            'echo "${parsed_deploy}"'
+        )
+        == "0"
     )
+    assert (
+        _query(
+            f"parse_options standalone usage_standalone {required} --deploy\n"
+            'echo "${parsed_deploy}"'
+        )
+        == "1"
+    )
+    # Forwarding happens inside a root-only command, so it stays structural.
+    assert "handoff_args+=(--deploy)" in _section("standalone")
 
 
 def test_standalone_guards_existing_sites_from_empty_desired_state():
@@ -646,7 +689,14 @@ def test_destructive_commands_require_confirmation():
     # a branch whenever a command gains a flag, and that is not what this
     # guards.
     assert re.search(r"^      --yes\|.*\)$", parser, re.MULTILINE)
-    assert "[[ ${option} == --yes ]] && parsed_yes=1" in parser
+    # And it is the parser that records it, for every command that takes it.
+    for command in ("uninstall", "fresh", "update"):
+        usage = _query(f"command_field {command} 2")
+        assert (
+            _query(f'parse_options {command} {usage} --yes\necho "${{parsed_yes}}"')
+            == "1"
+        )
+        assert _query(f'parse_options {command} {usage}\necho "${{parsed_yes}}"') == "0"
     confirm = _function("confirm_destructive")
     assert "read -r -p" in confirm
     assert "Cancelled." in confirm
@@ -854,13 +904,39 @@ def test_update_stops_the_services_before_migrating_the_schema():
     assert update.index("bootstrap_runtime") < update.index("converge_control_plane")
 
 
-def test_update_refuses_anything_but_a_fast_forward_of_the_tracked_branch():
-    """A merge or a rewrite on a server is never what an operator meant."""
+def test_update_only_ever_moves_forward_onto_a_release_tag():
+    """A merge or a rewrite on a server is never what an operator meant.
+
+    The forward-only question is now asked directly, rather than inferred from
+    a fast-forward merge failing, so the assertion names the check itself.
+    """
     update = _section("update")
-    assert 'repo_git merge --ff-only "${target}"' in update
-    assert "git pull" not in update
-    assert "--force" not in update
-    assert "reset --hard" not in update
+    assert 'repo_git merge-base --is-ancestor HEAD "${target}^{commit}"' in update
+    assert 'repo_git checkout --quiet "${target}"' in update
+    # `merge --ff-only`, not a bare "merge": `merge-base` contains that word.
+    forbidden = ("git pull", "merge --ff-only", "--force", "reset --hard", "rebase")
+    for operation in forbidden:
+        assert operation not in update
+
+
+def test_update_never_crosses_a_major_line():
+    """The one property that keeps an unattended updater from a major upgrade."""
+    resolve = _function("latest_release_tag")
+    assert 'repo_git tag --list "v${major}.*" --sort=-v:refname' in resolve
+    # A pre-release or a branch-shaped tag is not an installable release.
+    assert "^v[0-9]+\\.[0-9]+\\.[0-9]+$" in resolve
+    assert 'latest_release_tag "${major}"' in _section("update")
+
+
+def test_update_decides_where_it_is_going_before_it_stops_anything():
+    """Every refusal about *which* release must cost no downtime."""
+    update = _section("update")
+    assert update.index("latest_release_tag") < update.index(
+        "backup create --only database"
+    )
+    assert update.index("merge-base --is-ancestor") < update.index(
+        "stop_control_plane_services"
+    )
 
 
 def test_update_verifies_the_code_it_is_about_to_run_as_root():
@@ -893,6 +969,23 @@ def _stub_update_git(sandbox: Path) -> None:
     Written over the fresh-rebuild stub because the two commands ask disjoint
     questions and a single stub answering both would be harder to read than
     either.
+
+    The arm order is load-bearing, and every trap here fails as a silently
+    wrong answer rather than an error:
+
+    * `*fetch*` stays above the tag arm, and the tag arm matches
+      ``tag --list`` rather than ``tag``, because the real call is
+      ``fetch --tags --prune origin``.
+    * ``--exact-match`` precedes ``--abbrev=0``: both contain
+      ``describe --tags``, so a looser arm above them would pin
+      `describe_installed_release` to its first branch forever.
+    * Two different ``rev-list --count`` questions exist now — the commits
+      ahead of the target, and the drift past the nearest tag — so the
+      ``HEAD..`` form has to be matched before the general one.
+    * Patterns are substring matches with a leading ``*`` because ``$*``
+      carries `repo_git`'s ``-c safe.directory=... -C <path>`` prefix.
+    * The unset-only default form (``${VAR-x}``, not ``${VAR:-x}``) is what
+      lets a test pass ``""`` to mean "this question has no answer".
     """
     (sandbox / "bin" / "git").write_text(
         "#!/usr/bin/env bash\n"
@@ -903,24 +996,29 @@ def _stub_update_git(sandbox: Path) -> None:
         '    echo "https://github.com/misaf/blitze-cdn-cp.git"; exit 0 ;;\n'
         "  *fetch*)\n"
         '    exit "${UPDATE_GIT_FETCH_STATUS:-0}" ;;\n'
-        '  *"symbolic-ref"*)\n'
-        '    [[ -n "${UPDATE_GIT_BRANCH-2.x}" ]] || exit 1\n'
-        '    echo "${UPDATE_GIT_BRANCH-2.x}"; exit 0 ;;\n'
-        '  *"rev-parse --verify"*)\n'
-        '    exit "${UPDATE_GIT_REF_STATUS:-0}" ;;\n'
-        '  *"describe --tags --always HEAD"*)\n'
-        '    echo "${UPDATE_GIT_CURRENT:-v2.0.1}"; exit 0 ;;\n'
-        '  *"describe --tags --always"*)\n'
-        '    echo "${UPDATE_GIT_TARGET:-v2.1.0}"; exit 0 ;;\n'
+        '  *"show HEAD:pyproject.toml"*)\n'
+        '    [[ -n "${UPDATE_PROJECT_VERSION-3.0.0}" ]] || exit 0\n'
+        '    printf \'version = "%s"\\n\' "${UPDATE_PROJECT_VERSION-3.0.0}"\n'
+        "    exit 0 ;;\n"
+        '  *"tag --list"*)\n'
+        # %b, not %s: the default carries escaped newlines that must become
+        # real ones, or the whole list arrives as one unparsable line.
+        '    printf "%b" "${UPDATE_GIT_TAGS-v3.1.0\\nv3.0.0\\n}"; exit 0 ;;\n'
+        '  *"merge-base --is-ancestor"*)\n'
+        '    exit "${UPDATE_GIT_ANCESTOR_STATUS:-0}" ;;\n'
+        '  *"describe --tags --exact-match HEAD"*)\n'
+        '    [[ -n "${UPDATE_GIT_EXACT_TAG-v3.0.0}" ]] || exit 1\n'
+        '    echo "${UPDATE_GIT_EXACT_TAG-v3.0.0}"; exit 0 ;;\n'
+        '  *"describe --tags --abbrev=0"*)\n'
+        '    [[ -n "${UPDATE_GIT_NEAREST_TAG-v3.0.0}" ]] || exit 1\n'
+        '    echo "${UPDATE_GIT_NEAREST_TAG-v3.0.0}"; exit 0 ;;\n'
+        '  *"rev-list --count HEAD.."*)\n'
+        '    echo "${UPDATE_GIT_COMMITS:-12}"; exit 0 ;;\n'
         '  *"rev-list --count"*)\n'
-        '    echo "${UPDATE_GIT_COMMITS:-4}"; exit 0 ;;\n'
-        '  *"rev-parse HEAD"*)\n'
-        f'    echo "${{UPDATE_GIT_HEAD_SHA:-{"1" * 40}}}"\n'
-        "    exit 0 ;;\n"
-        "  *rev-parse*)\n"
-        f'    echo "${{UPDATE_GIT_TARGET_SHA:-{"2" * 40}}}"\n'
-        "    exit 0 ;;\n"
-        '  *"merge --ff-only"*|*checkout*)\n'
+        '    echo "${UPDATE_GIT_DRIFT:-4}"; exit 0 ;;\n'
+        '  *"rev-parse --short HEAD"*)\n'
+        '    echo "${UPDATE_GIT_SHORT_SHA:-abc1234}"; exit 0 ;;\n'
+        "  *checkout*)\n"
         '    if [[ -n "${UPDATE_GIT_CHECKOUT_FAILS:-}" ]]; then exit 1; fi\n'
         '    printf "%s\\n" "checkout" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
         "    exit 0 ;;\n"
@@ -1016,59 +1114,122 @@ def test_update_leaves_the_host_alone_when_the_fetch_fails(tmp_path: Path):
     assert not log.exists(), "a failed fetch stopped no services and took no backup"
 
 
-def test_update_requires_an_explicit_ref_on_a_detached_checkout(tmp_path: Path):
-    """A release install is detached at its tag; there is no next release to infer."""
+def test_update_moves_a_detached_release_onto_the_newest_tag_in_its_line(
+    tmp_path: Path,
+):
+    """The ordinary case: a release install follows its line without being told.
+
+    Driven into the checkout failure so the run stops before the rebuild, which
+    would download uv and resolve a lockfile.
+    """
     script, stubs, _ = _update_sandbox(tmp_path)
-
-    result = _run_sandboxed(
-        script,
-        "update",
-        "--yes",
-        env_extra={"UPDATE_GIT_BRANCH": ""},
-        bin_dir=stubs,
-    )
-
-    assert result.returncode == 1
-    assert "--ref" in result.stderr
-
-
-def test_update_refuses_a_ref_that_does_not_exist(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
-
-    result = _run_sandboxed(
-        script,
-        "update",
-        "--yes",
-        "--ref",
-        "v9.9.9",
-        env_extra={"UPDATE_GIT_REF_STATUS": "1"},
-        bin_dir=stubs,
-    )
-
-    assert result.returncode == 1
-    assert "does not exist" in result.stderr
-    assert "nothing was changed" in result.stderr
-
-
-def test_update_is_a_no_op_when_already_on_the_target(tmp_path: Path):
-    script, stubs, _ = _update_sandbox(tmp_path)
-    log = tmp_path / "order.log"
-    same = "3333333333333333333333333333333333333333"
 
     result = _run_sandboxed(
         script,
         "update",
         "--yes",
         env_extra={
-            "UPDATE_GIT_COMMITS": "0",
-            "UPDATE_GIT_HEAD_SHA": same,
-            "UPDATE_GIT_TARGET_SHA": same,
+            "UPDATE_GIT_EXACT_TAG": "v3.0.0",
+            "UPDATE_GIT_TAGS": "v3.1.0\nv3.0.0\n",
+            "UPDATE_GIT_CHECKOUT_FAILS": "1",
+        },
+        bin_dir=stubs,
+    )
+
+    assert "Checking out v3.1.0" in result.stdout
+    assert result.returncode == 1
+    assert "the containers are stopped" in result.stderr, (
+        "past the point of no return, the refusal must say how to recover"
+    )
+    assert "checkout v3.0.0" in result.stderr, "and name the release to restore"
+
+
+def test_update_ignores_releases_from_another_major_line(tmp_path: Path):
+    """A 4.0.0 release is a migration an operator opts into, not an update."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={
+            "UPDATE_PROJECT_VERSION": "3.0.0",
+            # What `tag --list "v3.*"` would return: the v4 line is not offered
+            # to a v3 host at all, so an empty answer is a v3-only repository.
+            "UPDATE_GIT_TAGS": "",
+            "UPDATE_ORDER_LOG": str(log),
+        },
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "no v3.x release tag" in result.stderr
+    assert "nothing was changed" in result.stderr
+    assert not log.exists()
+
+
+def test_update_refuses_a_checkout_that_is_not_an_ancestor_of_the_release(
+    tmp_path: Path,
+):
+    """Local commits, or a host already past the tag: --fresh is the tool."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={
+            "UPDATE_GIT_ANCESTOR_STATUS": "1",
+            "UPDATE_ORDER_LOG": str(log),
+        },
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "is not an ancestor of v3.1.0" in result.stderr
+    assert "--fresh" in result.stderr
+    assert "nothing was changed" in result.stderr
+    assert not log.exists(), "a host that could not be updated was still taken down"
+
+
+def test_update_refuses_when_the_project_version_is_unreadable(tmp_path: Path):
+    """Without a version there is no release line, so there is no target."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={"UPDATE_PROJECT_VERSION": "", "UPDATE_ORDER_LOG": str(log)},
+        bin_dir=stubs,
+    )
+
+    assert result.returncode == 1
+    assert "nothing was changed" in result.stderr
+    assert not log.exists()
+
+
+def test_update_is_a_no_op_when_already_on_the_newest_release(tmp_path: Path):
+    script, stubs, _ = _update_sandbox(tmp_path)
+    log = tmp_path / "order.log"
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        "--yes",
+        env_extra={
+            "UPDATE_GIT_EXACT_TAG": "v3.1.0",
+            "UPDATE_GIT_TAGS": "v3.1.0\n",
             "UPDATE_ORDER_LOG": str(log),
         },
         bin_dir=stubs,
     )
 
     assert result.returncode == 0
+    assert "Already on v3.1.0" in result.stdout
     assert "nothing to update" in result.stdout
     assert not log.exists(), "an up-to-date host was still taken down"
 
@@ -1087,9 +1248,54 @@ def test_update_asks_for_confirmation_and_can_be_cancelled(tmp_path: Path):
 
     assert result.returncode == 0
     assert "Cancelled" in result.stdout
-    assert "v2.0.1" in result.stderr, "the prompt must name the release it leaves"
-    assert "v2.1.0" in result.stderr, "and the one it moves to"
+    assert "v3.0.0" in result.stderr, "the prompt must name the release it leaves"
+    assert "v3.1.0" in result.stderr, "and the one it moves to"
+    assert "(12 commits)" in result.stderr, "and how far apart they are"
+    assert "-g" not in result.stderr, (
+        "an operator is shown release versions, never a describe suffix"
+    )
     assert not log.exists()
+
+
+def test_update_names_the_drifted_release_a_branch_checkout_is_leaving(
+    tmp_path: Path,
+):
+    """A host past its tag says so, rather than claiming to be on that release."""
+    script, stubs, _ = _update_sandbox(tmp_path)
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        input="n\n",
+        env_extra={
+            "UPDATE_GIT_EXACT_TAG": "",
+            "UPDATE_GIT_NEAREST_TAG": "v3.0.0",
+            "UPDATE_GIT_DRIFT": "4",
+        },
+        bin_dir=stubs,
+    )
+
+    assert "v3.0.0 (+4 commits)" in result.stderr
+
+
+def test_update_falls_back_to_the_recorded_version_when_no_tag_is_reachable(
+    tmp_path: Path,
+):
+    script, stubs, _ = _update_sandbox(tmp_path)
+
+    result = _run_sandboxed(
+        script,
+        "update",
+        input="n\n",
+        env_extra={
+            "UPDATE_GIT_EXACT_TAG": "",
+            "UPDATE_GIT_NEAREST_TAG": "",
+            "UPDATE_GIT_SHORT_SHA": "abc1234",
+        },
+        bin_dir=stubs,
+    )
+
+    assert "v3.0.0 (abc1234)" in result.stderr
 
 
 def test_update_stops_nothing_when_the_backup_fails(tmp_path: Path):
@@ -1154,10 +1360,63 @@ def test_the_default_install_ends_by_installing_the_wrapper():
 
 
 def test_every_command_uses_the_shared_option_parser():
-    script = _script()
-    assert script.count("while [[ $# -gt 0 ]]") == 1
+    """One parser, and one table that routes every command through it.
+
+    Asserted against the sourced script rather than its text: the command table
+    is the declaration now, so the property is that it has a row per command,
+    not that the file contains five dispatch lines.
+    """
+    assert _script().count("while [[ $# -gt 0 ]]") == 1
     for command in ("install", "standalone", "uninstall", "fresh", "update"):
-        assert f") parse_options {command} " in script
+        assert _query(f"command_field {command} 2") != "", (
+            f"{command} has no row in COMMAND_TABLE"
+        )
+
+
+def test_both_capability_renderings_come_from_one_list():
+    """The uv extras and the Ansible list must name the same capabilities.
+
+    They are consumed by different things — one builds the virtualenv, the
+    other tells the role which capability configuration to write — and a
+    controller given configuration for a capability it does not have refuses to
+    start. Each was expanded by hand before, so drift was a live possibility.
+    """
+    for override in ("", "backup cache"):
+        prelude = f'export BLITZECDN_CAPABILITIES="{override}"\n' if override else ""
+        extras = _query(f"{prelude}capability_extras").split()
+        rendered = _query(f"{prelude}capability_json")
+
+        # "--extra name --extra name ..." -> the names alone.
+        assert extras[::2] == ["--extra"] * (len(extras) // 2)
+        from_extras = extras[1::2]
+        from_json = [name.strip('"') for name in rendered.split(",")]
+
+        assert from_extras == from_json
+        if override:
+            assert from_extras == override.split()
+
+
+def test_the_command_table_and_the_help_agree_on_every_option():
+    """The table is what accepts an option; the help is what advertises it.
+
+    They were separate lists and could disagree — an option the parser took but
+    no help mentioned, or the reverse. Neither is reachable now without this
+    failing.
+    """
+    # The two whole-host operations are spelled as flags on the command line,
+    # so the row name and the token an operator types are not the same word.
+    invocations = {
+        "standalone": "standalone",
+        "update": "update",
+        "uninstall": "--uninstall",
+        "fresh": "--fresh",
+    }
+    for command, token in invocations.items():
+        declared = _query(f"command_field {command} 4").split()
+        assert declared, f"{command} declares no options"
+        helped = _run(token, "--help").stdout
+        for option in declared:
+            assert option in helped, f"{command} accepts {option} but never says so"
 
 
 def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
@@ -1165,7 +1424,14 @@ def test_private_copy_helper_copies_once_and_cleans_up_after_itself():
     helper = _function("reexec_from_private_copy")
     assert 'install -m 0700 -- "$0" "${copy}"' in helper
     assert 'exec env "${guard}=1" "${copy}" "${original_args[@]}"' in helper
-    assert "trap 'rm -f -- \"$0\"' EXIT" in helper
+    # The copy deletes itself on the way out. It registers with the shared
+    # cleanup stack rather than setting its own EXIT trap, which would replace
+    # the handler and strand everything else the run had asked to clean up.
+    assert 'cleanup_paths+=("$0")' in helper
+    code = [line for line in helper.splitlines() if not line.lstrip().startswith("#")]
+    assert not any(line.lstrip().startswith("trap ") for line in code), (
+        "a second EXIT trap here replaces the shared cleanup handler"
+    )
 
 
 # --- the control-plane role --------------------------------------------------
@@ -1242,9 +1508,16 @@ def test_standalone_bootstraps_only_what_ansible_needs():
 
 
 def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
-    """Bootstrap precedes the database, and teardown must not depend on it."""
+    """Bootstrap precedes the database, and teardown must not depend on it.
+
+    Both convergences run through one function now, so the inventory is stated
+    once — which is also what stops the two from drifting apart.
+    """
+    assert "-i localhost," in _function("run_playbook")
     for helper in ("converge_control_plane", "converge_uninstall"):
-        assert "-i localhost," in _function(helper)
+        assert "run_playbook" in _function(helper), (
+            f"{helper} no longer runs through the shared playbook helper"
+        )
 
 
 def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
