@@ -39,7 +39,7 @@ from blitzecdn.core.exceptions import (
     ExecutionError,
     NotFoundError,
 )
-from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.persistence import Repository
 
 
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:

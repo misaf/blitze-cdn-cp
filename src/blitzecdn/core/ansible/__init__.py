@@ -19,12 +19,12 @@ The parts, each with its own reason to change:
     its retention, and the result-to-status mapping.
 ``hosts``
     A ``--limit`` expanded against the recorded fleet, which is what keeps a
-    limit from naming a host the control plane does not manage.
+    limit from naming a host the control plane does not manage. It reads the
+    fleet through :class:`~blitzecdn.core.ports.fleet.FleetRoster`, so core
+    needs no capability to answer "which hosts are there".
 ``lock``
     The cross-process lock that makes "one deployment at a time" true across
     the API, the CLI and the worker.
-``mapping``
-    Domain values to the documents the playbooks read.
 ``runner``
     :class:`AnsibleRunner`: which playbook, which variables, which edges.
 ``variables``

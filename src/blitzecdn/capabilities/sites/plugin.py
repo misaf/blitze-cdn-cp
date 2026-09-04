@@ -22,9 +22,9 @@ from fastapi import APIRouter
 
 from blitzecdn import __version__
 from blitzecdn.capabilities.sites import cli
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.sites.api import routes
 from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.core.ansible.mapping import site_to_ansible
 from blitzecdn.core.plugins import (
     CliCommandGroup,
     PluginMetadata,

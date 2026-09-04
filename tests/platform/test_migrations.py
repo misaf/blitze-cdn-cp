@@ -25,7 +25,7 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.persistence import Repository
 
 
 def _config(path) -> Config:

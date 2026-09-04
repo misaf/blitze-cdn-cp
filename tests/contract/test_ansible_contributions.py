@@ -26,6 +26,7 @@ from pathlib import Path
 import pytest
 from control_plane_fixtures import FakeEdgeStore, settings  # noqa: F401
 
+from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.exceptions import PluginError
@@ -166,7 +167,7 @@ def test_the_resolved_path_is_what_ansible_is_actually_given(
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     runner = ansible.AnsibleRunner(
         settings,
-        FakeEdgeStore(),
+        EdgeRoster(FakeEdgeStore()),
         resolve_role_search_path(
             settings.ansible_dir / "roles",
             [AnsibleContribution(plugin="cache", roles_path=cache)],
@@ -194,7 +195,7 @@ def test_a_runner_nobody_gave_a_path_still_finds_the_control_plane_s_roles(
 
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     with pytest.raises(AssertionError):
-        ansible.AnsibleRunner(settings, FakeEdgeStore()).run(check=False)
+        ansible.AnsibleRunner(settings, EdgeRoster(FakeEdgeStore())).run(check=False)
 
     assert captured["ANSIBLE_ROLES_PATH"] == str(settings.ansible_dir / "roles")
 
@@ -286,7 +287,7 @@ def test_every_slot_reaches_ansible_on_the_command_line(
     monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
     runner = ansible.AnsibleRunner(
         settings,
-        FakeEdgeStore(),
+        EdgeRoster(FakeEdgeStore()),
         capability_roles=("converge_role",),
         host_capability_roles=("host_role",),
         teardown_capability_roles=("withdraw_role",),

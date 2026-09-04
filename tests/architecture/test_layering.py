@@ -394,9 +394,11 @@ _CONCRETE_ADAPTERS = {
 #: `bootstrap` is the composition root for the control plane. `acme_hook`
 #: is a second, deliberate one: certbot runs it as a one-shot subprocess with
 #: no control plane in the picture, and it builds the two adapters an HTTP-01
-#: challenge needs and nothing else. Named here so a third does not appear
-#: quietly beside them.
-_COMPOSITION_MODULES = {"bootstrap.py", "acme_hook.py"}
+#: challenge needs and nothing else. `persistence` is the third: choosing which
+#: capability stores sit on one SQLite file is composition, which is why it is
+#: a sibling of `bootstrap` and not a module of `core.persistence`. Named here
+#: so a fourth does not appear quietly beside them.
+_COMPOSITION_MODULES = {"bootstrap.py", "acme_hook.py", "persistence.py"}
 
 
 def test_only_a_composition_root_names_a_concrete_adapter():
@@ -426,9 +428,7 @@ def test_core_carries_no_cross_capability_application_service():
     `MaintenanceService` lived here and orchestrated three capabilities, which
     pointed the arrow back from the foundation into the tree it supports and
     hid a genuine vertical slice where nobody would look for it. It is
-    `capabilities/maintenance` now. Persistence is the deliberate exception:
-    `core.persistence.repository` bundles the capability stores because there is
-    one SQLite file, and it imports their `persistence` modules to do it.
+    `capabilities/maintenance` now.
     """
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
@@ -436,6 +436,37 @@ def test_core_carries_no_cross_capability_application_service():
         for imported in sorted(_imports(path))
         if imported.startswith("blitzecdn.capabilities.")
         and imported.endswith((".service", ".adapters"))
+    ]
+    assert offenders == []
+
+
+#: Everything under `core` that still imports a capability when the interpreter
+#: actually runs. Each entry is a table and a store that belong to a slice and
+#: are held centrally, and the list is meant to reach zero rather than to be
+#: added to.
+_CORE_MODULES_STILL_NAMING_A_CAPABILITY = {"core/persistence/configuration.py"}
+
+
+def test_core_imports_no_capability():
+    """The layer rule, checked rather than described.
+
+    `core.ansible` took `EdgeStore` and projected `CdnSite`; `core.persistence`
+    bundled four capability stores. Both were the foundation reaching up into
+    the tree it supports, and both had the same fix: core declares the port —
+    `ports.fleet.FleetRoster` — and the capability satisfies it, or the code
+    was the capability's all along and moved there.
+
+    Runtime imports only. The hookspecs annotate a parameter with `CdnSite`
+    under `TYPE_CHECKING`, which is a specification naming its argument type
+    and not a direction the interpreter ever takes;
+    `test_the_plugin_infrastructure_depends_on_no_capability` holds that line.
+    """
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in sorted((_SOURCE / "core").rglob("*.py"))
+        if str(path.relative_to(_SOURCE)) not in _CORE_MODULES_STILL_NAMING_A_CAPABILITY
+        for imported in sorted(_runtime_imports(path))
+        if imported.startswith("blitzecdn.capabilities")
     ]
     assert offenders == []
 

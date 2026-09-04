@@ -32,8 +32,9 @@ class OmittedWhenEmpty(BaseModel):
     """A nested policy block the edge document leaves out when it holds nothing.
 
     Opting in by subclassing, rather than core inspecting every nested model,
-    is the point. :func:`~blitzecdn.core.ansible.mapping.site_to_ansible` used
-    to name one block — ``firewall`` — which put the vocabulary of a detachable
+    is the point. ``sites``' own
+    :func:`~blitzecdn.capabilities.sites.adapters.ansible.site_to_ansible`
+    used to name one block — ``firewall`` — which put the vocabulary of a detachable
     capability into a generic adapter and meant a second such block would be a
     second branch there. A capability now declares that its block is absent
     rather than empty in the document, and core prunes whatever declares it

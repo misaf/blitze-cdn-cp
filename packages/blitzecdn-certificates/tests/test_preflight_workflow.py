@@ -7,6 +7,8 @@ from certificate_support import (
     certificate_control_plane,
 )
 
+from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
+
 # ----------------------------------------------------------------------
 # Certificate preflight enforcement
 #
@@ -201,7 +203,7 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     settings.state_dir.mkdir(parents=True, exist_ok=True)
     playbook = settings.state_dir / "operation.yml"
     playbook.write_text("- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8")
-    runner = ansible.AnsibleRunner(settings, FakeEdgeStore())
+    runner = ansible.AnsibleRunner(settings, EdgeRoster(FakeEdgeStore()))
     seen: list[dict[str, object]] = []
 
     def capture(*, variables, **_kwargs):

@@ -1,7 +1,7 @@
 """The two plays this capability runs, and the documents they are given.
 
 This is the seam the extraction was about. ``purge_entry_to_ansible`` used to
-live in ``blitzecdn.core.ansible.mapping`` and ``run_cache_purge`` on
+live in ``blitzecdn.capabilities.sites.adapters.ansible`` and ``run_cache_purge`` on
 ``AnsibleRunner``, which meant the shared Ansible adapter — the one every
 capability reaches through — knew what a :class:`PurgeEntry` was. Core cannot know
 a detachable package's domain type, so the knowledge moved here and core kept

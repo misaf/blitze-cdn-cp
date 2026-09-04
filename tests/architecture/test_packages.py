@@ -1035,8 +1035,8 @@ def test_core_knows_no_kind_of_firewall_rule():
     settings of something detachable. Two leaks lived here and are gone: the
     country and HTTP-method tables in `core/validation.py`, whose only consumer
     was the security contract, and `if site.firewall.empty` in
-    `core/ansible/mapping.py`, which named one capability's block inside a
-    generic adapter.
+    `capabilities/sites/adapters/ansible.py`, which named one capability's
+    block inside a generic adapter.
     """
     forbidden = _firewall_rule_kinds() | _FIREWALL_VOCABULARY
     offenders = [
@@ -1099,11 +1099,13 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     because a block that has never been configured is not the same as one whose
     switches are off.
     """
+    from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
     from blitzecdn.capabilities.sites.domain import CdnSite
-    from blitzecdn.core.ansible.mapping import site_to_ansible
     from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
-    source = (SOURCE / "core/ansible/mapping.py").read_text(encoding="utf-8")
+    source = (SOURCE / "capabilities/sites/adapters/ansible.py").read_text(
+        encoding="utf-8"
+    )
     mapper = next(
         node
         for node in ast.walk(ast.parse(source))

@@ -20,6 +20,7 @@ from blitzecdn.bootstrap import ControlPlane
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
@@ -27,8 +28,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.persistence import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 

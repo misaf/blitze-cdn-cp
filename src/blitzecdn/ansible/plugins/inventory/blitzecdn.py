@@ -272,8 +272,9 @@ def _default_database(source):
 def _host_variables(edge):
     """Ansible connection variables for one edge.
 
-    Mirrors ``blitzecdn.core.ansible_mapping.edge_to_inventory``. The two are kept in
-    step by ``tests/test_inventory.py``, which runs this module against a
+    Mirrors ``blitzecdn.capabilities.edges.adapters.ansible.edge_to_inventory``.
+    The two are kept in step by ``tests/test_inventory.py``, which runs this
+    module against a
     database the model wrote and compares the result — the only honest way to
     check an agreement between a pydantic model and a file that cannot import
     it.
