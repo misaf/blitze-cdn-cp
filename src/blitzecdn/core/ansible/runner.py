@@ -8,7 +8,6 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.core.ansible.execution import PlaybookExecutor
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.ansible.lock import DeploymentLock
@@ -17,6 +16,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
+from blitzecdn.core.ports.fleet import FleetRoster
 
 __all__ = ["AnsibleRunner"]
 
@@ -28,12 +28,14 @@ _PARSE_TIMEOUT = 120
 class AnsibleRunner:
     """Runs Ansible against the fleet the control plane records.
 
-    ``edges`` is the same store the ``blitzecdn`` inventory plugin reads. It is
-    injected rather than opened here because this needs it for one thing only —
-    expanding a ``--limit`` into explicit host names — and because that
-    expansion must be answered from the identical rows Ansible is about to be
-    given. Reading a separate copy is precisely the drift that removing the
-    static inventory file was meant to end.
+    ``fleet`` is the same rows the ``blitzecdn`` inventory plugin reads, seen
+    through the two-member port this needs them for: expanding a ``--limit``
+    into explicit host names. It is injected rather than opened here because
+    that expansion must be answered from the identical rows Ansible is about to
+    be given — reading a separate copy is precisely the drift that removing the
+    static inventory file was meant to end — and it is a roster rather than
+    ``EdgeStore`` because core does not import the capability that records an
+    edge.
 
     One adapter, several playbooks. Each capability declares the slice of this it
     actually needs as its own port — ``DeploymentRunner``, ``EdgeRunner``,
@@ -48,7 +50,7 @@ class AnsibleRunner:
     def __init__(
         self,
         settings: Settings,
-        edges: EdgeStore,
+        fleet: FleetRoster,
         roles_path: Sequence[Path] | None = None,
         capability_roles: Sequence[str] = (),
         host_capability_roles: Sequence[str] = (),
@@ -58,7 +60,7 @@ class AnsibleRunner:
         capability_environment: Mapping[str, SecretStr] | None = None,
     ) -> None:
         self._settings = settings
-        self._edges = edges
+        self._fleet = fleet
         # Core's roles alone, and no capability roles, when nobody says
         # otherwise. The composition root resolves both from the installed
         # plugins and passes them; a test that only runs core's plays needs
@@ -107,7 +109,7 @@ class AnsibleRunner:
             limit=limit,
             timeout=self._settings.deployment_timeout_seconds,
             check=check,
-            targeted=targeted_hosts(self._edges, limit),
+            targeted=targeted_hosts(self._fleet, limit),
         )
 
     def run_decommission(self, *, host_limit: str) -> AnsibleRun:
@@ -164,11 +166,11 @@ class AnsibleRunner:
             variables=variables,
             limit=limit,
             timeout=self._settings.deployment_timeout_seconds,
-            targeted=targeted_hosts(self._edges, limit),
+            targeted=targeted_hosts(self._fleet, limit),
         )
 
     def _limit(self, host_limit: str | None) -> str:
-        return resolve_limit(self._edges, host_limit)
+        return resolve_limit(self._fleet, host_limit)
 
     def _validate_paths(self) -> None:
         errors = self._settings.validate_runtime()

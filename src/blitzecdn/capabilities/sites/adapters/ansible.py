@@ -1,12 +1,20 @@
-"""Translate domain values into the documents consumed by Ansible."""
+"""The flat site document the edge roles read.
+
+This is a projection of `sites`' own model onto somebody else's vocabulary,
+which is what an adapter is. It sat in ``core.ansible.mapping`` beside
+``edge_to_inventory``, one module holding two capabilities' projections, and
+core imported `CdnSite` to do it — the foundation reaching up into the tree it
+supports for a document only `sites` has ever produced or consumed.
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.domain.validation import OmittedWhenEmpty
+
+__all__ = ["site_to_ansible"]
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:
@@ -16,8 +24,8 @@ def site_to_ansible(site: CdnSite) -> dict[str, Any]:
     site.firewall.empty``, which is a capability's own vocabulary in a generic
     adapter: core knew what a firewall was, and a second such block would have
     been a second branch here. A block opts in by subclassing
-    :class:`~blitzecdn.core.domain.validation.OmittedWhenEmpty`, and this asks nothing
-    about what it holds.
+    :class:`~blitzecdn.core.domain.validation.OmittedWhenEmpty`, and this asks
+    nothing about what it holds.
     """
     document = site.model_dump(mode="json", exclude_none=True)
     for field in type(site).model_fields:
@@ -25,17 +33,3 @@ def site_to_ansible(site: CdnSite) -> dict[str, Any]:
         if isinstance(value, OmittedWhenEmpty) and value.empty:
             document.pop(field, None)
     return document
-
-
-def edge_to_inventory(edge: Edge) -> dict[str, Any]:
-    variables: dict[str, Any] = {
-        "ansible_host": edge.host,
-        "ansible_user": edge.user,
-        "ansible_port": edge.port,
-        "blitzecdn_firewall_ssh_port": edge.port,
-    }
-    if edge.private_key_file is not None:
-        variables["ansible_ssh_private_key_file"] = edge.private_key_file
-    if edge.public_addresses:
-        variables["blitzecdn_public_addresses"] = list(edge.public_addresses)
-    return variables

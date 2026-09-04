@@ -41,6 +41,7 @@ from blitzecdn.capabilities.http.policy import (
     HttpScheme,
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
 from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
@@ -49,10 +50,9 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.core.ansible.mapping import site_to_ansible
-from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.core.plugins import load_plugins
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
+from blitzecdn.persistence import Repository
 
 jinja2 = pytest.importorskip("jinja2")
 

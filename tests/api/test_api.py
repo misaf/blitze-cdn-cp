@@ -19,7 +19,7 @@ from blitzecdn.core.exceptions import (
     DeploymentBusyError,
     ExecutionError,
 )
-from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.persistence import Repository
 
 
 def test_the_api_carries_every_policy_field_the_domain_has():

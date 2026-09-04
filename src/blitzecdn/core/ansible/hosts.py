@@ -4,15 +4,14 @@ from __future__ import annotations
 
 from fnmatch import fnmatch
 
-from blitzecdn.capabilities.edges.domain import EDGE_GROUP
-from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.ports.fleet import FleetRoster
 
 __all__ = ["resolve_limit", "targeted_hosts"]
 
 
-def resolve_limit(edges: EdgeStore, host_limit: str | None) -> str:
+def resolve_limit(fleet: FleetRoster, host_limit: str | None) -> str:
     """Resolve a host limit to explicit edge names, or the whole group.
 
     The limit is expanded here against the recorded fleet rather than
@@ -30,8 +29,8 @@ def resolve_limit(edges: EdgeStore, host_limit: str | None) -> str:
     """
     validated = validate_edge_limit(host_limit)
     if validated is None:
-        return EDGE_GROUP
-    known = [edge.name for edge in edges.list_edges()]
+        return fleet.group
+    known = list(fleet.host_names())
     matched = [
         name
         for name in known
@@ -48,13 +47,13 @@ def resolve_limit(edges: EdgeStore, host_limit: str | None) -> str:
     return ",".join(matched)
 
 
-def targeted_hosts(edges: EdgeStore, resolved: str) -> tuple[str, ...]:
+def targeted_hosts(fleet: FleetRoster, resolved: str) -> tuple[str, ...]:
     """The edges a resolved limit names, for the run record.
 
     Derived from what :func:`resolve_limit` already produced, and therefore
     from the same rows Ansible is about to be given, so "what did this run aim
     at" cannot disagree with what it actually targeted.
     """
-    if resolved == EDGE_GROUP:
-        return tuple(edge.name for edge in edges.list_edges())
+    if resolved == fleet.group:
+        return fleet.host_names()
     return tuple(resolved.split(","))

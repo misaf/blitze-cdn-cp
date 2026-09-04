@@ -21,6 +21,7 @@ from blitzecdn.capabilities.cache.policy import CachePolicy
 from blitzecdn.capabilities.compression.policy import CompressionPolicy
 from blitzecdn.capabilities.http.policy import ProtocolPolicy
 from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
 from blitzecdn.capabilities.sites.policy import (
     HeaderPolicy,
@@ -28,7 +29,6 @@ from blitzecdn.capabilities.sites.policy import (
     SiteVisitorHeaders,
 )
 from blitzecdn.capabilities.tls.policy import TlsPolicy
-from blitzecdn.core.ansible.mapping import site_to_ansible
 
 _ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"
 _TEMPLATE = (_ROLE / "templates/site.conf.j2").read_text(encoding="utf-8")

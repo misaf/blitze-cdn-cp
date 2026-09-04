@@ -70,6 +70,7 @@ from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.composition import build_dns_service
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
+from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.capabilities.edges.composition import build_edge_operations_service
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
@@ -82,7 +83,6 @@ from blitzecdn.capabilities.sites.service import SiteService
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.application.workflows import WorkflowCoordinator
 from blitzecdn.core.config import Settings
-from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.core.plugins import (
     HealthCheck,
     PluginRegistry,
@@ -101,6 +101,7 @@ from blitzecdn.core.plugins import (
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
 from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
+from blitzecdn.persistence import Repository
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
@@ -217,7 +218,10 @@ class ControlPlane:
         )
         self._runner = runner or AnsibleRunner(
             self.settings,
-            self._edges_store,
+            # The fleet as core reads it: host names and the group they form.
+            # Core declares that port and `edges` satisfies it, so running a
+            # playbook does not make `core.ansible` import a capability.
+            EdgeRoster(self._edges_store),
             # An installed capability's roles, alongside core's. This is the
             # one place that knows both halves: the registry answers what is
             # installed, `resolve_role_search_path` decides the order and

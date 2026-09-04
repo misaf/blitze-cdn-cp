@@ -12,7 +12,7 @@ from blitzecdn.capabilities.deployments.domain.snapshots import (
 )
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.persistence import Repository
 
 
 @pytest.mark.parametrize(

@@ -30,8 +30,8 @@ from blitzecdn.core.domain.runs import (
     TaskResult,
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.core.persistence.repository import Repository
 from blitzecdn.core.plugins import load_plugins
+from blitzecdn.persistence import Repository
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
@@ -461,7 +461,7 @@ def seeded(settings):
 
     def build(runner=None):
         from blitzecdn.bootstrap import ControlPlane
-        from blitzecdn.core.persistence.repository import Repository
+        from blitzecdn.persistence import Repository
 
         repository = Repository(settings.database_path)
         control = ControlPlane(

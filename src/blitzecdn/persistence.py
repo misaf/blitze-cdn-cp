@@ -6,6 +6,13 @@ capability ports structurally, so the composition root passes
 ``repository.zones`` to whatever asked for a ``ZoneStore`` and no service is
 ever handed more of persistence than it declared.
 
+It lives beside ``bootstrap`` rather than in ``core.persistence`` because
+choosing which stores go on one database is composition, and it was the last
+thing under ``core`` that imported a capability to do its job. What stays in
+``core.persistence`` is what a capability builds *on* — the engine, the write
+lock, the Unit of Work, the schema — and what core itself keeps there: the
+audit log and the workflow journal.
+
 ``snapshot`` is the one thing that cannot belong to a single store, because the
 desired state a deployment converges spans the zones, their records, and the
 sites those records route to.

@@ -8,7 +8,7 @@ What is left to check is the seam the plugin sits on, and it is a real seam:
 the plugin ships in `src/blitzecdn/ansible/plugins/inventory/`, runs inside
 `ansible-playbook` under whatever interpreter that is, and cannot import
 `blitzecdn` to validate what it reads. Two independent pieces of code therefore
-know the shape of an edge — `infrastructure.ansible_mapping.edge_to_inventory`
+know the shape of an edge — `capabilities.edges.adapters.ansible.edge_to_inventory`
 and the plugin's `_host_variables` —
 and the only honest way to check they agree is to write a database with the
 model and then run the real `ansible-inventory` against it. That is what
@@ -30,10 +30,10 @@ from pathlib import Path
 import pytest
 from paths import CORE_ANSIBLE, REPO_ROOT
 
+from blitzecdn.capabilities.edges.adapters.ansible import edge_to_inventory
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP, Edge, firewall_sources
-from blitzecdn.core.ansible.mapping import edge_to_inventory
 from blitzecdn.core.domain.validation import RESERVED_ANSIBLE_SETTINGS
-from blitzecdn.core.persistence.repository import Repository
+from blitzecdn.persistence import Repository
 
 PROJECT_DIR = REPO_ROOT
 ANSIBLE_DIR = CORE_ANSIBLE
