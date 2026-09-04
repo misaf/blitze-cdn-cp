@@ -136,8 +136,9 @@ def test_no_published_component_leaks_a_python_module_path(settings):
 
 #: The operational shapes *this distribution* publishes, as field names and
 #: required fields. Pinned rather than derived: these are what a generated
-#: client binds to, and `blitzecdn.api.operations` is shared by every route
-#: that reports an operation, so an edit there reaches all of them at once.
+#: client binds to. `blitzecdn.api.models` carries the shapes every route
+#: reports an operation with, so an edit there reaches all of them at once,
+#: and a capability's own shapes live beside its routes.
 #: Changing this table is how such a change is declared.
 #:
 #: Core's own shapes only. `ReconciliationResult` and

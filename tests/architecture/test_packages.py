@@ -282,7 +282,7 @@ _PUBLIC_SDK_PREFIXES = (
     "blitzecdn.core.ports",
     "blitzecdn.core.process",
     "blitzecdn.api.dependencies",
-    "blitzecdn.api.operations",
+    "blitzecdn.api.models",
     "blitzecdn.api.requests",
     "blitzecdn.cli.common",
 )
@@ -291,13 +291,17 @@ _PUBLIC_SDK_PREFIXES = (
 #: rather than by a wildcard over `blitzecdn.capabilities.*`: `CdnSite` and
 #: `HttpScheme` are contracts every capability already consumes, while a
 #: capability's `service` or `adapters` module is not something an installed
-#: package may reach into.
+#: package may reach into. `deployments.api.models` is listed for the same
+#: reason as a contract: a capability that answers with a `Deployment` — as
+#: `certificates` does after a renewal converges — publishes the shape
+#: `deployments` defined rather than a second one of its own.
 _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.capabilities.sites",
     "blitzecdn.capabilities.cache.policy",
     "blitzecdn.capabilities.http.policy",
     "blitzecdn.capabilities.dns.domain",
     "blitzecdn.capabilities.dns.ports",
+    "blitzecdn.capabilities.deployments.api.models",
     "blitzecdn.capabilities.deployments.domain",
     "blitzecdn.capabilities.deployments.ports",
     "blitzecdn.capabilities.edges.origins",
@@ -1053,7 +1057,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: having for a list whose whole purpose is to stay short.
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/policy.py": None,
-    "api/models.py": None,
+    "capabilities/sites/api/models.py": None,
     "capabilities/sites/cli.py": None,
 }
 

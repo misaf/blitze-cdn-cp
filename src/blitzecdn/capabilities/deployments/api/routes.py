@@ -5,8 +5,14 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.operations import Deployment, DriftReport, Workflow, as_operation
-from blitzecdn.api.requests import DeployRequest, DriftRequest, RollbackRequest
+from blitzecdn.api.models import Workflow, as_operation
+from blitzecdn.capabilities.deployments.api.models import (
+    Deployment,
+    DeployRequest,
+    DriftReport,
+    DriftRequest,
+    RollbackRequest,
+)
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

@@ -4,7 +4,8 @@ from datetime import datetime
 
 from pydantic import Field, field_validator
 
-from blitzecdn.api.operations import Deployment, OperationModel
+from blitzecdn.api.models import Model
+from blitzecdn.capabilities.deployments.api.models import Deployment
 from blitzecdn.capabilities.tls.policy import SslMode
 from blitzecdn_certificates.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
@@ -16,7 +17,7 @@ from blitzecdn_certificates.certificates.domain import (
 )
 
 
-class CertificateInfo(OperationModel):
+class CertificateInfo(Model):
     site: str
     source: CertificateSource
     domains: tuple[str, ...]
@@ -26,7 +27,7 @@ class CertificateInfo(OperationModel):
     email: str | None = None
 
 
-class CertificateStatus(OperationModel):
+class CertificateStatus(Model):
     site: str
     source: CertificateSource
     domains: tuple[str, ...]
@@ -37,19 +38,19 @@ class CertificateStatus(OperationModel):
     fingerprint_sha256: str
 
 
-class PreflightCheck(OperationModel):
+class PreflightCheck(Model):
     name: str
     passed: bool
     severity: PreflightSeverity
     detail: str
 
 
-class PreflightReport(OperationModel):
+class PreflightReport(Model):
     site: str
     checks: tuple[PreflightCheck, ...]
 
 
-class CertificateRequest(OperationModel):
+class CertificateRequest(Model):
     email: str | None = Field(default=None, max_length=254)
     skip_preflight: bool = False
 
@@ -59,26 +60,26 @@ class CertificateRequest(OperationModel):
         return DomainCertificateRequest(email=value).email
 
 
-class RenewRequest(OperationModel):
+class RenewRequest(Model):
     within_days: int = Field(default=CERTIFICATE_RENEWAL_DAYS, ge=0, le=3650)
     force: bool = False
     sites: list[str] | None = Field(default=None, min_length=1)
 
 
-class RenewalResult(OperationModel):
+class RenewalResult(Model):
     renewed: tuple[str, ...] = ()
     skipped: tuple[str, ...] = ()
     failed: tuple[str, ...] = ()
 
 
-class ReconciliationResult(OperationModel):
+class ReconciliationResult(Model):
     issued: tuple[str, ...] = ()
     skipped: dict[str, str] = Field(default_factory=dict)
     failed: dict[str, str] = Field(default_factory=dict)
     deployment: Deployment | None = None
 
 
-class SslAutomaticReconciliation(OperationModel):
+class SslAutomaticReconciliation(Model):
     scanned: tuple[str, ...] = ()
     upgraded: dict[str, SslMode] = Field(default_factory=dict)
     skipped: dict[str, str] = Field(default_factory=dict)

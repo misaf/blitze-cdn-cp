@@ -1,9 +1,9 @@
 """The HTTP representations this capability publishes, and the body it takes.
 
-They live here rather than in ``blitzecdn.api.operations`` for the reason the
+They live here rather than in ``blitzecdn.api.models`` for the reason the
 whole extraction exists: a detachable package's resource shapes are the
 package's, and core cannot carry an ``OriginReport`` for a capability that may
-not be installed. What core still owns is the frame — ``OperationModel``, the
+not be installed. What core still owns is the frame — ``Model``, the
 ``as_operation`` projection and ``HostRun`` — which every capability's
 operational representation is built from, this one included.
 
@@ -18,13 +18,13 @@ from datetime import datetime
 
 from pydantic import Field
 
-from blitzecdn.api.operations import OperationModel
+from blitzecdn.api.models import Model
 from blitzecdn.api.requests import FleetRequest
 from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.capabilities.tls.policy import SslMode
 
 
-class OriginCheck(OperationModel):
+class OriginCheck(Model):
     site: str
     origin: str
     scheme: HttpScheme
@@ -37,14 +37,14 @@ class OriginCheck(OperationModel):
     detail: str | None = None
 
 
-class EdgeOriginChecks(OperationModel):
+class EdgeOriginChecks(Model):
     host: str
     checked_at: datetime | None = None
     checks: tuple[OriginCheck, ...] = ()
     error: str | None = None
 
 
-class OriginReport(OperationModel):
+class OriginReport(Model):
     checked_at: datetime
     host_limit: str | None = None
     edges: tuple[EdgeOriginChecks, ...] = ()

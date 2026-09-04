@@ -8,10 +8,10 @@ from control_plane_fixtures import (
 )
 from fastapi.testclient import TestClient
 
-from blitzecdn.api.models import SitePatch
-from blitzecdn.api.models import SitePolicy as SitePolicyModel
 from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.sites.api.models import SitePatch
+from blitzecdn.capabilities.sites.api.models import SitePolicy as SitePolicyModel
 from blitzecdn.capabilities.sites.domain import SitePolicy
 from blitzecdn.core.database import Repository
 from blitzecdn.core.exceptions import (
