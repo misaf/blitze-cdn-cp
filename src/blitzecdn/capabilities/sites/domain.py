@@ -39,6 +39,7 @@ from blitzecdn.capabilities.compression.policy import CompressionMode, Compressi
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
     HttpScheme,
+    MaxUploadSize,
     ProtocolPolicy,
 )
 from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
@@ -377,6 +378,7 @@ class SitePatch(BaseModel):
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None
     http3_enabled: bool | None = None
+    max_upload_size: MaxUploadSize | None = None
     always_use_https: bool | None = None
     under_attack_mode: bool | None = None
     origin_request_host: str | None = None

@@ -91,6 +91,7 @@ def test_the_capability_owning_each_field_is_the_one_it_reads_like():
 
     assert owners["compression"] == "compression"
     assert owners["http3_enabled"] == "http"
+    assert owners["max_upload_size"] == "http"
     assert owners["under_attack_mode"] == "security"
     assert owners["firewall"] == "security"
     assert owners["ssl_mode"] == "tls"

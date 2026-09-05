@@ -38,6 +38,7 @@ from blitzecdn.capabilities.http.policy import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     HttpScheme,
+    MaxUploadSize,
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
@@ -410,6 +411,7 @@ def test_nginx_role_accepts_only_the_current_ssl_policy():
         ("certificate_mode", CertificateMode),
         ("cache_query_string_mode", CacheQueryStringMode),
         ("compression", CompressionMode),
+        ("max_upload_size", MaxUploadSize),
     ],
 )
 def test_role_choices_cover_every_domain_value(field, enum):
@@ -1748,6 +1750,61 @@ def test_missing_compression_preserves_pre_upgrade_behavior():
     assert option.get("required", False) is False
 
     assert "gzip on;" in _render(site)
+
+
+def _uploads(size: MaxUploadSize | None) -> dict[str, Any]:
+    """A TLS site, so both the plain and the encrypted server block render."""
+    document = site_to_ansible(
+        CdnSite.model_validate(
+            {
+                "name": "uploads",
+                "server_names": ["uploads.example.com"],
+                "origin_host": "origin.example.com",
+                "ssl_mode": "flexible",
+                "certificate_mode": "existing",
+                "certificate_path": "/etc/ssl/certs/edge.pem",
+                "certificate_key_path": "/etc/ssl/private/edge.key",
+                **({} if size is None else {"max_upload_size": size}),
+            }
+        )
+    )
+    if size is None:
+        del document["max_upload_size"]
+    return document
+
+
+@pytest.mark.parametrize("size", list(MaxUploadSize))
+def test_the_upload_limit_covers_every_listener_a_site_serves(size):
+    """Server level, not location level.
+
+    A limit inside `location /` alone would leave the ACME challenge, the
+    reserved `/.blitzecdn` paths and every plugin fragment on nginx's 1m
+    default, so a site set to 200m would still refuse a 2m upload down some
+    paths and not others.
+    """
+    rendered = _render(_uploads(size))
+    blocks = rendered.split("server {")[1:]
+
+    # One server block per public proxy port, plain and TLS alike.
+    assert len(blocks) == len(HTTP_PROXY_PORTS) + len(HTTPS_PROXY_PORTS)
+    assert rendered.count(f"client_max_body_size {size.value};") == len(blocks)
+    for block in blocks:
+        before, _, rest = block.partition(f"client_max_body_size {size.value};")
+        assert rest, "every server block carries the limit"
+        assert "location" not in before, "the limit precedes every location"
+
+
+def test_missing_max_upload_size_preserves_pre_upgrade_behavior():
+    """A running older control plane may deploy through an updated role.
+
+    The role's default has to be the domain's, or an edge upgraded ahead of its
+    controller would serve a different limit than the one the API reports.
+    """
+    option = _role_spec()["blitzecdn_nginx_sites"]["options"]["max_upload_size"]
+    assert option["default"] == MaxUploadSize.SMALL.value
+    assert option.get("required", False) is False
+
+    assert "client_max_body_size 100m;" in _render(_uploads(None))
 
 
 def test_missing_always_use_https_preserves_pre_upgrade_behavior():
