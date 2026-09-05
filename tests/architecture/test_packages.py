@@ -525,7 +525,13 @@ _PACKAGE_MODULES = {
 #: from the operator routes beside them, which is as HTTP-adapter as it gets.
 #: A layer that has outgrown one file names its parts after what they are —
 #: the rule every other layer here already follows.
-_FREE_FORM_DIRECTORIES = {"adapters", "api", "domain", "policy", "service"}
+#: `cli` joined them when `sites/cli.py` reached 572 lines — the largest module
+#: in any capability, and the one place a slice's layers were still a single
+#: file no matter how many capabilities' switches it edited. Its contents are
+#: named after the contract whose fields they change (`tls.py`, `http.py`,
+#: `security.py`), the same rule `adapters/` and `domain/` already follow, so a
+#: capability that grows a switch has one place to add its command.
+_FREE_FORM_DIRECTORIES = {"adapters", "api", "cli", "domain", "policy", "service"}
 
 #: What a package ships for something other than Python to read. `ansible/`
 #: carries one module — the `importlib.resources` anchor — and its roles and
@@ -1037,16 +1043,20 @@ def test_the_country_settings_derive_their_token_generically_in_core():
 def test_the_composition_names_no_capability_token_at_all():
     """The property the whitelist above is only the GeoIP half of.
 
-    `sites/domain.py` composes every contract's requirements and may not name
-    one of them. It named six, in an `if` chain that restated each capability's
-    own rule beside it — two places to edit, and nothing to catch the day they
+    `sites/domain/` composes every contract's requirements and may not name one
+    of them. It named six, in an `if` chain that restated each capability's own
+    rule beside it — two places to edit, and nothing to catch the day they
     disagreed.
+
+    Held over the package rather than over `site.py` alone: `patch.py` mirrors
+    every field the composition carries, so a token could be reintroduced there
+    just as easily.
     """
-    document = (SOURCE / "capabilities/sites/domain.py").read_text(encoding="utf-8")
     tokens = ("geoip", "cache", "compression", "http3", "certificates", "security")
     offenders = [
-        f"sites/domain.py names the {node.value} token"
-        for node in ast.walk(ast.parse(document))
+        f"sites/domain/{path.name} names the {node.value} token"
+        for path in sorted((SOURCE / "capabilities/sites/domain").glob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value in tokens
     ]
     assert offenders == []
@@ -1188,6 +1198,10 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: * `dns/cli.py` carries `blitzecdn record firewall`, because a record patch
 #:   is the DNS capability's surface and `dns -> security` is a declared
 #:   contract edge in `ALLOWED_POLICY_DEPENDENCIES`;
+#: * `sites/cli/security.py` carries `blitzecdn site firewall`, and is only the
+#:   commands for that one contract — it was the whole 572-line `sites/cli.py`,
+#:   which meant every unrelated site command shared an exemption written for
+#:   two of them;
 #: `sites/domain.py` used to be a fourth entry, permitted to name the two
 #: *country* settings so it could derive the `geoip` token. It derives nothing
 #: now — `SecurityPolicy` declares the token beside the rule that needs it — so
@@ -1196,7 +1210,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/policy.py": None,
     "capabilities/sites/api/models.py": None,
-    "capabilities/sites/cli.py": None,
+    "capabilities/sites/cli/security.py": None,
 }
 
 

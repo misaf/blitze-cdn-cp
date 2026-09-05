@@ -323,7 +323,7 @@ def test_capability_adapters_never_import_entry_layers_or_composition():
     assert offenders == []
 
 
-#: A capability's contact with a caller: everything under `api/`, and `cli.py`.
+#: A capability's contact with a caller: everything under `api/` and `cli`.
 #:
 #: This was a set of file names — `cli.py`, `routes.py`, `readiness.py` — and a
 #: name it did not list was a delivery module under no rule at all.
@@ -332,13 +332,13 @@ def test_capability_adapters_never_import_entry_layers_or_composition():
 #: `_is_domain` and `_is_adapter` were written to fix, left in the one place
 #: the fix had not reached.
 #:
-#: `api/` is positional now, like `adapters/`. `cli.py` is still a name, and is
-#: exhaustive rather than hopeful because
-#: `test_a_built_in_capability_organises_its_python_the_same_way` closes the
-#: set: a capability's root modules are the eight the vocabulary documents, and
-#: anything else has to be inside a layer directory to exist at all.
+#: Both are positional now, like `adapters/`. `cli` was still a name — and so
+#: was exact — until `sites/cli.py` became `sites/cli/`, at which point matching
+#: on the name alone would have taken seven modules of commands out of the
+#: entry rule on the day they were split out of a module that was in it. A
+#: capability spells this layer either way, exactly as it spells `domain`.
 #:
-#: `api/` and `cli.py` stay where they are rather than moving under `adapters/`,
+#: `api/` and `cli` stay where they are rather than moving under `adapters/`,
 #: which would make membership positional for both. They are not private the
 #: way an adapter is — `capabilities.deployments.api.models` is a published
 #: contract an installed package may name, and
@@ -346,7 +346,8 @@ def test_capability_adapters_never_import_entry_layers_or_composition():
 #: exists to keep `adapters/` unreachable. Filing the published surface under
 #: the private one would put those two rules in each other's way.
 def _is_entry(path: Path) -> bool:
-    return "api" in path.relative_to(_CAPABILITIES).parts or path.name == "cli.py"
+    parts = path.relative_to(_CAPABILITIES).parts
+    return "api" in parts or "cli" in {part.removesuffix(".py") for part in parts}
 
 
 def _entry_files() -> list[Path]:
@@ -829,7 +830,13 @@ def test_sites_composes_the_capability_contracts_and_owns_no_other_capability():
     }
     assert "sites" in graph["dns"]
 
-    site_imports = _imports(_CAPABILITIES / "sites/domain.py")
+    # The whole package, not one file: `domain.py` became `domain/` — `site.py`
+    # composing the contracts and `patch.py` mirroring them — and reading only
+    # the module somebody named here would let a contract be imported by the
+    # other one without this seeing it.
+    site_imports = set().union(
+        *(_imports(path) for path in (_CAPABILITIES / "sites/domain").glob("*.py"))
+    )
     assert all("dns" not in imported for imported in site_imports)
     for capability in ("cache", "compression", "http", "security", "tls"):
         assert f"blitzecdn.capabilities.{capability}.policy" in site_imports

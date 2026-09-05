@@ -126,7 +126,8 @@ packages/blitzecdn-<name>/
 │   │   ├── models.py         #   are: its own operational shapes,
 │   │   └── routes.py         #   the routes it contributes, a second router
 │   │                         #   where the auth posture differs
-│   ├── cli.py                # its command groups
+│   ├── cli.py                # its command groups — a directory once one
+│   │                         #   group edits several capabilities' settings
 │   ├── nginx/                # *.conf.j2 fragments only
 │   └── ansible/
 │       ├── __init__.py       # ROLES_PATH and EDGE_ROLE, via package_directory
@@ -141,14 +142,17 @@ no `config.py`; one that converges no edge ships no `ansible/`. Do not add a
 modules — the layering is already expressed by the names above, and the
 architecture tests check it there.
 
-**Three of those names are layers, and each may be a file or a directory.**
-`domain`, `service` and `adapters` are the same layer whichever spelling a
-capability uses: `domain.py` until there are two kinds of value, then `domain/`
-with `snapshots.py` beside it; `service.py` until application policy earns its
-own module, then `service/` with `rollback.py` and `reporting.py` in it;
-`adapters/` from the start, because there is rarely only one. The contents of
-such a directory are named after *what they are* — `checks.py`, `playbooks.py`,
-`preflight.py` — never after the layer again, and the directory is flat.
+**Four of those names are layers, and each may be a file or a directory.**
+`domain`, `service`, `adapters` and `cli` are the same layer whichever spelling
+a capability uses: `domain.py` until there are two kinds of value, then
+`domain/` with `site.py` and `patch.py` in it; `service.py` until application
+policy earns its own module, then `service/` with `rollback.py` and
+`reporting.py`; `cli.py` until one group carries every capability's switches,
+then `cli/` with `tls.py`, `http.py` and `security.py` in it; `adapters/` from
+the start, because there is rarely only one. The contents of such a directory
+are named after *what they are* — `checks.py`, `playbooks.py`, `preflight.py`,
+or, in `cli/`, the contract whose fields those commands edit — never after the
+layer again, and the directory is flat.
 
 That is not a style preference. `tests/architecture/test_layering.py` decides
 which rule a module lives under by asking where it sits: everything in `domain`
@@ -180,17 +184,18 @@ refuses a module name that is not one of the above, and
 `test_a_built_in_capability_organises_its_python_the_same_way` walks
 `src/blitzecdn/capabilities/` and holds the built-ins to the same set — one
 vocabulary, whichever side of the packaging boundary a capability is on.
-`adapters/`, `api/`, `domain/`, `policy/` and `service/` are flat and their
-module names are the things they hold; `nginx/` and `ansible/` carry no Python
+`adapters/`, `api/`, `cli/`, `domain/`, `policy/` and `service/` are flat and
+their module names are the things they hold; `nginx/` and `ansible/` carry no Python
 beyond the one `core.runtime.resources.package_directory` anchor.
 
 That the set is *closed* is what lets the layering rules be positional rather
 than hopeful. `_entry_files` in `test_layering.py` identifies a capability's
-delivery adapters as "everything under `api/`, and `cli.py`" — it was a literal
+delivery adapters as "everything under `api/` and `cli`" — it was a literal
 list of file names, so `readiness.py` was covered because somebody remembered
 to add it and a slice growing a `commands.py` would have been covered by
-nothing. A name outside the vocabulary cannot appear now, so naming `cli.py` is
-exhaustive. `api/` and `cli.py` stay outside `adapters/`, which would make both
+nothing. Both are directories or files by the same rule now, so splitting
+`sites/cli.py` into `sites/cli/` cannot take its commands out from under the
+entry rule. `api/` and `cli` stay outside `adapters/`, which would make both
 positional, because they are not private the way an adapter is: `api/models.py`
 is a published contract, and `adapters/` is a directory the entry layers are
 forbidden to reach.
@@ -451,7 +456,7 @@ operate coherently without belongs in `packages/`, not here. Then:
 1. Create `src/blitzecdn/capabilities/<name>/` with only the domain, service,
    ports, and entry adapters its existing responsibilities require, using the
    same vocabulary a package uses — `domain`, `policy`, `ports`, `service`,
-   `adapters/`, `api/`, `cli.py`, `plugin.py`, `composition.py`. Keep it small:
+   `adapters/`, `api/`, `cli`, `plugin.py`, `composition.py`. Keep it small:
    one file per layer until there are two things in it.
 2. Write `plugin.py` with `blitzecdn_plugin_metadata` (`required=True`) and the
    hooks it contributes through.
@@ -491,7 +496,7 @@ packages/blitzecdn-cache/
 │   ├── plugin.py          # the hooks — the only module the entry point names
 │   ├── composition.py     # this package's own composition root
 │   ├── domain.py  policy.py  ports.py  service.py  adapters/  api/  cli.py
-│   │                      # domain/ and service/ once either outgrows a file
+│   │                      # domain/, service/ or cli/ once one outgrows a file
 └── tests/                 # its tests, which travel with it
 ```
 
