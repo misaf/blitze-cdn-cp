@@ -18,6 +18,7 @@ import typer
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
 from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
@@ -256,6 +257,29 @@ def site_http3(
                 site,
                 f"HTTP/3 is now {'enabled' if on else 'disabled'} for {site.name}.",
             )
+        )
+
+
+@site_app.command("max-upload-size")
+def site_max_upload_size(
+    name: Annotated[str, typer.Argument()],
+    size: Annotated[
+        MaxUploadSize,
+        typer.Option("--size", help="Largest visitor request body this site accepts."),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Set the largest request body this site accepts from a visitor.
+
+    A larger body is refused at the edge with 413 before the origin is
+    contacted, so this is a limit on what visitors may upload rather than on
+    what the origin is willing to receive.
+    """
+    site = _update(name, SitePatch(max_upload_size=size))
+    common.emit(site, json_output=json_output)
+    if not json_output:
+        typer.echo(
+            _applied(site, f"{site.name} now accepts uploads up to {size.value}.")
         )
 
 

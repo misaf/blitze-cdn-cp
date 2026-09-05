@@ -11,6 +11,12 @@ that a stored site asking for HTTP/3 still loads when that distribution is
 absent — the control plane then refuses the deployment by name through
 :attr:`required_capabilities`, rather than failing to read its own database or
 quietly serving the site over HTTP/2 as though nothing had been asked for.
+
+The request body limit sits here for the opposite reason. It is a property of
+how the edge reads an HTTP request rather than of anything detachable: core
+nginx enforces it with a directive that is always compiled in, so the field
+asks for no capability token and a site carrying it converges on an edge with
+nothing installed beside the control plane.
 """
 
 from collections.abc import Mapping
@@ -33,6 +39,24 @@ HTTPS_PROXY_PORTS = (443, 2053, 2083, 2087, 2096, 8443)
 DEFAULT_PORTS = {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
 
 
+class MaxUploadSize(StrEnum):
+    """Largest visitor request body one site accepts.
+
+    Members are nginx sizes, rendered straight into ``client_max_body_size``. A
+    closed set rather than a free size string on purpose: the tiers are the
+    product decision, and carrying them in the type means the API, the CLI and
+    the role's ``choices`` all reject an unknown value without any of them
+    growing a validator of its own.
+
+    nginx's own compiled-in default is 1m, which is not one of these. A site
+    that has never been configured therefore accepts more than it used to, not
+    less, so nothing that succeeds against an unmanaged edge starts failing.
+    """
+
+    SMALL = "100m"
+    LARGE = "200m"
+
+
 class ProtocolPolicy(CapabilityPolicy):
     """HTTP protocol behavior requested by one site."""
 
@@ -41,6 +65,8 @@ class ProtocolPolicy(CapabilityPolicy):
     # QUIC always negotiates TLS 1.3. This does not change the minimum TLS
     # version accepted by the site's parallel TCP listeners.
     http3_enabled: bool = False
+
+    max_upload_size: MaxUploadSize = MaxUploadSize.SMALL
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:

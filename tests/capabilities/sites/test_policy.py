@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
 from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
@@ -52,6 +53,35 @@ def test_composed_site_policy_keeps_the_flat_persisted_contract():
         }
         & document.keys()
     )
+
+
+def test_max_upload_size_is_a_closed_set_the_http_capability_owns():
+    """A tier the enum does not name is refused, not passed through to nginx.
+
+    The point of the enum over a size string: nothing between here and the
+    rendered directive has to know what a valid nginx size looks like.
+    """
+    assert MaxUploadSize.__module__ == "blitzecdn.capabilities.http.policy"
+    assert [tier.value for tier in MaxUploadSize] == ["100m", "200m"]
+
+    assert SitePolicy().max_upload_size is MaxUploadSize.SMALL
+    assert SitePolicy().model_dump(mode="json")["max_upload_size"] == "100m"
+    assert SitePolicy(max_upload_size="200m").max_upload_size is MaxUploadSize.LARGE
+
+    for refused in ("50m", "200mb", "100M", "", "0"):
+        with pytest.raises(ValidationError):
+            SitePolicy(max_upload_size=refused)
+
+
+def test_the_upload_limit_asks_for_no_detachable_capability():
+    """Core nginx always has the directive, so neither tier requests a wheel."""
+    for tier in MaxUploadSize:
+        requested = SitePolicy(
+            cache_enabled=False,
+            compression=CompressionMode.OFF,
+            max_upload_size=tier,
+        ).required_capabilities
+        assert requested == frozenset()
 
 
 def test_cross_capability_rules_stay_on_the_site_that_composes_them():

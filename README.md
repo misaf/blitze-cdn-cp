@@ -128,7 +128,8 @@ The stable `CdnSite` configuration remains part of core whether an implementatio
 wheel is installed or not. A site with compression off, unmanaged TLS, and the
 default security and visitor-header settings works with core alone, and is
 served over HTTP/1.1 and HTTP/2 — baseline protocol support needs no optional
-wheel. Requesting gzip/Brotli, uploaded/requested certificates, Automatic SSL
+wheel. Its per-site upload limit (`max_upload_size`, `100m` or `200m`) needs no
+wheel either: `client_max_body_size` is always compiled into nginx. Requesting gzip/Brotli, uploaded/requested certificates, Automatic SSL
 for active TLS, Under Attack Mode, site firewall rules, HTTP/3, the BZ-IPCountry
 visitor header or country firewall rules without their provider fails
 validation explicitly, naming the capability and the setting that asked for it;

@@ -18,6 +18,13 @@ argument_specs:
             type: bool
             default: false
             description: Offer visitor HTTP/3 over QUIC on UDP/443.
+          max_upload_size:
+            type: str
+            choices: ['100m', '200m']
+            default: 100m
+            description: >-
+              Largest visitor request body this site accepts. A larger body is
+              refused at the edge with 413 before the origin is contacted.
           always_use_https:
             type: bool
             default: false

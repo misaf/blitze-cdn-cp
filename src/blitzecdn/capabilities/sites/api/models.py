@@ -15,6 +15,7 @@ from pydantic import Field, model_validator
 from blitzecdn.api.models import Model
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.sites.domain import CdnSite as DomainCdnSite
 from blitzecdn.capabilities.sites.domain import SitePatch as DomainSitePatch
 from blitzecdn.capabilities.tls.policy import (
@@ -46,6 +47,7 @@ class SitePolicy(Model):
     ssl_automatic_mode: SslAutomaticMode = SslAutomaticMode.AUTO
     minimum_tls_version: MinimumTlsVersion = MinimumTlsVersion.TLS_1_2
     http3_enabled: bool = False
+    max_upload_size: MaxUploadSize = MaxUploadSize.SMALL
     always_use_https: bool = False
     under_attack_mode: bool = False
     origin_request_host: str | None = None
@@ -99,6 +101,7 @@ class SitePatch(Model):
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None
     http3_enabled: bool | None = None
+    max_upload_size: MaxUploadSize | None = None
     always_use_https: bool | None = None
     under_attack_mode: bool | None = None
     origin_request_host: str | None = None

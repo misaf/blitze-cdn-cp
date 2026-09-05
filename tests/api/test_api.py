@@ -695,6 +695,41 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         assert invalid.status_code == 422
 
 
+def test_max_upload_size_is_reported_patchable_and_validated(settings):
+    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
+    with TestClient(control_plane_app(settings)) as client:
+        created = client.post("/v1/sites", json=payload, headers=API_HEADERS)
+        assert created.status_code == 201
+        assert created.json()["max_upload_size"] == "100m"
+
+        patched = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"max_upload_size": "200m"},
+            headers=API_HEADERS,
+        )
+        assert patched.status_code == 200
+        assert patched.json()["max_upload_size"] == "200m"
+
+        # A size nginx would accept but the tier list does not name.
+        rejected = client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"max_upload_size": "500m"},
+            headers=API_HEADERS,
+        )
+        assert rejected.status_code == 422
+
+        # A patch that does not name the field leaves it where it was.
+        client.patch(
+            "/v1/sites/cdn-example-com",
+            json={"cache_enabled": False},
+            headers=API_HEADERS,
+        )
+        assert (
+            client.get("/v1/sites", headers=API_HEADERS).json()[0]["max_upload_size"]
+            == "200m"
+        )
+
+
 def test_compression_is_reported_patchable_and_validated(settings):
     payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:

@@ -939,6 +939,29 @@ def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch)
     assert site.cache_query_string_mode == "ignore"
 
 
+def test_site_max_upload_size_command(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    assert control.sites.get_site("cdn-example-com").max_upload_size == "100m"
+
+    result = runner.invoke(
+        cli.app,
+        ["site", "max-upload-size", "cdn-example-com", "--size", "200m", "--json"],
+    )
+
+    assert result.exit_code == 0
+    assert json.loads(result.stdout)["max_upload_size"] == "200m"
+    assert control.sites.get_site("cdn-example-com").max_upload_size == "200m"
+
+    rejected = runner.invoke(
+        cli.app,
+        ["site", "max-upload-size", "cdn-example-com", "--size", "500m"],
+    )
+
+    assert rejected.exit_code != 0
+    assert control.sites.get_site("cdn-example-com").max_upload_size == "200m"
+
+
 def test_site_compression_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
