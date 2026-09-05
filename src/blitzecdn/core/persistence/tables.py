@@ -1,4 +1,4 @@
-"""The base every table is declared on, and core's own three.
+"""The base every table is declared on, and core's own two.
 
 Named for what it holds. It was `models.py`, which was the third meaning of
 that word in one distribution — a capability's `domain` models hold the
@@ -16,10 +16,10 @@ The tables themselves are no longer all here. A capability's table lives beside
 the store that reads it — `capabilities/sites/adapters/tables.py` and its three
 siblings — and registers itself on this base by importing it, so there is still
 one metadata and still one migration tree. What is left here is core's own:
-fleet-wide Ansible settings, the audit log, the workflow journal. Which table
-modules must be imported for the metadata to be complete is answered in one
-place, `migrations/env.py`, and `tests/platform/test_migrations.py` fails if
-that list falls behind the tree.
+fleet-wide Ansible settings and the audit log. Which table modules must be
+imported for the metadata to be complete is answered in one place,
+`migrations/env.py`, and `tests/platform/test_migrations.py` fails if that list
+falls behind the tree.
 
 What is a column, and what is JSON
 ----------------------------------
@@ -48,9 +48,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
-    CheckConstraint,
     Column,
-    Index,
     Integer,
     String,
     TypeDecorator,
@@ -140,32 +138,3 @@ class AuditEventRow(Base, table=True):
     resource_type: str
     resource_id: str | None = None
     details: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
-
-
-class WorkflowRow(Base, table=True):
-    """Crash-visible progress for work that crosses out of this transaction."""
-
-    __tablename__ = "workflows"
-    __table_args__ = (
-        CheckConstraint(
-            "kind IN ('deployment', 'rollback', 'certificate')",
-            name="workflows_kind_check",
-        ),
-        CheckConstraint(
-            "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
-            name="workflows_status_check",
-        ),
-        Index("workflows_status_idx", "status", "updated_at"),
-    )
-
-    id: str = Field(sa_column=Column(String, primary_key=True))
-    kind: str
-    resource_id: str | None = None
-    status: str
-    operator: str
-    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
-    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
-    #: An append-only list of checkpoints. Ordered, read whole, never queried
-    #: into — a child table would buy nothing but joins.
-    steps: list[Any] = Field(default_factory=list, sa_type=JSON)
-    error: str | None = None

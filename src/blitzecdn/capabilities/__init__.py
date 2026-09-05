@@ -10,6 +10,7 @@ map is worth having in one place:
 | --- | --- | --- |
 | `sites` `dns` `edges` | itself | nothing: this is the control plane |
 | `deployments` `diagnostics` `maintenance` | itself | nothing, likewise |
+| `workflows` | itself | nothing, likewise |
 | `cache` | `blitzecdn-cache` | purge, cache statistics |
 | `compression` | `blitzecdn-compression` | gzip and Brotli on the edge |
 | `security` | `blitzecdn-security` | firewall rules, Under Attack Mode |

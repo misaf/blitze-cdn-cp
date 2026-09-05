@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.core.domain.operations import DeploymentId, Operator
+from blitzecdn.core.domain.identifiers import DeploymentId, Operator
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 
 

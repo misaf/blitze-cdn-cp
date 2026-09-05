@@ -251,6 +251,7 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "security",
         "sites",
         "tls",
+        "workflows",
     ],
 )
 def test_required_capability_packages_exist(capability: str):
@@ -741,7 +742,11 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     # `sites` would be recorded if this graph covered installed packages.
     "cache": set(),
     "compression": set(),
-    "deployments": {"dns", "sites"},
+    # `workflows` is the journal a convergence writes its checkpoints to. The
+    # edge is an import of `workflows.domain` for `WorkflowKind` and nothing
+    # more: the coordinator itself arrives as `deployments.ports.Workflows`,
+    # which is why this is not an edge onto another capability's service.
+    "deployments": {"dns", "sites", "workflows"},
     "diagnostics": set(),
     "dns": {"sites"},
     # `dns` left this set with `check_origins`. Probing an origin needed the
@@ -758,6 +763,10 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "security": set(),
     "sites": set(),
     "tls": set(),
+    # Depends on nothing. A workflow records that *something* reached a
+    # checkpoint and never asks what: `WorkflowKind` is the closest it comes to
+    # knowing, and that is three strings in an enum the database also checks.
+    "workflows": set(),
 }
 
 #: Which capability's *contract* another may compose. Separate from the graph
@@ -781,6 +790,7 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "security": set(),
     "sites": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},
+    "workflows": set(),
 }
 
 
@@ -896,8 +906,14 @@ _PLATFORM_SERVICES = {
 }
 
 #: What every plugin may read off the platform without that being a dependency
-#: on a capability: configuration, the cross-cutting journals, and the registry's
-#: own accessors.
+#: on a capability: configuration, the journals, and the registry's own
+#: accessors.
+#:
+#: `workflows` and `workflow_history` stayed on this list when the journal
+#: became a capability, for the reason `fleet` and `sites` are on it: what the
+#: platform publishes is the *port*, and every consumer — `deployments` here,
+#: `blitzecdn-certificates` out of tree — declares the coordinator as a
+#: Protocol of its own. Reading one is not knowing whose service satisfies it.
 _PLATFORM_COMMON = {
     "audit",
     "broker_ready",

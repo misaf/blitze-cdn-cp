@@ -317,6 +317,11 @@ _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.capabilities.edges.domain.origins",
     "blitzecdn.capabilities.edges.ports",
     "blitzecdn.capabilities.tls.policy",
+    # `WorkflowKind`, so an issuance can open a journal entry of the right
+    # kind. It was `blitzecdn.core.domain.operations` and needed no entry here,
+    # because the journal was core's; the import did not change, only which
+    # half of the workspace answers for it.
+    "blitzecdn.capabilities.workflows.domain",
 )
 
 _FORBIDDEN_SDK_MODULES = (

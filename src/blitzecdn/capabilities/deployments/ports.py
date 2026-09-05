@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import AbstractContextManager
 from pathlib import Path
+from types import TracebackType
 from typing import Any, Protocol
 
 from blitzecdn.capabilities.deployments.domain import (
@@ -12,6 +13,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.plugins import StateValue, ValidationResult
 from blitzecdn.core.ports import UnitOfWork
@@ -201,6 +203,54 @@ class SiteValidator(Protocol):
     def validate_site(self, site: CdnSite) -> ValidationResult: ...
 
 
+class WorkflowProgress(Protocol):
+    """The checkpoint sink a convergence writes its progress to.
+
+    `fail` is here and `checkpoint` is not optional because this capability
+    uses both: a convergence that finishes with errors it handled marks the
+    workflow failed without raising, which is the one case the surrounding
+    context manager cannot infer for itself.
+    """
+
+    #: Both arguments positional and neither defaulted, which is what the
+    #: coordinator hands out: `checkpoint` is a closure it builds per run
+    #: rather than a method, so a port that gave `details` a default would
+    #: describe something no implementation offers.
+    checkpoint: Callable[[str, dict[str, Any] | None], Workflow]
+
+    def fail(self, error: str) -> None: ...
+
+
+class WorkflowRun(Protocol):
+    def __enter__(self) -> WorkflowProgress: ...
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> bool | None: ...
+
+
+class Workflows(Protocol):
+    """Opening a journal entry, and recovering the ones a restart abandoned.
+
+    Declared rather than imported. `convergence.py` named
+    `core.application.workflows.WorkflowCoordinator` outright, which was legal
+    only while the journal was core's; the moment it became a capability, a
+    service importing another capability's service is the edge the layering
+    rules exist to refuse. `blitzecdn-certificates` has always declared its own
+    — it is on the other side of the packaging boundary and had no choice — so
+    this is the shape the one out-of-tree consumer already proved.
+    """
+
+    def run(
+        self, kind: WorkflowKind, operator: str, resource_id: str | None = None
+    ) -> WorkflowRun: ...
+
+    def reconcile_interrupted(self) -> Sequence[Workflow]: ...
+
+
 __all__ = [
     "DeploymentGateway",
     "DeploymentLocker",
@@ -215,6 +265,9 @@ __all__ = [
     "SiteValidator",
     "StateContributors",
     "UnitOfWork",
+    "WorkflowProgress",
+    "WorkflowRun",
+    "Workflows",
     "YamlWriter",
     "ZoneEditor",
     "ZoneStore",

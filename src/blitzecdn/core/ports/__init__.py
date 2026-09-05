@@ -3,8 +3,10 @@
 `UnitOfWork` is here rather than in a module of its own because it is the
 abstraction the package is about: one atomic boundary, shared by every store a
 use case touches. `ports.operations` holds the ports for work that leaves the
-process — the audit trail, the playbook runner, the event recorder, the
-workflow journal.
+process — the audit trail, the playbook runner, the event recorder. The
+workflow journal was a fourth until the journal became a capability; a port
+whose service, store and table all sit in one slice was that slice seen from
+the outside, not a cross-cutting contract.
 
 A port is a value-level contract, so this package imports `core.domain` and
 nothing else. `core.ports` was one file and `core.operation_ports` another,

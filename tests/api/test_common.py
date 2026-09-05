@@ -2,7 +2,7 @@ from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
-from blitzecdn.core.persistence.workflows import WorkflowStore
+from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 
 
 def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch):

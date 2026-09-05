@@ -6,12 +6,6 @@ from typing import Protocol
 
 from blitzecdn.core.domain.audit import AuditEvent
 from blitzecdn.core.domain.events import DomainEvent
-from blitzecdn.core.domain.operations import (
-    Workflow,
-    WorkflowKind,
-    WorkflowStatus,
-    WorkflowStep,
-)
 from blitzecdn.core.domain.runs import AnsibleRun
 
 
@@ -60,27 +54,4 @@ class EventRecorder(Protocol):
     def record(self, event: DomainEvent) -> None: ...
 
 
-class WorkflowJournal(Protocol):
-    def create(
-        self,
-        workflow_id: str,
-        kind: WorkflowKind,
-        operator: str,
-        resource_id: str | None = None,
-    ) -> Workflow: ...
-
-    def advance(
-        self,
-        workflow_id: str,
-        status: WorkflowStatus,
-        *,
-        step: WorkflowStep | None = None,
-        error: str | None = None,
-    ) -> Workflow: ...
-
-    def unfinished(self) -> list[Workflow]: ...
-
-    def prune_finished(self, keep: int) -> int: ...
-
-
-__all__ = ["AuditTrail", "EventRecorder", "PlaybookRunner", "WorkflowJournal"]
+__all__ = ["AuditTrail", "EventRecorder", "PlaybookRunner"]

@@ -2,9 +2,9 @@
 
 `engine` owns the connection, the write lock and the Unit of Work; `tables`
 carries the base every table in the database is declared on, and core's own
-three rows; `schema` answers which revision a file is stamped with. The three
+three rows; `schema` answers which revision a file is stamped with. The two
 modules below it are persistence for concerns no single capability owns — the
-audit log, the configuration tables, the workflow journal.
+audit log and the configuration tables.
 
 What is deliberately *not* here is the bundle. `Repository` puts a capability
 store on this engine for each slice, and choosing that set is composition, so

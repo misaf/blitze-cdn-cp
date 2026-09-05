@@ -15,8 +15,8 @@ from control_plane_fixtures import (
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
+from blitzecdn.capabilities.workflows.domain import WorkflowKind, WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
-from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
     ConflictError,

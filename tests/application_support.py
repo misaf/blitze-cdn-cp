@@ -30,8 +30,8 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, Re
 from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+from blitzecdn.capabilities.workflows.domain import WorkflowKind, WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
-from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.domain.runs import HostRun, RunStatus
 from blitzecdn.core.exceptions import (
     ConflictError,

@@ -11,8 +11,12 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.workflows.domain import (
+    WorkflowKind,
+    WorkflowStatus,
+    WorkflowStep,
+)
 from blitzecdn.composition import Repository
-from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus, WorkflowStep
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
