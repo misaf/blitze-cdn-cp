@@ -13,7 +13,7 @@ all. That is deliberately the whole of it:
 
 * The *contracts* stay in core. ``visitor_headers.ip_country``,
   ``allowed_countries`` and ``denied_countries`` are fields on the flat
-  ``CdnSite`` that the v1/v2 schemas, the persisted policy JSON and the
+  ``CdnSite`` that the API schemas, the persisted policy JSON and the
   deployment snapshots all consume, so a controller without this package still
   reads back a site that asks for a country and then refuses to deploy it by
   name. A field that travelled with the wheel would make a stored row

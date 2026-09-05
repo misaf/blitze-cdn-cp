@@ -21,9 +21,9 @@ installed beside the control plane; there is no distribution to reunite them
 with, and inventing one to hold two value types would be the mirror of the
 problem this arrangement fixed.
 
-The public model deliberately remains flat: API v1/v2, persisted policy JSON,
-deployment snapshots, and Ansible all consume that shape. Composition is by
-inheritance rather than by nesting for that reason alone.
+The public model deliberately remains flat: the API schemas, persisted policy
+JSON, deployment snapshots and Ansible all consume that shape. Composition is
+by inheritance rather than by nesting for that reason alone.
 """
 
 from __future__ import annotations

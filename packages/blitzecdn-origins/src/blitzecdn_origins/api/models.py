@@ -7,9 +7,9 @@ not be installed. What core still owns is the frame — ``Model``, the
 ``as_operation`` projection and ``HostRun`` — which every capability's
 operational representation is built from, this one included.
 
-Identical in v1 and v2, and defined once for the same reason the operational
-models in core are: every published version has always accepted and returned
-the same shape, and a second class would rename the other version's schema.
+Defined once for the same reason the operational models in core are: the
+published shape *is* the schema, and a second class for the same resource
+would only rename it.
 """
 
 from __future__ import annotations
