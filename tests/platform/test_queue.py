@@ -16,9 +16,7 @@ import pytest
 from dramatiq.brokers.stub import StubBroker
 
 from blitzecdn import worker
-from blitzecdn.capabilities.maintenance import MaintenanceService
-from blitzecdn.core.exceptions import DeploymentBusyError, NotFoundError
-from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.core.runtime import broker as queue
 from blitzecdn.worker import run_deployment, run_scheduled_job
 
@@ -260,46 +258,6 @@ def test_scheduled_redis_calls_have_finite_network_timeouts(monkeypatch):
             "socket_timeout": queue._REDIS_OPERATION_TIMEOUT_SECONDS,
         }
     ]
-
-
-def test_a_maintenance_run_converges_what_it_left_owing(monkeypatch):
-    """The one rule that holds across every scheduled job, whoever wrote it.
-
-    A job that changed something the fleet has not seen raises a deployment
-    requirement, and the run that raised it is the run that should pay it off —
-    otherwise the change sits in the database until an operator happens to
-    deploy for an unrelated reason.
-    """
-    calls: list[str] = []
-    service = MaintenanceService(
-        jobs=lambda: {
-            "renew-certificates": ScheduledJob(
-                name="renew-certificates",
-                interval_seconds=60,
-                run=lambda operator: calls.append(f"renewed by {operator}"),
-            )
-        },
-        deployments=SimpleNamespace(
-            submit_deployment=lambda operator: calls.append(f"deployed by {operator}")
-        ),
-        requirements=SimpleNamespace(pending=lambda _kind: True),
-    )
-
-    service.run("renew-certificates")
-
-    assert calls == ["renewed by scheduler", "deployed by scheduler"]
-
-
-def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
-    """A message can outlive the plugin that published it."""
-    service = MaintenanceService(
-        jobs=lambda: {},
-        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
-        requirements=SimpleNamespace(pending=lambda _kind: False),
-    )
-
-    with pytest.raises(NotFoundError, match="no scheduled job named 'check-drift'"):
-        service.run("check-drift")
 
 
 def test_a_scheduled_actor_always_releases_its_key(monkeypatch):

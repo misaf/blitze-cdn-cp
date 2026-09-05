@@ -809,6 +809,42 @@ def test_an_optional_packages_tests_live_inside_it(package: Path):
     assert list((package / "tests").glob("test_*.py"))
 
 
+#: A capability that decides something has a `service/`, an `api/`, or both.
+#: The contract-only ones — `cache`, `compression`, `tls` — are a set of
+#: pydantic models composed into `SitePolicy`, and they are tested where they
+#: compose, in `tests/capabilities/sites/test_policy.py` and in
+#: `tests/contract/`. Requiring a directory for those would buy a file that
+#: restates the composition test from one capability's side.
+_BEHAVIOUR_LAYERS = ("service", "api")
+
+
+@pytest.mark.parametrize(
+    "capability", _built_in_capabilities(), ids=lambda path: path.name
+)
+def test_a_built_in_capabilitys_tests_live_in_its_own_directory(capability: Path):
+    """The built-in half of the rule above, which only wheels were held to.
+
+    A wheel keeps its tests inside it and the rule before this one says so, so
+    `packages/blitzecdn-cache` is removable in one move. The built-ins had no
+    counterpart, and three capabilities had drifted out of `tests/capabilities`
+    entirely: `MaintenanceService` was asserted in `tests/platform/test_queue.py`
+    — a file about Dramatiq, which the service does not touch — while
+    `WorkflowCoordinator` and `check_resolver` had no direct test at all, their
+    behaviour covered incidentally by suites that would still pass if the rules
+    they own changed.
+
+    Directory, not file count: what this refuses is a capability whose tests
+    have no home, not a capability with few of them.
+    """
+    if not any((capability / layer).is_dir() for layer in _BEHAVIOUR_LAYERS):
+        pytest.skip(f"{capability.name} is a contract, tested where it composes")
+    home = REPO_ROOT / "tests" / "capabilities" / capability.name
+    assert list(home.glob("test_*.py")), (
+        f"{capability.name} decides something and has nowhere of its own to "
+        f"assert it; add tests/capabilities/{capability.name}/"
+    )
+
+
 def test_the_control_plane_suite_names_no_optional_package():
     """Core's tests do not import a capability that may not be installed.
 
