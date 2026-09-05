@@ -36,6 +36,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="deployments",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Converge the fleet, roll back, and detect drift.",
     )

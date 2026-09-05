@@ -24,6 +24,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="tls",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Stable edge-encryption policy and TLS modes.",
     )

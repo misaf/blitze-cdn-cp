@@ -38,6 +38,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="http",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Baseline visitor HTTP/1.1 and HTTP/2, and the listener contract.",
     )

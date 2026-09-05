@@ -17,6 +17,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="edges",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Register, update and decommission edge servers.",
     )

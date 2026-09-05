@@ -64,6 +64,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="http3",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"http3"}),
         summary="Visitor HTTP/3 over QUIC, and the edge's single QUIC listener.",

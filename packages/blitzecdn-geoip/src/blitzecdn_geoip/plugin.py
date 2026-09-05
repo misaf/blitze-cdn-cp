@@ -78,6 +78,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="geoip",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"geoip"}),
         summary="Visitor IP-to-country lookup for country headers and rules.",

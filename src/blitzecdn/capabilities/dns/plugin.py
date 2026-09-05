@@ -17,6 +17,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="dns",
         version=__version__,
+        api_version=1,
         required=True,
         summary="DNS zones, records, and site derivation.",
     )

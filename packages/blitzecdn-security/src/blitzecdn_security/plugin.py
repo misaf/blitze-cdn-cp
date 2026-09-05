@@ -73,6 +73,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="security",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"security"}),
         summary="Per-site request filtering and Under Attack Mode.",

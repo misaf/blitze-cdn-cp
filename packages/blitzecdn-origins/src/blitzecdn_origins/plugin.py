@@ -39,6 +39,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="origins",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"origins"}),
         summary="Probe every site's origin from the edges that proxy to it.",

@@ -49,6 +49,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="cache",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"cache"}),
         summary="Purge cached responses and read cache effectiveness.",

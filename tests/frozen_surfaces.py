@@ -317,8 +317,21 @@ def plugin_abi_surface() -> str:
     """
     from blitzecdn.core.plugins import hooks, types
 
-    lines = [_line(ROOT, "hook_api_version", str(types.HOOK_API_VERSION))]
-    lines.append(_line(ROOT, "entry_point_group", types.ENTRY_POINT_GROUP))
+    lines = [
+        _line(ROOT, "hook_api_version", str(types.HOOK_API_VERSION)),
+        # The set, not just the current version: this is what actually decides
+        # whether an installed wheel loads, and widening or narrowing it is the
+        # compatibility decision. Pinning only `HOOK_API_VERSION` would let a
+        # supported contract be dropped without the surface moving.
+        _line(
+            ROOT,
+            "supported_hook_api_versions",
+            ",".join(
+                str(version) for version in sorted(types.SUPPORTED_HOOK_API_VERSIONS)
+            ),
+        ),
+        _line(ROOT, "entry_point_group", types.ENTRY_POINT_GROUP),
+    ]
 
     for name, function in sorted(vars(hooks).items()):
         if not name.startswith("blitzecdn_") or not inspect.isfunction(function):

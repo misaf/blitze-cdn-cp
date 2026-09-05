@@ -53,6 +53,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="hardening",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"hardening"}),
         summary="Public-key-only SSH and a Fail2Ban jail on every edge host.",
