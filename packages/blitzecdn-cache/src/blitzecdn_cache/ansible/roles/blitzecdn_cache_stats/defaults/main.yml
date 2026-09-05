@@ -5,13 +5,13 @@
 # tests/contract/test_role_contracts.py asserts they agree, because pointed at
 # the wrong log this role reports a hit ratio of zero, which looks like a
 # broken cache rather than a misconfigured reader.
-blitzecdn_stats_access_log_path: /var/log/nginx/blitzecdn-access.log
-blitzecdn_stats_status_address: 127.0.0.1
-blitzecdn_stats_status_port: 8090
-blitzecdn_stats_status_path: /stub_status
+blitzecdn_cache_stats_access_log_path: /var/log/nginx/blitzecdn-access.log
+blitzecdn_cache_stats_status_address: 127.0.0.1
+blitzecdn_cache_stats_status_port: 8090
+blitzecdn_cache_stats_status_path: /stub_status
 
 # Cap on how much of the access log is read. A busy edge rotates gigabytes a
 # day and the whole file is neither affordable to scan on every run nor
 # interesting — the recent window is what "is the cache working now" means.
 # Raise it for a longer view, at linear cost.
-blitzecdn_stats_max_lines: 200000
+blitzecdn_cache_stats_max_lines: 200000

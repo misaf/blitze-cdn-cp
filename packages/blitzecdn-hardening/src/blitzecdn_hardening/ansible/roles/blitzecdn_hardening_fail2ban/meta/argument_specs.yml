@@ -1,0 +1,9 @@
+---
+argument_specs:
+  main:
+    short_description: Protect SSH using Fail2Ban.
+    options:
+      blitzecdn_hardening_fail2ban_ban_time: {type: str, required: true}
+      blitzecdn_hardening_fail2ban_find_time: {type: str, required: true}
+      blitzecdn_hardening_fail2ban_max_retry: {type: int, required: true}
+      blitzecdn_hardening_fail2ban_ssh_port: {type: int, required: true}

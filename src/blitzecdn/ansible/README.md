@@ -92,8 +92,8 @@ a site's whole configuration from the merged desired-state document.
 
 An optional capability's roles are not here. They ship inside that
 capability's wheel — `blitzecdn_geoip` in `blitzecdn-geoip`, `blitzecdn_cache`
-and `blitzecdn_stats` in `blitzecdn-cache`, `blitzecdn_sshd`,
-`blitzecdn_fail2ban` and `blitzecdn_hardening_teardown` in
+and `blitzecdn_cache_stats` in `blitzecdn-cache`, `blitzecdn_hardening_sshd`,
+`blitzecdn_hardening_fail2ban` and `blitzecdn_hardening_teardown` in
 `blitzecdn-hardening`, `blitzecdn_resolver` and
 `blitzecdn_resolver_teardown` in `blitzecdn-resolver`, and so on — and the control plane
 composes the real role search path from core's directory plus the directory

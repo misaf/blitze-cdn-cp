@@ -5,8 +5,8 @@
     state: present
     update_cache: true
     cache_valid_time: 3600
-  register: blitzecdn_fail2ban_apt
-  until: blitzecdn_fail2ban_apt is success
+  register: blitzecdn_hardening_fail2ban_apt
+  until: blitzecdn_hardening_fail2ban_apt is success
   retries: 3
   delay: 5
 - name: Configure the SSH jail

@@ -1,0 +1,28 @@
+---
+argument_specs:
+  main:
+    short_description: Enforce public-key-only SSH authentication.
+    description:
+      - Writes a drop-in that disables password and keyboard-interactive
+        authentication, then verifies the effective policy with sshd -T.
+      - Refuses to run unless every login account already has a non-empty
+        authorized_keys file, so hardening cannot lock an operator out.
+      - Does not manage Port. The listening port is owned by
+        blitzecdn_firewall_ssh_port and blitzecdn_hardening_fail2ban_ssh_port; a fourth
+        setting here could disagree with the firewall and strand the host.
+    options:
+      blitzecdn_hardening_sshd_enabled: {type: bool, required: true}
+      blitzecdn_hardening_sshd_allow_users: {type: list, elements: str, required: true}
+      blitzecdn_hardening_sshd_permit_root_login:
+        type: str
+        required: true
+        choices: ['no', prohibit-password, forced-commands-only]
+      blitzecdn_hardening_sshd_config_path: {type: str, required: true}
+      blitzecdn_hardening_sshd_service: {type: str, required: true}
+      blitzecdn_hardening_sshd_login_grace_time: {type: int, required: true}
+      blitzecdn_hardening_sshd_max_auth_tries: {type: int, required: true}
+      blitzecdn_hardening_sshd_max_sessions: {type: int, required: true}
+      blitzecdn_hardening_sshd_client_alive_interval: {type: int, required: true}
+      blitzecdn_hardening_sshd_client_alive_count_max: {type: int, required: true}
+      blitzecdn_hardening_sshd_allow_tcp_forwarding: {type: bool, required: true}
+      blitzecdn_hardening_sshd_allow_agent_forwarding: {type: bool, required: true}

@@ -4,7 +4,7 @@ argument_specs:
     short_description: Give a decommissioned host its own access policy back.
     description:
       - >-
-        Removes the two files blitzecdn_sshd and blitzecdn_fail2ban wrote and
+        Removes the two files blitzecdn_hardening_sshd and blitzecdn_hardening_fail2ban wrote and
         settles both services, so the host returns to whatever SSH policy its
         distribution ships. Runs in the decommission play's capability slot,
         before blitzecdn_teardown, and only while this distribution is
@@ -23,18 +23,18 @@ argument_specs:
         type: path
         required: true
         description: >-
-          Must equal the drop-in blitzecdn_sshd writes on the same host.
+          Must equal the drop-in blitzecdn_hardening_sshd writes on the same host.
       blitzecdn_hardening_teardown_fail2ban_file:
         type: path
         required: true
         description: >-
-          Must equal the jail blitzecdn_fail2ban writes on the same host.
+          Must equal the jail blitzecdn_hardening_fail2ban writes on the same host.
       blitzecdn_hardening_teardown_sshd_service:
         type: str
         required: true
         description: >-
           The SSH unit to reload once the policy is gone. Must equal
-          blitzecdn_sshd_service on the same host.
+          blitzecdn_hardening_sshd_service on the same host.
       blitzecdn_hardening_teardown_fail2ban_service:
         type: str
         required: true

@@ -3,9 +3,9 @@
   ansible.builtin.script:
     cmd: >-
       collect-cache-stats.sh
-      {{ blitzecdn_stats_access_log_path | quote }}
-      {{ blitzecdn_stats_max_lines | int }}
-  register: blitzecdn_stats_counts
+      {{ blitzecdn_cache_stats_access_log_path | quote }}
+      {{ blitzecdn_cache_stats_max_lines | int }}
+  register: blitzecdn_cache_stats_counts
   changed_when: false
   check_mode: false
 
@@ -15,10 +15,12 @@
 - name: Read the nginx connection counters
   ansible.builtin.uri:
     url: >-
-      http://{{ blitzecdn_stats_status_address }}:{{ blitzecdn_stats_status_port }}{{ blitzecdn_stats_status_path }}
+      http://{{ blitzecdn_cache_stats_status_address }}:{{
+      blitzecdn_cache_stats_status_port }}{{
+      blitzecdn_cache_stats_status_path }}
     return_content: true
     status_code: [200]
-  register: blitzecdn_stats_status
+  register: blitzecdn_cache_stats_status
   failed_when: false
   changed_when: false
   check_mode: false
@@ -59,12 +61,12 @@
       # timestamp that reads as local time on one machine and UTC on another is
       # worse than none when comparing edges.
       collected_at: "{{ now(utc=True).strftime('%Y-%m-%dT%H:%M:%SZ') }}"
-      access_log_lines_read: "{{ blitzecdn_stats_max_lines | int }}"
-      nginx_reachable: "{{ blitzecdn_stats_status.status | default(0) == 200 }}"
+      access_log_lines_read: "{{ blitzecdn_cache_stats_max_lines | int }}"
+      nginx_reachable: "{{ blitzecdn_cache_stats_status.status | default(0) == 200 }}"
       connections: "{{ _totals if _totals else {} }}"
-      cache: "{{ blitzecdn_stats_counts.stdout | default('[]') | from_json }}"
+      cache: "{{ blitzecdn_cache_stats_counts.stdout | default('[]') | from_json }}"
   vars:
-    _content: "{{ blitzecdn_stats_status.content | default('') }}"
+    _content: "{{ blitzecdn_cache_stats_status.content | default('') }}"
     _numbers: "{{ _content | regex_findall('(\\d+)') }}"
     # Active, then accepts/handled/requests, then Reading/Writing/Waiting.
     _totals: >-

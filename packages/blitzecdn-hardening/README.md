@@ -9,8 +9,8 @@ SSH. This distribution owns the second one's front door, and nothing else:
 
 | role | what it does on the host |
 | --- | --- |
-| `blitzecdn_sshd` | writes `/etc/ssh/sshd_config.d/50-blitzecdn.conf`, disables password and keyboard-interactive authentication, then reads the effective policy back with `sshd -T` and fails if it did not take |
-| `blitzecdn_fail2ban` | installs Fail2Ban and writes the `sshd` jail at `/etc/fail2ban/jail.d/blitzecdn-sshd.local` |
+| `blitzecdn_hardening_sshd` | writes `/etc/ssh/sshd_config.d/50-blitzecdn.conf`, disables password and keyboard-interactive authentication, then reads the effective policy back with `sshd -T` and fails if it did not take |
+| `blitzecdn_hardening_fail2ban` | installs Fail2Ban and writes the `sshd` jail at `/etc/fail2ban/jail.d/blitzecdn-sshd.local` |
 | `blitzecdn_hardening_teardown` | on decommission, removes both files in the reverse order and settles both services, so a host leaving inventory governs its own SSH access again |
 
 The first two run in the edge play's *host* slot, after the firewall has been
@@ -68,11 +68,11 @@ Non-secret policy lives in each role's own `defaults/main.yml` and is overridden
 the way all fleet policy is:
 
 ```bash
-blitzecdn config set blitzecdn_sshd_allow_users '["deploy"]'
-blitzecdn config set blitzecdn_fail2ban_max_retry 3
+blitzecdn config set blitzecdn_hardening_sshd_allow_users '["deploy"]'
+blitzecdn config set blitzecdn_hardening_fail2ban_max_retry 3
 ```
 
-`blitzecdn_sshd` will not disable password authentication until it has proved,
+`blitzecdn_hardening_sshd` will not disable password authentication until it has proved,
 on the host itself, that every account it is about to restrict already holds a
 usable public key — including the ownership and mode checks `StrictModes`
 applies. A host reached by password fails the play instead of being locked out

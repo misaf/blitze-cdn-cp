@@ -92,7 +92,10 @@ def test_the_roles_are_contributed_to_the_host_slot_and_not_the_edge_one() -> No
     contribution = contributions[0]
     assert contribution.plugin == "hardening"
     assert contribution.edge_roles == ()
-    assert contribution.host_roles == ("blitzecdn_sshd", "blitzecdn_fail2ban")
+    assert contribution.host_roles == (
+        "blitzecdn_hardening_sshd",
+        "blitzecdn_hardening_fail2ban",
+    )
     assert resolve_edge_capability_roles(contributions) == ()
     assert resolve_host_capability_roles(contributions) == contribution.host_roles
 
@@ -107,7 +110,9 @@ def test_fail2ban_follows_ssh_within_the_contribution() -> None:
     """
     resolved = resolve_host_capability_roles(blitzecdn_ansible_contributions())
 
-    assert resolved.index("blitzecdn_sshd") < resolved.index("blitzecdn_fail2ban")
+    assert resolved.index("blitzecdn_hardening_sshd") < resolved.index(
+        "blitzecdn_hardening_fail2ban"
+    )
 
 
 def test_the_capability_withdraws_its_own_files_in_the_teardown_slot() -> None:

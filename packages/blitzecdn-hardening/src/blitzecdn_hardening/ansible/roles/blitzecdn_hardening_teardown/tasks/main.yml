@@ -7,7 +7,7 @@
 # that in the other direction, or there is a window in which the jail is gone
 # and password authentication is back.
 #
-# Nothing here is guarded by blitzecdn_sshd_enabled. A host is usually
+# Nothing here is guarded by blitzecdn_hardening_sshd_enabled. A host is usually
 # decommissioned by a controller whose configuration has drifted from the one
 # that converged it, and a fleet that turned hardening off after enabling it
 # once would then leave both files behind forever. Removing a file that is not

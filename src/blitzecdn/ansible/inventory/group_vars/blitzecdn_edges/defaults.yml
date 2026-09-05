@@ -57,7 +57,7 @@ blitzecdn_firewall_enabled: false
 blitzecdn_nginx_sites: []
 
 # The SSH keys that were here are not any more. Host access hardening ships as
-# `blitzecdn-hardening`, so `blitzecdn_sshd_enabled`, its root-login policy and
+# `blitzecdn-hardening`, so `blitzecdn_hardening_sshd_enabled`, its root-login policy and
 # its user list live in that package's own role defaults — where an operator
 # who has detached the distribution does not find a file in the control plane's
 # checkout still describing a role no edge will run. Their values are unchanged

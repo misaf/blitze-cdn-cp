@@ -1,7 +1,7 @@
 ---
 # The two files this capability's roles write, named here a second time.
 #
-# Copies rather than reads of blitzecdn_sshd's and blitzecdn_fail2ban's own
+# Copies rather than reads of blitzecdn_hardening_sshd's and blitzecdn_hardening_fail2ban's own
 # defaults, and deliberately: this role runs in the decommission play, on a
 # host that is no longer being converged and whose inventory entry is about to
 # be deleted. Reading the converging roles' variables would make the removal
@@ -13,6 +13,6 @@ blitzecdn_hardening_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.
 
 # The units to settle after each file goes. Named rather than assumed because
 # the SSH service is `ssh` on Debian and Ubuntu and `sshd` elsewhere, and
-# blitzecdn_sshd already carries the same knob for the same reason.
+# blitzecdn_hardening_sshd already carries the same knob for the same reason.
 blitzecdn_hardening_teardown_sshd_service: ssh
 blitzecdn_hardening_teardown_fail2ban_service: fail2ban

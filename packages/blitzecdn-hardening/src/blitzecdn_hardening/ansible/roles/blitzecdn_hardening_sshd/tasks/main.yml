@@ -8,14 +8,14 @@
 # because end_host ends the *play* for the host — it would skip every role
 # scheduled after this one, and the run would still report success.
 - name: Enforce SSH policy
-  when: blitzecdn_sshd_enabled
+  when: blitzecdn_hardening_sshd_enabled
   block:
     - name: Determine which accounts must hold a usable public key
       ansible.builtin.set_fact:
-        blitzecdn_sshd_login_users: >-
+        blitzecdn_hardening_sshd_login_users: >-
           {{
-            blitzecdn_sshd_allow_users
-            if (blitzecdn_sshd_allow_users | length > 0)
+            blitzecdn_hardening_sshd_allow_users
+            if (blitzecdn_hardening_sshd_allow_users | length > 0)
             else ([
               ansible_user | default(
                 (ansible_facts.env | default({}, true)).get('SUDO_USER', ''), true
@@ -26,10 +26,10 @@
     - name: Require at least one identifiable login account
       ansible.builtin.assert:
         that:
-          - blitzecdn_sshd_login_users | length > 0
+          - blitzecdn_hardening_sshd_login_users | length > 0
         fail_msg: >-
           Cannot determine which account will log in after passwords are disabled.
-          Set blitzecdn_sshd_allow_users, or run with an explicit ansible_user.
+          Set blitzecdn_hardening_sshd_allow_users, or run with an explicit ansible_user.
 
     - name: Read the account database
       ansible.builtin.getent:
@@ -41,14 +41,14 @@
           - item in ansible_facts.getent_passwd
         fail_msg: >-
           No account {{ item }} on this host. Create it before hardening SSH, or
-          correct blitzecdn_sshd_allow_users.
-      loop: "{{ blitzecdn_sshd_login_users }}"
+          correct blitzecdn_hardening_sshd_allow_users.
+      loop: "{{ blitzecdn_hardening_sshd_login_users }}"
 
     - name: Inspect authorized_keys for every login account
       ansible.builtin.stat:
         path: "{{ ansible_facts.getent_passwd[item][4] }}/.ssh/authorized_keys"
-      loop: "{{ blitzecdn_sshd_login_users }}"
-      register: blitzecdn_sshd_authorized_keys
+      loop: "{{ blitzecdn_hardening_sshd_login_users }}"
+      register: blitzecdn_hardening_sshd_authorized_keys
 
     # A missing or empty authorized_keys means the account can only reach this host
     # with a password. Writing the drop-in anyway would lock it out on the next
@@ -63,7 +63,7 @@
           {{ ansible_facts.getent_passwd[item.item][4] }}/.ssh/authorized_keys.
           Install the operator public key first; disabling password authentication
           now would lock this account out of {{ inventory_hostname }}.
-      loop: "{{ blitzecdn_sshd_authorized_keys.results }}"
+      loop: "{{ blitzecdn_hardening_sshd_authorized_keys.results }}"
       loop_control:
         label: "{{ item.item }}"
 
@@ -76,10 +76,10 @@
     - name: Inspect every path sshd validates under StrictModes
       ansible.builtin.stat:
         path: "{{ ansible_facts.getent_passwd[item.0][4] }}{{ item.1 }}"
-      loop: "{{ blitzecdn_sshd_login_users | product(['', '/.ssh', '/.ssh/authorized_keys']) | list }}"
+      loop: "{{ blitzecdn_hardening_sshd_login_users | product(['', '/.ssh', '/.ssh/authorized_keys']) | list }}"
       loop_control:
         label: "{{ item.0 }}{{ item.1 }}"
-      register: blitzecdn_sshd_strictmodes
+      register: blitzecdn_hardening_sshd_strictmodes
 
     - name: Require key paths to satisfy StrictModes
       ansible.builtin.assert:
@@ -96,14 +96,14 @@
           by {{ item.item.0 }} or root and is not group- or world-writable.
           Disabling password authentication now would lock this account out of
           {{ inventory_hostname }}.
-      loop: "{{ blitzecdn_sshd_strictmodes.results }}"
+      loop: "{{ blitzecdn_hardening_sshd_strictmodes.results }}"
       loop_control:
         label: "{{ item.item.0 }}{{ item.item.1 }}"
 
     - name: Enforce public-key-only authentication
       ansible.builtin.template:
         src: sshd.conf.j2
-        dest: "{{ blitzecdn_sshd_config_path }}"
+        dest: "{{ blitzecdn_hardening_sshd_config_path }}"
         owner: root
         group: root
         mode: "0600"
@@ -125,10 +125,10 @@
           - /usr/sbin/sshd
           - -T
           - -C
-          - "user={{ blitzecdn_sshd_login_users[0] }},host=localhost,addr=127.0.0.1"
+          - "user={{ blitzecdn_hardening_sshd_login_users[0] }},host=localhost,addr=127.0.0.1"
       changed_when: false
       check_mode: false
-      register: blitzecdn_sshd_verified
+      register: blitzecdn_hardening_sshd_verified
       when: not ansible_check_mode
 
     # Only meaningful once the drop-in is actually on disk. Under --check it was
@@ -137,25 +137,25 @@
     - name: Require the effective policy to be public-key only
       when: not ansible_check_mode
       vars:
-        blitzecdn_sshd_effective: "{{ blitzecdn_sshd_verified.stdout | lower }}"
+        blitzecdn_hardening_sshd_effective: "{{ blitzecdn_hardening_sshd_verified.stdout | lower }}"
       ansible.builtin.assert:
         that:
-          - "'pubkeyauthentication yes' in blitzecdn_sshd_effective"
-          - "'authenticationmethods publickey' in blitzecdn_sshd_effective"
-          - "'passwordauthentication no' in blitzecdn_sshd_effective"
-          - "'kbdinteractiveauthentication no' in blitzecdn_sshd_effective"
-          - "'permitemptypasswords no' in blitzecdn_sshd_effective"
-          - "'hostbasedauthentication no' in blitzecdn_sshd_effective"
-          - "'strictmodes yes' in blitzecdn_sshd_effective"
+          - "'pubkeyauthentication yes' in blitzecdn_hardening_sshd_effective"
+          - "'authenticationmethods publickey' in blitzecdn_hardening_sshd_effective"
+          - "'passwordauthentication no' in blitzecdn_hardening_sshd_effective"
+          - "'kbdinteractiveauthentication no' in blitzecdn_hardening_sshd_effective"
+          - "'permitemptypasswords no' in blitzecdn_hardening_sshd_effective"
+          - "'hostbasedauthentication no' in blitzecdn_hardening_sshd_effective"
+          - "'strictmodes yes' in blitzecdn_hardening_sshd_effective"
         fail_msg: >-
           {{ inventory_hostname }} still accepts something other than public keys
-          for {{ blitzecdn_sshd_login_users[0] }}. Either
-          {{ blitzecdn_sshd_config_path }} is not being read — check that
+          for {{ blitzecdn_hardening_sshd_login_users[0] }}. Either
+          {{ blitzecdn_hardening_sshd_config_path }} is not being read — check that
           /etc/ssh/sshd_config still includes /etc/ssh/sshd_config.d/*.conf — or a
           Match block later in the configuration overrides it.
 
     - name: Enable and start SSH
       ansible.builtin.systemd_service:
-        name: "{{ blitzecdn_sshd_service }}"
+        name: "{{ blitzecdn_hardening_sshd_service }}"
         enabled: true
         state: started

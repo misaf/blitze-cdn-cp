@@ -21,8 +21,8 @@ from typing import Any
 import yaml
 from blitzecdn_hardening import ansible
 
-SSHD = ansible.ROLES_PATH / "blitzecdn_sshd"
-FAIL2BAN = ansible.ROLES_PATH / "blitzecdn_fail2ban"
+SSHD = ansible.ROLES_PATH / "blitzecdn_hardening_sshd"
+FAIL2BAN = ansible.ROLES_PATH / "blitzecdn_hardening_fail2ban"
 TEARDOWN = ansible.ROLES_PATH / "blitzecdn_hardening_teardown"
 
 #: The two files this capability puts on a host, and the whole of what it puts
@@ -70,7 +70,7 @@ def test_the_role_enforces_public_key_only_ssh() -> None:
         ("hostbasedauthentication", "no"),
     ):
         assert directives.get(keyword) == expected, (
-            f"blitzecdn_sshd no longer sets {keyword} {expected}. Edges "
+            f"blitzecdn_hardening_sshd no longer sets {keyword} {expected}. Edges "
             "would accept something other than public keys."
         )
 
@@ -85,8 +85,8 @@ def test_ssh_hardening_is_on_by_default() -> None:
     """
     defaults = _defaults(SSHD)
 
-    assert defaults["blitzecdn_sshd_enabled"] is True
-    assert defaults["blitzecdn_sshd_permit_root_login"] == "no"
+    assert defaults["blitzecdn_hardening_sshd_enabled"] is True
+    assert defaults["blitzecdn_hardening_sshd_permit_root_login"] == "no"
 
 
 def test_the_roles_own_their_fleet_policy() -> None:
@@ -158,13 +158,13 @@ def test_the_roles_that_write_these_files_and_the_role_that_removes_them_agree()
     )
     teardown = _defaults(TEARDOWN)
 
-    assert _defaults(SSHD)["blitzecdn_sshd_config_path"] == SSHD_DROP_IN
+    assert _defaults(SSHD)["blitzecdn_hardening_sshd_config_path"] == SSHD_DROP_IN
     assert jail == FAIL2BAN_JAIL
     assert teardown["blitzecdn_hardening_teardown_sshd_file"] == SSHD_DROP_IN
     assert teardown["blitzecdn_hardening_teardown_fail2ban_file"] == FAIL2BAN_JAIL
     assert (
         teardown["blitzecdn_hardening_teardown_sshd_service"]
-        == _defaults(SSHD)["blitzecdn_sshd_service"]
+        == _defaults(SSHD)["blitzecdn_hardening_sshd_service"]
     )
 
 
@@ -205,7 +205,7 @@ def test_the_jail_is_withdrawn_before_the_policy() -> None:
 
 
 def test_the_teardown_role_removes_both_whatever_the_fleet_now_says() -> None:
-    """Unguarded by `blitzecdn_sshd_enabled`, deliberately.
+    """Unguarded by `blitzecdn_hardening_sshd_enabled`, deliberately.
 
     A host is usually decommissioned by a controller whose configuration has
     drifted from the one that converged it. A fleet that hardened its hosts once
@@ -214,4 +214,4 @@ def test_the_teardown_role_removes_both_whatever_the_fleet_now_says() -> None:
     hosts again to notice.
     """
     for task in _tasks(TEARDOWN):
-        assert "blitzecdn_sshd_enabled" not in str(task.get("when", ""))
+        assert "blitzecdn_hardening_sshd_enabled" not in str(task.get("when", ""))

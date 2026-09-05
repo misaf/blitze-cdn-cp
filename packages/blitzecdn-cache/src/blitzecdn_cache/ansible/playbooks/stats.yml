@@ -8,5 +8,5 @@
   max_fail_percentage: 100
   serial: "100%"
   roles:
-    - role: blitzecdn_stats
+    - role: blitzecdn_cache_stats
       tags: [stats]

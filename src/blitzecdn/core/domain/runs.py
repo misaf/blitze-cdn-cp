@@ -82,7 +82,7 @@ class HostRun(BaseModel):
     changes: tuple[TaskResult, ...] = ()
     failures: tuple[TaskResult, ...] = ()
     #: Structured data a role chose to return, published by setting the
-    #: ``blitzecdn_report`` fact. This is how ``blitzecdn_stats`` hands its
+    #: ``blitzecdn_report`` fact. This is how ``blitzecdn_cache_stats`` hands its
     #: counters back, and the only supported way for a role to return a payload
     #: rather than an outcome.
     report: dict[str, object] | None = None
