@@ -1,4 +1,4 @@
-## Managed by BlitzeCDN (blitzecdn.edge.blitzecdn_sshd). Manual edits are lost.
+## Managed by BlitzeCDN (blitzecdn.edge.blitzecdn_hardening_sshd). Manual edits are lost.
 ##
 ## sshd takes the FIRST value it sees for a keyword, and /etc/ssh/sshd_config
 ## begins with `Include /etc/ssh/sshd_config.d/*.conf` on Debian 12 and Ubuntu
@@ -22,22 +22,22 @@ GSSAPIAuthentication no
 # and that reasoning is only sound while sshd is actually applying StrictModes.
 StrictModes yes
 
-PermitRootLogin {{ blitzecdn_sshd_permit_root_login }}
-{% if blitzecdn_sshd_allow_users | length > 0 %}
-AllowUsers {{ blitzecdn_sshd_allow_users | join(' ') }}
+PermitRootLogin {{ blitzecdn_hardening_sshd_permit_root_login }}
+{% if blitzecdn_hardening_sshd_allow_users | length > 0 %}
+AllowUsers {{ blitzecdn_hardening_sshd_allow_users | join(' ') }}
 {% endif %}
 
 # UsePAM stays on for account and session handling (nsswitch, limits, motd).
 # With AuthenticationMethods publickey it cannot be used to authenticate.
 UsePAM yes
 
-LoginGraceTime {{ blitzecdn_sshd_login_grace_time }}
-MaxAuthTries {{ blitzecdn_sshd_max_auth_tries }}
-MaxSessions {{ blitzecdn_sshd_max_sessions }}
-ClientAliveInterval {{ blitzecdn_sshd_client_alive_interval }}
-ClientAliveCountMax {{ blitzecdn_sshd_client_alive_count_max }}
+LoginGraceTime {{ blitzecdn_hardening_sshd_login_grace_time }}
+MaxAuthTries {{ blitzecdn_hardening_sshd_max_auth_tries }}
+MaxSessions {{ blitzecdn_hardening_sshd_max_sessions }}
+ClientAliveInterval {{ blitzecdn_hardening_sshd_client_alive_interval }}
+ClientAliveCountMax {{ blitzecdn_hardening_sshd_client_alive_count_max }}
 
 X11Forwarding no
-AllowTcpForwarding {{ 'yes' if blitzecdn_sshd_allow_tcp_forwarding else 'no' }}
-AllowAgentForwarding {{ 'yes' if blitzecdn_sshd_allow_agent_forwarding else 'no' }}
+AllowTcpForwarding {{ 'yes' if blitzecdn_hardening_sshd_allow_tcp_forwarding else 'no' }}
+AllowAgentForwarding {{ 'yes' if blitzecdn_hardening_sshd_allow_agent_forwarding else 'no' }}
 PermitUserEnvironment no

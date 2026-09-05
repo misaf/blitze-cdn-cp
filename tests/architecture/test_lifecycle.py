@@ -952,7 +952,7 @@ ANSIBLE_PACKAGE = "blitzecdn-cache"
 ANSIBLE_ROLES = (
     "blitzecdn_cache",
     "blitzecdn_cache_config",
-    "blitzecdn_stats",
+    "blitzecdn_cache_stats",
 )
 
 #: The capability whose role core's *edge play* runs, which is the other half
@@ -971,7 +971,7 @@ EDGE_ROLE = "blitzecdn_geoip"
 #: writes are at paths only this wheel knows, and core's `blitzecdn_teardown`
 #: used to name both — which is the leak the third slot exists to close.
 HOST_ROLE_PACKAGE = "blitzecdn-hardening"
-HOST_ROLES = ("blitzecdn_sshd", "blitzecdn_fail2ban")
+HOST_ROLES = ("blitzecdn_hardening_sshd", "blitzecdn_hardening_fail2ban")
 HOST_TEARDOWN_ROLE = "blitzecdn_hardening_teardown"
 
 #: And the capability that fills two slots at once, one of them in a different
@@ -1246,7 +1246,7 @@ def test_the_capability_wheel_carries_its_whole_ansible_tree(
         assert f"{root}/roles/{role}/meta/argument_specs.yml" in names
     # Not only YAML: the statistics role reads the access log with a shipped
     # script, and a build that filtered by extension would drop it silently.
-    assert f"{root}/roles/blitzecdn_stats/files/collect-cache-stats.sh" in names
+    assert f"{root}/roles/blitzecdn_cache_stats/files/collect-cache-stats.sh" in names
     assert f"{root}/playbooks/cache-purge.yml" in names
     assert f"{root}/playbooks/stats.yml" in names
 
@@ -1261,7 +1261,7 @@ def test_the_root_wheel_carries_no_capability_owned_ansible(
         names = "".join(archive.namelist())
 
     assert "blitzecdn_cache" not in names
-    assert "blitzecdn_stats" not in names
+    assert "blitzecdn_cache_stats" not in names
     assert "cache-purge.yml" not in names
     assert "acme-challenge.yml" not in names
 

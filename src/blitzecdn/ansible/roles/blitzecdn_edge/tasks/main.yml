@@ -72,7 +72,7 @@
       {{ blitzecdn_edge_runtime.status.address }}:{{ blitzecdn_edge_runtime.status.port }}{{
         blitzecdn_edge_runtime.status.path }}
       is not a usable loopback endpoint on a port of its own. The Compose
-      healthcheck, the deploy's health verification and blitzecdn_stats all
+      healthcheck, the deploy's health verification and blitzecdn_cache_stats all
       read it.
 
 # Every one of these becomes a bind mount, a copy destination or a recursive

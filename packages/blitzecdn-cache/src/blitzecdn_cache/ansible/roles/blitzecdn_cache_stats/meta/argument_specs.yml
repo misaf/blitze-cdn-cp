@@ -12,14 +12,14 @@ argument_specs:
         Read-only. It changes nothing on the edge, so it is safe to schedule
         and safe to run during a deployment.
     options:
-      blitzecdn_stats_access_log_path:
+      blitzecdn_cache_stats_access_log_path:
         type: path
         required: true
         description: Must equal blitzecdn_nginx_access_log_path on the same host.
-      blitzecdn_stats_status_address: {type: str, required: true}
-      blitzecdn_stats_status_port: {type: int, required: true}
-      blitzecdn_stats_status_path: {type: str, required: true}
-      blitzecdn_stats_max_lines:
+      blitzecdn_cache_stats_status_address: {type: str, required: true}
+      blitzecdn_cache_stats_status_port: {type: int, required: true}
+      blitzecdn_cache_stats_status_path: {type: str, required: true}
+      blitzecdn_cache_stats_max_lines:
         type: int
         required: true
         description: Newest access-log lines to read.

@@ -1097,7 +1097,7 @@ default.
 
 An optional capability owns everything that exists *because* it is installed:
 its roles, its plays, its templates, its systemd units, its fleet settings and
-its credentials. `blitzecdn-cache` ships `blitzecdn_cache` and `blitzecdn_stats`
+its credentials. `blitzecdn-cache` ships `blitzecdn_cache` and `blitzecdn_cache_stats`
 with the two plays that run them; `blitzecdn-certificates` ships the ACME
 challenge play; `blitzecdn-geoip` ships the role that provisions the GeoLite2
 database, its updater's Compose project, the systemd timer that refreshes it and
@@ -1350,7 +1350,7 @@ through the environment, never `--extra-vars`.
 A declaration is an `EnvironmentKey`, not a bare name:
 
 ```python
-environment_keys=(
+environment_keys = (
     EnvironmentKey(
         name="BLITZE_UNDER_ATTACK_SECRET",
         minimum_bytes=32,
@@ -1385,8 +1385,9 @@ On the Python side the package reads its *own* configuration, scoped:
 
 ```python
 config = platform.capability_config.for_plugin("security")
-secret = config.secret(SECRET_VARIABLE)      # empty SecretStr when unset
-if config.is_set(SECRET_VARIABLE): ...
+secret = config.secret(SECRET_VARIABLE)  # empty SecretStr when unset
+if config.is_set(SECRET_VARIABLE):
+    ...
 ```
 
 `CapabilityConfig` holds the keys this package declared and no other package's.

@@ -106,7 +106,7 @@ blitzecdn_edge_runtime:
     data: /var/lib/blitzecdn/edge-data
 
   # Always served, and read from three places: the Compose healthcheck, the
-  # deploy's own health verification, and blitzecdn_stats. Unauthenticated, so
+  # deploy's own health verification, and blitzecdn_cache_stats. Unauthenticated, so
   # the loopback bind here and blitzecdn_nginx_status_allow are two independent
   # controls — never widen one without narrowing the other.
   status:

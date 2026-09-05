@@ -254,7 +254,7 @@ def test_the_three_slots_are_composed_independently(tmp_path):
 
 def test_a_package_declaring_no_slot_contributes_to_none(tmp_path):
     """Shipping a role its own plays reach is not a contribution to a slot."""
-    roles = _roles(tmp_path / "cache", "blitzecdn_stats")
+    roles = _roles(tmp_path / "cache", "blitzecdn_cache_stats")
     contributions = [AnsibleContribution(plugin="cache", roles_path=roles)]
 
     assert resolve_edge_capability_roles(contributions) == ()

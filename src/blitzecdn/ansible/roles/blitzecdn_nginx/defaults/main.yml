@@ -108,7 +108,7 @@ blitzecdn_nginx_access_log_path: >-
 blitzecdn_nginx_log_format_name: blitzecdn
 
 # Where the status endpoint listens is blitzecdn_edge_runtime.status: the
-# Compose healthcheck, health.yml and blitzecdn_stats all read the same
+# Compose healthcheck, health.yml and blitzecdn_cache_stats all read the same
 # endpoint this role renders. The access list below is this role's half of the
 # control — stub_status has no authentication of its own, so the loopback bind
 # in the contract and this list are two independent controls, and neither

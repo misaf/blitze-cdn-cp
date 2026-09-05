@@ -1,6 +1,6 @@
 """The agreements this capability's roles have with the edge core converges.
 
-These moved here with the roles. `blitzecdn_cache` and `blitzecdn_stats` each
+These moved here with the roles. `blitzecdn_cache` and `blitzecdn_cache_stats` each
 recompute or re-read something `blitzecdn_nginx` configured, and nothing at run
 time can tell a disagreement from an ordinary empty result: a purge aimed at
 the wrong directory reports success having deleted nothing, and a reader aimed
@@ -19,7 +19,7 @@ from contract_support import *
 
 CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache"
 CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
-STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_stats"
+STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_stats"
 NGINX_DIR = Path(__file__).parents[1] / "src/blitzecdn_cache/nginx"
 
 
@@ -34,7 +34,7 @@ def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
     assert sorted(path.name for path in ansible.ROLES_PATH.iterdir()) == [
         "blitzecdn_cache",
         "blitzecdn_cache_config",
-        "blitzecdn_stats",
+        "blitzecdn_cache_stats",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
     assert (STATS_ROLE_DIR / "files/collect-cache-stats.sh").is_file()
@@ -90,14 +90,18 @@ def test_purge_role_agrees_with_the_package_owned_nginx_resource():
 def test_stats_role_reads_the_log_the_nginx_role_writes():
     stats = _defaults_of(STATS_ROLE_DIR)
     assert (
-        stats["blitzecdn_stats_access_log_path"]
+        stats["blitzecdn_cache_stats_access_log_path"]
         == _role_defaults()["blitzecdn_nginx_access_log_path"]
     )
-    assert stats["blitzecdn_stats_status_address"] == _contract_value(
+    assert stats["blitzecdn_cache_stats_status_address"] == _contract_value(
         "status", "address"
     )
-    assert stats["blitzecdn_stats_status_port"] == _contract_value("status", "port")
-    assert stats["blitzecdn_stats_status_path"] == _contract_value("status", "path")
+    assert stats["blitzecdn_cache_stats_status_port"] == _contract_value(
+        "status", "port"
+    )
+    assert stats["blitzecdn_cache_stats_status_path"] == _contract_value(
+        "status", "path"
+    )
 
 
 def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
@@ -205,7 +209,7 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
 def test_the_stats_role_publishes_through_the_agreed_report_fact():
     """The channel a role returns a payload on is a contract like any other.
 
-    `blitzecdn_stats` is the only role that returns data rather than an
+    `blitzecdn_cache_stats` is the only role that returns data rather than an
     outcome, and the control plane finds it by looking for one fact name. If
     the role renamed it, every collection would come back empty with every edge
     reporting success — the silent-no-op failure this suite exists to catch.
@@ -220,7 +224,7 @@ def test_the_stats_role_publishes_through_the_agreed_report_fact():
         "role publishes it and nothing else would carry the counters back"
     )
     assert "blitzecdn_report:" in tasks, (
-        "blitzecdn_stats must publish its document as the blitzecdn_report "
+        "blitzecdn_cache_stats must publish its document as the blitzecdn_report "
         "fact consumed by the Runner event adapter"
     )
 
@@ -228,7 +232,7 @@ def test_the_stats_role_publishes_through_the_agreed_report_fact():
 def test_the_stats_role_no_longer_wants_a_controller_directory():
     """Its report travels with the run, so there is no path to hand it.
 
-    A resurrected `blitzecdn_stats_output_dir` would be a required option the
+    A resurrected `blitzecdn_cache_stats_output_dir` would be a required option the
     control plane never sets, and role argument validation would fail every
     collection.
     """
@@ -236,4 +240,4 @@ def test_the_stats_role_no_longer_wants_a_controller_directory():
         (STATS_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
     )["argument_specs"]["main"]["options"]
 
-    assert "blitzecdn_stats_output_dir" not in spec
+    assert "blitzecdn_cache_stats_output_dir" not in spec

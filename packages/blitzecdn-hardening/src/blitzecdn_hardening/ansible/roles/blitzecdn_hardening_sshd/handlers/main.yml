@@ -9,7 +9,7 @@
 # open to fix it.
 - name: Reload SSH after validation
   ansible.builtin.systemd_service:
-    name: "{{ blitzecdn_sshd_service }}"
+    name: "{{ blitzecdn_hardening_sshd_service }}"
     state: reloaded
   listen: Validate and reload SSH
   when: not ansible_check_mode

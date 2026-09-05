@@ -31,6 +31,7 @@ from importlib.metadata import entry_points
 from pathlib import Path
 
 import pytest
+import yaml
 from paths import CORE_DOCKER, REPO_ROOT, SOURCE, optional_packages
 from published_surface import (
     _FORBIDDEN_SDK_MODULES,
@@ -624,6 +625,107 @@ def test_a_package_ships_its_ansible_and_its_templates_where_the_layout_says(
             and "__pycache__" not in path.parts
             and not path.name.endswith(_NGINX_SUFFIX)
         ]
+    assert offenders == []
+
+
+#: The variables that are the interface *between* roles rather than one role's
+#: own input, so they are the exception to the prefix rule below.
+#:
+#: `blitzecdn_edge_runtime` is the resolved edge contract — where nginx keeps
+#: its state, which ports it listens on, which image it runs — and eight roles
+#: read it. `blitzecdn_nginx_sites` is the site document four roles project
+#: from, and `blitzecdn_nginx_http3_listener_owner` is how `http3` tells
+#: `nginx` which of them opened the QUIC listener.
+#:
+#: Written down because they had no home. Each is declared in whichever roles
+#: happen to consume it, and until this list existed the difference between "a
+#: shared fleet fact" and "a role reaching for a name it does not own" was
+#: nowhere — which is exactly how the second one arrives.
+_SHARED_FLEET_VARIABLES = frozenset(
+    {
+        "blitzecdn_edge_runtime",
+        "blitzecdn_nginx_sites",
+        "blitzecdn_nginx_http3_listener_owner",
+    }
+)
+
+
+def _role_specifications(root: Path) -> list[tuple[str, dict[str, object]]]:
+    """Every role under a `roles/` directory, with its declared options."""
+    found = []
+    for spec in sorted(root.glob("*/meta/argument_specs.yml")):
+        document = yaml.safe_load(spec.read_text(encoding="utf-8")) or {}
+        options: dict[str, object] = {}
+        for entry in (document.get("argument_specs") or {}).values():
+            options.update(entry.get("options") or {})
+        found.append((spec.parent.parent.name, options))
+    return found
+
+
+@pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
+def test_a_role_is_named_for_the_distribution_that_ships_it(package: Path):
+    """An operator reading a role name should know which wheel to install.
+
+    Ansible resolves roles by name off a flat search path, so a role name is
+    global: it collides with every other role on that path, and it is what
+    appears in an operator's own playbooks and in `--tags`. Nothing constrained
+    them, and three had drifted — `blitzecdn_stats` shipped in
+    `blitzecdn-cache`, `blitzecdn_sshd` and `blitzecdn_fail2ban` in
+    `blitzecdn-hardening`.
+
+    `stats` was the clearest: the *Python* `stats` command had already been
+    moved out of `diagnostics` for this exact reason — "it reads the cache
+    capability's report, so it belongs to the distribution that produces one" —
+    and the role it drives kept the old name. The other two are named for the
+    tool they configure, which is the shape `_STRATEGIES_OWNED_BY_A_CAPABILITY`
+    refuses for a Python package: `fail2ban` is to `hardening` what `gzip` is to
+    `compression`, an implementation choice rather than a capability.
+
+    Core is exempt from the second half. Its roles serve every capability —
+    `blitzecdn_nginx` renders whatever the merged document holds — so there is
+    no one capability to name them after.
+    """
+    root = package / "src" / _import_package(package) / "ansible" / "roles"
+    if not root.is_dir():
+        pytest.skip(f"{package.name} ships no roles")
+    expected = _import_package(package)
+    offenders = [
+        f"{role} ships in {package.name} and should be named {expected}[_*]"
+        for role, _ in _role_specifications(root)
+        if role != expected and not role.startswith(f"{expected}_")
+    ]
+    assert offenders == []
+
+
+def test_a_roles_variables_carry_its_name():
+    """Ansible's own convention, and the reason it exists.
+
+    Variables are global to a play. A role declaring `ssh_port` would collide
+    with every other role that wanted one, and the prefix is what keeps eight
+    roles' inputs from being one namespace. Every role in the workspace already
+    followed it; nothing said so, and renaming a role is exactly the moment the
+    variables stop matching — `blitzecdn_stats_status_port` sitting in a role
+    now called `blitzecdn_cache_stats` reads as somebody else's variable.
+
+    The exceptions are declared above and are genuinely shared. Growing that
+    list should be a decision: it is the interface between roles, and every
+    name on it is one more thing two roles have to agree about.
+    """
+    roots = [(SOURCE / "ansible" / "roles", "blitzecdn")]
+    roots += [
+        (package / "src" / _import_package(package) / "ansible" / "roles", "")
+        for package in _packages()
+    ]
+    offenders = [
+        f"{role} declares {option}, which is neither {role}_* nor shared"
+        for root, _ in roots
+        if root.is_dir()
+        for role, options in _role_specifications(root)
+        for option in sorted(options)
+        if option not in _SHARED_FLEET_VARIABLES
+        and option != role
+        and not option.startswith(f"{role}_")
+    ]
     assert offenders == []
 
 

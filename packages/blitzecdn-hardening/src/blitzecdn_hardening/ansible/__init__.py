@@ -43,7 +43,7 @@ ROLES_PATH = _DIRECTORY / "roles"
 #: has been validated, so a host that fails firewall validation is never left
 #: key-only but unreachable from the management network, and Fail2Ban after SSH
 #: so its bans apply to a daemon that has already stopped accepting passwords.
-HOST_ROLES = ("blitzecdn_sshd", "blitzecdn_fail2ban")
+HOST_ROLES = ("blitzecdn_hardening_sshd", "blitzecdn_hardening_fail2ban")
 
 #: And the role core's decommission play runs, in its teardown slot.
 #:

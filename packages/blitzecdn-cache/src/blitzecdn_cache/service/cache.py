@@ -230,7 +230,7 @@ class CacheService:
 def _edge_stats(host: HostRun) -> EdgeStats:
     """Read one edge's published report defensively.
 
-    The shape is ours — `blitzecdn_stats` builds it — but it crossed a machine
+    The shape is ours — `blitzecdn_cache_stats` builds it — but it crossed a machine
     boundary, so a partial or malformed document must degrade to "this edge
     said nothing usable" rather than raise out of a fleet-wide report.
     """
