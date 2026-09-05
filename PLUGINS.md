@@ -300,6 +300,18 @@ capability's `domain` or `service` that imports `core.persistence` or
 `core.runtime` — as packages, so a module added to either is inside the rule
 without anybody editing a list.
 
+The first three rows are also held apart from the rest.
+`test_core_domain_and_ports_are_framework_and_io_independent` refuses
+`core/domain/`, `core/ports/` and `core/exceptions.py` anything but the standard
+library, pydantic and each other: no framework, no I/O, and no other part of
+`blitzecdn`. That is what "anyone may import it" rests on, and it is why those
+two packages are published *whole* to an installed capability while
+`core/runtime/` and `core/persistence/` publish one named module at a time. The
+rule is positional, like the ones above it — a module is inside it by sitting in
+one of those directories, so an I/O module written into `core/domain/` is
+refused on the day it appears rather than when a reviewer notices it has joined
+the public SDK.
+
 **Capabilities** (`src/blitzecdn/capabilities/`) contain required capabilities
 and stable site contracts: `sites`, `dns`, `http`, `tls`, `cache`,
 `compression`, `security`, `deployments`, `edges`, `diagnostics`,

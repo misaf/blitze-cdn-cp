@@ -9,8 +9,11 @@ whose service, store and table all sit in one slice was that slice seen from
 the outside, not a cross-cutting contract.
 
 A port is a value-level contract, so this package imports `core.domain` and
-nothing else. `core.ports` was one file and `core.operation_ports` another,
-which named the same idea twice and put the second one nowhere in particular.
+nothing else — `test_core_domain_and_ports_are_framework_and_io_independent`
+refuses this package anything more, which is what lets the SDK publish it whole
+rather than one named module at a time. `core.ports` was one file and
+`core.operation_ports` another, which named the same idea twice and put the
+second one nowhere in particular.
 """
 
 from __future__ import annotations
