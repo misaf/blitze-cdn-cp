@@ -77,6 +77,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="certificates",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"certificates"}),
         summary="Certificate upload, ACME renewal, and Automatic SSL/TLS.",

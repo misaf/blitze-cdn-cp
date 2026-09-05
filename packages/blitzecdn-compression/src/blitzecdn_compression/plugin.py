@@ -38,6 +38,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="compression",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"compression"}),
         summary="Which encodings a managed edge may produce: gzip and Brotli.",

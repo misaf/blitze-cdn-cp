@@ -39,6 +39,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="backup",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"backup"}),
         summary="Archive and restore the control plane's own state.",

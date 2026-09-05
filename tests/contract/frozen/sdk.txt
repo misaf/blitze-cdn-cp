@@ -79,6 +79,7 @@ blitzecdn	sdk	blitzecdn.core.plugins.ResolvedCapabilityEnvironment	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ResolvedEdgeModule	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ResolvedNginxResource	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.RuntimeContext	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.SUPPORTED_HOOK_API_VERSIONS	frozenset
 blitzecdn	sdk	blitzecdn.core.plugins.ScheduledJob	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.SettingValue	TypeAliasType
 blitzecdn	sdk	blitzecdn.core.plugins.Severity	class(StrEnum)
@@ -152,6 +153,7 @@ blitzecdn	sdk	blitzecdn.core.plugins.types.PROJECT_NAME	str
 blitzecdn	sdk	blitzecdn.core.plugins.types.PluginMetadata	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.types.ProcessKind	class(StrEnum)
 blitzecdn	sdk	blitzecdn.core.plugins.types.RuntimeContext	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.SUPPORTED_HOOK_API_VERSIONS	frozenset
 blitzecdn	sdk	blitzecdn.core.plugins.types.ScheduledJob	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.types.SettingValue	TypeAliasType
 blitzecdn	sdk	blitzecdn.core.plugins.types.Severity	class(StrEnum)

@@ -41,6 +41,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="resolver",
         version=__version__,
+        api_version=1,
         required=False,
         provides=frozenset({"resolver"}),
         summary="Host DNS resolution an edge can trust, and its removal.",

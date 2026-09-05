@@ -34,7 +34,7 @@ blitzecdn	contribution	NginxContribution.plugin: str
 blitzecdn	contribution	NginxContribution.server_fragments: tuple[str, ...] = ()
 blitzecdn	contribution	NginxContribution.templates_path: Path
 blitzecdn	contribution	NginxContribution.upstream_fragments: tuple[str, ...] = ()
-blitzecdn	contribution	PluginMetadata.api_version: int = 1
+blitzecdn	contribution	PluginMetadata.api_version: int
 blitzecdn	contribution	PluginMetadata.name: str
 blitzecdn	contribution	PluginMetadata.provides: frozenset[str] = frozenset()
 blitzecdn	contribution	PluginMetadata.required: bool = False
@@ -77,3 +77,4 @@ blitzecdn	hook	blitzecdn_shutdown(context: RuntimeContext, platform: ControlPlan
 blitzecdn	hook	blitzecdn_site_desired_state(site: CdnSite, platform: ControlPlane) -> SiteStateContribution | None
 blitzecdn	hook	blitzecdn_startup(context: RuntimeContext, platform: ControlPlane) -> None
 blitzecdn	hook_api_version	1
+blitzecdn	supported_hook_api_versions	1

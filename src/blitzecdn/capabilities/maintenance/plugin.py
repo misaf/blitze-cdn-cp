@@ -11,6 +11,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="maintenance",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Execute and converge scheduled capability jobs.",
     )

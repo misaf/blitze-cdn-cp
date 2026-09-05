@@ -16,6 +16,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="workflows",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Durable progress for work that crosses out of a transaction.",
     )

@@ -33,6 +33,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="diagnostics",
         version=__version__,
+        api_version=1,
         required=True,
         summary="Health, metrics, the audit trail, and the API server itself.",
     )

@@ -54,6 +54,7 @@ from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins.types import (
     ENTRY_POINT_GROUP,
     HOOK_API_VERSION,
+    SUPPORTED_HOOK_API_VERSIONS,
     PluginMetadata,
 )
 
@@ -121,10 +122,13 @@ def register(
         metadata = _metadata_of(manager, candidate)
     finally:
         manager.unregister(candidate)
-    if metadata.api_version != HOOK_API_VERSION:
+    if metadata.api_version not in SUPPORTED_HOOK_API_VERSIONS:
+        supported = ", ".join(
+            f"v{version}" for version in sorted(SUPPORTED_HOOK_API_VERSIONS)
+        )
         raise PluginError(
             f"{source} targets hook API v{metadata.api_version}; "
-            f"this control plane speaks v{HOOK_API_VERSION}"
+            f"this control plane speaks v{HOOK_API_VERSION} and accepts {supported}"
         )
     try:
         manager.register(candidate, name=metadata.name)

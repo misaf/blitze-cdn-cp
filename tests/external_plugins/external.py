@@ -36,7 +36,9 @@ def waf_show() -> None:
 
 @hookimpl
 def blitzecdn_plugin_metadata() -> PluginMetadata:
-    return PluginMetadata(name="waf", version="1.2.0", summary="A pretend WAF.")
+    return PluginMetadata(
+        name="waf", version="1.2.0", api_version=1, summary="A pretend WAF."
+    )
 
 
 @hookimpl

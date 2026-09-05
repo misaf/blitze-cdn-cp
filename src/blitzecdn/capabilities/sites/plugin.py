@@ -38,6 +38,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
         name="sites",
         version=__version__,
+        api_version=1,
         required=True,
         summary="The virtual host: every capability's site policy on one model.",
     )

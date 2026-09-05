@@ -11,11 +11,13 @@ operator's `pip install` takes is the path worth testing.
 
 from __future__ import annotations
 
+import ast
 from importlib.metadata import EntryPoint
 from types import SimpleNamespace
 
 import pytest
 from fastapi import APIRouter
+from paths import PACKAGES, REPO_ROOT, SOURCE
 from typer import Typer
 
 from blitzecdn.capabilities.sites.domain import CdnSite
@@ -23,6 +25,8 @@ from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     ENTRY_POINT_GROUP,
+    HOOK_API_VERSION,
+    SUPPORTED_HOOK_API_VERSIONS,
     CapabilityConfig,
     CliCommandGroup,
     FleetStateContribution,
@@ -324,6 +328,70 @@ def test_a_plugin_that_will_not_say_who_it_is_contributes_nothing(builtins):
     }
 
 
+def test_a_plugin_states_the_hook_contract_it_was_written_against():
+    """As a literal, because no value core can supply means what this field says.
+
+    `api_version` defaulted to `HOOK_API_VERSION` — core's own constant, read
+    at the plugin's import time — so a plugin that said nothing agreed with
+    whatever control plane it was loaded into, however old the hooks it
+    actually implements. Every plugin in this workspace omitted it, so the
+    check had never once been in a position to fail; the only author it could
+    ever have refused was the one who pinned a number honestly.
+
+    Writing `api_version=HOOK_API_VERSION` reintroduces exactly that, one level
+    up, and looks more correct than the literal while meaning less. So the
+    field takes an integer that was true when somebody typed it, and this
+    refuses the import for the plugins this workspace ships.
+
+    Third-party wheels cannot be held to it here. What holds them is that the
+    natural thing to write — a number — is the right one, and that omitting it
+    is now a `TypeError` at construction rather than a silent agreement.
+    """
+    offenders = []
+    for path in sorted((SOURCE / "capabilities").rglob("plugin.py")) + sorted(
+        PACKAGES.glob("*/src/*/plugin.py")
+    ):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "PluginMetadata"
+            ):
+                continue
+            stated = {
+                keyword.arg: keyword.value
+                for keyword in node.keywords
+                if keyword.arg == "api_version"
+            }
+            value = stated.get("api_version")
+            if value is None:
+                offenders.append(f"{path.name} does not state api_version")
+            elif not isinstance(value, ast.Constant) or not isinstance(
+                value.value, int
+            ):
+                offenders.append(
+                    f"{path.relative_to(REPO_ROOT)} passes "
+                    f"{ast.unparse(value)}; write the number it was built against"
+                )
+    assert offenders == []
+
+
+def test_the_supported_contract_set_is_how_a_bump_gets_a_deprecation_window():
+    """The gate is membership, not equality, and that is the whole point.
+
+    `!=` made bumping `HOOK_API_VERSION` a same-day fork: v2 core, and every
+    wheel declaring v1 refused at once, with no release in which an author
+    could support both. A set makes the transition expressible — widen to
+    `{1, 2}`, let v1 keep loading while authors move, and drop 1 later as a
+    separate decision visible in that one line.
+
+    The version core *speaks* has to be one it *accepts*, or it would refuse a
+    plugin written against itself.
+    """
+    assert HOOK_API_VERSION in SUPPORTED_HOOK_API_VERSIONS
+
+
 def test_a_plugin_from_a_later_hook_contract_is_refused_by_version(builtins):
     found = register_external(
         builtins._manager, points=[entry_point("future", "from_the_future")]
@@ -386,7 +454,10 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(builtins):
 
     register_external(builtins._manager, points=[entry_point("waf", "external")])
     metadata = PluginMetadata(
-        name="acme-waf", version="1.0", provides=frozenset({"waf", "ratelimit"})
+        name="acme-waf",
+        version="1.0",
+        api_version=1,
+        provides=frozenset({"waf", "ratelimit"}),
     )
     assert metadata.capabilities == {"acme-waf", "waf", "ratelimit"}
 
@@ -424,7 +495,7 @@ def test_a_plugin_returning_the_wrong_shape_is_named_rather_than_crashing(builti
     class Careless:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="careless", version="1.0")
+            return PluginMetadata(name="careless", version="1.0", api_version=1)
 
         @hookimpl
         def blitzecdn_api_routers(self) -> object:
@@ -645,7 +716,7 @@ def test_two_plugins_cannot_contribute_one_job_name(builtins, platform):
 
 def test_a_plugin_name_has_to_be_usable_as_an_identifier():
     with pytest.raises(ValueError, match="must be alphanumeric"):
-        PluginMetadata(name="not a name!", version="1.0")
+        PluginMetadata(name="not a name!", version="1.0", api_version=1)
 
 
 def test_a_registry_reports_what_is_installed_and_what_was_refused(builtins):
@@ -740,7 +811,7 @@ def test_a_desired_state_hook_returning_the_wrong_shape_is_named(builtins, platf
     class Careless:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="careless", version="1.0")
+            return PluginMetadata(name="careless", version="1.0", api_version=1)
 
         @hookimpl
         def blitzecdn_site_desired_state(self, site: CdnSite) -> object:

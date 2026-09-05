@@ -582,6 +582,24 @@ upper bound is not decoration: `HOOK_API_VERSION` may only move in a major, and
 a plugin written against v1 that installed beside a v2 control plane would be
 refused at registration.
 
+`pip` is the first lock and the hook contract is the second. A plugin states
+`api_version` as **a literal integer** — the contract it was written against —
+and the control plane accepts it if that number is in
+`SUPPORTED_HOOK_API_VERSIONS`, which is a set rather than a comparison against
+`HOOK_API_VERSION` precisely so a bump can have a deprecation window: v2 core
+can accept `{1, 2}` while authors move, and dropping 1 later is a separate
+decision visible in one line.
+
+Write the number. `api_version=HOOK_API_VERSION` reads as more correct and
+means less — it is core's value at *your import time*, so it agrees with
+whatever control plane loaded you, however old the hooks you implement. That
+was the default until it was found never to have been able to fail: all
+twenty-three plugins in this workspace omitted the field, so every one of them
+silently claimed whatever core it met.
+`test_a_plugin_states_the_hook_contract_it_was_written_against` refuses the
+constant for the plugins shipped here, and omitting the field is a `TypeError`
+at construction for everyone else.
+
 Optional-to-optional dependencies are **avoided**. If one genuinely needs
 another, declare it as a real dependency in `pyproject.toml` so pip installs
 both — never rely on an import that happens to work because both are installed
