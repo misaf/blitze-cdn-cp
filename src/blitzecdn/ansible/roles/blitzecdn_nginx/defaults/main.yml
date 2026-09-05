@@ -44,7 +44,7 @@ blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_runtime.image }}"
 # data file passes against a tree the real edge would refuse. Cache and log are
 # writable because contributed resources may initialize runtime storage and
 # `nginx -t` opens the error log.
-# tests/test_ansible_role_contracts.py asserts this matches the Compose file.
+# tests/contract/test_role_contracts.py asserts this matches the Compose file.
 blitzecdn_nginx_config_test_volumes:
   - >-
     {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{

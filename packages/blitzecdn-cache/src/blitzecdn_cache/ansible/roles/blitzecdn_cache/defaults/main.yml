@@ -5,7 +5,7 @@
 # contract and blitzecdn_nginx converged with: this role computes the on-disk
 # location of a cached response from them, and a mismatch means a purge that
 # reports success having deleted nothing. The control plane's
-# tests/test_ansible_role_contracts.py asserts they agree, because nothing at
+# tests/contract/test_role_contracts.py asserts they agree, because nothing at
 # run time can tell "no such entry cached" apart from "wrong directory".
 blitzecdn_cache_path: /var/cache/nginx/blitzecdn
 blitzecdn_cache_normalize_accept_encoding: true

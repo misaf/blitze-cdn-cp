@@ -2,7 +2,7 @@
 # What a usable BlitzeCDN edge runtime has to be, given the combined output of
 # `nginx -V` and the exit status that produced it. No I/O of its own: the caller
 # supplies blitzecdn_nginx_build_status and blitzecdn_nginx_build_output, which
-# is what lets tests/test_ansible_validation_contracts.py execute these
+# is what lets tests/contract/test_validation_contracts.py execute these
 # assertions against fabricated builds rather than merely parse them.
 - name: Require the managed Nginx binary
   ansible.builtin.assert:

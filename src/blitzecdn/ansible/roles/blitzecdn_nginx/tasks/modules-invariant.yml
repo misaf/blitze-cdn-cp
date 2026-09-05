@@ -3,7 +3,7 @@
 # installed capabilities ask for. No I/O of its own, exactly like
 # build-invariant.yml beside it: the caller supplies
 # blitzecdn_nginx_build_output, which is what lets
-# tests/test_ansible_validation_contracts.py execute this assertion against a
+# tests/contract/test_validation_contracts.py execute this assertion against a
 # fabricated image rather than merely read it.
 #
 # The image and the load list have different lifetimes, which is why this gate

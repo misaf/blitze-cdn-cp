@@ -732,6 +732,45 @@ def test_an_optional_packages_tests_live_inside_it(package: Path):
     assert list((package / "tests").glob("test_*.py"))
 
 
+def test_a_shipped_file_names_no_test_that_has_moved():
+    """A pointer that ships to an operator has to point at something.
+
+    Role defaults and source docstrings cite the test that holds the invariant
+    they describe — `blitzecdn_cache`'s defaults say a purge deletes nothing if
+    its path disagrees with what `blitzecdn_nginx` converged, and names the
+    suite that asserts they agree. That is the most useful comment in the file
+    and the reason to keep writing them.
+
+    Seven of them named a path that no longer existed. None was wrong when it
+    was written: the suite grew per-capability and per-layer directories, every
+    file moved, and prose naming them does not move with `git mv`. At 353
+    renames in fifty commits that is not an oversight anybody could have caught
+    by reading.
+
+    Shipped files only — `src/` and `packages/*/src/`. A role's `defaults` and
+    `tasks` are installed on an operator's machine, so a dead path there is one
+    they cannot resolve at all.
+    """
+    shipped = [
+        path
+        for root in (SOURCE, *(package / "src" for package in _packages()))
+        for path in root.rglob("*")
+        if path.is_file()
+        and path.suffix in {".py", ".yml", ".yaml", ".j2"}
+        and "__pycache__" not in path.parts
+    ]
+    cited = re.compile(r"tests/[\w/]*test_\w+\.py")
+    offenders = sorted(
+        {
+            f"{path.relative_to(REPO_ROOT)} names {named}"
+            for path in shipped
+            for named in cited.findall(path.read_text(encoding="utf-8"))
+            if not (REPO_ROOT / named).is_file()
+        }
+    )
+    assert offenders == []
+
+
 #: A capability that decides something has a `service/`, an `api/`, or both.
 #: The contract-only ones — `cache`, `compression`, `tls` — are a set of
 #: pydantic models composed into `SitePolicy`, and they are tested where they

@@ -79,7 +79,7 @@ plugin: blitzecdn
 EDGE_GROUP = "blitzecdn_edges"
 
 #: Mirrors ``blitzecdn.core.domain.validation.RESERVED_ANSIBLE_SETTINGS``; kept in
-#: step by ``tests/test_inventory.py``.
+#: step by ``tests/contract/test_inventory.py``.
 #:
 #: The control plane refuses to store a setting under one of these names, so a
 #: row carrying one should not exist. This refuses to *publish* it anyway,
@@ -273,7 +273,7 @@ def _host_variables(edge):
     """Ansible connection variables for one edge.
 
     Mirrors ``blitzecdn.capabilities.edges.adapters.ansible.edge_to_inventory``.
-    The two are kept in step by ``tests/test_inventory.py``, which runs this
+    The two are kept in step by ``tests/contract/test_inventory.py``, which runs this
     module against a
     database the model wrote and compares the result — the only honest way to
     check an agreement between a pydantic model and a file that cannot import
