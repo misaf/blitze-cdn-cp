@@ -189,6 +189,14 @@ max-statements = 60
 # every argument is a fixed array over `tmp_path` and paths inside this
 # workspace.
 "tests/contract_support.py" = ["S603"]
+# Expanding the published SDK means importing every module behind a published
+# prefix, and a module that cannot be imported in this environment is a fact
+# about the environment rather than a failure of the surface — one needs a live
+# control plane, and an optional distribution is absent in a core-only run. The
+# import is the thing being probed, so what it raises is not knowable in
+# advance and catching a narrower type would only turn a skipped module into a
+# broken suite.
+"tests/frozen_surfaces.py" = ["BLE001", "S112"]
 
 [tool.mypy]
 python_version = "3.12"

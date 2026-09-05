@@ -327,6 +327,29 @@ check-quick: lint types shell-lint ansible-check test-fast
 # Everything CI runs. Run this before pushing.
 check: lock-check lint types shell-lint test test-core-only ansible-check docker-lint audit build
 
+# --- published surfaces --------------------------------------------------
+
+# Rewrite the frozen public surfaces under `tests/contract/frozen/`.
+#
+# Run this only when a change to a *public* surface is intended: the HTTP
+# routes and schemas, the CLI commands, the plugin hooks and contribution
+# types, the published SDK symbols, the Ansible roles and variables, or the
+# database schema. Everything in those files is something outside this
+# repository can bind to — an operator's inventory, a third-party wheel, an API
+# client — and after the first release changing one is a version decision
+# rather than a refresh.
+#
+# Deliberately not a `--update` flag on the tests: a flag is one keystroke away
+# from whoever is trying to turn a red suite green, and the point of these files
+# is that touching them is its own act, visible in its own diff.
+#
+# Run with everything installed, or the optional distributions' lines are
+# dropped from the goldens rather than kept for a core-only run to skip.
+refreeze:
+    uv sync --frozen --all-packages
+    uv run python tests/refreeze.py
+    @git diff --stat -- tests/contract/frozen || true
+
 # --- database -----------------------------------------------------------
 
 # Create a migration from the difference between models.py and the database.

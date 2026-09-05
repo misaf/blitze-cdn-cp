@@ -1,0 +1,59 @@
+blitzecdn	command	blitzecdn ansible roles-path
+blitzecdn	command	blitzecdn ansible slots
+blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type=boolean default=False
+blitzecdn	command	blitzecdn config list	--json type=boolean default=False
+blitzecdn	command	blitzecdn config set	<name> type=str required <value> type=str required
+blitzecdn	command	blitzecdn config unset	<name> type=str required
+blitzecdn	command	blitzecdn deploy	--yes type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
+blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
+blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn domain list	--json type=boolean default=False
+blitzecdn	command	blitzecdn domain remove	<name> type=str required --yes type=boolean default=False
+blitzecdn	command	blitzecdn drift	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn edge add	<name> type=str required --host type=str required --ssh-source type=str required --public-address type=str --user type=str default='deploy' --port type=int range default=22 --private-key-file type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn edge image spec	--json type=boolean default=False
+blitzecdn	command	blitzecdn edge list	--json type=boolean default=False
+blitzecdn	command	blitzecdn edge remove	<name> type=str required --yes type=boolean default=False --decommission/--no-decommission type=boolean default=True --force type=boolean default=False
+blitzecdn	command	blitzecdn edge update	<name> type=str required --host type=str --user type=str --port type=int range --private-key-file type=str --public-address type=str --ssh-source type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
+blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn plugins	--json type=boolean default=False
+blitzecdn	command	blitzecdn record add	<domain> type=str required <name> type=str required --value type=str --site type=str --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --ttl type=int default=300 --json type=boolean default=False
+blitzecdn	command	blitzecdn record list	<domain> type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn record remove	<domain> type=str required <name> type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --yes type=boolean default=False
+blitzecdn	command	blitzecdn record route	<domain> type=str required <name> type=str required --site type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
+blitzecdn	command	blitzecdn record unroute	<domain> type=str required <name> type=str required --value type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
+blitzecdn	command	blitzecdn rollback	<deployment_id> type=str --yes type=boolean default=False --check type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
+blitzecdn	command	blitzecdn setup	--schema-only type=boolean default=False
+blitzecdn	command	blitzecdn site always-use-https	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
+blitzecdn	command	blitzecdn site cache-query-string	<name> type=str required --mode type=choice[include,ignore] required --json type=boolean default=False
+blitzecdn	command	blitzecdn site compression	<name> type=str required --mode type=choice[off,gzip,brotli] required --json type=boolean default=False
+blitzecdn	command	blitzecdn site create	<name> type=str required --origin type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn site enable	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
+blitzecdn	command	blitzecdn site firewall	<name> type=str required --allow-source type=str --deny-source type=str --allow-country type=str --deny-country type=str --deny-method type=str --deny-path type=str --clear type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn site http3	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
+blitzecdn	command	blitzecdn site list	--json type=boolean default=False
+blitzecdn	command	blitzecdn site max-upload-size	<name> type=str required --size type=choice[100m,200m] required --json type=boolean default=False
+blitzecdn	command	blitzecdn site minimum-tls	<name> type=str required --version type=choice[1.2,1.3] required --json type=boolean default=False
+blitzecdn	command	blitzecdn site origin	<name> type=str required --origin type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn site remove	<name> type=str required --yes type=boolean default=False
+blitzecdn	command	blitzecdn site show	<name> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn site ssl	<name> type=str required --mode type=choice[off,flexible,full,full_strict] required --json type=boolean default=False
+blitzecdn	command	blitzecdn site ssl-automatic	<name> type=str required --mode type=choice[auto,custom] required --json type=boolean default=False
+blitzecdn	command	blitzecdn site under-attack	<name> type=str required --on/--off type=boolean required --json type=boolean default=False
+blitzecdn	command	blitzecdn site visitor-headers	<name> type=str required --connecting-ip/--no-connecting-ip type=boolean --ip-country/--no-ip-country type=boolean --json type=boolean default=False
+blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
+blitzecdn	command	blitzecdn validate	--json type=boolean default=False
+blitzecdn_backup	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
+blitzecdn_backup	command	blitzecdn backup inspect	<archive> type=path required
+blitzecdn_backup	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
+blitzecdn_cache	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn_cache	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert list	--expiring-in type=int --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert preflight	<name> type=str required --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert reconcile	--json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert renew	--expiring-in type=int default=30 --force type=boolean default=False --site type=str --deploy type=boolean default=False --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn ssl reconcile	--json type=boolean default=False
+blitzecdn_origins	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
