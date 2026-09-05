@@ -651,6 +651,23 @@ The control plane's shared fixtures are reachable from a package's tests through
 `control_plane_fixtures`, registered as a pytest plugin by the workspace's root
 `conftest.py`.
 
+A built-in capability owns its tests the same way, one directory further out:
+they live in `tests/capabilities/<name>/`, and
+`test_a_built_in_capabilitys_tests_live_in_its_own_directory` fails a
+capability that decides something — one with a `service/` or an `api/` — and
+has nowhere of its own to assert it. A contract capability is exempt: `cache`,
+`compression` and `tls` are pydantic models composed into `SitePolicy`, and
+they are tested where they compose, in `tests/capabilities/sites/` and
+`tests/contract/`.
+
+What the rule refuses is a capability's own decisions asserted somewhere that
+is about something else. `MaintenanceService` was tested in the Dramatiq suite,
+which the service does not touch; `WorkflowCoordinator` and `check_resolver`
+had no direct test at all. Cross-cutting suites stay where they are —
+`tests/platform/`, `tests/api/` and `tests/entrypoints/` test the assembled
+thing, and importing a capability's domain types to do it is not a misplaced
+capability test.
+
 ### Attaching and detaching
 
 In the workspace:
