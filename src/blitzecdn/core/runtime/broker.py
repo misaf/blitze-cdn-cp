@@ -15,7 +15,7 @@ actors it declared. The retry policy an actor is decorated with is read by the
 consumer, so it stays exactly where it is written.
 
 The names below are the wire contract between the two halves.
-``tests/test_queue.py`` holds them against the actors in
+``tests/platform/test_queue.py`` holds them against the actors in
 :mod:`blitzecdn.worker`, so a queue renamed on one side cannot silently start
 publishing into a queue nothing consumes.
 """

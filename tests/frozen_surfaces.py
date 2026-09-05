@@ -496,15 +496,34 @@ def ansible_surface() -> str:
             document = yaml.safe_load(spec.read_text(encoding="utf-8")) or {}
             for entry in (document.get("argument_specs") or {}).values():
                 for option, declared in sorted((entry.get("options") or {}).items()):
-                    lines.append(
-                        _line(
-                            owner, "variable", f"{role}.{option}\t{_option(declared)}"
-                        )
+                    lines.extend(
+                        _line(owner, "variable", f"{role}.{path}\t{shape}")
+                        for path, shape in _options(option, declared)
                     )
     return _render(lines)
 
 
-def _option(declared: Any) -> str:
+def _options(path: str, declared: Any) -> list[tuple[str, str]]:
+    """One line per declared key, however deeply a variable nests.
+
+    This was one line per *top-level* variable, with a nested structure
+    flattened to `keys=[a,b,c]` — which pinned the names of the keys and
+    nothing else about them. `blitzecdn_nginx_sites` is the whole site document,
+    twenty-five keys deep, and under that rendering `ssl_mode` could have lost a
+    choice or `max_upload_size` changed its default with the golden file
+    unmoved. The largest surface here was the least pinned.
+
+    A dotted path per leaf instead, so `blitzecdn_nginx_sites.ssl_mode` carries
+    its own type and choices and diffs on its own line.
+    """
+    found = [(path, _shape(declared))]
+    if isinstance(declared, dict):
+        for name, nested in sorted((declared.get("options") or {}).items()):
+            found.extend(_options(f"{path}.{name}", nested))
+    return found
+
+
+def _shape(declared: Any) -> str:
     if not isinstance(declared, dict):
         return "type=any"
     parts = [f"type={declared.get('type', 'any')}"]
@@ -516,8 +535,6 @@ def _option(declared: Any) -> str:
         parts.append(f"choices=[{','.join(str(c) for c in declared['choices'])}]")
     if "default" in declared:
         parts.append(f"default={declared['default']!r}")
-    if "options" in declared:
-        parts.append(f"keys=[{','.join(sorted(declared['options']))}]")
     return " ".join(parts)
 
 

@@ -43,7 +43,29 @@ blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_packages	type=list elements
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_python_packages	type=list elements=str required
 blitzecdn	variable	blitzecdn_docker.blitzecdn_docker_repository_url	type=str required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_http3_enabled	type=bool required
-blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime	type=dict required keys=[container,image,listeners,paths,status]
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime	type=dict required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.container	type=str required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.image	type=str required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners	type=dict required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners.http	type=list elements=int required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners.http3	type=bool required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.listeners.https	type=list elements=int required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths	type=dict required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.acme	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.cache	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.data	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.empty	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.logs	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules_conf	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules_include	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.nginx	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.state	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.tls	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status	type=dict required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status.address	type=str required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status.path	type=str required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status.port	type=int required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime_image_default	type=str required
 blitzecdn	variable	blitzecdn_edge_stack.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_edge_stack.blitzecdn_edge_stack_compose_file	type=path required
@@ -77,14 +99,50 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_http3_listener_owner	type=str
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_log_format_name	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_managed_sites_file	type=path required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_module_directory	type=path required
-blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules	type=list elements=dict required keys=[name,objects,plugin]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules	type=list elements=dict required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.name	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.objects	type=list elements=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_modules.plugin	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_proxy_connect_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_proxy_read_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolver_timeout	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolver_valid	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resolvers	type=list elements=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_resources	type=dict required
-blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites	type=list elements=dict required keys=[always_use_https,cache_enabled,cache_query_string_mode,cache_valid_not_found,cache_valid_success,certificate_key_path,certificate_key_source_path,certificate_mode,certificate_path,certificate_source_path,compression,enabled,firewall,http3_enabled,max_upload_size,minimum_tls_version,name,origin_host,origin_request_host,origin_sni,server_names,ssl_automatic_mode,ssl_mode,under_attack_mode,visitor_headers]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites	type=list elements=dict required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.always_use_https	type=bool default=False
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.cache_enabled	type=bool default=True
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.cache_query_string_mode	type=str choices=[include,ignore] default='include'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.cache_valid_not_found	type=str default='1m'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.cache_valid_success	type=str default='10m'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_key_path	type=path
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_key_source_path	type=path
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_mode	type=str choices=[disabled,existing,uploaded,requested] default='disabled'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_path	type=path
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_source_path	type=path
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.compression	type=str choices=[off,gzip,brotli] default='brotli'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.enabled	type=bool default=True
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall	type=dict
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall.allow_sources	type=list elements=str default=[]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall.allowed_countries	type=list elements=str default=[]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall.denied_countries	type=list elements=str default=[]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall.denied_methods	type=list elements=str default=[]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall.denied_paths	type=list elements=str default=[]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall.deny_sources	type=list elements=str default=[]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.http3_enabled	type=bool default=False
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.max_upload_size	type=str choices=[100m,200m] default='100m'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.minimum_tls_version	type=str choices=[1.2,1.3] default='1.2'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.name	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.origin_host	type=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.origin_request_host	type=str
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.origin_sni	type=str
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.server_names	type=list elements=str required
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.ssl_automatic_mode	type=str choices=[auto,custom] default='auto'
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.ssl_mode	type=str required choices=[off,flexible,full,full_strict]
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.under_attack_mode	type=bool default=False
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.visitor_headers	type=dict
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.visitor_headers.connecting_ip	type=bool default=True
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.visitor_headers.ip_country	type=bool default=False
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_ciphers	type=str required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_ssl_stapling	type=bool required
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_status_allow	type=list elements=str required
@@ -121,7 +179,10 @@ blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_normalize_accept_encodi
 blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_path	type=path required
 blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_all	type=bool required
 blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_encodings	type=list elements=str required
-blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_entries	type=list elements=dict required keys=[host,scheme,uri]
+blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_entries	type=list elements=dict required
+blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_entries.host	type=str required
+blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_entries.scheme	type=str choices=[http,https] default='https'
+blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_entries.uri	type=str required
 blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_http_ports	type=list elements=int required
 blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_https_ports	type=list elements=int required
 blitzecdn_cache	variable	blitzecdn_cache.blitzecdn_cache_purge_methods	type=list elements=str required
