@@ -13,7 +13,6 @@ from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.sites.api.models import SitePatch
 from blitzecdn.capabilities.sites.api.models import SitePolicy as SitePolicyModel
 from blitzecdn.capabilities.sites.domain import SitePolicy
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import (
     ConfigurationError,
@@ -39,7 +38,7 @@ def test_the_api_carries_every_policy_field_the_domain_has():
 def test_interrupted_workflows_are_recovered_and_visible(settings):
     repository = Repository(settings.database_path)
     workflow = repository.workflows.create(
-        "interrupted", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+        "interrupted", "certificate", "alice", "cdn-example-com"
     )
 
     with TestClient(control_plane_app(settings)) as client:

@@ -15,7 +15,7 @@ from control_plane_fixtures import (
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
 from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-from blitzecdn.capabilities.workflows.domain import WorkflowKind, WorkflowStatus
+from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
@@ -530,7 +530,7 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
             stranded.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
         )
         workflow = repository.workflows.create(
-            "interrupted", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+            "interrupted", "certificate", "alice", "cdn-example-com"
         )
         repository.workflows.advance(workflow.id, WorkflowStatus.RUNNING)
 
@@ -562,7 +562,7 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
     )  # type: ignore[arg-type]
     live = repository.deployments.create_deployment("alice", check_mode=False)
     workflow = repository.workflows.create(
-        "live", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+        "live", "certificate", "alice", "cdn-example-com"
     )
     repository.workflows.advance(workflow.id, WorkflowStatus.RUNNING)
 
