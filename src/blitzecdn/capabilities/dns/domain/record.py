@@ -1,9 +1,9 @@
-"""Zones, records, and the site a record routes to.
+"""A record in a zone, and the site it routes to.
 
 A record used to *be* a site: it carried the whole of ``SitePolicy`` and
 ``to_site`` turned it into one. It no longer does. A site is canonical and
-lives in :mod:`blitzecdn.capabilities.sites.domain`; a record either answers with
-an address of its own or names the site that answers for its hostname, and
+lives in :mod:`blitzecdn.capabilities.sites.domain`; a record either answers
+with an address of its own or names the site that answers for its hostname, and
 ``site`` is the whole of that relationship.
 
 What this bought is one writer per fact. The old shape had none for two of
@@ -12,9 +12,9 @@ for one virtual host, and the deriving code kept whichever it saw first. That
 class of bug cannot be expressed here — both records name the same site, and
 the site holds the single origin and the single policy.
 
-This module still imports :mod:`blitzecdn.capabilities.sites` and never the other
-way round. It imports a *name*, though, not a model: what a record needs to
-know about a site is that it has one.
+This module still imports :mod:`blitzecdn.capabilities.sites` and never the
+other way round. It imports a *name*, though, not a model: what a record needs
+to know about a site is that it has one.
 """
 
 from __future__ import annotations
@@ -31,32 +31,6 @@ from blitzecdn.core.domain.validation import DNS_LABEL, SITE_NAME, hostname
 class RecordType(StrEnum):
     A = "A"
     AAAA = "AAAA"
-
-
-class Domain(BaseModel):
-    """A DNS zone a customer has delegated to us.
-
-    Holds no records itself — they are stored separately and keyed by domain,
-    so a zone with a thousand records is not rewritten to change one of them.
-    """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    name: str
-
-    @field_validator("name")
-    @classmethod
-    def validate_name(cls, value: str) -> str:
-        normalized = hostname(value)
-        try:
-            ipaddress.ip_address(normalized)
-        except ValueError:
-            if "." not in normalized:
-                raise ValueError(
-                    "domain must be a delegable zone such as 'example.com'"
-                ) from None
-            return normalized
-        raise ValueError("domain must be a name, not an IP address")
 
 
 class DnsRecord(BaseModel):
@@ -180,4 +154,4 @@ class RecordPatch(BaseModel):
     site: str | None = None
 
 
-__all__ = ["DnsRecord", "Domain", "RecordPatch", "RecordType"]
+__all__ = ["DnsRecord", "RecordPatch", "RecordType"]
