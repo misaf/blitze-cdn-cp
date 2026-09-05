@@ -1,0 +1,173 @@
+blitzecdn	sdk	blitzecdn.api.dependencies.get_control_plane	def(request: Request) -> ControlPlane
+blitzecdn	sdk	blitzecdn.api.dependencies.get_settings	def(request: Request) -> Settings
+blitzecdn	sdk	blitzecdn.api.dependencies.get_worker_pool	def(request: Request) -> ThreadPoolExecutor
+blitzecdn	sdk	blitzecdn.api.dependencies.require_operator	def(settings: Annotated, x_api_key: Annotated = None) -> str
+blitzecdn	sdk	blitzecdn.api.models.AnsibleRun	class(Model)
+blitzecdn	sdk	blitzecdn.api.models.AuditEvent	class(Model)
+blitzecdn	sdk	blitzecdn.api.models.HostRun	class(Model)
+blitzecdn	sdk	blitzecdn.api.models.Model	class(BaseModel)
+blitzecdn	sdk	blitzecdn.api.models.TaskResult	class(Model)
+blitzecdn	sdk	blitzecdn.api.models.as_operation	def(model: object, target: type[T]) -> T
+blitzecdn	sdk	blitzecdn.api.requests.FleetRequest	class(RequestModel)
+blitzecdn	sdk	blitzecdn.api.requests.RequestModel	class(BaseModel)
+blitzecdn	sdk	blitzecdn.cli.common.ExitCode	class(IntEnum)
+blitzecdn	sdk	blitzecdn.cli.common.control_plane	def() -> ControlPlane
+blitzecdn	sdk	blitzecdn.cli.common.describe_hosts	def(hosts: Sequence[HostRun]) -> str
+blitzecdn	sdk	blitzecdn.cli.common.emit	def(value: Any, json_output: bool) -> None
+blitzecdn	sdk	blitzecdn.cli.common.installed_plugins	def() -> PluginRegistry
+blitzecdn	sdk	blitzecdn.cli.common.settings	def() -> Settings
+blitzecdn	sdk	blitzecdn.core.config.MACHINE_SPECIFIC_CONFIG_KEYS	frozenset
+blitzecdn	sdk	blitzecdn.core.config.MACHINE_SPECIFIC_ENVIRONMENT_KEYS	frozenset
+blitzecdn	sdk	blitzecdn.core.config.Settings	class(BaseSettings)
+blitzecdn	sdk	blitzecdn.core.config.is_portable_config_key	def(name: str) -> bool
+blitzecdn	sdk	blitzecdn.core.config.is_portable_environment_key	def(name: str) -> bool
+blitzecdn	sdk	blitzecdn.core.config.loading.MACHINE_SPECIFIC_CONFIG_KEYS	frozenset
+blitzecdn	sdk	blitzecdn.core.config.loading.MACHINE_SPECIFIC_ENVIRONMENT_KEYS	frozenset
+blitzecdn	sdk	blitzecdn.core.config.loading.is_portable_config_key	def(name: str) -> bool
+blitzecdn	sdk	blitzecdn.core.config.loading.is_portable_environment_key	def(name: str) -> bool
+blitzecdn	sdk	blitzecdn.core.config.loading.settings_payload	def(environment: Mapping[str, str] | None = None, project_dir: Path | None = None) -> dict[str, object]
+blitzecdn	sdk	blitzecdn.core.config.settings.Settings	class(BaseSettings)
+blitzecdn	sdk	blitzecdn.core.config.settings_payload	def(environment: Mapping[str, str] | None = None, project_dir: Path | None = None) -> dict[str, object]
+blitzecdn	sdk	blitzecdn.core.domain.audit.AuditEvent	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.events.DomainEvent	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.events.UTC	timezone
+blitzecdn	sdk	blitzecdn.core.domain.events.domain_event	def(operator: str, action: str, resource_type: str, resource_id: str | None = None, details: dict[str, Any] | None = None) -> DomainEvent
+blitzecdn	sdk	blitzecdn.core.domain.identifiers.DeploymentId	callable _AnnotatedAlias
+blitzecdn	sdk	blitzecdn.core.domain.identifiers.EdgeName	callable _AnnotatedAlias
+blitzecdn	sdk	blitzecdn.core.domain.identifiers.Identifier	callable _AnnotatedAlias
+blitzecdn	sdk	blitzecdn.core.domain.identifiers.Operator	callable _AnnotatedAlias
+blitzecdn	sdk	blitzecdn.core.domain.policy.CapabilityPolicy	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.runs.AnsibleRun	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.runs.HostRun	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.runs.RunStatus	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.domain.runs.TaskOutcome	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.domain.runs.TaskResult	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.validation.OmittedWhenEmpty	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.validation.RESERVED_ANSIBLE_SETTINGS	frozenset
+blitzecdn	sdk	blitzecdn.core.domain.validation.hostname	def(value: str, wildcard: bool = False) -> str
+blitzecdn	sdk	blitzecdn.core.domain.validation.unique	def(values: tuple[str, ...], label: str) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.domain.validation.validate_edge_limit	def(value: str | None) -> str | None
+blitzecdn	sdk	blitzecdn.core.domain.validation.validate_setting_name	def(value: str) -> str
+blitzecdn	sdk	blitzecdn.core.exceptions.BlitzeError	class(Exception)
+blitzecdn	sdk	blitzecdn.core.exceptions.ConfigurationError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.exceptions.ConflictError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.exceptions.DeploymentBusyError	class(ConflictError)
+blitzecdn	sdk	blitzecdn.core.exceptions.ExecutionError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.exceptions.NotFoundError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.exceptions.PluginError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.persistence.schema.DatabaseSchema	class(object)
+blitzecdn	sdk	blitzecdn.core.persistence.schema.MIGRATIONS_PATH	PosixPath
+blitzecdn	sdk	blitzecdn.core.plugins.AnsibleContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.CapabilityConfig	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.CapabilitySetting	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.CliCommandGroup	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ConfigurationContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.Discovery	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ENTRY_POINT_GROUP	str
+blitzecdn	sdk	blitzecdn.core.plugins.EdgeModule	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.EnvironmentKey	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.FleetStateContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.HOOK_API_VERSION	int
+blitzecdn	sdk	blitzecdn.core.plugins.HealthCheck	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.NginxContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.PROJECT_NAME	str
+blitzecdn	sdk	blitzecdn.core.plugins.PluginMetadata	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.PluginRegistry	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.PluginRejection	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ProcessKind	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.plugins.ResolvedCapabilityEnvironment	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ResolvedEdgeModule	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ResolvedNginxResource	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.RuntimeContext	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ScheduledJob	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.SettingValue	TypeAliasType
+blitzecdn	sdk	blitzecdn.core.plugins.Severity	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.plugins.SiteStateContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.StateValue	TypeAliasType
+blitzecdn	sdk	blitzecdn.core.plugins.ValidationIssue	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ValidationResult	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.build_plugin_manager	def() -> pluggy.PluginManager
+blitzecdn	sdk	blitzecdn.core.plugins.discovery.Discovery	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.discovery.PluginRejection	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.discovery.register	def(manager: pluggy.PluginManager, candidate: object, source: str) -> PluginMetadata
+blitzecdn	sdk	blitzecdn.core.plugins.discovery.register_builtins	def(manager: pluggy.PluginManager, modules: Sequence[str]) -> tuple[PluginMetadata, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.discovery.register_external	def(manager: pluggy.PluginManager, group: str = 'blitzecdn.plugins', points: Iterable[EntryPoint] | None = None) -> Discovery
+blitzecdn	sdk	blitzecdn.core.plugins.hookimpl	callable HookimplMarker
+blitzecdn	sdk	blitzecdn.core.plugins.hooks.hookimpl	callable HookimplMarker
+blitzecdn	sdk	blitzecdn.core.plugins.hooks.hookspec	callable HookspecMarker
+blitzecdn	sdk	blitzecdn.core.plugins.load_plugins	def(builtins: Sequence[str], entry_point_group: str | None = 'blitzecdn.plugins', manager: pluggy.PluginManager | None = None) -> PluginRegistry
+blitzecdn	sdk	blitzecdn.core.plugins.manager.build_plugin_manager	def() -> pluggy.PluginManager
+blitzecdn	sdk	blitzecdn.core.plugins.manager.load_plugins	def(builtins: Sequence[str], entry_point_group: str | None = 'blitzecdn.plugins', manager: pluggy.PluginManager | None = None) -> PluginRegistry
+blitzecdn	sdk	blitzecdn.core.plugins.merge_variables	def(contributions: Sequence[SiteStateContribution] | Sequence[FleetStateContribution], subject: str) -> dict[str, StateValue]
+blitzecdn	sdk	blitzecdn.core.plugins.register	def(manager: pluggy.PluginManager, candidate: object, source: str) -> PluginMetadata
+blitzecdn	sdk	blitzecdn.core.plugins.register_builtins	def(manager: pluggy.PluginManager, modules: Sequence[str]) -> tuple[PluginMetadata, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.register_external	def(manager: pluggy.PluginManager, group: str = 'blitzecdn.plugins', points: Iterable[EntryPoint] | None = None) -> Discovery
+blitzecdn	sdk	blitzecdn.core.plugins.registry.PluginRegistry	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.registry.StateContributions	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.registry.merge_variables	def(contributions: Sequence[SiteStateContribution] | Sequence[FleetStateContribution], subject: str) -> dict[str, StateValue]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.CapabilityConfig	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ResolvedCapabilityEnvironment	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ResolvedEdgeModule	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ResolvedNginxResource	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ansible.resolve_edge_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ansible.resolve_host_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ansible.resolve_role_search_path	def(core_roles: Path, contributions: Iterable[AnsibleContribution]) -> tuple[Path, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.ansible.resolve_teardown_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.configuration.CapabilityConfig	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.configuration.ResolvedCapabilityEnvironment	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.configuration.resolve_capability_environment	def(contributions: Iterable[ConfigurationContribution], configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> ResolvedCapabilityEnvironment
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.configuration.resolve_plugin_configuration	def(contribution: ConfigurationContribution, configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> CapabilityConfig
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.modules.ResolvedEdgeModule	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.modules.resolve_edge_modules	def(contributions: Iterable[AnsibleContribution]) -> tuple[ResolvedEdgeModule, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.nginx.ResolvedNginxResource	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.nginx.resolve_nginx_resources	def(contributions: Iterable[NginxContribution]) -> dict[str, tuple[ResolvedNginxResource, ...]]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_capability_environment	def(contributions: Iterable[ConfigurationContribution], configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> ResolvedCapabilityEnvironment
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_edge_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_edge_modules	def(contributions: Iterable[AnsibleContribution]) -> tuple[ResolvedEdgeModule, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_host_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_nginx_resources	def(contributions: Iterable[NginxContribution]) -> dict[str, tuple[ResolvedNginxResource, ...]]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_plugin_configuration	def(contribution: ConfigurationContribution, configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> CapabilityConfig
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_role_search_path	def(core_roles: Path, contributions: Iterable[AnsibleContribution]) -> tuple[Path, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolution.resolve_teardown_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_capability_environment	def(contributions: Iterable[ConfigurationContribution], configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> ResolvedCapabilityEnvironment
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_edge_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_edge_modules	def(contributions: Iterable[AnsibleContribution]) -> tuple[ResolvedEdgeModule, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_host_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_nginx_resources	def(contributions: Iterable[NginxContribution]) -> dict[str, tuple[ResolvedNginxResource, ...]]
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_plugin_configuration	def(contribution: ConfigurationContribution, configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> CapabilityConfig
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_role_search_path	def(core_roles: Path, contributions: Iterable[AnsibleContribution]) -> tuple[Path, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.resolve_teardown_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
+blitzecdn	sdk	blitzecdn.core.plugins.types.AnsibleContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.CapabilitySetting	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.CliCommandGroup	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.ConfigurationContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.ENTRY_POINT_GROUP	str
+blitzecdn	sdk	blitzecdn.core.plugins.types.EdgeModule	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.EnvironmentKey	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.FleetStateContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.HOOK_API_VERSION	int
+blitzecdn	sdk	blitzecdn.core.plugins.types.HealthCheck	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.NginxContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.PROJECT_NAME	str
+blitzecdn	sdk	blitzecdn.core.plugins.types.PluginMetadata	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.ProcessKind	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.plugins.types.RuntimeContext	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.ScheduledJob	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.SettingValue	TypeAliasType
+blitzecdn	sdk	blitzecdn.core.plugins.types.Severity	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.plugins.types.SiteStateContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.StateValue	TypeAliasType
+blitzecdn	sdk	blitzecdn.core.plugins.types.ValidationIssue	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.types.ValidationResult	class(object)
+blitzecdn	sdk	blitzecdn.core.ports.UnitOfWork	class(Protocol)
+blitzecdn	sdk	blitzecdn.core.ports.fleet.FleetRoster	class(Protocol)
+blitzecdn	sdk	blitzecdn.core.ports.operations.AuditTrail	class(Protocol)
+blitzecdn	sdk	blitzecdn.core.ports.operations.EventRecorder	class(Protocol)
+blitzecdn	sdk	blitzecdn.core.ports.operations.PlaybookRunner	class(Protocol)
+blitzecdn	sdk	blitzecdn.core.runtime.filesystem.atomic_write_bytes	def(path: Path, payload: bytes, mode: int = 384) -> None
+blitzecdn	sdk	blitzecdn.core.runtime.filesystem.atomic_write_yaml	def(path: Path, payload: dict[str, Any], mode: int = 384) -> None
+blitzecdn	sdk	blitzecdn.core.runtime.filesystem.read_log_tail	def(path: Path | str | None, limit: int) -> str
+blitzecdn	sdk	blitzecdn.core.runtime.process.terminate_process_group	def(process: subprocess.Popen[Any], drain: Callable[..., Any], grace_seconds: float = 5.0) -> None
+blitzecdn	sdk	blitzecdn.core.runtime.resources.distribution_name	def(anchor: str) -> str
+blitzecdn	sdk	blitzecdn.core.runtime.resources.distribution_version	def(anchor: str) -> str
+blitzecdn	sdk	blitzecdn.core.runtime.resources.package_directory	def(anchor: str, resolves: str) -> Path

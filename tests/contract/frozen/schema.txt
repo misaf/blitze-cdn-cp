@@ -1,0 +1,64 @@
+blitzecdn	column	ansible_settings.name	type=VARCHAR not-null pk
+blitzecdn	column	ansible_settings.updated_at	type=VARCHAR not-null
+blitzecdn	column	ansible_settings.value	type=JSON not-null
+blitzecdn	column	audit_events.action	type=VARCHAR not-null
+blitzecdn	column	audit_events.created_at	type=VARCHAR not-null
+blitzecdn	column	audit_events.details	type=JSON not-null
+blitzecdn	column	audit_events.id	type=INTEGER not-null pk
+blitzecdn	column	audit_events.operator	type=VARCHAR not-null
+blitzecdn	column	audit_events.resource_id	type=VARCHAR null
+blitzecdn	column	audit_events.resource_type	type=VARCHAR not-null
+blitzecdn	column	deployment_requirements.kind	type=VARCHAR not-null pk
+blitzecdn	column	deployment_requirements.requested_at	type=VARCHAR not-null
+blitzecdn	column	deployments.canonical_digest	type=VARCHAR null
+blitzecdn	column	deployments.check_mode	type=BOOLEAN not-null
+blitzecdn	column	deployments.created_at	type=VARCHAR not-null
+blitzecdn	column	deployments.finished_at	type=VARCHAR null
+blitzecdn	column	deployments.host_limit	type=VARCHAR null
+blitzecdn	column	deployments.id	type=VARCHAR not-null pk
+blitzecdn	column	deployments.operator	type=VARCHAR not-null
+blitzecdn	column	deployments.result	type=JSON null
+blitzecdn	column	deployments.rollback_of	type=VARCHAR null fk=deployments.id
+blitzecdn	column	deployments.snapshot	type=VARCHAR not-null
+blitzecdn	column	deployments.started_at	type=VARCHAR null
+blitzecdn	column	deployments.status	type=VARCHAR not-null
+blitzecdn	column	dns_records.domain	type=VARCHAR not-null pk fk=domains.name
+blitzecdn	column	dns_records.name	type=VARCHAR not-null pk
+blitzecdn	column	dns_records.site	type=VARCHAR null fk=sites.name
+blitzecdn	column	dns_records.ttl	type=INTEGER not-null
+blitzecdn	column	dns_records.type	type=VARCHAR not-null pk
+blitzecdn	column	dns_records.updated_at	type=VARCHAR not-null
+blitzecdn	column	dns_records.value	type=VARCHAR null
+blitzecdn	column	domains.name	type=VARCHAR not-null pk
+blitzecdn	column	domains.updated_at	type=VARCHAR not-null
+blitzecdn	column	edges.host	type=VARCHAR not-null
+blitzecdn	column	edges.name	type=VARCHAR not-null pk
+blitzecdn	column	edges.port	type=INTEGER not-null
+blitzecdn	column	edges.private_key_file	type=VARCHAR null
+blitzecdn	column	edges.public_addresses	type=JSON not-null
+blitzecdn	column	edges.ssh_sources	type=JSON not-null
+blitzecdn	column	edges.updated_at	type=VARCHAR not-null
+blitzecdn	column	edges.user	type=VARCHAR not-null
+blitzecdn	column	projection_state.name	type=VARCHAR not-null pk
+blitzecdn	column	projection_state.projected_at	type=VARCHAR not-null
+blitzecdn	column	projection_state.source_revision	type=VARCHAR not-null
+blitzecdn	column	sites.name	type=VARCHAR not-null pk
+blitzecdn	column	sites.origin_host	type=VARCHAR not-null
+blitzecdn	column	sites.policy	type=JSON not-null
+blitzecdn	column	sites.server_names	type=JSON not-null
+blitzecdn	column	sites.updated_at	type=VARCHAR not-null
+blitzecdn	column	workflows.created_at	type=VARCHAR not-null
+blitzecdn	column	workflows.error	type=VARCHAR null
+blitzecdn	column	workflows.id	type=VARCHAR not-null pk
+blitzecdn	column	workflows.kind	type=VARCHAR not-null
+blitzecdn	column	workflows.operator	type=VARCHAR not-null
+blitzecdn	column	workflows.resource_id	type=VARCHAR null
+blitzecdn	column	workflows.status	type=VARCHAR not-null
+blitzecdn	column	workflows.steps	type=JSON not-null
+blitzecdn	column	workflows.updated_at	type=VARCHAR not-null
+blitzecdn	index	audit_events.ix_audit_events_created_at	(created_at)
+blitzecdn	index	deployments.ix_deployments_created_at	(created_at)
+blitzecdn	index	deployments.ix_deployments_status	(status)
+blitzecdn	index	dns_records.ix_dns_records_site	(site)
+blitzecdn	index	workflows.workflows_status_idx	(status,updated_at)
+blitzecdn	revision	0001_initial_schema

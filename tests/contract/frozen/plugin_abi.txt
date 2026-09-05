@@ -1,0 +1,79 @@
+blitzecdn	contribution	AnsibleContribution.edge_modules: tuple[EdgeModule, ...] = ()
+blitzecdn	contribution	AnsibleContribution.edge_roles: tuple[str, ...] = ()
+blitzecdn	contribution	AnsibleContribution.host_roles: tuple[str, ...] = ()
+blitzecdn	contribution	AnsibleContribution.plugin: str
+blitzecdn	contribution	AnsibleContribution.roles_path: Path
+blitzecdn	contribution	AnsibleContribution.teardown_roles: tuple[str, ...] = ()
+blitzecdn	contribution	CapabilitySetting.default: SettingValue
+blitzecdn	contribution	CapabilitySetting.maximum: int | None = None
+blitzecdn	contribution	CapabilitySetting.minimum: int | None = None
+blitzecdn	contribution	CapabilitySetting.name: str
+blitzecdn	contribution	CapabilitySetting.portable: bool = True
+blitzecdn	contribution	CapabilitySetting.summary: str = ''
+blitzecdn	contribution	CliCommandGroup.app: Typer
+blitzecdn	contribution	CliCommandGroup.name: str | None
+blitzecdn	contribution	ConfigurationContribution.environment_keys: tuple[EnvironmentKey, ...] = ()
+blitzecdn	contribution	ConfigurationContribution.plugin: str
+blitzecdn	contribution	ConfigurationContribution.settings: tuple[CapabilitySetting, ...] = ()
+blitzecdn	contribution	EdgeModule.build: bool = True
+blitzecdn	contribution	EdgeModule.name: str
+blitzecdn	contribution	EdgeModule.objects: tuple[str, ...]
+blitzecdn	contribution	EdgeModule.probe: str = ''
+blitzecdn	contribution	EnvironmentKey.minimum_bytes: int = 0
+blitzecdn	contribution	EnvironmentKey.name: str
+blitzecdn	contribution	EnvironmentKey.required: bool = False
+blitzecdn	contribution	EnvironmentKey.summary: str = ''
+blitzecdn	contribution	FleetStateContribution.overrides: frozenset[str] = <factory>
+blitzecdn	contribution	FleetStateContribution.plugin: str
+blitzecdn	contribution	FleetStateContribution.variables: Mapping[str, StateValue]
+blitzecdn	contribution	HealthCheck.check: Callable[[], None]
+blitzecdn	contribution	HealthCheck.name: str
+blitzecdn	contribution	NginxContribution.access_fragments: tuple[str, ...] = ()
+blitzecdn	contribution	NginxContribution.http_fragments: tuple[str, ...] = ()
+blitzecdn	contribution	NginxContribution.plugin: str
+blitzecdn	contribution	NginxContribution.server_fragments: tuple[str, ...] = ()
+blitzecdn	contribution	NginxContribution.templates_path: Path
+blitzecdn	contribution	NginxContribution.upstream_fragments: tuple[str, ...] = ()
+blitzecdn	contribution	PluginMetadata.api_version: int = 1
+blitzecdn	contribution	PluginMetadata.name: str
+blitzecdn	contribution	PluginMetadata.provides: frozenset[str] = frozenset()
+blitzecdn	contribution	PluginMetadata.required: bool = False
+blitzecdn	contribution	PluginMetadata.summary: str = ''
+blitzecdn	contribution	PluginMetadata.version: str
+blitzecdn	contribution	RuntimeContext.process: ProcessKind
+blitzecdn	contribution	RuntimeContext.settings: object
+blitzecdn	contribution	ScheduledJob.interval_seconds: int
+blitzecdn	contribution	ScheduledJob.jitter_seconds: int = 0
+blitzecdn	contribution	ScheduledJob.lease_seconds: int = 0
+blitzecdn	contribution	ScheduledJob.name: str
+blitzecdn	contribution	ScheduledJob.run: Callable[[str], None]
+blitzecdn	contribution	SiteStateContribution.overrides: frozenset[str] = <factory>
+blitzecdn	contribution	SiteStateContribution.plugin: str
+blitzecdn	contribution	SiteStateContribution.variables: Mapping[str, StateValue]
+blitzecdn	contribution	ValidationIssue.message: str
+blitzecdn	contribution	ValidationIssue.plugin: str
+blitzecdn	contribution	ValidationIssue.severity: Severity = <Severity.BLOCKING: 'blocking'>
+blitzecdn	contribution	ValidationIssue.site: str
+blitzecdn	contribution	ValidationResult.issues: tuple[ValidationIssue, ...] = ()
+blitzecdn	contribution	ValidationResult.site: str
+blitzecdn	entry_point_group	blitzecdn.plugins
+blitzecdn	enum	ProcessKind.API = 'api'
+blitzecdn	enum	ProcessKind.CLI = 'cli'
+blitzecdn	enum	ProcessKind.SCHEDULER = 'scheduler'
+blitzecdn	enum	ProcessKind.WORKER = 'worker'
+blitzecdn	enum	Severity.BLOCKING = 'blocking'
+blitzecdn	enum	Severity.WARNING = 'warning'
+blitzecdn	hook	blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]
+blitzecdn	hook	blitzecdn_api_routers() -> Sequence[APIRouter]
+blitzecdn	hook	blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]
+blitzecdn	hook	blitzecdn_cli_commands() -> Sequence[CliCommandGroup]
+blitzecdn	hook	blitzecdn_deployment_checks(site: CdnSite, platform: ControlPlane) -> Sequence[ValidationIssue]
+blitzecdn	hook	blitzecdn_fleet_desired_state(sites: tuple[CdnSite, ...], platform: ControlPlane) -> FleetStateContribution | None
+blitzecdn	hook	blitzecdn_health_checks(platform: ControlPlane) -> Sequence[HealthCheck]
+blitzecdn	hook	blitzecdn_nginx_contributions() -> Sequence[NginxContribution]
+blitzecdn	hook	blitzecdn_plugin_metadata() -> PluginMetadata | None
+blitzecdn	hook	blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]
+blitzecdn	hook	blitzecdn_shutdown(context: RuntimeContext, platform: ControlPlane) -> None
+blitzecdn	hook	blitzecdn_site_desired_state(site: CdnSite, platform: ControlPlane) -> SiteStateContribution | None
+blitzecdn	hook	blitzecdn_startup(context: RuntimeContext, platform: ControlPlane) -> None
+blitzecdn	hook_api_version	1
