@@ -60,9 +60,12 @@ _IO_IMPORTS = (
 #: the module nobody thought of was held to none — a new adapter written as
 #: `renderer.py` would have been free to import the composition root.
 #:
-#: `domain` and `adapters` are directories in every capability now, so a file
-#: is inside the rule the moment it is put where it belongs, and choosing the
-#: directory is choosing the rule.
+#: `domain`, `adapters`, `service` and `api` are directories in every capability
+#: — `_MANDATORY_LAYER_DIRECTORIES` in `test_packages` refuses the file
+#: spelling by name — so a module is inside the rule the moment it is put where
+#: it belongs, and choosing the directory is choosing the rule. The
+#: `removesuffix(".py")` below is what still admits `policy.py` and `cli.py`,
+#: which are the two layers a capability may spell either way.
 def _is_domain(path: Path) -> bool:
     """A capability's values: `domain/`, and the contract in `policy`."""
     parts = path.relative_to(_CAPABILITIES).parts

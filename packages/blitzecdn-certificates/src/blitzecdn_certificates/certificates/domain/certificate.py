@@ -1,4 +1,11 @@
-"""Certificates we hold, and the preflight that decides whether to ask for one."""
+"""The material we hold for a site, and the requests that change it.
+
+`preflight.py` beside this is the other half of the docstring this module used
+to carry: what is checked *before* asking a CA for anything. The two never
+reference each other — a preflight report is about DNS and reachability, and a
+certificate is about what came back — which is what made the split obvious once
+the layer became a directory.
+"""
 
 from __future__ import annotations
 
@@ -89,75 +96,6 @@ class CertificateStatus(BaseModel):
 
     def due_for_renewal(self, within_days: int = CERTIFICATE_RENEWAL_DAYS) -> bool:
         return self.renewable and self.days_remaining <= within_days
-
-
-#: A proxied record with a TTL above this is flagged before issuance.
-#:
-#: Not an error — a long TTL is legitimate for a hostname that has been live
-#: for months. It matters only around a cutover: resolvers that cached the old
-#: address keep answering with it for up to the TTL, and HTTP-01 validation
-#: follows public DNS, so a slow rollover shows up as an issuance failure with
-#: no obvious cause.
-TTL_CUTOVER_ADVISORY_SECONDS = 3600
-
-
-class PreflightSeverity(StrEnum):
-    """Whether a failed check stops issuance or is merely reported.
-
-    ``BLOCKING`` is reserved for conditions under which HTTP-01 validation
-    cannot succeed, so failing early costs nothing and spares the CA's rate
-    limit. Everything a certificate can legitimately be issued in spite of —
-    an origin that is down, a TTL that is high — is ``ADVISORY``.
-    """
-
-    BLOCKING = "blocking"
-    ADVISORY = "advisory"
-
-
-class PreflightCheck(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    #: Stable identifier (``dns``, ``caa``, ``deployed``, ``origin``, ``ttl``),
-    #: safe for a caller to branch on. ``detail`` is prose and is not.
-    name: str
-    passed: bool
-    severity: PreflightSeverity
-    detail: str
-
-
-class PreflightReport(BaseModel):
-    """What the outside world looks like just before we ask a CA for a cert."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    site: str
-    checks: tuple[PreflightCheck, ...]
-
-    @property
-    def blocking_failures(self) -> tuple[PreflightCheck, ...]:
-        return tuple(
-            check
-            for check in self.checks
-            if not check.passed and check.severity is PreflightSeverity.BLOCKING
-        )
-
-    @property
-    def advisories(self) -> tuple[PreflightCheck, ...]:
-        return tuple(
-            check
-            for check in self.checks
-            if not check.passed and check.severity is PreflightSeverity.ADVISORY
-        )
-
-    @property
-    def ok(self) -> bool:
-        """True when nothing blocks issuance. Advisories do not count."""
-        return not self.blocking_failures
-
-    def summary(self) -> str:
-        return "; ".join(
-            f"{check.name}: {check.detail}" for check in self.blocking_failures
-        )
 
 
 class CertificateRequest(BaseModel):
