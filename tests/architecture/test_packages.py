@@ -502,9 +502,7 @@ _PACKAGE_MODULES = {
     "plugin.py",  # metadata and the hooks it contributes through
     "composition.py",  # builds its service from what the platform publishes
     "config.py",  # its own settings, read from its CapabilityConfig
-    "domain.py",  # pure rules
     "ports.py",  # the narrow Protocols this capability calls
-    "service.py",  # the capability's behaviour
     "cli.py",  # its command groups
     "policy.py",  # its configuration contract: the values a site carries
 }
@@ -538,6 +536,23 @@ _PACKAGE_MODULES = {
 #: capability that grows a switch has one place to add its command.
 _FREE_FORM_DIRECTORIES = {"adapters", "api", "cli", "domain", "policy", "service"}
 
+#: The four a capability spells as a directory whichever size it is, which is
+#: why `domain.py` and `service.py` left the module set above.
+#:
+#: They were "a file until it outgrows one", and what that produced was a tree
+#: where the same layer was a file in five capabilities and a directory in two,
+#: so a reader learned the shape from whichever slice they happened to open and
+#: a contributor had to decide, per slice, which spelling this one used. The
+#: four here are the layers the architecture rules classify and a slice's
+#: substance lives in; `policy` and `cli` stay either way, because a contract is
+#: often one class and a command group is often one screen of commands.
+#:
+#: The cost is real and was accepted: six built-in layers and nine in the wheels
+#: became directories holding one module, and `__init__` re-exports what the
+#: file used to. What it buys is that `dns.service` and `deployments.service`
+#: are the same kind of thing to import, to read, and to add a second module to.
+_MANDATORY_LAYER_DIRECTORIES = {"adapters", "api", "domain", "service"}
+
 #: What a package ships for something other than Python to read. `ansible/`
 #: carries one module — the `importlib.resources` anchor — and its roles and
 #: plays; `nginx/` carries templates only. A `.py` file deeper in either is a
@@ -556,6 +571,12 @@ _DECLARED_EXTRA_MODULES = {"blitzecdn-certificates": {"acme_hook.py"}}
 def _module_offence(parts: tuple[str, ...], *, nested: bool) -> str | None:
     head, *rest = parts
     if not rest:
+        if head.removesuffix(".py") in _MANDATORY_LAYER_DIRECTORIES:
+            layer = head.removesuffix(".py")
+            return (
+                f"{head} is a layer: spell it {layer}/ and name the module "
+                "inside it for what it holds"
+            )
         return (
             None if head in _PACKAGE_MODULES else f"{head} is not a documented module"
         )
@@ -566,7 +587,15 @@ def _module_offence(parts: tuple[str, ...], *, nested: bool) -> str | None:
     if head == "nginx":
         return "nginx/ ships templates, not Python"
     if head in _FREE_FORM_DIRECTORIES:
-        return None if len(rest) == 1 else f"{head}/ is flat"
+        if len(rest) != 1:
+            return f"{head}/ is flat"
+        # The rule PLUGINS.md states and nothing checked: what is inside a
+        # layer is named for what it *is*. `domain/domain.py` says the layer
+        # twice and the content never, and it is what a mechanical conversion
+        # from a file produces if nobody stops it.
+        if rest[0].removesuffix(".py") == head:
+            return f"{head}/{rest[0]} names the layer again rather than its contents"
+        return None
     if nested:
         return f"{head}/ nests a capability two levels deep"
     return _module_offence(tuple(rest), nested=True)

@@ -404,7 +404,8 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
     # Time runs out the moment the first site has been renewed.
     clock = iter([0.0, 0.0, 1000.0, 1000.0, 1000.0])
     monkeypatch.setattr(
-        "blitzecdn_certificates.certificates.service.monotonic", lambda: next(clock)
+        "blitzecdn_certificates.certificates.service.issuance.monotonic",
+        lambda: next(clock),
     )
 
     result = control.certificates.renew_certificates(
