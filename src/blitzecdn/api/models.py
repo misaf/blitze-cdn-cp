@@ -5,8 +5,12 @@ Two kinds of thing live here, and the second is the rule for the first.
 The **frame** — :class:`Model` and :func:`as_operation` — is what every HTTP
 representation in this workspace is built from, core's own and an installed
 package's alike. The **shapes** are the representations of what *core* holds:
-an Ansible run, a durable workflow, an audit entry. Each has its domain model
-in ``blitzecdn.core``, so core is where the published form of it belongs too.
+an Ansible run and an audit entry. Each has its domain model in
+``blitzecdn.core``, so core is where the published form of it belongs too.
+
+A durable workflow was a third, and stopped being core's when the journal did:
+its shape is ``capabilities.workflows.api.models`` now, beside the routes that
+return it, which is the rule the paragraph below states.
 
 Everything else moved out. `CdnSite`, `DnsRecord`, `Edge` and `Deployment` were
 here as well, one module away from the routers that publish them and two from
@@ -32,7 +36,6 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.core.domain.operations import WorkflowKind, WorkflowStatus
 from blitzecdn.core.domain.runs import RunStatus, TaskOutcome
 
 
@@ -87,24 +90,6 @@ class AnsibleRun(Model):
     error: str | None = None
 
 
-class WorkflowStep(Model):
-    name: str
-    completed_at: datetime
-    details: dict[str, Any] = Field(default_factory=dict)
-
-
-class Workflow(Model):
-    id: str
-    kind: WorkflowKind
-    resource_id: str | None = None
-    status: WorkflowStatus
-    operator: str
-    created_at: datetime
-    updated_at: datetime
-    steps: tuple[WorkflowStep, ...] = ()
-    error: str | None = None
-
-
 class AuditEvent(Model):
     id: int
     created_at: datetime
@@ -128,7 +113,5 @@ __all__ = [
     "HostRun",
     "Model",
     "TaskResult",
-    "Workflow",
-    "WorkflowStep",
     "as_operation",
 ]

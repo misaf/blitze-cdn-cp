@@ -35,10 +35,10 @@ from blitzecdn.capabilities.deployments.domain.snapshots import encode_snapshot
 from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
 from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
 from blitzecdn.capabilities.sites.adapters.persistence import SiteStore
+from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import AnsibleSettingStore
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.workflows import WorkflowStore
 
 __all__ = [
     "AuditLog",

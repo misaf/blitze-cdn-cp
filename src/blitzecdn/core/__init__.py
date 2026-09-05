@@ -6,7 +6,6 @@ layer-first — and it is the only package in this workspace that is:
 * :mod:`~blitzecdn.core.domain` — values and vocabulary, no I/O anywhere;
 * :mod:`~blitzecdn.core.ports` — the protocols a service declares instead of
   naming an implementation;
-* :mod:`~blitzecdn.core.application` — the one workflow helper core owns;
 * :mod:`~blitzecdn.core.persistence` — the SQLite engine, the physical schema
   and the stores on it, private but for `persistence.schema`;
 * :mod:`~blitzecdn.core.runtime` — subprocesses, files, logging, the broker,

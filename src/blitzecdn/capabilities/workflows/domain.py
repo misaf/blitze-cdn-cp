@@ -1,17 +1,29 @@
-"""Intent and durable progress for long-running control-plane operations."""
+"""Durable progress for one operation that crosses out of a transaction.
+
+A workflow is the record of work SQLite cannot roll back — a fleet converging,
+a CA issuing a certificate — written so a controller that restarts mid-flight
+leaves an operator something to read rather than silence.
+
+`WorkflowKind` is closed, and it is checked in the database as well
+(`workflows_kind_check`), so adding a kind is a migration rather than an edit
+here.
+
+The identifier aliases that used to sit above these models are core's
+vocabulary rather than this capability's, and are
+:mod:`blitzecdn.core.domain.identifiers` now.
+"""
 
 from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-Identifier = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
-DeploymentId = Annotated[str, StringConstraints(pattern=r"^[a-f0-9]{32}$")]
-EdgeName = Annotated[str, StringConstraints(pattern=r"^[A-Za-z0-9_.-]+$")]
-Operator = Identifier
+from blitzecdn.core.domain.identifiers import Operator
+
+__all__ = ["Workflow", "WorkflowKind", "WorkflowStatus", "WorkflowStep"]
 
 
 class WorkflowKind(StrEnum):

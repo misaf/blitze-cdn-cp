@@ -1,4 +1,9 @@
-"""Persistence for durable workflows."""
+"""The journal, on the one SQLite database.
+
+`WorkflowStore` satisfies `workflows.ports.WorkflowJournal`, and the read side
+the API publishes — `get` and `list_workflows` — is on the same object because
+there is one table and one owner of it.
+"""
 
 # SQLModel annotates a table attribute as its instance value (for example
 # ``str``), while SQLAlchemy turns that attribute into a SQL expression when
@@ -12,7 +17,8 @@ from typing import Any, cast
 from sqlalchemy import CursorResult, delete, select
 from sqlmodel import col
 
-from blitzecdn.core.domain.operations import (
+from blitzecdn.capabilities.workflows.adapters.tables import WorkflowRow
+from blitzecdn.capabilities.workflows.domain import (
     Workflow,
     WorkflowKind,
     WorkflowStatus,
@@ -20,7 +26,6 @@ from blitzecdn.core.domain.operations import (
 )
 from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
-from blitzecdn.core.persistence.tables import WorkflowRow
 
 
 class WorkflowStore:

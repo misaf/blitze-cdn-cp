@@ -80,9 +80,9 @@ from blitzecdn.capabilities.maintenance.composition import build_maintenance_ser
 from blitzecdn.capabilities.sites.composition import build_site_service
 from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.capabilities.sites.service import SiteService
+from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
-from blitzecdn.core.application.workflows import WorkflowCoordinator
 from blitzecdn.core.config import Settings
 from blitzecdn.core.plugins import (
     HealthCheck,
@@ -125,6 +125,7 @@ BUILTIN_PLUGINS: tuple[str, ...] = (
     "blitzecdn.capabilities.sites.plugin",
     "blitzecdn.capabilities.dns.plugin",
     "blitzecdn.capabilities.edges.plugin",
+    "blitzecdn.capabilities.workflows.plugin",
     "blitzecdn.capabilities.deployments.plugin",
     "blitzecdn.capabilities.tls.plugin",
     "blitzecdn.capabilities.maintenance.plugin",

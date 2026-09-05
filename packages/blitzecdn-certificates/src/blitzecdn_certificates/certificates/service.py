@@ -18,8 +18,8 @@ from typing import Literal
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
+from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
-from blitzecdn.core.domain.operations import WorkflowKind
 from blitzecdn.core.exceptions import (
     BlitzeError,
     ConflictError,

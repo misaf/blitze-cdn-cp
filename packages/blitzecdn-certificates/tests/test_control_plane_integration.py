@@ -22,7 +22,7 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.tls.policy import CertificateMode
-from blitzecdn.core.domain.operations import WorkflowStatus
+from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.core.exceptions import DeploymentBusyError
 
 

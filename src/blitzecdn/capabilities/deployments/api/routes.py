@@ -5,7 +5,7 @@ from blitzecdn.api.dependencies import (
     OperatorDependency,
     require_operator,
 )
-from blitzecdn.api.models import Workflow, as_operation
+from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.deployments.api.models import (
     Deployment,
     DeployRequest,
@@ -45,26 +45,6 @@ def deployments(
         as_operation(item, Deployment)
         for item in control.deployments.list_deployments(limit)
     ]
-
-
-@router.get("/v1/workflows", response_model=list[Workflow])
-def list_workflows(
-    control: ControlPlaneDependency,
-    limit: int = Query(default=100, ge=1, le=1000),
-) -> list[Workflow]:
-    """Durable progress for operations that crossed external systems."""
-    return [
-        as_operation(item, Workflow)
-        for item in control.workflow_history.list_workflows(limit)
-    ]
-
-
-@router.get("/v1/workflows/{workflow_id}", response_model=Workflow)
-def get_workflow(
-    workflow_id: str,
-    control: ControlPlaneDependency,
-) -> Workflow:
-    return as_operation(control.workflow_history.get(workflow_id), Workflow)
 
 
 @router.get("/v1/deployments/{deployment_id}", response_model=Deployment)

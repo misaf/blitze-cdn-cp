@@ -54,15 +54,15 @@ from blitzecdn.capabilities.deployments.ports import (
     SiteRestore,
     SiteValidator,
     UnitOfWork,
+    Workflows,
     ZoneEditor,
     ZoneStore,
 )
 from blitzecdn.capabilities.deployments.service import reporting
 from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
-from blitzecdn.core.application.workflows import WorkflowCoordinator
+from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
-from blitzecdn.core.domain.operations import WorkflowKind
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import DeploymentBusyError, ExecutionError
@@ -124,7 +124,7 @@ class DeploymentService:
         execution: DeploymentExecution,
         events: EventRecorder,
         dns: ZoneEditor,
-        workflows: WorkflowCoordinator,
+        workflows: Workflows,
     ) -> None:
         self.policy = policy
         self.persistence = persistence

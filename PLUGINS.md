@@ -269,13 +269,20 @@ slice — because it is the layer everything else stands on:
 
 | | what is in it | who may import it |
 | --- | --- | --- |
-| `core/domain/` | values and vocabulary: workflows, runs, events, validation, the contract base | anyone |
+| `core/domain/` | values and vocabulary: runs, events, identifiers, validation, the contract base | anyone |
 | `core/ports/` | the protocols a service declares instead of naming an implementation | anyone |
-| `core/application/` | the workflow coordinator, and nothing that orchestrates a capability | services |
 | `core/persistence/` | the engine, the physical schema, the stores | composition, and `persistence.schema` alone is published |
 | `core/runtime/` | subprocesses, files, logging, the queue, where a wheel landed | composition and adapters |
 | `core/config/`, `core/ansible/`, `core/plugins/` | settings, playbook execution, the plugin machinery | as documented below |
 | `core/exceptions.py` | the one module every layer may name | anyone |
+
+`core/application/` was a seventh row — "the workflow coordinator, and nothing
+that orchestrates a capability" — and its own docstring called itself the
+little application logic core is allowed to have. A coordinator with a domain
+model, a port, a store and a table under it is a slice, and it is
+`capabilities/workflows/` now. The package is gone rather than empty: an
+application layer in a package arranged by layer is where the next
+cross-capability service would have been filed without anybody deciding to.
 
 Core owns no business capability. `tests/architecture/test_layering.py` fails a
 `core` module that imports a capability's `service` or `adapters`, and fails a
@@ -286,7 +293,7 @@ without anybody editing a list.
 **Capabilities** (`src/blitzecdn/capabilities/`) contain required capabilities
 and stable site contracts: `sites`, `dns`, `http`, `tls`, `cache`,
 `compression`, `security`, `deployments`, `edges`, `diagnostics`,
-`maintenance`. A contract-only directory — `cache`, `compression`, `security`,
+`maintenance`, `workflows`. A contract-only directory — `cache`, `compression`, `security`,
 and `http` and `tls` beyond their fleet-level plugin — is one whose
 *implementation* ships as a wheel: what stays here is the shape of the setting,
 so a stored site still reads back on a controller that has neither. Small
