@@ -13,6 +13,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
 
+from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.identifiers import DeploymentId, Operator
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 
@@ -50,6 +51,14 @@ class DeploymentStatus(StrEnum):
 
 #: The states a deployment can finish in. A terminal deployment is a record of
 #: what happened; nothing about it changes again.
+#: The two kinds of journal entry this capability opens, named here because
+#: this is the capability that does the work. They were members of a
+#: `WorkflowKind` enum in the journal itself, beside `certificate` — which is
+#: an optional wheel's work, and the reason the enum could not stay closed
+#: without the journal knowing every capability that might ever keep one.
+DEPLOYMENT_WORKFLOW: WorkflowKind = "deployment"
+ROLLBACK_WORKFLOW: WorkflowKind = "rollback"
+
 TERMINAL_STATUSES = frozenset(
     {
         DeploymentStatus.SUCCEEDED,

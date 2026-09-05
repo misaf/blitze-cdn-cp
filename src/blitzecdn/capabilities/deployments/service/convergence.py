@@ -36,6 +36,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from blitzecdn.capabilities.deployments.domain import (
+    DEPLOYMENT_WORKFLOW,
+    ROLLBACK_WORKFLOW,
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
@@ -209,7 +211,7 @@ class DeploymentService:
 
         with self.execution.runner.lock():
             return self._journalled(
-                WorkflowKind.DEPLOYMENT,
+                DEPLOYMENT_WORKFLOW,
                 operator,
                 None,
                 "converged",
@@ -273,7 +275,7 @@ class DeploymentService:
 
         with self.execution.runner.lock():
             return self._journalled(
-                WorkflowKind.ROLLBACK,
+                ROLLBACK_WORKFLOW,
                 operator,
                 deployment_id,
                 "converged_and_adopted",
@@ -298,11 +300,7 @@ class DeploymentService:
             deployment = self.persistence.deployments.get_deployment(deployment_id)
             if deployment.status is not DeploymentStatus.QUEUED:
                 return deployment
-            kind = (
-                WorkflowKind.ROLLBACK
-                if deployment.rollback_of
-                else WorkflowKind.DEPLOYMENT
-            )
+            kind = ROLLBACK_WORKFLOW if deployment.rollback_of else DEPLOYMENT_WORKFLOW
             checkpoint = (
                 "converged_and_adopted" if deployment.rollback_of else "converged"
             )

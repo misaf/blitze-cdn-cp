@@ -112,7 +112,7 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings):
 
     assert _await_workflow(repository, queued.id) is WorkflowStatus.SUCCEEDED
     workflows = repository.workflows.list_workflows(10)
-    assert [workflow.kind for workflow in workflows] == [WorkflowKind.DEPLOYMENT]
+    assert [workflow.kind for workflow in workflows] == [DEPLOYMENT_WORKFLOW]
     assert workflows[0].resource_id == queued.id
     assert [step.name for step in workflows[0].steps] == ["converged"]
 

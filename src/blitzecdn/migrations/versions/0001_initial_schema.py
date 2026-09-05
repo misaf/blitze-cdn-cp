@@ -195,7 +195,7 @@ def upgrade() -> None:
         sa.Column("steps", sqlite.JSON(), nullable=False),
         sa.Column("error", sa.String(), nullable=True),
         sa.CheckConstraint(
-            "kind IN ('deployment', 'rollback', 'certificate')",
+            "kind <> '' AND length(kind) <= 64 AND kind = lower(kind)",
             name="workflows_kind_check",
         ),
         sa.CheckConstraint(

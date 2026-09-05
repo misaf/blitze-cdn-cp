@@ -12,7 +12,6 @@ from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import (
-    WorkflowKind,
     WorkflowStatus,
     WorkflowStep,
 )
@@ -244,7 +243,7 @@ def test_transactions_never_leak_between_repository_instances(settings):
 def test_workflow_progress_is_durable(settings):
     repository = Repository(settings.database_path)
     workflow = repository.workflows.create(
-        "workflow-1", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+        "workflow-1", "certificate", "alice", "cdn-example-com"
     )
     assert workflow.status is WorkflowStatus.PENDING
     repository.workflows.advance(
@@ -382,7 +381,7 @@ def test_workflow_retention_never_drops_an_unfinished_one(settings):
     repository = Repository(settings.database_path)
     for index in range(6):
         workflow = repository.workflows.create(
-            f"workflow-{index}", WorkflowKind.CERTIFICATE, "alice", "cdn-example-com"
+            f"workflow-{index}", "certificate", "alice", "cdn-example-com"
         )
         if index < 4:
             repository.workflows.advance(workflow.id, WorkflowStatus.SUCCEEDED)

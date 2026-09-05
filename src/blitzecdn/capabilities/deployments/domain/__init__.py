@@ -12,6 +12,8 @@ once as a domain file, once as a module other capabilities may import.
 
 from blitzecdn.capabilities.deployments.domain.deployment import (
     DEPLOYMENT_TRANSITIONS,
+    DEPLOYMENT_WORKFLOW,
+    ROLLBACK_WORKFLOW,
     TERMINAL_STATUSES,
     Deployment,
     DeploymentRequirementKind,
@@ -24,6 +26,8 @@ from blitzecdn.capabilities.deployments.domain.deployment import (
 
 __all__ = [
     "DEPLOYMENT_TRANSITIONS",
+    "DEPLOYMENT_WORKFLOW",
+    "ROLLBACK_WORKFLOW",
     "TERMINAL_STATUSES",
     "Deployment",
     "DeploymentRequirementKind",

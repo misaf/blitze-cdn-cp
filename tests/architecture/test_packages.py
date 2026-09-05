@@ -1045,6 +1045,39 @@ def test_the_country_settings_derive_their_token_generically_in_core():
     assert offenders == []
 
 
+#: The kinds of work a journal entry can record, and who names each. Every one
+#: of these was a member of `WorkflowKind` inside the journal itself, which
+#: made a capability's work part of the vocabulary of the capability that
+#: merely records it — `certificate` most plainly, since it is an optional
+#: wheel's and a controller without that wheel still carried the name.
+_WORKFLOW_KINDS_OWNED_BY_A_CAPABILITY = {
+    "deployment": "deployments",
+    "rollback": "deployments",
+    "certificate": "blitzecdn-certificates",
+}
+
+
+def test_the_journal_names_no_capability_s_work():
+    """`workflows` records that something reached a checkpoint, never what.
+
+    The mirror of `test_the_composition_names_no_capability_token_at_all`, one
+    layer down: `sites` composes every contract's requirements without naming
+    one, and `workflows` records every capability's long operations without
+    naming one either. `WorkflowKind` is a validated shape now, each kind is
+    declared beside the work it names, and what the database checks is that
+    shape rather than a list it cannot be told about.
+    """
+    offenders = [
+        f"workflows/{path.relative_to(SOURCE / 'capabilities/workflows')} "
+        f"names {node.value!r}, which is {owner}'s work"
+        for path in sorted((SOURCE / "capabilities/workflows").rglob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Constant)
+        and (owner := _WORKFLOW_KINDS_OWNED_BY_A_CAPABILITY.get(node.value))
+    ]
+    assert offenders == []
+
+
 def test_the_composition_names_no_capability_token_at_all():
     """The property the whitelist above is only the GeoIP half of.
 

@@ -45,7 +45,7 @@ class WorkflowStore:
         with self._db.session() as session:
             row = WorkflowRow(
                 id=workflow_id,
-                kind=kind.value,
+                kind=kind,
                 resource_id=resource_id,
                 status=WorkflowStatus.PENDING.value,
                 operator=operator,

@@ -30,8 +30,13 @@ class WorkflowRow(Base, table=True):
 
     __tablename__ = "workflows"
     __table_args__ = (
+        # The shape of a kind, because the set of them is not this table's to
+        # know: a capability names its own, and one of the three this used to
+        # enumerate belongs to a distribution that need not be installed. What
+        # survives is what SQL can still be sure of — non-empty, lowercase, and
+        # bounded — which is the same guarantee `WorkflowKind` gives in Python.
         CheckConstraint(
-            "kind IN ('deployment', 'rollback', 'certificate')",
+            "kind <> '' AND length(kind) <= 64 AND kind = lower(kind)",
             name="workflows_kind_check",
         ),
         CheckConstraint(

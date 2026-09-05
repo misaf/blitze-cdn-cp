@@ -18,7 +18,6 @@ from typing import Literal
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
-from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -28,6 +27,7 @@ from blitzecdn.core.exceptions import (
 )
 from blitzecdn_certificates.certificates.domain import (
     CERTIFICATE_RENEWAL_DAYS,
+    CERTIFICATE_WORKFLOW,
     CertificateInfo,
     CertificateSource,
     CertificateStatus,
@@ -115,7 +115,7 @@ class CertificateService:
     ) -> CertificateInfo:
         with (
             self.execution.runner.lock(),
-            self.workflows.run(WorkflowKind.CERTIFICATE, operator, name) as progress,
+            self.workflows.run(CERTIFICATE_WORKFLOW, operator, name) as progress,
         ):
             site = self.persistence.sites.get_site(name)
             info = self.persistence.certificates.install(
@@ -230,9 +230,7 @@ class CertificateService:
                 "provide an email or configure BLITZE_ACME_DEFAULT_EMAIL"
             )
         with self.execution.runner.lock():
-            with self.workflows.run(
-                WorkflowKind.CERTIFICATE, operator, name
-            ) as progress:
+            with self.workflows.run(CERTIFICATE_WORKFLOW, operator, name) as progress:
                 site = self.persistence.sites.get_site(name)
                 info = self._issue_certificate_locked(
                     site,
@@ -331,7 +329,7 @@ class CertificateService:
                 with (
                     self.execution.runner.lock(),
                     self.workflows.run(
-                        WorkflowKind.CERTIFICATE, operator, candidate.name
+                        CERTIFICATE_WORKFLOW, operator, candidate.name
                     ) as progress,
                 ):
                     site = self.persistence.sites.get_site(candidate.name)
