@@ -538,6 +538,75 @@ def test_core_names_no_capability_even_in_a_string():
     assert offenders == []
 
 
+#: Core's own floor: values, protocols, and the exception hierarchy every layer
+#: may name. Membership is the directory, so a module joins the rule by being
+#: put where it belongs — the bargain `_is_domain` and `_is_adapter` make for a
+#: capability, and the lesson `core` learned when its infrastructure had to be
+#: enumerated by module name in three separate tuples: a list covers the modules
+#: somebody remembered to list, and the next one written is unguarded.
+_CORE_KERNEL = ("domain", "ports", "exceptions.py")
+
+#: What the kernel may name inside `blitzecdn`: itself. An allowlist rather than
+#: a denylist here, because the direction being protected is *downward* — the
+#: kernel is the bottom, so everything else in the package is above it and the
+#: interesting question is what could possibly be below.
+_CORE_KERNEL_IMPORTS = (
+    "blitzecdn.core.domain",
+    "blitzecdn.core.ports",
+    "blitzecdn.core.exceptions",
+)
+
+
+def _core_kernel_files() -> list[Path]:
+    root = _SOURCE / "core"
+    return sorted(
+        path
+        for name in _CORE_KERNEL
+        for path in ((root / name).rglob("*.py") if "." not in name else [root / name])
+    )
+
+
+def test_core_domain_and_ports_are_framework_and_io_independent():
+    """The twin of the capability rule above, pointed at the floor it stands on.
+
+    `core/domain/__init__.py` says of itself that nothing in it "opens a file, a
+    socket, a subprocess or a database, and the layering test holds that by
+    refusing this package the imports that would". That test was this one, and
+    until now it did not exist: every core rule in this file guards the boundary
+    *between* core and the capability tree — `test_core_imports_no_capability`
+    and its two neighbours — and none of them looks inside core at all. Nothing
+    refused `core.domain.audit` an import of `core.persistence.engine`.
+
+    What rests on the property is the published SDK. `_PUBLIC_SDK_PREFIXES` in
+    `test_packages` admits `core.domain` and `core.ports` *whole*, while
+    `core.runtime` and `core.persistence` publish one named module at a time —
+    `resources`, `filesystem`, `process`, `schema` — because those do I/O and
+    each one is a separate promise. The comment there says the two packages are
+    publishable "by construction". This is the construction: an I/O module added
+    to `core/domain/` would join the public SDK the moment it was written, and
+    the only thing that would have caught it was somebody remembering why the
+    prefix list has two shapes in it.
+
+    `pydantic` is allowed and is deliberately absent from `_IO_IMPORTS`: every
+    value in `core/domain` is a pydantic model, and validating a value is not
+    reaching for the machine. `core/exceptions.py` is in the kernel because it
+    is what PLUGINS.md calls the one module every layer may name — a leaf with
+    no imports at all, and a rule that let it grow one would be describing the
+    package it used to be.
+    """
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _core_kernel_files()
+        for imported in sorted(_imports(path))
+        if _banned(imported, _IO_IMPORTS)
+        or (
+            imported.startswith("blitzecdn")
+            and not _banned(imported, _CORE_KERNEL_IMPORTS)
+        )
+    ]
+    assert offenders == []
+
+
 def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
     assert "blitzecdn.composition" in _imports(_SOURCE / "worker.py")
     offenders = [

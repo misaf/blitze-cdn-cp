@@ -269,6 +269,10 @@ def test_optional_packages_depend_on_each_other_only_when_they_say_so(package: P
 #: the shape of core rather than an inconsistency. `core.domain` is values and
 #: `core.ports` is protocols: everything in either is publishable by
 #: construction, and a module added to one is a new value or a new protocol.
+#: `test_core_domain_and_ports_are_framework_and_io_independent` is that
+#: construction, and it is the reason a prefix may stand here in place of a
+#: list — without it, an I/O module written into `core/domain/` would join the
+#: public SDK on the day it appeared and nothing would say so.
 #: `core.runtime` and `core.persistence` do I/O, so each published module there
 #: is a separate promise — `resources` is one, `schema` is one, and neither
 #: makes the package beside it public.
