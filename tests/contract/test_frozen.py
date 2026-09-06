@@ -32,10 +32,12 @@ meant to catch.
 from __future__ import annotations
 
 import difflib
+import re
 
 import frozen_surfaces as surfaces
 import pytest
 from frozen_surfaces import FROZEN, installed
+from paths import REPO_ROOT
 from published_surface import _PUBLIC_SDK_PREFIXES, facade_private_modules
 
 
@@ -168,3 +170,44 @@ def test_what_the_sdk_publishes_is_what_a_wheel_is_allowed_to_import():
         if line
     }
     assert published & private == set()
+
+
+def test_the_compatibility_policy_cites_things_that_exist():
+    """The document that says what is promised, held to the same standard.
+
+    COMPATIBILITY.md is a policy about names, written in names: the six golden
+    files, the tests that enforce them, and the helpers that derive what is
+    public. Every one of those can be renamed by a commit that never opens the
+    document, and a policy citing a test that no longer exists is worse than no
+    policy — it reads as enforcement and is decoration.
+
+    This is the same failure the built-in capability map had, found the same
+    way: prose naming code, with nothing checking the names. So the citations
+    are extracted and resolved. What is *said* about each is still a human's
+    job; that it refers to something real is not.
+    """
+    document = (REPO_ROOT / "COMPATIBILITY.md").read_text(encoding="utf-8")
+
+    goldens = set(re.findall(r"`(\w+)\.txt`", document))
+    assert goldens, "the surface table names no golden files; the format moved"
+    missing_goldens = {
+        name for name in goldens if not (FROZEN / f"{name}.txt").is_file()
+    }
+    assert missing_goldens == set(), f"COMPATIBILITY.md names {missing_goldens}"
+
+    cited = set(re.findall(r"`(test_\w+)`", document))
+    assert cited, "the enforcement table cites no tests; the format moved"
+    defined = {
+        name
+        for path in (
+            *REPO_ROOT.glob("tests/**/*.py"),
+            *REPO_ROOT.glob("packages/*/tests/*.py"),
+        )
+        for name in re.findall(
+            r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.M
+        )
+    }
+    assert cited <= defined, (
+        f"COMPATIBILITY.md cites tests that do not exist: {sorted(cited - defined)}. "
+        "Rename it there too, or say what replaced it."
+    )

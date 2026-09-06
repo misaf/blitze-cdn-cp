@@ -609,7 +609,10 @@ today, and never on plugin initialization order. The graph stays acyclic and
 
 ### The public SDK boundary
 
-A package may import only what core intends to publish:
+A package may import only what core intends to publish. What that means for a
+wheel that has already shipped — which names are promised, what a version
+number obliges, and how a promise is withdrawn — is
+[COMPATIBILITY.md](COMPATIBILITY.md).
 
 ```python
 from blitzecdn.core.plugins import (
