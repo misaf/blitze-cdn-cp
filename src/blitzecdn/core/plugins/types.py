@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from typer import Typer
 
+    from blitzecdn.core.config import Settings
+
 #: The pluggy project name. It prefixes every hook, which is what lets one
 #: manager host hooks from packages that never heard of each other.
 PROJECT_NAME = "blitzecdn"
@@ -515,10 +517,15 @@ class RuntimeContext:
     """What a lifecycle contribution is told about the process it runs in."""
 
     process: ProcessKind
-    #: `Settings`, untyped here only because `core.plugins` sits underneath
-    #: `core.config` in no particular order and the value is opaque to this
-    #: module. Every implementation annotates it concretely.
-    settings: object
+    #: The process's resolved configuration. Annotated under `TYPE_CHECKING`,
+    #: the same way `Typer` is. It was `object`, and said the reason was that
+    #: `core.plugins` and `core.config` sit in no particular order — but
+    #: `core.config` imports nothing from `core.plugins`, in either direction,
+    #: so there was no cycle to avoid. What it left was the one untyped member
+    #: of an otherwise fully typed ABI: a startup hook is handed this and mypy
+    #: had nothing to say about any attribute read off it, in this repository
+    #: or in a wheel.
+    settings: Settings
 
 
 @dataclass(frozen=True, slots=True)

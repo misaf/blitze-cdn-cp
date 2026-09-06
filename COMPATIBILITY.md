@@ -43,7 +43,7 @@ core-only one.
 | **HTTP API** | `http.txt` | API clients | the assembled FastAPI app: every route, and every field of every published schema |
 | **Ansible** | `ansible.txt` | operators' inventories and desired-state documents | every role's `meta/argument_specs.yml`, one line per declared key however deeply it nests |
 | **Published SDK** | `sdk.txt` | third-party wheels | every public name under `_PUBLIC_SDK_PREFIXES`, at the shallowest path that reaches it |
-| **Plugin ABI** | `plugin_abi.txt` | third-party wheels | every hookspec's signature, every contribution dataclass's fields, and the supported hook versions |
+| **Plugin ABI** | `plugin_abi.txt` | third-party wheels | every hookspec's signature, every contribution dataclass's fields, the supported hook versions, and the bounds on the frameworks the ABI is expressed in |
 | **Database schema** | `schema.txt` | every installation, forever | `SQLModel.metadata`: columns, types, nullability, keys, indexes, CHECK constraints, `ondelete`, and the Alembic head |
 | **CLI** | `cli.txt` | operator scripts, systemd timers, CI | the assembled Typer tree: every command, option, type and default |
 
@@ -68,6 +68,14 @@ meaning changes is the failure worth catching:
   plugin parses.
 - **Constraints.** All thirteen CHECK constraints, because `type IN ('A',
   'AAAA')` is a promise to every row an installation will ever write.
+- **The frameworks the ABI is written in.** A hookspec returns
+  `Sequence[APIRouter]` and a contribution carries a `Typer`, so a wheel
+  implementing either is written against FastAPI and Typer as surely as
+  against these dataclasses — and pluggy is the mechanism itself. Core pins all
+  three and a wheel inherits the bound through `blitzecdn>=3.0.0,<4`, but
+  nothing recorded *which* major the contract assumed. They are lines in
+  `plugin_abi.txt` now, derived from what the ABI modules import, so a fourth
+  library entering a hookspec signature brings its bound with it.
 
 ## What is not public
 
@@ -118,6 +126,12 @@ BlitzeCDN and its optional distributions share a version and release together.
 An optional wheel declares `blitzecdn>=3.0.0,<4`. That upper bound is the first
 compatibility lock and the one that acts earliest: `pip` refuses the install
 rather than letting a wheel load against a core it was not written for.
+
+**Widening a framework bound is a major version.** Allowing `typer<2` where the
+ABI said `typer<1` changes what `CliCommandGroup.app` *is* for every wheel that
+constructs one, and no other line of any golden file moves when it happens. The
+`framework` lines exist so that change arrives as a diff rather than as a
+report from somebody whose plugin stopped loading.
 
 ### The hook contract
 
