@@ -177,14 +177,22 @@ docker save blitzecdn-edge:standalone | into_container 'docker load' >/dev/null 
 dump_ansible_log() {
   # shellcheck disable=SC2016
   in_container 'set -- /var/lib/blitzecdn/logs/*.log
-    if [ -e "$1" ]; then
-      latest=$(ls -t /var/lib/blitzecdn/logs/*.log | head -1)
-      printf "Ansible log: %s\n" "$latest"
-      sed -n "1,240p" "$latest"
-    else
+    if [ ! -e "$1" ]; then
       printf "No Ansible logs under /var/lib/blitzecdn/logs\n"
       ls -la /var/lib/blitzecdn || true
-    fi' || true
+      exit 0
+    fi
+    latest=$(ls -t /var/lib/blitzecdn/logs/*.log | head -1)
+    printf "Ansible log: %s\n\n" "$latest"
+    # The changed tasks and nothing else. The play is several hundred `ok:`
+    # lines that say nothing about a disagreement, and the head of it is the
+    # argument-spec validation for roles that agreed — which is all the first
+    # version of this printed. Ansible writes each diff immediately above the
+    # `changed:` line it belongs to, so the context is the report.
+    grep -B 40 -A 1 "^changed: \[" "$latest" ||
+      printf "No changed tasks in the log; the disagreement is not a task diff.\n"
+    printf "\n--- recap ---\n"
+    sed -n "/^PLAY RECAP/,\$p" "$latest"' || true
 }
 
 say "Converging this host as an edge"
@@ -243,6 +251,13 @@ in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second 
 in_container 'cd / && blitzecdn drift --json' || {
   # shellcheck disable=SC2016
   dump_ansible_log
+  # The two files the stack renders itself from. A check-mode diff says which
+  # line disagrees; these say what the converge actually settled on, which is
+  # the other half of the comparison and is not in any log.
+  in_container 'printf "\n--- compose file on the host ---\n"
+    cat /etc/blitzecdn/compose.yml 2>&1 | grep -vE "^ *#|^$"
+    printf "\n--- recorded runtime image ---\n"
+    cat /var/lib/blitzecdn/edge/image 2>&1' || true
   fail "the fleet reports drift immediately after converging"
 }
 
