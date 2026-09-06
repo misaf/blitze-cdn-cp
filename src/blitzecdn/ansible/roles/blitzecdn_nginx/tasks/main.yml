@@ -111,12 +111,21 @@
     path: "{{ item.path }}"
     state: absent
   vars:
+    # Prefixed by replacing the empty match at `^`, and deliberately not by
+    # capturing the whole string and writing it back. A backreference does not
+    # survive the trip from this file to `re.sub`: the replacement arrives with
+    # its backslash escaped and every path comes out as the literal
+    # `blitzecdn-plugin-\1`, which matches nothing on disk — so `rejectattr`
+    # below rejected nothing, and the task removed every fragment the render
+    # above had just written. An edge lost its `js_import` that way, and Under
+    # Attack Mode could not load on any host.
     blitzecdn_nginx_desired_http_resource_paths: >-
       {{
         blitzecdn_nginx_resources.http | default([])
         | map(attribute='name')
         | map('regex_replace', '\.j2$', '')
-        | map('regex_replace', '^(.*)$', blitzecdn_edge_runtime.paths.nginx ~ '/conf.d/blitzecdn-plugin-\\1')
+        | map('regex_replace', '^',
+              blitzecdn_edge_runtime.paths.nginx ~ '/conf.d/blitzecdn-plugin-')
         | list
       }}
   loop: >-
