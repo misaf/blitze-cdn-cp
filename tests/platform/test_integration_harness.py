@@ -232,3 +232,20 @@ def test_the_harness_certificates_live_where_the_runtime_can_read_them():
             "edge container has no mount for; only paths under the runtime's "
             f"TLS directory reach nginx, and the script writes {sorted(written)}"
         )
+
+
+def test_the_idempotency_check_reports_what_failed_to_settle():
+    """`changed=1` is a count, and the harness costs five minutes to reach it.
+
+    A guard for a diagnostic rather than for behaviour, which this module has
+    earned the right to hold: every failure in this harness is expensive to
+    reproduce, and the one that motivated `--diff` was a single file task
+    flipping one attribute of one path with nothing in the log to say which.
+    """
+    commands = _commands()
+    converge = re.search(r"converged=\$\(converge([^)]*)\)", commands)
+    assert converge, "the harness no longer captures a repeated converge"
+    assert "--diff" in converge.group(1), (
+        "the idempotency check runs without --diff, so a converge that fails "
+        "to settle reports a count and not the attribute that moved"
+    )
