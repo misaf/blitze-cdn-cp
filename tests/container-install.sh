@@ -284,10 +284,16 @@ in_container 'test "$(stat -c %a "$(ls -t /var/backups/blitzecdn/*.tar.gz | head
 # shellcheck disable=SC2016
 in_container 'cd / && blitzecdn backup inspect "$(ls -t /var/backups/blitzecdn/*.tar.gz | head -1)" | grep -q "^  database$"' ||
   fail "the backup does not declare a database component"
-in_container 'cd / && blitzecdn backup create --only database -o /opt/blitzecdn/.state/database-only.tar.gz' ||
+# /var/backups/blitzecdn, and not the state directory, because the CLI runs
+# inside the control plane's container and the two do not agree on a name for
+# the state directory: the host calls it /var/lib/blitzecdn and the container
+# mounts it at /opt/blitzecdn/.state. The backup directory is mounted at the
+# path it already has, so it is the one place an operator can name an archive
+# and have both halves of this test mean the same file.
+in_container 'cd / && blitzecdn backup create --only database -o /var/backups/blitzecdn/database-only.tar.gz' ||
   fail "a database-only backup failed"
-in_container 'test -s /var/lib/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
-in_container 'cd / && blitzecdn backup restore /var/lib/blitzecdn/database-only.tar.gz --yes' ||
+in_container 'test -s /var/backups/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
+in_container 'cd / && blitzecdn backup restore /var/backups/blitzecdn/database-only.tar.gz --yes' ||
   fail "a database-only restore failed"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||
   fail "the database restore did not restart the API"
