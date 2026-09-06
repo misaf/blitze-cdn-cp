@@ -153,5 +153,14 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The harness builds the edge image from the module set the installed
+      # capabilities declare, and resolves it with `blitzecdn edge image spec`
+      # rather than being handed one — the same command the publish workflow
+      # builds from. It syncs the workspace itself, so that it stays runnable
+      # by hand on any host with Docker; all this job owes it is uv.
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+        with:
+          version: "0.12.3"
+          enable-cache: true
       - name: Provision and test HTTP/1.1, HTTP/2, HTTP/3, GeoIP2, and Brotli
         run: bash tests/http3-edge-integration.sh
