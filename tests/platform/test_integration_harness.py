@@ -420,3 +420,60 @@ def test_the_drift_diagnostic_names_the_files_the_stack_renders_itself_from():
             f"the drift diagnostic does not print {path}, which is one of the "
             "two files the disagreement is between"
         )
+
+
+#: What the CLI container can see. The `blitzecdn` wrapper runs the CLI inside
+#: the control plane's own container, so a path is addressable only if it falls
+#: under one of that service's bind mounts — and the host and the container do
+#: not agree on the names. The state directory in particular is
+#: /var/lib/blitzecdn to the host and /opt/blitzecdn/.state to the CLI.
+#: A mount is written as `<host variable> ~ '<suffix>:<target>[:ro]'`, so the
+#: container's name for it is the second colon-separated field of the literal.
+_CLI_MOUNT = re.compile(r"~\s*'([^']+)'")
+
+
+def _cli_visible_paths():
+    """The container-side path of every mount the CLI service declares."""
+    template = (
+        CORE_ANSIBLE / "roles/blitzecdn_controlplane/templates/compose.yml.j2"
+    ).read_text(encoding="utf-8")
+    service = template.split("blitzecdn-cli:", 1)[1].split("entrypoint:", 1)[0]
+    targets = set()
+    for match in _CLI_MOUNT.finditer(service):
+        fields = match.group(1).split(":")
+        if len(fields) >= 2 and fields[1].startswith("/"):
+            targets.add(fields[1])
+    return targets
+
+
+@pytest.mark.parametrize("harness", NESTED_ENGINE_HARNESSES, ids=lambda p: p.name)
+def test_the_harnesses_name_paths_the_cli_can_reach_from_its_container(harness):
+    """A host path handed to the CLI is a path the CLI cannot open.
+
+    The harness runs on the host and the CLI runs in a container, and the two
+    have different names for the same directory. Writing a backup to the state
+    directory by its container name and then restoring it by its host name is
+    one file and two spellings, and it failed with `does not exist` about a
+    path that plainly did exist — from the host, which is where the person
+    reading the failure is standing.
+
+    Every such path has been wrong at least once: the Ansible log, the compose
+    file, this archive. So the mounts are read from the service that declares
+    them rather than restated here.
+    """
+    visible = _cli_visible_paths()
+    assert "/opt/blitzecdn/.state" in visible, (
+        "the CLI service no longer mounts the state directory; this test is "
+        "reading the wrong service"
+    )
+    for tokens in _cli_invocations(harness):
+        for token in tokens:
+            if not token.startswith("/"):
+                continue
+            assert any(
+                token == mount or token.startswith(mount.rstrip("/") + "/")
+                for mount in visible
+            ), (
+                f"{harness.name} passes {token} to the CLI, which runs inside "
+                f"the control plane's container and can only see {sorted(visible)}"
+            )
