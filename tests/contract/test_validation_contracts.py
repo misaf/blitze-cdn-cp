@@ -18,6 +18,7 @@ from contract_support import *
 
 VALIDATE_TASKS = ROLE_DIR / "tasks/validate.yml"
 NGINX_BUILD_INVARIANT_TASKS = ROLE_DIR / "tasks/build-invariant.yml"
+NGINX_PROBE_INVARIANT_TASKS = ROLE_DIR / "tasks/probe-invariant.yml"
 
 
 def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: Any):
@@ -86,24 +87,51 @@ def _run_nginx_build_capability(
     read two variables, so a test can hand them the output of a build that does
     not exist rather than needing an engine, an image and a network.
     """
+    return _run_nginx_invariant(
+        tmp_path,
+        NGINX_BUILD_INVARIANT_TASKS,
+        {
+            "blitzecdn_nginx_config_test_image": "example/edge:test",
+            "blitzecdn_nginx_build_status": 0,
+            "blitzecdn_nginx_build_output": (
+                f"nginx version: nginx/{version}\n"
+                f"configure arguments: {configure_arguments}\n"
+            ),
+        },
+    )
+
+
+def _run_nginx_probe_invariant(tmp_path: Path, probe: dict[str, Any]):
+    """Execute the probe invariant against a fabricated module result.
+
+    The result of a probe that never ran is the case worth covering, and it is
+    the one no engine will produce on demand: the assertion exists because a
+    module error leaves no `status` behind, and `default(1)` then reads that
+    absence as an image with no nginx in it.
+    """
+    return _run_nginx_invariant(
+        tmp_path,
+        NGINX_PROBE_INVARIANT_TASKS,
+        {
+            "blitzecdn_nginx_config_test_image": "example/edge:test",
+            "blitzecdn_nginx_build_probe": probe,
+        },
+    )
+
+
+def _run_nginx_invariant(tmp_path: Path, tasks_file: Path, variables: dict[str, Any]):
+    """Run one of the role's assertion-only task files against localhost."""
     ansible_local = tmp_path / "ansible-local"
     ansible_local.mkdir()
-    playbook = tmp_path / "nginx-build-capability.yml"
+    playbook = tmp_path / f"{tasks_file.stem}-run.yml"
     playbook.write_text(
         yaml.safe_dump(
             [
                 {
                     "hosts": "localhost",
                     "gather_facts": False,
-                    "vars": {
-                        "blitzecdn_nginx_config_test_image": "example/edge:test",
-                        "blitzecdn_nginx_build_status": 0,
-                        "blitzecdn_nginx_build_output": (
-                            f"nginx version: nginx/{version}\n"
-                            f"configure arguments: {configure_arguments}\n"
-                        ),
-                    },
-                    "tasks": [{"import_tasks": str(NGINX_BUILD_INVARIANT_TASKS)}],
+                    "vars": variables,
+                    "tasks": [{"import_tasks": str(tasks_file)}],
                 }
             ]
         ),
@@ -148,6 +176,35 @@ def test_nginx_invariant_rejects_an_unsupported_build_clearly(tmp_path):
     )
     assert result.returncode != 0
     assert "does not contain a working nginx binary" in result.stdout
+
+
+def test_nginx_probe_invariant_accepts_a_probe_that_ran(tmp_path):
+    """Including one that ran and came back non-zero.
+
+    A container that started and exited badly is build-invariant.yml's to
+    judge, and it has the output to judge it with. This gate is only about
+    whether there is a result at all.
+    """
+    result = _run_nginx_probe_invariant(tmp_path, {"status": 1, "container": {}})
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_nginx_probe_invariant_separates_a_probe_that_never_ran(tmp_path):
+    """The message must be about the probe, not about the image.
+
+    `failed_when: false` on the probe means a module error arrives here as a
+    result with no `status` in it, which `default(1)` would otherwise render as
+    an image with no nginx binary — sending whoever reads the failure to
+    inspect an image that was never opened.
+    """
+    result = _run_nginx_probe_invariant(
+        tmp_path,
+        {"failed": True, "msg": "Error starting container: OCI runtime create failed"},
+    )
+    assert result.returncode != 0
+    assert "OCI runtime create failed" in result.stdout
+    assert "it is the probe that failed" in result.stdout
+    assert "does not contain a working nginx binary" not in result.stdout
 
 
 def test_role_validation_tasks_actually_run(desired_state, tmp_path):

@@ -20,6 +20,12 @@
   changed_when: false
   failed_when: false
 
+# The same separation the two invariants below get, and for the same reason:
+# whether the probe ran is an assertion, so it belongs in a file a test can
+# execute against a fabricated result rather than one that needs an engine.
+- name: Require the build probe to have run
+  ansible.builtin.import_tasks: probe-invariant.yml
+
 - name: Describe the edge runtime build
   ansible.builtin.set_fact:
     blitzecdn_nginx_build_status: "{{ blitzecdn_nginx_build_probe.status | default(1) }}"
