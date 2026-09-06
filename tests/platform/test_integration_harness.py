@@ -22,6 +22,7 @@ import re
 import shlex
 
 import pytest
+import yaml
 from paths import REPO_ROOT
 
 PROJECT_DIR = REPO_ROOT
@@ -354,3 +355,31 @@ def test_the_harnesses_call_the_cli_this_repository_actually_ships(harness):
                 f"{harness.name} passes {name} to `{path}`, which declares "
                 f"only {sorted(published[path])}"
             )
+
+
+def test_the_install_harness_reads_the_logs_where_the_host_keeps_them():
+    """A diagnostic that prints nothing is worse than no diagnostic.
+
+    The drift check dumps the last Ansible log when the fleet reports drift,
+    and the runner invokes `--check --diff`, so that log is exactly where the
+    disagreement is written down. It looked under `/opt/blitzecdn/.state/logs`
+    — which is where the control plane sees its state from *inside* the CLI
+    container. The host path behind that bind mount is what a `docker exec`
+    into the systemd host can read, and the one failure the diagnostic exists
+    for printed `No such file or directory` instead of the diff.
+    """
+    state_dir = yaml.safe_load(
+        (
+            REPO_ROOT
+            / "src/blitzecdn/ansible/roles/blitzecdn_controlplane/defaults/main.yml"
+        ).read_text(encoding="utf-8")
+    )["blitzecdn_controlplane_state_dir"]
+    commands = _commands(INSTALL_HARNESS)
+
+    assert f"{state_dir}/logs" in commands, (
+        f"the harness does not read the host's log directory ({state_dir}/logs)"
+    )
+    assert "/opt/blitzecdn/.state/logs" not in commands, (
+        "the harness reads the container's view of the state directory, which "
+        "is not a path the host it runs `docker exec` against can see"
+    )

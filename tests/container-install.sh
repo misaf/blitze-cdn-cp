@@ -165,6 +165,28 @@ in_container 'systemctl enable --now docker' || fail "Docker did not start"
 docker save blitzecdn-edge:standalone | into_container 'docker load' >/dev/null ||
   fail "could not load the edge runtime image into the disposable host"
 
+# The raw Ansible output for the last run, which is where a check-mode diff
+# lands: the runner invokes `--check --diff`, so the log says which line of
+# which file the fleet disagrees about.
+#
+# On the *host*, not in the container. `/opt/blitzecdn/.state` is where the
+# control plane sees its state from inside the CLI container; the bind mount
+# behind it is `/var/lib/blitzecdn`, and that is the only path a `docker exec`
+# into the systemd host can read. Looking in the container's path printed "no
+# such file" and nothing else on the one failure it exists for.
+dump_ansible_log() {
+  # shellcheck disable=SC2016
+  in_container 'set -- /var/lib/blitzecdn/logs/*.log
+    if [ -e "$1" ]; then
+      latest=$(ls -t /var/lib/blitzecdn/logs/*.log | head -1)
+      printf "Ansible log: %s\n" "$latest"
+      sed -n "1,240p" "$latest"
+    else
+      printf "No Ansible logs under /var/lib/blitzecdn/logs\n"
+      ls -la /var/lib/blitzecdn || true
+    fi' || true
+}
+
 say "Converging this host as an edge"
 # The one place an edge role is ever executed. Everything else about the roles
 # is checked by shape — ansible-lint, --syntax-check, the argument-spec
@@ -199,7 +221,7 @@ in_container 'cd / && blitzecdn record add example.test cdn --site cdn-example-t
 # the case the `not ansible_check_mode` gates exist for.
 in_container 'cd / && blitzecdn plan --json >/dev/null' || {
   # shellcheck disable=SC2016
-  in_container 'latest=$(ls -t /opt/blitzecdn/.state/logs/*.log | head -1); printf "Ansible log: %s\n" "$latest"; sed -n "1,240p" "$latest"' || true
+  dump_ansible_log
   fail "check-mode run failed"
 }
 
@@ -220,7 +242,7 @@ in_container '! command -v nginx' || fail "nginx was installed on the host"
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "second deploy failed"
 in_container 'cd / && blitzecdn drift --json' || {
   # shellcheck disable=SC2016
-  in_container 'latest=$(ls -t /opt/blitzecdn/.state/logs/*.log | head -1); printf "Ansible log: %s\n" "$latest"; sed -n "1,240p" "$latest"' || true
+  dump_ansible_log
   fail "the fleet reports drift immediately after converging"
 }
 
