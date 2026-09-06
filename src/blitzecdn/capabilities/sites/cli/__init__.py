@@ -51,6 +51,7 @@ _HELP_ORDER = (
     "http3",
     "max-upload-size",
     "always-use-https",
+    "cache",
     "cache-query-string",
     "under-attack",
     "compression",

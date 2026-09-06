@@ -69,19 +69,99 @@ def site_show(
     common.emit(common.control_plane().sites.get_site(name), json_output=json_output)
 
 
+def _cleared(no_request_host: bool, no_sni: bool) -> frozenset[str]:
+    """The origin fields an explicit `--no-*` asked to put back to the default.
+
+    `None` is a real value for both — it means "use the visitor's Host", and
+    "follow the request host" — so it cannot double as "the operator did not
+    mention this". These two names are how the patch is told the difference.
+    """
+    asked = {"origin_request_host": no_request_host, "origin_sni": no_sni}
+    return frozenset(field for field, clear in asked.items() if clear)
+
+
 @site_app.command("origin")
 def site_origin(
     name: Annotated[str, typer.Argument()],
     origin: Annotated[
-        str, typer.Option("--origin", help="Host or address the edge fetches from.")
-    ],
+        str | None,
+        typer.Option("--origin", help="Host or address the edge fetches from."),
+    ] = None,
+    request_host: Annotated[
+        str | None,
+        typer.Option(
+            "--request-host",
+            help="Host header sent on the origin leg. Defaults to the visitor's.",
+        ),
+    ] = None,
+    no_request_host: Annotated[
+        bool,
+        typer.Option("--no-request-host", help="Forward the visitor's Host again."),
+    ] = False,
+    sni: Annotated[
+        str | None,
+        typer.Option(
+            "--sni",
+            help="TLS server name sent to the origin. Defaults to --request-host.",
+        ),
+    ] = None,
+    no_sni: Annotated[
+        bool,
+        typer.Option("--no-sni", help="Offer the request host as the TLS name again."),
+    ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Change where the edge fetches this site's content from."""
-    site = _update(name, SitePatch(origin_host=origin))
+    """Change where the edge fetches this site's content from, and as whom.
+
+    Three settings rather than one because the address and the identity are
+    separate questions. `--origin` is where the connection goes. `--request-host`
+    is the `Host` header the origin sees, which a shared host routes on, so an
+    origin serving many sites from one address needs it to tell them apart.
+    `--sni` is the name offered in the TLS handshake, which is what an origin
+    presents a certificate for; it follows `--request-host` unless a certificate
+    is issued for something else.
+
+    Both overrides are clearable — `--no-request-host` and `--no-sni` put the
+    site back on the default — because either is a value whose absence means
+    something, and a setting an operator can turn on but never off is one they
+    have to edit the database to undo.
+
+    Options you do not name are left as they are.
+    """
+    for value, clear, flag in (
+        (request_host, no_request_host, "request-host"),
+        (sni, no_sni, "sni"),
+    ):
+        if value is not None and clear:
+            raise typer.BadParameter(f"--{flag} and --no-{flag} contradict each other")
+    supplied: dict[str, object] = {
+        "origin_host": origin,
+        "origin_request_host": None if no_request_host else request_host,
+        "origin_sni": None if no_sni else sni,
+    }
+    named = {
+        field: value
+        for field, value in supplied.items()
+        if value is not None or field in _cleared(no_request_host, no_sni)
+    }
+    if not named:
+        raise typer.BadParameter(
+            "give at least one of --origin, --request-host or --sni"
+        )
+    # Built from the dict rather than by keyword: a patch applies the fields
+    # that were *set*, and `origin_sni=None` passed for an option nobody named
+    # would clear the override instead of leaving it alone. Going through the
+    # dict is what keeps "not mentioned" and "explicitly cleared" distinct.
+    site = _update(name, SitePatch.model_validate(named))
     common.emit(site, json_output=json_output)
     if not json_output:
-        typer.echo(_applied(site, f"{site.name} now fetches from {site.origin_host}."))
+        identity = site.origin_request_host or "the visitor's Host header"
+        typer.echo(
+            _applied(
+                site,
+                f"{site.name} now fetches from {site.origin_host} as {identity}.",
+            )
+        )
 
 
 @site_app.command("enable")
