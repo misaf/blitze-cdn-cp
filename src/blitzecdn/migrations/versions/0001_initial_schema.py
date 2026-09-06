@@ -59,11 +59,6 @@ def upgrade() -> None:
         sa.Column("details", sqlite.JSON(), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
-    with op.batch_alter_table("audit_events", schema=None) as batch_op:
-        batch_op.create_index(
-            batch_op.f("ix_audit_events_created_at"), ["created_at"], unique=False
-        )
-
     op.create_table(
         "deployments",
         sa.Column("id", sa.String(), nullable=False),
@@ -108,7 +103,12 @@ def upgrade() -> None:
             batch_op.f("ix_deployments_created_at"), ["created_at"], unique=False
         )
         batch_op.create_index(
-            batch_op.f("ix_deployments_status"), ["status"], unique=False
+            batch_op.f("ix_deployments_rollback_of"), ["rollback_of"], unique=False
+        )
+        batch_op.create_index(
+            batch_op.f("ix_deployments_status_created_at"),
+            ["status", "created_at"],
+            unique=False,
         )
 
     op.create_table(
@@ -146,6 +146,7 @@ def upgrade() -> None:
             blitzecdn.core.persistence.tables.UtcDateTime(),
             nullable=False,
         ),
+        sa.CheckConstraint("length(name) > 0", name="edges_name_nonempty_check"),
         sa.CheckConstraint("port BETWEEN 1 AND 65535", name="edges_port_check"),
         sa.CheckConstraint("length(host) > 0", name="edges_host_nonempty_check"),
         sa.CheckConstraint("length(user) > 0", name="edges_user_nonempty_check"),
@@ -172,6 +173,10 @@ def upgrade() -> None:
             "updated_at",
             blitzecdn.core.persistence.tables.UtcDateTime(),
             nullable=False,
+        ),
+        sa.CheckConstraint("length(name) > 0", name="sites_name_nonempty_check"),
+        sa.CheckConstraint(
+            "length(origin_host) > 0", name="sites_origin_host_nonempty_check"
         ),
         sa.PrimaryKeyConstraint("name"),
     )
@@ -206,7 +211,10 @@ def upgrade() -> None:
     )
     with op.batch_alter_table("workflows", schema=None) as batch_op:
         batch_op.create_index(
-            "workflows_status_idx", ["status", "updated_at"], unique=False
+            batch_op.f("ix_workflows_created_at"), ["created_at"], unique=False
+        )
+        batch_op.create_index(
+            "workflows_status_idx", ["status", "created_at"], unique=False
         )
 
     op.create_table(

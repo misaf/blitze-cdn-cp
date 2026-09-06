@@ -7,8 +7,11 @@ blitzecdn	check	dns_records.dns_records_type_check	type IN ('A', 'AAAA')
 blitzecdn	check	dns_records.dns_records_value_nonempty_check	value IS NULL OR length(value) > 0
 blitzecdn	check	domains.domains_name_nonempty_check	length(name) > 0
 blitzecdn	check	edges.edges_host_nonempty_check	length(host) > 0
+blitzecdn	check	edges.edges_name_nonempty_check	length(name) > 0
 blitzecdn	check	edges.edges_port_check	port BETWEEN 1 AND 65535
 blitzecdn	check	edges.edges_user_nonempty_check	length(user) > 0
+blitzecdn	check	sites.sites_name_nonempty_check	length(name) > 0
+blitzecdn	check	sites.sites_origin_host_nonempty_check	length(origin_host) > 0
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
 blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')
 blitzecdn	column	ansible_settings.name	type=VARCHAR not-null pk
@@ -69,9 +72,10 @@ blitzecdn	column	workflows.resource_id	type=VARCHAR null
 blitzecdn	column	workflows.status	type=VARCHAR not-null
 blitzecdn	column	workflows.steps	type=JSON not-null
 blitzecdn	column	workflows.updated_at	type=UtcDateTime(VARCHAR) not-null
-blitzecdn	index	audit_events.ix_audit_events_created_at	(created_at)
 blitzecdn	index	deployments.ix_deployments_created_at	(created_at)
-blitzecdn	index	deployments.ix_deployments_status	(status)
+blitzecdn	index	deployments.ix_deployments_rollback_of	(rollback_of)
+blitzecdn	index	deployments.ix_deployments_status_created_at	(status,created_at)
 blitzecdn	index	dns_records.ix_dns_records_site	(site)
-blitzecdn	index	workflows.workflows_status_idx	(status,updated_at)
+blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
+blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
 blitzecdn	revision	0001

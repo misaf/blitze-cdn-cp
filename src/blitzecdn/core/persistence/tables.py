@@ -130,9 +130,7 @@ class AuditEventRow(Base, table=True):
         default=None,
         sa_column=Column(Integer, primary_key=True, autoincrement=True),
     )
-    created_at: datetime = Field(
-        default_factory=utcnow, sa_type=UtcDateTime, index=True
-    )
+    created_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
     operator: str
     action: str
     resource_type: str
