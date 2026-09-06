@@ -23,7 +23,7 @@ import shlex
 
 import pytest
 import yaml
-from paths import REPO_ROOT
+from paths import CORE_ANSIBLE, REPO_ROOT
 
 PROJECT_DIR = REPO_ROOT
 HTTP3_HARNESS = PROJECT_DIR / "tests/http3-edge-integration.sh"
@@ -383,3 +383,40 @@ def test_the_install_harness_reads_the_logs_where_the_host_keeps_them():
         "the harness reads the container's view of the state directory, which "
         "is not a path the host it runs `docker exec` against can see"
     )
+
+
+def test_the_drift_diagnostic_names_the_files_the_stack_renders_itself_from():
+    """A check-mode diff is half a comparison.
+
+    It says which line the fleet disagrees about; what the converge actually
+    settled on lives in the compose file and the recorded image, and neither is
+    in any log. The harness therefore prints both when drift is reported — and
+    it spells the paths, so this reads them out of the roles that own them.
+    They were guessed once, and a diagnostic that cats a path nothing writes is
+    the failure this whole test exists for.
+    """
+    edge = yaml.safe_load(
+        (CORE_ANSIBLE / "roles/blitzecdn_edge/defaults/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    stack = yaml.safe_load(
+        (CORE_ANSIBLE / "roles/blitzecdn_edge_stack/defaults/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    compose = (
+        stack["blitzecdn_edge_stack_compose_file"]
+        .strip()
+        .replace(
+            "{{ blitzecdn_edge_runtime.paths.state }}",
+            edge["blitzecdn_edge_runtime"]["paths"]["state"],
+        )
+    )
+    commands = _commands(INSTALL_HARNESS)
+
+    for path in (compose, stack["blitzecdn_edge_stack_deployed_image_file"]):
+        assert path in commands, (
+            f"the drift diagnostic does not print {path}, which is one of the "
+            "two files the disagreement is between"
+        )
