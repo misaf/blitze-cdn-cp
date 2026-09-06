@@ -7,7 +7,7 @@ argument_specs:
         Removes the systemd-resolved drop-in blitzecdn_resolver wrote and
         restarts the resolver so the host returns to whatever its link
         advertises. Runs in the decommission play's capability slot, before
-        blitzecdn_teardown, and only while this distribution is installed.
+        blitzecdn_edge_teardown, and only while this distribution is installed.
       - >-
         The host goes back to resolving the way it did before BlitzeCDN
         managed it. If the reason this fleet enabled the role was that the

@@ -6,7 +6,7 @@
 # host that is no longer being converged and whose inventory entry is about to
 # be deleted. Reading the converging roles' variables would make the removal
 # depend on those roles still resolving — the same coupling core's
-# blitzecdn_teardown carries its own copies to avoid. The pairs must agree, and
+# blitzecdn_edge_teardown carries its own copies to avoid. The pairs must agree, and
 # this package's tests assert that they do.
 blitzecdn_hardening_teardown_sshd_file: /etc/ssh/sshd_config.d/50-blitzecdn.conf
 blitzecdn_hardening_teardown_fail2ban_file: /etc/fail2ban/jail.d/blitzecdn-sshd.local

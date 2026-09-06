@@ -6,6 +6,6 @@
 # converged and whose variables come from an inventory entry about to be
 # deleted. Reading blitzecdn_resolver's default would mean a removal that
 # depends on the converging role's variables still resolving — which is exactly
-# the coupling core's own blitzecdn_teardown carries its own copies to avoid.
+# the coupling core's own blitzecdn_edge_teardown carries its own copies to avoid.
 # The two must agree, and this package's tests assert that they do.
 blitzecdn_resolver_teardown_file: /etc/systemd/resolved.conf.d/blitzecdn.conf

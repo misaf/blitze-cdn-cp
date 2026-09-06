@@ -15,8 +15,8 @@ SSH. This distribution owns the second one's front door, and nothing else:
 
 The first two run in the edge play's *host* slot, after the firewall has been
 validated and the runtime is serving; the third runs in the decommission play's
-slot, before `blitzecdn_teardown` passes its verdict on the host. Core used to
-carry those two paths in `blitzecdn_teardown`'s own defaults and reload both
+slot, before `blitzecdn_edge_teardown` passes its verdict on the host. Core used to
+carry those two paths in `blitzecdn_edge_teardown`'s own defaults and reload both
 services from its own handlers, which put a capability's paths in a role that
 is installed whether or not the capability is — and left a fleet that had
 detached this distribution with a decommission asserting against files nothing

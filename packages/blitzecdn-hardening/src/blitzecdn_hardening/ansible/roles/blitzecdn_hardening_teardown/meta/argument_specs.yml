@@ -7,7 +7,7 @@ argument_specs:
         Removes the two files blitzecdn_hardening_sshd and blitzecdn_hardening_fail2ban wrote and
         settles both services, so the host returns to whatever SSH policy its
         distribution ships. Runs in the decommission play's capability slot,
-        before blitzecdn_teardown, and only while this distribution is
+        before blitzecdn_edge_teardown, and only while this distribution is
         installed.
       - >-
         The removals go in the reverse of the order the host slot converged

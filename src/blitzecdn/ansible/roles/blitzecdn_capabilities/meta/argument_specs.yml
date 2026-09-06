@@ -14,7 +14,7 @@ argument_specs:
         capability contributing something the rendered configuration depends
         on; the host slot runs after blitzecdn_edge_stack, for a capability
         configuring the host underneath a runtime that is already serving; and
-        the decommission slot runs before blitzecdn_teardown, for a capability
+        the decommission slot runs before blitzecdn_edge_teardown, for a capability
         withdrawing what it wrote from a host that is leaving inventory.
       - >-
         A capability role reads the shared edge runtime contract and notifies

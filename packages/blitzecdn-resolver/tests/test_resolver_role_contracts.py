@@ -48,7 +48,7 @@ def test_the_role_that_writes_the_drop_in_and_the_role_that_removes_it_agree() -
     is no longer being converged, whose inventory entry is about to be deleted,
     so reading the other role's default would make the removal depend on the
     converging role's variables still resolving. That is the same reason core's
-    `blitzecdn_teardown` carries copies of the paths *it* removes. The cost of
+    `blitzecdn_edge_teardown` carries copies of the paths *it* removes. The cost of
     a copy is that it can drift, and drift here is silent: the decommission
     reports success and the host keeps resolving through BlitzeCDN's servers
     forever.
@@ -124,7 +124,7 @@ def test_the_teardown_role_restores_the_host_before_the_verdict() -> None:
     """It restarts resolved inline rather than notifying a handler.
 
     Handlers flush at the end of the play, which in the decommission play is
-    after `blitzecdn_teardown` has already asserted the host is clean and
+    after `blitzecdn_edge_teardown` has already asserted the host is clean and
     passed the verdict on the whole run. A host that is about to leave
     inventory has to have its own resolver back *before* then, and this role
     has to be the thing that fails the decommission if it does not.

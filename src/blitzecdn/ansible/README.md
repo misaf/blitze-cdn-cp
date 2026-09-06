@@ -110,7 +110,7 @@ one. There are three slots, and each position is a contract:
 | --- | --- | --- | --- |
 | edge | `blitzecdn_capability_roles` | between `blitzecdn_kernel` and `blitzecdn_firewall` in `playbooks/edge.yml` | a capability contributing something the rendered configuration then depends on — early enough to have the container engine and the persistent directories, late enough that `blitzecdn_nginx` proves the whole tree loads afterwards |
 | host | `blitzecdn_host_capability_roles` | after `blitzecdn_edge_stack` in `playbooks/edge.yml` | a capability configuring the host underneath a runtime that is already serving; an edge whose containers are all broken must still be reachable for Ansible to repair it |
-| teardown | `blitzecdn_teardown_capability_roles` | before `blitzecdn_teardown` in `playbooks/decommission.yml` | a capability withdrawing what it wrote from a host that is leaving inventory, while the state tree is still there and before core's clean-host assertion passes the verdict |
+| teardown | `blitzecdn_edge_teardown_capability_roles` | before `blitzecdn_edge_teardown` in `playbooks/decommission.yml` | a capability withdrawing what it wrote from a host that is leaving inventory, while the state tree is still there and before core's clean-host assertion passes the verdict |
 
 To run the edge play by hand against a fleet with capabilities attached, ask
 the control plane for the roles path and the slot lists rather than writing

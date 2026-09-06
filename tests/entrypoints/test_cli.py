@@ -1246,12 +1246,12 @@ def test_ansible_slots_answers_for_all_three_of_cores_plays():
     assert set(document) == {
         "blitzecdn_capability_roles",
         "blitzecdn_host_capability_roles",
-        "blitzecdn_teardown_capability_roles",
+        "blitzecdn_edge_teardown_capability_roles",
     }
     # The one the justfile's literal omitted: `blitzecdn-resolver` declares an
     # edge role, and nothing in this repository says so except its own package.
     assert "blitzecdn_resolver" in document["blitzecdn_capability_roles"]
-    assert document["blitzecdn_teardown_capability_roles"]
+    assert document["blitzecdn_edge_teardown_capability_roles"]
     # Emitted even when empty, so a caller diffing this can see a slot is empty
     # rather than guess whether the question was asked.
     for roles in document.values():

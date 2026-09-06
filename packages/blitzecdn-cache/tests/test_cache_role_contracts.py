@@ -17,7 +17,7 @@ an installed wheel would not have.
 from blitzecdn_cache import ansible
 from contract_support import *
 
-CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache"
+CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_purge"
 CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
 STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_stats"
 NGINX_DIR = Path(__file__).parents[1] / "src/blitzecdn_cache/nginx"
@@ -32,8 +32,8 @@ def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
     """
     assert ansible.ROLES_PATH.is_dir()
     assert sorted(path.name for path in ansible.ROLES_PATH.iterdir()) == [
-        "blitzecdn_cache",
         "blitzecdn_cache_config",
+        "blitzecdn_cache_purge",
         "blitzecdn_cache_stats",
     ]
     assert (CACHE_ROLE_DIR / "tasks/main.yml").is_file()
@@ -59,7 +59,7 @@ def _contract_value(*path: str) -> Any:
 @pytest.mark.parametrize(
     ("cache_key", "expected"),
     [
-        ("blitzecdn_cache_path", ("paths", "cache")),
+        ("blitzecdn_cache_purge_path", ("paths", "cache")),
         ("blitzecdn_cache_purge_http_ports", ("listeners", "http")),
         ("blitzecdn_cache_purge_https_ports", ("listeners", "https")),
     ],
@@ -83,7 +83,9 @@ def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
 def test_purge_role_agrees_with_the_package_owned_nginx_resource():
     """The cache package owns both normalization and every consumer of it."""
     template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
-    assert _defaults_of(CACHE_ROLE_DIR)["blitzecdn_cache_normalize_accept_encoding"]
+    assert _defaults_of(CACHE_ROLE_DIR)[
+        "blitzecdn_cache_purge_normalize_accept_encoding"
+    ]
     assert "$blitzecdn_accept_encoding" in template
 
 
@@ -115,7 +117,7 @@ def test_purge_role_only_claims_the_cache_layout_the_nginx_role_emits():
     spec = yaml.safe_load(
         (CACHE_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
     )["argument_specs"]["main"]["options"]
-    assert spec["blitzecdn_cache_levels"]["choices"] == ["1:2"]
+    assert spec["blitzecdn_cache_purge_levels"]["choices"] == ["1:2"]
 
 
 def test_purge_covers_every_cache_key_variant_the_site_template_can_produce():
@@ -157,7 +159,7 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
     computed = tmp_path / "computed.json"
 
     variables = _defaults_of(CACHE_ROLE_DIR) | {
-        "blitzecdn_cache_path": str(cache_path),
+        "blitzecdn_cache_purge_path": str(cache_path),
         "blitzecdn_cache_purge_entries": [
             {"host": "example.com", "uri": "/asset", "scheme": "http"}
         ],

@@ -284,21 +284,23 @@ def test_teardown_separates_stopping_the_edge_from_erasing_it():
     the runtime off a host that is about to be rebuilt cannot destroy what it
     was serving.
     """
-    teardown = _role("blitzecdn_teardown")
+    teardown = _role("blitzecdn_edge_teardown")
     tasks = yaml.safe_load((teardown / "tasks/main.yml").read_text(encoding="utf-8"))
-    assert _defaults_of(teardown)["blitzecdn_teardown_remove_data"] is True
+    assert _defaults_of(teardown)["blitzecdn_edge_teardown_remove_data"] is True
 
     def gate(name: str) -> object:
         return next(task for task in tasks if task["name"] == name).get("when")
 
-    assert gate("Stop and remove the edge stack") != "blitzecdn_teardown_remove_data"
+    assert (
+        gate("Stop and remove the edge stack") != "blitzecdn_edge_teardown_remove_data"
+    )
     for destructive in (
         "Remove the ACME webroot",
         "Remove cached responses",
         "Remove controller-written edge state and TLS material",
         "Remove the managed-site registry",
     ):
-        assert gate(destructive) == "blitzecdn_teardown_remove_data", destructive
+        assert gate(destructive) == "blitzecdn_edge_teardown_remove_data", destructive
 
 
 def _walk_ansible_tasks(value: Any):

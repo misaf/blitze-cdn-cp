@@ -30,9 +30,9 @@
 
 - name: Remove edge-managed Linux state through its canonical role
   ansible.builtin.include_role:
-    name: blitzecdn_teardown
+    name: blitzecdn_edge_teardown
   vars:
-    blitzecdn_teardown_remove_logs: true
+    blitzecdn_edge_teardown_remove_logs: true
 
 - name: Remove exact BlitzeCDN-owned host paths
   ansible.builtin.file:

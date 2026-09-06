@@ -231,7 +231,7 @@ def ansible_slots() -> None:
             "blitzecdn_host_capability_roles": list(
                 resolve_host_capability_roles(contributions)
             ),
-            "blitzecdn_teardown_capability_roles": list(
+            "blitzecdn_edge_teardown_capability_roles": list(
                 resolve_teardown_capability_roles(contributions)
             ),
         },

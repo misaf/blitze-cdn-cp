@@ -28,7 +28,7 @@
 # invocation in the same play is allowed to run at all.
 #
 # The decommission slot is the mirror of the edge one and sits before
-# blitzecdn_teardown: a capability withdraws what it wrote while the state tree
+# blitzecdn_edge_teardown: a capability withdraws what it wrote while the state tree
 # it may need to read is still there, and before the clean-host assertion that
 # is the verdict on the whole decommission.
 #

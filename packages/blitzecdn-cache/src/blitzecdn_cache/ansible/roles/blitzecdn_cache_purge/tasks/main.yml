@@ -37,9 +37,9 @@
 # encoding variants would delete two paths that never existed.
 - name: Resolve the cache-key encodings in play
   ansible.builtin.set_fact:
-    blitzecdn_cache_key_encodings: >-
+    blitzecdn_cache_purge_key_encodings: >-
       {{ blitzecdn_cache_purge_encodings
-         if blitzecdn_cache_normalize_accept_encoding | bool
+         if blitzecdn_cache_purge_normalize_accept_encoding | bool
          else [''] }}
 
 # nginx hashes the cache key with MD5 and, under levels=1:2, files it at
@@ -63,13 +63,13 @@
               else blitzecdn_cache_purge_https_ports -%}
         {%- for method in blitzecdn_cache_purge_methods -%}
           {%- for port in ports -%}
-            {%- for encoding in blitzecdn_cache_key_encodings -%}
+            {%- for encoding in blitzecdn_cache_purge_key_encodings -%}
         {%- set digest = (
               (entry.scheme | default('https')) ~ port ~ method
               ~ entry.host ~ entry.uri ~ encoding
             ) | trim | hash('md5') -%}
         {%- set _ = files.append(
-              blitzecdn_cache_path ~ '/' ~ digest[-1] ~ '/' ~ digest[-3:-1] ~ '/' ~ digest
+              blitzecdn_cache_purge_path ~ '/' ~ digest[-1] ~ '/' ~ digest[-3:-1] ~ '/' ~ digest
             ) -%}
             {%- endfor -%}
           {%- endfor -%}
@@ -109,12 +109,12 @@
     - name: Remove the cached responses
       ansible.builtin.command:
         cmd: xargs -r -a {{ blitzecdn_cache_purge_manifest.path | quote }} rm -f --
-      register: blitzecdn_cache_purged
+      register: blitzecdn_cache_purge_purged
       # `rm -f` cannot report which entries were present, and nginx open source
       # cannot be asked. Reporting the pass as changed matches what the control
       # plane already documents a successful purge to mean: the object is not
       # being served from cache any more, not that it was there.
-      changed_when: blitzecdn_cache_purged.rc == 0
+      changed_when: blitzecdn_cache_purge_purged.rc == 0
 
   always:
     - name: Remove the staged list
@@ -132,7 +132,7 @@
 # does. -xdev keeps a bind-mounted directory under the cache from being walked.
 - name: Empty the cache
   ansible.builtin.command:
-    cmd: find {{ blitzecdn_cache_path | quote }} -xdev -type f -delete
-  register: blitzecdn_cache_emptied
-  changed_when: blitzecdn_cache_emptied.rc == 0
+    cmd: find {{ blitzecdn_cache_purge_path | quote }} -xdev -type f -delete
+  register: blitzecdn_cache_purge_emptied
+  changed_when: blitzecdn_cache_purge_emptied.rc == 0
   when: blitzecdn_cache_purge_all

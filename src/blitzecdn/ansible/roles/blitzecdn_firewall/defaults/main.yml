@@ -20,7 +20,7 @@ blitzecdn_firewall_ssh_sources: []
 # removal a removal. Same idea as the Nginx role's managed-site registry, and
 # the same reason: a converged resource has to be able to shrink.
 #
-# Under the contract's state path, which blitzecdn_teardown removes, so
+# Under the contract's state path, which blitzecdn_edge_teardown removes, so
 # decommissioning an edge takes the registry with it rather than leaving a file
 # that would make a rebuilt host withdraw rules it never had.
 blitzecdn_firewall_registry_file: >-

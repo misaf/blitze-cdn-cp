@@ -146,7 +146,7 @@ def test_the_roles_that_write_these_files_and_the_role_that_removes_them_agree()
     is no longer being converged, whose inventory entry is about to be deleted,
     so reading the converging roles' defaults would make the removal depend on
     those roles still resolving. That is the same reason core's
-    `blitzecdn_teardown` carries copies of the paths *it* removes. The cost of a
+    `blitzecdn_edge_teardown` carries copies of the paths *it* removes. The cost of a
     copy is that it can drift, and drift here is silent: the decommission
     reports success and the host stays public-key-only against a control plane
     that has forgotten it exists.
@@ -172,7 +172,7 @@ def test_the_teardown_role_settles_both_services_before_the_verdict() -> None:
     """It reloads and restarts inline rather than notifying handlers.
 
     Handlers flush at the end of the play, which in the decommission play is
-    after `blitzecdn_teardown` has already asserted the host is clean and passed
+    after `blitzecdn_edge_teardown` has already asserted the host is clean and passed
     the verdict on the whole run. A host about to leave inventory has to be back
     on its own access policy *before* then, and this role has to be the thing
     that fails the decommission if it is not.

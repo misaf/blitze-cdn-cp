@@ -92,7 +92,7 @@ blitzecdn_geoip_env_file: >-
 blitzecdn_geoip_reload: 5m
 
 # Systemd units this role installs. Named with the `blitzecdn-` prefix every
-# unit this collection writes carries, which is how blitzecdn_teardown finds
+# unit this collection writes carries, which is how blitzecdn_edge_teardown finds
 # and removes them without knowing this package exists.
 blitzecdn_geoip_units:
   - blitzecdn-geoipupdate.service

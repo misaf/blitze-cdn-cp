@@ -8,7 +8,7 @@ directory in the control plane's checkout to add to or prune.
 Two of them converge the host and the third withdraws what they wrote. The
 third is here for the same reason ``blitzecdn-resolver``'s teardown role is in
 its wheel: both files are at paths only this package knows, and core's
-``blitzecdn_teardown`` used to carry them — which put a capability's paths in a
+``blitzecdn_edge_teardown`` used to carry them — which put a capability's paths in a
 role that is installed whether or not the capability is, and left them there
 for any fleet that had detached this distribution.
 
@@ -53,7 +53,7 @@ HOST_ROLES = ("blitzecdn_hardening_sshd", "blitzecdn_hardening_fail2ban")
 #: per converging role would put that ordering back in core's hands, which is
 #: exactly what the slot exists to avoid.
 #:
-#: Core's ``blitzecdn_teardown`` removes the trees it wrote, the shared runtime
+#: Core's ``blitzecdn_edge_teardown`` removes the trees it wrote, the shared runtime
 #: directories and every systemd unit matching the managed prefix. A drop-in
 #: under ``/etc/ssh/sshd_config.d`` and a jail under ``/etc/fail2ban/jail.d``
 #: are none of those.

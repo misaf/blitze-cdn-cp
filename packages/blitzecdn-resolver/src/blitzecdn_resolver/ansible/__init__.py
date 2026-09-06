@@ -43,7 +43,7 @@ EDGE_ROLES = ("blitzecdn_resolver",)
 #: And the role core's decommission play runs, in its teardown slot.
 #:
 #: The drop-in is at a path only this package knows. Core's
-#: ``blitzecdn_teardown`` removes the trees it wrote, the shared runtime
+#: ``blitzecdn_edge_teardown`` removes the trees it wrote, the shared runtime
 #: directories and every systemd unit matching the managed prefix; a file under
 #: ``/etc/systemd/resolved.conf.d`` is none of those, and naming it there would
 #: put this capability's path in a role that is installed whether or not this
