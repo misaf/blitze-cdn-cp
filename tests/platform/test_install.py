@@ -719,13 +719,26 @@ def test_fresh_reuses_the_same_ansible_teardown_as_uninstall():
     assert 'run "sudo ./install.sh --uninstall"' not in fresh
 
 
+def _release_branch() -> str:
+    """The branch a release installation tracks, from the workspace version.
+
+    `install.sh` treats one branch name as a named revision worth preserving
+    across a rebuild, and it is the current major's line. Written as `"3.x"`
+    here until the 4.0.0 release, which put a version string inside two tests
+    about rebuild behaviour and made them fail on the day the branch moved —
+    for a reason that had nothing to do with what they assert.
+    """
+    version = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    return f"{re.search(r'^version = \"(\d+)', version, re.M).group(1)}.x"
+
+
 def test_fresh_preserves_the_running_source_line_like_a_new_server():
     fresh = _section("fresh")
     assert "require_upstream_origin" in fresh
     assert "remote get-url origin" in _function("require_upstream_origin")
     assert "describe --tags --exact-match HEAD" in fresh
     assert "symbolic-ref --quiet --short HEAD" in fresh
-    assert '[[ ${revision} != "3.x" ]]' in fresh
+    assert f'[[ ${{revision}} != "{_release_branch()}" ]]' in fresh
     assert 'git clone --branch "${revision}"' in fresh
     assert "git clone --depth 1" not in fresh
     assert 'git -C "${staging}" checkout --detach "${revision}"' in fresh
@@ -823,7 +836,7 @@ def test_fresh_rebuild_removes_then_reinstalls_like_a_brand_new_server(
     assert (root / "opt/blitzecdn/install.sh").exists(), "no fresh checkout was created"
 
 
-def test_fresh_rebuild_keeps_a_3_x_checkout_on_the_release_branch(tmp_path: Path):
+def test_fresh_rebuild_keeps_a_release_branch_checkout_on_its_branch(tmp_path: Path):
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
     _stub_bin(sandbox, root)
@@ -837,7 +850,7 @@ def test_fresh_rebuild_keeps_a_3_x_checkout_on_the_release_branch(tmp_path: Path
         "--yes",
         env_extra={
             "FRESH_GIT_TAG": "",
-            "FRESH_GIT_BRANCH": "3.x",
+            "FRESH_GIT_BRANCH": _release_branch(),
             "FRESH_GIT_CLONE_MARKER": str(clone_marker),
             "FRESH_REINSTALL_MARKER": str(reinstall_marker),
         },
@@ -846,7 +859,7 @@ def test_fresh_rebuild_keeps_a_3_x_checkout_on_the_release_branch(tmp_path: Path
     assert result.returncode == 0, result.stdout + result.stderr
     assert reinstall_marker.exists()
     clone_args = clone_marker.read_text(encoding="utf-8")
-    assert "clone --branch 3.x" in clone_args
+    assert f"clone --branch {_release_branch()}" in clone_args
     assert "--depth" not in clone_args
 
 

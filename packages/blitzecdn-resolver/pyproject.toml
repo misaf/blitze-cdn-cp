@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn-resolver"
-version = "3.0.0"
+version = "4.0.0"
 description = "Edge host DNS resolution capability for BlitzeCDN"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
-dependencies = ["blitzecdn>=3.0.0,<4"]
+dependencies = ["blitzecdn>=4.0.0,<5"]
 
 [project.entry-points."blitzecdn.plugins"]
 resolver = "blitzecdn_resolver.plugin"

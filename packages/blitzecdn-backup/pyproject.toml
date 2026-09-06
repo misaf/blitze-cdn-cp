@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn-backup"
-version = "3.0.0"
+version = "4.0.0"
 description = "Disaster recovery for the BlitzeCDN control plane: archive and restore its own state"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 # release that introduced `PluginMetadata.provides` and `core.schema`, and the
 # ceiling is the next major, because `HOOK_API_VERSION` is only allowed to move
 # there.
-dependencies = ["blitzecdn>=3.0.0,<4"]
+dependencies = ["blitzecdn>=4.0.0,<5"]
 
 # The whole of how this capability is discovered. Installing the distribution
 # puts this line in the environment's metadata; `register_external` reads the
@@ -29,6 +29,6 @@ packages = ["src/blitzecdn_backup"]
 # Checkout-local: inside this workspace the `blitzecdn` requirement above
 # resolves to the root project rather than to a published release, so a change
 # to core is picked up by this package without a publish step. It never travels
-# in the built wheel's metadata — that carries only `blitzecdn>=3.0.0,<4`.
+# in the built wheel's metadata — that carries only `blitzecdn>=4.0.0,<5`.
 [tool.uv.sources]
 blitzecdn = { workspace = true }

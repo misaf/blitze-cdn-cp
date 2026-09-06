@@ -747,7 +747,7 @@ There is nothing to choose. The release line comes from the installed version,
 the target is the newest vMAJOR.MINOR.PATCH tag in that line, and the update
 never crosses a major version and never moves backwards. It leaves the checkout
 detached at that tag, which is what a release installation looks like: a host
-installed from the 3.x branch follows tags from its first update onwards, and a
+installed from the 4.x branch follows tags from its first update onwards, and a
 later --fresh reinstalls the exact release that was running rather than the
 branch tip. A major upgrade is a separate, documented step.
 
@@ -1091,7 +1091,7 @@ cmd_fresh() {
   remote_url=$(require_upstream_origin)
 
   # Preserve the source identity of the running checkout. An exact release tag
-  # stays on that release, the supported 3.x line stays attached to that branch,
+  # stays on that release, the supported 4.x line stays attached to that branch,
   # and any other development checkout is pinned to its exact commit. All of
   # this is read before the cleanup, because the cleanup deletes the checkout.
   local revision
@@ -1099,7 +1099,7 @@ cmd_fresh() {
   local named_revision=1
   if [[ -z ${revision} ]]; then
     revision=$(repo_git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    if [[ ${revision} != "3.x" ]]; then
+    if [[ ${revision} != "4.x" ]]; then
       revision=$(repo_git rev-parse HEAD)
       named_revision=0
     fi

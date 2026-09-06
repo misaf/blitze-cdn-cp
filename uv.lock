@@ -276,7 +276,7 @@ wheels = [
 
 [[package]]
 name = "blitzecdn"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -422,7 +422,7 @@ dev = [
 
 [[package]]
 name = "blitzecdn-backup"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-backup" }
 dependencies = [
     { name = "blitzecdn" },
@@ -433,7 +433,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-cache"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-cache" }
 dependencies = [
     { name = "blitzecdn" },
@@ -444,7 +444,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-certificates"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-certificates" }
 dependencies = [
     { name = "blitzecdn" },
@@ -459,7 +459,7 @@ requires-dist = [
 
 [[package]]
 name = "blitzecdn-compression"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-compression" }
 dependencies = [
     { name = "blitzecdn" },
@@ -470,7 +470,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-geoip"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-geoip" }
 dependencies = [
     { name = "blitzecdn" },
@@ -481,7 +481,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-hardening"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-hardening" }
 dependencies = [
     { name = "blitzecdn" },
@@ -492,7 +492,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-http3"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-http3" }
 dependencies = [
     { name = "blitzecdn" },
@@ -503,7 +503,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-origins"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-origins" }
 dependencies = [
     { name = "blitzecdn" },
@@ -514,7 +514,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-resolver"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-resolver" }
 dependencies = [
     { name = "blitzecdn" },
@@ -525,7 +525,7 @@ requires-dist = [{ name = "blitzecdn", editable = "." }]
 
 [[package]]
 name = "blitzecdn-security"
-version = "3.0.0"
+version = "4.0.0"
 source = { editable = "packages/blitzecdn-security" }
 dependencies = [
     { name = "blitzecdn" },
