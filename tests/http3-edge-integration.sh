@@ -90,10 +90,25 @@ say "Building the BlitzeCDN edge image"
 docker build "${module_args[@]}" --tag "${EDGE_TAG}" \
   "${project_dir}/src/blitzecdn/docker/edge"
 
-# A second tag of the same bytes. An upgrade is a change of *reference*, so this
-# exercises the pull, validate, recreate and health path without pretending a
-# different Nginx exists.
-docker tag "${EDGE_TAG}" "${EDGE_TAG_NEXT}"
+# The image an upgrade moves to: one layer on top of the one above, carrying a
+# label and nothing else.
+#
+# It used to be `docker tag` — a second name for identical bytes — on the
+# theory that an upgrade is a change of reference. It is not. blitzecdn_edge_stack
+# resolves a reference to a digest and pins the Compose file to that, precisely
+# so a tag that resolves to bytes already running is not churn, so retagging
+# left the compose file identical and nothing was recreated. The role was
+# right and the assertion below was wrong; it now upgrades to different bytes,
+# which is what an upgrade is, and the pull, validate, recreate and health path
+# runs for real.
+#
+# A label rather than anything functional, so this still does not pretend a
+# different Nginx exists: same binary, same modules, same configuration, new
+# digest.
+say "Building the image the upgrade moves to"
+printf 'FROM %s\nLABEL org.opencontainers.image.revision=integration-next\n' \
+  "${EDGE_TAG}" > "${workdir}/Dockerfile.next"
+docker build --tag "${EDGE_TAG_NEXT}" --file "${workdir}/Dockerfile.next" "${workdir}"
 
 # And one that cannot serve. The base configuration lives inside the image, so
 # breaking it there is a runtime failure the host filesystem cannot cause and
