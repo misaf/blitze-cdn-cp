@@ -61,6 +61,20 @@ ROLE_DIR = _role("blitzecdn_nginx")
 RUNTIME_ROLE_DIR = _role("blitzecdn_edge")
 
 
+def ansible_bool(value: Any) -> bool:
+    """Ansible's `bool` filter, which is not Jinja's and not Python's.
+
+    Python calls every non-empty string true, so `bool("false")` is True and a
+    switch an operator passed as `-e name=false` comes out backwards. Ansible
+    reads the word. Exported because the templates use the filter and the
+    environments that render them here are plain Jinja: one of them defined
+    `bool` as Python's, which is the very confusion the filter exists to end.
+    """
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"true", "yes", "on", "1"}
+
+
 def _ansible_jinja(**kwargs: Any) -> Any:
     """A Jinja environment with the handful of Ansible filters the edge uses.
 
@@ -75,11 +89,7 @@ def _ansible_jinja(**kwargs: Any) -> Any:
     environment.filters["regex_replace"] = lambda value, pattern, replacement="": (
         re.sub(pattern, replacement, value)
     )
-    environment.filters["bool"] = lambda value: (
-        value
-        if isinstance(value, bool)
-        else str(value).strip().lower() in {"true", "yes", "on", "1"}
-    )
+    environment.filters["bool"] = ansible_bool
     # `lookup('env', ...)` is Ansible's, not Jinja's. The defaults that use it
     # are secrets read from the controller's environment and are none of these
     # tests' business.

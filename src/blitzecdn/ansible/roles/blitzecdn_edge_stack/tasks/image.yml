@@ -69,7 +69,7 @@
           {{ blitzecdn_edge_runtime.image }} is not available on
           {{ inventory_hostname }}
           {{ 'and could not be pulled'
-             if blitzecdn_edge_stack_image_pull
+             if blitzecdn_edge_stack_image_pull | bool
              else 'and blitzecdn_edge_stack_image_pull is false, so nothing tried to fetch it' }}.
           Nothing was changed; the edge is still running whatever it was
           running before.

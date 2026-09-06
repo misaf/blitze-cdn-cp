@@ -55,7 +55,7 @@ def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
 def test_docker_daemon_configuration_uses_only_supported_directives():
     """A JSON pseudo-comment is a real key that makes dockerd refuse to start."""
     environment = jinja2.Environment(undefined=jinja2.StrictUndefined)
-    environment.filters["bool"] = bool
+    environment.filters["bool"] = ansible_bool
     rendered = environment.from_string(
         (DOCKER_ROLE_DIR / "templates/daemon.json.j2").read_text(encoding="utf-8")
     ).render(
@@ -1507,7 +1507,13 @@ def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
 
 
 def _declared_boolean_variables() -> set[str]:
-    """Every variable any role's argument spec declares as a bool."""
+    """Role variables an argument spec declares as a bool, top level only.
+
+    Top level because that is what `-e name=value` can reach. A sub-option —
+    a per-site `connecting_ip`, an `ssl_mode` inside the site document — comes
+    from the control plane already typed and cannot be handed to a play as a
+    loose string, so a bare conditional on one is not this bug.
+    """
     specs = list(ROLES_DIR.glob("*/meta/argument_specs.yml"))
     specs += list(
         (PROJECT_DIR / "packages").glob(
@@ -1516,16 +1522,11 @@ def _declared_boolean_variables() -> set[str]:
     )
     declared: set[str] = set()
     for spec in specs:
-        lines = spec.read_text(encoding="utf-8").splitlines()
-        for index, line in enumerate(lines):
-            named = re.match(r"\s*(\w+):", line)
-            if not named:
-                continue
-            # The spec is written both ways: a nested block with `type:` under
-            # it, and a one-line flow mapping. Six lines is past the longest
-            # block here and short of the next sibling.
-            if re.search(r"type:\s*bool", " ".join(lines[index : index + 6])):
-                declared.add(named.group(1))
+        document = yaml.safe_load(spec.read_text(encoding="utf-8")) or {}
+        for entry in (document.get("argument_specs") or {}).values():
+            for name, definition in (entry.get("options") or {}).items():
+                if isinstance(definition, dict) and definition.get("type") == "bool":
+                    declared.add(name)
     return declared
 
 
@@ -1548,20 +1549,35 @@ def test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string():
     booleans = _declared_boolean_variables()
     assert booleans, "no argument spec declares a boolean; this test found nothing"
 
-    task_files = list(ROLES_DIR.glob("*/tasks/*.yml"))
-    task_files += list(
-        (PROJECT_DIR / "packages").glob("*/src/*/ansible/roles/*/tasks/*.yml")
+    sources = list(ROLES_DIR.glob("*/tasks/*.yml"))
+    sources += list(ROLES_DIR.glob("*/templates/*.j2"))
+    packages = PROJECT_DIR / "packages"
+    sources += list(packages.glob("*/src/*/ansible/roles/*/tasks/*.yml"))
+    sources += list(packages.glob("*/src/*/ansible/roles/*/templates/*.j2"))
+
+    # Three shapes, because the first version of this test knew only the first
+    # and the teardown went on failing on the other two in the same file: a
+    # conditional standing alone, one behind `not`, and a Jinja `if` — in a
+    # template, or mid-expression where a list is being built.
+    forms = (
+        re.compile(r"\s*(?:when:|-)\s+([A-Za-z_][\w.]*)\s*$"),
+        re.compile(r"\bnot\s+([A-Za-z_]\w*)\b"),
+        re.compile(r"\bif\s+([A-Za-z_]\w*)\b"),
     )
     bare = []
-    for path in sorted(task_files):
+    for path in sorted(sources):
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            conditional = re.match(r"\s*(?:when:|-)\s*([A-Za-z_][\w.]*)\s*$", line)
-            if not conditional:
+            if line.strip().startswith("#"):
                 continue
-            if conditional.group(1).split(".")[0] in booleans:
-                bare.append(
-                    f"{path.relative_to(PROJECT_DIR)}:{number}: {conditional.group(1)}"
-                )
+            for form in forms:
+                for found in form.finditer(line):
+                    name = found.group(1)
+                    if name.split(".")[0] not in booleans:
+                        continue
+                    if re.match(r"\s*\|\s*bool", line[found.end() :]):
+                        continue
+                    bare.append(f"{path.relative_to(PROJECT_DIR)}:{number}: {name}")
+    bare = sorted(dict.fromkeys(bare))
 
     assert bare == [], (
         "these conditionals test a declared boolean without coercing it, so a "

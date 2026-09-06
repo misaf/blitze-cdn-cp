@@ -7,7 +7,7 @@ map $http_upgrade $blitzecdn_connection_upgrade {
 resolver {{ blitzecdn_nginx_resolvers | join(' ') }} valid={{ blitzecdn_nginx_resolver_valid }};
 resolver_timeout {{ blitzecdn_nginx_resolver_timeout }};
 {% endif %}
-{% if blitzecdn_nginx_access_log_enabled %}
+{% if blitzecdn_nginx_access_log_enabled | bool %}
 log_format {{ blitzecdn_nginx_log_format_name }} escape=json
     '$remote_addr $host "$request" $status $body_bytes_sent '
     'rt=$request_time cache="$sent_http_x_cache_status" '

@@ -61,7 +61,7 @@
   ansible.builtin.assert:
     that:
       - >-
-        not blitzecdn_security_under_attack_enabled
+        not (blitzecdn_security_under_attack_enabled | bool)
         or blitzecdn_security_under_attack_secret | length >= 32
       - blitzecdn_security_under_attack_passage_seconds | int >= 60
       - blitzecdn_security_under_attack_passage_seconds | int <= 86400

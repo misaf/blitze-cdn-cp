@@ -28,7 +28,12 @@ import yaml
 # The nginx role renders from its own defaults *and* the shared edge runtime
 # contract, so the loader that builds that namespace is shared with the other
 # contract-test modules rather than reimplemented here.
-from contract_support import _role_defaults, _runtime_defaults, _split_runtime
+from contract_support import (
+    _role_defaults,
+    _runtime_defaults,
+    _split_runtime,
+    ansible_bool,
+)
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
@@ -153,6 +158,7 @@ def _nginx_environment():
         undefined=jinja2.StrictUndefined,
         keep_trailing_newline=True,
     )
+    environment.filters["bool"] = ansible_bool
 
     @jinja2.pass_context
     def lookup(context, _plugin, template, *, template_vars=None):
@@ -887,6 +893,7 @@ def test_site_template_renders_from_real_model_output(desired_state):
         undefined=jinja2.StrictUndefined,
         keep_trailing_newline=True,
     )
+    environment.filters["bool"] = ansible_bool
     context = _role_defaults()
     for site in desired_state["blitzecdn_nginx_sites"]:
         rendered = environment.get_template("site.conf.j2").render(**context, item=site)

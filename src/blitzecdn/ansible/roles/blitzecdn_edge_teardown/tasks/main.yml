@@ -222,8 +222,9 @@
           blitzecdn_edge_teardown_runtime_path,
           blitzecdn_edge_teardown_empty_root,
           blitzecdn_edge_teardown_data_path]
-         if blitzecdn_edge_teardown_remove_data else [])
-      + ([blitzecdn_edge_teardown_access_log_path] if blitzecdn_edge_teardown_remove_logs else [])
+         if blitzecdn_edge_teardown_remove_data | bool else [])
+      + ([blitzecdn_edge_teardown_access_log_path]
+         if blitzecdn_edge_teardown_remove_logs | bool else [])
       + (blitzecdn_edge_teardown_units.files | map(attribute='path') | list)
     }}
 

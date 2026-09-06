@@ -76,7 +76,7 @@
         {%- endfor -%}
       {%- endfor -%}
       {{ files | unique | list }}
-  when: not blitzecdn_cache_purge_all
+  when: not (blitzecdn_cache_purge_all | bool)
 
 # The list goes to the edge as a file and is consumed in one pass, rather than
 # becoming one `file:` task per entry. Same reason as above: thousands of module
@@ -88,7 +88,7 @@
 # quoting question. `rm -f` because an entry that was never cached is the
 # ordinary case, not an error.
 - name: Purge named cached responses with a private per-run manifest
-  when: not blitzecdn_cache_purge_all
+  when: not (blitzecdn_cache_purge_all | bool)
   block:
     - name: Stage the list of cache files to remove
       ansible.builtin.tempfile:
