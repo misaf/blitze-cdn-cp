@@ -146,3 +146,33 @@ def test_the_nested_engines_volumes_are_removed_with_their_host(harness):
         f"{harness.name} removes its host container without -v, leaving the "
         "nested engine's images behind on the machine that ran it"
     )
+
+
+def test_the_edge_image_is_built_with_the_modules_the_capabilities_declare():
+    """An image built with no modules fails four steps past the cause.
+
+    `ENABLED_MODULES` and its two siblings default to empty in the Dockerfile,
+    so a plain `docker build` produces an image carrying only what the base
+    image ships. The converge then reaches `modules-invariant.yml` and refuses
+    by naming a capability and an image digest — an accurate message about the
+    wrong half of the problem, since it is the build that dropped them.
+
+    The set is composed, never written down: `blitzecdn edge image spec` reads
+    the capabilities installed in the workspace, and the workflow that
+    publishes the edge runtime builds from the same command. A harness that
+    hardcoded a module list would pass while the published image carried
+    something else.
+    """
+    commands = _commands()
+    spec = re.search(r"uv run .*blitzecdn edge image spec", commands)
+    assert spec, (
+        "the harness no longer resolves the edge image's module set from the "
+        "installed capabilities"
+    )
+
+    build = re.search(r'docker build (.+?)--tag "\$\{EDGE_TAG\}"', commands, re.DOTALL)
+    assert build, "the harness no longer builds the edge image"
+    assert "${module_args[@]}" in build.group(1), (
+        "the edge image is built without the resolved module arguments, so it "
+        "carries only what the base image ships"
+    )

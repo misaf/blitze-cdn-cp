@@ -60,8 +60,35 @@ converge() {
   in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }
 
+# Which modules the image is built with is not a constant, and must not be
+# written down twice. `blitzecdn edge image spec` composes it from the
+# capabilities installed in this checkout, and the workflow that publishes the
+# edge runtime builds from exactly this output — so the image probed here is
+# the image an operator is given, and a capability added to the workspace is
+# carried by both without either being edited.
+#
+# Resolved here rather than by the CI job so the harness stays runnable by
+# hand: `ssh` to a host with Docker, run this script, and it needs nothing to
+# have been prepared for it.
+say "Resolving the modules the installed capabilities declare"
+command -v uv >/dev/null 2>&1 ||
+  fail "uv is not on PATH, and the edge image's module set is resolved with it"
+uv sync --frozen --all-packages --project "${project_dir}" >/dev/null
+module_args=()
+while IFS= read -r argument; do
+  if [[ -n ${argument} ]]; then
+    module_args+=(--build-arg "${argument}")
+  fi
+done < <(uv run --project "${project_dir}" --no-sync blitzecdn edge image spec)
+# An empty spec would build an image with no modules and fail four steps later
+# at an invariant naming a capability, which is a long way from the cause.
+[[ ${#module_args[@]} -gt 0 ]] ||
+  fail "blitzecdn edge image spec named no build arguments"
+printf '  %s\n' "${module_args[@]}"
+
 say "Building the BlitzeCDN edge image"
-docker build --tag "${EDGE_TAG}" "${project_dir}/src/blitzecdn/docker/edge"
+docker build "${module_args[@]}" --tag "${EDGE_TAG}" \
+  "${project_dir}/src/blitzecdn/docker/edge"
 
 # A second tag of the same bytes. An upgrade is a change of *reference*, so this
 # exercises the pull, validate, recreate and health path without pretending a
