@@ -20,17 +20,22 @@ from __future__ import annotations
 
 import re
 
+import pytest
 from paths import REPO_ROOT
 
 PROJECT_DIR = REPO_ROOT
 HTTP3_HARNESS = PROJECT_DIR / "tests/http3-edge-integration.sh"
+INSTALL_HARNESS = PROJECT_DIR / "tests/container-install.sh"
+# Both harnesses start a privileged systemd host and install a container engine
+# inside it, so both meet the nested-overlay limit below in the same way.
+NESTED_ENGINE_HARNESSES = (HTTP3_HARNESS, INSTALL_HARNESS)
 
 
-def _commands() -> str:
-    """The harness with its comments removed."""
+def _commands(harness=HTTP3_HARNESS) -> str:
+    """A harness with its comments removed."""
     return "\n".join(
         line
-        for line in HTTP3_HARNESS.read_text(encoding="utf-8").splitlines()
+        for line in harness.read_text(encoding="utf-8").splitlines()
         if not line.lstrip().startswith("#")
     )
 
@@ -92,3 +97,52 @@ def test_the_engine_is_installed_before_the_images_are_loaded():
 def test_the_harness_still_proves_a_repeated_converge_changes_nothing():
     """Idempotency is the property most easily lost and least easily noticed."""
     assert "changed=0" in _commands()
+
+
+@pytest.mark.parametrize("harness", NESTED_ENGINE_HARNESSES, ids=lambda path: path.stem)
+def test_the_nested_engine_keeps_its_images_off_the_outer_overlay(harness):
+    """A container engine cannot run out of a container's own rootfs.
+
+    The engine inside the host container assembles every image as an overlay
+    mount whose upper and lower directories are under /var/lib/docker and
+    /var/lib/containerd — which, without a volume, are the outer container's
+    rootfs, itself overlay. The mount is refused, and what the engine reports
+    is `invalid argument` about a mount path, naming neither an image nor a
+    layer nor the reason. Both jobs spent weeks red on it.
+
+    A shape assertion for the same reason as the rest of this module: nothing a
+    pull request runs starts either harness, so the gate that catches a dropped
+    `-v` has to be this one.
+    """
+    commands = _commands(harness)
+    # The privileged one: the HTTP/3 harness also starts an unprivileged origin
+    # container, which runs no engine and needs none of this.
+    hosts = [
+        block
+        for block in re.findall(r"docker run .*?\n\n", commands, re.DOTALL)
+        if "--privileged" in block
+    ]
+    assert len(hosts) == 1, (
+        f"{harness.name} starts {len(hosts)} privileged host containers; this "
+        "assertion knows how to check exactly one"
+    )
+    for data_root in ("/var/lib/docker", "/var/lib/containerd"):
+        assert f"-v {data_root} " in hosts[0], (
+            f"{harness.name} gives the nested engine no volume for "
+            f"{data_root}, so its overlay mounts land on the outer "
+            "container's own overlay rootfs and are refused"
+        )
+
+
+@pytest.mark.parametrize("harness", NESTED_ENGINE_HARNESSES, ids=lambda path: path.stem)
+def test_the_nested_engines_volumes_are_removed_with_their_host(harness):
+    """Anonymous volumes outlive the container unless the removal says so.
+
+    They hold a whole engine's images. A runner that keeps them keeps
+    gigabytes per run, and neither harness would notice.
+    """
+    commands = _commands(harness)
+    assert re.search(r"docker rm -f -v ", commands), (
+        f"{harness.name} removes its host container without -v, leaving the "
+        "nested engine's images behind on the machine that ran it"
+    )

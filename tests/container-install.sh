@@ -22,7 +22,9 @@ container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
 archive=$(mktemp -t blitzecdn-source-XXXXXX).tgz
 
 cleanup() {
-  docker rm -f "${container}" >/dev/null 2>&1 || true
+  # `-v`: the host's anonymous volumes go with it. They hold a whole container
+  # engine's images, and a runner that keeps them keeps gigabytes.
+  docker rm -f -v "${container}" >/dev/null 2>&1 || true
   rm -f -- "${archive}"
 }
 trap cleanup EXIT
@@ -35,10 +37,20 @@ in_container() { docker exec "${container}" bash -c "$1"; }
 into_container() { docker exec -i "${container}" bash -c "$1"; }
 
 say "Starting ${IMAGE} with systemd"
+# `-v /var/lib/docker -v /var/lib/containerd`: anonymous volumes, and the only
+# reason this host can run a container at all. The engine installed inside it
+# assembles every image as an overlay mount whose upper and lower directories
+# live under those paths, and those paths are the *outer* container's rootfs,
+# which is itself overlay. Stacking one on the other is refused with a bare
+# `invalid argument` about a mount, naming no image and no layer. A volume is
+# backed by the outer daemon's own filesystem rather than by that rootfs, which
+# is what `docker:dind` does with `VOLUME /var/lib/docker` and for this reason.
+# Both paths: this engine keeps its snapshots under containerd's.
 docker run -d --name "${container}" \
   --privileged --cgroupns=host \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   --tmpfs /run --tmpfs /run/lock \
+  -v /var/lib/docker -v /var/lib/containerd \
   "${IMAGE}" \
   bash -c 'apt-get update -qq && apt-get install -y -qq systemd systemd-sysv >/dev/null && exec /sbin/init' \
   >/dev/null
