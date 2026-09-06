@@ -1256,3 +1256,170 @@ def test_ansible_slots_answers_for_all_three_of_cores_plays():
     # rather than guess whether the question was asked.
     for roles in document.values():
         assert isinstance(roles, list)
+
+
+def test_site_cache_command_sets_the_switch_and_both_durations(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(
+        cli.app,
+        ["site", "cache", "cdn-example-com", "--success", "4h", "--not-found", "30s"],
+    )
+
+    assert result.exit_code == 0
+    site = control.sites.get_site("cdn-example-com")
+    assert (site.cache_valid_success, site.cache_valid_not_found) == ("4h", "30s")
+    assert site.cache_enabled is True, "a duration change must not touch the switch"
+
+
+def test_site_cache_off_withdraws_the_claim_on_the_cache_capability(
+    settings, monkeypatch
+):
+    """Turning caching off is what lets a core-only controller converge a site."""
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(cli.app, ["site", "cache", "cdn-example-com", "--off"])
+
+    assert result.exit_code == 0
+    site = control.sites.get_site("cdn-example-com")
+    assert site.cache_enabled is False
+    assert "cache" not in site.capability_requirements
+
+
+def test_site_cache_refuses_a_duration_it_cannot_parse(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(
+        cli.app, ["site", "cache", "cdn-example-com", "--success", "forever"]
+    )
+
+    assert result.exit_code != 0
+    assert control.sites.get_site("cdn-example-com").cache_valid_success == "10m"
+
+
+def test_site_cache_with_no_option_says_what_to_name(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(cli.app, ["site", "cache", "cdn-example-com"])
+
+    assert result.exit_code != 0
+    assert "--on/--off" in result.output
+
+
+def test_site_origin_sets_the_request_identity_without_moving_the_address(
+    settings, monkeypatch
+):
+    """The reason `--origin` became optional: SNI is settable on its own."""
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    before = control.sites.get_site("cdn-example-com").origin_host
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "site",
+            "origin",
+            "cdn-example-com",
+            "--request-host",
+            "shared.example.net",
+            "--sni",
+            "tls.example.net",
+        ],
+    )
+
+    assert result.exit_code == 0
+    site = control.sites.get_site("cdn-example-com")
+    assert site.origin_request_host == "shared.example.net"
+    assert site.origin_sni == "tls.example.net"
+    assert site.origin_host == before
+
+
+def test_site_origin_still_moves_the_address_on_its_own(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(
+        cli.app, ["site", "origin", "cdn-example-com", "--origin", "203.0.113.40"]
+    )
+
+    assert result.exit_code == 0
+    site = control.sites.get_site("cdn-example-com")
+    assert site.origin_host == "203.0.113.40"
+    assert site.origin_request_host is None
+
+
+def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(cli.app, ["site", "origin", "cdn-example-com"])
+
+    assert result.exit_code != 0
+    assert "--origin" in result.output
+
+
+def test_site_origin_clears_an_override_it_can_set(settings, monkeypatch):
+    """A setting an operator can turn on and never off is one they cannot undo."""
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    runner.invoke(
+        cli.app,
+        ["site", "origin", "cdn-example-com", "--request-host", "shared.example.net"],
+    )
+    assert control.sites.get_site("cdn-example-com").origin_request_host is not None
+
+    result = runner.invoke(
+        cli.app, ["site", "origin", "cdn-example-com", "--no-request-host"]
+    )
+
+    assert result.exit_code == 0
+    assert control.sites.get_site("cdn-example-com").origin_request_host is None
+
+
+def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatch):
+    """The distinction the patch is built through a dict to preserve."""
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    runner.invoke(
+        cli.app,
+        [
+            "site",
+            "origin",
+            "cdn-example-com",
+            "--request-host",
+            "shared.example.net",
+            "--sni",
+            "tls.example.net",
+        ],
+    )
+
+    result = runner.invoke(cli.app, ["site", "origin", "cdn-example-com", "--no-sni"])
+
+    assert result.exit_code == 0
+    site = control.sites.get_site("cdn-example-com")
+    assert site.origin_sni is None
+    assert site.origin_request_host == "shared.example.net"
+
+
+def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeypatch):
+    control = _control(settings, monkeypatch)
+    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+
+    result = runner.invoke(
+        cli.app,
+        [
+            "site",
+            "origin",
+            "cdn-example-com",
+            "--sni",
+            "tls.example.net",
+            "--no-sni",
+        ],
+    )
+
+    assert result.exit_code != 0
+    assert control.sites.get_site("cdn-example-com").origin_sni is None

@@ -1,6 +1,8 @@
+import ast
 import re
 
 import pytest
+from paths import SOURCE
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
@@ -717,3 +719,54 @@ def test_terminal_statuses_are_closed():
         assert is_terminal(status)
         with pytest.raises(ValueError):
             require_transition(status, DeploymentStatus.RUNNING)
+
+
+#: Site settings an operator cannot reach from `blitzecdn site`, and why.
+#:
+#: The three certificate fields move together under
+#: `CdnSite.validate_certificate_pair`, and two of the four modes —
+#: `uploaded` and `requested` — are refused to anything but the upload and
+#: request endpoints, which own the paths under the managed TLS root. A CLI
+#: command that set them would be rejected by the model it was writing to.
+_SET_ELSEWHERE = frozenset(
+    {"certificate_mode", "certificate_path", "certificate_key_path"}
+)
+
+
+def test_every_patchable_field_can_be_reached_from_the_command_line():
+    """The fourth register of the site document, and the one nothing checked.
+
+    A site setting exists in the domain model, in `SitePatch`, in the API model
+    and in `blitzecdn_nginx`'s argument spec, and all four are held in step —
+    `_assert_patch_covers_policy` at import, the Ansible spec in
+    `tests/contract/`. The CLI was the fifth and had no such check, so a
+    setting could reach every one of those and still have no verb: `site
+    cache-query-string` set the mode of a cache the command line could not turn
+    on, and neither TTL nor either origin-identity field was reachable at all.
+
+    `_HELP_ORDER` guards the other direction — a command with nowhere to sit is
+    an import error — which is why the gap was invisible: nothing was missing
+    from a list, a list was missing from nothing.
+
+    Matching on the field *name* anywhere in the group is deliberately loose.
+    A command that names a field and edits a different one is a bug this cannot
+    see; a field no command mentions at all is the failure that actually
+    happened, and it is worth one cheap assertion.
+    """
+    named: set[str] = set()
+    for path in (SOURCE / "capabilities/sites/cli").glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.keyword) and node.arg:
+                named.add(node.arg)
+            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                named.add(node.value)
+
+    unreachable = sorted(set(SitePatch.model_fields) - named - _SET_ELSEWHERE)
+    assert unreachable == [], (
+        f"no `blitzecdn site` command mentions {unreachable}. Add one, or add "
+        "the field to _SET_ELSEWHERE with the reason it is not an operator's "
+        "to set."
+    )
+    assert set(SitePatch.model_fields) >= _SET_ELSEWHERE, (
+        "_SET_ELSEWHERE names a field that no longer exists"
+    )
