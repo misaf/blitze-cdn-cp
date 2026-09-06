@@ -19,6 +19,7 @@ only. Prose is where the harness explains itself, and a comment that mentions
 from __future__ import annotations
 
 import re
+import shlex
 
 import pytest
 from paths import REPO_ROOT
@@ -271,3 +272,85 @@ def test_the_upgrade_moves_to_different_bytes():
     )
     built = re.search(r"docker build [^\n]*--tag \"\$\{EDGE_TAG_NEXT\}\"", commands)
     assert built, "the upgrade target is no longer built as its own image"
+
+
+#: `blitzecdn` at the start of a command — after a pipeline or list operator, a
+#: subshell, or an opening quote. Deliberately not after a word: the harnesses
+#: quote the CLI in their `fail` messages ("unexpected blitzecdn host account"),
+#: and prose that names a command is not a call to it.
+_INVOCATION = re.compile(r"""(?:^|[;&|(]|&&|\|\||['"])\s*blitzecdn\s+([^'"|;>)]*)""")
+
+
+def _cli_invocations(harness):
+    """Every `blitzecdn ...` the harness actually runs, as argument lists."""
+    for line in _commands(harness).splitlines():
+        for match in _INVOCATION.finditer(line):
+            try:
+                yield shlex.split(match.group(1))
+            except ValueError:  # an unbalanced quote from the surrounding shell
+                yield match.group(1).split()
+
+
+#: The pinned CLI surface: `<distribution>\t command \t <path> \t <spec>`. Read
+#: rather than introspected, because the harnesses run an installation with
+#: every optional wheel present and `just test-core-only` runs with none of
+#: them. Resolving against the live app would make this test assert that
+#: `backup create` does not exist in exactly the configuration where the
+#: installer proves that it does. `contract/test_frozen` is what keeps this
+#: file honest about the app.
+FROZEN_CLI = PROJECT_DIR / "tests/contract/frozen/cli.txt"
+
+
+def _published_commands():
+    """Every published command path, mapped to the long options it declares."""
+    published = {}
+    for line in FROZEN_CLI.read_text(encoding="utf-8").splitlines():
+        fields = line.split("\t")
+        if len(fields) < 3 or fields[1] != "command":
+            continue
+        path = fields[2].removeprefix("blitzecdn ")
+        spec = fields[3] if len(fields) > 3 else ""
+        published[path] = set(re.findall(r"--[\w-]+", spec))
+    return published
+
+
+def _resolve(tokens, published):
+    """Match the longest published command path the tokens begin with."""
+    for length in range(min(len(tokens), 3), 0, -1):
+        path = " ".join(tokens[:length])
+        if path in published:
+            return path, length
+    return None, 0
+
+
+@pytest.mark.parametrize("harness", NESTED_ENGINE_HARNESSES, ids=lambda p: p.name)
+def test_the_harnesses_call_the_cli_this_repository_actually_ships(harness):
+    """The shell harnesses are the only callers no gate type-checks.
+
+    `record add --value ... --proxied` survived the removal of `--proxied` for
+    three CI runs. Every Python caller was updated with the model — a record is
+    proxied exactly when it names a site — but a flag inside a single-quoted
+    string in a shell script is invisible to ruff, to mypy and to pytest, and
+    the integration job that would have caught it was already red for an
+    unrelated reason. So resolve each invocation against the real Typer app:
+    the command must exist, and every long option must be one it declares.
+    """
+    published = _published_commands()
+    for tokens in _cli_invocations(harness):
+        # `blitzecdn --version` addresses the root, which publishes no command
+        # line of its own for this to resolve against.
+        if not tokens or tokens[0].startswith("-"):
+            continue
+        path, consumed = _resolve(tokens, published)
+        assert path, (
+            f"{harness.name} runs `blitzecdn {' '.join(tokens)}`, "
+            f"which is not a command any distribution publishes"
+        )
+        for token in tokens[consumed:]:
+            if not token.startswith("--"):
+                continue
+            name = token.split("=", 1)[0]
+            assert name in published[path], (
+                f"{harness.name} passes {name} to `{path}`, which declares "
+                f"only {sorted(published[path])}"
+            )

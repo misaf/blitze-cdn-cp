@@ -185,8 +185,15 @@ in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false
   fail "could not disable the registry pull"
 
 in_container 'cd / && blitzecdn domain add example.test' || fail "could not add a zone"
-in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1 --proxied' ||
-  fail "could not add a proxied record"
+# The site first, then the record that routes a hostname to it. A record is
+# proxied exactly when it names a site — there is no `--proxied` switch to set,
+# because turning the proxy off means saying what DNS should answer with
+# instead. The site name is what the edge writes its virtual host as, which is
+# why the assertions below look for `cdn-example-test`.
+in_container 'cd / && blitzecdn site create cdn-example-test --origin 127.0.0.1' ||
+  fail "could not create the site the record routes to"
+in_container 'cd / && blitzecdn record add example.test cdn --site cdn-example-test' ||
+  fail "could not route the hostname to the site"
 
 # Check mode first: it must survive a host that has never converged, which is
 # the case the `not ansible_check_mode` gates exist for.
