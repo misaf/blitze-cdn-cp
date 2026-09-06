@@ -244,7 +244,7 @@
         mode: "0644"
         backup: true
       register: blitzecdn_nginx_rendered_default
-      when: blitzecdn_nginx_default_server
+      when: blitzecdn_nginx_default_server | bool
       notify: Validate and reload Nginx
 
     # `force: true` lets this pass in check mode, where the template above
@@ -259,7 +259,7 @@
             blitzecdn_nginx_default_site_file | basename }}
         state: link
         force: true
-      when: blitzecdn_nginx_default_server
+      when: blitzecdn_nginx_default_server | bool
       notify: Validate and reload Nginx
 
     # Withdrawing the catch-all hands the default_server position back to

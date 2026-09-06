@@ -288,11 +288,17 @@ def test_teardown_separates_stopping_the_edge_from_erasing_it():
     tasks = yaml.safe_load((teardown / "tasks/main.yml").read_text(encoding="utf-8"))
     assert _defaults_of(teardown)["blitzecdn_edge_teardown_remove_data"] is True
 
-    def gate(name: str) -> object:
-        return next(task for task in tasks if task["name"] == name).get("when")
+    def gate(name: str) -> str:
+        return str(next(task for task in tasks if task["name"] == name).get("when", ""))
 
-    assert (
-        gate("Stop and remove the edge stack") != "blitzecdn_edge_teardown_remove_data"
+    # Which switch, not how it is spelled. The coercion these conditionals
+    # carry is `test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string`
+    # to enforce; pinning the exact string here made adding it look like a
+    # change of meaning.
+    switch = "blitzecdn_edge_teardown_remove_data"
+    assert switch not in gate("Stop and remove the edge stack"), (
+        "stopping the edge is gated on the switch that erases it, so a host "
+        "cannot be taken out of service without being destroyed"
     )
     for destructive in (
         "Remove the ACME webroot",
@@ -300,7 +306,7 @@ def test_teardown_separates_stopping_the_edge_from_erasing_it():
         "Remove controller-written edge state and TLS material",
         "Remove the managed-site registry",
     ):
-        assert gate(destructive) == "blitzecdn_edge_teardown_remove_data", destructive
+        assert switch in gate(destructive), destructive
 
 
 def _walk_ansible_tasks(value: Any):
@@ -1498,3 +1504,67 @@ def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
                 "the image's worker uid, and the two will take turns on "
                 "every converge"
             )
+
+
+def _declared_boolean_variables() -> set[str]:
+    """Every variable any role's argument spec declares as a bool."""
+    specs = list(ROLES_DIR.glob("*/meta/argument_specs.yml"))
+    specs += list(
+        (PROJECT_DIR / "packages").glob(
+            "*/src/*/ansible/roles/*/meta/argument_specs.yml"
+        )
+    )
+    declared: set[str] = set()
+    for spec in specs:
+        lines = spec.read_text(encoding="utf-8").splitlines()
+        for index, line in enumerate(lines):
+            named = re.match(r"\s*(\w+):", line)
+            if not named:
+                continue
+            # The spec is written both ways: a nested block with `type:` under
+            # it, and a one-line flow mapping. Six lines is past the longest
+            # block here and short of the next sibling.
+            if re.search(r"type:\s*bool", " ".join(lines[index : index + 6])):
+                declared.add(named.group(1))
+    return declared
+
+
+def test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string():
+    """`-e name=value` is a string, and every non-empty string is true.
+
+    An operator who writes `-e blitzecdn_edge_teardown_remove_data=false` is
+    saying keep the TLS material, the configuration tree, the ACME state and
+    the cache. A bare `when:` on that variable read "false" as true and
+    destroyed all four — the argument spec's `type: bool` does not reach a
+    value that arrives on the command line. ansible-core 2.19 and later refuse
+    a non-boolean conditional rather than guessing, which turns the silent
+    version of this into a failed play, but only on a version that new and
+    only when the path is actually run. Twelve conditionals were written this
+    way, in core and in three capability wheels.
+
+    So: a conditional on a variable some argument spec calls a bool has to end
+    in a filter that makes it one.
+    """
+    booleans = _declared_boolean_variables()
+    assert booleans, "no argument spec declares a boolean; this test found nothing"
+
+    task_files = list(ROLES_DIR.glob("*/tasks/*.yml"))
+    task_files += list(
+        (PROJECT_DIR / "packages").glob("*/src/*/ansible/roles/*/tasks/*.yml")
+    )
+    bare = []
+    for path in sorted(task_files):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+            conditional = re.match(r"\s*(?:when:|-)\s*([A-Za-z_][\w.]*)\s*$", line)
+            if not conditional:
+                continue
+            if conditional.group(1).split(".")[0] in booleans:
+                bare.append(
+                    f"{path.relative_to(PROJECT_DIR)}:{number}: {conditional.group(1)}"
+                )
+
+    assert bare == [], (
+        "these conditionals test a declared boolean without coercing it, so a "
+        "value passed with `-e name=value` arrives as a string and every "
+        "string is true:\n  " + "\n  ".join(bare)
+    )

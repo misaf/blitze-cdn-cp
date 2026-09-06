@@ -36,12 +36,20 @@
     state: absent
   loop: "{{ blitzecdn_edge_teardown_configs }}"
 
+# `| bool` on this and on every other switch below, and it is not decoration.
+# An operator tears a host down with `-e
+# blitzecdn_edge_teardown_remove_data=false`, and `-e name=value` hands the
+# play the *string* "false" whatever the argument spec says the type is. A
+# non-empty string is true, so the bare conditional this used to be read
+# "false" as "yes, destroy it" — TLS material, the configuration tree, ACME
+# state and the cache, on the one invocation whose whole purpose was to keep
+# them. ansible-core 2.19 and later refuse a non-boolean conditional outright,
+# which is how this was finally seen rather than obeyed.
 - name: Remove the managed-site registry
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_managed_sites_file }}"
     state: absent
-  when: blitzecdn_edge_teardown_remove_data
-
+  when: blitzecdn_edge_teardown_remove_data | bool
 - name: Check whether this host has a Compose project
   ansible.builtin.stat:
     path: "{{ blitzecdn_edge_teardown_compose_file }}"
@@ -89,14 +97,12 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_acme_root }}"
     state: absent
-  when: blitzecdn_edge_teardown_remove_data
-
+  when: blitzecdn_edge_teardown_remove_data | bool
 - name: Remove cached responses
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_cache_path }}"
     state: absent
-  when: blitzecdn_edge_teardown_remove_data
-
+  when: blitzecdn_edge_teardown_remove_data | bool
 - name: Inspect the managed firewall rule registry
   ansible.builtin.stat:
     path: "{{ blitzecdn_edge_teardown_firewall_registry }}"
@@ -133,8 +139,7 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_state_path }}"
     state: absent
-  when: blitzecdn_edge_teardown_remove_data
-
+  when: blitzecdn_edge_teardown_remove_data | bool
 # The recorded runtime image and the empty document root Under Attack Mode
 # dispatches through. Neither is customer data, but both describe a host that is
 # no longer an edge, and a stale image record would make a rebuilt host believe
@@ -147,8 +152,7 @@
     - "{{ blitzecdn_edge_teardown_runtime_path }}"
     - "{{ blitzecdn_edge_teardown_empty_root }}"
     - "{{ blitzecdn_edge_teardown_data_path }}"
-  when: blitzecdn_edge_teardown_remove_data
-
+  when: blitzecdn_edge_teardown_remove_data | bool
 # Found rather than listed. The units on an edge are whichever ones the
 # installed capabilities wrote, and this role has no way to know — and no
 # business knowing — which packages the controller that converged this host had
@@ -192,8 +196,7 @@
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_teardown_access_log_path }}"
     state: absent
-  when: blitzecdn_edge_teardown_remove_logs
-
+  when: blitzecdn_edge_teardown_remove_logs | bool
 # The report the control plane records against the decommission. Anything still
 # listed here needs a human on the host, because after the inventory entry goes
 # there is no way back to it.
