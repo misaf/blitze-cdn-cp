@@ -534,6 +534,35 @@ def test_the_edge_image_enumerates_no_capability():
     assert "no-new-privileges:true" in config_test
 
 
+def test_the_edge_image_deletes_nothing_it_inherited():
+    """A whiteout is a layer that a nested or unprivileged engine cannot apply.
+
+    Deleting a file that came from the base image records `.wh.<name>` in this
+    layer, and applying that means a 0:0 character device or a `trusted.*`
+    xattr — refused inside a nested engine. The failure is not local to the
+    file: no container starts from the image at all, and the engine reports a
+    layer it could not extract, which names neither the file nor the `rm` that
+    put it there. `rm -f /etc/nginx/conf.d/default.conf` cost the HTTP/3 edge
+    job a week of looking at the wrong thing.
+
+    Emptying an inherited file is fine — that is an ordinary modified file — as
+    is removing one this same layer created. Only the inherited ones matter, so
+    a deliberate deletion of something written above it in the same `RUN` can
+    relax this with its reason written down.
+    """
+    final_stage = EDGE_DOCKERFILE.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[-1]
+    deletions = [
+        line.strip()
+        for line in final_stage.splitlines()
+        if not line.lstrip().startswith("#")
+        and re.search(r"(^|[;&|]|\s)(rm|unlink)\s", line)
+    ]
+    assert deletions == [], (
+        "the edge image's final stage deletes a path, which records a whiteout "
+        f"a pre-seeded engine cannot apply: {deletions}"
+    )
+
+
 def test_nginx_logs_to_persistent_files_and_docker_streams():
     """Docker logs supplement the retained files consumed by edge tooling."""
     dockerfile = EDGE_DOCKERFILE.read_text(encoding="utf-8")
