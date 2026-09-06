@@ -1,0 +1,29 @@
+---
+# Whether the build probe beside this ran at all, given the result it
+# registered. No I/O of its own, exactly like the two invariants that follow
+# it: the caller supplies blitzecdn_nginx_build_probe, which is what lets
+# tests/contract/test_validation_contracts.py execute this against a fabricated
+# result rather than needing an engine and an image.
+#
+# `failed_when: false` on the probe hands every outcome to build-invariant.yml,
+# which is the right owner of "this image cannot serve" and the wrong owner of
+# "the probe never ran". A module error returns no `status` at all, the
+# `default(1)` that reads it turns that absence into a non-zero exit, and a
+# container that could not start is then reported as an image without an nginx
+# binary — a message about the wrong thing, and one that sends the reader to
+# the image.
+#
+# Worth separating precisely because the probe's command ends in `|| true` and
+# cannot exit non-zero: if it ran at all, its status is 0. A missing status
+# therefore means the container did not run, and the engine's own reason for
+# that is the only thing here worth reading.
+- name: Require the build probe to have run
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_nginx_build_probe.status is defined
+    fail_msg: >-
+      The Nginx build probe could not run against
+      {{ blitzecdn_nginx_config_test_image }} on {{ inventory_hostname }}:
+      {{ blitzecdn_nginx_build_probe.msg
+         | default('the container engine returned no exit status') }}
+      Nothing is known about the image from this; it is the probe that failed.
