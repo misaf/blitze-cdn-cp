@@ -24,6 +24,31 @@ site setting asks for them. Each adds an operation, or changes what the
 controller and the host do, rather than adding a property a virtual host
 carries, so none has a contract here to be the other half of.
 
+A capability reaches the control plane by being named in
+`composition.control_plane.BUILTIN_PLUGINS`, which imports its `plugin.py` and
+hands the hookimpls to Pluggy. Nine of these twelve directories hold one, and
+the split is not the one the table above describes: `http` and `tls` are
+contract capabilities that register anyway, while `cache`, `compression` and
+`security` do not register at all.
+
+What decides it is who else claims the name. A plugin name is unique across
+everything installed — discovery refuses two plugins answering to one — and
+`capability_requirements` is written in those names: a site with `cache_enabled`
+requires `cache`, one with `under_attack_mode` requires `security`. The wheels
+that implement those three register under exactly those names, so core cannot
+also register them; the requirement is satisfied by the wheel's presence and
+unsatisfiable without it, which is the whole mechanism.
+
+`tls` and `http` are not in that position. Their wheels are named
+`certificates` and `http3`, so `tls` and `http` are free for core to claim, and
+claiming them is worth something: a name no plugin holds cannot be resolved to
+a version, a summary, or an answer to "is it installed?". `tls` registers
+metadata and nothing else for that reason alone.
+
+So an absent `plugin.py` is not an omission to correct. It says this directory
+is a policy class and nothing more — imported by `sites`, which composes it, and
+composition is an import rather than a hook.
+
 The contract stays behind when the wheel goes because a stored site has to read
 back either way: a controller with `blitzecdn-cache` detached must still load a
 site whose `cache_enabled` is set, and refuse the *deployment* by name through

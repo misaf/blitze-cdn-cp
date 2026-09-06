@@ -73,9 +73,9 @@ answer to the question above, not a description of the code.
 | sites | **built-in required** | `CdnSite` is what every other capability composes into and every edge role renders from |
 | DNS, edges, deployments, diagnostics, maintenance | **built-in required** | a CDN with no zones, no fleet, no way to converge it and no way to see whether it worked is not a degraded CDN |
 | HTTP/1.1 and HTTP/2 | **built-in required** | baseline. An edge that speaks neither serves nothing, and there is no `blitzecdn-http1` to attach |
-| compression, security, TLS *contracts* | **built-in required** | `CompressionPolicy`, `SecurityPolicy` and `TlsPolicy` are inherited into the flat `CdnSite` that the published schemas, the persisted policy JSON and the deployment snapshots consume; a field that travelled with a wheel would make a stored row unreadable on detachment |
+| cache, compression, HTTP, security, TLS *contracts* | **built-in required** | all five policies — `CachePolicy`, `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy`, `TlsPolicy` — are inherited into the flat `CdnSite` that the published schemas, the persisted policy JSON and the deployment snapshots consume; a field that travelled with a wheel would make a stored row unreadable on detachment. Each lives in its own capability's `policy.py`, which is the whole of what that capability is when its wheel is absent |
 | `blitzecdn-backup` | **optional** | archiving and restoring the control plane's own state is an operational choice, and the capability has no Ansible at all |
-| `blitzecdn-cache` | **optional** | purge and cache-effectiveness *operations*, with their own roles and plays. `CachePolicy` stays in `sites/policy/` — nothing outside a site's own configuration reads it, and moving it here would make `sites` depend on a feature that already depends on `sites` |
+| `blitzecdn-cache` | **optional** | purge and cache-effectiveness *operations*, with their own roles and plays. The *policy* — a site's TTLs and its query-string mode — stays behind as `capabilities/cache/policy.py`, for the same reason as the other four site contracts: a stored site whose `cache_enabled` is set has to read back on a control plane that no longer has the wheel |
 | `blitzecdn-certificates` | **optional** | issuance, renewal and the Automatic SSL/TLS scan. An operator may bring their own certificates and never attach it |
 | `blitzecdn-compression` | **optional** | gzip and Brotli are `CompressionMode` values inside one capability, not two wheels. The per-vhost directives stay in `site.conf.j2`: they are site settings, and an absent capability is refused by name before a play starts |
 | `blitzecdn-geoip` | **optional** | one lookup, two consumers — the `BZ-IPCountry` header and the country firewall lists — so one wheel, and it brings its whole edge implementation |
@@ -350,9 +350,10 @@ The rule that keeps the layers ordered is asserted directly: a contract never
 imports an implementation.
 
 Cache *policy* — a site's TTLs and its query-string mode — is `CachePolicy`
-under `sites/policy/`, because nothing outside a site's own configuration reads
-it. Cache *operations* — purging, and reading how well the cache is working —
-are the `blitzecdn-cache` distribution. Edge runtime and build capability
+under `capabilities/cache/`, which is the contract half of the cache capability
+and stays whether or not the wheel is attached. Cache *operations* — purging,
+and reading how well the cache is working — are the `blitzecdn-cache`
+distribution. Edge runtime and build capability
 remains an edge concern.
 
 **`blitzecdn.composition`** is the composition root, and the only place
@@ -686,8 +687,9 @@ they live in `tests/capabilities/<name>/`, and
 `test_a_built_in_capabilitys_tests_live_in_its_own_directory` fails a
 capability that decides something — one with a `service/` or an `api/` — and
 has nowhere of its own to assert it. A contract capability is exempt: `cache`,
-`compression` and `tls` are pydantic models composed into `SitePolicy`, and
-they are tested where they compose, in `tests/capabilities/sites/` and
+`compression`, `http`, `security` and `tls` are pydantic models composed into
+`SitePolicy`, and they are tested where they compose, in
+`tests/capabilities/sites/` and
 `tests/contract/`.
 
 What the rule refuses is a capability's own decisions asserted somewhere that

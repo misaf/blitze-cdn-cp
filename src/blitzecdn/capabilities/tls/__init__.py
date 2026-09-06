@@ -18,6 +18,9 @@ it as one removes the second owner of ``SslMode``.
 This module re-exports the *contract* and nothing else. Pulling services in here
 would make importing ``SslMode`` depend on an optional wheel. Operational code
 is discovered from ``blitzecdn-certificates`` through ``blitzecdn.plugins``.
+
+The same split as ``cache``, ``compression``, ``http`` and ``security``, for the
+same reason.
 """
 
 from blitzecdn.capabilities.tls.policy import (

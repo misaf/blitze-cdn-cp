@@ -1,16 +1,18 @@
 """Register the stable TLS policy capability.
 
-One registration for one capability, replacing the two that used to sit beside
-each other. The contributions themselves did not merge — a router is still a
-router and a job is still a job — but they are declared in one place now, which
-is what makes "who owns SslMode" answerable.
+Metadata and nothing else, which is the whole point. Everything TLS *does* —
+issuing, renewing, publishing, and overriding the two certificate paths a site
+projects with the fingerprinted files the material is actually stored under —
+went with ``blitzecdn-certificates``, where the code that knows those paths
+lives. What is left here is the contract: ``TlsPolicy``, composed into
+``CdnSite`` by ``sites``, which is an import rather than a hook.
 
-The desired-state contribution is the interesting one. A site model can say
-which mode a host is in, but only this controller knows the fingerprinted file
-the material is actually stored under, so the two TLS paths projected from the
-site model are *overridden* here rather than merged beside them. Saying so in
-``overrides`` is what makes the merge order-independent: ``sites`` and ``tls``
-can register in either order and the edge converges identically.
+A capability with nothing to contribute still registers, because the name is
+what a refusal is written in. A site whose ``ssl_mode`` needs issuance is
+refused by ``capability_requirements`` naming ``tls``, and a name no plugin
+claims cannot be resolved to a summary, a version, or an answer to "installed?"
+— so the registration is the declaration that this capability exists, not a
+vestige of the contributions that left.
 """
 
 from __future__ import annotations

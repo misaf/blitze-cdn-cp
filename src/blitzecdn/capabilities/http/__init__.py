@@ -13,6 +13,9 @@ sites into a QUIC listener and choosing the one server block that carries
 through its entry point. The switch stays here with the ports and schemes it
 constrains, so the site contract is identical whether or not that distribution
 is installed; only the fleet's listener state changes.
+
+The same split as ``cache``, ``compression``, ``security`` and ``tls``, for the
+same reason.
 """
 
 from blitzecdn.capabilities.http.policy import (
