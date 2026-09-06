@@ -1201,7 +1201,7 @@ though it does declare a teardown one, because the two files it writes are
 exactly the kind the next slot exists for.
 
 `teardown_roles` is the third slot, and the only one that is not in the edge
-play at all. It runs in `decommission.yml`, before `blitzecdn_teardown`, and it
+play at all. It runs in `decommission.yml`, before `blitzecdn_edge_teardown`, and it
 exists because **core cannot remove what it may not name.** Core's teardown
 role is installed on every controller, so every path in it is a path core still
 knows when a capability has been detached: its own trees, the shared runtime
@@ -1211,19 +1211,19 @@ line in a core role. A file like `blitzecdn-resolver`'s drop-in under
 `/etc/systemd/resolved.conf.d`, or `blitzecdn-hardening`'s SSH policy under
 `/etc/ssh/sshd_config.d`, fits none of those patterns, and naming it in
 core would be putting a wheel's path into a role that runs whether or not the
-wheel is installed. Both of those did sit in `blitzecdn_teardown` once — the
+wheel is installed. Both of those did sit in `blitzecdn_edge_teardown` once — the
 hardening pair for longer, together with two handlers reloading `ssh` and
 `fail2ban` on every decommission, installed or not.
 
 The position is forced the same way the other two are, and by the strictest
-constraint of the three: `blitzecdn_teardown` *ends* by asserting the host is
+constraint of the three: `blitzecdn_edge_teardown` *ends* by asserting the host is
 clean and failing the run if anything survived. That assertion is the verdict
 on the whole decommission — the play runs while the host is still in inventory
 and there is no way back to it afterwards — so a capability that withdrew its
 files after it would be withdrawing them after the verdict had been passed.
 Running first also leaves the state tree and the data directory still in place
 for a role that needs to read them. `resolve_teardown_capability_roles` composes
-the list, and it reaches Ansible as `blitzecdn_teardown_capability_roles`.
+the list, and it reaches Ansible as `blitzecdn_edge_teardown_capability_roles`.
 
 A capability declares any of the three slots, or none. Most declare none:
 whatever they leave in `paths.data`, in the state tree, or in a unit matching

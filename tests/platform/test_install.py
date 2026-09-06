@@ -671,10 +671,10 @@ def test_uninstall_reuses_the_canonical_edge_teardown_role():
         task
         for task in uninstall_tasks
         if task.get("ansible.builtin.include_role", {}).get("name")
-        == "blitzecdn_teardown"
+        == "blitzecdn_edge_teardown"
     ]
     assert len(handoffs) == 1
-    assert handoffs[0]["vars"]["blitzecdn_teardown_remove_logs"] is True
+    assert handoffs[0]["vars"]["blitzecdn_edge_teardown_remove_logs"] is True
 
     serialized = yaml.safe_dump(uninstall_tasks)
     for duplicated_edge_detail in (

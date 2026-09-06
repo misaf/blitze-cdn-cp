@@ -326,7 +326,7 @@ def test_every_role_a_playbook_names_exists():
                 )
 
     assert "blitzecdn_nginx" in referenced, "the sweep found no playbooks to check"
-    assert "blitzecdn_cache" in referenced, (
+    assert "blitzecdn_cache_purge" in referenced, (
         "the sweep no longer reaches the plays an optional distribution owns"
     )
 

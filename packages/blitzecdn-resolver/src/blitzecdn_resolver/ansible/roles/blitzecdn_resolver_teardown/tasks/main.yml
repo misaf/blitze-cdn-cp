@@ -11,7 +11,7 @@
   register: blitzecdn_resolver_teardown_removed
 
 # Not a handler. Handlers flush at the end of the play, which here is after
-# blitzecdn_teardown has run and passed its verdict on the host; the resolver
+# blitzecdn_edge_teardown has run and passed its verdict on the host; the resolver
 # has to be back before then, and this role has to fail the decommission itself
 # if it is not.
 - name: Restart systemd-resolved without the managed drop-in

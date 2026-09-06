@@ -928,7 +928,7 @@ PLATFORM_ROLES = (
     "blitzecdn_firewall",
     "blitzecdn_kernel",
     "blitzecdn_nginx",
-    "blitzecdn_teardown",
+    "blitzecdn_edge_teardown",
     "blitzecdn_uninstall",
 )
 
@@ -950,8 +950,8 @@ PLATFORM_PLAYBOOKS = (
 #: why it cannot drive this one.
 ANSIBLE_PACKAGE = "blitzecdn-cache"
 ANSIBLE_ROLES = (
-    "blitzecdn_cache",
     "blitzecdn_cache_config",
+    "blitzecdn_cache_purge",
     "blitzecdn_cache_stats",
 )
 
@@ -968,7 +968,7 @@ EDGE_ROLE = "blitzecdn_geoip"
 #:
 #: It pairs its host roles with a teardown role, so it reaches the decommission
 #: slot too. That pairing is the point rather than an extra: the two files it
-#: writes are at paths only this wheel knows, and core's `blitzecdn_teardown`
+#: writes are at paths only this wheel knows, and core's `blitzecdn_edge_teardown`
 #: used to name both — which is the leak the third slot exists to close.
 HOST_ROLE_PACKAGE = "blitzecdn-hardening"
 HOST_ROLES = ("blitzecdn_hardening_sshd", "blitzecdn_hardening_fail2ban")
@@ -1165,7 +1165,7 @@ def test_a_capability_that_writes_outside_core_s_trees_can_take_it_off_again(
 
     `blitzecdn-resolver` writes a drop-in under /etc/systemd/resolved.conf.d;
     `blitzecdn-hardening` writes an SSH policy under /etc/ssh/sshd_config.d and
-    a jail under /etc/fail2ban/jail.d. Core's `blitzecdn_teardown` removes the
+    a jail under /etc/fail2ban/jail.d. Core's `blitzecdn_edge_teardown` removes the
     trees it wrote, the shared runtime directories and every systemd unit
     matching the managed prefix — none of those three files is any of those,
     and core naming one would put a path belonging to a wheel into a role that
@@ -1334,7 +1334,7 @@ def test_an_installed_capability_locates_its_plays_without_the_repository(
         "'purge': str(ansible.CACHE_PURGE_PLAYBOOK),"
         "'exists': ansible.CACHE_PURGE_PLAYBOOK.is_file()"
         " and ansible.STATS_PLAYBOOK.is_file()"
-        " and (ansible.ROLES_PATH / 'blitzecdn_cache').is_dir(),"
+        " and (ansible.ROLES_PATH / 'blitzecdn_cache_purge').is_dir(),"
         "}))"
     )
     finished = subprocess.run(

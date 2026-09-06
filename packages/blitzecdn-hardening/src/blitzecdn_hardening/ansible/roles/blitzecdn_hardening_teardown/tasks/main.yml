@@ -19,7 +19,7 @@
   register: blitzecdn_hardening_teardown_jail_removed
 
 # Not a handler. Handlers flush at the end of the play, which here is after
-# blitzecdn_teardown has run and passed its verdict on the host; both services
+# blitzecdn_edge_teardown has run and passed its verdict on the host; both services
 # have to be settled before then, and this role has to fail the decommission
 # itself if they are not.
 #

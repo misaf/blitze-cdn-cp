@@ -193,7 +193,7 @@ class PlaybookExecutor:
                     "blitzecdn_host_capability_roles": list(
                         self._host_capability_roles
                     ),
-                    "blitzecdn_teardown_capability_roles": list(
+                    "blitzecdn_edge_teardown_capability_roles": list(
                         self._teardown_capability_roles
                     ),
                     "blitzecdn_nginx_modules": [

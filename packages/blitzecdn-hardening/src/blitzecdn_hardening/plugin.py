@@ -25,11 +25,11 @@ So the ordering is not a preference this package expresses; it is the reason
 the second slot exists at all, and core enforces it by position in the play
 rather than by knowing either role's name.
 
-Withdrawing goes in the decommission slot, before ``blitzecdn_teardown``. A
+Withdrawing goes in the decommission slot, before ``blitzecdn_edge_teardown``. A
 drop-in under ``/etc/ssh/sshd_config.d`` and a jail under
 ``/etc/fail2ban/jail.d`` are not in any tree core removes, and neither is a
 systemd unit matching the managed prefix. Core used to name both paths in
-``blitzecdn_teardown``'s defaults and reload both services from its own
+``blitzecdn_edge_teardown``'s defaults and reload both services from its own
 handlers, which meant a role installed on every controller carried the paths of
 a capability that may not be installed — and a fleet that had detached this
 distribution still had a decommission asserting against files nothing on that

@@ -5,11 +5,11 @@
 # playbook, on a host that is no longer being converged, so it carries its own
 # copies rather than reading the contract. Unlike blitzecdn_cache and
 # blitzecdn_cache_stats, nothing holds these against it yet.
-blitzecdn_teardown_cache_path: /var/cache/nginx/blitzecdn
-blitzecdn_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
-blitzecdn_teardown_acme_root: /var/lib/blitzecdn/acme
-blitzecdn_teardown_state_path: /etc/blitzecdn
-blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
+blitzecdn_edge_teardown_cache_path: /var/cache/nginx/blitzecdn
+blitzecdn_edge_teardown_managed_sites_file: /etc/nginx/blitzecdn-managed-sites
+blitzecdn_edge_teardown_acme_root: /var/lib/blitzecdn/acme
+blitzecdn_edge_teardown_state_path: /etc/blitzecdn
+blitzecdn_edge_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
 # blitzecdn_kernel's drop-in, and the only host-level file left here. The SSH
 # policy and the Fail2Ban jail used to sit beside it and no longer do: both are
 # written by `blitzecdn-hardening`'s roles and removed by that same package's
@@ -17,7 +17,7 @@ blitzecdn_teardown_firewall_registry: /etc/blitzecdn/firewall-rules
 # capability's paths in a role that is installed whether or not the capability
 # is, and left a detached fleet with a decommission asserting against files
 # nothing on its controller could write.
-blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
+blitzecdn_edge_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
 # Systemd units this collection installs, matched rather than listed.
 #
 # A list would have to name every unit any capability might install, which puts
@@ -28,21 +28,21 @@ blitzecdn_teardown_sysctl_file: /etc/sysctl.d/60-blitzecdn.conf
 # still installed or not. That last part matters most: a host is usually
 # decommissioned by a controller whose package set has drifted from the one
 # that converged it.
-blitzecdn_teardown_unit_prefix: blitzecdn-
+blitzecdn_edge_teardown_unit_prefix: blitzecdn-
 
 # Every file this collection writes into the nginx tree carries this as its
 # first line. Selecting by marker rather than by the managed-sites registry is
 # deliberate: a configuration written by a run that failed validation never
 # reached the registry, and matching on content is what still finds it.
-blitzecdn_teardown_marker: "# Managed by BlitzeCDN. Local edits are overwritten."
+blitzecdn_edge_teardown_marker: "# Managed by BlitzeCDN. Local edits are overwritten."
 
 # The container runtime.
-blitzecdn_teardown_compose_file: /etc/blitzecdn/compose.yml
-blitzecdn_teardown_project: blitzecdn
-blitzecdn_teardown_container: blitzecdn-edge
-blitzecdn_teardown_runtime_path: /var/lib/blitzecdn/edge
-blitzecdn_teardown_empty_root: /var/lib/blitzecdn/empty
-blitzecdn_teardown_data_path: /var/lib/blitzecdn/edge-data
+blitzecdn_edge_teardown_compose_file: /etc/blitzecdn/compose.yml
+blitzecdn_edge_teardown_project: blitzecdn
+blitzecdn_edge_teardown_container: blitzecdn-edge
+blitzecdn_edge_teardown_runtime_path: /var/lib/blitzecdn/edge
+blitzecdn_edge_teardown_empty_root: /var/lib/blitzecdn/empty
+blitzecdn_edge_teardown_data_path: /var/lib/blitzecdn/edge-data
 
 # Stopping the edge and destroying what it was serving are two different
 # operations, and conflating them is how a routine runtime removal takes a
@@ -57,9 +57,9 @@ blitzecdn_teardown_data_path: /var/lib/blitzecdn/edge-data
 # It defaults to true because both callers are decommissions: `blitzecdn edge
 # remove`, which forgets the host entirely, and the uninstaller. Set it false to
 # take the runtime off a host that is going to be rebuilt and re-converged.
-blitzecdn_teardown_remove_data: true
+blitzecdn_edge_teardown_remove_data: true
 
 # Logs are evidence and survive by default, even under remove_data. A
 # decommissioned host is often decommissioned because something went wrong on it.
-blitzecdn_teardown_remove_logs: false
-blitzecdn_teardown_access_log_path: /var/log/nginx/blitzecdn-access.log
+blitzecdn_edge_teardown_remove_logs: false
+blitzecdn_edge_teardown_access_log_path: /var/log/nginx/blitzecdn-access.log

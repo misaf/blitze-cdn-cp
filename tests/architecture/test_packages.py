@@ -1499,7 +1499,7 @@ CORE_ANSIBLE = REPO_ROOT / "src/blitzecdn/ansible"
 #: `resolved.conf.d` is the resolver drop-in's directory: the file there is
 #: written by `blitzecdn-resolver`'s role and removed by that same package's
 #: teardown role, so core neither creates nor deletes it. It used to be listed
-#: in `blitzecdn_teardown`'s defaults, which meant a role installed on every
+#: in `blitzecdn_edge_teardown`'s defaults, which meant a role installed on every
 #: controller carried the path of a capability that may not be installed.
 #: `sshd_config.d` and `fail2ban` are the same case one package later: both
 #: files are `blitzecdn-hardening`'s, and `blitzecdn_hardening_teardown` is
@@ -1634,7 +1634,7 @@ def test_the_decommission_play_names_no_capability_and_fills_its_slot():
     host forever.
 
     The slot must therefore be *in* the play, must name no capability, and must
-    come before `blitzecdn_teardown` — that role ends by asserting the host is
+    come before `blitzecdn_edge_teardown` — that role ends by asserting the host is
     clean and failing the run if anything survived, which is the verdict on the
     whole decommission and cannot be passed before half the removal has
     happened.
@@ -1651,16 +1651,16 @@ def test_the_decommission_play_names_no_capability_and_fills_its_slot():
         assert role not in play, (
             f"the decommission play names {role}, which ships in a wheel"
         )
-    assert "blitzecdn_teardown_capability_roles" in play
-    assert play.index("blitzecdn_teardown_capability_roles") < play.index(
-        "role: blitzecdn_teardown"
+    assert "blitzecdn_edge_teardown_capability_roles" in play
+    assert play.index("blitzecdn_edge_teardown_capability_roles") < play.index(
+        "role: blitzecdn_edge_teardown"
     )
 
 
 def test_core_s_teardown_removes_no_path_that_belongs_to_a_wheel():
     """A role installed on every controller may not know a wheel's paths.
 
-    `blitzecdn_teardown` is core's, so it runs on every decommission whatever
+    `blitzecdn_edge_teardown` is core's, so it runs on every decommission whatever
     is installed. Every path in it is therefore a claim core can still make
     when a capability has been detached — its own trees, the shared runtime
     directories, and units matched by prefix rather than listed. A capability's
@@ -1673,7 +1673,7 @@ def test_core_s_teardown_removes_no_path_that_belongs_to_a_wheel():
     services only `blitzecdn-hardening` installs. A defaults-only check would
     have passed while core still restarted `fail2ban` on every decommission.
     """
-    role = CORE_ANSIBLE / "roles/blitzecdn_teardown"
+    role = CORE_ANSIBLE / "roles/blitzecdn_edge_teardown"
     contributed_paths = ("resolved.conf.d", "sshd_config.d", "fail2ban", "sshd")
 
     for source in sorted(role.rglob("*.yml")):
@@ -1941,3 +1941,60 @@ def _entry_point_names(package: Path) -> set[str]:
     document = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
     group = document.get("project", {}).get("entry-points", {})
     return set(group.get(ENTRY_POINT_GROUP, {}))
+
+
+@pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
+def test_the_role_named_for_the_wheel_is_the_one_that_converges_an_edge(
+    package: Path,
+):
+    """The bare name belongs to the role that does the wheel's ordinary work.
+
+    `blitzecdn-cache` shipped three roles, and the unsuffixed one — the name an
+    operator reads as *the* cache role — was the purge. Purging runs in its own
+    play, on demand, converging nothing; the role that actually gives an edge a
+    cache was `blitzecdn_cache_config`. So the shortest name pointed at the
+    least representative role, and the one a `--tags` line or a hand-written
+    play would reach for first did the wrong thing.
+
+    `blitzecdn-resolver` has it the right way round: `blitzecdn_resolver`
+    converges and `blitzecdn_resolver_teardown` undoes it. The rule is that
+    arrangement stated — if a wheel names a role after itself, that role has to
+    be one it contributes to a slot core actually runs, rather than a play the
+    wheel invokes for an operation.
+
+    A wheel that contributes nothing to a core play is exempt, because nothing
+    competes for the name: `blitzecdn-origins` ships one role and reaching the
+    origins it proxies to is all that wheel does, so `blitzecdn_origins` is
+    exactly right. The rule bites only where a wheel has both kinds of role and
+    gave the shorter name to the wrong one.
+
+    Derived from the plugin's own contribution, so a wheel that later moves its
+    converging work into a suffixed role fails here rather than leaving the
+    bare name pointing at whatever is left.
+    """
+    root = package / "src" / _import_package(package) / "ansible" / "roles"
+    if not root.is_dir():
+        pytest.skip(f"{package.name} ships no roles")
+    bare = _import_package(package)
+    if bare not in {role for role, _ in _role_specifications(root)}:
+        pytest.skip(f"{package.name} ships no role named {bare}")
+
+    claims = _entry_point_names(package)
+    contributed = {
+        role
+        for contribution in load_control_plane_plugins().ansible_contributions()
+        if contribution.plugin in claims
+        for slot in ("edge_roles", "host_roles", "teardown_roles")
+        for role in getattr(contribution, slot)
+    }
+    if not contributed:
+        pytest.skip(
+            f"{package.name} contributes no role to a core play; nothing "
+            f"competes with {bare} for the name"
+        )
+    assert bare in contributed, (
+        f"{bare} is the name an operator reads as the {package.name} role, but "
+        f"the roles {package.name} contributes to a play core runs are "
+        f"{sorted(contributed)}. Name the operation for what it does, and "
+        "leave the bare name to the role that converges an edge."
+    )

@@ -426,7 +426,7 @@ class AnsibleContribution:
     whose package set has drifted from the one that converged it, so "the
     capability is still attached" is not something the removal may depend on
     either. What core owns instead is the position: the slot runs *before*
-    ``blitzecdn_teardown``, so that role's clean-host assertion is the last
+    ``blitzecdn_edge_teardown``, so that role's clean-host assertion is the last
     word on the whole decommission rather than a verdict passed before half
     the removal happened.
 
@@ -464,7 +464,7 @@ class AnsibleContribution:
     #: a Fail2Ban jail, neither of which the rendered configuration reads.
     host_roles: tuple[str, ...] = ()
     #: Role names, from this contribution's own directory, that core's
-    #: decommission play runs before ``blitzecdn_teardown``, to remove what
+    #: decommission play runs before ``blitzecdn_edge_teardown``, to remove what
     #: this capability put on the host. Empty for a capability that writes
     #: nothing outside the trees core already removes — the data directory,
     #: the state tree, and any systemd unit matching the managed prefix.

@@ -94,7 +94,7 @@ def test_withdrawing_goes_in_the_decommission_slot() -> None:
     """The other half, and the reason the third slot exists at all.
 
     The drop-in this capability writes is at a path only this wheel knows.
-    Core's `blitzecdn_teardown` removes the trees it wrote, the shared runtime
+    Core's `blitzecdn_edge_teardown` removes the trees it wrote, the shared runtime
     directories and every systemd unit matching the managed prefix — a file
     under /etc/systemd/resolved.conf.d is none of those. Without this
     contribution a decommissioned host would keep resolving through servers

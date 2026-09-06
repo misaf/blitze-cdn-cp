@@ -53,7 +53,7 @@ Two slots, because converging and withdrawing are two different plays.
   answer, most immediately the origin hostnames the renderer writes into a
   configuration the runtime will look up.
 - `teardown_roles` puts `blitzecdn_resolver_teardown` **before**
-  `blitzecdn_teardown` in the decommission play. Core removes the trees it
+  `blitzecdn_edge_teardown` in the decommission play. Core removes the trees it
   wrote, the shared runtime directories and every systemd unit matching the
   managed prefix; a file under `/etc/systemd/resolved.conf.d` is none of those.
   Core naming it would mean a path belonging to this wheel sitting in a role

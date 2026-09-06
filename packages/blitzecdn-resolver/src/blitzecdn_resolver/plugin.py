@@ -14,7 +14,7 @@ and the pairing is the point rather than an accident of this package:
   ``blitzecdn_nginx``. Everything that resolves a name later depends on the
   answer — most immediately the origin hostnames the renderer writes into a
   configuration the runtime will look up.
-* Withdrawing goes in the decommission slot, before ``blitzecdn_teardown``.
+* Withdrawing goes in the decommission slot, before ``blitzecdn_edge_teardown``.
   A drop-in under ``/etc/systemd/resolved.conf.d`` is not in any tree core
   removes, and it is not a systemd unit matching the managed prefix either, so
   a decommission that did not run this role would leave a host resolving

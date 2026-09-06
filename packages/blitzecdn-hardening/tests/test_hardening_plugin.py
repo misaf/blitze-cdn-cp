@@ -118,7 +118,7 @@ def test_fail2ban_follows_ssh_within_the_contribution() -> None:
 def test_the_capability_withdraws_its_own_files_in_the_teardown_slot() -> None:
     """The mirror of the host slot, and the reason core stopped naming these.
 
-    An SSH drop-in and a Fail2Ban jail are in no tree `blitzecdn_teardown`
+    An SSH drop-in and a Fail2Ban jail are in no tree `blitzecdn_edge_teardown`
     removes, and neither is a systemd unit matching the managed prefix. Core
     used to carry both paths in that role's defaults and reload both services
     from its own handlers — a role installed on every controller holding the

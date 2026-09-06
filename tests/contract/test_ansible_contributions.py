@@ -307,7 +307,7 @@ def test_every_slot_reaches_ansible_on_the_command_line(
     command = captured["cmdline"]
     assert '"blitzecdn_capability_roles": ["converge_role"]' in command
     assert '"blitzecdn_host_capability_roles": ["host_role"]' in command
-    assert '"blitzecdn_teardown_capability_roles": ["withdraw_role"]' in command
+    assert '"blitzecdn_edge_teardown_capability_roles": ["withdraw_role"]' in command
     # The same journey for the module list, and for the same reason: an edge
     # loads what the extra-var says and nothing else, so a list the executor
     # did not forward is an edge whose contributed directives are unknown.

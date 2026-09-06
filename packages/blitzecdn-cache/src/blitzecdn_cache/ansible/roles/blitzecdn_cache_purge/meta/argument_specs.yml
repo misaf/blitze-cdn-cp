@@ -14,17 +14,17 @@ argument_specs:
         zone, finds the file gone on the next request for it, and treats the
         request as a MISS. No reload is required and none is performed.
     options:
-      blitzecdn_cache_path:
+      blitzecdn_cache_purge_path:
         type: path
         required: true
         description: Must equal blitzecdn_edge_runtime.paths.cache on the same host.
-      blitzecdn_cache_normalize_accept_encoding:
+      blitzecdn_cache_purge_normalize_accept_encoding:
         type: bool
         required: true
         description: >-
           Must equal blitzecdn_nginx_normalize_accept_encoding. When true the
           encoding is part of the cache key and every variant is purged.
-      blitzecdn_cache_levels:
+      blitzecdn_cache_purge_levels:
         type: str
         required: true
         choices: ["1:2"]

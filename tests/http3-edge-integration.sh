@@ -284,7 +284,7 @@ in_edge "! grep -q '^udp|443|any$' /etc/blitzecdn/firewall-rules"
 # Teardown, both kinds
 # --------------------------------------------------------------------------
 say "Removing the runtime without destroying what it served"
-in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml -e blitzecdn_teardown_remove_data=false"
+in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/edge-teardown.yml -e blitzecdn_edge_teardown_remove_data=false"
 in_edge 'docker ps -a --format "{{.Names}}" | grep -qx blitzecdn-edge' &&
   fail "the edge container survived a runtime teardown"
 in_edge 'test -s /etc/blitzecdn/tls/integration.key' ||

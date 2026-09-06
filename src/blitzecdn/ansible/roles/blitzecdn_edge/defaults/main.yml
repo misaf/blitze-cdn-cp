@@ -61,7 +61,7 @@ blitzecdn_edge_runtime:
   # Host directories, every one of them. Containers stay disposable: replacing
   # the edge container, or upgrading it to a new image, touches nothing here.
   paths:
-    # Controller-written edge state. blitzecdn_teardown removes this whole
+    # Controller-written edge state. blitzecdn_edge_teardown removes this whole
     # tree, so anything under it is decommissioned with the host.
     state: /etc/blitzecdn
     # The configuration tree blitzecdn_nginx writes and the container mounts

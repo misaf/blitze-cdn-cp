@@ -28,46 +28,46 @@ argument_specs:
         drops the inventory entry no playbook can reach the host again, and
         anything left here stays until someone logs in and removes it by hand.
     options:
-      blitzecdn_teardown_cache_path:
+      blitzecdn_edge_teardown_cache_path:
         type: path
         required: true
         description: Must equal blitzecdn_edge_runtime.paths.cache on the same host.
-      blitzecdn_teardown_managed_sites_file:
+      blitzecdn_edge_teardown_managed_sites_file:
         type: path
         required: true
         description: Must equal blitzecdn_nginx_managed_sites_file on the same host.
-      blitzecdn_teardown_acme_root:
+      blitzecdn_edge_teardown_acme_root:
         type: path
         required: true
         description: Must equal blitzecdn_edge_runtime.paths.acme on the same host.
-      blitzecdn_teardown_state_path:
+      blitzecdn_edge_teardown_state_path:
         type: path
         required: true
         description: >-
           Root of the controller-written state tree, holding managed TLS
           certificates and keys under tls/. Removed recursively.
-      blitzecdn_teardown_firewall_registry:
+      blitzecdn_edge_teardown_firewall_registry:
         type: path
         required: true
-      blitzecdn_teardown_sysctl_file:
+      blitzecdn_edge_teardown_sysctl_file:
         type: path
         required: true
         description: Must equal the drop-in blitzecdn_kernel writes on the same host.
-      blitzecdn_teardown_unit_prefix: {type: str, required: true}
-      blitzecdn_teardown_marker:
+      blitzecdn_edge_teardown_unit_prefix: {type: str, required: true}
+      blitzecdn_edge_teardown_marker:
         type: str
         required: true
         description: First line of every file this collection writes into /etc/nginx.
-      blitzecdn_teardown_compose_file:
+      blitzecdn_edge_teardown_compose_file:
         type: path
         required: true
         description: Must equal blitzecdn_edge_stack_compose_file on the same host.
-      blitzecdn_teardown_project: {type: str, required: true}
-      blitzecdn_teardown_container: {type: str, required: true}
-      blitzecdn_teardown_runtime_path: {type: path, required: true}
-      blitzecdn_teardown_data_path: {type: path, required: true}
-      blitzecdn_teardown_empty_root: {type: path, required: true}
-      blitzecdn_teardown_remove_data:
+      blitzecdn_edge_teardown_project: {type: str, required: true}
+      blitzecdn_edge_teardown_container: {type: str, required: true}
+      blitzecdn_edge_teardown_runtime_path: {type: path, required: true}
+      blitzecdn_edge_teardown_data_path: {type: path, required: true}
+      blitzecdn_edge_teardown_empty_root: {type: path, required: true}
+      blitzecdn_edge_teardown_remove_data:
         type: bool
         default: true
         description: >-
@@ -77,11 +77,11 @@ argument_specs:
           managed-site registry go only when this is true, so "take the runtime
           off this host" and "erase what this host was serving" cannot be
           confused for each other.
-      blitzecdn_teardown_remove_logs:
+      blitzecdn_edge_teardown_remove_logs:
         type: bool
         default: false
         description: Also delete the BlitzeCDN access log.
-      blitzecdn_teardown_access_log_path:
+      blitzecdn_edge_teardown_access_log_path:
         type: path
         required: true
         description: Must equal blitzecdn_nginx_access_log_path on the same host.
