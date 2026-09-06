@@ -204,3 +204,31 @@ def test_the_harness_gives_the_capability_slot_the_roles_it_requires():
             "parameter it requires; setting blitzecdn_capability_roles as a "
             "play variable is not the same thing"
         )
+
+
+def test_the_harness_certificates_live_where_the_runtime_can_read_them():
+    """A path the edge container has no mount for is a file nginx cannot open.
+
+    `certificate_mode: existing` is the one mode validate.yml does not check
+    the shape of, so an unreachable path is not refused by the role — it is
+    refused by nginx, inside a config-test container, after the whole tree has
+    been rendered and every capability role has run.
+
+    The reachable directory is the runtime contract's `paths.tls`, which
+    compose.yml.j2 mounts read-only into the container at the same path, and
+    it is also where the script generates the certificate it later asserts
+    survives a teardown. This checks the play against the script rather than
+    against a constant, so the two cannot drift apart again.
+    """
+    playbook = HTTP3_PLAYBOOK.read_text(encoding="utf-8")
+    written = set(re.findall(r"(/etc/blitzecdn/tls/[\w.-]+)", _commands(HTTP3_HARNESS)))
+    assert written, "the harness no longer generates a certificate to serve"
+
+    declared = re.findall(r"certificate(?:_key)?_path: (\S+)", playbook)
+    assert declared, "the harness play no longer names a certificate"
+    for path in declared:
+        assert path in written, (
+            f"the play serves {path}, which the harness never creates and the "
+            "edge container has no mount for; only paths under the runtime's "
+            f"TLS directory reach nginx, and the script writes {sorted(written)}"
+        )

@@ -95,6 +95,14 @@
     # until request time. The running edge shares this host's network namespace,
     # where Docker's embedded DNS resolves the sibling origin container.
     blitzecdn_nginx_resolvers: [127.0.0.11]
+    # Both sites present the one certificate the harness generates, and its
+    # path is not free. Nginx reads it from inside the edge container, and the
+    # only host directory that reaches in there is the runtime contract's
+    # `paths.tls` — /etc/blitzecdn/tls, mounted read-only at the same path by
+    # compose.yml.j2. A certificate anywhere else on the host is a file the
+    # process that needs it cannot see. `certificate_mode: existing` is also
+    # the one mode validate.yml does not check the shape of, so a path that
+    # cannot work is not refused until nginx tries to open it.
     blitzecdn_nginx_sites:
       - name: site-one-test
         server_names: [site-one.test]
@@ -109,8 +117,8 @@
         always_use_https: false
         enabled: true
         certificate_mode: existing
-        certificate_path: /etc/ssl/certs/blitzecdn-http3-test.pem
-        certificate_key_path: /etc/ssl/private/blitzecdn-http3-test.key
+        certificate_path: /etc/blitzecdn/tls/integration.pem
+        certificate_key_path: /etc/blitzecdn/tls/integration.key
         cache_enabled: false
         cache_query_string_mode: include
         cache_valid_success: 10m
@@ -140,8 +148,8 @@
         under_attack_mode: true
         enabled: true
         certificate_mode: existing
-        certificate_path: /etc/ssl/certs/blitzecdn-http3-test.pem
-        certificate_key_path: /etc/ssl/private/blitzecdn-http3-test.key
+        certificate_path: /etc/blitzecdn/tls/integration.pem
+        certificate_key_path: /etc/blitzecdn/tls/integration.key
         cache_enabled: false
         cache_query_string_mode: include
         cache_valid_success: 10m
