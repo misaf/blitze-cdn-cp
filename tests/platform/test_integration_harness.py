@@ -249,3 +249,25 @@ def test_the_idempotency_check_reports_what_failed_to_settle():
         "the idempotency check runs without --diff, so a converge that fails "
         "to settle reports a count and not the attribute that moved"
     )
+
+
+def test_the_upgrade_moves_to_different_bytes():
+    """Retagging is not an upgrade, and the role is right to ignore it.
+
+    blitzecdn_edge_stack resolves a reference to a digest and pins the Compose
+    file to that, so a second tag for bytes already running leaves the file
+    identical and recreates nothing — deliberately, because a tag resolved
+    twice must not be able to move a fleet. The harness used to retag and then
+    assert the container had been replaced, which asserted the opposite of a
+    documented design decision and failed exactly as the role intended.
+
+    So the upgrade target has to be built. What is in it does not matter — a
+    label is enough — but it has to be its own image.
+    """
+    commands = _commands()
+    assert not re.search(r"docker tag .*EDGE_TAG_NEXT", commands), (
+        "the upgrade target is a second tag of the running image, so its "
+        "digest is the one already deployed and nothing will be recreated"
+    )
+    built = re.search(r"docker build [^\n]*--tag \"\$\{EDGE_TAG_NEXT\}\"", commands)
+    assert built, "the upgrade target is no longer built as its own image"
