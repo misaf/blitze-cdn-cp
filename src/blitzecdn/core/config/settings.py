@@ -159,6 +159,16 @@ class Settings(BaseSettings):
     #: anything changed. Real deployments are never pruned: they are the
     #: snapshots a rollback chooses from.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
+    #: How many audit events to keep.
+    #:
+    #: The audit log is the only table with a writer on every mutation and no
+    #: reader that ever removed one, so it was the one thing here that grew
+    #: without bound — a control plane that eventually dies of having recorded
+    #: too well. This is a bound against that, not a judgement about what is
+    #: worth keeping: the default holds years of ordinary operation, and an
+    #: installation that needs a longer trail than a local SQLite file should
+    #: be shipping these events off the box rather than raising this.
+    audit_retention: int = Field(default=100_000, ge=1_000, le=10_000_000)
     drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
     redis_url: RedisDsn = RedisDsn("redis://127.0.0.1:6379/0")
     #: How many route handlers may occupy the API's offload pool at once.

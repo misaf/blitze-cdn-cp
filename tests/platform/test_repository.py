@@ -84,6 +84,48 @@ def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_pa
     assert repository.audit_log.list_audit_events()[0] == event
 
 
+def test_the_audit_log_keeps_only_its_retention(settings):
+    """The one table written on every mutation, and now the one with a bound.
+
+    Small numbers because the mechanism is the subject: what matters is that
+    the count stops climbing and that what survives is the *newest*, since a
+    trail pruned from the wrong end answers no question anyone asks of it.
+    """
+    repository = Repository(settings.database_path, audit_retention=5)
+
+    for index in range(20):
+        repository.audit_log.audit("alice", f"site.updated.{index}", "site", "s")
+
+    kept = repository.audit_log.list_audit_events()
+    assert len(kept) == 5
+    assert [event.action for event in kept] == [
+        f"site.updated.{index}" for index in range(19, 14, -1)
+    ]
+
+
+def test_pruning_the_audit_log_leaves_the_ids_of_survivors_alone(settings):
+    """An id is what `get_audit_event` is called with, so it has to stay put."""
+    repository = Repository(settings.database_path, audit_retention=3)
+
+    for index in range(10):
+        repository.audit_log.audit("alice", f"a{index}", "site", "s")
+
+    kept = repository.audit_log.list_audit_events()
+    for event in kept:
+        assert repository.audit_log.get_audit_event(event.id) == event
+    assert [event.id for event in kept] == [10, 9, 8]
+
+
+def test_an_audit_log_under_its_retention_loses_nothing(settings):
+    """The common case: the delete runs on every append and finds no row."""
+    repository = Repository(settings.database_path, audit_retention=1000)
+
+    for index in range(25):
+        repository.audit_log.audit("alice", f"a{index}", "site", "s")
+
+    assert len(repository.audit_log.list_audit_events()) == 25
+
+
 def _seed(repository, domain_payload, record_payload, site_payload, **policy):
     """Zone, site, record — the three rows a snapshot is made of.
 
