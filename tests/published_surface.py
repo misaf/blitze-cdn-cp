@@ -100,3 +100,80 @@ _FORBIDDEN_SDK_MODULES = (
     "blitzecdn.core.ansible",
     "blitzecdn.core.runtime.broker",
 )
+
+
+def facade_private_modules() -> frozenset[str]:
+    """Modules under a published prefix that publish nothing of their own.
+
+    A prefix publishes every module beneath it, which is right for
+    `blitzecdn.core.ports` — its submodules *are* the surface, and its
+    `__init__` is a convenience — and wrong for `blitzecdn.core.plugins`, whose
+    `__init__` is a façade re-exporting the whole of what is behind it. Under a
+    prefix alone, `blitzecdn.core.plugins.types` was as public as
+    `blitzecdn.core.plugins`, so the arrangement of modules behind the façade
+    was frozen along with the names: moving `CliCommandGroup` out of `types.py`
+    would break a wheel that had imported the deep path, while the re-export it
+    ought to have used never moved.
+
+    The line is drawn by what a module offers that its façade does not. If
+    every public name in it is reachable from a published ancestor — the same
+    object, not merely the same spelling — then importing it buys a wheel
+    nothing except a dependency on where the code currently sits, and it is
+    refused. `core.plugins.hooks` survives because `hookspec` is only there:
+    core declares hookspecs with it and no `__init__` hands it on, so that path
+    is the sole way to reach a name, which is the definition of public.
+
+    Derived rather than listed, because a list of "the modules behind the
+    façade" is a list that a new module joins by being forgotten.
+    """
+    import importlib
+    import pkgutil
+
+    modules: dict[str, object] = {}
+    for prefix in _PUBLIC_SDK_PREFIXES:
+        try:
+            package = importlib.import_module(prefix)
+        except Exception:
+            continue
+        names = [prefix]
+        if hasattr(package, "__path__"):
+            names += [
+                info.name
+                for info in pkgutil.walk_packages(package.__path__, f"{prefix}.")
+            ]
+        for name in names:
+            try:
+                modules[name] = importlib.import_module(name)
+            except Exception:
+                continue
+
+    private = set()
+    for name, module in modules.items():
+        exported = _public_names(module)
+        if not exported or name in _PUBLIC_SDK_PREFIXES:
+            continue
+        parts = name.split(".")
+        ancestors = [
+            modules[".".join(parts[:depth])]
+            for depth in range(1, len(parts))
+            if ".".join(parts[:depth]) in modules
+        ]
+        if all(
+            any(getattr(a, symbol, None) is getattr(module, symbol) for a in ancestors)
+            for symbol in exported
+        ):
+            private.add(name)
+    return frozenset(private)
+
+
+def _public_names(module: object) -> list[str]:
+    """What a module declares, or — with no `__all__` — what it defined itself."""
+    declared = getattr(module, "__all__", None)
+    if declared is not None:
+        return [name for name in declared if hasattr(module, name)]
+    return [
+        name
+        for name in vars(module)
+        if not name.startswith("_")
+        and getattr(getattr(module, name), "__module__", None) == module.__name__
+    ]

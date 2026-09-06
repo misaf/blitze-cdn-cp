@@ -456,28 +456,71 @@ def _default(field: dataclasses.Field[Any]) -> str:
 
 
 def sdk_surface(public_prefixes: tuple[str, ...]) -> str:
-    """The names inside each published prefix, not just the prefix.
+    """Every published name, at the one path this project promises for it.
 
     `_PUBLIC_SDK_PREFIXES` in `test_packages` decides which *modules* a wheel
     may import. It says nothing about what is in them, so a symbol an installed
     package uses can be renamed or removed with the allowlist untouched. This
-    is the symbol-level half: for every published module, the public names it
-    exports.
+    is the symbol-level half.
+
+    One path per symbol, and the shallowest one. A prefix publishes every
+    module beneath it, so a package that re-exports through its `__init__`
+    published each of its names twice — `CliCommandGroup` arrived as both
+    `core.plugins.CliCommandGroup` and `core.plugins.types.CliCommandGroup`,
+    and `resolve_role_search_path` three times, once for every level of
+    `resolution`. Sixty-three of a hundred and seventy-five lines were the same
+    promise written again at a deeper address.
+
+    Pinning the deep one is worse than redundant: it freezes the layout behind
+    the façade. Splitting `types.py`, or moving a class between the modules
+    under `resolution/`, would fail this file having changed nothing a wheel
+    can see — while the re-export it actually imports stayed exactly where it
+    was. So a name reachable from a published ancestor under the same identity
+    is recorded at the ancestor, and the module it happens to live in becomes
+    an implementation detail again.
+
+    A name the façade does *not* re-export keeps its own path, because that
+    path is the only way to reach it — `core.ports.operations` is published
+    module by module for that reason, and so is `hookspec`, which core uses to
+    declare hookspecs and no `__init__` hands on.
     """
     import importlib
     import pkgutil
 
-    lines = []
+    modules: dict[str, Any] = {}
     for prefix in public_prefixes:
         for module_name in _modules_under(prefix, importlib, pkgutil):
             try:
-                module = importlib.import_module(module_name)
+                modules[module_name] = importlib.import_module(module_name)
             except Exception:  # a module that needs a live control plane
                 continue
-            for name in _exported(module, module_name):
-                shape = _symbol(module, name)
-                lines.append(_line(ROOT, "sdk", f"{module_name}.{name}\t{shape}"))
+
+    lines = []
+    for module_name, module in modules.items():
+        for name in _exported(module, module_name):
+            if _shallower_path(module_name, name, modules) is not None:
+                continue
+            shape = _symbol(module, name)
+            lines.append(_line(ROOT, "sdk", f"{module_name}.{name}\t{shape}"))
     return _render(lines)
+
+
+def _shallower_path(module_name: str, name: str, modules: dict[str, Any]) -> str | None:
+    """A published ancestor package that re-exports this very object, if any.
+
+    Identity, not the name. `AuditEvent` is published twice on purpose —
+    `api.models.AuditEvent` is the wire shape and `core.domain.audit.AuditEvent`
+    is the domain model, two different classes that share a leaf name — and
+    collapsing those would erase a real promise rather than a duplicated one.
+    Only an ancestor holding the *same object* is the same promise.
+    """
+    parts = module_name.split(".")
+    here = getattr(modules[module_name], name, _ABSENT)
+    for depth in range(len(parts) - 1, 0, -1):
+        ancestor = ".".join(parts[:depth])
+        if ancestor in modules and getattr(modules[ancestor], name, _ABSENT) is here:
+            return ancestor
+    return None
 
 
 def _symbol(module: Any, name: str) -> str:

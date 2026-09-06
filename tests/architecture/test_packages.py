@@ -37,6 +37,7 @@ from published_surface import (
     _FORBIDDEN_SDK_MODULES,
     _PUBLIC_CAPABILITY_MODULES,
     _PUBLIC_SDK_PREFIXES,
+    facade_private_modules,
 )
 
 from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
@@ -273,8 +274,17 @@ def test_an_optional_package_imports_only_public_contracts(package: Path):
     block it sits in — so it is written as a guarded, annotation-only import
     that this test allows by name, rather than excused by a rule that would
     also let a runtime import through.
+
+    A prefix admits every module beneath it, which over-admits wherever the
+    package is a façade: `blitzecdn.core.plugins.types` was as importable as
+    `blitzecdn.core.plugins`, and a wheel that took the deep path would break
+    on a refactor that never touched the name it imported.
+    `facade_private_modules` derives those — every public name reachable from
+    the package above — and they are refused here, so the only path into the
+    plugin SDK is the one the golden file pins.
     """
     allowed = (*_PUBLIC_SDK_PREFIXES, *_PUBLIC_CAPABILITY_MODULES)
+    behind_a_facade = facade_private_modules()
     offenders: list[str] = []
     for path in _source_files(package):
         source = path.read_text(encoding="utf-8")
@@ -289,6 +299,15 @@ def test_an_optional_package_imports_only_public_contracts(package: Path):
 
         def permitted(name: str) -> bool:
             if name in _FORBIDDEN_SDK_MODULES:
+                return False
+            # The symbol too, not only the module: `from ...plugins.types import
+            # CliCommandGroup` is judged as `...plugins.types.CliCommandGroup`
+            # further down, and a rule that refused only the module would let
+            # every name inside it through the door beside it.
+            if any(
+                name == module or name.startswith(f"{module}.")
+                for module in behind_a_facade
+            ):
                 return False
             return any(
                 name == prefix or name.startswith(f"{prefix}.") for prefix in allowed
