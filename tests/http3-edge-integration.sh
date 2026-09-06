@@ -39,7 +39,9 @@ origin="blitzecdn-http3-origin-${suffix}"
 workdir=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "${edge}" "${origin}" >/dev/null 2>&1 || true
+  # `-v`: the edge host's anonymous volumes go with it. They hold a whole
+  # container engine's images, and a runner that keeps them keeps gigabytes.
+  docker rm -f -v "${edge}" "${origin}" >/dev/null 2>&1 || true
   docker network rm "${network}" >/dev/null 2>&1 || true
   rm -rf -- "${workdir}"
 }
@@ -86,10 +88,20 @@ docker run -d --name "${origin}" --network "${network}" \
   >/dev/null
 
 say "Starting a clean Ubuntu 26.04 edge host"
+# `-v /var/lib/docker -v /var/lib/containerd`: anonymous volumes, and the only
+# reason this host can run a container at all. The engine installed inside it
+# assembles every image as an overlay mount whose upper and lower directories
+# live under those paths, and those paths are the *outer* container's rootfs,
+# which is itself overlay. Stacking one on the other is refused with a bare
+# `invalid argument` about a mount, naming no image and no layer. A volume is
+# backed by the outer daemon's own filesystem rather than by that rootfs, which
+# is what `docker:dind` does with `VOLUME /var/lib/docker` and for this reason.
+# Both paths: this engine keeps its snapshots under containerd's.
 docker run -d --name "${edge}" --hostname blitzecdn-http3-edge \
   --network "${network}" --privileged --cgroupns=host \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   --tmpfs /run --tmpfs /run/lock \
+  -v /var/lib/docker -v /var/lib/containerd \
   -v "${project_dir}:/workspace:ro" \
   -v "${workdir}:/images:ro" \
   "${HOST_IMAGE}" \
