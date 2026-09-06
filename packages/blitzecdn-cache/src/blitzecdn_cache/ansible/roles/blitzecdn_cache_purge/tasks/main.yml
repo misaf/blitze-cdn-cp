@@ -135,4 +135,4 @@
     cmd: find {{ blitzecdn_cache_purge_path | quote }} -xdev -type f -delete
   register: blitzecdn_cache_purge_emptied
   changed_when: blitzecdn_cache_purge_emptied.rc == 0
-  when: blitzecdn_cache_purge_all
+  when: blitzecdn_cache_purge_all | bool

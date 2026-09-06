@@ -8,7 +8,7 @@
 # because end_host ends the *play* for the host — it would skip every role
 # scheduled after this one, and the run would still report success.
 - name: Enforce SSH policy
-  when: blitzecdn_hardening_sshd_enabled
+  when: blitzecdn_hardening_sshd_enabled | bool
   block:
     - name: Determine which accounts must hold a usable public key
       ansible.builtin.set_fact:

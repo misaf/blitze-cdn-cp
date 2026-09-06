@@ -4,7 +4,7 @@
 # together, and a task added here without its own guard would otherwise change
 # the firewall on hosts that opted out.
 - name: Converge the edge firewall
-  when: blitzecdn_firewall_enabled
+  when: blitzecdn_firewall_enabled | bool
   block:
     - name: Require explicit SSH management networks
       ansible.builtin.assert:

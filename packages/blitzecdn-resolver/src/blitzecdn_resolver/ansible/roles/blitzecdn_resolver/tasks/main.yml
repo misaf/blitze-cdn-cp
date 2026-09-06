@@ -12,7 +12,7 @@
 # blitzecdn_resolver_teardown — this package's other role, in the decommission
 # play's capability slot — removes it again.
 - name: Manage host resolution
-  when: blitzecdn_resolver_enabled
+  when: blitzecdn_resolver_enabled | bool
   block:
     # Fails closed, like an empty firewall source list: an enabled role with
     # nothing to point at would write a drop-in claiming every domain and
