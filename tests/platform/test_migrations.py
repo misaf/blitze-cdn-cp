@@ -147,9 +147,12 @@ def test_every_capability_table_module_reaches_the_metadata():
 def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
     """The same check from the other end: metadata against a migrated file.
 
-    `_assert_schema_matches` is Alembic's own comparison, so a table left out
-    of `env.py` shows up here as a table the migration created and the
-    metadata does not know about.
+    `Database()` runs Alembic's own comparison on the file it opens, so a table
+    the migration creates and the metadata does not know about — or the other
+    way round — is refused there rather than asserted here. What is left for
+    this test is the part that comparison cannot see: that the ten tables the
+    control plane is *supposed* to have are the ten it has, so dropping one
+    from both halves at once still fails.
     """
     path = tmp_path / "control.db"
     Database(path).close()

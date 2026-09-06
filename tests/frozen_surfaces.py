@@ -44,6 +44,7 @@ from typing import Any
 import click
 import yaml
 from paths import CORE_ANSIBLE, PACKAGES, SOURCE, optional_packages
+from sqlalchemy import CheckConstraint
 
 #: The root distribution's import package. Everything else is a wheel.
 ROOT = "blitzecdn"
@@ -572,13 +573,22 @@ def _role_roots() -> list[tuple[Path, str]]:
 
 
 def schema_surface() -> str:
-    """Every table and column, and the migration revision that produces them.
+    """Every table, column, constraint, and the revision that produces them.
 
     One migration exists today and it is still editable, because nothing is
     installed. That stops being true at the first release: from then on a column
     is changed by adding a revision, never by editing this one. Freezing the
     schema beside its revision is what makes the two move together — a column
     changed without a new revision fails here rather than on somebody's upgrade.
+
+    Names and nullability are the cheap half of a schema, and for a while they
+    were the only half this file pinned. The half that carries meaning is the
+    part that says what a value may *be*: `type IN ('A', 'AAAA')`, `ttl BETWEEN
+    1 AND 604800`, and the `RESTRICT` that refuses to delete a site hostnames
+    still route to. Those are also the expensive half — widening a `CHECK` is
+    free, narrowing one has to be reconciled against rows that already exist —
+    so they are the ones most worth holding still, and every one of them used
+    to move without moving a line here.
     """
     from sqlmodel import SQLModel
 
@@ -588,18 +598,26 @@ def schema_surface() -> str:
     for name, table in sorted(SQLModel.metadata.tables.items()):
         for column in table.columns:
             parts = [
-                f"type={column.type}",
+                f"type={_column_type(column.type)}",
                 "null" if column.nullable else "not-null",
             ]
             if column.primary_key:
                 parts.append("pk")
+            if column.unique:
+                parts.append("unique")
             parts.extend(
-                f"fk={key.target_fullname}"
-                for key in sorted(column.foreign_keys, key=str)
+                _foreign_key(key) for key in sorted(column.foreign_keys, key=str)
             )
             lines.append(
                 _line(ROOT, "column", f"{name}.{column.name}\t{' '.join(parts)}")
             )
+        lines.extend(
+            _line(ROOT, "check", f"{name}.{check.name}\t{check.sqltext}")
+            for check in sorted(
+                (c for c in table.constraints if isinstance(c, CheckConstraint)),
+                key=lambda c: c.name or "",
+            )
+        )
         for index in sorted(table.indexes, key=lambda i: i.name or ""):
             columns = ",".join(column.name for column in index.columns)
             unique = " unique" if index.unique else ""
@@ -609,9 +627,63 @@ def schema_surface() -> str:
     return _render(lines)
 
 
+def _column_type(declared: Any) -> str:
+    """The declared type, not the storage it happens to compile down to.
+
+    `UtcDateTime` is a `TypeDecorator` over `String`, so it renders as
+    `VARCHAR` — indistinguishable from a plain string column. The decorator is
+    the whole contract: it refuses to store a naive datetime and it keeps the
+    UTC offset in the text, which is what lets the Ansible inventory plugin
+    parse these values with the standard library. Swapping it for `String`
+    would break both and leave this file unmoved, so name the class and keep
+    the storage beside it.
+
+    Only *our* decorators are named. SQLModel wraps every implicit `str` field
+    in an `AutoString`, which is storage plumbing and not a promise this
+    project makes: naming it would mean an explicit `Column(String)` and a bare
+    `name: str` render differently, so a pure refactor would move the golden
+    and the next person to read a diff here would learn to skim it.
+    """
+    compiled = str(declared)
+    own = type(declared)
+    if own.__module__.startswith("blitzecdn"):
+        return f"{own.__name__}({compiled})"
+    return compiled
+
+
+def _foreign_key(key: Any) -> str:
+    """The reference and what it does when the referent goes away.
+
+    `ondelete` is a behavioural difference of the first order: `CASCADE` on
+    `dns_records.domain` deletes the records with the zone, and `RESTRICT` on
+    `dns_records.site` refuses the delete instead. Turning one into the other
+    silently discards an operator's records, and the target name alone cannot
+    tell them apart.
+    """
+    reference = f"fk={key.target_fullname}"
+    for action in ("ondelete", "onupdate"):
+        rule = getattr(key, action, None)
+        if rule:
+            reference += f" {action}={rule}"
+    return reference
+
+
 def _alembic_head() -> str:
-    revisions = sorted((SOURCE / "migrations" / "versions").glob("*.py"))
-    return revisions[-1].stem if revisions else "-"
+    """The head of the revision graph, which is not the last filename.
+
+    Sorting `versions/*.py` answers a question about the directory listing, and
+    what this file needs to pin is a question about the graph: which revision
+    an upgrade actually stops at. The two agree while there is one revision and
+    diverge the moment a second is named something that does not sort last —
+    and a branched or broken chain has no head at all, which Alembic reports
+    and a `glob` cannot.
+    """
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config()
+    config.set_main_option("script_location", str(SOURCE / "migrations"))
+    return ScriptDirectory.from_config(config).get_current_head() or "-"
 
 
 __all__ = [
