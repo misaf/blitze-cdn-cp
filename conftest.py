@@ -13,4 +13,14 @@ in several: the control plane's under `tests/`, and each optional capability's
 inside the package that ships it.
 """
 
+import os
+
+# Typer forces a colour terminal whenever `GITHUB_ACTIONS` is set, whatever it
+# is writing to, so under CI its Rich highlighter styles each `--option` and
+# splits `--on/--off` into six escape-separated fragments. Tests that assert an
+# error names the option it wants then pass locally and fail only on CI. This
+# is Typer's own opt-out, and it is read when `typer.rich_utils` is imported —
+# hence here, in the file pytest loads before any test module.
+os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
+
 pytest_plugins = ["control_plane_fixtures"]

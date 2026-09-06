@@ -175,7 +175,6 @@ def test_certbot_issuer_builds_http01_command(
 ):
     executable = settings.project_dir / "certbot"
     executable.touch()
-    configured = settings.model_copy(update={"certbot": str(executable)})
     certificate, key = certificate_pair()
     captured: list[str] = []
 
@@ -196,7 +195,7 @@ def test_certbot_issuer_builds_http01_command(
         return FakeProcess()
 
     monkeypatch.setattr(certificates_module.subprocess, "Popen", fake_popen)
-    result = CertbotIssuer(configured, "certbot").issue(
+    result = CertbotIssuer(settings, str(executable)).issue(
         CdnSite.model_validate(site_payload), "owner@example.com"
     )
     assert result == (certificate, key)
@@ -209,12 +208,11 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
 ):
     executable = settings.project_dir / "certbot"
     executable.touch()
-    configured = settings.model_copy(update={"certbot": str(executable)})
     wildcard = CdnSite.model_validate(
         {**site_payload, "server_names": ["*.example.com"]}
     )
     with pytest.raises(ConfigurationError, match="wildcard"):
-        CertbotIssuer(configured, "certbot").issue(wildcard, "owner@example.com")
+        CertbotIssuer(settings, str(executable)).issue(wildcard, "owner@example.com")
 
     class FailedProcess:
         pid = 123
@@ -229,7 +227,7 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
         lambda *args, **kwargs: FailedProcess(),
     )
     with pytest.raises(ExecutionError, match="failed"):
-        CertbotIssuer(configured, "certbot").issue(
+        CertbotIssuer(settings, str(executable)).issue(
             CdnSite.model_validate(site_payload), "owner@example.com"
         )
 
@@ -237,7 +235,6 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
 def test_certbot_timeout_terminates_process_group(settings, site_payload, monkeypatch):
     executable = settings.project_dir / "certbot"
     executable.touch()
-    configured = settings.model_copy(update={"certbot": str(executable)})
     signals: list[int] = []
 
     class TimedOutProcess:
@@ -265,7 +262,7 @@ def test_certbot_timeout_terminates_process_group(settings, site_payload, monkey
     )
 
     with pytest.raises(ExecutionError, match="timed out"):
-        CertbotIssuer(configured, "certbot").issue(
+        CertbotIssuer(settings, str(executable)).issue(
             CdnSite.model_validate(site_payload), "owner@example.com"
         )
 
