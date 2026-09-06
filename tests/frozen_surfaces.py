@@ -37,6 +37,7 @@ import dataclasses
 import enum
 import importlib.util
 import inspect
+import re
 import typing
 from pathlib import Path
 from typing import Any
@@ -391,6 +392,10 @@ def plugin_abi_surface() -> str:
             ),
         ),
         _line(ROOT, "entry_point_group", types.ENTRY_POINT_GROUP),
+        *(
+            _line(ROOT, "framework", requirement)
+            for requirement in _abi_frameworks(hooks, types)
+        ),
     ]
 
     for name, function in sorted(vars(hooks).items()):
@@ -418,6 +423,56 @@ def plugin_abi_surface() -> str:
                 for member in declared
             )
     return _render(lines)
+
+
+def _abi_frameworks(*modules: Any) -> list[str]:
+    """The third-party libraries this ABI is expressed in, and their bounds.
+
+    A hookspec returns `Sequence[APIRouter]` and a contribution carries a
+    `Typer`, so a wheel implementing either is written against FastAPI and
+    Typer as surely as it is written against these dataclasses — and pluggy is
+    the mechanism itself, since `hookimpl` is a marker every wheel applies.
+
+    Core pins all three, so a wheel inherits the bound transitively through
+    `blitzecdn>=3.0.0,<4` and pip resolves one of each. What was missing is
+    that nothing recorded *which* major the contract was written in. Widening
+    `typer<1` to `typer<2` would leave every line of this file identical while
+    `CliCommandGroup.app` came to mean a different class, which is precisely
+    the change a wheel author needs to see.
+
+    Derived by reading what the two ABI modules import, `TYPE_CHECKING` blocks
+    included, so a fourth library entering a hookspec signature brings its
+    bound in here without anyone remembering to add it.
+    """
+    import ast
+    import importlib.metadata
+    import sys
+
+    imported: set[str] = set()
+    for module in modules:
+        tree = ast.parse(Path(inspect.getfile(module)).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                imported.update(alias.name.split(".")[0] for alias in node.names)
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                imported.add(node.module.split(".")[0])
+    external = imported - sys.stdlib_module_names - {ROOT, "__future__"}
+
+    requirements = importlib.metadata.requires(ROOT) or []
+    found = []
+    for requirement in requirements:
+        name = re.split(r"[<>=!~\[;\s]", requirement, maxsplit=1)[0].strip()
+        if name in external:
+            found.append(requirement.replace(" ", ""))
+    missing = external - {
+        re.split(r"[<>=!~\[;\s]", requirement, maxsplit=1)[0].strip()
+        for requirement in requirements
+    }
+    assert not missing, (
+        f"the plugin ABI is expressed in {sorted(missing)}, which core does "
+        "not declare as a dependency; a wheel would inherit no bound at all"
+    )
+    return sorted(found)
 
 
 def _signature(signature: inspect.Signature) -> str:
