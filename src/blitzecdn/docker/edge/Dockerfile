@@ -119,6 +119,17 @@ RUN --mount=type=bind,target=/tmp/packages,source=/tmp/packages,from=module-buil
 # streams at the same configuration level. Managed sites declare their own
 # access logs below this level and therefore add stdout in site.conf.j2 too.
 #
+# That example server is emptied rather than deleted, and the difference
+# matters. Removing a file inherited from the base image records a whiteout in
+# this layer, and a whiteout is the one thing a layer can carry that cannot
+# simply be unpacked: applying it means creating a 0:0 character device or
+# setting a `trusted.*` xattr, neither of which a nested or unprivileged engine
+# is allowed to do. An edge that pre-seeds its images with `docker load` — an
+# air-gapped fleet, and the HTTP/3 integration harness — could then start no
+# container from this image at all, and said so with an error about extracting
+# a layer rather than about a file. `nginx.conf` includes `conf.d/*.conf`, so
+# an empty file contributes exactly what an absent one did.
+#
 # The module list written here is the image's own, and it is the *superset*: an
 # edge mounts the control plane's narrower list over this path, so the file
 # matters at build time — the probe below loads exactly it — and as the answer
@@ -129,7 +140,7 @@ RUN set -eux; \
         test -f "/usr/lib/nginx/modules/${object}"; \
         echo "load_module /usr/lib/nginx/modules/${object};" >> /etc/nginx/modules.conf; \
     done; \
-    rm -f /etc/nginx/conf.d/default.conf; \
+    : > /etc/nginx/conf.d/default.conf; \
     sed -i '1i\include /etc/nginx/modules.conf;' /etc/nginx/nginx.conf; \
     sed -i '/^error_log .*notice;$/a\error_log  /dev/stderr notice;' /etc/nginx/nginx.conf; \
     sed -i '/^    access_log .*main;$/a\    access_log  /dev/stdout  main;' /etc/nginx/nginx.conf; \
@@ -137,7 +148,8 @@ RUN set -eux; \
     grep -q '^include /etc/nginx/modules.conf;$' /etc/nginx/nginx.conf; \
     grep -q '^error_log  /dev/stderr notice;$' /etc/nginx/nginx.conf; \
     grep -q '^    access_log  /dev/stdout  main;$' /etc/nginx/nginx.conf; \
-    grep -q '^    include /etc/nginx/sites-enabled/\*;$' /etc/nginx/nginx.conf
+    grep -q '^    include /etc/nginx/sites-enabled/\*;$' /etc/nginx/nginx.conf; \
+    test ! -s /etc/nginx/conf.d/default.conf
 
 # Prove HTTP/3 and every dynamic module directive before publishing the image.
 # The probe file names no module: it includes the generated list, and the
