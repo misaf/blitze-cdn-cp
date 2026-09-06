@@ -38,6 +38,6 @@ ClientAliveInterval {{ blitzecdn_hardening_sshd_client_alive_interval }}
 ClientAliveCountMax {{ blitzecdn_hardening_sshd_client_alive_count_max }}
 
 X11Forwarding no
-AllowTcpForwarding {{ 'yes' if blitzecdn_hardening_sshd_allow_tcp_forwarding else 'no' }}
-AllowAgentForwarding {{ 'yes' if blitzecdn_hardening_sshd_allow_agent_forwarding else 'no' }}
+AllowTcpForwarding {{ 'yes' if blitzecdn_hardening_sshd_allow_tcp_forwarding | bool else 'no' }}
+AllowAgentForwarding {{ 'yes' if blitzecdn_hardening_sshd_allow_agent_forwarding | bool else 'no' }}
 PermitUserEnvironment no

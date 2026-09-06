@@ -78,7 +78,7 @@ server {
     listen [::]:{{ port }};
     server_name {{ item.server_names | join(' ') }};
     client_max_body_size {{ max_upload_size }};
-{% if blitzecdn_nginx_access_log_enabled %}
+{% if blitzecdn_nginx_access_log_enabled | bool %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
@@ -100,7 +100,7 @@ server {
     http2 on;
     server_name {{ item.server_names | join(' ') }};
     client_max_body_size {{ max_upload_size }};
-{% if blitzecdn_nginx_access_log_enabled %}
+{% if blitzecdn_nginx_access_log_enabled | bool %}
     access_log {{ blitzecdn_nginx_access_log_path }} {{ blitzecdn_nginx_log_format_name }};
     access_log /dev/stdout {{ blitzecdn_nginx_log_format_name }};
 {% endif %}
@@ -117,7 +117,7 @@ server {
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
     ssl_session_tickets off;
-{% if blitzecdn_nginx_ssl_stapling and blitzecdn_nginx_resolvers %}
+{% if blitzecdn_nginx_ssl_stapling | bool and blitzecdn_nginx_resolvers %}
     ssl_stapling on;
     ssl_stapling_verify on;
     ssl_trusted_certificate {{ item.certificate_path }};

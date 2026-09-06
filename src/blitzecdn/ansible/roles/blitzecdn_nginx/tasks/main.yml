@@ -272,7 +272,7 @@
       loop:
         - "{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/{{ blitzecdn_nginx_default_site_file | basename }}"
         - "{{ blitzecdn_nginx_default_site_file }}"
-      when: not blitzecdn_nginx_default_server
+      when: not (blitzecdn_nginx_default_server | bool)
       notify: Validate and reload Nginx
 
     - name: Enable desired sites
