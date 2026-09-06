@@ -14,8 +14,14 @@ written down in a form that fails a build rather than a deployment.
 A release is a `vMAJOR.MINOR.PATCH` git tag. An operator installs by cloning
 the release branch — `4.x` — and from its first `update` onward that host
 follows tags: `install.sh` takes the newest tag in the major line the host is
-already on, never crossing a major and never moving backwards. Crossing one is
-a separate, deliberate step.
+already on, never crossing a major and never moving backwards.
+
+Crossing one is `./install.sh upgrade`, and it goes one line at a time. It
+refuses a host that is not already on the newest release of its own line,
+because a deprecation window *is* the releases between announcing something
+and removing it — a host that jumps out of the middle of one has skipped the
+notices written for it. It takes a full backup rather than the database alone,
+and asks the operator to type the target version rather than answer y/N.
 
 **That makes the major boundary the consent gate**, and it is the reason the
 classification below is not bookkeeping. A change released as a minor lands on

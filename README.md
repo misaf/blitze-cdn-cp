@@ -98,8 +98,16 @@ sudo /opt/blitzecdn/install.sh update [--yes] [--no-backup]
 
 There is no release to choose: the server moves to the newest `vMAJOR.MINOR.PATCH`
 tag in its own major line, and tells you which two versions it is moving between
-before it changes anything. It never crosses a major line — that upgrade is a
-separate, deliberate step.
+before it changes anything. It never crosses a major line:
+
+```bash
+sudo /opt/blitzecdn/install.sh upgrade [--yes] [--no-backup]
+```
+
+That is the deliberate step, one major line at a time, and it refuses a server
+that has not finished its own line first — the releases you would be skipping
+are where the removals were announced. It backs up everything rather than the
+database alone, and asks you to type the version you are moving to.
 
 ## Extending BlitzeCDN
 
