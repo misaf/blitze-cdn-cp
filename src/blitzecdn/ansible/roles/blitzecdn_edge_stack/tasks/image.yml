@@ -20,6 +20,18 @@
          if (blitzecdn_edge_stack_deployed_raw.content is defined)
          else {} }}
 
+# Asked in check mode too, which is a read-only query and the only way a
+# preview can predict what a converge would do. Gating this on
+# `not ansible_check_mode` made every drift report a lie: the converge pins the
+# digest it resolved, the preview fell through to the tag below, and the two
+# renders of the Compose file disagreed on the one line that names the image.
+# Every edge whose image resolved to a digest — which is every edge that ever
+# converged successfully — then reported drift for ever, and no real drift
+# could be seen among it.
+#
+# Safe to ask because the conditions above it have already established that a
+# previous converge recorded an image on this host, so there is a Docker daemon
+# here to ask.
 - name: Check whether the recorded image is still on this host
   community.docker.docker_image_info:
     name: "{{ blitzecdn_edge_stack_deployed.resolved }}"
@@ -27,7 +39,6 @@
   when:
     - blitzecdn_edge_stack_deployed.resolved is defined
     - blitzecdn_edge_stack_deployed.requested | default('') == blitzecdn_edge_runtime.image
-    - not ansible_check_mode
 
 # Reusing the recorded digest is the whole point of the record: it is what makes
 # a repeated converge a no-op rather than a silent upgrade, and what leaves the
@@ -89,9 +100,12 @@
         blitzecdn_edge_stack_upgrading: true
       when: not ansible_check_mode
 
-    # Under --check nothing was pulled and nothing can be inspected, so the
-    # preview runs against the reference as configured. It is the one case where
-    # the compose file is rendered from a tag.
+    # Only reached in check mode when nothing above could be reused: this host
+    # has no image record, or it records a different request, or the recorded
+    # image is gone. A converge from here would pull, so the bytes it lands on
+    # genuinely are not knowable yet and the preview renders the reference as
+    # configured. It is the one case where the compose file is rendered from a
+    # tag, and drift reported from it is a real prediction of change.
     - name: Preview the requested image
       ansible.builtin.set_fact:
         blitzecdn_edge_stack_resolved_image: "{{ blitzecdn_edge_runtime.image }}"

@@ -898,6 +898,48 @@ def test_no_edge_image_reference_floats():
         assert "pull: never" in (STACK_ROLE_DIR / name).read_text(encoding="utf-8")
 
 
+def test_a_preview_resolves_the_image_a_converge_would_actually_run():
+    """Check mode must not fall through to the tag when a digest is recorded.
+
+    A converge pins the image to the digest it resolved and writes it down. A
+    preview that skipped the record and rendered the configured tag disagreed
+    with the file on disk on exactly that line, so `blitzecdn drift` reported
+    every converged edge as drifted, permanently, and any real drift was
+    invisible in the noise. Reading the record is read-only and is the only
+    thing that makes a preview a prediction.
+    """
+    tasks = yaml.safe_load(
+        (STACK_ROLE_DIR / "tasks/image.yml").read_text(encoding="utf-8")
+    )
+    reuse = [
+        task
+        for task in tasks
+        if task["name"]
+        in (
+            "Check whether the recorded image is still on this host",
+            "Reuse the recorded image",
+        )
+    ]
+    assert len(reuse) == 2
+    for task in reuse:
+        conditions = task.get("when", [])
+        conditions = [conditions] if isinstance(conditions, str) else conditions
+        assert not any("ansible_check_mode" in str(item) for item in conditions), (
+            f"{task['name']} is skipped in check mode, so a preview cannot see "
+            "the digest the last converge pinned and reports drift against it"
+        )
+
+    # And the tag remains the last resort rather than the check-mode answer:
+    # it is reached only when nothing above resolved an image, which is the one
+    # case where a converge would pull and the bytes are genuinely unknown.
+    fetch = next(task for task in tasks if "block" in task)
+    assert "blitzecdn_edge_stack_resolved_image is not defined" in fetch["when"]
+    preview = next(
+        task for task in fetch["block"] if task["name"] == "Preview the requested image"
+    )
+    assert preview["when"] == "ansible_check_mode"
+
+
 def test_a_failed_converge_always_reaches_the_rollback():
     """Rescue is not conditional, and the rollback proves what it restored.
 
