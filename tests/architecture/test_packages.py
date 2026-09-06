@@ -769,15 +769,15 @@ def test_the_capability_map_says_what_the_tree_does():
     *name* rather than failing to parse — and the map is the only place the
     difference is written down.
 
-    It was written down and nothing checked it, which for a table of eleven
-    capabilities and ten distributions is a table that drifts. Each half is
+    It was written down and nothing checked it, and a hand-kept table with a
+    row per capability and a column per wheel is one that drifts. Each half is
     answerable from the tree: a capability implemented here holds more than its
     contract and its registration, and a wheel named in the second column
     either exists in `packages/` or does not.
 
     Every distribution has to appear in the docstring somewhere, including the
-    three that own no site setting and so have no row —
-    `blitzecdn-backup`, `blitzecdn-hardening`, `blitzecdn-resolver` — so an
+    four that own no site setting and so have no row — `blitzecdn-backup`,
+    `blitzecdn-hardening`, `blitzecdn-origins` and `blitzecdn-resolver` — so an
     eleventh wheel cannot arrive without the map acknowledging it.
     """
     document = (SOURCE / "capabilities/__init__.py").read_text(encoding="utf-8")
@@ -1845,3 +1845,80 @@ def test_no_tracked_file_names_the_old_top_level_docker_directory():
         "these name the pre-move `docker/` directory, which only a checkout "
         f"has: {offenders}"
     )
+
+
+def _contract_only_capabilities() -> list[Path]:
+    """A capability that decides nothing: a policy, and no service or api."""
+    return [
+        path
+        for path in _built_in_capabilities()
+        if (path / "policy.py").is_file()
+        and not any((path / layer).is_dir() for layer in _BEHAVIOUR_LAYERS)
+    ]
+
+
+def test_the_contract_capabilities_agree_on_who_their_siblings_are():
+    """Five docstrings each name the other four, and they used to disagree.
+
+    "The same split as ..." is a cross-reference a reader follows to check they
+    have understood the arrangement, so a list that is missing a name teaches
+    the wrong shape. Three of the five carried the sentence, one of those three
+    omitted `security`, and the other two never had it — which is what a list
+    kept by hand in five files does.
+
+    Derived rather than declared: the set is every capability that has a
+    `policy.py` and neither of the behaviour layers, so a sixth contract
+    capability makes all six docstrings fail until each names the other five,
+    and a contract that grows a `service/` drops out of all of them.
+    """
+    names = {path.name for path in _contract_only_capabilities()}
+    assert names == {"cache", "compression", "http", "security", "tls"}, (
+        "the contract capabilities moved; the docstrings below are the map"
+    )
+    wrong = {}
+    for path in _contract_only_capabilities():
+        document = (path / "__init__.py").read_text(encoding="utf-8")
+        sentence = re.search(r"The same split as (.+?), for", document, re.S)
+        named = (
+            set(re.findall(r"``([^`]+)``", sentence.group(1))) if sentence else set()
+        )
+        if named != names - {path.name}:
+            wrong[path.name] = sorted(named)
+    assert wrong == {}
+
+
+def test_a_capability_registers_unless_a_wheel_already_claims_its_name():
+    """Why nine of the twelve directories hold a `plugin.py` and three do not.
+
+    The split does not follow contract-versus-implementation, which is what a
+    reader guesses and what this file's map used to leave them guessing: `http`
+    and `tls` are contract capabilities that register anyway.
+
+    It follows the name. A plugin name is unique across everything installed,
+    and `capability_requirements` is written in those names — a site with
+    `cache_enabled` requires `cache`. The wheels implementing `cache`,
+    `compression` and `security` register under exactly those names, so core
+    registering them too would be the duplicate discovery refuses. `tls` and
+    `http` are free because their wheels are named `certificates` and `http3`.
+
+    Derived from `packages/` rather than listed, so a new wheel that takes a
+    capability's own name fails here until that capability stops registering —
+    which is the conversation worth having, and it is a startup error otherwise.
+    """
+    claimed = {
+        name for package in optional_packages() for name in _entry_point_names(package)
+    }
+    for capability in _built_in_capabilities():
+        registers = (capability / "plugin.py").is_file()
+        assert registers != (capability.name in claimed), (
+            f"{capability.name} "
+            f"{'registers' if registers else 'does not register'} and a wheel "
+            f"{'claims' if capability.name in claimed else 'does not claim'} "
+            "its name"
+        )
+
+
+def _entry_point_names(package: Path) -> set[str]:
+    document = tomllib.loads((package / "pyproject.toml").read_text(encoding="utf-8"))
+    group = document.get("project", {}).get("entry-points", {})
+    return set(group.get(ENTRY_POINT_GROUP, {}))

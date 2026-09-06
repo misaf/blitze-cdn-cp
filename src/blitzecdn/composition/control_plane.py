@@ -114,7 +114,7 @@ from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
 #:
 #: It lives here rather than in `core.plugins.discovery`, where it was, for the
 #: same reason `Repository` lives beside it: choosing which parts make one
-#: control plane is composition. Core held these eight strings without
+#: control plane is composition. Core held this roster without
 #: importing them, so `test_core_imports_no_capability` stayed green while the
 #: foundation carried the roster of the tree it supports, and adding a built-in
 #: capability meant editing `core`. Naming is knowing.

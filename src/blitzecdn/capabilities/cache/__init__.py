@@ -10,7 +10,8 @@ deployment is refused by name through
 :attr:`~blitzecdn.capabilities.cache.policy.CachePolicy.capability_requirements`
 rather than by failing to parse.
 
-The same split as ``compression``, ``http`` and ``tls``, for the same reason.
+The same split as ``compression``, ``http``, ``security`` and ``tls``, for
+the same reason.
 """
 
 from blitzecdn.capabilities.cache.policy import CachePolicy, CacheQueryStringMode
