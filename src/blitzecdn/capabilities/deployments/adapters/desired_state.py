@@ -37,7 +37,17 @@ class DesiredStateRenderer:
         self.write_yaml = write_yaml
 
     def render(self, snapshot: str, path: Path) -> None:
-        sites = tuple(decode_snapshot(snapshot))
+        # A snapshot holds every site the control plane knows; an edge is sent
+        # the ones there is something to serve. `serves_traffic` is the model's
+        # own answer and it carries the reason: a site with no hostnames would
+        # render a `server` block with an empty `server_name`, which nginx
+        # reads as the default server for the listener.
+        #
+        # The filter is here rather than in the snapshot because the snapshot
+        # is what a rollback restores, and a site awaiting its first DNS record
+        # is desired state that a rollback must bring back. It is simply not
+        # yet an instruction to any edge.
+        sites = tuple(site for site in decode_snapshot(snapshot) if site.serves_traffic)
         self.write_yaml(
             path,
             {
