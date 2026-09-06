@@ -52,8 +52,8 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     # question a *caller driving ansible-playbook itself* asks — the justfile,
     # a lint step, an air-gapped controller running a play by hand.
     return (
-        CliCommandGroup(name=None, app=cli.diagnostics_app),
-        CliCommandGroup(name="ansible", app=cli.ansible_app),
+        CliCommandGroup(plugin="diagnostics", name=None, app=cli.diagnostics_app),
+        CliCommandGroup(plugin="diagnostics", name="ansible", app=cli.ansible_app),
     )
 
 
@@ -67,6 +67,6 @@ def blitzecdn_health_checks(platform: ControlPlane) -> Sequence[HealthCheck]:
             raise ConnectionError("Redis did not answer PING")
 
     return (
-        HealthCheck(name="database", check=database),
-        HealthCheck(name="broker", check=broker),
+        HealthCheck(plugin="diagnostics", name="database", check=database),
+        HealthCheck(plugin="diagnostics", name="broker", check=broker),
     )

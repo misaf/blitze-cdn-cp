@@ -78,6 +78,28 @@ def _owner(module: str | None) -> str:
     return (module or "").split(".")[0] or "-"
 
 
+def _root_command_owner(path: str, command: Any) -> str:
+    """A command no plugin group claims, which may only be core's own.
+
+    `config`, `init` and `setup` are declared on the root Typer application
+    directly: they configure and bootstrap the control plane, so they have to
+    work before one exists to register plugins against. They ship in
+    `blitzecdn.cli` and belong to core by construction.
+
+    Anything else unclaimed is refused rather than attributed to core by
+    default. A wheel's command landing here would be one a core-only run could
+    not filter out of the golden, which is the exact failure the ownership
+    column exists to prevent — and silence is how it would happen.
+    """
+    module = getattr(command.callback, "__module__", "") or ""
+    if not module.startswith("blitzecdn.cli."):
+        raise AssertionError(
+            f"no CliCommandGroup claims {path!r}, and it is not core's own: "
+            f"its callback is in {module!r}"
+        )
+    return ROOT
+
+
 def _line(owner: str, kind: str, detail: str) -> str:
     return f"{owner}\t{kind}\t{detail}"
 
@@ -143,14 +165,51 @@ def cli_surface() -> str:
     """
     from typer.main import get_command
 
-    from blitzecdn.cli import main
+    from blitzecdn.cli import common, main
 
+    owners = _command_owners(common.installed_plugins())
     lines = []
     for path, command in _walk_commands(get_command(main.app)):
-        owner = _owner(getattr(command.callback, "__module__", None))
+        owner = owners.get(path.split(" ")[0]) or _root_command_owner(path, command)
         params = " ".join(_parameter(param) for param in command.params)
         lines.append(_line(owner, "command", f"blitzecdn {path}\t{params}".rstrip()))
     return _render(lines)
+
+
+def _command_owners(registry: Any) -> dict[str, str]:
+    """Which distribution ships each top-level command, as declared.
+
+    This used to read `command.callback.__module__`, which answers where a
+    function was written rather than which wheel ships it: a group whose
+    commands delegate to a shared helper, or whose callbacks are wrapped by a
+    decorator defined elsewhere, is attributed to whoever defined the wrapper.
+    `CliCommandGroup.plugin` says it outright, and a group belongs to exactly
+    one plugin, so every command beneath it does too.
+
+    The lookup is keyed on the first word because that is the whole of what a
+    group contributes: a named group owns its subtree, and an unnamed one hands
+    over root verbs. Not every command comes through a group — `config`, `init`
+    and `setup` are declared on the root application itself, because they run
+    before there is a control plane for a plugin to be registered against —
+    and `_root_command_owner` is where those are accounted for.
+    """
+    manager = registry._manager
+    roots = {
+        manager.get_name(plugin): _owner(
+            getattr(plugin, "__name__", type(plugin).__module__)
+        )
+        for plugin in manager.get_plugins()
+    }
+    owners: dict[str, str] = {}
+    for group in registry.cli_commands():
+        owner = roots[group.plugin]
+        if group.name is not None:
+            owners[group.name] = owner
+            continue
+        for command in group.app.registered_commands:
+            name = command.name or (command.callback.__name__).replace("_", "-")
+            owners[name] = owner
+    return owners
 
 
 # --- the HTTP API -----------------------------------------------------------

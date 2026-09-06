@@ -31,7 +31,7 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     return (
-        CliCommandGroup(name="domain", app=cli.domain_app),
-        CliCommandGroup(name="record", app=cli.record_app),
-        CliCommandGroup(name="dns", app=cli.dns_app),
+        CliCommandGroup(plugin="dns", name="domain", app=cli.domain_app),
+        CliCommandGroup(plugin="dns", name="record", app=cli.record_app),
+        CliCommandGroup(plugin="dns", name="dns", app=cli.dns_app),
     )

@@ -95,6 +95,6 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     # nests under it, while `stats` is a verb an operator types directly and
     # stays a root command, exactly as it read before this became a package.
     return (
-        CliCommandGroup(name="cache", app=cli.cache_app),
-        CliCommandGroup(name=None, app=cli.stats_app),
+        CliCommandGroup(plugin="cache", name="cache", app=cli.cache_app),
+        CliCommandGroup(plugin="cache", name=None, app=cli.stats_app),
     )

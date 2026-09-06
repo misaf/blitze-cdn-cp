@@ -12,6 +12,7 @@ operator's `pip install` takes is the path worth testing.
 from __future__ import annotations
 
 import ast
+from dataclasses import MISSING, fields
 from importlib.metadata import EntryPoint
 from types import SimpleNamespace
 
@@ -27,10 +28,12 @@ from blitzecdn.core.plugins import (
     ENTRY_POINT_GROUP,
     HOOK_API_VERSION,
     SUPPORTED_HOOK_API_VERSIONS,
+    AnsibleContribution,
     CapabilityConfig,
     CliCommandGroup,
     FleetStateContribution,
     HealthCheck,
+    NginxContribution,
     PluginMetadata,
     PluginRegistry,
     ProcessKind,
@@ -701,13 +704,16 @@ def test_two_plugins_cannot_contribute_one_job_name(builtins, platform):
         def blitzecdn_scheduled_jobs(self, platform: object) -> list[ScheduledJob]:
             return [
                 ScheduledJob(
-                    name="check-drift", interval_seconds=60, run=lambda _o: None
+                    plugin="clasher",
+                    name="check-drift",
+                    interval_seconds=60,
+                    run=lambda _o: None,
                 )
             ]
 
     builtins._manager.register(Clasher(), name="clasher")
 
-    with pytest.raises(PluginError, match="job named 'check-drift'"):
+    with pytest.raises(PluginError, match="'deployments' and 'clasher'"):
         builtins.scheduled_jobs(platform)
 
 
@@ -754,14 +760,14 @@ def test_a_health_check_fails_by_raising():
     def unhealthy() -> None:
         raise ConnectionError("no")
 
-    check = HealthCheck(name="x", check=unhealthy)
+    check = HealthCheck(plugin="waf", name="x", check=unhealthy)
 
     with pytest.raises(ConnectionError):
         check.check()
 
 
 def test_a_command_group_names_the_subcommand_it_appears_under():
-    group = CliCommandGroup(name="waf", app=Typer())
+    group = CliCommandGroup(plugin="waf", name="waf", app=Typer())
 
     assert group.name == "waf"
 
@@ -833,3 +839,62 @@ def test_a_plugin_whose_metadata_is_not_metadata_is_refused(builtins):
 
     with pytest.raises(PluginError, match="must return a PluginMetadata, not str"):
         register(builtins._manager, Careless(), "careless")
+
+
+def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
+    """Registration under a name the whole fleet shares carries its owner.
+
+    Five of these carried `plugin` and three did not, and the split was not a
+    decision — `CliCommandGroup`, `HealthCheck` and `ScheduledJob` were simply
+    the ones nobody had needed to attribute yet. The cost showed up three
+    times: the duplicate-job error could say two plugins collided but not
+    which two, two health checks could answer to one name with nothing to tell
+    them apart, and the frozen CLI surface had to guess ownership from a
+    callback's `__module__`.
+
+    The rule is positional rather than a list to maintain: a contribution type
+    whose instances are registered under a name that the rest of the fleet can
+    also claim has to say which plugin claimed it. A new one that forgets fails
+    here, while the field is still free to add — once a wheel exists that
+    constructs one, adding a required field is a breaking change to its
+    constructor.
+    """
+    shared = (
+        AnsibleContribution,
+        CliCommandGroup,
+        FleetStateContribution,
+        HealthCheck,
+        NginxContribution,
+        ScheduledJob,
+        SiteStateContribution,
+        ValidationIssue,
+    )
+    missing = [
+        contribution.__name__
+        for contribution in shared
+        if not any(
+            field.name == "plugin"
+            and field.default is MISSING
+            and field.default_factory is MISSING
+            for field in fields(contribution)
+        )
+    ]
+    assert missing == []
+
+
+def test_two_plugins_cannot_answer_to_one_health_check_name(builtins, platform):
+    """`/health` reports a check by name, so the name has to be one plugin's."""
+
+    class Clasher:
+        @hookimpl
+        def blitzecdn_plugin_metadata(self) -> PluginMetadata:
+            return PluginMetadata(name="clasher", version="1.0", api_version=1)
+
+        @hookimpl
+        def blitzecdn_health_checks(self, platform: object) -> list[HealthCheck]:
+            return [HealthCheck(plugin="clasher", name="database", check=lambda: None)]
+
+    builtins._manager.register(Clasher(), name="clasher")
+
+    with pytest.raises(PluginError, match="'diagnostics' and 'clasher'"):
+        builtins.health_checks(platform)

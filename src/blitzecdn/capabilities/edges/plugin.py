@@ -33,4 +33,4 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     # `origin` is not here any more: the group left with the play behind it,
     # into `blitzecdn-origins`, and appears only while that package is
     # installed.
-    return (CliCommandGroup(name="edge", app=cli.edge_app),)
+    return (CliCommandGroup(plugin="edges", name="edge", app=cli.edge_app),)

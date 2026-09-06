@@ -56,7 +56,7 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     # `origin check`, exactly as it read before this became a package. The
     # command tree is an interface decision and not a consequence of
     # packaging.
-    return (CliCommandGroup(name="origin", app=cli.origin_app),)
+    return (CliCommandGroup(plugin="origins", name="origin", app=cli.origin_app),)
 
 
 @hookimpl

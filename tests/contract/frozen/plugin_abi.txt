@@ -12,6 +12,7 @@ blitzecdn	contribution	CapabilitySetting.portable: bool = True
 blitzecdn	contribution	CapabilitySetting.summary: str = ''
 blitzecdn	contribution	CliCommandGroup.app: Typer
 blitzecdn	contribution	CliCommandGroup.name: str | None
+blitzecdn	contribution	CliCommandGroup.plugin: str
 blitzecdn	contribution	ConfigurationContribution.environment_keys: tuple[EnvironmentKey, ...] = ()
 blitzecdn	contribution	ConfigurationContribution.plugin: str
 blitzecdn	contribution	ConfigurationContribution.settings: tuple[CapabilitySetting, ...] = ()
@@ -28,6 +29,7 @@ blitzecdn	contribution	FleetStateContribution.plugin: str
 blitzecdn	contribution	FleetStateContribution.variables: Mapping[str, StateValue]
 blitzecdn	contribution	HealthCheck.check: Callable[[], None]
 blitzecdn	contribution	HealthCheck.name: str
+blitzecdn	contribution	HealthCheck.plugin: str
 blitzecdn	contribution	NginxContribution.access_fragments: tuple[str, ...] = ()
 blitzecdn	contribution	NginxContribution.http_fragments: tuple[str, ...] = ()
 blitzecdn	contribution	NginxContribution.plugin: str
@@ -46,6 +48,7 @@ blitzecdn	contribution	ScheduledJob.interval_seconds: int
 blitzecdn	contribution	ScheduledJob.jitter_seconds: int = 0
 blitzecdn	contribution	ScheduledJob.lease_seconds: int = 0
 blitzecdn	contribution	ScheduledJob.name: str
+blitzecdn	contribution	ScheduledJob.plugin: str
 blitzecdn	contribution	ScheduledJob.run: Callable[[str], None]
 blitzecdn	contribution	SiteStateContribution.overrides: frozenset[str] = <factory>
 blitzecdn	contribution	SiteStateContribution.plugin: str

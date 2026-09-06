@@ -49,7 +49,7 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    return (CliCommandGroup(name=None, app=cli.deployment_app),)
+    return (CliCommandGroup(plugin="deployments", name=None, app=cli.deployment_app),)
 
 
 @hookimpl
@@ -61,6 +61,7 @@ def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
 
     return (
         ScheduledJob(
+            plugin="deployments",
             name="check-drift",
             interval_seconds=interval,
             run=check,

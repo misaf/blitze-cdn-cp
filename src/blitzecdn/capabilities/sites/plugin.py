@@ -57,4 +57,4 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    return (CliCommandGroup(name="site", app=cli.site_app),)
+    return (CliCommandGroup(plugin="sites", name="site", app=cli.site_app),)
