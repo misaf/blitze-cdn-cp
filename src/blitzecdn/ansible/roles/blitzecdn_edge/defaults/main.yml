@@ -58,6 +58,20 @@ blitzecdn_edge_runtime:
   image: >-
     {{ blitzecdn_edge_image | default(blitzecdn_edge_runtime_image_default, true) }}
 
+  # The identity the image's Nginx worker processes run as, numerically.
+  #
+  # A number and not a name because the two sides of the mount do not share a
+  # passwd file: the host is Ubuntu, where `www-data` is 33, and the runtime
+  # image is Alpine, where Nginx's own user is 101. Only the kernel's uid
+  # crosses a bind mount, so a host directory the workers must write is owned
+  # by *this*, and a name would silently mean the wrong thing.
+  #
+  # Here rather than in blitzecdn_edge_stack because it is a property of the
+  # image, which this contract already carries — an image whose workers run as
+  # someone else needs this changed with it, exactly as `modules_include` moves
+  # if the image renames that file.
+  worker_uid: 101
+
   # Host directories, every one of them. Containers stay disposable: replacing
   # the edge container, or upgrading it to a new image, touches nothing here.
   paths:

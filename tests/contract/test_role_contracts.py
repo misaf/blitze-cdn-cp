@@ -1138,22 +1138,48 @@ def test_every_edge_role_declares_the_contract_it_reads():
         assert spec["blitzecdn_edge_runtime"]["type"] == "dict", role
 
 
+def _contract_readers() -> dict[str, Path]:
+    """Every role that legitimately reads the shared runtime contract.
+
+    Core's three edge roles, and the capability roles that ship in wheels. The
+    second group belongs here for the same reason the first does: a capability
+    converging an edge reads `blitzecdn_edge_runtime` exactly as core's roles
+    do — `blitzecdn_cache_config` owns the cache directory core also creates —
+    so a member it shares with one core role is shared runtime, not a variable
+    that escaped its owner. Core's tests do not otherwise reach into packages,
+    and this one does only to count readers.
+    """
+    readers = {role: ROLES_DIR / role for role in EDGE_ROLES}
+    for package in sorted((PROJECT_DIR / "packages").iterdir()):
+        for directory in sorted(package.glob("src/*/ansible/roles/*")):
+            if directory.is_dir():
+                readers[f"{package.name}:{directory.name}"] = directory
+    return readers
+
+
 def test_the_contract_holds_no_value_only_one_role_uses():
-    """Every member has to be read by at least two of the three roles.
+    """Every member has to be read by at least two roles that converge an edge.
 
     Otherwise the contract becomes the place variables go to escape their
     owner, and "shared runtime" stops meaning anything. Nginx policy — cache
     sizing, ciphers, compression — stays in blitzecdn_nginx; the health timeout
     and the rollback record stay in blitzecdn_edge_stack.
+
+    "Two roles" counts a capability's role as readily as one of core's. The
+    runtime identity is the case that made the distinction matter: core's
+    blitzecdn_edge_stack and the cache capability's role both create the cache
+    directory, both have to own it as the uid the image's workers run as, and
+    a value those two share is the definition of shared runtime even though
+    only one of them is core's.
     """
     runtime = _runtime_defaults()["blitzecdn_edge_runtime"]
     sources = {
         role: "\n".join(
             source.read_text(encoding="utf-8")
-            for source in sorted((ROLES_DIR / role).rglob("*"))
+            for source in sorted(directory.rglob("*"))
             if source.suffix in {".yml", ".j2"} and source.is_file()
         )
-        for role in EDGE_ROLES
+        for role, directory in _contract_readers().items()
     }
 
     def members(prefix: str, value: Any):
@@ -1411,3 +1437,64 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
 
     assert rules(http3=False) == expected
     assert rules(http3=True) == expected | {"udp|443|any"}
+
+
+def _cache_directory_declarations(path: Path) -> list[dict]:
+    """Every mapping in a task file that gives the cache directory an owner.
+
+    Found by walking the loaded YAML rather than by reading lines: one writer
+    declares the path and its owner as an inline `loop` entry and the other as
+    module arguments, and a line-oriented check passes on whichever it was
+    written against.
+    """
+    found: list[dict] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            declared = node.get("path")
+            if isinstance(declared, str) and "paths.cache" in declared:
+                found.append(node)
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return found
+
+
+def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
+    """Two roles create this directory, and Nginx has an opinion about it.
+
+    Nginx chowns its cache root to the user its workers run as when it starts,
+    and that user belongs to the runtime image, not to the host: Alpine's
+    `nginx` is 101 where Ubuntu's `www-data` is 33, and only the uid crosses a
+    bind mount. A host-side name here is a chown on every converge — the edge
+    setting it to the one, the next deploy setting it back to the other, and
+    no fleet ever reporting itself converged.
+
+    Both writers are checked together because they run in one converge:
+    `blitzecdn_cache_config` in the capability slot, `blitzecdn_edge_stack` in
+    its pre-task. Agreeing with Nginx in one and not the other just moves the
+    loop to the other task.
+    """
+    writers = {
+        "blitzecdn_edge_stack": STACK_ROLE_DIR / "tasks/prepare.yml",
+        "blitzecdn_cache_config": (
+            PROJECT_DIR
+            / "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles"
+            / "blitzecdn_cache_config/tasks/main.yml"
+        ),
+    }
+    for role, path in writers.items():
+        declarations = _cache_directory_declarations(path)
+        assert declarations, f"{role} no longer creates the cache directory"
+        for declaration in declarations:
+            owner = str(declaration.get("owner", ""))
+            assert "worker_uid" in owner, (
+                f"{role} owns the cache directory as {owner!r} rather than "
+                "blitzecdn_edge_runtime.worker_uid. Nginx will chown it to "
+                "the image's worker uid, and the two will take turns on "
+                "every converge"
+            )

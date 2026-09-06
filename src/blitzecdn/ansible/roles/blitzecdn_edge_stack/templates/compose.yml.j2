@@ -27,8 +27,12 @@ services:
     # A process inside this container can never gain privileges it was not
     # started with — no setuid binary, no file capability. It costs nothing
     # here: the master starts as root to bind the privileged listeners and read
-    # the private keys, and then drops to www-data by its own configuration,
-    # which is a privilege *reduction* and unaffected.
+    # the private keys, and then drops to the image's own unprivileged user by
+    # its own configuration, which is a privilege *reduction* and unaffected.
+    # That user is Alpine Nginx's `nginx`, not Debian's `www-data`, and the
+    # contract carries its uid: see `blitzecdn_edge_runtime.worker_uid`, which
+    # exists because this comment used to say www-data and a host directory
+    # was chowned to match.
     #
     # The controller's own Compose project already carries this. The edge, the
     # host-networked container that terminates every visitor connection, is the

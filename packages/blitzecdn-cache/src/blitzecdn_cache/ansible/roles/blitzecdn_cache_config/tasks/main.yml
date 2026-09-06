@@ -13,10 +13,19 @@
   loop_control:
     label: "{{ item.name }}"
 
+# Core creates this too, because Compose mounts it on an edge with no cache
+# capability at all. Declared identically here so the two never disagree: this
+# role runs in the capability slot, before blitzecdn_edge_stack, and a
+# different owner in either place is a chown on every converge rather than a
+# converged fleet.
+#
+# The owner is the runtime image's worker uid, not a host account name. Nginx
+# chowns its cache root to the user its workers run as, and that user is the
+# image's, whose uid the host's passwd file knows nothing about.
 - name: Create the response cache directory
   ansible.builtin.file:
     path: "{{ blitzecdn_edge_runtime.paths.cache }}"
     state: directory
-    owner: www-data
+    owner: "{{ blitzecdn_edge_runtime.worker_uid }}"
     group: www-data
     mode: "0750"
