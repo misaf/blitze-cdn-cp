@@ -109,13 +109,21 @@ jobs:
         with:
           version: "0.12.3"
           enable-cache: true
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: Install Python
         run: uv python install ${{ matrix.python-version }}
       # `--all-packages` is the workspace form: a plain sync installs the
       # control plane alone and leaves every optional distribution's tests
       # unable to import.
+      #
+      # Spelled out rather than `just install` because the interpreter under
+      # test has to be named, which is also why the collections are a separate
+      # recipe: the role-contract tests run a real ansible-playbook, and a role
+      # that uses `community.docker` fails to parse without them.
       - name: Install the workspace
         run: uv sync --frozen --all-packages --python ${{ matrix.python-version }}
+      - name: Install collection dependencies
+        run: just collections
       - name: Run tests
         run: uv run --python ${{ matrix.python-version }} pytest --no-cov
 

@@ -38,8 +38,22 @@ default:
 # root project installs `blitzecdn` alone and every optional distribution's
 # tests fail to import. Development wants all of them; a server does not have
 # to have any.
-install:
+#
+# The collections come after, as their own recipe: a job that syncs a specific
+# interpreter rather than the default one still needs them, because the
+# role-contract tests run a real ansible-playbook against roles that use
+# `community.docker`.
+install: && collections
     uv sync --frozen --all-packages
+
+# The third-party collections the roles are converged with, pinned exactly by
+# `requirements.yml`.
+#
+# Needed by anything that *runs* a role rather than reading it: a deployment,
+# and the role-contract tests, which resolve modules through
+# `ANSIBLE_COLLECTIONS_PATH`. Without these a role fails to parse, which reads
+# as a broken role rather than a missing dependency.
+collections:
     uv run ansible-galaxy collection install -r src/blitzecdn/ansible/requirements.yml -p {{collections}}
 
 # Install exactly what a server gets: the control plane, the optional
