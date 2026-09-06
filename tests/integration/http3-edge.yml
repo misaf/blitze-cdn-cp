@@ -181,7 +181,17 @@
     # capabilities converge what the configuration will depend on, then the
     # firewall opens the ports, then blitzecdn_nginx renders and proves the
     # whole tree loads, then the stack starts the container.
+    #
+    # The slot's own parameter, and not the same name as the play variable
+    # above it. `blitzecdn_capability_roles` is what a control plane composes
+    # from its installed plugins and passes in; `blitzecdn_capabilities_roles`
+    # is what this role is given for the slot it is standing in, because the
+    # play uses it twice and the two slots hold different lists. edge.yml
+    # translates one into the other at every invocation, and a harness that
+    # only sets the first hands the role nothing.
     - role: blitzecdn_capabilities
+      vars:
+        blitzecdn_capabilities_roles: "{{ blitzecdn_capability_roles | default([]) }}"
     - role: blitzecdn_firewall
     - role: blitzecdn_nginx
     - role: blitzecdn_edge_stack

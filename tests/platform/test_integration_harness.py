@@ -26,6 +26,7 @@ from paths import REPO_ROOT
 PROJECT_DIR = REPO_ROOT
 HTTP3_HARNESS = PROJECT_DIR / "tests/http3-edge-integration.sh"
 INSTALL_HARNESS = PROJECT_DIR / "tests/container-install.sh"
+HTTP3_PLAYBOOK = PROJECT_DIR / "tests/integration/http3-edge.yml"
 # Both harnesses start a privileged systemd host and install a container engine
 # inside it, so both meet the nested-overlay limit below in the same way.
 NESTED_ENGINE_HARNESSES = (HTTP3_HARNESS, INSTALL_HARNESS)
@@ -176,3 +177,30 @@ def test_the_edge_image_is_built_with_the_modules_the_capabilities_declare():
         "the edge image is built without the resolved module arguments, so it "
         "carries only what the base image ships"
     )
+
+
+def test_the_harness_gives_the_capability_slot_the_roles_it_requires():
+    """Two variables, one letter apart, and only one of them is the role's.
+
+    `blitzecdn_capability_roles` is what a control plane composes from its
+    installed plugins and passes in as an extra-var.
+    `blitzecdn_capabilities_roles` is the `blitzecdn_capabilities` role's own
+    required parameter, set per slot because the real play stands the role up
+    twice with different lists. `ansible/playbooks/edge.yml` translates the
+    first into the second at every invocation; a play that sets only the first
+    hands the role nothing and fails its argument spec, four roles into a
+    converge that has already provisioned a host.
+    """
+    playbook = HTTP3_PLAYBOOK.read_text(encoding="utf-8")
+    invocations = re.findall(
+        r"- role: blitzecdn_capabilities\n(.*?)(?=\n    - role: |\Z)",
+        playbook,
+        re.DOTALL,
+    )
+    assert invocations, "the harness no longer runs the capability slot"
+    for body in invocations:
+        assert "blitzecdn_capabilities_roles:" in body, (
+            "the harness stands up blitzecdn_capabilities without the roles "
+            "parameter it requires; setting blitzecdn_capability_roles as a "
+            "play variable is not the same thing"
+        )
