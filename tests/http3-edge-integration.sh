@@ -197,8 +197,18 @@ in_edge "ss -H -lnu | grep -q ':443 '" || fail "nothing is listening on UDP/443"
 in_edge "grep -qx 'tcp|443|any' /etc/blitzecdn/firewall-rules"
 in_edge "grep -qx 'udp|443|any' /etc/blitzecdn/firewall-rules"
 
+# `--diff` here and not on the fresh converge above. A first converge changes
+# everything and would print every rendered file; a repeated one should change
+# nothing, so whatever it prints is exactly the thing that failed to settle.
+# Without it this check reports a count — `changed=1` — and leaves the reader
+# to guess which attribute of which path is flipping, which is a poor trade
+# for a job that takes five minutes to reach this line.
+#
+# Safe to print: the one task that renders the fleet secret is `no_log: true`
+# in blitzecdn_security, which suppresses its diff with everything else, and
+# no Nginx fragment carries the secret.
 say "Checking provisioning convergence"
-converged=$(converge)
+converged=$(converge --diff)
 printf '%s\n' "${converged}"
 grep -Eq 'changed=0[[:space:]]' <<<"${converged}" ||
   fail "a repeated converge reported changes"
