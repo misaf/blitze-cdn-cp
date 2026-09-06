@@ -66,6 +66,7 @@ blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status	type=dict requir
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status.address	type=str required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status.path	type=str required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status.port	type=int required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.worker_uid	type=int required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime_image_default	type=str required
 blitzecdn	variable	blitzecdn_edge_stack.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_edge_stack.blitzecdn_edge_stack_compose_file	type=path required

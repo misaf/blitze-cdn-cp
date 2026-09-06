@@ -43,7 +43,16 @@
         # A generic writable runtime volume. The cache capability decides
         # whether Nginx uses it; core creates it because Compose mounts it even
         # on a capability-free edge and must never let Docker invent ownership.
-        - {path: "{{ blitzecdn_edge_runtime.paths.cache }}", owner: www-data, group: www-data, mode: "0750"}
+        #
+        # Owned by the runtime's worker uid, and this is the one directory here
+        # that has to be. Nginx chowns its cache root to the user its workers
+        # run as when it starts, so a host-side `www-data` put this in a loop:
+        # the edge set it to 101, the next converge set it back to 33, and no
+        # deploy on any fleet ever reported itself converged.
+        - path: "{{ blitzecdn_edge_runtime.paths.cache }}"
+          owner: "{{ blitzecdn_edge_runtime.worker_uid }}"
+          group: www-data
+          mode: "0750"
         # Where an installed capability leaves data the edge reads — a lookup
         # database, a table. Created here because the container mounts it and
         # a bind mount of a missing path becomes an empty root-owned directory;

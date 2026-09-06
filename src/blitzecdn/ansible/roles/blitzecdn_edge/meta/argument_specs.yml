@@ -51,6 +51,14 @@ argument_specs:
               The edge runtime image, tag- or digest-pinned. Never `latest`.
               blitzecdn_nginx validates configuration against it and
               blitzecdn_edge_stack serves from it, so it must be one value.
+          worker_uid:
+            type: int
+            required: true
+            description: >-
+              The numeric uid the runtime image's Nginx workers run as. Host
+              directories those workers write are owned by it; a name cannot
+              be used, because the host and the image do not share a passwd
+              file and only the uid crosses the mount.
           paths:
             type: dict
             required: true
