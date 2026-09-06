@@ -197,6 +197,9 @@ max-statements = 60
 # advance and catching a narrower type would only turn a skipped module into a
 # broken suite.
 "tests/frozen_surfaces.py" = ["BLE001", "S112"]
+# `facade_private_modules` walks and imports the published prefixes for the
+# same reason and with the same unknowable failures.
+"tests/published_surface.py" = ["BLE001", "S112"]
 
 [tool.mypy]
 python_version = "3.12"

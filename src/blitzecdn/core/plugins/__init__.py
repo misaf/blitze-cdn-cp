@@ -30,7 +30,11 @@ from blitzecdn.core.plugins.discovery import (
 )
 from blitzecdn.core.plugins.hooks import hookimpl
 from blitzecdn.core.plugins.manager import build_plugin_manager, load_plugins
-from blitzecdn.core.plugins.registry import PluginRegistry, merge_variables
+from blitzecdn.core.plugins.registry import (
+    PluginRegistry,
+    StateContributions,
+    merge_variables,
+)
 from blitzecdn.core.plugins.resolution import (
     CapabilityConfig,
     ResolvedCapabilityEnvironment,
@@ -99,6 +103,7 @@ __all__ = [
     "SettingValue",
     "Severity",
     "SiteStateContribution",
+    "StateContributions",
     "StateValue",
     "ValidationIssue",
     "ValidationResult",
