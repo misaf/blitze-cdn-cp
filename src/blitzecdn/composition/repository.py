@@ -61,7 +61,13 @@ class Repository:
     like the whole of persistence to callers that needed one table of it.
     """
 
-    def __init__(self, path: Path, *, pool_connections: bool = False) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        pool_connections: bool = False,
+        audit_retention: int | None = None,
+    ) -> None:
         self.database = Database(path, pool_connections=pool_connections)
         self.sites = SiteStore(self.database)
         self.zones = ZoneStore(self.database)
@@ -69,7 +75,17 @@ class Repository:
         self.ansible_settings = AnsibleSettingStore(self.database)
         self.deployments = DeploymentStore(self.database, self.snapshot)
         self.deployment_requirements = DeploymentRequirementStore(self.database)
-        self.audit_log = AuditLog(self.database)
+        # The one store handed a policy value here rather than at its call
+        # site. A deployment prunes its history from the service that just
+        # converged one, and a workflow journal from the coordinator that just
+        # finished one — both have the settings in hand. An audit event is
+        # written by every service there is, through `EventRecorder`, so there
+        # is no one caller to carry the bound and it belongs with the store.
+        self.audit_log = (
+            AuditLog(self.database, audit_retention)
+            if audit_retention is not None
+            else AuditLog(self.database)
+        )
         self.workflows = WorkflowStore(self.database)
 
     def snapshot(self) -> str:

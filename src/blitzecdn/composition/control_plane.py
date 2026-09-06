@@ -196,7 +196,9 @@ class ControlPlane:
         #: contributions branch on it; nothing else does.
         self.process = process
         store = repository or Repository(
-            settings.database_path, pool_connections=pool_connections
+            settings.database_path,
+            pool_connections=pool_connections,
+            audit_retention=settings.audit_retention,
         )
         self._owned_repository = store if repository is None else None
         # Discovered before the adapters, because one adapter is built from

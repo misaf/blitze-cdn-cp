@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlmodel import col
 
 from blitzecdn.core.domain.audit import AuditEvent
@@ -11,12 +11,26 @@ from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.tables import AuditEventRow
 
+#: Used when nothing supplies one — every real control plane passes
+#: `Settings.audit_retention`. A default here keeps `AuditLog(database)`
+#: constructible in a test that has no opinion about retention.
+_DEFAULT_RETENTION = 100_000
+
 
 class AuditLog:
-    """Append-only record of who did what."""
+    """Append-only record of who did what, kept to a bound.
 
-    def __init__(self, database: Database) -> None:
+    Append-only from a caller's point of view: nothing edits an event, and the
+    only rows that ever leave are the oldest, dropped to keep the table from
+    being the one that fills the disk. Every other table here is bounded by
+    something — a deployment prunes its check-mode history, a workflow journal
+    its finished entries — and this one was written on every mutation and never
+    read for removal.
+    """
+
+    def __init__(self, database: Database, retention: int = _DEFAULT_RETENTION) -> None:
         self._db = database
+        self._retention = retention
 
     def record(self, event: DomainEvent) -> None:
         """Persist the event emitted by a completed application action."""
@@ -47,7 +61,22 @@ class AuditLog:
             )
             session.add(row)
             session.flush()
-            return self._audit_event(row)
+            # Inline rather than on a timer, because it costs nothing to be
+            # here. `id` is the rowid, so this is a range seek that finds the
+            # first row below the bound or stops immediately — on the common
+            # append, where nothing has aged out, it does no work at all.
+            # Ids are monotonic and only ever removed from the bottom, so no
+            # gap forms inside the retained window and "id below the newest
+            # minus the bound" keeps exactly `retention` events. The bound is
+            # read off the validated event rather than the row, whose `id` is
+            # optional until the flush that has just assigned it.
+            event = self._audit_event(row)
+            session.execute(
+                delete(AuditEventRow).where(
+                    col(AuditEventRow.id) <= event.id - self._retention
+                )
+            )
+            return event
 
     def get_audit_event(self, event_id: int) -> AuditEvent:
         with self._db.session() as session:

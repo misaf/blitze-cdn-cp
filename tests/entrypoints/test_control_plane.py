@@ -55,6 +55,25 @@ def _await_workflow(
     raise AssertionError(f"no workflow for {resource_id} finished")
 
 
+def test_the_audit_retention_setting_reaches_the_log_that_enforces_it(settings):
+    """The store honours a bound; this is that the composition hands it one.
+
+    `AuditLog` carries a default so a test can build one without an opinion,
+    which is exactly the shape that lets a setting silently go unread — the
+    control plane would keep a hundred thousand events whatever an operator
+    configured, and nothing would say so.
+    """
+    control = ControlPlane(settings=settings.model_copy(update={"audit_retention": 4}))
+    try:
+        for index in range(12):
+            control.events.audit("alice", f"a{index}", "site", "s")
+        kept = control.audit.list_audit_events()
+    finally:
+        control.close()
+
+    assert [event.action for event in kept] == ["a11", "a10", "a9", "a8"]
+
+
 def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch):
     closed: list[Repository] = []
     monkeypatch.setattr(
