@@ -122,7 +122,9 @@ pip uninstall blitzecdn-compression  # the capability disappears; core keeps wor
 
 A package can contribute routes, commands, scheduled jobs, health checks,
 deployment checks and desired state without a line of this repository changing —
-including one this repository has never heard of. See [PLUGINS.md](PLUGINS.md).
+including one this repository has never heard of. See [PLUGINS.md](PLUGINS.md)
+for how, and [COMPATIBILITY.md](COMPATIBILITY.md) for what a wheel may depend
+on and what a version number obliges.
 
 The stable `CdnSite` configuration remains part of core whether an implementation
 wheel is installed or not. A site with compression off, unmanaged TLS, and the
