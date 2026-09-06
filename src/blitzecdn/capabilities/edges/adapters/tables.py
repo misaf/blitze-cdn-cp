@@ -38,6 +38,7 @@ class EdgeRow(Base, table=True):
 
     __tablename__ = "edges"
     __table_args__ = (
+        CheckConstraint("length(name) > 0", name="edges_name_nonempty_check"),
         CheckConstraint("port BETWEEN 1 AND 65535", name="edges_port_check"),
         CheckConstraint("length(host) > 0", name="edges_host_nonempty_check"),
         CheckConstraint("length(user) > 0", name="edges_user_nonempty_check"),

@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Column, String
+from sqlalchemy import CheckConstraint, Column, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlmodel import Field
 
@@ -38,6 +38,17 @@ class SiteRow(Base, table=True):
     """
 
     __tablename__ = "sites"
+    __table_args__ = (
+        # `domains`, `edges` and `dns_records` each refuse an empty identifier
+        # and this table did not, which made it the one place a site could be
+        # stored with no name and no origin to fetch from. The domain model
+        # rejects both; so does every other table's equivalent, and that is the
+        # point — the schema is the floor under a writer that skipped the model.
+        CheckConstraint("length(name) > 0", name="sites_name_nonempty_check"),
+        CheckConstraint(
+            "length(origin_host) > 0", name="sites_origin_host_nonempty_check"
+        ),
+    )
 
     name: str = Field(sa_column=Column(String, primary_key=True))
     #: The virtual host names nginx answers on. A column because "which site

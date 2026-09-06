@@ -43,7 +43,14 @@ class WorkflowRow(Base, table=True):
             "status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')",
             name="workflows_status_check",
         ),
-        Index("workflows_status_idx", "status", "updated_at"),
+        # `created_at`, not `updated_at`: every query here orders by the
+        # former and none by the latter, so the second column bought nothing
+        # and the sort was done in a temp b-tree anyway.
+        Index("workflows_status_idx", "status", "created_at"),
+        # And the same column alone, for the unfiltered list. `deployments` is
+        # this table's twin and has had one since it was written; the omission
+        # here made "show me the recent workflows" a full scan and a sort.
+        Index("ix_workflows_created_at", "created_at"),
     )
 
     id: str = Field(sa_column=Column(String, primary_key=True))

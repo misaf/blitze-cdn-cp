@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, Column, String
+from sqlalchemy import CheckConstraint, Column, Index, String
 from sqlalchemy.dialects.sqlite import JSON
 from sqlmodel import Field
 
@@ -46,10 +46,21 @@ class DeploymentRow(Base, table=True):
             "rollback_of IS NULL OR rollback_of != id",
             name="deployments_no_self_rollback_check",
         ),
+        # Every status query here orders by `created_at` — the queued run to
+        # start next, the newest successful one to roll back to — so the two
+        # belong in one index. A bare `status` index left the sort to a temp
+        # b-tree, and this serves the status-only lookups just as well.
+        Index("ix_deployments_status_created_at", "status", "created_at"),
+        # A foreign key nothing reads, indexed for what it costs to *write*:
+        # SQLite verifies no row still points at a deployment before deleting
+        # it, and without this that verification is a table scan per row.
+        # Pruning deletes in bulk, which made it quadratic. `dns_records.site`
+        # is the same self-referential shape and has been indexed all along.
+        Index("ix_deployments_rollback_of", "rollback_of"),
     )
 
     id: str = Field(sa_column=Column(String, primary_key=True))
-    status: str = Field(index=True)
+    status: str
     operator: str
     check_mode: bool
     rollback_of: str | None = Field(default=None, foreign_key="deployments.id")
