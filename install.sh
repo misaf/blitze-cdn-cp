@@ -63,6 +63,7 @@ Subcommands:
   (none)      Build .venv and install the pinned Ansible collections
   standalone  Provision this server as an independent control plane and edge
   update      Move an installed server onto a newer release, keeping its state
+  upgrade     Cross to the next major release line, keeping its state
   help        Show this message
 
 Whole-host operations:
@@ -304,6 +305,7 @@ readonly COMMAND_TABLE='
 install|usage_root||
 standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address
 update|usage_update|updater|--yes --no-backup
+upgrade|usage_upgrade|updater|--yes --no-backup
 uninstall|usage_uninstall|uninstaller|--yes
 fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --yes
 '
@@ -749,7 +751,7 @@ never crosses a major version and never moves backwards. It leaves the checkout
 detached at that tag, which is what a release installation looks like: a host
 installed from the 4.x branch follows tags from its first update onwards, and a
 later --fresh reinstalls the exact release that was running rather than the
-branch tip. A major upgrade is a separate, documented step.
+branch tip. Crossing to the next major is `./install.sh upgrade`.
 
 Nothing is rewritten that an operator owns. The database, the certificates, the
 inventory, and the API credentials in /etc/blitzecdn all survive — this is the
@@ -868,6 +870,152 @@ EOF
   local answer
   read -r -p "Continue? [y/N]: " answer
   [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
+}
+
+usage_upgrade() {
+  cat <<'EOF'
+Usage: ./install.sh upgrade [OPTIONS]
+
+Cross this server onto the next major release line.
+
+`update` deliberately never does this: it follows tags inside the line a host
+is already on, so a major arrives only when somebody asks for it. This is that
+asking, and it is one step at a time — a v3 host upgrades to the newest v4 and
+never straight to v5, because each major's deprecations are the release in
+which they can still be read.
+
+It refuses unless the host is already on the newest release of its own line.
+That is not bookkeeping: a deprecation window is the releases between a thing
+being announced and being removed, and a host that jumps out of the middle of
+one has skipped the notices written for it. Run `update` first.
+
+Read COMPATIBILITY.md for what a major is allowed to change. Every name it
+took away was in the previous line's release notes, and inventories,
+playbooks, scripts and any third-party wheel are the things to check before
+answering the prompt.
+
+Everything `update` preserves, this preserves. The difference is a full backup
+rather than the database alone — a major may move more than the schema — and a
+confirmation you type the target version into rather than answer y/N.
+
+Options:
+  --yes        Do not ask for confirmation
+  --no-backup  Skip the backup taken before anything changes
+EOF
+}
+
+# Ask for the target by name, not for a keystroke.
+#
+# `confirm_update` asks y/N because an update inside a line is the ordinary
+# thing a host does and the answer is usually yes. This is the other kind: it
+# crosses a compatibility boundary, it is not reversible, and the operator
+# should have had to read which version they are going to before agreeing to
+# go there. Typing it is that reading.
+confirm_upgrade() {
+  local assume_yes="$1" current="$2" target="$3" commits="$4"
+  cat >&2 <<EOF
+
+Upgrading the BlitzeCDN control plane across a major release line:
+
+  from  ${current}
+  to    ${target}   (${commits} commits)
+
+A major release is allowed to remove things this host may depend on: Ansible
+variables and role names an inventory sets, CLI commands a script runs, API
+routes a client calls, and names a third-party capability wheel imports. What
+changed is in ${target}'s release notes; the rules are in COMPATIBILITY.md.
+
+The containers are stopped, a full backup is taken, the schema is migrated,
+and they are recreated on the new image. A migration is not reversible: going
+back means restoring the backup.
+EOF
+  [[ ${assume_yes} == 1 ]] && return 0
+  local answer
+  read -r -p "Type ${target} to continue: " answer
+  [[ ${answer} == "${target}" ]] || { echo "Cancelled."; exit 0; }
+}
+
+cmd_upgrade() {
+  [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
+    die 1 "error: run the upgrader from the installation at ${INSTALL_DIR}"
+  [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
+    "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to upgrade from" \
+    "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
+  cd -- "${script_dir}"
+
+  require_upstream_origin >/dev/null
+
+  [[ -z $(repo_git status --porcelain) ]] || die 1 \
+    "error: ${INSTALL_DIR} has local modifications; the upgrade would discard them" \
+    "Commit or discard them, or use --fresh to rebuild from origin."
+
+  echo "Fetching from origin..."
+  repo_git fetch --tags --prune origin ||
+    die 1 "error: could not fetch from origin; nothing was changed"
+
+  local version major next target current commits newest_in_line
+  version=$(head_project_version) || die 1 \
+    "error: could not read the project version from pyproject.toml at HEAD; nothing was changed"
+  major=${version%%.*}
+  next=$((major + 1))
+
+  # One line at a time. Asking only for `next` is what makes that structural
+  # rather than a check somebody can forget: a v3 host cannot name v5 here
+  # because nothing in this function ever looks at it.
+  target=$(latest_release_tag "${next}") || die 1 \
+    "error: no v${next}.x release tag exists in the fetched repository; nothing was changed" \
+    "This host is on the newest major line there is."
+
+  current=$(describe_installed_release)
+
+  # Finish the line before leaving it. The releases between a deprecation and
+  # its removal are the only place the notice exists, and a host that crossed
+  # out of the middle of one has skipped the reading it was written for.
+  newest_in_line=$(latest_release_tag "${major}") || newest_in_line=""
+  if [[ -n ${newest_in_line} && ${current} != "${newest_in_line}" ]]; then
+    die 1 \
+      "error: this host is on ${current}, and ${newest_in_line} is the newest v${major}.x release" \
+      "Run './install.sh update' first: a major's deprecations are announced in" \
+      "the line you are leaving, and crossing early skips them."
+  fi
+
+  commits=$(repo_git rev-list --count "HEAD..${target}" 2>/dev/null) || commits=unknown
+
+  confirm_upgrade "${parsed_yes}" "${current}" "${target}" "${commits}"
+
+  # Everything, not just the database. `update` backs up the one thing a
+  # migration can damage; a major is allowed to move more than the schema, and
+  # the restore an operator reaches for after one should not be missing the
+  # certificates because the upgrade was cheaper without them.
+  if [[ ${parsed_no_backup} -eq 1 ]]; then
+    echo "Skipping the backup (--no-backup)."
+  elif [[ -x ${CLI_WRAPPER} ]]; then
+    echo "Backing up the control plane..."
+    "${CLI_WRAPPER}" backup create ||
+      die 1 "error: the backup failed; nothing was changed" \
+        "Fix the failure, or rerun with --no-backup if the data is expendable."
+  else
+    echo "warning: ${CLI_WRAPPER} is missing; skipping the backup" >&2
+  fi
+
+  stop_control_plane_services
+
+  echo "Checking out ${target}..."
+  # No ancestry check, and that is the difference from `update`. A major line
+  # branches from the one before it and then moves on its own, so a host on the
+  # last v3 release is legitimately not an ancestor of v4 — the guarantee here
+  # is the version arithmetic above, not the commit graph.
+  repo_git checkout --quiet "${target}" ||
+    die 1 "error: could not check out ${target}; the containers are stopped —" \
+      "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
+
+  bootstrap_runtime ansible-only
+  converge_control_plane
+
+  echo
+  echo "Upgraded to ${target}."
+  echo "Services:"
+  report_control_plane_services
 }
 
 cmd_update() {
@@ -1154,7 +1302,7 @@ main() {
   local subcommand=install
   if [[ $# -gt 0 ]]; then
     case "$1" in
-      standalone|update|install)
+      standalone|update|upgrade|install)
         subcommand=$1
         shift
         ;;
