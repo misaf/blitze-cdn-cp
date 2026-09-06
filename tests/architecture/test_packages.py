@@ -55,6 +55,19 @@ def _distribution(package: Path) -> str:
     return package.name
 
 
+def _next_major_bound() -> str:
+    """The upper bound a workspace dependency carries, from the current version.
+
+    Written as `<4` on both sides of this file until the 4.0.0 release, which
+    is a version literal inside a rule — it passes for one major line and then
+    fails at exactly the moment a release is being prepared, on a test whose
+    subject is not versions. Derived from the root manifest instead: the cap is
+    the major after the one this workspace is on, whatever that is.
+    """
+    version = _manifest(REPO_ROOT)["project"]["version"]
+    return f"<{int(version.split('.')[0]) + 1}"
+
+
 def _import_package(package: Path) -> str:
     return package.name.replace("-", "_")
 
@@ -225,8 +238,13 @@ def test_an_optional_package_depends_on_the_control_plane_and_workspace_only(
         f"{package.name} depends on {set(names[1:]) - workspace}, which is "
         "neither the control plane nor a distribution in this workspace"
     )
+    bound = _next_major_bound()
     for requirement in project["dependencies"]:
-        assert "<4" in requirement, requirement
+        assert bound in requirement, (
+            f"{requirement} does not carry {bound}. Every workspace dependency "
+            "is capped at the next major, so a wheel cannot load against a "
+            "control plane whose ABI it was not written for."
+        )
 
 
 @pytest.mark.parametrize("package", _packages(), ids=lambda path: path.name)
@@ -1295,7 +1313,7 @@ def test_automatic_ssl_declares_the_origin_probe_it_runs():
         "in blitzecdn-certificates' dependencies rather than importing it "
         "opportunistically"
     )
-    assert "<4" in declared
+    assert _next_major_bound() in declared
 
     imports = {
         imported

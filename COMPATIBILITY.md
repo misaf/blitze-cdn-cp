@@ -9,18 +9,35 @@ variable names, and the columns of a database. This document says which names
 are in each of those, what a change to one obliges, and where the promise is
 written down in a form that fails a build rather than a deployment.
 
-## The state right now
+## How a release reaches a server
 
-`3.0.0`, one migration, nothing published. **Every surface here is still free
-to change**, and that is the point of writing this while it is true: the
-procedures below cost nothing to follow today and are the only way to change
-anything once they cost something.
+A release is a `vMAJOR.MINOR.PATCH` git tag. An operator installs by cloning
+the release branch — `4.x` — and from its first `update` onward that host
+follows tags: `install.sh` takes the newest tag in the major line the host is
+already on, never crossing a major and never moving backwards. Crossing one is
+a separate, deliberate step.
 
-Until the first release, "may this change?" has one answer — yes — and the
-only obligation is the one in [Changing a public surface](#changing-a-public-surface):
-the change moves a golden file, in its own commit, where a reader can see it.
-The rest of this document is what those procedures become on the day somebody
-runs `pip install blitzecdn`.
+**That makes the major boundary the consent gate**, and it is the reason the
+classification below is not bookkeeping. A change released as a minor lands on
+every running host at its next update, without anyone choosing it. A change
+released as a major waits to be chosen.
+
+Two things are published and they are published differently:
+
+- **The edge runtime image**, built and pushed on every release tag. An edge
+  runs it.
+- **The Python distributions**, which are *not* on PyPI. Core and the ten
+  optional wheels ship inside the same checkout, so the SDK and the plugin ABI
+  have no third-party dependant yet — the machinery is complete and nobody
+  outside this repository has built against it.
+
+The asymmetry matters when classifying a change. Renaming an Ansible variable
+breaks an operator's inventory on the next update; renaming an SDK symbol
+currently breaks nobody. The first is a major, and the second stops being free
+the day someone publishes a wheel — which is why the goldens hold both.
+
+`4.0.0` is the first release the frozen surfaces exist for. Before it there was
+nothing to compare a change against, which is exactly what those files ended.
 
 ## The rule
 
@@ -72,7 +89,7 @@ meaning changes is the failure worth catching:
   `Sequence[APIRouter]` and a contribution carries a `Typer`, so a wheel
   implementing either is written against FastAPI and Typer as surely as
   against these dataclasses — and pluggy is the mechanism itself. Core pins all
-  three and a wheel inherits the bound through `blitzecdn>=3.0.0,<4`, but
+  three and a wheel inherits the bound through `blitzecdn>=4.0.0,<5`, but
   nothing recorded *which* major the contract assumed. They are lines in
   `plugin_abi.txt` now, derived from what the ABI modules import, so a fourth
   library entering a hookspec signature brings its bound with it.
@@ -123,7 +140,7 @@ BlitzeCDN and its optional distributions share a version and release together.
   gained lines is how a reviewer sees the change was additive.
 - **Patch** — no golden file moved.
 
-An optional wheel declares `blitzecdn>=3.0.0,<4`. That upper bound is the first
+An optional wheel declares `blitzecdn>=4.0.0,<5`. That upper bound is the first
 compatibility lock and the one that acts earliest: `pip` refuses the install
 rather than letting a wheel load against a core it was not written for.
 

@@ -9,11 +9,15 @@ database that will outlive every one of them.
 
 Nothing held any of that before. A commit could rename an Ansible variable or
 change a hookspec and CI stayed green, because the tests exercising it were
-edited in the same commit. That is right for a project with no installations —
-`3.0.0`, one migration, nothing published — and it stops being right the day
-somebody installs. The point of freezing now is that the surfaces are still
-free to change: a golden file is how a deliberate change stays distinguishable
-from an accidental one.
+edited in the same commit — a deliberate change and an accidental one looked
+identical, and neither was visible in review. These files are the difference:
+a change to a public name now arrives as a diff somebody has to approve.
+
+`4.0.0` is the first release they exist for, and the major is not incidental.
+A host follows tags inside its major line on every update, so a renamed
+Ansible variable shipped as a minor would land on a running fleet unasked.
+See COMPATIBILITY.md for what each surface promises and what changing it
+costs.
 
 **When one of these fails, read the diff before regenerating it.** The question
 it asks is not "is the new surface correct" but "may this change, given who is

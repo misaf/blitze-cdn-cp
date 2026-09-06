@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn-cache"
-version = "3.0.0"
+version = "4.0.0"
 description = "Cache purge and cache-effectiveness reporting for the BlitzeCDN control plane"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -14,7 +14,7 @@ license = { file = "LICENSE" }
 # package is installed, so it ships in the control plane as this capability's
 # contract, `blitzecdn.capabilities.cache.policy`. What this distribution owns
 # is the *operations*: purging, and reading how well the cache is working.
-dependencies = ["blitzecdn>=3.0.0,<4"]
+dependencies = ["blitzecdn>=4.0.0,<5"]
 
 [project.entry-points."blitzecdn.plugins"]
 cache = "blitzecdn_cache.plugin"

@@ -23,7 +23,7 @@ name: Edge image
       - packages/*/src/*/plugin.py
       - .github/workflows/edge-image.yml
   push:
-    branches: [2.x, 3.x]
+    branches: [3.x, 4.x]
     paths:
       - src/blitzecdn/docker/edge/**
       - packages/*/src/*/plugin.py

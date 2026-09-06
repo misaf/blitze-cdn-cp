@@ -434,7 +434,7 @@ def _abi_frameworks(*modules: Any) -> list[str]:
     the mechanism itself, since `hookimpl` is a marker every wheel applies.
 
     Core pins all three, so a wheel inherits the bound transitively through
-    `blitzecdn>=3.0.0,<4` and pip resolves one of each. What was missing is
+    `blitzecdn>=4.0.0,<5` and pip resolves one of each. What was missing is
     that nothing recorded *which* major the contract was written in. Widening
     `typer<1` to `typer<2` would leave every line of this file identical while
     `CliCommandGroup.app` came to mean a different class, which is precisely

@@ -537,9 +537,9 @@ The installed metadata, and nothing else:
 ```toml
 [project]
 name = "blitzecdn-cache"
-version = "3.0.0"
+version = "4.0.0"
 requires-python = ">=3.12"
-dependencies = ["blitzecdn>=3.0.0,<4"]
+dependencies = ["blitzecdn>=4.0.0,<5"]
 
 [project.entry-points."blitzecdn.plugins"]
 cache = "blitzecdn_cache.plugin"
@@ -1080,7 +1080,7 @@ play. The scan cannot recommend anything without it, so the requirement is
 written into the manifest with a pinned range:
 
 ```toml
-dependencies = ["blitzecdn>=3.0.0,<4", "blitzecdn-origins>=3.0.0,<4"]
+dependencies = ["blitzecdn>=4.0.0,<5", "blitzecdn-origins>=4.0.0,<5"]
 ```
 
 pip then installs both, and `blitzecdn-origins` cannot be detached out from
@@ -1441,7 +1441,7 @@ by every edge whether or not the package is installed.
    package](#what-is-not-a-package). If it implements a `CdnSite` field, keep
    that stable field/enum in core and extract only the implementation.
 2. Create `packages/blitzecdn-<name>/` with a `pyproject.toml` declaring
-   `dependencies = ["blitzecdn>=3.0.0,<4"]`, the `blitzecdn.plugins` entry
+   `dependencies = ["blitzecdn>=4.0.0,<5"]`, the `blitzecdn.plugins` entry
    point, and `[tool.uv.sources] blitzecdn = { workspace = true }`.
 3. Write `src/blitzecdn_<name>/plugin.py` with
    `blitzecdn_plugin_metadata` (`required=False`, `provides={...}`) and the
