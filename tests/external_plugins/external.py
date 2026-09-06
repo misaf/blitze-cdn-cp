@@ -48,7 +48,7 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    return (CliCommandGroup(name="waf", app=commands),)
+    return (CliCommandGroup(plugin="waf", name="waf", app=commands),)
 
 
 @hookimpl
@@ -69,13 +69,14 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
 
 @hookimpl
 def blitzecdn_health_checks(platform: object) -> Sequence[HealthCheck]:
-    return (HealthCheck(name="waf-rules", check=lambda: None),)
+    return (HealthCheck(plugin="waf", name="waf-rules", check=lambda: None),)
 
 
 @hookimpl
 def blitzecdn_scheduled_jobs(platform: object) -> Sequence[ScheduledJob]:
     return (
         ScheduledJob(
+            plugin="waf",
             name="waf-rule-refresh",
             interval_seconds=900,
             run=lambda operator: None,

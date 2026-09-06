@@ -9,4 +9,4 @@ from blitzecdn.core.plugins import HealthCheck, hookimpl
 
 @hookimpl
 def blitzecdn_health_checks(platform: object) -> Sequence[HealthCheck]:
-    return (HealthCheck(name="anonymous", check=lambda: None),)
+    return (HealthCheck(plugin="anonymous", name="anonymous", check=lambda: None),)

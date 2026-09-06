@@ -61,4 +61,4 @@ def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    return (CliCommandGroup(name="backup", app=cli.backup_app),)
+    return (CliCommandGroup(plugin="backup", name="backup", app=cli.backup_app),)

@@ -249,11 +249,28 @@ class PluginRegistry:
         )
 
     def health_checks(self, platform: ControlPlane) -> tuple[HealthCheck, ...]:
-        return _flatten(
+        """Every contributed check, refusing two that answer to one name.
+
+        `/health` reports a check by `name`, so two plugins contributing
+        `"database"` would put two entries under one label and an operator
+        reading a failure would have no way to tell which wheel's check is
+        red. The same reasoning as `scheduled_jobs`, and the same answer: a
+        shared namespace is not first-writer-wins, it is an error.
+        """
+        checks = _flatten(
             self._manager.hook.blitzecdn_health_checks(platform=platform),
             "blitzecdn_health_checks",
             HealthCheck,
         )
+        seen: dict[str, str] = {}
+        for check in checks:
+            if check.name in seen:
+                raise PluginError(
+                    f"plugins {seen[check.name]!r} and {check.plugin!r} both "
+                    f"contribute a health check named {check.name!r}"
+                )
+            seen[check.name] = check.plugin
+        return checks
 
     def scheduled_jobs(self, platform: ControlPlane) -> dict[str, ScheduledJob]:
         """Every contributed job, by name.
@@ -269,7 +286,10 @@ class PluginRegistry:
             ScheduledJob,
         ):
             if job.name in jobs:
-                raise PluginError(f"two plugins contribute a job named {job.name!r}")
+                raise PluginError(
+                    f"plugins {jobs[job.name].plugin!r} and {job.plugin!r} both "
+                    f"contribute a job named {job.name!r}"
+                )
             jobs[job.name] = job
         return jobs
 

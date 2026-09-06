@@ -31,6 +31,7 @@ def test_a_maintenance_run_converges_what_it_left_owing():
     service = MaintenanceService(
         jobs=lambda: {
             "renew-certificates": ScheduledJob(
+                plugin="certificates",
                 name="renew-certificates",
                 interval_seconds=60,
                 run=lambda operator: calls.append(f"renewed by {operator}"),
@@ -60,6 +61,7 @@ def test_a_run_that_left_nothing_owing_does_not_deploy():
     service = MaintenanceService(
         jobs=lambda: {
             "check-drift": ScheduledJob(
+                plugin="deployments",
                 name="check-drift",
                 interval_seconds=900,
                 run=lambda operator: calls.append(f"checked by {operator}"),
@@ -98,10 +100,16 @@ def test_the_refusal_names_what_is_installed():
     service = MaintenanceService(
         jobs=lambda: {
             "check-drift": ScheduledJob(
-                name="check-drift", interval_seconds=900, run=lambda _operator: None
+                plugin="deployments",
+                name="check-drift",
+                interval_seconds=900,
+                run=lambda _operator: None,
             ),
             "renew-certificates": ScheduledJob(
-                name="renew-certificates", interval_seconds=60, run=lambda _o: None
+                plugin="certificates",
+                name="renew-certificates",
+                interval_seconds=60,
+                run=lambda _o: None,
             ),
         },
         deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
@@ -133,6 +141,7 @@ def test_the_job_table_is_resolved_per_run_not_at_construction():
         service.run("check-drift")
 
     table["check-drift"] = ScheduledJob(
+        plugin="deployments",
         name="check-drift",
         interval_seconds=900,
         run=lambda operator: ran.append(operator),

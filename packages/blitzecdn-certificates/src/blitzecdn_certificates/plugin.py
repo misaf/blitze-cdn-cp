@@ -103,8 +103,12 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     return (
-        CliCommandGroup(name="cert", app=certificates_cli.cert_app),
-        CliCommandGroup(name="ssl", app=automatic_ssl_cli.ssl_app),
+        CliCommandGroup(
+            plugin="certificates", name="cert", app=certificates_cli.cert_app
+        ),
+        CliCommandGroup(
+            plugin="certificates", name="ssl", app=automatic_ssl_cli.ssl_app
+        ),
     )
 
 
@@ -152,11 +156,13 @@ def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
 
     return (
         ScheduledJob(
+            plugin="certificates",
             name="certificate-reconciliation",
             interval_seconds=reconcile_interval,
             run=reconcile,
         ),
         ScheduledJob(
+            plugin="certificates",
             name="certificate-renewal",
             interval_seconds=renewal_interval,
             run=renew,
@@ -169,6 +175,7 @@ def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
             lease_seconds=platform.settings.deployment_timeout_seconds + budget,
         ),
         ScheduledJob(
+            plugin="certificates",
             name="automatic-ssl-scan",
             interval_seconds=scan_interval,
             run=scan,
