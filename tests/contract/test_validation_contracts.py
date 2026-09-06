@@ -450,3 +450,41 @@ def test_the_converge_removes_a_detached_capabilitys_fragment(tmp_path):
         "a capability that is no longer installed kept its http fragment, so "
         f"its directives outlive it; conf.d holds {remaining}"
     )
+
+
+def test_a_site_no_hostname_routes_to_never_reaches_the_edge(settings, tmp_path):
+    """Removing a site's last DNS record must not wedge every later deploy.
+
+    `serves_traffic` is the model's answer to this and it says exactly why: a
+    site with no hostnames would render a `server` block with an empty
+    `server_name`, which nginx reads as the default server for the listener, so
+    the site with the least configuration behind it starts answering for every
+    hostname nobody else claimed. `validate.yml` refuses the same shape from the
+    other side.
+
+    Both halves existed; nothing joined them. The renderer published every site
+    in the snapshot, so an operator who took the last hostname off a site — one
+    `record remove`, no site deleted — left desired state carrying a site the
+    role must reject, and *every* subsequent converge failed on it, for that
+    edge and every other one in the deployment. The site is desired state; it is
+    simply not yet something to serve.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(settings=settings, repository=repository)
+    repository.zones.create_domain(Domain(name="example.com"))
+    _seed_site(repository, name="cdn-example-com", label="cdn", origin="198.51.100.20")
+    repository.sites.create_site(
+        CdnSite.model_validate({"name": "awaiting-dns", "origin_host": "192.0.2.10"})
+    )
+    control.deployments.write_desired_state(
+        repository.snapshot(), settings.generated_vars_path
+    )
+    published = yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
+
+    names = [site["name"] for site in published["blitzecdn_nginx_sites"]]
+    assert names == ["cdn-example-com"], (
+        "a site with no hostnames was published to the edge; the role will "
+        "refuse it and the deploy will fail until someone deletes the site"
+    )
+    result = _run_validation(published["blitzecdn_nginx_sites"], tmp_path)
+    assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
