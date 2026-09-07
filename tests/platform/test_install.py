@@ -1436,6 +1436,92 @@ def test_both_capability_renderings_come_from_one_list():
             assert from_extras == override.split()
 
 
+def test_the_installer_never_demands_a_value_no_capability_will_read():
+    """`--email` is required, and it is blitzecdn-certificates' configuration.
+
+    The address is written into the managed blitzecdn.toml only under
+    `certificates`, and the role asserts one is present only under
+    `certificates`. With that capability out of the default list the installer
+    still refused to run without `--email`, validated the address, passed it to
+    Ansible — and the template dropped it, leaving an operator who supplied an
+    ACME account on a controller that could not issue a certificate for any
+    site it served. Requiring a value and installing nothing that reads it is
+    the contradiction; this is the direction that bites, because the installer
+    is where the operator is told the value matters.
+    """
+    assert 'die 2 "error: --email is required"' in _script()
+    assert "certificates" in _query("capabilities").split()
+
+
+def test_the_control_plane_image_carries_the_capabilities_it_is_installed_with():
+    """The image's extras and install.sh's list are one decision, spelled twice.
+
+    They are read by different things — the extras build the virtualenv the
+    control plane actually runs in, the list decides which capability
+    configuration the managed blitzecdn.toml carries — and each direction of
+    drift fails silently in its own way. Configuration for a capability the
+    image lacks is a control plane that refuses to start at all; a capability
+    in the image the list omits is one nothing ever configures, which is how
+    the image came to install certbot for a distribution it did not have.
+
+    Read from the instruction rather than the file: a comment naming a
+    capability is not an `--extra` for it.
+    """
+    dockerfile = (
+        REPO_ROOT / "src/blitzecdn/docker/control-plane/Dockerfile"
+    ).read_text(encoding="utf-8")
+    code = "\n".join(
+        line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")
+    )
+    sync = re.search(r"RUN uv sync .*?(?=\n[A-Z])", code, re.DOTALL)
+    assert sync, "the image no longer builds its virtualenv with `uv sync`"
+    extras = re.findall(r"--extra\s+(\S+)", sync.group())
+
+    assert sorted(extras) == sorted(_query("capabilities").split())
+
+
+def test_the_development_recipe_installs_what_a_server_actually_gets():
+    """`just install-prod` says it installs what a server gets; it must.
+
+    It is the only local configuration that stands in for a real controller, so
+    a capability missing from it is one nothing is ever tested against — the
+    recipe would quietly narrow what "production" means for everyone reading
+    its output.
+    """
+    justfile = (REPO_ROOT / "justfile").read_text(encoding="utf-8")
+    recipe = re.search(r"\ninstall-prod:\n(.*?)(?=\n\S)", justfile, re.DOTALL)
+    assert recipe, "install-prod is no longer a recipe"
+
+    extras = re.findall(r"--extra\s+(\S+)", recipe.group(1))
+    assert sorted(extras) == sorted(_query("capabilities").split())
+
+
+def test_the_control_plane_role_defaults_to_the_list_the_installer_passes():
+    """The role's fallback, for anyone converging it without install.sh.
+
+    install.sh always passes the list, so this default is only reached by a
+    playbook that does not — and a default that had drifted would hand such a
+    run a blitzecdn.toml describing a controller it is not.
+    """
+    defaults = yaml.safe_load(
+        (CORE_ANSIBLE / "roles/blitzecdn_controlplane/defaults/main.yml").read_text(
+            encoding="utf-8"
+        )
+    )
+    spec = yaml.safe_load(
+        (
+            CORE_ANSIBLE / "roles/blitzecdn_controlplane/meta/argument_specs.yml"
+        ).read_text(encoding="utf-8")
+    )
+    declared = spec["argument_specs"]["main"]["options"]
+    expected = sorted(_query("capabilities").split())
+
+    assert sorted(defaults["blitzecdn_controlplane_capabilities"]) == expected
+    assert (
+        sorted(declared["blitzecdn_controlplane_capabilities"]["default"]) == expected
+    )
+
+
 def test_the_command_table_and_the_help_agree_on_every_option():
     """The table is what accepts an option; the help is what advertises it.
 

@@ -19,8 +19,10 @@ readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
 # otherwise. Spelled once: it drives both the `uv sync --extra` flags and the
 # capability list the control-plane role is given, and those two disagreeing
 # would write one capability's configuration onto a controller that does not
-# have it — which the control plane refuses to start on, by design.
-readonly DEFAULT_CAPABILITIES="backup cache hardening origins resolver"
+# have it — which the control plane refuses to start on, by design. The
+# control-plane image builds its virtualenv from a copy of this list, and a
+# contract test fails if that copy drifts from this one.
+readonly DEFAULT_CAPABILITIES="backup cache certificates hardening origins resolver"
 
 # The capabilities this controller installs, and the two shapes they are needed
 # in. One reader, two projections: the list was expanded by hand in both places
@@ -575,11 +577,15 @@ if sys.version_info[:2] < (3, 12):
   # dropping one from this list produces a working controller without that
   # capability and nothing else changes. `backup` is in the default because
   # `update` takes a database backup before it changes anything; a controller
-  # installed without it cannot be updated in place. `hardening` is in it
-  # because an edge's SSH policy and Fail2Ban jail ship in that distribution:
-  # leaving it out is how a fleet whose host access belongs to a golden image
-  # or a bastion declines BlitzeCDN's, and leaving it out by accident means no
-  # edge is hardened at all. `origins` is in it because `blitzecdn origin
+  # installed without it cannot be updated in place. `certificates` is in it
+  # because the installer requires `--email` and that address is nothing but
+  # this distribution's ACME account: a controller without it is one that
+  # demands an address it will then never read, and cannot issue a certificate
+  # for any site it serves. `hardening` is in it because an edge's SSH policy
+  # and Fail2Ban jail ship in that distribution: leaving it out is how a fleet
+  # whose host access belongs to a golden image or a bastion declines
+  # BlitzeCDN's, and leaving it out by accident means no edge is hardened at
+  # all. `origins` is in it because `blitzecdn origin
   # check` used to be a core command and an operator upgrading should not
   # discover it missing; it is also what the Automatic SSL/TLS scan probes
   # with, so `certificates` pulls it in regardless. `resolver` is in it for the

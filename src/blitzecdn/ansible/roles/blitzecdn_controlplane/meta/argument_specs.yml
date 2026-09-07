@@ -18,7 +18,7 @@ argument_specs:
         type: list
         elements: str
         required: false
-        default: [backup, cache, hardening, origins, resolver]
+        default: [backup, cache, certificates, hardening, origins, resolver]
         description: >-
           The optional distributions this controller is installed with. The
           managed blitzecdn.toml writes a capability's configuration only when

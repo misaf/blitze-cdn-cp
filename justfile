@@ -59,13 +59,15 @@ collections:
 # Install exactly what a server gets: the control plane, the optional
 # capabilities a BlitzeCDN installation ships with, and no development group.
 #
-# The extras are the attach point. `install.sh` and the container image pass
-# the same two, so dropping one here is the supported way to build a controller
-# without that capability — and `uv sync --frozen --no-dev` with no extras at
-# all is a working control plane with neither.
+# The extras are the attach point. `install.sh` and the container image name
+# the same set — a contract test fails if this recipe stops matching them,
+# because a recipe that claims to install what a server gets and then installs
+# something else is worse than no recipe. Dropping one is the supported way to
+# build a controller without that capability, and `uv sync --frozen --no-dev`
+# with no extras at all is a working control plane with none of them.
 install-prod:
-    uv sync --frozen --no-dev --extra backup --extra cache --extra hardening \
-        --extra origins --extra resolver
+    uv sync --frozen --no-dev --extra backup --extra cache --extra certificates \
+        --extra hardening --extra origins --extra resolver
 
 # The control plane on its own: no optional distribution installed at all.
 #

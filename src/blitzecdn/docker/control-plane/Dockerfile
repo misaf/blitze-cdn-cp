@@ -15,15 +15,24 @@ RUN apt-get update \
 
 WORKDIR /opt/blitzecdn
 COPY . /opt/blitzecdn
-# `--extra backup --extra cache --extra hardening --extra origins --extra
-# resolver` attaches the optional capability distributions from packages/.
-# They are discovered through their
-# `blitzecdn.plugins` entry points, never imported by the control plane, so an
-# image built without one of these flags is a working controller that simply
-# does not offer that capability.
+# The `--extra` flags attach the optional capability distributions from
+# packages/. They are discovered through their `blitzecdn.plugins` entry
+# points, never imported by the control plane, so an image built without one of
+# these flags is a working controller that simply does not offer that
+# capability.
+#
+# They must name install.sh's DEFAULT_CAPABILITIES, and a contract test fails
+# if they stop doing so. The two lists are read by different things — these
+# build the virtualenv the control plane runs in, that one decides which
+# capability configuration the managed blitzecdn.toml carries — and either
+# direction of drift is silent. Configuration for a capability this image
+# lacks is a control plane that refuses to start; a capability in this image
+# that the installer omits is one nothing ever configures, which is how this
+# image came to install certbot for a `certificates` distribution it did not
+# have.
 RUN uv sync --frozen --no-dev --no-editable --python /usr/local/bin/python \
-        --extra backup --extra cache --extra hardening --extra origins \
-        --extra resolver \
+        --extra backup --extra cache --extra certificates --extra hardening \
+        --extra origins --extra resolver \
     && .venv/bin/ansible-galaxy collection install \
         --requirements-file src/blitzecdn/ansible/requirements.yml \
         --collections-path /usr/share/ansible/collections
