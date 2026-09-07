@@ -272,6 +272,61 @@ printf '%s' "${brotli}"
 grep -qi 'content-encoding: br' <<<"${brotli}"
 
 # --------------------------------------------------------------------------
+# HTTP-01
+# --------------------------------------------------------------------------
+# The one flow where the controller writes a file on the host and the runtime
+# has to read it back out of a bind mount. Nginx serves the webroot as the
+# image's uid, which matches neither a host owner nor a host group, so a mode
+# that admits only a host account answers 403 for a file that is plainly
+# there — and ACME reports that as a failed challenge, never as a permission.
+# Every gate was green while that was true of the whole fleet, because nothing
+# issued a certificate.
+#
+# Driven through the shipped playbook, not by writing the file here. The writer
+# and the server agreeing is the entire property; a harness that published the
+# token itself would pass while the real writer put it somewhere unreadable.
+say "Serving an HTTP-01 challenge the way ACME asks for one"
+readonly ACME_TOKEN=blitzecdn-integration-token
+readonly ACME_VALIDATION=blitzecdn-integration-token.EhSCDKFbQfBRXBcJ2Vd0
+readonly ACME_PLAYBOOK=packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml
+readonly ACME_URL="http://site-one.test/.well-known/acme-challenge/${ACME_TOKEN}"
+# Port 80 and no -f: the code is the assertion, and a redirect to HTTPS is a
+# failure worth seeing rather than following. A CA does not follow one either.
+acme_client=(docker run --rm --network "${network}" "${CLIENT_IMAGE}" curl -sS --resolve "site-one.test:80:${edge_ip}")
+
+publish_challenge() {
+  in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook \
+    -i tests/integration/edges-local.ini ${ACME_PLAYBOOK} \
+    -e blitzecdn_acme_action=$1 \
+    -e blitzecdn_acme_domain=site-one.test \
+    -e blitzecdn_acme_token=${ACME_TOKEN} \
+    -e blitzecdn_acme_validation=${ACME_VALIDATION}"
+}
+
+publish_challenge present || fail "the ACME challenge playbook could not publish a token"
+
+served=$("${acme_client[@]}" -o /dev/null -w '%{http_code}' "${ACME_URL}")
+if [[ ${served} != 200 ]]; then
+  # Ownership numerically, because the names are the confusion: the host's
+  # passwd file and the image's disagree, and only the uid crosses the mount.
+  in_edge 'ls -lna /var/lib/blitzecdn/acme/.well-known/acme-challenge' || true
+  in_edge 'docker exec blitzecdn-edge id' || true
+  in_edge 'docker logs --tail 20 blitzecdn-edge' || true
+  fail "the edge answered ${served} for a challenge that is on its own disk"
+fi
+
+body=$("${acme_client[@]}" "${ACME_URL}")
+[[ ${body} == "${ACME_VALIDATION}" ]] ||
+  fail "the edge served '${body}' rather than the validation value"
+
+# Withdrawal is the other half: a token that outlives its order is a file the
+# next validation could answer with the wrong value.
+publish_challenge absent || fail "the ACME challenge playbook could not withdraw a token"
+withdrawn=$("${acme_client[@]}" -o /dev/null -w '%{http_code}' "${ACME_URL}")
+[[ ${withdrawn} == 404 ]] ||
+  fail "the withdrawn challenge is still served (${withdrawn})"
+
+# --------------------------------------------------------------------------
 # Configuration deployment is a reload, never a replacement
 # --------------------------------------------------------------------------
 say "A configuration change reloads rather than recreates the container"

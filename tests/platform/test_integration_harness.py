@@ -477,3 +477,58 @@ def test_the_harnesses_name_paths_the_cli_can_reach_from_its_container(harness):
                 f"{harness.name} passes {token} to the CLI, which runs inside "
                 f"the control plane's container and can only see {sorted(visible)}"
             )
+
+
+def test_the_harness_serves_an_http01_challenge_through_the_shipped_playbook():
+    """The only flow where the host writes and the container reads.
+
+    Nginx serves the ACME webroot from a read-only bind mount as the image's
+    uid, which matches neither a host owner nor a host group. A mode that
+    admits only a host account answers 403 for a file that is plainly on disk,
+    and ACME reports that as a failed challenge rather than as a permission —
+    which is how it stayed true of every edge while every gate was green. No
+    harness issued a certificate, so nothing ever fetched a token.
+
+    Through the shipped playbook, not by writing the token here: the writer and
+    the server agreeing is the whole property, and a harness that published the
+    file itself would pass while the real writer put it somewhere unreadable.
+    """
+    commands = _commands(HTTP3_HARNESS)
+
+    playbook = (
+        "packages/blitzecdn-certificates/src/blitzecdn_certificates"
+        "/ansible/playbooks/acme-challenge.yml"
+    )
+    assert (REPO_ROOT / playbook).is_file(), "the challenge playbook moved"
+    assert playbook in commands, (
+        "the harness no longer runs the shipped challenge playbook, so it "
+        "proves nothing about the writer the control plane actually uses"
+    )
+
+    # Published and withdrawn. A token that outlives its order is a file the
+    # next validation could be answered with.
+    #
+    # The action reaches the playbook through a helper, so the helper's name is
+    # found rather than assumed: asserting on a literal `...action=present`
+    # would fail the day someone factors the two calls together, which is not
+    # a regression in anything.
+    helper = re.search(
+        r"^(\w+)\(\) \{(?:(?!\n\}).)*blitzecdn_acme_action=",
+        commands,
+        re.MULTILINE | re.DOTALL,
+    )
+    assert helper, "no helper in the harness drives the challenge playbook"
+    for action in ("present", "absent"):
+        assert f"{helper.group(1)} {action}" in commands, (
+            f"the harness never runs the challenge playbook with {action}"
+        )
+
+    # Over port 80, which is where a CA looks, and asserting on the body rather
+    # than only the status: a 200 carrying the wrong bytes fails validation
+    # just as surely, and is what a stale token looks like.
+    assert "site-one.test:80:${edge_ip}" in commands, (
+        "the challenge is not fetched over the port ACME uses"
+    )
+    assert "ACME_VALIDATION" in commands.split("body=")[1][:200], (
+        "the harness does not compare the served body with the validation value"
+    )
