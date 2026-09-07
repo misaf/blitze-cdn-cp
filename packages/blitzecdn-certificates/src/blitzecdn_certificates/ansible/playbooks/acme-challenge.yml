@@ -26,13 +26,17 @@
             blitzecdn_acme_validation is match('^[A-Za-z0-9_.-]{1,2048}$')
       no_log: true
   tasks:
+    # Exactly what blitzecdn_nginx creates, down to the mode. The worker reads
+    # this from inside the container as the image's uid, so it owns it; and if
+    # these two writers disagreed by a bit, each converge would set it back and
+    # no edge would ever report itself settled.
     - name: Create ACME challenge directory
       ansible.builtin.file:
         path: "{{ blitzecdn_edge_runtime.paths.acme }}/.well-known/acme-challenge"
         state: directory
-        owner: root
-        group: www-data
-        mode: "0750"
+        owner: "{{ blitzecdn_edge_runtime.worker_uid }}"
+        group: root
+        mode: "0500"
       when: blitzecdn_acme_action == 'present'
 
     - name: Publish ACME challenge
@@ -41,9 +45,9 @@
         dest: >-
           {{ blitzecdn_edge_runtime.paths.acme }}/.well-known/acme-challenge/{{
             blitzecdn_acme_token }}
-        owner: root
-        group: www-data
-        mode: "0640"
+        owner: "{{ blitzecdn_edge_runtime.worker_uid }}"
+        group: root
+        mode: "0400"
       when: blitzecdn_acme_action == 'present'
       no_log: true
 

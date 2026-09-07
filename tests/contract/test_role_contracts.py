@@ -1548,6 +1548,81 @@ def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
             )
 
 
+def _acme_challenge_declarations(path: Path) -> list[dict]:
+    """Every mapping that gives the challenge directory or a token a mode.
+
+    Walked rather than grepped for the same reason the cache one is: the two
+    writers spell it as a `loop` entry and as module arguments, and the token
+    is a `copy` whose `dest` is the path rather than a `path`.
+    """
+    found: list[dict] = []
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key in ("path", "dest"):
+                declared = node.get(key)
+                # `state: absent` is the task that withdraws a token once the
+                # authority has read it. It names the path and grants no
+                # access, which is the whole of what it should do.
+                if (
+                    isinstance(declared, str)
+                    and "acme-challenge" in declared
+                    and node.get("state") != "absent"
+                ):
+                    found.append(node)
+                    break
+            for value in node.values():
+                walk(value)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value)
+
+    walk(yaml.safe_load(path.read_text(encoding="utf-8")))
+    return found
+
+
+def test_the_edge_can_read_the_acme_challenge_it_is_asked_to_serve():
+    """The webroot is written on the host and read from inside the container.
+
+    Nginx serves `/.well-known/acme-challenge/` from a read-only bind mount of
+    this tree, and its workers are the image's uid — 101 — not a host account.
+    Owning the directory `root:www-data` at 0750 gave the worker neither the
+    owner bits nor the group, so it fell to `other`, which 0750 leaves empty:
+    every HTTP-01 validation on the fleet answered 403 for a file that was
+    sitting right there, and ACME reports that as a failed challenge without
+    ever saying why.
+
+    Both writers are checked together because they create the same directory
+    in one lifecycle — `blitzecdn_nginx` on every converge, the challenge
+    playbook each time a certificate is issued — and disagreeing about its
+    mode would make them take turns, which is the cache bug again.
+    """
+    writers = {
+        "blitzecdn_nginx": ROLE_DIR / "tasks/main.yml",
+        "acme-challenge": (
+            PROJECT_DIR
+            / "packages/blitzecdn-certificates/src/blitzecdn_certificates"
+            / "ansible/playbooks/acme-challenge.yml"
+        ),
+    }
+    for role, path in writers.items():
+        declarations = _acme_challenge_declarations(path)
+        assert declarations, f"{role} no longer writes the challenge directory"
+        for declaration in declarations:
+            owner = str(declaration.get("owner", ""))
+            mode = str(declaration.get("mode", ""))
+            # `other` is what a container's uid falls to, so either the worker
+            # owns it or the last digit has to carry the access.
+            reachable = "worker_uid" in owner or (mode[-1:] or "0") in "1234567"
+            assert reachable, (
+                f"{role} writes {declaration.get('path') or declaration.get('dest')} "
+                f"as owner={owner!r} mode={mode!r}, which the edge's Nginx "
+                "worker cannot read: it is the image's uid, so it matches "
+                "neither a host owner nor a host group, and 0750 leaves "
+                "nothing for `other`"
+            )
+
+
 def _declared_boolean_variables() -> set[str]:
     """Role variables an argument spec declares as a bool, top level only.
 
