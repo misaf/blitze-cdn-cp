@@ -1,0 +1,20 @@
+#!/bin/sh
+# The certbot `tests/container-install.sh` points BLITZE_CERTBOT at, so that
+# issuance reaches the Pebble ACME server that harness runs rather than Let's
+# Encrypt.
+#
+# A wrapper, and not a new setting, because "which ACME directory" is not
+# configuration this product has: `BLITZE_CERTBOT` names an executable and
+# certbot's own `--server` names the CA, so a test can compose the two without
+# the product growing a directory-URL knob that exists only to be set by a
+# test. Nothing here is reachable from a real installation — an operator would
+# have to name this file, out of a checkout, on purpose.
+#
+# `--no-verify-ssl` is about Pebble's *own* API certificate, which the harness
+# generates seconds before starting it and discards with the container; there
+# is nothing stable for certbot to pin it to. It says nothing about the
+# certificate under test. That chain is verified for real, against the root
+# Pebble issued it from, by the curl at the end of the stage that runs this.
+set -eu
+
+exec certbot "$@" --server https://127.0.0.1:14000/dir --no-verify-ssl
