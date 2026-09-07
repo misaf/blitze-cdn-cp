@@ -569,6 +569,17 @@ def test_the_install_harness_issues_against_a_ca_that_really_validates():
         "the harness tells Pebble to accept challenges without validating them"
     )
 
+    # The configuration change has to actually reach the running process. On
+    # this stage's first run `up --detach` found both services up-to-date and
+    # left them alone, so issuance ran against the previous configuration —
+    # which meant the real Let's Encrypt — and the only symptom was a rejected
+    # email address.
+    assert "--force-recreate" in commands, (
+        "the control plane is not replaced after being reconfigured, so "
+        "issuance can run against the CA it was already pointed at"
+    )
+    assert "StartedAt" in commands, "nothing checks that the restart replaced anything"
+
     # Through the product's own issuance path, not by driving certbot directly.
     assert "/certificate/request" in commands, (
         "the harness does not ask the control plane to issue the certificate"
