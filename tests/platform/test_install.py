@@ -1560,6 +1560,42 @@ def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
         )
 
 
+def test_every_installer_playbook_can_resolve_the_collections_it_needs():
+    """The teardown plays need third-party collections as much as the setup ones.
+
+    `ansible.cfg` deliberately does not name a collections path — a relative
+    one there resolves inside the wheel the roles ship in — so an exported
+    ANSIBLE_COLLECTIONS_PATH is the whole of it. It used to be exported only by
+    `bootstrap_runtime`, which builds the virtualenv and fetches the
+    collections, and which `--uninstall` has no reason to call.
+
+    So the teardown ran with no collections and stopped at the first
+    `community.docker` task. That task is the one that removes the edge's
+    containers, which left the host running an edge with an installer that had
+    just told the operator it could not continue.
+
+    Absolute, too: relative to the working directory it is only correct when
+    the caller happens to be standing in the installation.
+    """
+    body = _function("run_playbook")
+    assert 'ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections"' in body, (
+        "the shared playbook helper does not point Ansible at the collections, "
+        "so any play the bootstrap did not precede resolves none of them"
+    )
+
+    # The requirement is real rather than defensive: teardown reaches for a
+    # collection ansible-core does not carry, and reads it from the roles
+    # rather than restating the name.
+    teardown = ""
+    for role in ("blitzecdn_uninstall", "blitzecdn_edge_teardown"):
+        for tasks in (CORE_ANSIBLE / f"roles/{role}").rglob("*.yml"):
+            teardown += tasks.read_text(encoding="utf-8")
+    assert "community.docker." in teardown, (
+        "the uninstall roles no longer use a third-party collection; if that is "
+        "deliberate, this guard has outlived the failure it describes"
+    )
+
+
 def test_uninstall_succeeds_after_ansible_teardown(tmp_path: Path):
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)
