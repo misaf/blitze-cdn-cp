@@ -16,16 +16,27 @@ set -Eeuo pipefail
 readonly IMAGE=${1:?usage: container-install.sh IMAGE}
 readonly ADMIN_CIDR=203.0.113.8/32
 readonly ACME_EMAIL=ops@example.com
+# A CA that speaks ACME, for the issuance stage. Pinned rather than :latest —
+# a harness that silently follows someone else's release is one that fails on a
+# commit that did not touch it.
+readonly PEBBLE_IMAGE=ghcr.io/letsencrypt/pebble:2.10.1
+readonly CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
+# The site the record below routes to, and the hostname that record publishes —
+# the label and the zone, joined. Spelled once because the issuance stage has to
+# ask a CA for exactly the name the deploy told the edge to serve.
+readonly ACME_SITE=cdn-example-test
+readonly ACME_DOMAIN=cdn.example.test
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
 container="blitzecdn-$(printf '%s' "${IMAGE}" | tr -c 'a-z0-9' '-')-$$"
 archive=$(mktemp -t blitzecdn-source-XXXXXX).tgz
+pebble_config=$(mktemp -t blitzecdn-pebble-XXXXXX).json
 
 cleanup() {
   # `-v`: the host's anonymous volumes go with it. They hold a whole container
   # engine's images, and a runner that keeps them keeps gigabytes.
   docker rm -f -v "${container}" >/dev/null 2>&1 || true
-  rm -f -- "${archive}"
+  rm -f -- "${archive}" "${pebble_config}"
 }
 trap cleanup EXIT
 
@@ -219,10 +230,10 @@ in_container 'cd / && blitzecdn domain add example.test' || fail "could not add 
 # proxied exactly when it names a site — there is no `--proxied` switch to set,
 # because turning the proxy off means saying what DNS should answer with
 # instead. The site name is what the edge writes its virtual host as, which is
-# why the assertions below look for `cdn-example-test`.
-in_container 'cd / && blitzecdn site create cdn-example-test --origin 127.0.0.1' ||
+# why the assertions below look for `${ACME_SITE}`.
+in_container "cd / && blitzecdn site create ${ACME_SITE} --origin 127.0.0.1" ||
   fail "could not create the site the record routes to"
-in_container 'cd / && blitzecdn record add example.test cdn --site cdn-example-test' ||
+in_container "cd / && blitzecdn record add example.test cdn --site ${ACME_SITE}" ||
   fail "could not route the hostname to the site"
 
 # Check mode first: it must survive a host that has never converged, which is
@@ -234,11 +245,11 @@ in_container 'cd / && blitzecdn plan --json >/dev/null' || {
 }
 
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' || fail "deploy failed"
-in_container 'test -f /etc/nginx/sites-enabled/cdn-example-test.conf' ||
+in_container "test -f /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
   fail "the deploy did not enable the managed site"
 in_container 'docker exec blitzecdn-edge nginx -t' ||
   fail "the converged nginx configuration does not load"
-in_container 'grep -q "^cdn-example-test$" /etc/nginx/blitzecdn-managed-sites' ||
+in_container "grep -q '^${ACME_SITE}\$' /etc/nginx/blitzecdn-managed-sites" ||
   fail "the managed-site registry was not written"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx healthy' ||
   fail "the edge container is not healthy"
@@ -261,12 +272,151 @@ in_container 'cd / && blitzecdn drift --json' || {
   fail "the fleet reports drift immediately after converging"
 }
 
+say "Issuing a certificate from a real ACME server"
+# The control plane's half of ACME, which nothing else runs. The edge's half —
+# serving a challenge something else wrote — belongs to the HTTP/3 harness;
+# this is certbot, the manual hooks, the playbook those hooks drive, and the
+# chain the store validates and installs, end to end against a CA that speaks
+# the protocol.
+#
+# Pebble rather than Let's Encrypt: issuance has to run against something that
+# implements ACME rather than a stub, and it must need no public domain, no
+# public IP and nobody's rate limit. Pebble mints a throwaway CA per run and
+# validates over HTTP-01 like the real thing.
+#
+# Preflight is the one part deliberately not exercised: it asks public DNS
+# whether the name points at this edge, and example.test is not public. The
+# request below skips it, and preflight has its own tests against its own
+# resolver.
+
+# Asserted rather than assumed. Everything below would otherwise fail as an
+# opaque ACME timeout if the record and the site stopped agreeing on the
+# hostname this expects.
+in_container "grep -q 'server_name ${ACME_DOMAIN};' /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
+  fail "the deployed site does not serve ${ACME_DOMAIN}"
+
+# Pulled out here and streamed in, the way the edge image is: the disposable
+# host has an engine but no reason to hold registry credentials, and the runner
+# has already paid for the pull.
+docker pull --quiet "${PEBBLE_IMAGE}" >/dev/null || fail "could not pull ${PEBBLE_IMAGE}"
+docker pull --quiet "${CHALLTESTSRV_IMAGE}" >/dev/null ||
+  fail "could not pull ${CHALLTESTSRV_IMAGE}"
+docker save "${PEBBLE_IMAGE}" "${CHALLTESTSRV_IMAGE}" | into_container 'docker load' >/dev/null ||
+  fail "could not load the ACME server images into the disposable host"
+
+# Pebble's own API certificate. Its image ships a binary and nothing else — no
+# config and no test certificates — so both are supplied here, which also means
+# this stage depends on no path inside somebody else's image.
+in_container 'mkdir -p /root/pebble && openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
+  -days 1 -keyout /root/pebble/key.pem -out /root/pebble/cert.pem -subj /CN=localhost \
+  -addext subjectAltName=IP:127.0.0.1,DNS:localhost 2>/dev/null' ||
+  fail "could not generate the ACME server certificate"
+# `httpPort` 80 is the point of the stage: Pebble validates against the edge's
+# real listener rather than a side channel a test controls.
+cat > "${pebble_config}" <<'JSON'
+{
+  "pebble": {
+    "listenAddress": "127.0.0.1:14000",
+    "managementListenAddress": "127.0.0.1:15000",
+    "certificate": "/pebble/cert.pem",
+    "privateKey": "/pebble/key.pem",
+    "httpPort": 80,
+    "tlsPort": 443,
+    "ocspResponderURL": "",
+    "externalAccountBindingRequired": false
+  }
+}
+JSON
+docker cp "${pebble_config}" "${container}:/root/pebble/config.json" >/dev/null ||
+  fail "could not install the ACME server configuration"
+
+# Every name resolves here, so Pebble looks for the challenge where the edge is
+# actually serving. Its own challenge responders are switched off: answering
+# HTTP-01 is the edge's job and the thing under test.
+in_container "docker run -d --name pebble-dns --network host ${CHALLTESTSRV_IMAGE} \
+  -http01 '' -https01 '' -tlsalpn01 ''" >/dev/null ||
+  fail "could not start the challenge DNS server"
+# NOSLEEP and NONCEREJECT: Pebble's defaults inject a random validation delay
+# and reject one nonce in twenty on purpose, to shake out client bugs. Neither
+# is what this stage is asking about, and both make it slower and flakier.
+in_container "docker run -d --name pebble --network host -v /root/pebble:/pebble:ro \
+  -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=0 ${PEBBLE_IMAGE} \
+  -config /pebble/config.json -dnsserver 127.0.0.1:8053" >/dev/null ||
+  fail "could not start the ACME server"
+
+for _ in $(seq 30); do
+  in_container 'curl -sSk --max-time 2 https://127.0.0.1:14000/dir >/dev/null 2>&1' && break
+  sleep 1
+done
+in_container 'curl -sSk --max-time 5 https://127.0.0.1:14000/dir >/dev/null' || {
+  in_container 'docker logs pebble' || true
+  fail "the ACME server never answered"
+}
+
+# `certbot` is this capability's own setting and it names an executable, so
+# pointing it at a wrapper is all it takes to reach a different CA. The file is
+# in the image because the control-plane image is built from the checkout.
+in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebble\"\n" \
+  >> /opt/blitzecdn/blitzecdn.toml' ||
+  fail "could not point the control plane at the test certbot"
+# Configuration is read once at start, and the file is a read-only bind mount,
+# so the running processes have to be replaced to see it.
+in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+  up --detach --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null || {
+  in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-api' || true
+  fail "the control plane did not come back with the test certbot configured"
+}
+
+# Issuance is an API operation; there is no CLI command for it. The key is read
+# inside the container and never crosses into this shell, where it would end up
+# in a log the moment anything printed a command.
+# shellcheck disable=SC2016
+issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitzecdn/blitzecdn.env)
+  [ -n "${key}" ] || { printf "no operator API key in blitzecdn.env\n" >&2; exit 1; }
+  curl -sS --max-time 600 -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
+    -d "{\"skip_preflight\": true}" \
+    http://127.0.0.1:8000/v1/sites/'"${ACME_SITE}"'/certificate/request') || {
+  dump_ansible_log
+  in_container 'docker logs --tail 40 pebble' || true
+  fail "the certificate request did not complete"
+}
+printf '%s' "${issued}" | grep -Eq '"source": ?"acme"' || {
+  printf 'response: %s\n' "${issued}"
+  dump_ansible_log
+  fail "the control plane did not record an ACME certificate"
+}
+printf '%s' "${issued}" | grep -q "${ACME_DOMAIN}" ||
+  fail "the issued certificate does not cover ${ACME_DOMAIN}"
+
+# The certificate exists in the control plane; a deploy is what puts it on the
+# edge. Until this runs the site is still being served over HTTP only.
+in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' ||
+  fail "the deploy that installs the certificate failed"
+
+in_container 'curl -sSk --max-time 5 https://127.0.0.1:15000/roots/0 -o /root/pebble/root.pem' ||
+  fail "could not fetch the ACME root"
+# The whole chain, checked the way a client checks it: the certificate the edge
+# presents for this name has to verify to the root Pebble issued it from, and
+# has to be valid *for that name*.
+#
+# The handshake and not a request, deliberately. This site's origin is the same
+# host, so an HTTPS request would proxy to the edge's own HTTP listener and be
+# redirected back to itself; what that would measure is a loop, not a chain.
+in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
+  -CAfile /root/pebble/root.pem -verify_return_error -verify_hostname ${ACME_DOMAIN} \
+  </dev/null >/dev/null 2>&1" || {
+  in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
+    </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates" || true
+  in_container 'docker logs --tail 40 pebble' || true
+  fail "the edge is not serving a certificate that validates against the ACME root"
+}
+
 # Removing the record must withdraw the vhost, which is the registry's job.
 in_container 'cd / && blitzecdn record remove example.test cdn --yes' ||
   fail "could not remove the record"
 in_container 'cd / && BLITZE_ALLOW_EMPTY_SITES=true blitzecdn deploy --yes --json >/dev/null' ||
   fail "withdrawing the last site failed"
-in_container 'test ! -e /etc/nginx/sites-enabled/cdn-example-test.conf' ||
+in_container "test ! -e /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
   fail "the stale site was left enabled"
 in_container 'docker exec blitzecdn-edge nginx -t' ||
   fail "nginx does not load after the site was withdrawn"

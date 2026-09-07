@@ -18,6 +18,7 @@ only. Prose is where the harness explains itself, and a comment that mentions
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 
@@ -531,4 +532,75 @@ def test_the_harness_serves_an_http01_challenge_through_the_shipped_playbook():
     )
     assert "ACME_VALIDATION" in commands.split("body=")[1][:200], (
         "the harness does not compare the served body with the validation value"
+    )
+
+
+def test_the_install_harness_issues_against_a_ca_that_really_validates():
+    """The control plane's half of ACME, and the ways it could pass hollow.
+
+    Issuance is the one flow that leaves the control plane and comes back:
+    certbot, the manual hooks, the playbook those hooks drive, the chain the
+    store validates. Every part of it was unexercised, so the assertions here
+    are less about the happy path than about the shortcuts that would make the
+    stage green while proving nothing.
+
+    The load-bearing one is `httpPort`. Pebble validates HTTP-01 against port
+    5002 by default, where its own challenge server answers; pointed there it
+    would issue a certificate without the edge being asked for anything, and
+    every assertion downstream would still hold.
+    """
+    commands = _commands(INSTALL_HARNESS)
+    text = INSTALL_HARNESS.read_text(encoding="utf-8")
+
+    # A real CA, pinned. `:latest` is a harness that fails on a commit that did
+    # not touch it, on somebody else's release schedule.
+    assert re.search(r"ghcr\.io/letsencrypt/pebble:\d+\.\d+\.\d+", commands), (
+        "the ACME server is not a pinned Pebble image"
+    )
+    assert "letsencrypt/pebble:latest" not in commands
+
+    # Validation reaches the edge's own listener.
+    assert '"httpPort": 80' in commands, (
+        "Pebble is not pointed at the edge's HTTP listener, so issuance would "
+        "succeed without the edge serving the challenge"
+    )
+    # The escape hatch that would make every challenge pass unasked.
+    assert "PEBBLE_VA_ALWAYS_VALID" not in text, (
+        "the harness tells Pebble to accept challenges without validating them"
+    )
+
+    # Through the product's own issuance path, not by driving certbot directly.
+    assert "/certificate/request" in commands, (
+        "the harness does not ask the control plane to issue the certificate"
+    )
+
+    # certbot reaches Pebble through the committed wrapper, which has to be
+    # both present and executable: the control-plane image copies it in, and a
+    # file the image cannot execute fails as `certbot is not available`.
+    wrapper = REPO_ROOT / "tests/integration/certbot-pebble"
+    assert wrapper.is_file(), "the test certbot wrapper is missing"
+    assert os.access(wrapper, os.X_OK), "the test certbot wrapper is not executable"
+    # Its executable lines, not its text: the comment above the `exec` explains
+    # why `--server` is where the CA is named, and a comment is not a flag.
+    executed = "\n".join(
+        line
+        for line in wrapper.read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    )
+    assert "--server" in executed, (
+        "the wrapper does not redirect certbot to the test CA, so issuance "
+        "would be attempted against the real one"
+    )
+    assert str(wrapper.relative_to(REPO_ROOT)) in commands, (
+        "the harness does not point the control plane at the wrapper"
+    )
+
+    # The issued chain is verified against the root it came from, and for the
+    # name it was issued for. Without both, the last assertion degrades to
+    # "something answered on 443".
+    assert "-CAfile" in commands and "-verify_return_error" in commands, (
+        "the harness does not verify the served chain against the ACME root"
+    )
+    assert "-verify_hostname" in commands, (
+        "the harness does not check the served certificate covers the name"
     )
