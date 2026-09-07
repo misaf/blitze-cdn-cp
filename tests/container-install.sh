@@ -406,6 +406,15 @@ printf '%s' "${issued}" | grep -Eq '"source": ?"acme"' || {
 printf '%s' "${issued}" | grep -q "${ACME_DOMAIN}" ||
   fail "the issued certificate does not cover ${ACME_DOMAIN}"
 
+# Having a certificate is not the same as serving on 443. `ssl_mode` is the
+# switch, it defaults to off, and the site invariant refuses to turn it on
+# without an active certificate — so this is the operator's real order, and
+# doing it the other way round is refused rather than half-applied. Flexible
+# because this site's origin speaks plain HTTP; the modes above it would have
+# the edge open TLS to an origin that has none.
+in_container "cd / && blitzecdn site ssl ${ACME_SITE} --mode flexible --json >/dev/null" ||
+  fail "could not turn on TLS for the site that now has a certificate"
+
 # The certificate exists in the control plane; a deploy is what puts it on the
 # edge. Until this runs the site is still being served over HTTP only.
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' ||
@@ -425,6 +434,11 @@ in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN}
   </dev/null >/dev/null 2>&1" || {
   in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
     </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -dates" || true
+  # Whether anything is listening at all, and with which files. An empty
+  # certificate above is either no HTTPS server block for this name or no
+  # handshake, and these two say which.
+  in_container "grep -E 'listen|ssl_certificate' /etc/nginx/sites-enabled/${ACME_SITE}.conf" || true
+  in_container 'cd / && blitzecdn cert list --json' || true
   in_container 'docker logs --tail 40 pebble' || true
   fail "the edge is not serving a certificate that validates against the ACME root"
 }
