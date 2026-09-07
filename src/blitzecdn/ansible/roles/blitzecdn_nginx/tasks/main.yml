@@ -19,19 +19,26 @@
     owner: "{{ item.owner }}"
     group: "{{ item.group }}"
     mode: "{{ item.mode }}"
+  # Owned by the worker where the worker has to read, and never by a host
+  # account name. Nginx serves this tree from a read-only bind mount, so the
+  # process opening the token is the image's uid — 101 — which matches neither
+  # a host owner nor a host group and falls to `other`. `root:www-data` 0750
+  # left `other` empty, so every HTTP-01 validation answered 403 for a file
+  # that was sitting right there. The two directories above the challenge stay
+  # root-owned and traversable, which is all the worker needs of them.
   loop:
     - path: "{{ blitzecdn_edge_runtime.paths.acme }}"
       owner: root
-      group: www-data
+      group: root
       mode: "0755"
     - path: "{{ blitzecdn_edge_runtime.paths.acme }}/.well-known"
       owner: root
-      group: www-data
+      group: root
       mode: "0755"
     - path: "{{ blitzecdn_edge_runtime.paths.acme }}/.well-known/acme-challenge"
-      owner: root
-      group: www-data
-      mode: "0750"
+      owner: "{{ blitzecdn_edge_runtime.worker_uid }}"
+      group: root
+      mode: "0500"
   loop_control:
     label: "{{ item.path }}"
 
