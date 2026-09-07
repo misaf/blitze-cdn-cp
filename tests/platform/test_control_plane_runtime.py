@@ -141,9 +141,46 @@ def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
     assert "${#" not in wrapper
     assert "readonly compose_file=/etc/blitzecdn/control-plane.yml" in rendered
     assert 'stop "${running[@]}"' in wrapper
-    assert 'up --detach "${running[@]}"' in wrapper
+    assert 'up --detach --wait --wait-timeout 180 "${running[@]}"' in wrapper
     assert "COMPOSE_RESTORE_OFFLINE=1" in wrapper
     assert "docker exec" not in wrapper
+
+
+def test_a_restore_does_not_report_success_over_a_control_plane_that_is_down():
+    """Bringing the services back is not the same as them coming back.
+
+    The wrapper stops the API and the worker so nothing holds the database
+    open, and an EXIT trap starts them again — whether the restore succeeded
+    or failed, which is the point of the trap. But `up --detach` returns as
+    soon as the containers exist, so a database this image cannot open left
+    the API crash-looping behind a `Restored: database` and a zero exit: the
+    one moment an operator most needs to be told the truth.
+
+    So the trap waits for health and fails loudly if it never arrives, and it
+    ends with the status the restore itself exited with rather than the
+    trap's own — an EXIT trap that returns normally leaves the original code
+    in place, and a restore that failed must not be reported as a success
+    because the containers restarted fine afterwards.
+    """
+    wrapper = (ROLE / "templates/blitzecdn-cli.j2").read_text(encoding="utf-8")
+    body = wrapper.split("restore_running() {", 1)[1].split("\n  }", 1)[0]
+    # Executable lines only. The comment above this very call explains why it
+    # waits, and a test that reads the explanation passes over the code that
+    # stopped doing it — which is what happened when this guard was written.
+    trap = "\n".join(
+        line for line in body.splitlines() if not line.lstrip().startswith("#")
+    )
+
+    assert "--wait" in trap, (
+        "the restore trap starts the control plane without waiting for it, so "
+        "a restore the plane cannot open reports success"
+    )
+    assert "exit 1" in trap
+    assert trap.rstrip().endswith('exit "${status}"'), (
+        "the trap must end with the restore's own exit status, or a failed "
+        "restore is reported as a success once the containers restart"
+    )
+    assert "local status=$?" in trap
 
 
 def test_container_ssh_uses_the_mounted_controller_configuration():
