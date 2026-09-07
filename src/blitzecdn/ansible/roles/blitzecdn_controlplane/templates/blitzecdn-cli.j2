@@ -30,9 +30,22 @@ if [[ ${1-} == backup && ${2-} == restore ]]; then
     "${compose[@]}" stop "${running[@]}"
   fi
   restore_running() {
+    local status=$?
     if [[ -n ${running[0]+x} ]]; then
-      "${compose[@]}" up --detach "${running[@]}"
+      # `--wait`, because `up --detach` returns once the containers have been
+      # created and says nothing about whether they came up. A database this
+      # image cannot open leaves the API crash-looping, and the operator who
+      # just restored it would read `Restored: database` and a zero exit over
+      # the top of a control plane that is not answering. The timeout is
+      # generous enough for a cold start and short enough that a wedged
+      # restore reports rather than hangs.
+      if ! "${compose[@]}" up --detach --wait --wait-timeout 180 "${running[@]}"; then
+        printf 'The restore completed but the control plane did not come back healthy.\n' >&2
+        printf 'Inspect it with: docker compose --file %s logs\n' "${compose_file}" >&2
+        exit 1
+      fi
     fi
+    exit "${status}"
   }
   trap restore_running EXIT
   "${run[@]}" -e COMPOSE_RESTORE_OFFLINE=1 blitzecdn-cli "$@"
