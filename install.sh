@@ -456,7 +456,16 @@ run_playbook() {
   shift
   local ansible_tmp
   ansible_tmp=$(temp_path -d)
+  # ANSIBLE_COLLECTIONS_PATH here and not only in bootstrap_runtime, and
+  # absolute rather than relative to the working directory. ansible.cfg cannot
+  # name it — a relative path there resolves inside the wheel — so an export is
+  # the whole of it, and --uninstall never calls the bootstrap that used to be
+  # the only place it happened. The teardown play therefore ran with no
+  # collections at all and stopped at the first `community.docker` task, which
+  # is the one that removes the edge's containers: the host was left with a
+  # running edge and an installer that had reported it could not continue.
   ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/ansible/ansible.cfg" \
+    ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections" \
     ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" -i localhost, "${playbook}" "$@"
 }
