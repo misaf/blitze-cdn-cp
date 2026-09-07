@@ -442,6 +442,12 @@ in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN}
   in_container 'docker logs --tail 40 pebble' || true
   fail "the edge is not serving a certificate that validates against the ACME root"
 }
+# What was actually served, in the log. This stage is otherwise silent when it
+# passes, which leaves a reader with two banners and an elapsed time as the
+# only evidence that a CA was ever involved.
+in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
+  </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -enddate" ||
+  fail "could not read back the certificate that just verified"
 
 # Removing the record must withdraw the vhost, which is the registry's job.
 in_container 'cd / && blitzecdn record remove example.test cdn --yes' ||
