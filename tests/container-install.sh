@@ -359,13 +359,26 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:14000/dir >/dev/null' || 
 in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebble\"\n" \
   >> /opt/blitzecdn/blitzecdn.toml' ||
   fail "could not point the control plane at the test certbot"
-# Configuration is read once at start, and the file is a read-only bind mount,
-# so the running processes have to be replaced to see it.
+# Configuration is read once at start, so the running processes have to be
+# replaced to see it. `--force-recreate` because nothing in the Compose file
+# changed: without it `up` finds both services already up-to-date, reports
+# `Running`, and leaves the old processes — and their old configuration — in
+# place. That is not hypothetical. It is what this stage did on its first run,
+# and the certificate request went to the real Let's Encrypt, which refused the
+# harness's example.com address; a rejected email was the only sign that the
+# CA under test had never been consulted.
+started_before=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn-api')
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
-  up --detach --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null || {
+  up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null || {
   in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-api' || true
   fail "the control plane did not come back with the test certbot configured"
 }
+# The assertion the comment above is making. A restart that silently did
+# nothing is invisible here otherwise: everything downstream still runs, just
+# against the wrong CA.
+started_after=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn-api')
+[[ ${started_before} != "${started_after}" ]] ||
+  fail "the API was not replaced, so it is still running the old configuration"
 
 # Issuance is an API operation; there is no CLI command for it. The key is read
 # inside the container and never crosses into this shell, where it would end up
@@ -376,12 +389,17 @@ issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitz
   curl -sS --max-time 600 -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
     -d "{\"skip_preflight\": true}" \
     http://127.0.0.1:8000/v1/sites/'"${ACME_SITE}"'/certificate/request') || {
+  # certbot's own log first: it names the ACME server it contacted and the
+  # problem document it got back, which is the difference between "the CA
+  # refused" and "the CA was never the one this stage started".
+  in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
   dump_ansible_log
   in_container 'docker logs --tail 40 pebble' || true
   fail "the certificate request did not complete"
 }
 printf '%s' "${issued}" | grep -Eq '"source": ?"acme"' || {
   printf 'response: %s\n' "${issued}"
+  in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
   dump_ansible_log
   fail "the control plane did not record an ACME certificate"
 }
