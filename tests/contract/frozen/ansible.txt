@@ -14,7 +14,7 @@ blitzecdn	variable	blitzecdn_base.blitzecdn_base_timezone	type=str required
 blitzecdn	variable	blitzecdn_capabilities.blitzecdn_capabilities_roles	type=list elements=str required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_acme_email	type=str default=''
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_backup_dir	type=path required
-blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_capabilities	type=list elements=str default=['backup', 'cache', 'hardening', 'origins', 'resolver']
+blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_capabilities	type=list elements=str default=['backup', 'cache', 'certificates', 'hardening', 'origins', 'resolver']
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_certificate_reconcile_seconds	type=int required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_certificate_renewal_seconds	type=int required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_cli_wrapper	type=path required
