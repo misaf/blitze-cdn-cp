@@ -445,8 +445,14 @@ in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN}
 # What was actually served, in the log. This stage is otherwise silent when it
 # passes, which leaves a reader with two banners and an elapsed time as the
 # only evidence that a CA was ever involved.
+#
+# The SAN and not the subject: Pebble issues with `promote CN=false`, so the
+# leaf carries no common name at all and the hostname is only in the extension.
+# Printing the subject showed an empty line, which reads like a fault and is
+# not one — `-verify_hostname` above is what actually holds the name to
+# account.
 in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
-  </dev/null 2>/dev/null | openssl x509 -noout -issuer -subject -enddate" ||
+  </dev/null 2>/dev/null | openssl x509 -noout -issuer -ext subjectAltName -enddate" ||
   fail "could not read back the certificate that just verified"
 
 # Removing the record must withdraw the vhost, which is the registry's job.
