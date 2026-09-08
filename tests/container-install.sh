@@ -247,8 +247,15 @@ dump_ansible_log() {
     # argument-spec validation for roles that agreed — which is all the first
     # version of this printed. Ansible writes each diff immediately above the
     # `changed:` line it belongs to, so the context is the report.
-    grep -B 40 -A 1 "^changed: \[" "$latest" ||
-      printf "No changed tasks in the log; the disagreement is not a task diff.\n"
+    grep -B 40 -A 1 "^changed: \[" "$latest" || {
+      # The other way this ends. A check-mode run reports a diff or it reports
+      # a failure, and printing only the first left the second as "not a task
+      # diff" and a recap of counts -- a report with the cause missing, which
+      # is how a supported-platform assert reads as an unexplained failure.
+      printf "No changed tasks in the log; the failure is not a task diff.\n\n"
+      grep -B 2 -A 20 "^fatal: \|^failed: " "$latest" ||
+        printf "No failed tasks either; the run ended without a diff or a failure.\n"
+    }
     printf "\n--- recap ---\n"
     sed -n "/^PLAY RECAP/,\$p" "$latest"' || true
 }
