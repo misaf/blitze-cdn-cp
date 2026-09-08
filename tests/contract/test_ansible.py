@@ -13,6 +13,7 @@ from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
 from blitzecdn.core.ansible import runner as ansible_runner_module
+from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import RunStatus
@@ -551,7 +552,7 @@ def test_a_capabilitys_own_settings_reach_ansible_through_the_environment(
     ansible.AnsibleRunner(
         configured,
         EdgeRoster(FakeEdgeStore()),
-        capability_environment=configured.capability_environment,
+        EdgeContributions.of(environment=configured.capability_environment),
     ).run(check=True)
 
     assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "SENTINELKEY"
@@ -606,7 +607,7 @@ def test_a_capabilitys_settings_never_become_command_arguments(settings, monkeyp
     ansible.AnsibleRunner(
         configured,
         EdgeRoster(FakeEdgeStore()),
-        capability_environment=configured.capability_environment,
+        EdgeContributions.of(environment=configured.capability_environment),
     ).run(check=True)
 
     assert captured

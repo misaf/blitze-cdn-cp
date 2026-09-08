@@ -29,6 +29,7 @@ from control_plane_fixtures import FakeEdgeStore, settings  # noqa: F401
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible
 from blitzecdn.core.ansible import execution as ansible_execution
+from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import AnsibleContribution, EdgeModule
 from blitzecdn.core.plugins.resolution import (
@@ -168,9 +169,11 @@ def test_the_resolved_path_is_what_ansible_is_actually_given(
     runner = ansible.AnsibleRunner(
         settings,
         EdgeRoster(FakeEdgeStore()),
-        resolve_role_search_path(
-            settings.ansible_dir / "roles",
-            [AnsibleContribution(plugin="cache", roles_path=cache)],
+        EdgeContributions.of(
+            roles_path=resolve_role_search_path(
+                settings.ansible_dir / "roles",
+                [AnsibleContribution(plugin="cache", roles_path=cache)],
+            )
         ),
     )
     with pytest.raises(AssertionError):
@@ -288,17 +291,21 @@ def test_every_slot_reaches_ansible_on_the_command_line(
     runner = ansible.AnsibleRunner(
         settings,
         EdgeRoster(FakeEdgeStore()),
-        capability_roles=("converge_role",),
-        host_capability_roles=("host_role",),
-        teardown_capability_roles=("withdraw_role",),
-        edge_modules=resolve_edge_modules(
-            [
-                AnsibleContribution(
-                    plugin="one",
-                    roles_path=settings.ansible_dir / "roles",
-                    edge_modules=(EdgeModule(name="brotli", objects=("filter.so",)),),
-                )
-            ]
+        EdgeContributions.of(
+            edge_roles=("converge_role",),
+            host_roles=("host_role",),
+            teardown_roles=("withdraw_role",),
+            edge_modules=resolve_edge_modules(
+                [
+                    AnsibleContribution(
+                        plugin="one",
+                        roles_path=settings.ansible_dir / "roles",
+                        edge_modules=(
+                            EdgeModule(name="brotli", objects=("filter.so",)),
+                        ),
+                    )
+                ]
+            ),
         ),
     )
     with pytest.raises(AssertionError):

@@ -202,8 +202,8 @@ def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     runner = ansible.AnsibleRunner(settings, EdgeRoster(FakeEdgeStore()))
     seen: list[dict[str, object]] = []
 
-    def capture(*, variables, **_kwargs):
-        seen.append(yaml.safe_load(variables.read_text(encoding="utf-8")))
+    def capture(request):
+        seen.append(yaml.safe_load(request.variables.read_text(encoding="utf-8")))
         return ansible_run(host_run("edge-a", changed=1))
 
     monkeypatch.setattr(runner._executor, "execute", capture)
