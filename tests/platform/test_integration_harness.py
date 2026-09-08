@@ -615,3 +615,60 @@ def test_the_install_harness_issues_against_a_ca_that_really_validates():
     assert "-verify_hostname" in commands, (
         "the harness does not check the served certificate covers the name"
     )
+
+
+def test_the_install_harness_proves_a_renewal_changed_something():
+    """Renewal's failure mode is succeeding without doing anything.
+
+    `cert renew` reports skipped sites and exits zero, which is correct for a
+    scheduled sweep and useless as a test: a run that renewed nothing, or one
+    that renewed into the store and never reached the edge, looks exactly like
+    a run that worked. The only assertion that separates them is that the
+    certificate the edge presents is not the one it presented before.
+
+    Read from the wire, twice, and compared — not from `cert list`, which is
+    the control plane agreeing with itself.
+    """
+    commands = _commands(INSTALL_HARNESS)
+
+    # The renewal's own invocation, not the whole file: `--force` also appears
+    # in the `--force-recreate` that restarts the control plane, and an
+    # assertion that reads it there passes for an unforced renewal.
+    renew = re.search(r"blitzecdn cert renew[^\n\"]*", commands)
+    assert renew, "the harness never renews anything"
+    invocation = renew.group()
+
+    # Nothing is near expiry a minute after issuance, so without --force the
+    # sweep correctly does nothing at all.
+    assert "--force" in invocation, (
+        "the renewal cannot renew: no certificate is due, so an unforced sweep "
+        "skips every site and still exits zero"
+    )
+    assert "--deploy" in invocation, (
+        "the renewal never reaches an edge, so it proves only that the store "
+        "was updated"
+    )
+
+    # The before/after comparison itself.
+    assert re.search(r"\$\{renewed_from\} != \"\$\{renewed_to\}\"", commands), (
+        "the harness does not compare the certificate served before the "
+        "renewal with the one served after it"
+    )
+    for capture in (
+        "renewed_from=$(served_certificate",
+        "renewed_to=$(served_certificate",
+    ):
+        assert capture in commands, f"{capture} is not read from the wire"
+
+    # Preflight is the gate renewal cannot bypass, and the only place it runs
+    # for real: the initial request skips it.
+    assert "cert preflight" in commands, (
+        "nothing exercises the preflight that every renewal has to pass"
+    )
+
+    # Otherwise Pebble reuses an authorization about half the time, and whether
+    # the renewal revalidates over HTTP-01 is decided per run by a coin toss.
+    assert "PEBBLE_AUTHZREUSE=0" in commands, (
+        "authorization reuse is left at its default, so the renewal's coverage "
+        "varies from run to run"
+    )
