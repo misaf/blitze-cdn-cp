@@ -347,8 +347,22 @@ docker cp "${pebble_config}" "${container}:/root/pebble/config.json" >/dev/null 
 # one port. The loopback address specifically: systemd-resolved holds
 # 127.0.0.53:53 in this host, and binding the wildcard would collide with it.
 in_container "docker run -d --name pebble-dns --network host ${CHALLTESTSRV_IMAGE} \
-  -dns01 127.0.0.1:53 -http01 '' -https01 '' -tlsalpn01 ''" >/dev/null ||
+  -dnsserver 127.0.0.1:53 -http01 '' -https01 '' -tlsalpn01 ''" >/dev/null ||
   fail "could not start the challenge DNS server"
+# `docker run -d` succeeds for a container that starts and immediately dies, so
+# it says nothing about whether the server is answering — an unknown flag or a
+# taken port both look like a clean start from here, and the next thing to
+# notice would be a challenge that fails for no stated reason. Ask it the
+# question the CA and preflight will both ask.
+in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsutils >/dev/null' ||
+  fail "could not install a DNS client"
+resolved=$(in_container "dig +short +time=2 +tries=2 @127.0.0.1 ${ACME_DOMAIN}") ||
+  fail "the challenge DNS server did not answer"
+[[ ${resolved} == "127.0.0.1" ]] || {
+  in_container 'docker logs pebble-dns' || true
+  in_container 'docker inspect -f "{{.State.Running}} {{.State.ExitCode}}" pebble-dns' || true
+  fail "the challenge DNS server answered '${resolved}' for ${ACME_DOMAIN}"
+}
 # NOSLEEP and NONCEREJECT: Pebble's defaults inject a random validation delay
 # and reject one nonce in twenty on purpose, to shake out client bugs. Neither
 # is what this stage is asking about, and both make it slower and flakier.
@@ -427,6 +441,7 @@ issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitz
 printf '%s' "${issued}" | grep -Eq '"source": ?"acme"' || {
   printf 'response: %s\n' "${issued}"
   in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
+  in_container 'docker logs --tail 40 pebble' || true
   dump_ansible_log
   fail "the control plane did not record an ACME certificate"
 }

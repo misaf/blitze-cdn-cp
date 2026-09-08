@@ -666,6 +666,15 @@ def test_the_install_harness_proves_a_renewal_changed_something():
         "nothing exercises the preflight that every renewal has to pass"
     )
 
+    # The DNS server both the CA and preflight depend on is asked whether it
+    # is answering, rather than assumed to be. `docker run -d` reports success
+    # for a container that starts and dies — an unknown flag looks exactly like
+    # a clean start — and the first symptom is a challenge that fails with no
+    # reason given, several minutes later.
+    assert re.search(r"dig .*@127\.0\.0\.1", commands), (
+        "nothing checks that the challenge DNS server actually resolves"
+    )
+
     # Otherwise Pebble reuses an authorization about half the time, and whether
     # the renewal revalidates over HTTP-01 is decided per run by a coin toss.
     assert "PEBBLE_AUTHZREUSE=0" in commands, (
