@@ -1,5 +1,5 @@
-# Managed by BlitzeCDN. Persistent processes are owned by Compose; do not start
-# Uvicorn or Dramatiq manually inside these containers.
+# Managed by BlitzeCDN. Compose installs services; the host SDK runner recovers
+# them after restores. Do not start Uvicorn or Dramatiq manually in containers.
 name: {{ blitzecdn_controlplane_compose_project | to_json }}
 
 x-blitzecdn-runtime: &blitzecdn-runtime

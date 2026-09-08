@@ -649,7 +649,9 @@ def test_a_loose_module_at_the_root_starts_a_process():
     name the module, because that is what starting a process looks like from
     here. `dramatiq blitzecdn.worker` is in the controller's compose file and
     `python -m blitzecdn.install_handoff` is in `install.sh`, so both are
-    answerable without trusting a list in this test. A helper dropped at the
+    answerable without trusting a list in this test. The host SDK runner is
+    copied out of the package and launched by its script path because the host
+    does not install the application. A helper dropped at the
     root is named by nothing and fails.
 
     `api/` and `cli/` are processes too and are packages, because each has a
@@ -663,7 +665,9 @@ def test_a_loose_module_at_the_root_starts_a_process():
     offenders = [
         f"{path.name} is not started by anything outside Python"
         for path in sorted(SOURCE.glob("*.py"))
-        if path.name != "__init__.py" and f"blitzecdn.{path.stem}" not in artifacts
+        if path.name != "__init__.py"
+        and f"blitzecdn.{path.stem}" not in artifacts
+        and f"/{path.name}" not in artifacts
     ]
     assert offenders == []
 

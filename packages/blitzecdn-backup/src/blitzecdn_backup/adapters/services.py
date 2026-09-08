@@ -15,8 +15,8 @@ class ComposeRestoreGuard:
 
     The application container deliberately has no Docker socket. Lifecycle
     ownership stays on the host, where the installed ``blitzecdn`` wrapper
-    records which Compose services are running, stops them, runs the ephemeral
-    restore container, and restores that exact running set in a trap.
+    uses the Docker SDK to record which services are running, stop them, run the
+    ephemeral restore container, and recover that running set in a finally block.
 
     A source-checkout restore remains usable without Docker; only a process
     actually running in a container must prove the host established the
@@ -31,7 +31,7 @@ class ComposeRestoreGuard:
         ):
             raise ExecutionError(
                 "database restore must run through the host 'blitzecdn backup "
-                "restore' wrapper so Compose can stop the API and worker"
+                "restore' wrapper so the host can stop the API and worker"
             )
         yield
 
