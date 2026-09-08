@@ -196,8 +196,27 @@ def test_allowed_ips_sources_and_normalization(tmp_path):
         "2001:db8::/64",
         "::ffff:198.51.100.8/128",
         "203.0.113.8,2001:db8::1",
+        # Host bits set. Masking them away would admit the whole range.
+        "203.0.113.8/24",
+        "10.1.2.3/8",
     ],
 )
 def test_invalid_allowed_ips_fail_configuration(tmp_path, value):
     with pytest.raises(ConfigurationError):
         Settings.from_environment({"BLITZE_ALLOWED_IPS": value}, project_dir=tmp_path)
+
+
+def test_an_entry_with_host_bits_offers_both_readings(tmp_path):
+    """The one error where guessing would admit people nobody named.
+
+    `203.0.113.8/24` is one host or two hundred and fifty six of them, and the
+    silent reading is the wide one. Neither is assumed, and the operator is not
+    left to work out which spelling the loader wanted.
+    """
+    with pytest.raises(ConfigurationError) as failure:
+        Settings.from_environment(
+            {"BLITZE_ALLOWED_IPS": "203.0.113.8/24"}, project_dir=tmp_path
+        )
+
+    assert "203.0.113.0/24" in str(failure.value)
+    assert "203.0.113.8/32" in str(failure.value)
