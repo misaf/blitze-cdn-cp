@@ -31,15 +31,10 @@ from blitzecdn_backup.domain import (
     unsafe_member,
 )
 from blitzecdn_backup.service import BackupPolicy, BackupService
-from control_plane_fixtures import FakeRunner
+from control_plane_fixtures import FakeRunner, seed_record
 from typer.testing import CliRunner
 
-from blitzecdn.capabilities.dns.domain import (
-    DnsRecord,
-    Domain,
-    DomainPatch,
-    RecordType,
-)
+from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
@@ -754,13 +749,10 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     _populate(settings)
     store = Repository(settings.database_path)
     original = ControlPlane(settings=settings, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
-    original.dns.update_domain(
-        "example.com", DomainPatch(origin_host="198.51.100.10"), "tester"
-    )
-    original.dns.create_record(
-        DnsRecord(domain="example.com", name="cdn", type=RecordType.A),
-        operator="tester",
-    )
+    # Where the edge fetches from is the proxied record's own value now, not a
+    # zone setting, so one record says both that `cdn.example.com` is served
+    # and where from — which is what makes the snapshot render a host at all.
+    seed_record(original, value="198.51.100.10", operator="tester")
     expected = tmp_path / "expected.yml"
     original.deployments.write_desired_state(store.deployments.snapshot(), expected)
     store.close()
