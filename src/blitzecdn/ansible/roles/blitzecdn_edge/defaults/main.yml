@@ -42,7 +42,7 @@ blitzecdn_edge_http3_enabled: false
 # Never `latest`. A floating tag makes "which build is this fleet running"
 # unanswerable and makes rollback a guess; both are things an edge fleet cannot
 # afford.
-blitzecdn_edge_runtime_image_default: ghcr.io/misaf/blitzecdn-edge:2.7.0
+blitzecdn_edge_runtime_image_default: ghcr.io/misaf/blitzecdn-edge:4.1.0
 
 # --- the contract --------------------------------------------------------
 blitzecdn_edge_runtime:
