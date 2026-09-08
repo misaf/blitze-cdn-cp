@@ -34,6 +34,43 @@
   vars:
     blitzecdn_edge_teardown_remove_logs: true
 
+# Before the state directory goes, because the registry lives in it. Deleting
+# the record first would leave the host admitting port 8000 for addresses whose
+# API no longer exists, with nothing left on disk able to name them -- an open
+# rule no later run could ever withdraw. Same three steps and the same ordering
+# as the edge teardown above, for the same reason: ufw keeps every rule it has
+# been given, so a removal is only a removal if the previous set can be read
+# back. Rules an operator added by hand carry no registry line and stay.
+- name: Inspect the managed API firewall rule registry
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_uninstall_firewall_registry_file }}"
+  register: blitzecdn_uninstall_firewall_registry_stat
+
+- name: Read the managed API firewall rule registry
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_uninstall_firewall_registry_file }}"
+  register: blitzecdn_uninstall_firewall_registry_content
+  when: blitzecdn_uninstall_firewall_registry_stat.stat.exists
+
+- name: Select the API firewall rules this installation added
+  ansible.builtin.set_fact:
+    blitzecdn_uninstall_firewall_rules: >-
+      {{
+        (blitzecdn_uninstall_firewall_registry_content.content | default('') | b64decode).splitlines()
+        | select('match', '^tcp\|[0-9]{1,5}\|[^|]+$') | list
+      }}
+
+- name: Withdraw the API firewall rules this installation added
+  community.general.ufw:
+    rule: allow
+    direction: in
+    delete: true
+    proto: "{{ item.split('|')[0] }}"
+    port: "{{ item.split('|')[1] }}"
+    src: "{{ item.split('|')[2] }}"
+  loop: "{{ blitzecdn_uninstall_firewall_rules }}"
+  when: not ansible_check_mode
+
 - name: Remove exact BlitzeCDN-owned host paths
   ansible.builtin.file:
     path: "{{ item }}"

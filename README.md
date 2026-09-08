@@ -111,9 +111,10 @@ sudo /opt/blitzecdn/install.sh update
 ```
 
 It records the rules it installs, so an address removed from
-`BLITZE_ALLOWED_IPS` has its rule withdrawn rather than left behind. Rules you
-added by hand are not touched, UFW is never enabled by this role, and the
-default policy is left alone. Where UFW is inactive or another firewall is
+`BLITZE_ALLOWED_IPS` has its rule withdrawn rather than left behind, and
+`install.sh uninstall` withdraws all of them on the way out. Rules you added by
+hand are not touched, UFW is never enabled by this role, and the default policy
+is left alone. Where UFW is inactive or another firewall is
 authoritative, the run says so and admits each source yourself:
 
 ```bash
@@ -188,7 +189,7 @@ The host Python environment is required for this command as well as installation
 Update an installed standalone server with:
 
 ```bash
-sudo /opt/blitzecdn/install.sh update [--yes] [--no-backup]
+sudo /opt/blitzecdn/install.sh update [--yes] [--no-backup] [--allowed-ips LIST]
 ```
 
 There is no release to choose: the server moves to the newest `vMAJOR.MINOR.PATCH`
@@ -196,7 +197,7 @@ tag in its own major line, and tells you which two versions it is moving between
 before it changes anything. It never crosses a major line:
 
 ```bash
-sudo /opt/blitzecdn/install.sh upgrade [--yes] [--no-backup]
+sudo /opt/blitzecdn/install.sh upgrade [--yes] [--no-backup] [--allowed-ips LIST]
 ```
 
 That is the deliberate step, one major line at a time, and it refuses a server
