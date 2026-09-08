@@ -549,5 +549,27 @@ class CertificateService:
         except BlitzeError as exc:
             _LOGGER.warning("renewal failed for %s: %s", status.site, exc)
             return "failed", f"{status.site}: {exc}"
+        if info.fingerprint_sha256 == current.fingerprint_sha256:
+            # A renewal that returns the certificate already in place is not a
+            # renewal, however cleanly the issuer exited. It reaches no edge --
+            # the store is content-addressed, so there is nothing new to
+            # deploy -- and it resets nothing, so the expiry it was run to
+            # avoid still arrives on the original date.
+            #
+            # Reported rather than trusted because the failure is otherwise
+            # invisible: every observable signal short of the fingerprint says
+            # success, which is how a fleet reaches expiry with a timer that
+            # has been reporting renewals all along.
+            _LOGGER.error(
+                "renewal of %s returned the certificate already in place (%s)",
+                status.site,
+                current.fingerprint_sha256,
+            )
+            return (
+                "failed",
+                f"{status.site}: the issuer returned the certificate already in "
+                f"place, still expiring {current.not_after:%Y-%m-%d}. Nothing was "
+                "renewed.",
+            )
         _LOGGER.info("renewed %s, now valid until %s", status.site, info.not_after)
         return "renewed", status.site

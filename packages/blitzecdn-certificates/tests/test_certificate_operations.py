@@ -460,6 +460,46 @@ def test_an_uploaded_certificate_near_expiry_is_reported_not_renewed(
     assert "uploaded, not issued by BlitzeCDN" in result.skipped[0]
 
 
+def test_a_renewal_that_returned_the_same_certificate_is_not_reported_renewed(
+    settings, certificate_pair
+):
+    """The failure mode certbot's `--keep-until-expiring` default produces.
+
+    An issuer that hands back the certificate already in place exits cleanly
+    and stores cleanly, and the store is content-addressed, so nothing changes
+    on disk and no edge sees anything new. Every signal except the fingerprint
+    says the renewal worked, which is how a fleet reaches expiry with a timer
+    that has been reporting success all along.
+    """
+
+    class _StuckIssuer:
+        """Reissues the same bytes forever, the way a kept lineage does."""
+
+        def __init__(self, pair):
+            self._pair = pair
+            self._first: tuple[bytes, bytes] | None = None
+
+        def issue(self, site, email):
+            if self._first is None:
+                self._first = self._pair((site.server_names[0],), days=90)
+            return self._first
+
+    control = certificate_control_plane(
+        settings,
+        runner=FakeRunner(),
+        issuer=_StuckIssuer(certificate_pair),
+        preflight=FakePreflight(),
+    )
+    site = seed_site(control, name="stuck-example-com", record="stuck")
+    control.certificates.request_certificate(site.name, "alice", "ops@example.com")
+
+    result = control.certificates.renew_certificates("alice", force=True)
+
+    assert result.renewed == ()
+    assert len(result.failed) == 1
+    assert "the issuer returned the certificate already in place" in result.failed[0]
+
+
 def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair):
     """A scheduled renewal must make progress even when a site is unreachable."""
     issuer = _RecordingIssuer(certificate_pair, fails={"broken-example-com"})
