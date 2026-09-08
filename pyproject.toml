@@ -79,7 +79,7 @@ dev = [
   # Starlette's TestClient uses HTTPX2. Plain httpx is only a deprecated
   # compatibility fallback and emits a warning on every test run.
   "httpx2>=2.9,<3",
-  # Used directly by tests/test_contract.py to render the role templates.
+  # Used directly by tests/contract/edge/ to render the role templates.
   "Jinja2>=3.1,<4",
   # Exercise validation and serialization invariants over generated inputs.
   "hypothesis>=6.165.6,<7",
@@ -186,7 +186,7 @@ max-statements = 60
 # fixed argument array with no shell, and the paths come from `tmp_path` and
 # the repository — there is no untrusted input for S603 to be about, and
 # asserting on a real install is the whole point of the file.
-"tests/architecture/test_lifecycle.py" = ["S101", "S603"]
+"tests/architecture/lifecycle/*" = ["S101", "S603"]
 # The shared Ansible contract helpers run `ansible-playbook` for the same
 # reason: a role's assertions are only ever *evaluated* by executing them, and
 # every argument is a fixed array over `tmp_path` and paths inside this

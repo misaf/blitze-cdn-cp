@@ -32,7 +32,7 @@ remove the package   →  pluggy discovers nothing      →  core still works
 No line of core is edited either way. Nothing in `blitzecdn` imports an optional
 distribution, and no feature-specific installation check exists.
 `tests/architecture/packages/` enforces that direction;
-`tests/architecture/test_lifecycle.py` builds real wheels and asserts attachment
+`tests/architecture/lifecycle/` builds real wheels and asserts attachment
 and detachment in throwaway virtualenvs.
 
 ### What is *not* a package
@@ -1562,5 +1562,5 @@ Every one of these is a test in `tests/architecture/test_layering.py` (the
 control plane's internal boundaries) or `tests/architecture/packages/`
 (the distribution boundary), not a convention. The packaging lifecycle itself —
 build, install, discover, uninstall, and the deterministic failure when a
-required capability is absent — is `tests/architecture/test_lifecycle.py`,
+required capability is absent — is `tests/architecture/lifecycle/`,
 marked `packaging` because it builds real wheels.

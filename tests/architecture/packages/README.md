@@ -18,4 +18,4 @@ these modules. Helpers used by one boundary stay beside its tests.
 
 Run this suite with `just test-one tests/architecture/packages`. The core-only
 recipe excludes this directory because these tests inspect installed optional
-packages. `../test_lifecycle.py` separately verifies real installation and removal.
+packages. `../lifecycle/` separately verifies real installation and removal.

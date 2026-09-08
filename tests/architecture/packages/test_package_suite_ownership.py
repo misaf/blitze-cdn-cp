@@ -16,6 +16,11 @@ from package_boundary_support import (
 )
 from paths import REPO_ROOT, SOURCE
 
+#: The packaging lifecycle suite, exempt from the rules below for the same
+#: reason this directory is: it is *about* the optional distributions, so it
+#: names them on purpose. `just test-core-only` deselects both by directory.
+LIFECYCLE_SUITE = REPO_ROOT / "tests/architecture/lifecycle"
+
 # --- tests travel with their package ----------------------------------------
 
 
@@ -97,13 +102,17 @@ def test_the_control_plane_suite_names_no_optional_package():
     the packages and would be meaningless without naming them. Everything else
     under `tests/` must pass with every optional distribution uninstalled,
     because that is the configuration `just test-core-only` runs.
+
+    Both exceptions are whole directories rather than file names: a module
+    added to either is covered by sitting there, which is the same reason
+    `just test-core-only` deselects them by directory.
     """
     optional = _optional_import_roots()
-    here = {"test_lifecycle.py"}
+    exempt = (Path(__file__).parent, LIFECYCLE_SUITE)
     offenders = [
         f"{path.name} imports {imported}"
         for path in sorted((REPO_ROOT / "tests").rglob("*.py"))
-        if path.name not in here and not path.is_relative_to(Path(__file__).parent)
+        if not any(path.is_relative_to(directory) for directory in exempt)
         for imported in sorted(_imports(path))
         if imported.split(".")[0] in optional
     ]
@@ -150,15 +159,14 @@ def test_the_control_plane_suite_does_not_reach_a_package_by_name_either():
     to move to — and it is allowed by file, not by test name.
     """
     optional = _optional_import_roots()
-    allowed = {
-        "test_lifecycle.py",
-        # `skip_tests_a_detached_capability_cannot_answer` lives here.
-        "control_plane_fixtures.py",
-    }
+    exempt = (Path(__file__).parent, LIFECYCLE_SUITE)
+    # `skip_tests_a_detached_capability_cannot_answer` lives here.
+    allowed = {"control_plane_fixtures.py"}
     offenders = [
         f"{path.name} names {named}"
         for path in sorted((REPO_ROOT / "tests").rglob("*.py"))
-        if path.name not in allowed and not path.is_relative_to(Path(__file__).parent)
+        if path.name not in allowed
+        and not any(path.is_relative_to(directory) for directory in exempt)
         for named in sorted(_dynamic_package_names(path))
         if named in optional
     ]

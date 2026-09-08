@@ -1,6 +1,6 @@
 """The one check in `doctor` that leaves the machine.
 
-`check_resolver` had no test. `tests/entrypoints/test_cli.py` covers `doctor`
+`check_resolver` had no test. `tests/entrypoints/cli/` covers `doctor`
 by monkeypatching this function with a canned `ResolverCheck`, which asserts
 what the command does with an answer and nothing about how the answer is
 reached — so the probe itself, the three ways a resolver can respond to it, and

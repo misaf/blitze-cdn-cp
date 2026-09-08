@@ -14,7 +14,7 @@ So the composition of that list is a contract in its own right: what is in it,
 in which order, and what happens when two packages claim one name.
 
 Nothing here installs anything. The property being asserted is the *rule*, so
-the contributions are built by hand; `tests/architecture/test_lifecycle.py`
+the contributions are built by hand; `tests/architecture/lifecycle/`
 asserts the other half — that a real wheel really carries the directory a real
 plugin really contributes.
 """
