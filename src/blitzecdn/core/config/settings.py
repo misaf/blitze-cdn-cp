@@ -207,7 +207,8 @@ class Settings(BaseSettings):
         for item in value:
             if not isinstance(item, str) or not item.strip():
                 raise ValueError("allowed_ips entries must be non-empty IPs/CIDRs")
-            network = ip_network(item.strip(), strict=False)
+            entry = item.strip()
+            network = ip_network(entry, strict=False)
             # The installed listener binds 0.0.0.0, so an IPv6 entry would be
             # configuration that cannot admit anyone. Refused at load rather
             # than accepted and ignored: an operator who lists an address and
@@ -215,10 +216,25 @@ class Settings(BaseSettings):
             # is wrong.
             if network.version != 4:
                 raise ValueError(
-                    f"allowed_ips entry {item.strip()!r} is IPv6; the API "
+                    f"allowed_ips entry {entry!r} is IPv6; the API "
                     "listens on IPv4 and cannot admit it"
                 )
-            networks.append(str(network))
+            # `203.0.113.8/24` is either one host or two hundred and fifty six,
+            # and masking the host bits away silently picks the wider reading.
+            # This is the one validation error where guessing admits people the
+            # operator did not name, so the entry is refused and both readings
+            # are offered back. A bare address still parses strictly: it is a
+            # /32, not host bits.
+            try:
+                exact = ip_network(entry, strict=True)
+            except ValueError:
+                host = entry.split("/", 1)[0]
+                raise ValueError(
+                    f"allowed_ips entry {entry!r} has host bits set. Write "
+                    f"'{network}' to admit that whole range, or '{host}/32' "
+                    "to admit only that address"
+                ) from None
+            networks.append(str(exact))
         return tuple(dict.fromkeys(networks))
 
     @field_validator(

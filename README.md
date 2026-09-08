@@ -106,7 +106,9 @@ source checkout, the equivalent setting is `allowed_ips = ["203.0.113.8/32"]`
 under `[blitzecdn]` in `blitzecdn.toml`; the environment takes precedence. Run
 `python -m blitzecdn.api` to use automatic binding. The listener is IPv4, so
 addresses are IPv4 too; an IPv6 entry is refused when the setting is read
-rather than accepted and then never matched.
+rather than accepted and then never matched. A CIDR must have its host bits
+clear: `203.0.113.8/24` is refused, naming both `203.0.113.0/24` and
+`203.0.113.8/32` so the widening is chosen rather than assumed.
 
 ## Controller quick start
 

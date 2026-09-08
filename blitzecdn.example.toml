@@ -89,8 +89,11 @@ redis_url = "redis://127.0.0.1:6379/0"
 #
 
 # Client IPv4 addresses and CIDRs permitted to reach the API. The listener is
-# IPv4, so an IPv6 entry is refused here rather than never matched. Empty keeps
-# the installed listener on loopback, reachable only through an SSH tunnel.
+# IPv4, so an IPv6 entry is refused here rather than never matched. A bare
+# address means that host alone; a CIDR must be written with its host bits
+# clear, because "203.0.113.8/24" is one address or 256 of them and the silent
+# reading is the wide one. Empty keeps the installed listener on loopback,
+# reachable only through an SSH tunnel.
 #
 # A non-empty list binds the API publicly and answers 403 to every unlisted
 # client, including /docs, /openapi.json, and /health. Loopback stays allowed so
