@@ -66,7 +66,7 @@ def test_api_worker_and_redis_are_dedicated_persistent_services():
         "blitzecdn-worker",
         "blitzecdn-cli",
     }
-    assert services["blitzecdn-api"]["command"][0] == "uvicorn"
+    assert services["blitzecdn-api"]["command"] == ["python", "-m", "blitzecdn.api"]
     assert services["blitzecdn-worker"]["command"][0] == "dramatiq"
     assert services["blitzecdn-api"]["restart"] == "unless-stopped"
     assert services["blitzecdn-worker"]["restart"] == "unless-stopped"
