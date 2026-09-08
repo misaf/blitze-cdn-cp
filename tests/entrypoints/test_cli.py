@@ -1075,6 +1075,30 @@ def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
     assert "invents addresses" in result.output
 
 
+def test_doctor_reports_who_the_api_answers(settings, monkeypatch):
+    """The question `doctor` exists to answer, asked about network exposure.
+
+    An empty list is the report, not an omission: it is how a loopback-only
+    listener looks, and reading it is how an operator confirms that closing the
+    list actually closed it.
+    """
+    _control(settings, monkeypatch)
+    closed = runner.invoke(cli.app, ["doctor", "--no-resolver", "--json"])
+    assert json.loads(closed.stdout)["api_allowed_ips"] == []
+
+    _control(
+        settings.model_copy(
+            update={"allowed_ips": ("203.0.113.8/32", "198.51.100.0/24")}
+        ),
+        monkeypatch,
+    )
+    opened = runner.invoke(cli.app, ["doctor", "--no-resolver", "--json"])
+    assert json.loads(opened.stdout)["api_allowed_ips"] == [
+        "203.0.113.8/32",
+        "198.51.100.0/24",
+    ]
+
+
 def test_doctor_can_skip_the_resolver_probe(settings, monkeypatch):
     """--no-resolver keeps doctor usable on a host with no DNS at all."""
     _control(settings, monkeypatch)

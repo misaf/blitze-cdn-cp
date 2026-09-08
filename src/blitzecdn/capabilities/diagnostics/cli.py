@@ -274,6 +274,17 @@ def doctor(
         "python_supported": True,
         "state_dir": str(settings.state_dir),
         "api_auth_configured": bool(settings.api_keys),
+        # Who the API answers, beside what it requires of them. An operator
+        # asking whether this host is exposed had nowhere to read the answer
+        # but the environment file, and an empty list here is the report that
+        # the listener is loopback-only.
+        #
+        # The list, not a "publicly bound" verdict: the binding is the
+        # entrypoint's decision, and `blitzecdn serve` takes an explicit
+        # --host, so a boolean would be this command guessing about a process
+        # it is not part of. What it can state without inventing anything is
+        # the list the gate enforces wherever that process is listening.
+        "api_allowed_ips": list(settings.allowed_ips),
         "configuration_errors": settings.validate_runtime(),
     }
     resolver_report = check_resolver(settings) if resolver_check else None

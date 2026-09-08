@@ -75,6 +75,9 @@ sudo /opt/blitzecdn/install.sh update --allowed-ips 198.51.100.0/24
 Leaving the flag off keeps whatever the server already has, hand edits
 included, so a routine update never changes who may reach the API.
 
+`blitzecdn doctor` reports the effective list as `api_allowed_ips`; an empty
+one is a loopback-only listener.
+
 To change the list without an installer run, edit
 `/etc/blitzecdn/blitzecdn.env` (replace the examples with your trusted
 addresses):
