@@ -1,4 +1,6 @@
 # ruff: noqa: F403,F405
+import base64
+
 from contract_support import *
 
 from blitzecdn.docker import (
@@ -1701,3 +1703,146 @@ def test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string():
         "value passed with `-e name=value` arrives as a string and every "
         "string is true:\n  " + "\n  ".join(bare)
     )
+
+
+def test_the_control_plane_admits_the_port_its_api_actually_listens_on():
+    """A rule on a dead port and a listener behind a closed one are both silent.
+
+    The role opens ufw for the API, and the API chooses its own port. Two
+    literals would disagree on the day one moved, and nothing would report it:
+    the play would succeed, the container would be healthy, and the first
+    symptom would be an allowed operator timing out. So the role's default is
+    held to the constant the listener uses, the way the Dockerfile path is
+    already held to `blitzecdn.docker.CONTROL_PLANE_DOCKERFILE`.
+    """
+    from blitzecdn.api.__main__ import API_PORT
+
+    defaults = _defaults_of(_role("blitzecdn_controlplane"))
+    assert defaults["blitzecdn_controlplane_api_port"] == API_PORT
+
+
+def test_the_control_plane_can_withdraw_an_api_rule_it_no_longer_manages():
+    """Opening is the easy half; a removal has to be a removal.
+
+    ufw keeps every rule it has ever been given, so an address dropped from
+    BLITZE_ALLOWED_IPS is denied by the application on the next recreate while
+    the host goes on accepting its packets. Reading back what this role wrote
+    is the only thing that closes that gap, and it is the same mechanism the
+    edge firewall uses for its SSH sources.
+    """
+    tasks = (_role("blitzecdn_controlplane") / "tasks/main.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "difference(blitzecdn_controlplane_desired_rules)" in tasks
+    assert "delete: true" in tasks
+    assert tasks.index("Allow the API from its allowed sources") < tasks.index(
+        "Withdraw API rules this role no longer manages"
+    )
+    assert tasks.index("Withdraw API rules this role no longer manages") < tasks.index(
+        "Record the managed API rule set"
+    )
+    # Never enables ufw and never sets a policy: a controller-only host may be
+    # firewalled by something else, and deny-by-default from a play it did not
+    # ask for would cut off the session running it.
+    assert "state: enabled" not in tasks
+    assert "policy: deny" not in tasks
+
+
+def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
+    """Executed, not read: this is the rule set ufw is actually handed.
+
+    The sources are parsed out of the managed environment file rather than kept
+    a second time in the inventory, because that file is what the API itself
+    reads and what an operator edits. That makes the parsing the load-bearing
+    part — the commented example the template ships must not become a rule, and
+    a quoted value must not become a rule for a source with a quote in it.
+    """
+    ansible = shutil.which("ansible-playbook") or str(
+        PROJECT_DIR / ".venv/bin/ansible-playbook"
+    )
+    if not Path(ansible).exists():
+        pytest.skip("ansible-playbook is not installed")
+
+    role = _role("blitzecdn_controlplane")
+    tasks = yaml.safe_load((role / "tasks/main.yml").read_text(encoding="utf-8"))
+    compose = next(
+        task
+        for task in tasks
+        if task["name"] == "Compose the API rules this role manages"
+    )
+
+    def rules(environment: str, index: int) -> set[str]:
+        computed = tmp_path / f"api-rules-{index}.json"
+        playbook = tmp_path / f"api-rules-{index}.yml"
+        playbook.write_text(
+            yaml.safe_dump(
+                [
+                    {
+                        "hosts": "localhost",
+                        "connection": "local",
+                        "gather_facts": False,
+                        "vars": _defaults_of(role)
+                        | {
+                            "blitzecdn_controlplane_environment_content": {
+                                "content": base64.b64encode(
+                                    environment.encode("utf-8")
+                                ).decode("ascii")
+                            }
+                        },
+                        "tasks": [
+                            compose,
+                            {
+                                "copy": {
+                                    "content": (
+                                        "{{ blitzecdn_controlplane_desired_rules "
+                                        "| to_json }}"
+                                    ),
+                                    "dest": str(computed),
+                                    "mode": "0600",
+                                }
+                            },
+                        ],
+                    }
+                ]
+            ),
+            encoding="utf-8",
+        )
+        result = subprocess.run(
+            [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
+            capture_output=True,
+            text=True,
+            cwd=tmp_path,
+            env={
+                key: value
+                for key, value in os.environ.items()
+                if not key.startswith(("COV_CORE", "COVERAGE"))
+            }
+            | {"ANSIBLE_LOCALHOST_WARNING": "False"},
+            check=False,
+        )
+        assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+        return set(yaml.safe_load(computed.read_text(encoding="utf-8")))
+
+    shipped = (
+        (role / "templates/blitzecdn.env.j2")
+        .read_text(encoding="utf-8")
+        .replace("{{ blitzecdn_controlplane_api_key }}", "secret")
+    )
+    # The template as installed: the allowlist is present only as a comment,
+    # and a commented example that opened a port would be the worst kind of
+    # default.
+    assert rules(shipped, 0) == set()
+
+    assert rules("BLITZE_ALLOWED_IPS=203.0.113.8/32, 198.51.100.0/24\n", 1) == {
+        "tcp|8000|203.0.113.8/32",
+        "tcp|8000|198.51.100.0/24",
+    }
+    # dotenv accepts quotes, so an operator who writes them must not get a rule
+    # for a source that begins with one.
+    assert rules('BLITZE_ALLOWED_IPS="203.0.113.8/32"\n', 2) == {
+        "tcp|8000|203.0.113.8/32"
+    }
+    # Emptied to return the API to loopback. Every rule is then stale, which is
+    # what makes the withdrawal above revoke them.
+    assert rules("BLITZE_ALLOWED_IPS=\n", 3) == set()

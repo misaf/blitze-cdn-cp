@@ -13,6 +13,7 @@ blitzecdn	variable	blitzecdn_base.blitzecdn_base_packages	type=list elements=str
 blitzecdn	variable	blitzecdn_base.blitzecdn_base_timezone	type=str required
 blitzecdn	variable	blitzecdn_capabilities.blitzecdn_capabilities_roles	type=list elements=str required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_acme_email	type=str default=''
+blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_api_port	type=int required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_backup_dir	type=path required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_capabilities	type=list elements=str default=['backup', 'cache', 'certificates', 'hardening', 'origins', 'resolver']
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_certificate_reconcile_seconds	type=int required
@@ -24,6 +25,7 @@ blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_config_dir	type
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_deploy_user	type=str required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_dockerfile	type=str required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_drift_check_seconds	type=int required
+blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_firewall_registry_file	type=path required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_image	type=str required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_install_dir	type=path required
 blitzecdn	variable	blitzecdn_controlplane.blitzecdn_controlplane_packages	type=list elements=str required

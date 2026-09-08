@@ -47,3 +47,19 @@ argument_specs:
       blitzecdn_controlplane_ssl_automatic_scan_seconds: {type: int, required: true}
       blitzecdn_controlplane_certificate_renewal_seconds: {type: int, required: true}
       blitzecdn_controlplane_drift_check_seconds: {type: int, required: true}
+      blitzecdn_controlplane_api_port:
+        type: int
+        required: true
+        description: >-
+          The port the installed API listens on and the one this role admits
+          through ufw. Held equal to blitzecdn.api.__main__.API_PORT by a
+          contract test, so a rule on a dead port and a listener behind a
+          closed one are both impossible rather than merely unlikely.
+      blitzecdn_controlplane_firewall_registry_file:
+        type: path
+        required: true
+        description: >-
+          Where the role records the API rules it manages, so a later run can
+          tell a rule it installed from one an operator added by hand and
+          withdraw only its own. Removing an address from BLITZE_ALLOWED_IPS
+          revokes its rule instead of leaving the host still admitting it.
