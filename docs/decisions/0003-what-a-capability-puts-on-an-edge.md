@@ -131,4 +131,4 @@ to `ConfigurationContribution` —
 - [A host-slot capability](../../packages/blitzecdn-hardening/src/blitzecdn_hardening/plugin.py)
 - [A module-contributing capability](../../packages/blitzecdn-geoip/src/blitzecdn_geoip/plugin.py)
 - [Contribution tests](../../tests/contract/test_ansible_contributions.py)
-- [Role contract tests](../../tests/contract/test_role_contracts.py)
+- [Role contract tests](../../tests/contract/roles/)

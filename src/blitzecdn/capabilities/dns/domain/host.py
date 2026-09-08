@@ -348,7 +348,7 @@ class CdnSite(SitePolicy):
         Modelling it here rather than rejecting the combination keeps the record
         API unchanged and lets an operator set the two in either order.
         ``site.conf.j2`` gates its redirect on the identical condition, and
-        ``test_contract.py`` renders the template against this property so the
+        the edge-contract suite renders the template against this property so the
         two cannot drift.
         """
         return self.serves_tls and self.always_use_https

@@ -5,7 +5,7 @@ distribution is installed — they reach the CLI through this package's
 ``blitzecdn_cli_commands`` hook — so they belong here for the same reason the
 `origin check` cases belong in ``packages/blitzecdn-origins/tests``.
 
-They were in ``tests/entrypoints/test_cli.py``, listed by name in a
+They were in ``tests/entrypoints/cli/``, listed by name in a
 ``REQUIRES_CERTIFICATES`` set the shared fixtures read in order to skip them
 whenever the wheel was detached. Three `deploy` cases came with them: issuance
 during a deployment is this capability joining the deployment, and with the

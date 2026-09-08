@@ -1,7 +1,7 @@
 """`blitzecdn cache purge` and `blitzecdn stats`, as an operator types them.
 
 These live with the distribution that contributes the commands. They were in
-`tests/entrypoints/test_cli.py` while `cache` was a package inside the control
+`tests/entrypoints/cli/` while `cache` was a package inside the control
 plane, which meant detaching the capability would have taken a chunk of the
 core CLI suite with it — the package is the unit of modularity, so its tests
 move with it and the core suite keeps only what core still owns.
