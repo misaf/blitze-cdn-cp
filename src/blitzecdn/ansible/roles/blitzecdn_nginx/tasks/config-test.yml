@@ -21,7 +21,19 @@
     network_mode: none
     read_only: true
     security_opts: [no-new-privileges:true]
-    tmpfs: ["/tmp:rw,noexec,nosuid,size=8m", "/run:rw,noexec,nosuid,size=8m"]
+    # /var/lib/nginx alongside the two obvious ones because `nginx -t` is not
+    # purely a read: loading a configuration that registers the client-body and
+    # proxy temp paths makes nginx create them and chown them to the configured
+    # worker, and an image whose temp tree ships owned by someone else fails
+    # that chown against a read-only rootfs — with a message about
+    # `/var/lib/nginx/body` that says nothing about the configuration under
+    # test. The serving container never hits it, because its rootfs is
+    # writable. A syntax check has no business depending on the image's
+    # internal ownership, so give it somewhere to write and throw it away.
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=8m
+      - /run:rw,noexec,nosuid,size=8m
+      - /var/lib/nginx:rw,nosuid,size=8m
     volumes: "{{ blitzecdn_nginx_config_test_volumes }}"
     state: started
   register: blitzecdn_nginx_config_test
