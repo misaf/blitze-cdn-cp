@@ -590,6 +590,30 @@ in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep 
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "the database restore did not restart the worker"
 
+say "Restoring configuration and credentials from a full backup"
+in_container 'blitzecdn backup create -o /var/backups/blitzecdn/full-restore.tar.gz' ||
+  fail "the full backup failed"
+in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | grep -q BLITZE_API_KEYS=' ||
+  fail "the full backup omitted the API credentials"
+in_container 'sed -i "s/allow_empty_sites = false/allow_empty_sites = true/" /opt/blitzecdn/blitzecdn.toml' ||
+  fail "could not change the configuration before restore"
+# shellcheck disable=SC2016
+in_container 'printf "BLITZE_API_KEYS=operator:%s\n" "$(openssl rand -hex 32)" > /etc/blitzecdn/blitzecdn.env' ||
+  fail "could not change the credential before restore"
+in_container 'blitzecdn backup restore /var/backups/blitzecdn/full-restore.tar.gz --yes' ||
+  fail "the full restore failed"
+in_container 'tar -xOf /var/backups/blitzecdn/full-restore.tar.gz config/env | cmp -s - /etc/blitzecdn/blitzecdn.env' ||
+  fail "the full restore did not recover the archived credentials"
+in_container 'grep -q "allow_empty_sites = false" /opt/blitzecdn/blitzecdn.toml' ||
+  fail "the full restore did not replace the host configuration"
+in_container 'docker exec blitzecdn-api python -c "import tomllib; assert not tomllib.load(open(\"/opt/blitzecdn/blitzecdn.toml\", \"rb\"))[\"blitzecdn\"][\"allow_empty_sites\"]"' ||
+  fail "the API still sees the old configuration mount"
+# shellcheck disable=SC2016
+in_container 'test "$(stat -c %a /etc/blitzecdn/blitzecdn.env)" = 600' ||
+  fail "restored credentials are not private"
+in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
+  fail "the full restore did not recover the worker"
+
 say "Re-running the installer"
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
   fail "the installer is not re-runnable on ${IMAGE}"

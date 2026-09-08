@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import json
+import os
+import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
 
 import jinja2
+import pytest
 import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
@@ -19,6 +23,127 @@ from blitzecdn.docker import (
 ROOT = REPO_ROOT
 ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
 UNINSTALL = CORE_ANSIBLE / "roles/blitzecdn_uninstall/tasks/main.yml"
+
+
+@pytest.mark.parametrize(
+    ("scenario", "status", "operations"),
+    [
+        ("discovery_failure", 42, ["ps"]),
+        ("partial_stop", 43, ["ps", "stop", "up"]),
+        ("restore_failure", 44, ["ps", "stop", "run", "up"]),
+        ("recovery_failure", 1, ["ps", "stop", "run", "up"]),
+        ("restore", 0, ["ps", "stop", "run", "up"]),
+        ("no_running", 0, ["ps", "run"]),
+        ("create", 0, ["run"]),
+        ("database_only", 0, ["ps", "stop", "run", "up"]),
+    ],
+)
+def test_backup_wrapper_executes_safe_lifecycle(tmp_path, scenario, status, operations):
+    """Run the real shell wrapper, replacing only Docker and root-only helpers."""
+    project = tmp_path / "project"
+    config = tmp_path / "config"
+    scratch = tmp_path / "scratch"
+    for path in (project, config, scratch):
+        path.mkdir()
+    configuration = project / "blitzecdn.toml"
+    environment_file = config / "blitzecdn.env"
+    configuration.write_text("[blitzecdn]\nallow_empty_sites = false\n")
+    environment_file.write_text('BLITZE_API_KEY="original-secret"\n')
+    environment = jinja2.Environment(undefined=jinja2.StrictUndefined)  # noqa: S701
+    environment.filters["quote"] = shlex.quote
+    wrapper = environment.from_string(
+        (ROLE / "templates/blitzecdn-cli.j2").read_text()
+    ).render(
+        **{
+            **_role_defaults(),
+            "blitzecdn_controlplane_install_dir": str(project),
+            "blitzecdn_controlplane_config_dir": str(config),
+        }
+    )
+    # The test runs without sudo. The installed wrapper's privilege boundary
+    # remains in place; only the test copy bypasses it.
+    wrapper = wrapper.replace("if [[ ${EUID} -ne 0 ]]; then", "if false; then")
+    script = tmp_path / "wrapper"
+    script.write_text(wrapper)
+    log = tmp_path / "calls"
+    docker = tmp_path / "docker"
+    docker.write_text(
+        r"""#!/usr/bin/env python3
+import json, os, pathlib, sys
+args = sys.argv[1:]
+operation = args[3]
+with open(os.environ['CALL_LOG'], 'a') as output:
+    output.write(json.dumps(args) + '\n')
+scenario = os.environ['SCENARIO']
+if operation == 'ps':
+    if scenario == 'discovery_failure':
+        sys.exit(42)
+    if scenario != 'no_running':
+        print('blitzecdn-api\nblitzecdn-worker\nredis')
+if operation == 'stop' and scenario == 'partial_stop':
+    sys.exit(43)
+if operation == 'up' and scenario == 'recovery_failure':
+    sys.exit(45)
+if operation == 'run':
+    stage = pathlib.Path(args[args.index('--volume') + 1].split(':')[0])
+    assert (stage / 'blitzecdn.env').read_text() == 'BLITZE_API_KEY="original-secret"\n'
+    assert 'BLITZE_ENVIRONMENT_PATH=/run/blitzecdn-backup/blitzecdn.env' in args
+    assert 'BLITZE_PROJECT_DIR=/run/blitzecdn-backup' in args
+    if scenario != 'create':
+        assert 'COMPOSE_RESTORE_OFFLINE=1' in args
+    if scenario not in {'create', 'database_only'}:
+        (stage / 'blitzecdn.toml').write_text('[blitzecdn]\nallow_empty_sites = true\n')
+        (stage / 'blitzecdn.env').write_text('BLITZE_API_KEY="restored-secret"\n')
+    if scenario == 'restore_failure':
+        sys.exit(44)
+"""
+    )
+    # Simulate root ownership changes without requiring privileged tests.
+    chown = tmp_path / "chown"
+    chown.write_text("#!/bin/sh\nexit 0\n")
+    install = tmp_path / "install"
+    install.write_text(
+        '#!/bin/sh\nif [ "$1" = -o ]; then shift 4; fi\nexec /usr/bin/install "$@"\n'
+    )
+    for executable in (docker, chown, install):
+        executable.chmod(0o755)
+    original_inode = configuration.stat().st_ino
+    result = subprocess.run(  # noqa: S603 - trusted generated wrapper and fake commands
+        [
+            "/bin/bash",
+            str(script),
+            "backup",
+            "create" if scenario == "create" else "restore",
+            "archive",
+            "--yes",
+        ],
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}:{os.environ['PATH']}",
+            "TMPDIR": str(scratch),
+            "CALL_LOG": str(log),
+            "SCENARIO": scenario,
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == status, result.stderr
+    calls = [json.loads(line) for line in log.read_text().splitlines()]
+    assert [call[3] for call in calls] == operations
+    for call in calls:
+        if call[3] in {"stop", "up"}:
+            assert call[-2:] == ["blitzecdn-api", "blitzecdn-worker"]
+        if call[3] == "up":
+            assert "--no-deps" in call
+            assert "--force-recreate" in call
+            assert "--wait" in call
+    published = scenario in {"restore", "no_running", "recovery_failure"}
+    assert ("restored-secret" in environment_file.read_text()) == published
+    assert ("true" in configuration.read_text()) == published
+    if scenario == "database_only":
+        assert configuration.stat().st_ino == original_inode
+    assert list(scratch.iterdir()) == []
 
 
 def _role_defaults() -> dict[str, Any]:
@@ -133,7 +258,10 @@ def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
     )
     environment.filters["quote"] = str
     rendered = environment.from_string(wrapper).render(
-        blitzecdn_controlplane_compose_file="/etc/blitzecdn/control-plane.yml"
+        **{
+            **_role_defaults(),
+            "blitzecdn_controlplane_compose_file": "/etc/blitzecdn/control-plane.yml",
+        }
     )
 
     assert "docker compose --file" in wrapper
@@ -141,7 +269,10 @@ def test_host_wrapper_uses_compose_for_commands_and_offline_restore():
     assert "${#" not in wrapper
     assert "readonly compose_file=/etc/blitzecdn/control-plane.yml" in rendered
     assert 'stop "${running[@]}"' in wrapper
-    assert 'up --detach --wait --wait-timeout 180 "${running[@]}"' in wrapper
+    assert (
+        "up --detach --no-deps --force-recreate --wait "
+        '--wait-timeout 180 "${running[@]}"' in wrapper
+    )
     assert "COMPOSE_RESTORE_OFFLINE=1" in wrapper
     assert "docker exec" not in wrapper
 
