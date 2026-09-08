@@ -23,7 +23,12 @@ name: Edge image
       - packages/*/src/*/plugin.py
       - .github/workflows/edge-image.yml
   push:
-    branches: [3.x, 4.x]
+    # Every release line still under development. A line missing from here
+    # publishes no image for its branch pushes, and the pins in
+    # blitzecdn_edge/defaults and the fleet group_vars now name the release
+    # they ship with — so a new major must be added here in the same change
+    # that opens its branch, not on the first deploy that cannot pull.
+    branches: [3.x, 4.x, 5.x]
     paths:
       - src/blitzecdn/docker/edge/**
       - packages/*/src/*/plugin.py
