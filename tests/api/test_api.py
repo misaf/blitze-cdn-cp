@@ -26,16 +26,22 @@ def _zone(client, **policy):
 
     Two calls where a site used to be one, and the reason is the whole change:
     the policy belongs to the zone, and a record is what puts a hostname on the
-    edge for that policy to apply to.
+    edge for that policy to apply to. The record's value is the origin the edge
+    fetches from.
     """
     created = client.post(
         "/v1/domains",
-        json={"name": "example.com", "origin_host": "198.51.100.10", **policy},
+        json={"name": "example.com", **policy},
         headers=API_HEADERS,
     )
     client.post(
         "/v1/domains/example.com/records",
-        json={"domain": "example.com", "name": "cdn"},
+        json={
+            "domain": "example.com",
+            "name": "cdn",
+            "value": "198.51.100.10",
+            "proxied": True,
+        },
         headers=API_HEADERS,
     )
     return created
@@ -92,15 +98,6 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         )
         assert orphan.status_code == 404
 
-        # The zone says where its proxied hostnames are fetched from.
-        assert (
-            client.patch(
-                "/v1/domains/example.com",
-                json={"origin_host": "198.51.100.10"},
-                headers=headers,
-            ).status_code
-            == 200
-        )
         created = client.post(
             "/v1/domains/example.com/records", json=record_payload, headers=headers
         )
@@ -679,7 +676,7 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
         ]
         assert property_schema["anyOf"][0]["type"] == "boolean"
 
-        created = _zone(client, origin_host="198.51.100.10")
+        created = _zone(client)
         assert created.status_code == 201
         assert created.json()["under_attack_mode"] is False
 
@@ -704,9 +701,8 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
 
 
 def test_max_upload_size_is_reported_patchable_and_validated(settings):
-    payload = {"origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = _zone(client, **payload)
+        created = _zone(client)
         assert created.status_code == 201
         assert created.json()["max_upload_size"] == "100m"
 
@@ -739,9 +735,8 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
 
 
 def test_compression_is_reported_patchable_and_validated(settings):
-    payload = {"origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = _zone(client, **payload)
+        created = _zone(client)
         assert created.status_code == 201
         assert created.json()["compression"] == "brotli"
 
@@ -773,9 +768,8 @@ def test_compression_is_reported_patchable_and_validated(settings):
 
 
 def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings):
-    payload = {"origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = _zone(client, **payload)
+        created = _zone(client)
         assert created.status_code == 201
         assert created.json()["visitor_headers"] == {
             "connecting_ip": True,

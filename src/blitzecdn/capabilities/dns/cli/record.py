@@ -19,12 +19,13 @@ def record_add(
     domain: Annotated[str, typer.Argument(help="Zone the record belongs to.")],
     name: Annotated[str, typer.Argument(help="Subdomain label, '@', or '*'.")],
     value: Annotated[
-        str | None,
+        str,
         typer.Option(
             "--value",
-            help="Address to answer with. Implies --no-proxy; bypasses the CDN.",
+            help="The record's address: what DNS answers with, or — when "
+            "proxied — the origin the edge fetches from.",
         ),
-    ] = None,
+    ],
     proxied: Annotated[
         bool,
         typer.Option("--proxy/--no-proxy", help="Whether the edge serves this name."),
@@ -36,16 +37,14 @@ def record_add(
     """Add a DNS record, served by the edge or answering with an address.
 
     Proxied by default, which is the reason to put a hostname in a CDN at all.
-    How it is served is the zone's policy, bent by whichever rule matches it —
-    there is no second object to create first.
-
-    With --value the record bypasses the CDN and resolves straight to that
-    address; passing one implies --no-proxy, since a proxied record is answered
-    with an edge address rather than one you supply.
+    The address is the origin the edge fetches from while the record is
+    proxied, and what DNS answers with when it is not. How the hostname is
+    served is the zone's policy, bent by whichever rule matches it — there is
+    no second object to create first.
 
     A dual-stack hostname is two records, one A and one AAAA. Both are proxied
-    or neither is, and being one virtual host is no longer something they have
-    to agree about: neither of them carries a policy.
+    or neither is, and both point at the same origin; validation refuses a
+    hostname whose proxied records disagree about where the edge fetches from.
     """
     record = DnsRecord(
         domain=domain,
@@ -53,7 +52,7 @@ def record_add(
         type=type_,
         value=value,
         ttl=ttl,
-        proxied=proxied and value is None,
+        proxied=proxied,
     )
     common.emit(
         common.control_plane().dns.create_record(record, "cli"),
@@ -68,9 +67,10 @@ def record_list(
 ) -> None:
     """List records and what each one answers with.
 
-    Shows every zone unless you name one. A proxied record carries no address:
-    it is answered with the fleet's. The policy behind it is 'blitzecdn domain
-    show', and any exception to that is 'blitzecdn rule list'.
+    Shows every zone unless you name one. A proxied record's address is the
+    origin the edge fetches from, not the public answer — that is the fleet's,
+    handed out by the DNS system. The policy behind any hostname is
+    'blitzecdn domain show', and any exception to that is 'blitzecdn rule list'.
     """
     common.emit(
         common.control_plane().dns.list_records(domain), json_output=json_output
@@ -87,9 +87,9 @@ def record_proxy(
     """Put a hostname on the edge, served by its zone's policy.
 
     Takes effect on the edge at the next deploy. It only reaches clients once
-    DNS answers with an edge address, which the DNS system owns. Any address
-    the record was answering with is cleared, because a proxied record is
-    answered with the fleet's.
+    DNS answers with an edge address, which the DNS system owns. The record's
+    address is left alone — from now on it is where the edge fetches from, not
+    what clients resolve to.
     """
     record = common.control_plane().dns.proxy(domain, name, type_, "cli")
     common.emit(record, json_output=json_output)
@@ -157,8 +157,9 @@ def record_remove(
 def dns_export(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
     """Emit every record for the system that publishes DNS.
 
-    Records routed to a site carry no address: they must resolve to an edge,
-    and edge addressing is owned by the DNS system rather than the control
-    plane. The site name is reported instead so the two can be reconciled.
+    A proxied record's address is the origin the edge fetches from, and the
+    published answer is the fleet's own edge address — edge addressing is owned
+    by the DNS system rather than the control plane, and the origin never
+    leaves this side. The site name is reported so the two can be reconciled.
     """
     common.emit(common.control_plane().dns.dns_export(), json_output=json_output)

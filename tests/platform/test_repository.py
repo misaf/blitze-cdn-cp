@@ -69,14 +69,18 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(settings=settings, repository=repository)  # type: ignore[arg-type]
-    repository.zones.create_domain(Domain(name="example.com", origin_host="192.0.2.1"))
-    repository.zones.create_record(DnsRecord(domain="example.com", name="cdn"))
+    repository.zones.create_domain(Domain(name="example.com"))
+    repository.zones.create_record(
+        DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
+    )
 
     (site,) = control.dns.list_sites()
     assert site.name == "example-com"
     assert site.origin_host == "192.0.2.1"
 
-    repository.zones.replace_domain(Domain(name="example.com", origin_host="192.0.2.2"))
+    repository.zones.replace_record(
+        DnsRecord(domain="example.com", name="cdn", value="192.0.2.2")
+    )
     assert control.dns.list_sites()[0].origin_host == "192.0.2.2"
 
     repository.zones.delete_record("example.com", "cdn", RecordType.A)
@@ -148,18 +152,10 @@ def _seed(repository, domain_payload, record_payload, site_payload, **policy):
 
     Store-level, so it deliberately goes through the stores rather than the
     services: the point of these tests is what survives a round trip through
-    SQLite, not what the services do on the way. ``site_payload`` supplies the
-    origin the zone now carries; there is no site row to create.
+    SQLite, not what the services do on the way. The origin lives on the record
+    now, in its ``value``; there is no site row to create.
     """
-    repository.zones.create_domain(
-        Domain.model_validate(
-            {
-                **domain_payload,
-                "origin_host": site_payload["origin_host"],
-                **policy,
-            }
-        )
-    )
+    repository.zones.create_domain(Domain.model_validate({**domain_payload, **policy}))
     repository.zones.create_record(DnsRecord.model_validate(record_payload))
     return _hosts(repository)[0]
 

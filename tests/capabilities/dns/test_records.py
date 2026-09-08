@@ -1,4 +1,4 @@
-"""DNS records: what they answer with, and whether the edge answers instead."""
+"""DNS records: their address, and whether the edge answers instead."""
 
 from __future__ import annotations
 
@@ -24,9 +24,9 @@ def _control(settings, repository):
     return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())  # type: ignore[arg-type]
 
 
-def _zone(control, origin: str = "198.51.100.10", **policy):
+def _zone(control, **policy):
     control.dns.create_domain(
-        Domain.model_validate({"name": "example.com", "origin_host": origin, **policy}),
+        Domain.model_validate({"name": "example.com", **policy}),
         "alice",
     )
 
@@ -41,28 +41,26 @@ def _zone(control, origin: str = "198.51.100.10", **policy):
     ],
 )
 def test_the_hostname_covers_apex_subdomain_and_wildcard(label, expected_fqdn):
-    record = DnsRecord(domain="example.com", name=label)
+    record = DnsRecord(domain="example.com", name=label, value="198.51.100.1")
     assert record.fqdn == expected_fqdn
     assert record.proxied
 
 
-def test_the_switch_and_the_address_cannot_contradict_each_other():
-    """One field says who answers, the other says with what. They must agree.
+def test_a_record_always_carries_an_address():
+    """``value`` is required whether the edge serves the hostname or not.
 
-    Before the collapse this was ``value`` against a ``site`` name, and before
-    that a ``proxied`` boolean beside a ``value`` that meant the origin when it
-    was true and the DNS answer when it was false. One field with two meanings
-    is what let an unproxied record keep publishing the origin address.
+    It is the origin the edge fetches from while proxied and the DNS answer
+    when not — the same field, present either way, as on Cloudflare.
     """
-    with pytest.raises(ValueError, match="cannot carry a 'value' of its own"):
-        DnsRecord(domain="example.com", name="x", value="198.51.100.1")
-    with pytest.raises(ValueError, match="needs a 'value'"):
-        DnsRecord(domain="example.com", name="x", proxied=False)
+    with pytest.raises(ValueError, match="value"):
+        DnsRecord(domain="example.com", name="x")
+    with pytest.raises(ValueError, match="value"):
+        DnsRecord(domain="example.com", name="x", proxied=True)
 
 
 def test_a_record_is_proxied_unless_it_says_otherwise():
     """The default is the reason to put a hostname in a CDN at all."""
-    assert DnsRecord(domain="example.com", name="www").proxied
+    assert DnsRecord(domain="example.com", name="www", value="198.51.100.1").proxied
     unproxied = DnsRecord(
         domain="example.com", name="db", proxied=False, value="198.51.100.11"
     )
@@ -89,7 +87,9 @@ def test_records_require_their_zone(settings):
     control = _control(settings, repository)
 
     with pytest.raises(NotFoundError, match="add it first"):
-        control.dns.create_record(DnsRecord(domain="example.com", name="cdn"), "alice")
+        control.dns.create_record(
+            DnsRecord(domain="example.com", name="cdn", value="198.51.100.1"), "alice"
+        )
 
 
 def test_duplicate_records_conflict(settings):
@@ -106,13 +106,13 @@ def test_duplicate_records_conflict(settings):
     assert len(repository.zones.list_records("example.com")) == 2
 
 
-def test_a_dual_stack_hostname_is_one_virtual_host(settings):
-    """Two records, one ``server_name``, and nothing to keep in step.
+def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
+    """One virtual host has one upstream, so A and AAAA must agree where the
+    edge fetches from — and an A record takes an IPv4 origin while an AAAA
+    takes an IPv6 one, so only one family can be proxied.
 
-    This used to be enforced: both records had to name the same site, and a
-    check refused it when they did not. Neither record carries a policy now, so
-    there is nothing for them to disagree about — the hostname resolves once,
-    through the zone.
+    This is the one contradiction left, and the only one that can still be
+    written. ``validation_errors`` refuses the deploy and names the hostname.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -120,6 +120,15 @@ def test_a_dual_stack_hostname_is_one_virtual_host(settings):
     seed_record(control, name="cdn")
     seed_record(control, name="cdn", record_type=RecordType.AAAA)
 
+    (error,) = control.dns.validation_errors()
+    assert "cdn.example.com" in error
+    assert "different origins" in error
+
+    # Pointing only one family at the edge is fine, and is one host.
+    control.dns.update_record(
+        "example.com", "cdn", RecordType.AAAA, RecordPatch(proxied=False), "alice"
+    )
+    assert control.dns.validation_errors() == []
     (host,) = control.dns.list_sites()
     assert host.server_names == ("cdn.example.com",)
     assert host.origin_host == "198.51.100.10"
@@ -145,53 +154,48 @@ def test_a_zone_serving_nothing_derives_no_virtual_host(settings):
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
-    seed_record(control, name="db", value="198.51.100.11")
+    seed_record(control, name="db", value="198.51.100.11", proxied=False)
 
     assert control.dns.list_sites() == []
 
 
-def test_unproxying_requires_the_address_dns_should_answer_with(settings):
-    """The one place this parts company with Cloudflare, and why."""
+def test_unproxying_publishes_the_address_the_record_holds(settings):
+    """As on Cloudflare, grey-clouding leaves the record's own address as the
+    answer. ``control.dns.unproxy`` still takes one explicitly, so the service
+    does not publish the origin by accident; the record patch endpoint lets an
+    operator ask for it by name.
+    """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
     seed_record(control, name="cdn")
 
-    with pytest.raises(ValueError, match="needs a 'value'"):
-        control.dns.update_record(
-            "example.com", "cdn", RecordType.A, RecordPatch(proxied=False), "alice"
-        )
+    control.dns.update_record(
+        "example.com", "cdn", RecordType.A, RecordPatch(proxied=False), "alice"
+    )
+    record = control.dns.get_record("example.com", "cdn", RecordType.A)
+    assert not record.proxied
+    assert record.value == "198.51.100.10"
+    assert control.dns.list_sites() == []
 
     control.dns.unproxy("example.com", "cdn", RecordType.A, "198.51.100.20", "alice")
     record = control.dns.get_record("example.com", "cdn", RecordType.A)
-    assert not record.proxied
     assert record.value == "198.51.100.20"
-    assert control.dns.list_sites() == []
 
 
-def test_proxying_again_clears_the_address(settings):
+def test_proxying_keeps_the_address_as_the_origin(settings):
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
-    seed_record(control, name="cdn", value="198.51.100.20")
+    seed_record(control, name="cdn", value="198.51.100.20", proxied=False)
 
     record = control.dns.proxy("example.com", "cdn", RecordType.A, "alice")
 
     assert record.proxied
-    assert record.value is None
-    assert control.dns.list_sites()[0].server_names == ("cdn.example.com",)
-
-
-def test_a_proxied_hostname_with_nowhere_to_fetch_from_is_refused(settings):
-    """The one contradiction left, and the only one that can still be written."""
-    repository = Repository(settings.database_path)
-    control = _control(settings, repository)
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    seed_record(control, name="cdn")
-
-    (error,) = control.dns.validation_errors()
-    assert "cdn.example.com" in error
-    assert "proxied but nothing says where to fetch it from" in error
+    assert record.value == "198.51.100.20"
+    (site,) = control.dns.list_sites()
+    assert site.server_names == ("cdn.example.com",)
+    assert site.origin_host == "198.51.100.20"
 
 
 def test_deleting_a_zone_takes_its_records_and_its_hosts(settings):

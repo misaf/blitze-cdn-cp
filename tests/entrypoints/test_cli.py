@@ -40,21 +40,27 @@ runner = CliRunner()
 
 
 def _seed_site(control, label="api", origin="198.51.100.20", name=None):
-    """A zone's origin and one proxied hostname in it, through the CLI.
+    """One proxied hostname in a zone, through the CLI.
 
-    Back to two commands after a spell at three. `record add --proxied` once
-    did both jobs because a record *was* a site; then a site had to be created
-    first; now the origin is the zone's and the record only says the edge
-    serves the hostname.
+    A record names both the hostname and where the edge fetches from: its value
+    is the origin while proxied and the DNS answer when not. The zone's serving
+    policy is what the CLI edits around it.
     """
     assert (
         runner.invoke(
-            cli.app, ["domain", "origin", "example.com", "--origin", origin]
+            cli.app,
+            [
+                "record",
+                "add",
+                "example.com",
+                label,
+                "--value",
+                origin,
+                "--proxy",
+                "--json",
+            ],
         ).exit_code
         == 0
-    )
-    assert (
-        runner.invoke(cli.app, ["record", "add", "example.com", label]).exit_code == 0
     )
     return name or "example-com"
 
@@ -218,11 +224,12 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
 def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
     settings, monkeypatch
 ):
-    """`record route` / `record unroute` is the CDN switch for one hostname.
+    """`record proxy` / `record unproxy` is the CDN switch for one hostname.
 
-    The site outlives the switch. `record proxy --off` used to take the whole
-    virtual host away, policy included, because the record carried it; here it
-    takes the hostname off a site that stays configured.
+    The site outlives the switch. Switching a record's proxy flag used to take
+    the whole virtual host away, policy included, because the record carried
+    the policy; here it takes the hostname on and off a site whose settings
+    stay configured.
     """
     control = ControlPlane(
         settings=settings,
@@ -231,15 +238,22 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
     )  # type: ignore[arg-type]
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
-    runner.invoke(
-        cli.app, ["domain", "origin", "example.com", "--origin", "198.51.100.20"]
-    )
     added = runner.invoke(
         cli.app,
-        ["record", "add", "example.com", "api", "--value", "198.51.100.20", "--json"],
+        [
+            "record",
+            "add",
+            "example.com",
+            "api",
+            "--value",
+            "198.51.100.20",
+            "--no-proxy",
+            "--json",
+        ],
     )
     assert added.exit_code == 0
     assert json.loads(added.stdout)["proxied"] is False
+    assert json.loads(added.stdout)["value"] == "198.51.100.20"
     # Unproxied, the zone derives no virtual host at all.
     assert control.dns.list_sites() == []
 
@@ -1313,7 +1327,8 @@ def test_site_cache_with_no_option_says_what_to_name(settings, monkeypatch):
 def test_site_origin_sets_the_request_identity_without_moving_the_address(
     settings, monkeypatch
 ):
-    """The reason `--origin` became optional: SNI is settable on its own."""
+    """`domain origin` is about *as whom* the edge reaches the origin, so the
+    origin itself — the record's value — is left untouched."""
     control = _control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     before = control.sites.get_site("example-com").origin_host
@@ -1338,13 +1353,22 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
     assert site.origin_host == before
 
 
-def test_site_origin_still_moves_the_address_on_its_own(settings, monkeypatch):
+def test_repointing_a_record_moves_the_sites_origin(settings, monkeypatch):
+    """The site follows its record: one hostname is served from wherever its
+    record points, so repointing it is unproxying to the new address and
+    proxying again.
+
+    This is the trade the record model buys: the origin travels with the
+    hostname, not with the zone, so nothing else in the zone moves.
+    """
     control = _control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
+    assert control.sites.get_site("example-com").origin_host == "198.51.100.10"
 
-    result = runner.invoke(
-        cli.app, ["domain", "origin", "example.com", "--origin", "203.0.113.40"]
+    runner.invoke(
+        cli.app, ["record", "unproxy", "example.com", "cdn", "--value", "203.0.113.40"]
     )
+    result = runner.invoke(cli.app, ["record", "proxy", "example.com", "cdn", "--json"])
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
@@ -1359,7 +1383,7 @@ def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
     result = runner.invoke(cli.app, ["domain", "origin", "example.com"])
 
     assert result.exit_code != 0
-    assert "--origin" in result.output
+    assert "--request-host" in result.output
 
 
 def test_site_origin_clears_an_override_it_can_set(settings, monkeypatch):

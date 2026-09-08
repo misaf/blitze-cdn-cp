@@ -50,7 +50,6 @@ class DomainPatch(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    origin_host: str | None = None
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None

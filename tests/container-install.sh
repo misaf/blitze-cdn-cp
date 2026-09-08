@@ -281,14 +281,14 @@ in_container 'cd / && blitzecdn config set blitzecdn_edge_image blitzecdn-edge:s
 in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
   fail "could not disable the registry pull"
 
-# The zone carries the origin and the policy; the record only says the edge
-# serves the hostname, and records are proxied by default. There is no site to
-# create in between. The virtual host the edge writes is named after the zone —
-# `example-test` for `example.test` — which is why the assertions below look
-# for `${ACME_SITE}`.
-in_container 'cd / && blitzecdn domain add example.test --origin 127.0.0.1' ||
+# The zone carries the policy; the record carries the origin and the switch.
+# The record's value is where the edge fetches from, and the record is proxied
+# by default. There is no site to create in between. The virtual host the edge
+# writes is named after the zone — `example-test` for `example.test` — which is
+# why the assertions below look for `${ACME_SITE}`.
+in_container 'cd / && blitzecdn domain add example.test' ||
   fail "could not add a zone"
-in_container 'cd / && blitzecdn record add example.test cdn' ||
+in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1' ||
   fail "could not put the hostname on the edge"
 
 # Check mode first: it must survive a host that has never converged, which is

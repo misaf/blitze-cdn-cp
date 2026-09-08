@@ -26,8 +26,10 @@ def test_hostname_normalization_is_idempotent(name: str) -> None:
 
 @given(label=_LABEL, address=st.ip_addresses(v=4))
 def test_zone_snapshot_round_trip(label: str, address: object) -> None:
-    domains = [Domain(name=f"{label}.example.com", origin_host=str(address))]
-    records = [DnsRecord(domain=domains[0].name, name=f"cdn-{label}")]
+    domains = [Domain(name=f"{label}.example.com")]
+    records = [
+        DnsRecord(domain=domains[0].name, name=f"cdn-{label}", value=str(address))
+    ]
 
     restored_domains, restored_records, restored_rules = decode_snapshot_state(
         encode_snapshot(domains, records, [])
@@ -43,8 +45,10 @@ def test_a_snapshot_derives_the_hosts_it_does_not_carry(
     label: str, address: object
 ) -> None:
     """What an edge is asked to serve is a function of what the snapshot holds."""
-    domains = [Domain(name=f"{label}.example.com", origin_host=str(address))]
-    records = [DnsRecord(domain=domains[0].name, name=f"cdn-{label}")]
+    domains = [Domain(name=f"{label}.example.com")]
+    records = [
+        DnsRecord(domain=domains[0].name, name=f"cdn-{label}", value=str(address))
+    ]
 
     (host,) = decode_snapshot(encode_snapshot(domains, records, []))
 

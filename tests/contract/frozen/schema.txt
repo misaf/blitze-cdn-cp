@@ -1,12 +1,10 @@
 blitzecdn	check	deployments.deployments_no_self_rollback_check	rollback_of IS NULL OR rollback_of != id
 blitzecdn	check	deployments.deployments_status_check	status IN ('queued', 'running', 'succeeded', 'failed', 'timed_out', 'abandoned')
 blitzecdn	check	dns_records.dns_records_name_nonempty_check	length(name) > 0
-blitzecdn	check	dns_records.dns_records_target_check	proxied <> (value IS NOT NULL)
 blitzecdn	check	dns_records.dns_records_ttl_check	ttl BETWEEN 1 AND 604800
 blitzecdn	check	dns_records.dns_records_type_check	type IN ('A', 'AAAA')
-blitzecdn	check	dns_records.dns_records_value_nonempty_check	value IS NULL OR length(value) > 0
+blitzecdn	check	dns_records.dns_records_value_check	value IS NOT NULL AND length(value) > 0
 blitzecdn	check	domains.domains_name_nonempty_check	length(name) > 0
-blitzecdn	check	domains.domains_origin_host_nonempty_check	origin_host IS NULL OR length(origin_host) > 0
 blitzecdn	check	edges.edges_host_nonempty_check	length(host) > 0
 blitzecdn	check	edges.edges_name_nonempty_check	length(name) > 0
 blitzecdn	check	edges.edges_port_check	port BETWEEN 1 AND 65535
@@ -46,9 +44,8 @@ blitzecdn	column	dns_records.proxied	type=BOOLEAN not-null
 blitzecdn	column	dns_records.ttl	type=INTEGER not-null
 blitzecdn	column	dns_records.type	type=VARCHAR not-null pk
 blitzecdn	column	dns_records.updated_at	type=UtcDateTime(VARCHAR) not-null
-blitzecdn	column	dns_records.value	type=VARCHAR null
+blitzecdn	column	dns_records.value	type=VARCHAR not-null
 blitzecdn	column	domains.name	type=VARCHAR not-null pk
-blitzecdn	column	domains.origin_host	type=VARCHAR null
 blitzecdn	column	domains.policy	type=JSON not-null
 blitzecdn	column	domains.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	edges.host	type=VARCHAR not-null

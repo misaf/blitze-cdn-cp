@@ -16,7 +16,7 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
-_DOMAIN_COLUMNS = frozenset({"name", "origin_host"})
+_DOMAIN_COLUMNS = frozenset({"name"})
 
 
 class ZoneStore:
@@ -149,15 +149,12 @@ class ZoneStore:
         return row
 
     def _apply_domain(self, row: DomainRow, domain: Domain) -> None:
-        row.origin_host = domain.origin_host
         row.policy = domain.model_dump(mode="json", exclude=set(_DOMAIN_COLUMNS))
         row.updated_at = self._db.now()
 
     @staticmethod
     def _domain(row: DomainRow) -> Domain:
-        return Domain.model_validate(
-            {**row.policy, "name": row.name, "origin_host": row.origin_host}
-        )
+        return Domain.model_validate({**row.policy, "name": row.name})
 
     def _row(self, record: DnsRecord) -> DnsRecordRow:
         row = DnsRecordRow(

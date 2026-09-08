@@ -278,7 +278,8 @@ def _seed_site(repository, *, name, label, origin, **policy):
     ``name`` is the host the caller expects to be derived. There is no site to
     create under that name any more, so it decides whether the policy goes on
     the zone or on a rule: ``example-com`` is the zone's own, and anything else
-    becomes a rule matching this hostname.
+    becomes a rule matching this hostname. Either way the record's value is the
+    origin the edge fetches from.
     """
     zone = "example.com"
     with suppress(ConflictError):
@@ -286,9 +287,7 @@ def _seed_site(repository, *, name, label, origin, **policy):
     if name == host_name(zone, None):
         current = repository.zones.get_domain(zone)
         repository.zones.replace_domain(
-            Domain.model_validate(
-                {**current.model_dump(), "origin_host": origin, **policy}
-            )
+            Domain.model_validate({**current.model_dump(), **policy})
         )
     else:
         repository.rules.create_rule(
@@ -296,10 +295,10 @@ def _seed_site(repository, *, name, label, origin, **policy):
                 domain=zone,
                 name=name.removeprefix(f"{host_name(zone, None)}--"),
                 match=f"{label}.{zone}",
-                overrides={"origin_host": origin, **policy},
+                overrides=dict(policy),
             )
         )
-    repository.zones.create_record(DnsRecord(domain=zone, name=label))
+    repository.zones.create_record(DnsRecord(domain=zone, name=label, value=origin))
 
 
 @pytest.fixture

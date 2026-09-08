@@ -30,41 +30,36 @@ class DomainRow(Base, table=True):
 
     ``policy`` stays whole because nothing queries inside it: it is written and
     read back as one document and validated by the domain model on the way out.
-    ``origin_host`` is out of it and in a column of its own — "which zones
-    proxy to this origin" is a question worth asking of the database rather
-    than of every decoded policy in turn — and is nullable because a zone is
-    delegable before anything is served from it.
+    Each record's address is the origin the edge fetches from, so there is
+    nothing zone-level to ask "which zones proxy to this origin" about — every
+    zone that proxies anywhere can be answered from the records table.
     """
 
     __tablename__ = "domains"
     __table_args__ = (
         CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
-        CheckConstraint(
-            "origin_host IS NULL OR length(origin_host) > 0",
-            name="domains_origin_host_nonempty_check",
-        ),
     )
 
     name: str = Field(sa_column=Column(String, primary_key=True))
-    origin_host: str | None = Field(
-        default=None, sa_column=Column(String, nullable=True)
-    )
     policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
 class DnsRecordRow(Base, table=True):
-    """One record: an address of its own, or a hostname the edge serves.
+    """One record: an address, and whether the edge serves the hostname.
 
     No policy column and no site reference. The policy is the zone's, and which
-    virtual host serves this hostname is computed from the zone and its rules
-    rather than stored — so what is left here is the answer DNS gives
-    (``value``, ``ttl``) and whether the edge answers instead (``proxied``).
+    virtual host serves this hostname is computed from the zone, its rules and
+    the record's own address rather than stored — so what is left here is the
+    address (``value``, ``ttl``) and whether the edge answers instead
+    (``proxied``). ``value`` is the DNS answer when ``proxied`` is false and
+    the origin the edge fetches from when it is true.
 
-    The check constraint is the database's copy of the domain rule: a proxied
-    record has no value and an unproxied one must have one. It is written down
-    twice deliberately — records also arrive from a restored backup and from a
-    rollback's wholesale rewrite, neither of which goes through the editor.
+    The check constraints are the database's copy of the domain rules: a value
+    is always present, and it carries an address that matches its type. They
+    are written down twice deliberately — records also arrive from a restored
+    backup and from a rollback's wholesale rewrite, neither of which goes
+    through the editor.
     """
 
     __tablename__ = "dns_records"
@@ -73,11 +68,8 @@ class DnsRecordRow(Base, table=True):
         CheckConstraint("type IN ('A', 'AAAA')", name="dns_records_type_check"),
         CheckConstraint("length(name) > 0", name="dns_records_name_nonempty_check"),
         CheckConstraint(
-            "proxied <> (value IS NOT NULL)", name="dns_records_target_check"
-        ),
-        CheckConstraint(
-            "value IS NULL OR length(value) > 0",
-            name="dns_records_value_nonempty_check",
+            "value IS NOT NULL AND length(value) > 0",
+            name="dns_records_value_check",
         ),
     )
 
@@ -92,7 +84,7 @@ class DnsRecordRow(Base, table=True):
     )
     name: str = Field(sa_column=Column(String, primary_key=True))
     type: str = Field(sa_column=Column(String, primary_key=True))
-    value: str | None = Field(default=None, sa_column=Column(String, nullable=True))
+    value: str = Field(sa_column=Column(String, nullable=False))
     ttl: int
     proxied: bool = True
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

@@ -26,12 +26,13 @@ def _control(settings, repository):
 def test_a_zone_is_delegable_before_anything_is_served_from_it():
     """No origin, no TLS, no decisions. Adding a domain is one fact.
 
-    The alternative — requiring an origin at creation — puts a placeholder in
-    the field that decides where traffic actually goes, and a placeholder there
-    is worse than an absence, because an absence can be refused later.
+    An origin need not be chosen here because it does not live here: each
+    proxied hostname names its own origin on its record. A placeholder in the
+    field that decides where traffic goes would be worse than an absence,
+    because an absence can be refused later — and this zone has no decision
+    to make until something is proxied.
     """
     zone = Domain(name="example.com")
-    assert zone.origin_host is None
     assert zone.cache_enabled
     assert not zone.ssl_mode.serves_tls
 
@@ -52,7 +53,6 @@ def test_the_zone_policy_is_stored_and_read_back_whole(settings):
     control.dns.create_domain(
         Domain(
             name="example.com",
-            origin_host="origin.example.com",
             cache_valid_success="1h",
             compression="gzip",
         ),
@@ -60,7 +60,6 @@ def test_the_zone_policy_is_stored_and_read_back_whole(settings):
     )
 
     stored = repository.zones.get_domain("example.com")
-    assert stored.origin_host == "origin.example.com"
     assert stored.cache_valid_success == "1h"
     assert stored.compression.value == "gzip"
 
@@ -251,9 +250,7 @@ def test_a_rule_that_merges_into_an_impossible_zone_is_refused():
 def test_rules_are_stored_ordered_and_resolved_end_to_end(settings):
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
-    control.dns.create_domain(
-        Domain(name="example.com", origin_host="origin.example.com"), "tester"
-    )
+    control.dns.create_domain(Domain(name="example.com"), "tester")
     control.rules.create_rule(
         Rule(
             domain="example.com",

@@ -17,7 +17,6 @@ from blitzecdn.capabilities.dns.domain import (
     RecordPatch,
     RecordType,
     derive_hosts,
-    resolve_policy,
 )
 from blitzecdn.capabilities.dns.domain.hosts import host_source
 from blitzecdn.capabilities.dns.ports import (
@@ -164,14 +163,14 @@ class DnsService:
 
         Only half the switch. The edge starts serving the hostname on the next
         deploy, but the record only reaches clients once DNS answers with an
-        edge address rather than with whatever it answered with before.
+        edge address rather than with the record's own.
 
-        ``value`` is cleared in the same call because a proxied record cannot
-        carry one: the address DNS answers with is the fleet's, not the
-        operator's.
+        ``value`` is left alone: it is the address the edge fetches from while
+        the orange cloud is on, and the DNS answer when it is off. Proxying
+        changes what the address means, not what it is.
         """
         return self.update_record(
-            domain, name, type_, RecordPatch(proxied=True, value=None), operator
+            domain, name, type_, RecordPatch(proxied=True), operator
         )
 
     def unproxy(
@@ -179,10 +178,10 @@ class DnsService:
     ) -> DnsRecord:
         """Take a hostname off the edge, answering with ``value`` instead.
 
-        The address is required rather than inferred. On Cloudflare unproxying
-        leaves the origin address behind as the public answer, which publishes
-        the origin to anyone who looks; naming the replacement is one field
-        more and one surprise fewer.
+        The address is required rather than carried over from the origin. On
+        Cloudflare unproxying leaves the origin address behind as the public
+        answer, which publishes the origin to anyone who looks; naming the
+        replacement is one field more and one surprise fewer.
         """
         return self.update_record(
             domain, name, type_, RecordPatch(proxied=False, value=value), operator
@@ -316,8 +315,9 @@ class DnsService:
     def dns_export(self) -> list[dict[str, object]]:
         """Every record, for the system that publishes DNS.
 
-        A proxied record deliberately carries no address: it must resolve to an
-        edge, and edge addressing belongs to the DNS system rather than here.
+        A proxied record's address stays home: it is the origin the edge fetches
+        from, not the public answer, and the published A/AAAA is the fleet's —
+        which edge addressing belongs to the DNS system rather than here.
         """
         return [
             {
@@ -333,22 +333,32 @@ class DnsService:
         ]
 
     def validation_errors(self) -> list[str]:
-        """Report proxied hostnames whose effective policy has no origin.
+        """Report proxy configurations no edge could serve.
 
-        Deployment validation also covers state loaded through backup restoration or
-        rollback, which can bypass the editing services."""
+        A hostname's proxied records must all point at the same origin: the
+        A and the AAAA resolve to the same virtual host, and a virtual host has
+        one upstream. Deployment validation also covers state loaded through
+        backup restoration or rollback, which can bypass the editing services.
+        """
         errors: list[str] = []
-        zones = {domain.name: domain for domain in self.zones.list_domains()}
-        rules = self.rules.list_rules()
+        zones = {domain.name for domain in self.zones.list_domains()}
+        by_hostname: dict[str, dict[str, list[str]]] = {}
         for record in self.zones.list_records():
-            zone = zones.get(record.domain)
-            if zone is None or not record.proxied:
+            if record.domain not in zones or not record.proxied:
                 continue
-            in_zone = [rule for rule in rules if rule.domain == zone.name]
-            if resolve_policy(zone, in_zone, record.fqdn).policy.origin_host is None:
+            by_hostname.setdefault(record.fqdn, {}).setdefault(record.value, []).append(
+                record.type.value
+            )
+        for fqdn, origins in sorted(by_hostname.items()):
+            if len(origins) > 1:
+                pointed = ", ".join(
+                    f"{types[0]} -> {origin}"
+                    for origin, types in sorted(origins.items())
+                )
                 errors.append(
-                    f"{record.fqdn!r} is proxied but nothing says where to "
-                    f"fetch it from. Set an origin on {zone.name!r}, or on a "
-                    "rule that matches this hostname."
+                    f"{fqdn!r} has proxied records pointing at different "
+                    f"origins ({pointed}); every proxied record for a hostname "
+                    "must point at the same origin, or the others must be "
+                    "unproxied"
                 )
         return errors

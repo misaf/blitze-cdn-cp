@@ -474,7 +474,7 @@ def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
             domain="example.com",
             name="awaiting-dns",
             match="not-yet.example.com",
-            overrides={"origin_host": "192.0.2.10"},
+            overrides={"cache_enabled": False},
         )
     )
     control.deployments.write_desired_state(

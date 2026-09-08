@@ -22,25 +22,16 @@ from blitzecdn.cli import common
 @domain_app.command("add")
 def domain_add(
     name: Annotated[str, typer.Argument(help="Zone to serve, e.g. example.com.")],
-    origin: Annotated[
-        str | None,
-        typer.Option(
-            "--origin",
-            help="Default origin for proxied hostnames in this zone.",
-        ),
-    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Register a DNS zone delegated to BlitzeCDN.
+    """Register a DNS zone delegated to Blitzecdn.
 
-    The origin is optional here and can be set later with 'domain origin'. A
-    zone is delegable before anyone has decided what it proxies to, and asking
-    for one up front only invites a placeholder in the field that matters most.
+    What the edge fetches from is not asked here: that is the value on each
+    proxied record, and a zone is delegable before anyone has pointed a record
+    at anything.
     """
     common.emit(
-        common.control_plane().dns.create_domain(
-            Domain(name=name, origin_host=origin), "cli"
-        ),
+        common.control_plane().dns.create_domain(Domain(name=name), "cli"),
         json_output=json_output,
     )
 
@@ -85,10 +76,6 @@ def _cleared(no_request_host: bool, no_sni: bool) -> frozenset[str]:
 @domain_app.command("origin")
 def domain_origin(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
-    origin: Annotated[
-        str | None,
-        typer.Option("--origin", help="Host or address the edge fetches from."),
-    ] = None,
     request_host: Annotated[
         str | None,
         typer.Option(
@@ -113,23 +100,21 @@ def domain_origin(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Change where the edge fetches this zone's content from, and as whom.
+    """Set the identity the edge presents on this zone's origin leg.
 
-    Three settings rather than one because the address and the identity are
-    separate questions. `--origin` is where the connection goes.
-    `--request-host` is the `Host` header the origin sees, which a shared host
-    routes on, so an origin serving many zones from one address needs it to
-    tell them apart. `--sni` is the name offered in the TLS handshake, which is
-    what an origin presents a certificate for; it follows `--request-host`
-    unless a certificate is issued for something else.
+    Where the connection actually goes is the value on each proxied record —
+    'blitzecdn record add <zone> <name> --value <origin>'. What is set here is
+    *as whom* the edge reaches it: `--request-host` is the `Host` header the
+    origin sees, which a shared host routes on, so a backend serving many zones
+    from one address needs it to tell them apart. `--sni` is the name offered
+    in the TLS handshake, which is what a backend presents a certificate for;
+    it follows `--request-host` unless a certificate is issued for something
+    else.
 
-    Both overrides are clearable — `--no-request-host` and `--no-sni` put the
-    zone back on the default — because either is a value whose absence means
-    something, and a setting an operator can turn on but never off is one they
-    have to edit the database to undo.
-
-    A hostname that needs a different origin from the rest of its zone is a
-    rule: 'blitzecdn rule add <zone> <name> --match <host> --set origin_host=...'.
+    Both are clearable — `--no-request-host` and `--no-sni` put the zone back
+    on the default — because either is a value whose absence means something,
+    and a setting an operator can turn on but never off is one they have to
+    edit the database to undo.
 
     Options you do not name are left as they are.
     """
@@ -140,7 +125,6 @@ def domain_origin(
         if value is not None and clear:
             raise typer.BadParameter(f"--{flag} and --no-{flag} contradict each other")
     supplied: dict[str, object] = {
-        "origin_host": origin,
         "origin_request_host": None if no_request_host else request_host,
         "origin_sni": None if no_sni else sni,
     }
@@ -150,9 +134,7 @@ def domain_origin(
         if value is not None or field in _cleared(no_request_host, no_sni)
     }
     if not named:
-        raise typer.BadParameter(
-            "give at least one of --origin, --request-host or --sni"
-        )
+        raise typer.BadParameter("give at least one of --request-host or --sni")
     # Built from the dict rather than by keyword: a patch applies the fields
     # that were *set*, and `origin_sni=None` passed for an option nobody named
     # would clear the override instead of leaving it alone. Going through the
@@ -161,12 +143,7 @@ def domain_origin(
     common.emit(zone, json_output=json_output)
     if not json_output:
         identity = zone.origin_request_host or "the visitor's Host header"
-        typer.echo(
-            _applied(
-                zone,
-                f"{zone.name} now fetches from {zone.origin_host} as {identity}.",
-            )
-        )
+        typer.echo(_applied(zone, f"{zone.name} reaches its origin as {identity}."))
 
 
 @domain_app.command("enable")
