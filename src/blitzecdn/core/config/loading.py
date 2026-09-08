@@ -273,18 +273,10 @@ def _with_local_environment(
 def _read_project_config(path: Path) -> dict[str, object]:
     """Read `[blitzecdn]`, without deciding whether every key is meaningful.
 
-    A key core does not recognise is not refused here, and cannot be: an
-    optional capability's non-secret settings belong in this file — a renewal
-    interval is exactly the sort of default it exists to hold — and this
-    function runs long before any plugin has said what it claims. Refusing
-    here would mean the only configurable capability setting is one core
-    already knows about.
-
-    The refusal belongs to the one place that can make it:
-    `_read_capability_environment` stages the unrecognised keys and the plugin
-    resolver rejects any that no installed capability claims. A typo is loud
-    there, and loud in a sentence that can also say the package that owned the
-    name is not installed.
+    A key core does not recognise is not refused here, and cannot be: this runs
+    long before any plugin has said what it claims. The refusal belongs to the
+    plugin resolver — see
+    `docs/decisions/0002-capability-configuration-ownership.md`.
     """
     if not path.exists():
         return {}
@@ -373,13 +365,9 @@ def _read_capability_config_file(
 ) -> dict[str, str]:
     """Stage the `blitzecdn.toml` keys core does not recognise.
 
-    This is what makes a non-secret capability setting configurable at all. A
-    file that refused every key core did not know would leave an environment
-    variable as the only way to configure an optional capability — fine for a
-    secret, wrong for a renewal interval, which is exactly the sort of
-    non-secret default this file exists to hold. So an unrecognised key is
-    staged rather than refused, and the refusal belongs to the plugin
-    resolver, which is the only thing that knows what any capability claims.
+    This is what makes a non-secret capability setting configurable at all: a
+    renewal interval is exactly the sort of default this file exists to hold, so
+    an unrecognised key is staged rather than refused.
 
     A TOML key is spelled the way every core key already maps to its variable:
     `certificate_renewal_interval_seconds` becomes

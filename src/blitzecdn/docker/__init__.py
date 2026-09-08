@@ -54,13 +54,11 @@ EDGE_DOCKERFILE = EDGE_CONTEXT / "Dockerfile"
 #: The build-time probe that proves every module the image was built with
 #: loads and registers a directive against the binary it was compiled for.
 #:
-#: There is no ``EDGE_MODULES_CONF`` beside it, and its absence is the point. A
-#: ``load_module`` list committed here would make this directory a register of
-#: which capabilities exist, and would leave an edge loading a module whose
-#: distribution had been detached. Both the list and the probe's directives are
-#: generated during the build from what the installed capabilities declare —
-#: see :class:`blitzecdn.core.plugins.EdgeModule` — and this file is only their
-#: frame.
+#: There is no ``EDGE_MODULES_CONF`` beside it, and its absence is the point:
+#: both the list and the probe's directives are generated during the build from
+#: what the installed capabilities declare, and this file is only their frame.
+#: See :class:`blitzecdn.core.plugins.EdgeModule` and
+#: ``docs/decisions/0003-what-a-capability-puts-on-an-edge.md``.
 EDGE_MODULE_PROBE_CONF = EDGE_CONTEXT / "module-probe.conf"
 
 #: The control plane's own image. A path only — there is no

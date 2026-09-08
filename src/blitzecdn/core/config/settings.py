@@ -95,16 +95,12 @@ class Settings(BaseSettings):
     required_capabilities: tuple[str, ...] = ()
     #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:
-    #: The generic answer to "an optional capability needs a credential". Core
-    #: carries no capability's name: a MaxMind license key or an Under Attack
-    #: signing secret as a field here would name a capability that may not be
-    #: installed, and would still leave a package this repository has never
-    #: heard of no way to be configured at all. During composition, installed
-    #: plugins explicitly claim names through `ConfigurationContribution` — as
-    #: an `EnvironmentKey` when the value is a secret and a `CapabilitySetting`
-    #: when it is not; unclaimed and multiply claimed names are configuration
-    #: errors. Only the resolved *secrets* reach the package role through the
-    #: subprocess environment.
+    #: The generic answer to "an optional capability needs a credential", and
+    #: the reason core carries no capability's name. Installed plugins claim
+    #: names during composition through `ConfigurationContribution`; unclaimed
+    #: and multiply claimed names are errors, and only the resolved *secrets*
+    #: reach a package role through the subprocess environment. See
+    #: `docs/decisions/0002-capability-configuration-ownership.md`.
     #:
     #: `SecretStr` because core cannot know which of these are credentials, and
     #: the safe assumption for a value it cannot interpret is that it is one:
@@ -112,9 +108,7 @@ class Settings(BaseSettings):
     #: Not environment-only: a `blitzecdn.toml` key core does not recognise is
     #: staged here as `BLITZE_<KEY>` rather than refused outright, because a
     #: non-secret capability setting has to be writable in the file that holds
-    #: every other non-secret default. The refusal lives one layer on — an
-    #: unclaimed name is rejected by the plugin resolver, which is the only
-    #: thing that knows what is claimed.
+    #: every other non-secret default.
     #:
     #: Core's own names are excluded, which keeps `BLITZE_API_KEY` and
     #: `BLITZE_API_KEYS` — controller authentication, no edge's business — out

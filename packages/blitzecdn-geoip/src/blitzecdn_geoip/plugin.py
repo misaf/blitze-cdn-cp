@@ -128,18 +128,13 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
             plugin="geoip",
             roles_path=ansible.ROLES_PATH,
             edge_roles=(ansible.EDGE_ROLE,),
-            # The module the resources below are written against. Built into
-            # the edge image and loaded unconditionally, it would make the
-            # image a second, stale answer to which capabilities exist: an
-            # edge with this distribution detached would still load GeoIP2.
+            # The module the resources below are written against.
             #
-            # No `probe`, and that is not an omission. The image's build-time
-            # probe evaluates one directive per module to catch a module that
-            # loads but registers nothing, and every geoip2 directive takes a
-            # MaxMind database: `geoip2` opens the file while the configuration
-            # is parsed, and the image has none and must not carry one. The
-            # module still has to load, which the probe's `load_module` proves;
-            # only the directive check is unavailable here.
+            # No `probe`, and that is not an omission: every geoip2 directive
+            # takes a MaxMind database, which `geoip2` opens while the
+            # configuration is parsed, and the image has none and must not
+            # carry one. The module still has to load, which the probe's
+            # `load_module` proves; only the directive check is unavailable.
             edge_modules=(
                 EdgeModule(
                     name="geoip2",
