@@ -711,7 +711,7 @@ if email.count("@") != 1 or any(char.isspace() for char in email):
 PY
 
 
-  # This virtualenv is bootstrap tooling for Ansible. Long-running application
+  # This virtualenv supplies Ansible and the host Docker SDK runner. Application
   # processes are installed into the image built by the role, never the host.
   bootstrap_runtime ansible-only
 

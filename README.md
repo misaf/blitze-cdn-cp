@@ -90,6 +90,13 @@ blitzecdn backup restore /path/to/backup.tar.gz
 Backups contain credentials and private keys. Copy them off the server and
 protect them as secrets.
 
+On standalone installations, the host command uses the official Docker Python
+SDK to run disposable application containers. It reads the managed service file
+at `/etc/blitzecdn/control-plane.compose.yml`; installation and image builds still
+use Compose. Restores stop the running API and worker, restore configuration and
+credentials, then recreate those services and wait for them to become healthy.
+The host Python environment is required for this command as well as installation.
+
 Update an installed standalone server with:
 
 ```bash

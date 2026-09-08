@@ -10,6 +10,8 @@ readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
 dependencies = [
+  "docker>=7.1,<8",
+  "python-dotenv>=1.1,<2",
   "cryptography>=45,<51",
   # CAA lookups for certificate preflight. The stdlib resolver only answers
   # A/AAAA, and a CAA record that forbids our CA is otherwise invisible until
@@ -71,6 +73,7 @@ all = ["blitzecdn-backup", "blitzecdn-cache", "blitzecdn-compression", "blitzecd
 # `uv sync --no-dev` — what a server runs — leaves them out entirely.
 [dependency-groups]
 dev = [
+  "types-docker>=7.1,<8",
   "ansible-lint>=26.6,<27",
   "bandit[toml]>=1.9.4,<2",
   # Starlette's TestClient uses HTTPX2. Plain httpx is only a deprecated

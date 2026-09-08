@@ -2,7 +2,7 @@
 # The control-plane host is a Debian/Ubuntu host like any edge, so its state is
 # converged the same way an edge's is. What the installer keeps is only what has
 # to exist before Ansible can run at all: the packages Python needs, the
-# bootstrap-only virtualenv and pinned collections. Application processes run
+# host tooling virtualenv and pinned collections. Application processes run
 # only in the Compose project.
 blitzecdn_controlplane_install_dir: /opt/blitzecdn
 blitzecdn_controlplane_config_dir: /etc/blitzecdn

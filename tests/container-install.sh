@@ -613,6 +613,10 @@ in_container 'test "$(stat -c %a /etc/blitzecdn/blitzecdn.env)" = 600' ||
   fail "restored credentials are not private"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' ||
   fail "the full restore did not recover the worker"
+in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-api' ||
+  fail "Compose cannot discover the API recreated through the Docker SDK"
+in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-worker' ||
+  fail "Compose cannot discover the worker recreated through the Docker SDK"
 
 say "Re-running the installer"
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
