@@ -77,7 +77,6 @@ class Domain(ZonePolicy):
     """A delegated zone and the policy every hostname in it is served by."""
 
     name: str
-    origin_host: str | None = None
 
     @model_validator(mode="after")
     def valid_domain(self) -> Self:
@@ -100,7 +99,6 @@ class DomainPatch(Model):
     orphaned them.
     """
 
-    origin_host: str | None = None
     ssl_mode: SslMode | None = None
     ssl_automatic_mode: SslAutomaticMode | None = None
     minimum_tls_version: MinimumTlsVersion | None = None
@@ -135,12 +133,12 @@ class RecordType(StrEnum):
 
 
 class DnsRecord(Model):
-    """A record: an address of its own, or a hostname the edge answers for."""
+    """A record: the address DNS answers with, or the origin the edge serves from."""
 
     domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
-    value: str | None = None
+    value: str
     ttl: int = Field(default=300, ge=1, le=604800)
     proxied: bool = True
 
@@ -158,11 +156,12 @@ class DnsRecord(Model):
 
 
 class RecordPatch(Model):
-    """Send ``proxied`` and ``value`` together to move a hostname either way.
+    """A partial update to a record. ``proxied`` and ``value`` are independent.
 
-    Off the edge is ``{"proxied": false, "value": "203.0.113.9"}``; back onto
-    it is ``{"proxied": true, "value": null}``. Neither half is a valid record
-    on its own, so both go in one request.
+    A record always carries a value, so flipping the edge on or off never
+    touches the address: ``{"proxied": false}`` makes the value public, and
+    ``{"proxied": true}`` makes it the origin. ``value`` is still patchable on
+    its own to repoint a hostname.
     """
 
     value: str | None = None

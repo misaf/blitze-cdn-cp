@@ -31,27 +31,28 @@ def test_a_zone_is_created_read_and_patched(settings):
     with TestClient(control_plane_app(settings)) as client:
         created = client.post(
             "/v1/domains",
-            json={"name": "example.com", "origin_host": "origin.example.com"},
+            json={
+                "name": "example.com",
+                "cache_valid_success": "1h",
+            },
             headers=API_HEADERS,
         )
         assert created.status_code == 201
-        assert created.json()["cache_valid_success"] == "10m"
+        assert created.json()["cache_valid_success"] == "1h"
 
         patched = client.patch(
             "/v1/domains/example.com",
-            json={"cache_valid_success": "1h"},
+            json={"cache_valid_success": "5m"},
             headers=API_HEADERS,
         )
         assert patched.status_code == 200
-        assert patched.json()["cache_valid_success"] == "1h"
-        # Untouched by a patch that did not mention it.
-        assert patched.json()["origin_host"] == "origin.example.com"
+        assert patched.json()["cache_valid_success"] == "5m"
 
         assert (
             client.get("/v1/domains/example.com", headers=API_HEADERS).json()[
                 "cache_valid_success"
             ]
-            == "1h"
+            == "5m"
         )
 
 

@@ -62,10 +62,10 @@ def test_migrating_an_empty_file_produces_a_usable_database(tmp_path):
     command.upgrade(_config(path), "head")
 
     repository = Repository(path)
-    repository.zones.create_domain(
-        Domain(name="example.com", origin_host="203.0.113.10")
+    repository.zones.create_domain(Domain(name="example.com"))
+    repository.zones.create_record(
+        DnsRecord(domain="example.com", name="cdn", value="203.0.113.10")
     )
-    repository.zones.create_record(DnsRecord(domain="example.com", name="cdn"))
     assert [record.name for record in repository.zones.list_records()] == ["cdn"]
     assert (
         _revision(path) == ScriptDirectory.from_config(_config(path)).get_current_head()

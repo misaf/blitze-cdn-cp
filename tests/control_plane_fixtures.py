@@ -107,8 +107,10 @@ def seed_site(
     whatever the caller asked for. Callers that need the name read it off the
     returned host.
 
-    ``routed=False`` sets the policy and proxies nothing, which derives no host
-    at all — a zone we answer DNS for and serve nothing of.
+    ``origin`` is where the proxied record points the edge: it is the record's
+    ``value``, not a zone setting. ``routed=False`` sets the policy and proxies
+    nothing, which derives no host at all — a zone we answer DNS for and serve
+    nothing of.
 
     ``policy`` is any ``SitePolicy`` field. The zone is created on first use so
     that several calls can share one domain without the caller tracking which
@@ -128,22 +130,24 @@ def seed_site(
                     domain=domain,
                     name=rule,
                     match=f"{record}.{domain}",
-                    overrides={"origin_host": origin, **policy},
+                    overrides={**policy},
                 ),
                 operator,
             )
     else:
         rule = None
-    control.dns.update_domain(
-        domain,
-        DomainPatch.model_validate({"origin_host": origin, **policy}),
-        operator,
-    )
+    if policy:
+        control.dns.update_domain(
+            domain,
+            DomainPatch.model_validate(policy),
+            operator,
+        )
     if routed:
         seed_record(
             control,
             domain=domain,
             name=record,
+            value=origin,
             record_type=record_type,
             ttl=ttl,
             operator=operator,
@@ -154,8 +158,12 @@ def seed_site(
             **control.dns.get_domain(domain).model_dump(),
             "name": host_name_for(domain, rule),
             "server_names": (),
+            "origin_host": origin,
         }
     )
+
+
+_DEFAULT_ORIGINS = {RecordType.A: "198.51.100.10", RecordType.AAAA: "2001:db8::10"}
 
 
 def seed_record(
@@ -171,7 +179,8 @@ def seed_record(
 ) -> DnsRecord:
     """Add one record, proxied or answering with ``value``.
 
-    A record carries no policy any more, so this takes none. Use
+    ``value`` is the record's address — the origin while proxied, the DNS
+    answer when not — and defaults to a family-appropriate address. Use
     :func:`seed_site` for a zone with settings on it.
     """
     with suppress(ConflictError):
@@ -183,8 +192,8 @@ def seed_record(
                 "name": name,
                 "type": record_type,
                 "ttl": ttl,
-                "value": value,
-                "proxied": value is None if proxied is None else proxied,
+                "value": value if value is not None else _DEFAULT_ORIGINS[record_type],
+                "proxied": True if proxied is None else proxied,
             }
         ),
         operator,
@@ -487,6 +496,7 @@ def record_payload() -> dict[str, object]:
         "domain": "example.com",
         "name": "cdn",
         "type": "A",
+        "value": "198.51.100.10",
         "proxied": True,
     }
 
@@ -634,20 +644,24 @@ def seed_site_over_http(
 ):
     """Zone, policy, record — over HTTP, the way a client would.
 
-    Still three calls, and the middle one has changed again: the policy is set
-    on the zone rather than on a site of its own, and the record says only that
-    the hostname is on the edge.
+    Still three calls: the policy is set on the zone, and the record proxies
+    the hostname with its value as the origin the edge fetches from.
     """
     client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
     created = client.patch(
         "/v1/domains/example.com",
-        json={"origin_host": "198.51.100.10", **policy},
+        json={**policy},
         headers=headers,
     )
     assert created.status_code == 200, created.text
     proxied = client.post(
         "/v1/domains/example.com/records",
-        json={"domain": "example.com", "name": label, "proxied": True},
+        json={
+            "domain": "example.com",
+            "name": label,
+            "value": "198.51.100.10",
+            "proxied": True,
+        },
         headers=headers,
     )
     assert proxied.status_code == 201, proxied.text

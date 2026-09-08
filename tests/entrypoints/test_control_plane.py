@@ -2,6 +2,7 @@ import sqlite3
 import time
 from contextlib import contextmanager
 from dataclasses import replace
+from datetime import UTC, datetime
 
 import pytest
 from control_plane_fixtures import (
@@ -104,9 +105,7 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
         repository=repository,
         runner=FakeRunner(),  # type: ignore[arg-type]
     )
-    control.dns.create_domain(
-        Domain(name="example.com", origin_host="198.51.100.10"), "alice"
-    )
+    control.dns.create_domain(Domain(name="example.com"), "alice")
 
     def refuse_event(_event):
         raise RuntimeError("audit recorder failed")
@@ -116,7 +115,9 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
     monkeypatch.setattr(repository.audit_log, "record", refuse_event)
     with pytest.raises(RuntimeError, match="audit recorder failed"):
         control.dns.create_record(
-            DnsRecord(domain="example.com", name="cdn"),
+            DnsRecord(
+                domain="example.com", name="cdn", value="198.51.100.10", proxied=True
+            ),
             "alice",
         )
 
@@ -144,7 +145,14 @@ def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
     )  # type: ignore[arg-type]
     _seed_proxied_record(control)
 
-    repository.zones.create_record(DnsRecord(domain="example.com", name="www"))
+    repository.zones.create_record(
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            value="198.51.100.10",
+            proxied=True,
+        )
+    )
 
     (site,) = control.dns.list_sites()
     assert site.server_names == ("cdn.example.com", "www.example.com")
@@ -273,27 +281,37 @@ def _plane(settings, repository):
     return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())  # type: ignore[arg-type]
 
 
-def test_a_hostname_can_no_longer_be_claimed_by_two_policies(settings):
-    """Three refusals, retired one at a time, and this is the last of them.
+def test_a_hostname_cannot_reach_two_origins_at_once(settings):
+    """A hostname resolves once, through one policy, but its two families are
+    still two records — and every record carries its own origin. Writing both a
+    proxied A and a proxied AAAA is exactly how a hostname pointed two places
+    gets written, including behind the service's back, which this checks.
 
-    A record used to *be* a site, so two records for one hostname were two
-    policies fighting over one ``server_name`` — and two different hostnames
-    could flatten to one derived site name, which was the other half. Naming
-    sites and pointing records at them retired the second and left the first as
-    an explicit ``ConflictError``.
-
-    Neither can be written now. A hostname resolves once, through its zone and
-    the first rule that matches it, so the A and the AAAA record cannot reach
-    different policies however they are written — including behind the
-    service's back, which is what this checks.
+    It cannot be served that way: one virtual host has one upstream, so
+    validation refuses the pair. The A record is IPv4-only and the AAAA
+    IPv6-only, so the two origins can never agree — one family has to be
+    unproxied.
     """
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
     seed_site(control, name="example-com", record="www")
     repository.zones.create_record(
-        DnsRecord(domain="example.com", name="www", type=RecordType.AAAA)
+        DnsRecord(
+            domain="example.com",
+            name="www",
+            type=RecordType.AAAA,
+            value="2001:db8::10",
+        )
     )
 
+    errors = control.dns.validation_errors()
+    assert any(
+        "www.example.com" in error and "different origins" in error for error in errors
+    )
+
+    control.dns.update_record(
+        "example.com", "www", RecordType.AAAA, RecordPatch(proxied=False), "alice"
+    )
     (site,) = control.dns.list_sites()
     assert site.server_names == ("www.example.com",)
     assert control.dns.validation_errors() == []
@@ -313,7 +331,9 @@ def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
         ),
         "alice",
     )
-    control.dns.create_record(DnsRecord(domain="example.com", name="api"), "alice")
+    control.dns.create_record(
+        DnsRecord(domain="example.com", name="api", value="198.51.100.10"), "alice"
+    )
 
     hosts = {site.name: site for site in control.dns.list_sites()}
     assert hosts["example-com"].server_names == ("www.example.com",)
@@ -322,13 +342,14 @@ def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
     assert control.dns.validation_errors() == []
 
 
-def test_validate_reports_a_proxied_hostname_with_no_origin(settings):
+def test_validate_reports_a_hostname_served_from_two_origins(settings):
     """The one contradiction canonical state can still hold.
 
     It replaces two that it cannot: a record naming a site that is gone, and a
     hostname routed to two sites. Both were about a stored reference between a
-    record and a site, and there is no such reference now — so what is left is
-    a hostname put on the edge before anyone said where to fetch it from.
+    record and a site, and there is no such reference now — what is left is a
+    hostname whose two families point the edge at two different origins, which
+    one virtual host with one upstream cannot serve.
 
     Written behind the service, which is what a restore from a damaged backup
     amounts to.
@@ -338,17 +359,27 @@ def test_validate_reports_a_proxied_hostname_with_no_origin(settings):
     seed_site(control, name="example-com", record="www")
     connection = sqlite3.connect(settings.database_path)
     try:
-        connection.execute("UPDATE domains SET origin_host = NULL")
         connection.execute(
-            "UPDATE domains SET policy = "
-            "json_set(policy, '$.origin_host', json('null'))"
+            "INSERT INTO dns_records "
+            "(domain, name, type, value, ttl, proxied, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?)",
+            (
+                "example.com",
+                "www",
+                "AAAA",
+                "2001:db8::10",
+                300,
+                datetime.now(UTC).isoformat(),
+            ),
         )
         connection.commit()
     finally:
         connection.close()
 
     errors = control.dns.validation_errors()
-    assert any("nothing says where to fetch it from" in error for error in errors)
+    assert any(
+        "www.example.com" in error and "different origins" in error for error in errors
+    )
 
 
 def test_a_proxied_record_may_still_be_updated_in_place(settings):
@@ -395,16 +426,15 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
     )  # type: ignore[arg-type]
     original = seed_site(control, name="example-com", record="cdn")
     successful = control.deployments.deploy("alice")
-    control.dns.update_domain(
-        "example.com", DomainPatch(origin_host="192.0.2.99"), "alice"
-    )
+    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
     result = control.deployments.rollback("alice", successful.id)
     assert result.status is DeploymentStatus.SUCCEEDED
     # Rollback restores the zone the snapshot carried, so the host it derives
-    # comes back with the origin and the hostnames it had.
+    # comes back with the origin, the hostnames and the policy it had.
     restored = control.dns.get_site(original.name)
     assert restored.origin_host == original.origin_host
     assert restored.server_names == ("cdn.example.com",)
+    assert restored.cache_enabled is True
     assert control.dns.validation_errors() == []
 
 
@@ -417,9 +447,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     )  # type: ignore[arg-type]
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
-    control.dns.update_domain(
-        "example.com", DomainPatch(origin_host="192.0.2.99"), "alice"
-    )
+    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
     current = control.dns.get_site(original.name)
 
     def fail_restore(_domains, _records):
@@ -435,7 +463,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     assert "rollback.applied" not in actions
     # Only the original deployment may have announced success.
     assert actions.count("deployment.succeeded") == 1
-    assert original.origin_host != current.origin_host
+    assert original.cache_enabled != current.cache_enabled
 
 
 def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
@@ -474,9 +502,7 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
     # snapshot's zones over it, and must do so while still holding the lock —
     # swapping them after releasing it would drop whatever landed in between
     # without the guard ever seeing it.
-    control.dns.update_domain(
-        "example.com", DomainPatch(origin_host="192.0.2.99"), "bob"
-    )
+    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "bob")
 
     control.deployments.rollback("alice", successful.id)
 
@@ -651,9 +677,7 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     )  # type: ignore[arg-type]
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
-    control.dns.update_domain(
-        "example.com", DomainPatch(origin_host="203.0.113.55"), "alice"
-    )
+    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
 
     rolled_back = control.deployments.rollback("alice", successful.id)
 

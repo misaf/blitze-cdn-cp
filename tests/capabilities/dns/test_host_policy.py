@@ -432,13 +432,15 @@ def test_site_patch_cannot_redirect_a_managed_certificate():
 
 
 def test_site_patch_revalidates_the_whole_site():
+    """The site is rebuilt from the domain *and* rebuilt from the record, so a
+    policy patch lands without touching the origin the edge fetches from."""
     site = CdnSite.model_validate(_managed_site())
-    patch = DomainPatch(origin_host="192.0.2.20", cache_enabled=False)
+    patch = DomainPatch(cache_enabled=False)
     updated = CdnSite.model_validate(
         {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
-    assert updated.origin_host == "192.0.2.20"
     assert updated.cache_enabled is False
+    assert updated.origin_host == "198.51.100.10"
 
 
 def test_site_patch_covers_every_shared_policy_field():
@@ -458,10 +460,11 @@ def test_site_patch_covers_every_shared_policy_field():
 
 
 def test_the_patch_cannot_reach_the_field_dns_owns():
-    """`server_names` is maintained from the records, so a patch has no word for
-    it. Everything else about a site is patchable; this one thing is not."""
+    """`server_names` and `origin_host` are both maintained from the records, so
+    a patch has no word for them. Everything else about a site is patchable;
+    these two things are not."""
     assert "server_names" not in DomainPatch.model_fields
-    assert "origin_host" in DomainPatch.model_fields
+    assert "origin_host" not in DomainPatch.model_fields
 
 
 def test_every_patchable_policy_field_is_optional():
@@ -632,14 +635,14 @@ def _snapshot_of(**policy: object) -> str:
     """A snapshot of one zone with one proxied hostname in it.
 
     Sites are not in a snapshot any more — they are derived from it — so a
-    round trip has to go through the zone that produces one. That is the point
-    of these tests either way: what survives JSON on the way to a run and back
-    from a rollback.
+    round trip has to go through the zone and the record that produce one. The
+    policy lives on the zone and the origin on the record; what survives JSON
+    on the way to a run and back from a rollback is, between them, the site.
     """
-    zone = Domain.model_validate(
-        {"name": "example.com", "origin_host": "198.51.100.10", **policy}
+    zone = Domain.model_validate({"name": "example.com", **policy})
+    record = DnsRecord(
+        domain="example.com", name="cdn", value="198.51.100.10", proxied=True
     )
-    record = DnsRecord(domain="example.com", name="cdn")
     return encode_snapshot([zone], [record], [])
 
 

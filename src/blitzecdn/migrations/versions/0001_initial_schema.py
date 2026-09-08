@@ -114,7 +114,6 @@ def upgrade() -> None:
     op.create_table(
         "domains",
         sa.Column("name", sa.String(), nullable=False),
-        sa.Column("origin_host", sa.String(), nullable=True),
         sa.Column("policy", sqlite.JSON(), nullable=False),
         sa.Column(
             "updated_at",
@@ -122,10 +121,6 @@ def upgrade() -> None:
             nullable=False,
         ),
         sa.CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
-        sa.CheckConstraint(
-            "origin_host IS NULL OR length(origin_host) > 0",
-            name="domains_origin_host_nonempty_check",
-        ),
         sa.PrimaryKeyConstraint("name"),
     )
     op.create_table(
@@ -221,7 +216,7 @@ def upgrade() -> None:
         sa.Column("domain", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("type", sa.String(), nullable=False),
-        sa.Column("value", sa.String(), nullable=True),
+        sa.Column("value", sa.String(), nullable=False),
         sa.Column("ttl", sa.Integer(), nullable=False),
         sa.Column("proxied", sa.Boolean(), nullable=False),
         sa.Column(
@@ -234,11 +229,8 @@ def upgrade() -> None:
         sa.CheckConstraint("type IN ('A', 'AAAA')", name="dns_records_type_check"),
         sa.CheckConstraint("length(name) > 0", name="dns_records_name_nonempty_check"),
         sa.CheckConstraint(
-            "proxied <> (value IS NOT NULL)", name="dns_records_target_check"
-        ),
-        sa.CheckConstraint(
-            "value IS NULL OR length(value) > 0",
-            name="dns_records_value_nonempty_check",
+            "value IS NOT NULL AND length(value) > 0",
+            name="dns_records_value_check",
         ),
         sa.PrimaryKeyConstraint("domain", "name", "type"),
     )

@@ -68,7 +68,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
 
     # A third, distinct state, so both earlier snapshots are eligible and the
     # canary is the more recent of the two. Without the filter it would win.
-    seed_site(control, name="other-example-com", record="other")
+    seed_site(control, name="other-example-com", record="other", always_use_https=True)
     assert (
         repository.deployments.successful_rollback_target(repository.snapshot()).id
         == full.id

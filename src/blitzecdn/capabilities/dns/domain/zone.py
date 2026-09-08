@@ -4,10 +4,9 @@ Records are stored separately and keyed by zone. Hostname-specific overrides
 live in ``dns.domain.rule``; ``dns.domain.resolution`` merges them with the
 zone policy.
 
-``origin_host`` may be omitted while configuring a zone. Deployment validation
-requires an effective origin for each proxied hostname.
-
-``SitePolicy`` is shared with derived virtual hosts through ``dns.domain.host``.
+The zone holds no origin: each record carries its own address, which is the
+origin the edge fetches from while the record is proxied. ``SitePolicy`` is
+shared with derived virtual hosts through ``dns.domain.host``.
 ``_assert_patch_covers_zone`` checks that partial updates cover the zone fields."""
 
 from __future__ import annotations
@@ -34,10 +33,6 @@ class Domain(SitePolicy):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
-    #: Where the edge fetches from for hostnames in this zone that are proxied
-    #: and have no rule saying otherwise. Optional because a zone is delegable
-    #: long before anything is served from it; see the module docstring.
-    origin_host: str | None = None
 
     @field_validator("name")
     @classmethod
@@ -52,11 +47,6 @@ class Domain(SitePolicy):
                 ) from None
             return normalized
         raise ValueError("domain must be a name, not an IP address")
-
-    @field_validator("origin_host")
-    @classmethod
-    def validate_origin(cls, value: str | None) -> str | None:
-        return None if value is None else hostname(value)
 
     @field_validator("certificate_path", "certificate_key_path")
     @classmethod
