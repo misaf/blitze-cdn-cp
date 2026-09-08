@@ -89,8 +89,9 @@ Set `BLITZE_ALLOWED_IPS=` and recreate the API to return to loopback-only access
 The environment file survives installer updates and backup/restore. For a
 source checkout, the equivalent setting is `allowed_ips = ["203.0.113.8/32"]`
 under `[blitzecdn]` in `blitzecdn.toml`; the environment takes precedence. Run
-`python -m blitzecdn.api` to use automatic binding. The installed listener is
-IPv4; the request filter also understands IPv6 peers when used by an IPv6 server.
+`python -m blitzecdn.api` to use automatic binding. The listener is IPv4, so
+addresses are IPv4 too; an IPv6 entry is refused when the setting is read
+rather than accepted and then never matched.
 
 ## Controller quick start
 

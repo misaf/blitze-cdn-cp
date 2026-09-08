@@ -165,10 +165,10 @@ def test_preflight_dns_servers_must_be_addresses(tmp_path, raw):
 
 def test_allowed_ips_sources_and_normalization(tmp_path):
     (tmp_path / "blitzecdn.toml").write_text(
-        '[blitzecdn]\nallowed_ips = ["203.0.113.8", "2001:db8::1/64"]\n'
+        '[blitzecdn]\nallowed_ips = ["203.0.113.8", "198.51.100.0/24"]\n'
     )
     configured = Settings.from_environment({}, project_dir=tmp_path)
-    assert configured.allowed_ips == ("203.0.113.8/32", "2001:db8::/64")
+    assert configured.allowed_ips == ("203.0.113.8/32", "198.51.100.0/24")
     overridden = Settings.from_environment(
         {"BLITZE_ALLOWED_IPS": "198.51.100.8,198.51.100.8/32"}, project_dir=tmp_path
     )
@@ -184,7 +184,19 @@ def test_allowed_ips_sources_and_normalization(tmp_path):
 
 
 @pytest.mark.parametrize(
-    "value", ["example.com", "203.0.113.8/99", "203.0.113.8,", "*"]
+    "value",
+    [
+        "example.com",
+        "203.0.113.8/99",
+        "203.0.113.8,",
+        "*",
+        # IPv6 parses as a network and would still admit nobody: the installed
+        # listener is IPv4.
+        "2001:db8::1",
+        "2001:db8::/64",
+        "::ffff:198.51.100.8/128",
+        "203.0.113.8,2001:db8::1",
+    ],
 )
 def test_invalid_allowed_ips_fail_configuration(tmp_path, value):
     with pytest.raises(ConfigurationError):

@@ -35,23 +35,14 @@ def test_unlisted_clients_cannot_reach_any_route(settings, path, peer):
     "peer",
     [
         "203.0.113.8",
-        "2001:db8:1::8",
+        # A dual-stack socket reports an allowed IPv4 client in this form.
         "::ffff:203.0.113.8",
-        "::ffff:198.51.100.8",
         "127.0.0.1",
         "::1",
     ],
 )
 def test_allowed_clients_can_read_schema_but_still_need_auth(settings, peer):
-    restricted = settings.model_copy(
-        update={
-            "allowed_ips": (
-                "203.0.113.0/24",
-                "2001:db8:1::/64",
-                "::ffff:198.51.100.8/128",
-            )
-        }
-    )
+    restricted = settings.model_copy(update={"allowed_ips": ("203.0.113.0/24",)})
     with TestClient(control_plane_app(restricted), client=(peer, 1234)) as client:
         assert client.get("/openapi.json").status_code == 200
         assert client.get("/v1/sites").status_code == 401

@@ -191,7 +191,7 @@ class Settings(BaseSettings):
     #: Small on purpose: the work it carries serialises on the deployment lock
     #: anyway, so more workers would only queue deeper.
     api_worker_threads: int = Field(default=2, ge=1, le=16)
-    #: Public API client IPs/CIDRs. Empty keeps the installed API on loopback.
+    #: Public API client IPv4 addresses/CIDRs. Empty keeps the API on loopback.
     allowed_ips: tuple[str, ...] = ()
     allow_empty_sites: bool = False
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
@@ -207,7 +207,18 @@ class Settings(BaseSettings):
         for item in value:
             if not isinstance(item, str) or not item.strip():
                 raise ValueError("allowed_ips entries must be non-empty IPs/CIDRs")
-            networks.append(str(ip_network(item.strip(), strict=False)))
+            network = ip_network(item.strip(), strict=False)
+            # The installed listener binds 0.0.0.0, so an IPv6 entry would be
+            # configuration that cannot admit anyone. Refused at load rather
+            # than accepted and ignored: an operator who lists an address and
+            # is then refused by the API has no way to tell which of the two
+            # is wrong.
+            if network.version != 4:
+                raise ValueError(
+                    f"allowed_ips entry {item.strip()!r} is IPv6; the API "
+                    "listens on IPv4 and cannot admit it"
+                )
+            networks.append(str(network))
         return tuple(dict.fromkeys(networks))
 
     @field_validator(

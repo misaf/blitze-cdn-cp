@@ -88,8 +88,10 @@ redis_url = "redis://127.0.0.1:6379/0"
 # endpoint. Set BLITZE_ALLOWED_IPS to override this list from the environment.
 #
 
-# Client IPs and CIDRs permitted to reach the API. Empty keeps the installed
-# listener on loopback, reachable only through an SSH tunnel. A non-empty list
+# Client IPv4 addresses and CIDRs permitted to reach the API. The listener is
+# IPv4, so an IPv6 entry is refused here rather than never matched.
+# Empty keeps the installed listener on loopback, reachable only through an
+# SSH tunnel. A non-empty list
 # binds it publicly and answers 403 to every unlisted client, including /docs,
 # /openapi.json, and /health. Loopback stays allowed so local health probes and
 # tunnels keep working; for that reason, never place an unrestricted local
