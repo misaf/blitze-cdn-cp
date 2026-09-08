@@ -2,10 +2,10 @@
 
 Core runs Ansible against the hosts the control plane records, and for that it
 needs two facts and no more: what the hosts are called, and which inventory
-group they form. It used to take `EdgeStore` — a capability's full read/write
-port, five methods of which one was ever called — and with it
-`blitzecdn.capabilities.edges.domain.Edge`, so `core.ansible` could not be
-imported without importing a capability.
+group they form. Taking `EdgeStore` instead — a capability's full read/write
+port, four methods of which core would never call — drags
+`blitzecdn.capabilities.edges.domain.Edge` in with it, and `core.ansible` becomes
+a module that cannot be imported without importing a capability.
 
 A roster is what an adapter for that store looks like from below.
 `blitzecdn.capabilities.edges.adapters.roster.EdgeRoster` is the only

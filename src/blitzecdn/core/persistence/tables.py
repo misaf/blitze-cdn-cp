@@ -1,19 +1,19 @@
 """The base every table is declared on, and core's own two.
 
-Named for what it holds. It was `models.py`, which was the third meaning of
-that word in one distribution — a capability's `domain` models hold the
-invariants, an `api` module holds the wire shapes, and this holds the physical
-schema — and the only one of the three that could not be told from the others
-by its import path. A capability's tables are `adapters/tables.py`, so core's
-are `tables.py` too.
+Named for what it holds, rather than `models.py` — which would be the third
+meaning of that word in one distribution, and the only one of the three that an
+import path could not tell from the others: a capability's `domain` models hold
+the invariants, an `api` module holds the wire shapes, and this holds the
+physical schema. A capability's tables are `adapters/tables.py`, so core's are
+`tables.py` too.
 
 `Base.metadata` is the *only* description of what is on disk, and Alembic
 generates migrations by comparing against it. Nothing else may create or alter
 a table: a schema built by anything but a migration is a schema no upgrade can
 reason about.
 
-The tables themselves are no longer all here. A capability's table lives beside
-the store that reads it — `capabilities/dns/adapters/tables.py` and its three
+Not every table is here. A capability's table lives beside the store that
+reads it — `capabilities/dns/adapters/tables.py` and its three
 siblings — and registers itself on this base by importing it, so there is still
 one metadata and still one migration tree. What is left here is core's own:
 fleet-wide Ansible settings and the audit log. Which table modules must be

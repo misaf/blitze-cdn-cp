@@ -11,9 +11,9 @@ from blitzecdn.core.domain.runs import AnsibleRun
 class EdgeRunner(Protocol):
     """Everything edge operations run against the fleet.
 
-    One method, now. ``run_origin_check`` was the other, and it left with the
-    play it runs: ``blitzecdn-origins`` declares its own port over core's
-    generic ``run_playbook`` primitive. ``host_limit`` is required here and
+    One method. ``run_origin_check`` is not here: it travels with the play it
+    runs, and ``blitzecdn-origins`` declares its own port over core's generic
+    ``run_playbook`` primitive. ``host_limit`` is required here and
     never defaulted — an absent limit means "every edge" elsewhere, which for a
     decommission would empty the fleet.
     """

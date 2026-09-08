@@ -15,11 +15,11 @@ already merged from the environment and the controller's ``.env``. Composition
 rejects an unclaimed or multiply claimed name and forwards only resolved
 package-owned keys to the Ansible subprocess.
 
-The length rule travels with the declaration rather than living here, which is
-why this module no longer enforces it. A secret that is present but too short
-is a value an operator can fix, and core now refuses it at composition — before
-a service is built, naming the key and this capability — instead of leaving it
-to be discovered by the first site that turns Under Attack Mode on.
+The length rule travels with the declaration rather than living here. A secret
+that is present but too short is a value an operator can fix, so core refuses
+it at composition — before a service is built, naming the key and this
+capability — rather than leaving it to be discovered by the first site that
+turns Under Attack Mode on.
 """
 
 from __future__ import annotations

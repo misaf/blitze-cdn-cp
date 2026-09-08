@@ -47,10 +47,8 @@ def blitzecdn_deployment_checks(
 ) -> Sequence[ValidationIssue]:
     """Refuse a site whose ACME request can never be answered.
 
-    This check used to live in the zone editor's ``validation_errors``, back
-    when a site was derived from a record and the reserved suffix was read off
-    the record's zone. It reads the site's own hostnames now — and it belongs
-    here rather than in core either way: what a public CA will issue for is
+    It reads the site's own hostnames, and it belongs here rather than in the
+    zone editor's ``validation_errors``: what a public CA will issue for is
     knowledge of the capability that asks one, and an installation without this
     distribution cannot reach ``certificate_mode='requested'`` at all.
     """
@@ -88,9 +86,10 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
 def blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]:
     """Claim this capability's seven controller-side names.
 
-    None of them is a secret, which is why they were the last configuration
-    still living on core's ``Settings``: an ``EnvironmentKey`` was the only
-    thing a capability could declare, and none of these is one.
+    All settings and no secrets, which is what a
+    :class:`~blitzecdn.core.plugins.CapabilitySetting` is for: with only
+    ``EnvironmentKey`` to declare, none of these could be claimed at all, and
+    every one would have to live on core's ``Settings``.
     """
     return (ConfigurationContribution(plugin="certificates", settings=SETTINGS),)
 
@@ -170,8 +169,8 @@ def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
             # The one job that declares its own lease. A sweep is bounded by
             # its budget rather than by its cadence, so "twice the interval"
             # — the default every other job takes — is not the right floor
-            # for it. The scheduler used to apply this capability's budget to
-            # every job in the installation to get the same effect.
+            # for it. Declared here rather than by the scheduler applying this
+            # capability's budget to every job in the installation.
             lease_seconds=platform.settings.deployment_timeout_seconds + budget,
         ),
         ScheduledJob(

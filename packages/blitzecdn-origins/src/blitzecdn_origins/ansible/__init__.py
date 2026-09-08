@@ -36,7 +36,7 @@ ROLES_PATH = _DIRECTORY / "roles"
 
 #: Passed straight to ``PlaybookRunner.run_playbook``. Core stages the
 #: variables, expands the host limit and applies the timeout; which play runs
-#: is this package's business and travels with it. Core used to hold this path
-#: as ``Settings.origin_check_playbook_path``, pointing at a file a detached
-#: package would take with it.
+#: is this package's business and travels with it. Held by core as
+#: ``Settings.origin_check_playbook_path``, it would be a setting pointing at a
+#: file a detached package takes with it.
 ORIGIN_CHECK_PLAYBOOK = _DIRECTORY / "playbooks" / "origin-check.yml"

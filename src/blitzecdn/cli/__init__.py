@@ -10,8 +10,8 @@ plugin discovery found itself half-loaded.
 published introspection surface the documentation site reads. Resolving it on
 access rather than on import is what keeps the cycle broken; the root Typer and
 its global options live in :mod:`blitzecdn.cli.root`, which is deliberately not
-named ``app`` any more — a submodule of that name would shadow this attribute
-the moment anything imported it.
+named ``app`` — a submodule of that name would shadow this attribute the moment
+anything imported it.
 """
 
 from typing import Any

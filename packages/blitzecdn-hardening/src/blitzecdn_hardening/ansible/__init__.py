@@ -7,10 +7,10 @@ directory in the control plane's checkout to add to or prune.
 
 Two of them converge the host and the third withdraws what they wrote. The
 third is here for the same reason ``blitzecdn-resolver``'s teardown role is in
-its wheel: both files are at paths only this package knows, and core's
-``blitzecdn_edge_teardown`` used to carry them — which put a capability's paths in a
-role that is installed whether or not the capability is, and left them there
-for any fleet that had detached this distribution.
+its wheel: both files are at paths only this package knows, so carrying them in
+core's ``blitzecdn_edge_teardown`` would put a capability's paths in a role
+installed whether or not the capability is, and leave them there for any fleet
+that has detached this distribution.
 
 Located through :func:`blitzecdn.core.runtime.resources.package_directory` rather than
 by counting ``..`` from ``__file__``. The difference matters in exactly the

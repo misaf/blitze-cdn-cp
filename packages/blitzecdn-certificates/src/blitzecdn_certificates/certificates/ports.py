@@ -23,7 +23,7 @@ from blitzecdn_certificates.certificates.domain import (
 
 
 class SiteEditor(Protocol):
-    """The one write this capability performs, and it is no longer to a site.
+    """The one write this capability performs, and it is not to a site.
 
     A virtual host is derived from a zone, its rules and its records, so there
     is nothing to update on the host itself. These two record their result

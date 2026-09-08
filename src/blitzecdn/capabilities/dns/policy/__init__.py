@@ -6,10 +6,9 @@ itself to that origin. Both are value types with no behaviour outside the
 policy a zone holds, and — this is the test — there is no distribution that
 could take either.
 
-They were under `sites`, which is where the policy lived when a site was the
-thing an operator authored. The zone holds that policy now, so they moved with
-it rather than being left behind under a capability whose only remaining job
-would have been to own two value types.
+They sit beside the zone because the zone holds the policy they belong to.
+Under `sites` they would be left behind with a capability whose only remaining
+job is to own two value types.
 """
 
 from blitzecdn.capabilities.dns.policy.headers import HeaderPolicy, SiteVisitorHeaders

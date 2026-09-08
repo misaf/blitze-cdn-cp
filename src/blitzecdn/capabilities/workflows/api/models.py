@@ -1,10 +1,10 @@
 """The published shape of a workflow.
 
-It was in `blitzecdn.api.models` with the frame and core's own shapes, because
-the journal was core's. What a client is shown is still a decision separate
-from what the domain holds — the fields are restated rather than re-exported —
-so this is the same arrangement `deployments` and every installed package
-already use, applied to the capability that has just stopped being core.
+Here rather than in `blitzecdn.api.models` with the frame and core's own
+shapes, because the journal is this capability's. What a client is shown stays
+a decision separate from what the domain holds — the fields are restated rather
+than re-exported — which is the arrangement `deployments` and every installed
+package use.
 """
 
 from __future__ import annotations

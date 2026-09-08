@@ -1,11 +1,9 @@
 """First-run commands: scaffold the local configuration a controller needs.
 
-Named for the command it carries. It was `cli/bootstrap.py`, which made
-`bootstrap` two unrelated things one import apart — what was then the
-composition root, and the two commands that scaffold a `.env` before a control
-plane can be wired. `configuration.py` next door is named for `config` the same
-way, and the composition root is `blitzecdn.composition` now, so the word is
-free.
+Named for the command it carries, the way `configuration.py` next door is named
+for `config`. Calling it `bootstrap.py` would make `bootstrap` two unrelated
+things one import apart: the composition root, and the two commands that
+scaffold a `.env` before a control plane can be wired.
 
 ``setup`` creates no inventory file. The fleet lives in the ``edges`` table and
 Ansible reads it through the ``blitzecdn`` inventory plugin, so the only
@@ -28,9 +26,9 @@ from blitzecdn.cli.root import app
 def _environment_file_body() -> str:
     """The scaffolded `.env`, holding what core itself needs and nothing else.
 
-    It used to carry commented MaxMind placeholders, which meant `blitzecdn
-    init` on an installation without the `geoip` distribution scaffolded a
-    setting nothing would ever read. An optional capability documents its own
+    No commented capability placeholders: a MaxMind name here would have
+    `blitzecdn init` scaffold a setting nothing reads on any installation
+    without the `geoip` distribution. An optional capability documents its own
     `BLITZE_*` names in its own README and claims them through its Ansible
     contribution. Core forwards only keys claimed by one installed plugin.
     `.env` is written 0600 and is the intended home for all of them.

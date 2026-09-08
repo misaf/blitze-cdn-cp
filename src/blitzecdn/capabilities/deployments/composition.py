@@ -5,10 +5,10 @@ built-in with real assembly to do. ``DeploymentService`` is three dataclasses
 and a renderer before it is a service, and that three-part shape is the
 capability's own: what belongs in ``DeploymentPolicy`` rather than in
 ``DeploymentExecution`` is a question about deployments, answered by the people
-changing deployments, and it was being answered in the composition root — the
-one file that is supposed to know *which* concrete things are wired and not how
-any capability is put together internally. Adding a collaborator here used to
-mean editing the composition root.
+changing deployments, and answering it in the composition root would put it in
+the one file that is supposed to know *which* concrete things are wired and not
+how any capability is put together internally — where adding a collaborator
+here means editing that file.
 
 The site validator lands here for the same reason. It is a two-line adapter
 from the plugin registry to this capability's ``SiteValidator`` port, and the

@@ -128,10 +128,10 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
             plugin="geoip",
             roles_path=ansible.ROLES_PATH,
             edge_roles=(ansible.EDGE_ROLE,),
-            # The module the resources below are written against. It used to
-            # be built into the edge image and loaded unconditionally, so an
-            # edge with this distribution detached still loaded GeoIP2 — the
-            # image was a second, stale answer to which capabilities exist.
+            # The module the resources below are written against. Built into
+            # the edge image and loaded unconditionally, it would make the
+            # image a second, stale answer to which capabilities exist: an
+            # edge with this distribution detached would still load GeoIP2.
             #
             # No `probe`, and that is not an omission. The image's build-time
             # probe evaluates one directive per module to catch a module that

@@ -3,8 +3,8 @@
 "Can the edges reach the origins they proxy to?" is an *operation*, not a piece
 of desired state: it takes no deployment lock, changes nothing on any host, and
 answers a question about the world rather than about configuration. Every other
-operation of that kind is already a wheel — purging a cache, collecting cache
-statistics, issuing a certificate — and this one was the last still wired into
+operation of that kind is a wheel — purging a cache, collecting cache
+statistics, issuing a certificate — and this one would otherwise be wired into
 the control plane's own Ansible adapter, with the play path carried as a core
 setting.
 

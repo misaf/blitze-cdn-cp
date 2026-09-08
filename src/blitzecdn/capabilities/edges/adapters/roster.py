@@ -3,8 +3,8 @@
 `EdgeStore` is this capability's own read/write port and names `Edge` all
 through it; `FleetRoster` is the two facts core needs to expand a ``--limit``.
 This is the adapter between them, and it exists so that the arrow points the
-way the layers do: `core.ansible` declared the port, `edges` satisfies it, and
-core no longer imports a capability to run a playbook.
+way the layers do: `core.ansible` declares the port, `edges` satisfies it, and
+core imports no capability to run a playbook.
 """
 
 from __future__ import annotations

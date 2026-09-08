@@ -239,8 +239,8 @@ class AnsibleRun(BaseModel):
         honest answer is the same for each: nothing came back, here is what the
         process said about itself, and here is where the output is. It belongs
         on the run because it is only ever a reading of one — and because the
-        services that need it are no longer in the same module, which is how it
-        would otherwise have become several accounts of the same silence.
+        services that need it are spread across modules, which is how it would
+        otherwise become several accounts of the same silence.
         """
         location = f" The full output is at {self.log_path}." if self.log_path else ""
         detail = self.error or self.summary()

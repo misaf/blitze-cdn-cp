@@ -19,11 +19,10 @@ cache_app = typer.Typer(
 
 #: `blitzecdn stats` is a root command, not `blitzecdn cache stats`.
 #:
-#: It reads as a verb an operator types directly and it was one before this
-#: capability became a distribution, so it stays one — the registration
-#: mechanism does not get to reshape the command tree. It lived in
-#: `diagnostics` while `cache` was a package inside the control plane, which
-#: put a command that reads this capability's report in a capability that had to
+#: It reads as a verb an operator types directly, so it stays one — the
+#: registration mechanism does not get to reshape the command tree. And it
+#: belongs to this package rather than to `diagnostics`, which would put a
+#: command that reads this capability's report in a capability that has to
 #: import it. The report is this package's, so the command is too.
 stats_app = typer.Typer()
 

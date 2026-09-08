@@ -173,9 +173,10 @@ class SecurityPolicy(CapabilityPolicy):
 
         Two tokens, because a country rule needs two things that detach
         separately: this capability, which renders the rule, and the GeoIP
-        lookup that gives it a country to compare against. `sites` used to name
-        the second on this contract's behalf, which made the composition the
-        place to edit when a third country-aware setting appeared.
+        lookup that gives it a country to compare against. Both are named here
+        rather than by `sites` on this contract's behalf, which would make the
+        composition the place to edit when a third country-aware setting
+        appears.
 
         Country settings are named through the block that holds them —
         ``firewall.allowed_countries`` — because that is the path a patch would

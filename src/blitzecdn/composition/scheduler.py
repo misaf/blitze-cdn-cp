@@ -42,15 +42,12 @@ def build_scheduler(
         # firing while the previous run is still going does not stack a second
         # copy behind it.
         #
-        # The job says. This used to be computed here as the deployment
-        # timeout plus the *certificate renewal budget* — core sizing every
-        # job's lease from one optional capability's setting, on the reasoning
-        # that certificate renewal is the slowest thing a job does. Two
-        # problems, and the second is why removing it changes nothing: core
-        # cannot read a detached capability's setting, and that floor never
-        # bound anyway, because twice the interval exceeded it for every job
-        # that has ever existed. `ScheduledJob.lease_seconds` was already
-        # declared for exactly this and had never been read.
+        # The job says, through `ScheduledJob.lease_seconds`, which is
+        # declared for exactly this. Computing it here instead — the deployment
+        # timeout plus the *certificate renewal budget*, on the reasoning that
+        # certificate renewal is the slowest thing a job does — would have core
+        # size every job's lease from one optional capability's setting, which
+        # core cannot read once that capability is detached.
         lease = job.lease_seconds or job.interval_seconds * 2
         scheduler.add_job(
             partial(

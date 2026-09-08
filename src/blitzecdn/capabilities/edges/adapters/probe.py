@@ -3,11 +3,10 @@
 Two jobs, and the split matters. ``to_probe`` renders a site's origin — host,
 port, scheme, SNI — for whoever is going to connect to it, which for the
 operator-facing check is the edges: ``blitzecdn-origins`` runs a play, so the
-answer comes from the machines that actually carry the traffic. This module
-used to *be* that check, and the answer it gave was about the controller's
-network rather than the fleet's: an origin that allow-lists the edges refuses
-the controller, and one reachable only from the controller's subnet passed
-here and then 502'd on every edge.
+answer comes from the machines that actually carry the traffic. Answering it
+from here would answer about the controller's network rather than the fleet's:
+an origin that allow-lists the edges refuses the controller, and one reachable
+only from the controller's subnet would pass here and then 502 on every edge.
 
 ``check`` is what remains of the controller connecting for itself, and it has
 exactly one caller — the advisory origin check inside certificate preflight,

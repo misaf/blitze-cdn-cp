@@ -83,9 +83,9 @@ __all__ = [
 #: The HTTP layer separates these deliberately — a conflict is not a bad
 #: request, and a dependency that misbehaved is not a controller that is down —
 #: and a caller driving the CLI needs the same distinction for the same reason.
-#: Every one of these used to exit `2`, so a systemd timer could not tell "a
-#: deployment is already running, come back shortly" from "you typed the site
-#: name wrong", and both looked like a usage error.
+#: Collapsed onto one code, a systemd timer cannot tell "a deployment is
+#: already running, come back shortly" from "you typed the site name wrong",
+#: and both look like a usage error.
 #:
 #: Walked most-specific first, because `DeploymentBusyError` is a
 #: `ConflictError` and would otherwise be matched by its parent.

@@ -30,13 +30,12 @@ HOOK_API_VERSION = 1
 
 #: Every contract version this control plane still accepts a plugin for.
 #:
-#: A set rather than a comparison against `HOOK_API_VERSION`, because the gate
-#: used to be `!=` and that made bumping the contract a same-day fork of every
-#: wheel in existence: v2 core, and every plugin declaring v1 refused at once,
-#: with no release in which an author could support both. Widening this to
-#: `{1, 2}` is what a deprecation window *is* — v1 plugins keep loading while
-#: their authors move, and dropping 1 later is a second, separate decision that
-#: shows up in this line.
+#: A set rather than a comparison against `HOOK_API_VERSION`. A `!=` gate would
+#: make bumping the contract a same-day fork of every wheel in existence: v2
+#: core, and every plugin declaring v1 refused at once, with no release in which
+#: an author could support both. Widening this to `{1, 2}` is what a deprecation
+#: window *is* — v1 plugins keep loading while their authors move, and dropping
+#: 1 later is a second, separate decision that shows up in this line.
 #:
 #: `pip` already refuses a wheel whose `blitzecdn>=3.0.0,<4` cannot be
 #: satisfied, so this is the second lock rather than the first. It earns its
@@ -61,13 +60,13 @@ class PluginMetadata:
     version: str
     #: The hook contract this plugin was *written against*, as a literal.
     #:
-    #: Required, and deliberately so. It defaulted to `HOOK_API_VERSION` —
-    #: core's own constant, read at the plugin's import time — which meant a
-    #: plugin that said nothing always agreed with whatever core it was loaded
-    #: into, however old the hooks it implements. Every one of the twenty-three
-    #: plugins in this workspace omitted it, so the check had never once been
-    #: able to fail. The author who was explicit and pinned `1` was the only
-    #: one it could ever refuse: exactly backwards.
+    #: Required, and deliberately so. Defaulting it to `HOOK_API_VERSION` —
+    #: core's own constant, read at the plugin's import time — would mean a
+    #: plugin that says nothing always agrees with whatever core it is loaded
+    #: into, however old the hooks it implements. A workspace where every
+    #: plugin omits the field is one where the check can never fail, and the
+    #: only author it could ever refuse is the one who was explicit and pinned
+    #: `1`: exactly backwards.
     #:
     #: Write the number, not `HOOK_API_VERSION`. Importing the constant
     #: reintroduces the same defect one level up —

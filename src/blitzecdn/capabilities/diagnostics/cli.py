@@ -1,9 +1,9 @@
 """Read-only reporting: doctor, audit, and the API server.
 
-`stats` was here and is not any more. It reads the cache capability's report,
-so it belongs to the distribution that produces one — this capability was
-importing `CacheStatsReport` to format a document it did not own, which is the
-exact edge that would have made `cache` undetachable.
+`stats` is not here. It reads the cache capability's report, so it belongs to
+the distribution that produces one: formatting `CacheStatsReport` from here
+would mean importing a document this capability does not own, which is the
+exact edge that makes `cache` undetachable.
 """
 
 from __future__ import annotations
@@ -92,10 +92,10 @@ def plugins(
 
     `configuration` is the other half of the same question: which `BLITZE_*`
     names this capability claims, and whether this controller has set them.
-    That answer used to exist only inside each package, so "I installed
-    blitzecdn-geoip and no database is provisioned" had no command to ask —
-    the names were in a README, and whether they had arrived was visible only
-    in a failed play.
+    Asked here rather than left inside each package, where "I installed
+    blitzecdn-geoip and no database is provisioned" has no command to ask: the
+    names live in a README, and whether they arrived is visible only in a
+    failed play.
     """
     control = common.control_plane()
     registry = control.plugins

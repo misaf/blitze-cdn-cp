@@ -91,10 +91,8 @@ def adopt_snapshot(zones: ZoneStore, rules: RuleRestore, snapshot: str) -> None:
     DELETE CASCADE — so the rules go back after the zones, never before, or
     they would be written into a table that is about to be emptied.
 
-    It used to be four calls with a comment about foreign keys between them: a
-    record referenced the site that served it, so the records had to come out
-    before the sites could be replaced and go back in afterwards. Nothing
-    references a site now, because nothing stores one.
+    Two, and not the four a stored site would need: nothing references a site,
+    because nothing stores one.
 
     Called only inside the caller's transaction, and only after
     :func:`require_unchanged_canonical` has agreed there is nothing to lose.

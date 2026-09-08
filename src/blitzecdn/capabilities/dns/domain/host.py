@@ -7,12 +7,10 @@ the exceptions to it, records say which hostnames are on the edge, and
 these per group of hostnames that resolve alike. There is no store behind it
 and no endpoint that writes one.
 
-It was canonical, and the name has been kept rather than the arrangement. What
-this models is an nginx ``server`` block, which is what the edge calls a site,
-and renaming the type would have renamed the Ansible variables and the edge
-collection's templates along with it — a large rename of the vocabulary the
-edge already speaks, to describe the same object. What changed is who writes
-it, and the answer is now: nobody.
+The name is the edge's own. What this models is an nginx ``server`` block,
+which is what the edge calls a site, so renaming the type would rename the
+Ansible variables and the edge collection's templates with it — a large rename
+of vocabulary the edge already speaks, to describe the same object.
 
 This module *composes*; it does not own. Cache, compression, HTTP protocol,
 security and TLS policy each belong to the capability of the same name and are
@@ -97,8 +95,8 @@ class SitePolicy(
         """Optional capability tokens, and the settings that asked for each.
 
         The single place a site's dependency on a detachable implementation is
-        *answered*, and no longer the place any of it is decided: each contract
-        declares its own, and this merges them. There is no capability name in
+        *answered*, and nowhere any of it is decided: each contract declares its
+        own, and this merges them. There is no capability name in
         this module at all — not in a branch, not in a token, not in a list of
         contracts — so a capability this repository has never heard of travels
         the same path as `compression`, and a new one is a property on its own

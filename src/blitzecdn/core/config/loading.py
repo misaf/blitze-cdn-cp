@@ -273,18 +273,18 @@ def _with_local_environment(
 def _read_project_config(path: Path) -> dict[str, object]:
     """Read `[blitzecdn]`, without deciding whether every key is meaningful.
 
-    A key core does not recognise is no longer refused here. It cannot be: an
+    A key core does not recognise is not refused here, and cannot be: an
     optional capability's non-secret settings belong in this file — a renewal
     interval is exactly the sort of default it exists to hold — and this
     function runs long before any plugin has said what it claims. Refusing
     here would mean the only configurable capability setting is one core
-    already knows about, which is the arrangement being removed.
+    already knows about.
 
-    The refusal did not go away, it moved to the one place that can make it:
+    The refusal belongs to the one place that can make it:
     `_read_capability_environment` stages the unrecognised keys and the plugin
-    resolver rejects any that no installed capability claims. A typo is still
-    loud; it is now loud in a sentence that can also say the package that
-    owned the name is no longer installed.
+    resolver rejects any that no installed capability claims. A typo is loud
+    there, and loud in a sentence that can also say the package that owned the
+    name is not installed.
     """
     if not path.exists():
         return {}
@@ -373,14 +373,13 @@ def _read_capability_config_file(
 ) -> dict[str, str]:
     """Stage the `blitzecdn.toml` keys core does not recognise.
 
-    This is what makes a non-secret capability setting configurable at all.
-    The file used to refuse every key core did not know, so the only way to
-    configure an optional capability was an environment variable — fine for
-    the secrets that were the only declarable kind, and wrong for a renewal
-    interval, which is exactly the sort of non-secret default this file exists
-    to hold. An unrecognised key is staged rather than refused; the refusal
-    moved to the plugin resolver, which is the only thing that knows what any
-    capability claims.
+    This is what makes a non-secret capability setting configurable at all. A
+    file that refused every key core did not know would leave an environment
+    variable as the only way to configure an optional capability — fine for a
+    secret, wrong for a renewal interval, which is exactly the sort of
+    non-secret default this file exists to hold. So an unrecognised key is
+    staged rather than refused, and the refusal belongs to the plugin
+    resolver, which is the only thing that knows what any capability claims.
 
     A TOML key is spelled the way every core key already maps to its variable:
     `certificate_renewal_interval_seconds` becomes

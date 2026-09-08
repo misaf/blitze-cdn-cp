@@ -28,12 +28,12 @@ rather than by knowing either role's name.
 Withdrawing goes in the decommission slot, before ``blitzecdn_edge_teardown``. A
 drop-in under ``/etc/ssh/sshd_config.d`` and a jail under
 ``/etc/fail2ban/jail.d`` are not in any tree core removes, and neither is a
-systemd unit matching the managed prefix. Core used to name both paths in
-``blitzecdn_edge_teardown``'s defaults and reload both services from its own
-handlers, which meant a role installed on every controller carried the paths of
-a capability that may not be installed — and a fleet that had detached this
-distribution still had a decommission asserting against files nothing on that
-controller could write.
+systemd unit matching the managed prefix. Naming both paths in
+``blitzecdn_edge_teardown``'s defaults and reloading both services from core's
+own handlers would put a capability's paths in a role installed on every
+controller whether or not the capability is — and would leave a fleet that has
+detached this distribution with a decommission asserting against files nothing
+on that controller can write.
 """
 
 from __future__ import annotations

@@ -25,11 +25,11 @@ class EdgeModule:
     places. It has to be *in the image* — built against that exact Nginx ABI,
     or already shipped by the official base — and it has to be *loaded* by the
     running configuration, which is one `load_module` list the whole process
-    shares. Both halves used to be written into the edge image's own build
-    context, which made that build a third register of which capabilities
-    exist — and the only one that kept naming a capability after its
-    distribution was detached, because an image is built once and pinned by
-    digest: an edge with no `blitzecdn-geoip` still loaded the GeoIP2 module.
+    shares. Written into the edge image's own build context, both halves would
+    make that build a third register of which capabilities exist — and the only
+    one that keeps naming a capability after its distribution is detached,
+    because an image is built once and pinned by digest: an edge with no
+    `blitzecdn-geoip` would still load the GeoIP2 module.
 
     Declaring it here answers both from one place. Core composes the resolved
     set into the `load_module` list `blitzecdn_nginx` renders onto the host, so
@@ -150,17 +150,12 @@ class AnsibleContribution:
     shipping a role of the same name is a conflict that must be reported with
     both names rather than resolved by whichever happened to register last.
 
-    Six members was where this stopped being obviously one object, and the
-    split has happened — though not along the seam that was predicted. The
-    pressure did not come from a fourth lifecycle slot; it came from
-    configuration. ``environment_keys`` used to be the sixth member here, and
-    the moment a capability needed to declare a *non-secret* setting as well,
-    the honest question was why either lived on a contract named after
-    Ansible. A secret was forwarded into Ansible's subprocess environment, so
-    it had a reason to be here; an interval a scheduler reads on the
-    controller never touches Ansible at all. Both are now
-    :class:`ConfigurationContribution`, and this contract is back to five
-    members, every one of which describes a file on an edge.
+    Five members, every one of which describes a file on an edge. What a
+    capability asks an operator to configure is not among them, and the line is
+    the contract's name: a secret is forwarded into Ansible's subprocess
+    environment and so has a reason to be near this, but an interval a
+    scheduler reads on the controller never touches Ansible at all. Both belong
+    to :class:`ConfigurationContribution` instead.
     """
 
     plugin: str
