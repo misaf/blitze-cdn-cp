@@ -27,6 +27,7 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentRunner,
     DeploymentStore,
     QueueBackgroundRunner,
+    RuleRestore,
     SiteRestore,
 )
 from blitzecdn.capabilities.deployments.service.convergence import (
@@ -68,6 +69,7 @@ def build_deployment_service(
     deployments: DeploymentStore,
     zones: ZoneStore,
     sites: SiteRestore,
+    rules: RuleRestore,
     requirements: DeploymentRequirements,
     runner: DeploymentRunner,
     background: QueueBackgroundRunner,
@@ -95,6 +97,7 @@ def build_deployment_service(
             deployments=deployments,
             zones=zones,
             sites=sites,
+            rules=rules,
             uow=platform.transactions,
             requirements=requirements,
         ),

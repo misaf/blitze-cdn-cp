@@ -859,7 +859,11 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "compression": set(),
     "deployments": set(),
     "diagnostics": set(),
-    "dns": set(),
+    # A zone carries the policy every hostname in it is served by, so `dns`
+    # composes capability contracts the way `sites` does. `security` is absent
+    # only because the firewall block is a nested model the published zone
+    # writes out for itself; the domain zone inherits it through `SitePolicy`.
+    "dns": {"cache", "compression", "http", "tls"},
     "edges": {"http", "tls"},
     "http": set(),
     "maintenance": set(),

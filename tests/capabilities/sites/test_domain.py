@@ -70,7 +70,7 @@ def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
 
 
 def test_snapshots_fail_closed_on_unknown_schema_versions():
-    snapshot = '{"schema_version":999,"domains":[],"records":[],"sites":[]}'
+    snapshot = '{"schema_version":999,"domains":[],"records":[],"rules":[],"sites":[]}'
     with pytest.raises(ValueError, match="unsupported deployment snapshot"):
         decode_snapshot(snapshot)
 
@@ -631,7 +631,7 @@ def test_visitor_headers_survive_a_snapshot_round_trip():
     stored = CdnSite.model_validate(
         _managed_site(visitor_headers={"connecting_ip": False, "ip_country": True})
     )
-    snapshot = encode_snapshot([], [], [stored])
+    snapshot = encode_snapshot([], [], [], [stored])
 
     (site,) = decode_snapshot(snapshot)
 
@@ -644,7 +644,7 @@ def test_http3_survives_a_snapshot_round_trip():
     stored = CdnSite.model_validate(
         _managed_site(ssl_mode="flexible", http3_enabled=True)
     )
-    (site,) = decode_snapshot(encode_snapshot([], [], [stored]))
+    (site,) = decode_snapshot(encode_snapshot([], [], [], [stored]))
     assert site.http3_enabled is True
 
 
@@ -654,9 +654,9 @@ def test_http3_changes_snapshot_identity_only_when_the_value_changes():
     )
     enabled = disabled.model_copy(update={"http3_enabled": True})
 
-    baseline = encode_snapshot([], [], [disabled])
-    assert encode_snapshot([], [], [disabled]) == baseline
-    assert encode_snapshot([], [], [enabled]) != baseline
+    baseline = encode_snapshot([], [], [], [disabled])
+    assert encode_snapshot([], [], [], [disabled]) == baseline
+    assert encode_snapshot([], [], [], [enabled]) != baseline
 
 
 def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():

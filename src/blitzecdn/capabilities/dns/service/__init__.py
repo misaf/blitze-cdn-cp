@@ -1,16 +1,19 @@
-"""What the zone editor decides.
+"""What the zone editor decides, and what the rule editor decides beside it.
 
-`zones.py` is the whole of it: creating and deleting a zone, the records in
-one, routing a hostname to a site and taking it off again, and the hostname
-projection that keeps `sites` in step. One module because it is one decision
-maker — a record cannot be routed without the zone it lives in agreeing, and
-splitting the two would put that agreement across a module boundary.
+`zones.py` creates and deletes a zone, sets the policy its hostnames are served
+by, owns the records in one, routes a hostname to a site and takes it off
+again, and keeps the hostname projection `sites` reads in step. `rules.py` owns
+the overrides on that policy, and the resolver that says what a hostname ends
+up with.
 
-A directory rather than a file because a slice's layers are directories here,
-whether or not this one has grown a second module yet. The name inside says
-what it holds; the directory says which rule it lives under.
+Two modules rather than one because they are two decision makers over one
+aggregate: every write in `zones.py` is about a zone or a record, and every
+write in `rules.py` is about an exception to one. What they share is that a
+rule cannot exist without its zone, and that is a read — which is why `rules.py`
+holds a reader for it and not the editor.
 """
 
+from blitzecdn.capabilities.dns.service.rules import RuleService
 from blitzecdn.capabilities.dns.service.zones import DnsService
 
-__all__ = ["DnsService"]
+__all__ = ["DnsService", "RuleService"]

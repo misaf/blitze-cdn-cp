@@ -33,6 +33,7 @@ from blitzecdn.capabilities.deployments.adapters.persistence import (
 )
 from blitzecdn.capabilities.deployments.domain.snapshots import encode_snapshot
 from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
+from blitzecdn.capabilities.dns.adapters.rules import RuleStore
 from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
 from blitzecdn.capabilities.sites.adapters.persistence import SiteStore
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
@@ -71,6 +72,7 @@ class Repository:
         self.database = Database(path, pool_connections=pool_connections)
         self.sites = SiteStore(self.database)
         self.zones = ZoneStore(self.database)
+        self.rules = RuleStore(self.database)
         self.edges = EdgeStore(self.database)
         self.ansible_settings = AnsibleSettingStore(self.database)
         self.deployments = DeploymentStore(self.database, self.snapshot)
@@ -91,7 +93,7 @@ class Repository:
     def snapshot(self) -> str:
         """Serialise the desired state a deployment converges and can roll back to.
 
-        Spans three tables, so it belongs to the bundle rather than to any one
+        Spans four tables, so it belongs to the bundle rather than to any one
         store. ``DeploymentStore`` is handed this bound method at construction:
         it records a snapshot with every deployment without knowing what a
         snapshot contains.
@@ -103,8 +105,9 @@ class Repository:
         with self.transaction():
             domains = self.zones.list_domains()
             records = self.zones.list_records()
+            rules = self.rules.list_rules()
             sites = self.sites.list_sites()
-            return encode_snapshot(domains, records, sites)
+            return encode_snapshot(domains, records, rules, sites)
 
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by this repository's stores."""

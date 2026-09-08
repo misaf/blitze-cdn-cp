@@ -17,7 +17,13 @@ from __future__ import annotations
 import hashlib
 from collections import defaultdict
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
+from blitzecdn.capabilities.dns.domain import (
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    RecordPatch,
+    RecordType,
+)
 from blitzecdn.capabilities.dns.ports import (
     EventRecorder,
     SiteHostnames,
@@ -49,6 +55,10 @@ class DnsService:
     def list_domains(self) -> list[Domain]:
         return self.zones.list_domains()
 
+    def get_domain(self, name: str) -> Domain:
+        """One zone, for a caller that needs to read before it writes."""
+        return self.zones.get_domain(name)
+
     def create_domain(self, domain: Domain, operator: str) -> Domain:
         with self.uow.transaction():
             created = self.zones.create_domain(domain)
@@ -56,6 +66,34 @@ class DnsService:
                 domain_event(operator, "domain.created", "domain", domain.name)
             )
         return created
+
+    def update_domain(self, name: str, patch: DomainPatch, operator: str) -> Domain:
+        """Change the policy every hostname in the zone is served by.
+
+        Merged against the stored zone rather than validated alone: the rules
+        that read across two settings — HTTP/3 needing edge TLS, a certificate
+        mode agreeing with its two paths — cannot be checked on a patch that
+        mentions one of them, and rejecting the merged zone is what stops a
+        half-applied pair from reaching an edge.
+
+        Nothing is resynced afterwards. This changes how hostnames are served,
+        not which ones exist, and ``server_names`` is a projection of records.
+        """
+        current = self.zones.get_domain(name)
+        changes = patch.model_dump(exclude_unset=True)
+        updated = Domain.model_validate({**current.model_dump(), **changes})
+        with self.uow.transaction():
+            saved = self.zones.replace_domain(updated)
+            self.events.record(
+                domain_event(
+                    operator,
+                    "domain.updated",
+                    "domain",
+                    name,
+                    {"fields": sorted(changes)},
+                )
+            )
+        return saved
 
     def delete_domain(self, name: str, operator: str) -> None:
         """Remove a zone and every record in it.

@@ -7,9 +7,11 @@ blitzecdn	command	blitzecdn config unset	<name> type=str required
 blitzecdn	command	blitzecdn deploy	--yes type=boolean default=False --limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn dns export	--json type=boolean default=False
 blitzecdn	command	blitzecdn doctor	--json type=boolean default=False --resolver/--no-resolver type=boolean default=True
-blitzecdn	command	blitzecdn domain add	<name> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn domain add	<name> type=str required --origin type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn domain list	--json type=boolean default=False
+blitzecdn	command	blitzecdn domain origin	<name> type=str required <origin> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn domain remove	<name> type=str required --yes type=boolean default=False
+blitzecdn	command	blitzecdn domain show	<name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn drift	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn edge add	<name> type=str required --host type=str required --ssh-source type=str required --public-address type=str --user type=str default='deploy' --port type=int range default=22 --private-key-file type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn edge image spec	--json type=boolean default=False
@@ -25,6 +27,11 @@ blitzecdn	command	blitzecdn record remove	<domain> type=str required <name> type
 blitzecdn	command	blitzecdn record route	<domain> type=str required <name> type=str required --site type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
 blitzecdn	command	blitzecdn record unroute	<domain> type=str required <name> type=str required --value type=str required --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --json type=boolean default=False
 blitzecdn	command	blitzecdn rollback	<deployment_id> type=str --yes type=boolean default=False --check type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn rule add	<domain> type=str required <name> type=str required --set type=str required --match type=str default='*' --priority type=int default=100 --json type=boolean default=False
+blitzecdn	command	blitzecdn rule list	<domain> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn rule remove	<domain> type=str required <name> type=str required --yes type=boolean default=False
+blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str required --set type=str --match type=str --priority type=int --enabled/--disabled type=boolean --json type=boolean default=False
+blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
 blitzecdn	command	blitzecdn setup	--schema-only type=boolean default=False
 blitzecdn	command	blitzecdn site always-use-https	<name> type=str required --on/--off type=boolean required --json type=boolean default=False

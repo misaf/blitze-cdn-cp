@@ -10,8 +10,13 @@ from blitzecdn.api.dependencies import (
 from blitzecdn.capabilities.dns.api.models import (
     DnsRecord,
     Domain,
+    DomainPatch,
     RecordPatch,
     RecordType,
+    ResolvedPolicy,
+    Rule,
+    RuleCreate,
+    RulePatch,
 )
 from blitzecdn.core.exceptions import ConflictError
 
@@ -20,14 +25,31 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 
 @router.get("/v1/domains", response_model=list[Domain])
 def list_domains(control: ControlPlaneDependency) -> list[Domain]:
-    return [Domain(name=item.name) for item in control.dns.list_domains()]
+    return [Domain.from_domain(item) for item in control.dns.list_domains()]
 
 
 @router.post("/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
 def create_domain(
     domain: Domain, operator: OperatorDependency, control: ControlPlaneDependency
 ) -> Domain:
-    return Domain(name=control.dns.create_domain(domain.to_domain(), operator).name)
+    return Domain.from_domain(control.dns.create_domain(domain.to_domain(), operator))
+
+
+@router.get("/v1/domains/{domain}", response_model=Domain)
+def get_domain(domain: str, control: ControlPlaneDependency) -> Domain:
+    return Domain.from_domain(control.dns.get_domain(domain))
+
+
+@router.patch("/v1/domains/{domain}", response_model=Domain)
+def update_domain(
+    domain: str,
+    patch: DomainPatch,
+    operator: OperatorDependency,
+    control: ControlPlaneDependency,
+) -> Domain:
+    return Domain.from_domain(
+        control.dns.update_domain(domain, patch.to_domain(), operator)
+    )
 
 
 @router.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
@@ -95,3 +117,70 @@ def delete_record(
 @router.get("/v1/dns/export")
 def dns_export(control: ControlPlaneDependency) -> list[dict[str, object]]:
     return control.dns.dns_export()
+
+
+@router.get("/v1/domains/{domain}/rules", response_model=list[Rule])
+def list_rules(domain: str, control: ControlPlaneDependency) -> list[Rule]:
+    return [Rule.from_domain(item) for item in control.rules.list_rules(domain)]
+
+
+@router.post(
+    "/v1/domains/{domain}/rules",
+    response_model=Rule,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_rule(
+    domain: str,
+    rule: RuleCreate,
+    operator: OperatorDependency,
+    control: ControlPlaneDependency,
+) -> Rule:
+    return Rule.from_domain(control.rules.create_rule(rule.to_domain(domain), operator))
+
+
+@router.get("/v1/domains/{domain}/rules/{name}", response_model=Rule)
+def get_rule(domain: str, name: str, control: ControlPlaneDependency) -> Rule:
+    return Rule.from_domain(control.rules.get_rule(domain, name))
+
+
+@router.patch("/v1/domains/{domain}/rules/{name}", response_model=Rule)
+def update_rule(
+    domain: str,
+    name: str,
+    patch: RulePatch,
+    operator: OperatorDependency,
+    control: ControlPlaneDependency,
+) -> Rule:
+    return Rule.from_domain(
+        control.rules.update_rule(domain, name, patch.to_domain(), operator)
+    )
+
+
+@router.delete(
+    "/v1/domains/{domain}/rules/{name}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_rule(
+    domain: str,
+    name: str,
+    operator: OperatorDependency,
+    control: ControlPlaneDependency,
+) -> None:
+    control.rules.delete_rule(domain, name, operator)
+
+
+@router.get("/v1/domains/{domain}/resolve", response_model=ResolvedPolicy)
+def resolve_hostname(
+    domain: str,
+    hostname: Annotated[
+        str, Query(description="The hostname to resolve, e.g. api.example.com.")
+    ],
+    control: ControlPlaneDependency,
+) -> ResolvedPolicy:
+    """How a hostname is served, and which rule decided it.
+
+    The endpoint an operator reaches for when a hostname is not behaving like
+    its zone: it answers with the merged policy *and* the rule's name, so the
+    next question — which rule — does not need a second request and a manual
+    match against the list.
+    """
+    return ResolvedPolicy.from_domain(control.rules.resolve(domain, hostname))

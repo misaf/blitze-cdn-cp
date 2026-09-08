@@ -21,6 +21,7 @@ from blitzecdn.capabilities.deployments.domain.snapshots import (
 )
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentStore,
+    RuleRestore,
     SiteRestore,
     ZoneEditor,
     ZoneStore,
@@ -85,7 +86,11 @@ def require_unchanged_canonical(
 
 
 def adopt_snapshot(
-    zones: ZoneStore, sites: SiteRestore, dns: ZoneEditor, snapshot: str
+    zones: ZoneStore,
+    sites: SiteRestore,
+    rules: RuleRestore,
+    dns: ZoneEditor,
+    snapshot: str,
 ) -> None:
     """Make the converged snapshot canonical desired state.
 
@@ -105,8 +110,12 @@ def adopt_snapshot(
     Called only inside the caller's transaction, and only after
     :func:`require_unchanged_canonical` has agreed there is nothing to lose.
     """
-    domains, records, restored_sites = decode_snapshot_state(snapshot)
+    domains, records, restored_rules, restored_sites = decode_snapshot_state(snapshot)
     zones.delete_all_records()
     sites.replace_all_sites(restored_sites)
     zones.replace_all_records(domains, records)
+    # After the zones, never before: ``replace_all_records`` deletes the zone
+    # rows, and the rules cascade with them. Writing the rules first would
+    # write them into a table that is about to be emptied.
+    rules.replace_all_rules(restored_rules)
     dns.resync_hostnames()

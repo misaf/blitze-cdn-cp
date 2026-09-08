@@ -1,18 +1,29 @@
 """`domain`, `record` and `dns` — the zone editor's command groups.
 
-A record used to carry the whole of a site's policy, and this module used to
-carry the ten commands that set it. They are `site` commands now, over in the
-capability that owns them; what is left here edits zones and records, and the
-only thing a record says about the CDN is which site answers for its hostname.
+A zone now carries the policy every hostname in it is served by, and `domain
+show` and `domain origin` are what edit the part of it that is new. The
+per-setting commands — `cache`, `ssl`, `firewall` and the rest — are still
+`site` commands over in the capability that owns them today. They are not
+duplicated here on purpose: they move to this group when `sites` is removed,
+and writing a second copy of nine hundred lines meanwhile would leave two sets
+of flags to keep in step for exactly as long as it took to delete one.
 """
 
 from __future__ import annotations
 
-from typing import Annotated
+import json
+from typing import Annotated, Any
 
 import typer
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.capabilities.dns.domain import (
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    RecordType,
+    Rule,
+    RulePatch,
+)
 from blitzecdn.cli import common
 
 domain_app = typer.Typer(no_args_is_help=True, help="Manage DNS zones.")
@@ -29,11 +40,52 @@ dns_app = typer.Typer(no_args_is_help=True, help="Export DNS state.")
 @domain_app.command("add")
 def domain_add(
     name: Annotated[str, typer.Argument(help="Zone to serve, e.g. example.com.")],
+    origin: Annotated[
+        str | None,
+        typer.Option(
+            "--origin",
+            help="Default origin for proxied hostnames in this zone.",
+        ),
+    ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Register a DNS zone delegated to BlitzeCDN."""
+    """Register a DNS zone delegated to BlitzeCDN.
+
+    The origin is optional here and can be set later with 'domain origin'. A
+    zone is delegable before anyone has decided what it proxies to, and asking
+    for one up front only invites a placeholder in the field that matters most.
+    """
     common.emit(
-        common.control_plane().dns.create_domain(Domain(name=name), "cli"),
+        common.control_plane().dns.create_domain(
+            Domain(name=name, origin_host=origin), "cli"
+        ),
+        json_output=json_output,
+    )
+
+
+@domain_app.command("show")
+def domain_show(
+    name: str,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show a zone and the policy every hostname in it is served by."""
+    common.emit(common.control_plane().dns.get_domain(name), json_output=json_output)
+
+
+@domain_app.command("origin")
+def domain_origin(
+    name: str,
+    origin: Annotated[
+        str,
+        typer.Argument(help="Hostname the edge fetches from, e.g. origin.example.com."),
+    ],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Set the default origin for proxied hostnames in a zone."""
+    common.emit(
+        common.control_plane().dns.update_domain(
+            name, DomainPatch(origin_host=origin), "cli"
+        ),
         json_output=json_output,
     )
 
@@ -205,3 +257,143 @@ def dns_export(json_output: Annotated[bool, typer.Option("--json")] = False) -> 
 
 
 __all__ = ["dns_app", "domain_app", "record_app"]
+
+
+# -- Rules ---------------------------------------------------------------
+
+
+rule_app = typer.Typer(
+    no_args_is_help=True,
+    help="Override a zone's policy for some of its hostnames.",
+)
+
+_SET_HELP = (
+    "A zone setting to override, as name=value. Repeatable. Values are read "
+    "as JSON when they parse as JSON and as text otherwise, so "
+    "cache_enabled=false is a boolean and cache_valid_success=10m is a string."
+)
+
+
+def _parse_overrides(pairs: list[str]) -> dict[str, Any]:
+    """``name=value`` into the mapping a rule stores.
+
+    JSON first so that ``false``, ``0`` and ``null`` arrive as themselves
+    rather than as the strings that spell them; plain text otherwise, because
+    every duration and hostname a setting takes would need quoting if not.
+    """
+    overrides: dict[str, Any] = {}
+    for pair in pairs:
+        name, separator, value = pair.partition("=")
+        if not separator:
+            raise typer.BadParameter(f"expected name=value, got {pair!r}")
+        try:
+            overrides[name.strip()] = json.loads(value)
+        except json.JSONDecodeError:
+            overrides[name.strip()] = value
+    return overrides
+
+
+@rule_app.command("add")
+def rule_add(
+    domain: Annotated[str, typer.Argument(help="Zone the rule belongs to.")],
+    name: Annotated[str, typer.Argument(help="Name for the rule within the zone.")],
+    set_: Annotated[list[str], typer.Option("--set", help=_SET_HELP)],
+    match: Annotated[
+        str,
+        typer.Option(
+            "--match",
+            help="Hostname this covers: '*', an exact name, or '*.suffix'.",
+        ),
+    ] = "*",
+    priority: Annotated[
+        int,
+        typer.Option("--priority", help="Lower runs first. The first match wins."),
+    ] = 100,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Override some of a zone's policy for the hostnames a rule matches."""
+    common.emit(
+        common.control_plane().rules.create_rule(
+            Rule(
+                domain=domain,
+                name=name,
+                match=match,
+                priority=priority,
+                overrides=_parse_overrides(set_),
+            ),
+            "cli",
+        ),
+        json_output=json_output,
+    )
+
+
+@rule_app.command("list")
+def rule_list(
+    domain: Annotated[str, typer.Argument(help="Zone to list the rules of.")],
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """List a zone's rules in the order a hostname is matched against them."""
+    common.emit(
+        common.control_plane().rules.list_rules(domain), json_output=json_output
+    )
+
+
+@rule_app.command("show")
+def rule_show(
+    domain: str,
+    name: str,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Show one rule: what it matches, and what it changes."""
+    common.emit(
+        common.control_plane().rules.get_rule(domain, name), json_output=json_output
+    )
+
+
+@rule_app.command("set")
+def rule_set(
+    domain: str,
+    name: str,
+    set_: Annotated[list[str] | None, typer.Option("--set", help=_SET_HELP)] = None,
+    match: Annotated[str | None, typer.Option("--match")] = None,
+    priority: Annotated[int | None, typer.Option("--priority")] = None,
+    enabled: Annotated[bool | None, typer.Option("--enabled/--disabled")] = None,
+    json_output: Annotated[bool, typer.Option("--json")] = False,
+) -> None:
+    """Change a rule. Any --set replaces every override the rule had.
+
+    Replaced rather than merged so that a setting can be taken back off a rule:
+    if --set were additive there would be no way to stop overriding one.
+    """
+    changes: dict[str, Any] = {}
+    if set_ is not None:
+        changes["overrides"] = _parse_overrides(set_)
+    if match is not None:
+        changes["match"] = match
+    if priority is not None:
+        changes["priority"] = priority
+    if enabled is not None:
+        changes["enabled"] = enabled
+    if not changes:
+        raise typer.BadParameter(
+            "nothing to change; pass --set, --match, or --priority"
+        )
+    common.emit(
+        common.control_plane().rules.update_rule(
+            domain, name, RulePatch.model_validate(changes), "cli"
+        ),
+        json_output=json_output,
+    )
+
+
+@rule_app.command("remove")
+def rule_remove(
+    domain: str,
+    name: str,
+    yes: Annotated[bool, typer.Option("--yes")] = False,
+) -> None:
+    """Remove a rule. The hostnames it covered fall back to the zone's policy."""
+    if not yes and not typer.confirm(f"Delete rule {name!r} in {domain!r}?"):
+        raise typer.Abort()
+    common.control_plane().rules.delete_rule(domain, name, "cli")
+    typer.echo(f"Deleted rule {name} in {domain}")

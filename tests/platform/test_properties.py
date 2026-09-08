@@ -38,8 +38,8 @@ def test_zone_snapshot_round_trip(label: str, address: object) -> None:
         DnsRecord(domain=domains[0].name, name=f"cdn-{label}", site=sites[0].name)
     ]
 
-    restored_domains, restored_records, restored_sites = decode_snapshot_state(
-        encode_snapshot(domains, records, sites)
+    restored_domains, restored_records, _rules, restored_sites = decode_snapshot_state(
+        encode_snapshot(domains, records, [], sites)
     )
 
     assert restored_domains == domains
