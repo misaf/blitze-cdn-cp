@@ -1,6 +1,6 @@
 """How the deployments capability is built.
 
-The same shape as :mod:`blitzecdn.capabilities.sites.composition` and the only
+The same shape as :mod:`blitzecdn.capabilities.dns.composition` and the only
 built-in with real assembly to do. ``DeploymentService`` is three dataclasses
 and a renderer before it is a service, and that three-part shape is the
 capability's own: what belongs in ``DeploymentPolicy`` rather than in
@@ -28,7 +28,6 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentStore,
     QueueBackgroundRunner,
     RuleRestore,
-    SiteRestore,
 )
 from blitzecdn.capabilities.deployments.service.convergence import (
     DeploymentExecution,
@@ -36,8 +35,8 @@ from blitzecdn.capabilities.deployments.service.convergence import (
     DeploymentPolicy,
     DeploymentService,
 )
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.dns.ports import ZoneStore
-from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.core.plugins import PluginRegistry, ValidationResult
 from blitzecdn.core.runtime.filesystem import atomic_write_yaml, read_log_tail
 
@@ -68,7 +67,6 @@ def build_deployment_service(
     *,
     deployments: DeploymentStore,
     zones: ZoneStore,
-    sites: SiteRestore,
     rules: RuleRestore,
     requirements: DeploymentRequirements,
     runner: DeploymentRunner,
@@ -96,7 +94,6 @@ def build_deployment_service(
         persistence=DeploymentPersistence(
             deployments=deployments,
             zones=zones,
-            sites=sites,
             rules=rules,
             uow=platform.transactions,
             requirements=requirements,

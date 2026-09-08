@@ -34,12 +34,19 @@ for the edge.
 Create the desired site, review the plan, and deploy it:
 
 ```bash
-blitzecdn domain add example.com
-blitzecdn record add example.com cdn \
-  --value origin.example.com --proxied
+blitzecdn domain add example.com --origin origin.example.com
+blitzecdn record add example.com cdn
 blitzecdn validate
 blitzecdn plan
 blitzecdn deploy
+```
+
+The zone holds the policy; the record only says the edge serves that hostname,
+and records are proxied by default. To take one back off the edge, name the
+address DNS should answer with instead:
+
+```bash
+blitzecdn record unproxy example.com cdn --value 203.0.113.9
 ```
 
 The API listens on loopback. Reach it without opening a public port:
@@ -170,13 +177,16 @@ outside this repository. Do not disable host-key checking.
 
 ## Zone policy and rules
 
-A zone carries the policy every hostname in it is served by. Set it once when
-the zone is added, or change it afterwards:
+A zone carries the policy every hostname in it is served by — TLS, caching,
+compression, the firewall, the headers sent to the origin. There is no second
+object to create: `blitzecdn domain --help` lists the settings, and each is one
+command.
 
 ```bash
 blitzecdn domain add example.com --origin origin.example.com
 blitzecdn domain show example.com
-blitzecdn domain origin example.com origin2.example.com
+blitzecdn domain ssl example.com --mode full_strict
+blitzecdn domain cache example.com --success 1h
 ```
 
 The origin is optional at creation. A zone is delegable long before anyone has
@@ -213,6 +223,18 @@ The response carries both the merged policy and the name of the rule that
 applied, so "why is this hostname not caching" does not need a second request.
 A rule whose overrides would produce an impossible zone — HTTP/3 on a hostname
 serving no TLS — is refused where the zone itself would refuse it.
+
+What an edge is actually asked to serve is derived from the three: one virtual
+host per group of hostnames that resolve alike, named after the zone and the
+rule that claimed them.
+
+```bash
+blitzecdn domain hosts
+```
+
+Nothing authors those. `example-com` is the zone's own policy and
+`example-com--api` is the `api` rule's; to change either, change the zone, the
+rule, or the records behind it.
 
 ## Essential operations
 

@@ -21,8 +21,15 @@ from pydantic import BaseModel, ConfigDict
 #: One label of a DNS name: no leading or trailing hyphen, 63 bytes at most.
 DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 
-#: An internal site name. Neither dots nor ``*``, because it names a file.
+#: A name an operator chooses: a zone's rule, and anything else a person types.
+#: Neither dots nor ``*``, because it ends up naming a file.
 SITE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
+
+#: A *derived* virtual host name. The same shape, except that it may start with
+#: a digit: it is built from a zone's labels, and `9lives.example` is a
+#: perfectly ordinary domain. Nobody types one of these, so the leading-letter
+#: rule buys nothing here and would make a legal zone underivable.
+HOST_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,126}$")
 
 #: An nginx time value: ``10m``, ``500ms``, ``0s``.
 DURATION = re.compile(r"^(?:0|[1-9]\d*)(?:ms|[smhdw])$")
@@ -33,7 +40,7 @@ class OmittedWhenEmpty(BaseModel):
 
     Opting in by subclassing, rather than core inspecting every nested model,
     is the point. ``sites``' own
-    :func:`~blitzecdn.capabilities.sites.adapters.ansible.site_to_ansible`
+    :func:`~blitzecdn.capabilities.dns.adapters.ansible.site_to_ansible`
     used to name one block — ``firewall`` — which put the vocabulary of a detachable
     capability into a generic adapter and meant a second such block would be a
     second branch there. A capability now declares that its block is absent

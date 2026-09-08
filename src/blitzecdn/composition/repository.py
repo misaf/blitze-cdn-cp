@@ -18,8 +18,8 @@ It was ``blitzecdn.persistence``, one import away from
 two it was. The directory says it now.
 
 ``snapshot`` is the one thing that cannot belong to a single store, because the
-desired state a deployment converges spans the zones, their records, and the
-sites those records route to.
+desired state a deployment converges spans the zones, their rules, and the
+records in them.
 """
 
 from __future__ import annotations
@@ -35,7 +35,6 @@ from blitzecdn.capabilities.deployments.domain.snapshots import encode_snapshot
 from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
 from blitzecdn.capabilities.dns.adapters.rules import RuleStore
 from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
-from blitzecdn.capabilities.sites.adapters.persistence import SiteStore
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import AnsibleSettingStore
@@ -47,7 +46,7 @@ __all__ = [
     "DeploymentStore",
     "EdgeStore",
     "Repository",
-    "SiteStore",
+    "RuleStore",
     "ZoneStore",
 ]
 
@@ -70,7 +69,6 @@ class Repository:
         audit_retention: int | None = None,
     ) -> None:
         self.database = Database(path, pool_connections=pool_connections)
-        self.sites = SiteStore(self.database)
         self.zones = ZoneStore(self.database)
         self.rules = RuleStore(self.database)
         self.edges = EdgeStore(self.database)
@@ -93,21 +91,21 @@ class Repository:
     def snapshot(self) -> str:
         """Serialise the desired state a deployment converges and can roll back to.
 
-        Spans four tables, so it belongs to the bundle rather than to any one
+        Spans three tables, so it belongs to the bundle rather than to any one
         store. ``DeploymentStore`` is handed this bound method at construction:
         it records a snapshot with every deployment without knowing what a
         snapshot contains.
 
-        Sites are read here rather than derived on the way out. They stopped
-        being derivable when they stopped being a projection of the records,
-        and a site no record routes to yet is desired state all the same.
+        Sites are not read here and are not in the document. They are derived
+        from these three on the way *in* to a render or a rollback, so writing
+        them down would put a second, older answer beside the state they come
+        from.
         """
         with self.transaction():
             domains = self.zones.list_domains()
             records = self.zones.list_records()
             rules = self.rules.list_rules()
-            sites = self.sites.list_sites()
-            return encode_snapshot(domains, records, rules, sites)
+            return encode_snapshot(domains, records, rules)
 
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by this repository's stores."""

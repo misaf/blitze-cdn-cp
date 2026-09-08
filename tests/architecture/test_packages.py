@@ -1106,8 +1106,8 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     that shape depend on what is installed, and a stored site asking for HTTP/3
     would stop loading on a controller that had detached it.
     """
+    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.capabilities.http.policy import ProtocolPolicy
-    from blitzecdn.capabilities.sites.domain import CdnSite
 
     assert "http3_enabled" in ProtocolPolicy.model_fields
     assert "http3_enabled" in CdnSite.model_fields
@@ -1166,15 +1166,15 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
     installed, and a stored site asking for a country would stop loading on a
     controller that had detached it.
     """
+    from blitzecdn.capabilities.dns.domain import CdnSite
+    from blitzecdn.capabilities.dns.policy.headers import SiteVisitorHeaders
     from blitzecdn.capabilities.security.policy import SiteFirewall
-    from blitzecdn.capabilities.sites.domain import CdnSite
-    from blitzecdn.capabilities.sites.policy.headers import SiteVisitorHeaders
 
     assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
     assert "ip_country" in SiteVisitorHeaders.model_fields
     assert {"firewall", "visitor_headers"} <= set(CdnSite.model_fields)
     assert SiteFirewall.__module__.startswith("blitzecdn.capabilities.security")
-    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.sites")
+    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.dns")
 
 
 #: The two contracts allowed to name the `geoip` token, because they are the
@@ -1187,7 +1187,7 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
 #: registered, and neither contract said anywhere that it needed a lookup.
 _GEOIP_AWARE_CONTRACTS = {
     "capabilities/security/policy.py",
-    "capabilities/sites/policy/headers.py",
+    "capabilities/dns/policy/headers.py",
 }
 
 
@@ -1259,7 +1259,7 @@ def test_the_composition_names_no_capability_token_at_all():
     tokens = ("geoip", "cache", "compression", "http3", "certificates", "security")
     offenders = [
         f"sites/domain/{path.name} names the {node.value} token"
-        for path in sorted((SOURCE / "capabilities/sites/domain").glob("*.py"))
+        for path in sorted((SOURCE / "capabilities/dns/domain").glob("*.py"))
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value in tokens
     ]
@@ -1379,7 +1379,7 @@ def test_core_knows_no_kind_of_firewall_rule():
     settings of something detachable. Two leaks lived here and are gone: the
     country and HTTP-method tables in `core/validation.py`, whose only consumer
     was the security contract, and `if site.firewall.empty` in
-    `capabilities/sites/adapters/ansible.py`, which named one capability's
+    `capabilities/dns/adapters/ansible.py`, which named one capability's
     block inside a generic adapter.
     """
     forbidden = _firewall_rule_kinds() | _FIREWALL_VOCABULARY
@@ -1398,16 +1398,11 @@ def test_core_knows_no_kind_of_firewall_rule():
 #:
 #: * `api/models.py` holds the published *resource* shapes, which restate the
 #:   fields rather than re-export the contract, because what a client is
-#:   shown is a decision separate from what a policy happens to hold — and
-#:   there are two of them now, because the zone carries the same policy the
-#:   site does and a published shape may not cross a capability boundary;
-#: * `dns/cli.py` carries `blitzecdn record firewall`, because a record patch
-#:   is the DNS capability's surface and `dns -> security` is a declared
-#:   contract edge in `ALLOWED_POLICY_DEPENDENCIES`;
-#: * `sites/cli/security.py` carries `blitzecdn site firewall`, and is only the
+#:   shown is a decision separate from what a policy happens to hold;
+#: * `dns/cli/security.py` carries `blitzecdn domain firewall`, and is only the
 #:   commands for that one contract — it was the whole 572-line `sites/cli.py`,
-#:   which meant every unrelated site command shared an exemption written for
-#:   two of them;
+#:   which meant every unrelated command shared an exemption written for two of
+#:   them;
 #: `sites/domain.py` used to be a fourth entry, permitted to name the two
 #: *country* settings so it could derive the `geoip` token. It derives nothing
 #: now — `SecurityPolicy` declares the token beside the rule that needs it — so
@@ -1416,8 +1411,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/policy.py": None,
     "capabilities/dns/api/models.py": None,
-    "capabilities/sites/api/models.py": None,
-    "capabilities/sites/cli/security.py": None,
+    "capabilities/dns/cli/security.py": None,
 }
 
 
@@ -1450,11 +1444,11 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     because a block that has never been configured is not the same as one whose
     switches are off.
     """
-    from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
-    from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
-    source = (SOURCE / "capabilities/sites/adapters/ansible.py").read_text(
+    source = (SOURCE / "capabilities/dns/adapters/ansible.py").read_text(
         encoding="utf-8"
     )
     mapper = next(

@@ -19,9 +19,9 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
+from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.http.policy import HttpScheme
-from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.capabilities.sites.ports import SiteReader
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError

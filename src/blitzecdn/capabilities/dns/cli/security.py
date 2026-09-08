@@ -12,15 +12,15 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.sites.cli.app import _applied, _update, site_app
-from blitzecdn.capabilities.sites.domain import SitePatch
 from blitzecdn.cli import common
 
 
-@site_app.command("under-attack")
-def site_under_attack(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("under-attack")
+def domain_under_attack(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool,
         typer.Option(
@@ -34,23 +34,23 @@ def site_under_attack(
 
     Enabling this policy also requires the fleet's Nginx under-attack
     capability and a signing secret. A deploy fails rather than ignoring a
-    site whose edge cannot enforce it.
+    zone whose edge cannot enforce it.
     """
-    site = _update(name, SitePatch(under_attack_mode=on))
-    common.emit(site, json_output=json_output)
+    zone = _update(name, DomainPatch(under_attack_mode=on))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         typer.echo(
             _applied(
-                site,
+                zone,
                 f"Under Attack Mode is now {'enabled' if on else 'disabled'} "
-                f"for {site.name}.",
+                f"for {zone.name}.",
             )
         )
 
 
-@site_app.command("firewall")
-def site_firewall(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("firewall")
+def domain_firewall(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     allow_source: Annotated[
         list[str] | None,
         typer.Option(
@@ -91,13 +91,13 @@ def site_firewall(
     ] = False,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Filter requests to one site at the edge.
+    """Filter requests to one zone at the edge.
 
-    The posture stays open: rules subtract from a site that otherwise serves
+    The posture stays open: rules subtract from a zone that otherwise serves
     everyone, and --allow-source is an exemption from --deny-source rather than
-    a whitelist. To close a site, deny everything and list the exceptions:
+    a whitelist. To close a zone, deny everything and list the exceptions:
 
-        blitzecdn site firewall www-example-com \\
+        blitzecdn zone firewall www-example-com \\
             --deny-source 0.0.0.0/0 --deny-source ::/0 \\
             --allow-source 203.0.113.0/24
 
@@ -130,17 +130,17 @@ def site_firewall(
         # Merged as a plain mapping and revalidated, rather than model_copy'd:
         # model_copy would install the raw lists without running a validator,
         # and these end up interpolated into an nginx directive.
-        current = control.sites.get_site(name).firewall
+        current = control.dns.get_domain(name).firewall
         firewall = SiteFirewall.model_validate(current.model_dump() | named)
-    site = control.site_editor.update_site(name, SitePatch(firewall=firewall), "cli")
-    common.emit(site, json_output=json_output)
+    zone = _update(name, DomainPatch(firewall=firewall))
+    common.emit(zone, json_output=json_output)
     if not json_output:
-        rules = sum(len(getattr(site.firewall, f)) for f in SiteFirewall.model_fields)
+        rules = sum(len(getattr(zone.firewall, f)) for f in SiteFirewall.model_fields)
         typer.echo(
             _applied(
-                site,
-                f"{site.name} now carries {rules} firewall rule(s)."
+                zone,
+                f"{zone.name} now carries {rules} firewall rule(s)."
                 if rules
-                else f"{site.name} no longer filters any requests.",
+                else f"{zone.name} no longer filters any requests.",
             )
         )

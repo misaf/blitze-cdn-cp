@@ -40,11 +40,10 @@ def _two_acme_sites(control, certificate_pair):
 def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_pair):
     class FakeIssuer:
         def issue(self, site, email):
-            assert site.name == "cdn-example-com"
+            assert site.name == "example-com"
             assert email == "owner@example.com"
             return certificate_pair()
 
-    repository = Repository(settings.database_path)
     control = certificate_control_plane(
         settings, runner=FakeRunner(), issuer=FakeIssuer(), preflight=FakePreflight()
     )
@@ -52,23 +51,21 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     certificate, key = certificate_pair()
 
     uploaded = control.certificates.upload_certificate(
-        "cdn-example-com", certificate, key, "alice"
+        "example-com", certificate, key, "alice"
     )
     assert uploaded.source == "uploaded"
-    assert repository.sites.get_site("cdn-example-com").certificate_mode == "uploaded"
-    assert repository.sites.get_site("cdn-example-com").ssl_mode == "off"
+    assert control.dns.get_site("example-com").certificate_mode == "uploaded"
+    assert control.dns.get_site("example-com").ssl_mode == "off"
 
-    control.site_editor.update_site(
-        "cdn-example-com", SitePatch(ssl_mode="full"), "alice"
-    )
+    control.dns.update_domain("example.com", DomainPatch(ssl_mode="full"), "alice")
 
     requested = control.certificates.request_certificate(
-        "cdn-example-com", "alice", "owner@example.com"
+        "example-com", "alice", "owner@example.com"
     )
     assert requested.source == "acme"
-    assert control.certificates.certificate("cdn-example-com") == requested
-    assert repository.sites.get_site("cdn-example-com").certificate_mode == "requested"
-    assert repository.sites.get_site("cdn-example-com").ssl_mode == "full"
+    assert control.certificates.certificate("example-com") == requested
+    assert control.dns.get_site("example-com").certificate_mode == "requested"
+    assert control.dns.get_site("example-com").ssl_mode == "full"
 
     result = control.deployments.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -105,9 +102,7 @@ def test_new_certificate_material_owes_the_fleet_a_deployment(
 
     assert not repository.deployment_requirements.pending(kind)
 
-    control.certificates.upload_certificate(
-        "cdn-example-com", certificate, key, "alice"
-    )
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
     assert repository.deployment_requirements.pending(kind)
 
     checked = control.deployments.deploy("alice", check=True)
@@ -144,11 +139,11 @@ def test_automatic_ssl_upgrades_to_the_strongest_fleet_verified_mode(
 
     result = control.automatic_ssl.reconcile("scheduler")
 
-    assert result.upgraded == {"cdn-example-com": expected}
+    assert result.upgraded == {"example-com": expected}
     assert result.skipped == {}
     assert result.deployment is not None
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert site.ssl_mode is expected
     assert site.ssl_automatic_mode is SslAutomaticMode.AUTO
     event = next(
@@ -178,8 +173,8 @@ def test_automatic_ssl_uses_flexible_when_only_http_is_healthy(settings):
 
     result = control.automatic_ssl.reconcile("scheduler")
 
-    assert result.upgraded == {"cdn-example-com": SslMode.FLEXIBLE}
-    assert control.sites.get_site("cdn-example-com").ssl_mode is SslMode.FLEXIBLE
+    assert result.upgraded == {"example-com": SslMode.FLEXIBLE}
+    assert control.sites.get_site("example-com").ssl_mode is SslMode.FLEXIBLE
 
 
 def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
@@ -192,7 +187,7 @@ def test_custom_ssl_mode_is_never_scanned_or_changed(settings):
     assert result.scanned == ()
     assert result.upgraded == {}
     assert runner.playbooks == []
-    assert control.sites.get_site("cdn-example-com").ssl_mode is SslMode.OFF
+    assert control.sites.get_site("example-com").ssl_mode is SslMode.OFF
 
 
 def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
@@ -218,9 +213,9 @@ def test_automatic_ssl_never_downgrades_when_strict_is_unavailable(settings):
     result = control.automatic_ssl.reconcile("scheduler")
 
     assert result.upgraded == {}
-    assert "cdn-example-com" in result.skipped
+    assert "example-com" in result.skipped
     assert result.deployment is None
-    assert control.sites.get_site("cdn-example-com").ssl_mode is SslMode.FULL
+    assert control.sites.get_site("example-com").ssl_mode is SslMode.FULL
 
 
 def test_reconcile_issues_ready_first_certificate_and_deploys(
@@ -234,7 +229,6 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     configured = with_capability_settings(
         settings, acme_default_email="ops@example.com"
     )
-    repository = Repository(configured.database_path)
     control = certificate_control_plane(
         configured,
         runner=FakeRunner([ansible_run(host_run("edge-a"))]),
@@ -249,8 +243,8 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     assert result.skipped == {}
     assert result.failed == {}
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
-    assert repository.sites.get_site(site_name).certificate_mode == "requested"
-    assert repository.sites.get_site(site_name).ssl_mode == "off"
+    assert control.dns.get_site(site_name).certificate_mode == "requested"
+    assert control.dns.get_site(site_name).ssl_mode == "off"
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):
@@ -279,7 +273,7 @@ def test_request_certificate_requires_email(settings):
     from blitzecdn.core.exceptions import ConflictError
 
     with pytest.raises(ConflictError, match="email"):
-        control.certificates.request_certificate("cdn-example-com", "alice")
+        control.certificates.request_certificate("example-com", "alice")
 
 
 def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
@@ -317,9 +311,7 @@ def test_certificate_upload_holds_deployment_lock(settings, certificate_pair):
     events.clear()  # seeding does not take the deployment lock
     certificate, key = certificate_pair()
 
-    control.certificates.upload_certificate(
-        "cdn-example-com", certificate, key, "alice"
-    )
+    control.certificates.upload_certificate("example-com", certificate, key, "alice")
 
     assert events == ["locked", "installed", "unlocked"]
 
@@ -372,8 +364,8 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
     assert sorted(
         control.certificates.renew_certificates("alice", force=True).renewed
     ) == [
-        "due-example-com",
-        "healthy-example-com",
+        "example-com--due",
+        "example-com--healthy",
     ]
 
 
@@ -502,7 +494,7 @@ def test_a_renewal_that_returned_the_same_certificate_is_not_reported_renewed(
 
 def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair):
     """A scheduled renewal must make progress even when a site is unreachable."""
-    issuer = _RecordingIssuer(certificate_pair, fails={"broken-example-com"})
+    issuer = _RecordingIssuer(certificate_pair, fails={"example-com--broken"})
     control = certificate_control_plane(
         settings,
         runner=FakeRunner(),
@@ -527,9 +519,9 @@ def test_one_failing_renewal_does_not_stop_the_others(settings, certificate_pair
 
     result = control.certificates.renew_certificates("alice")
 
-    assert result.renewed == ("fine-example-com",)
+    assert result.renewed == ("example-com--fine",)
     assert len(result.failed) == 1
-    assert "broken-example-com" in result.failed[0]
+    assert "example-com--broken" in result.failed[0]
 
 
 def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
@@ -545,12 +537,12 @@ def test_renewal_can_be_narrowed_to_named_sites(settings, certificate_pair):
     issuer.issued.clear()
 
     result = control.certificates.renew_certificates(
-        "alice", force=True, sites=["first-example-com"]
+        "alice", force=True, sites=["example-com--first"]
     )
 
-    assert result.renewed == ("first-example-com",)
+    assert result.renewed == ("example-com--first",)
     # The unselected site never reached the CA at all.
-    assert [site for site, _ in issuer.issued] == ["first-example-com"]
+    assert [site for site, _ in issuer.issued] == ["example-com--first"]
 
 
 def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_pair):
@@ -565,9 +557,9 @@ def test_renewal_rejects_a_site_it_has_no_certificate_for(settings, certificate_
     _two_acme_sites(control, certificate_pair)
     issuer.issued.clear()
 
-    with pytest.raises(NotFoundError, match="frist-example-com"):
+    with pytest.raises(NotFoundError, match="example-com--frist"):
         control.certificates.renew_certificates(
-            "alice", force=True, sites=["frist-example-com"]
+            "alice", force=True, sites=["example-com--frist"]
         )
 
     # Nothing was renewed before the unknown name was noticed.
@@ -586,13 +578,13 @@ def test_renewal_records_the_selector_in_the_audit_trail(settings, certificate_p
     _two_acme_sites(control, certificate_pair)
 
     control.certificates.renew_certificates(
-        "alice", force=True, sites=["second-example-com"]
+        "alice", force=True, sites=["example-com--second"]
     )
     narrowed = repository.audit_log.list_audit_events()[0]
     control.certificates.renew_certificates("alice")
     full = repository.audit_log.list_audit_events()[0]
 
     assert narrowed.action == "certificates.renewed"
-    assert narrowed.details["sites"] == ["second-example-com"]
+    assert narrowed.details["sites"] == ["example-com--second"]
     # A full sweep is distinguishable from a narrowed one that renewed nothing.
     assert full.details["sites"] is None

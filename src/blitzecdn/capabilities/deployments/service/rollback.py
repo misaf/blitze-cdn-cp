@@ -3,10 +3,10 @@
 A rollback is an ordinary convergence of an older snapshot plus three decisions
 that a forward deploy never has to make: which snapshot, whether canonical
 state may still be overwritten by the time the fleet has converged to it, and
-what adopting it does to the zone records. Those decisions have their own
-reason to change — they are about the meaning of "roll back", not about running
-Ansible — and each of them protects an invariant that is easy to lose in a
-service that is mostly about the run.
+what adopting it does to the zones, their rules and their records. Those
+decisions have their own reason to change — they are about the meaning of
+"roll back", not about running Ansible — and each of them protects an invariant
+that is easy to lose in a service that is mostly about the run.
 
 Written as functions over the ports the service already holds, so the service
 still owns the lock, the transaction and the ordering; this owns the policy.
@@ -22,8 +22,6 @@ from blitzecdn.capabilities.deployments.domain.snapshots import (
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentStore,
     RuleRestore,
-    SiteRestore,
-    ZoneEditor,
     ZoneStore,
 )
 from blitzecdn.core.exceptions import ConflictError
@@ -85,37 +83,22 @@ def require_unchanged_canonical(
         )
 
 
-def adopt_snapshot(
-    zones: ZoneStore,
-    sites: SiteRestore,
-    rules: RuleRestore,
-    dns: ZoneEditor,
-    snapshot: str,
-) -> None:
+def adopt_snapshot(zones: ZoneStore, rules: RuleRestore, snapshot: str) -> None:
     """Make the converged snapshot canonical desired state.
 
-    The order matters and is the reason this is one function rather than four
-    calls at the call site. A record references the site that serves its
-    hostname, so the records come out first, the sites are replaced while
-    nothing points at them, and the records go back afterwards — any other
-    order asks the database to delete a site a record still names, which the
-    foreign key refuses halfway through a restore.
+    Two writes and an order between them. ``replace_all_records`` deletes the
+    zone rows and writes them again, and a rule is keyed to its zone with ON
+    DELETE CASCADE — so the rules go back after the zones, never before, or
+    they would be written into a table that is about to be emptied.
 
-    The closing resync is not redundant. The snapshot's sites carry the
-    hostnames they had when it was written, and they agree with its records by
-    construction; recomputing them is what re-stamps the projection revision,
-    without which the very next validation would call the state it just
-    restored stale.
+    It used to be four calls with a comment about foreign keys between them: a
+    record referenced the site that served it, so the records had to come out
+    before the sites could be replaced and go back in afterwards. Nothing
+    references a site now, because nothing stores one.
 
     Called only inside the caller's transaction, and only after
     :func:`require_unchanged_canonical` has agreed there is nothing to lose.
     """
-    domains, records, restored_rules, restored_sites = decode_snapshot_state(snapshot)
-    zones.delete_all_records()
-    sites.replace_all_sites(restored_sites)
+    domains, records, restored_rules = decode_snapshot_state(snapshot)
     zones.replace_all_records(domains, records)
-    # After the zones, never before: ``replace_all_records`` deletes the zone
-    # rows, and the rules cascade with them. Writing the rules first would
-    # write them into a table that is about to be emptied.
     rules.replace_all_rules(restored_rules)
-    dns.resync_hostnames()

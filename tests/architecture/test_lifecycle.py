@@ -76,8 +76,8 @@ DETACHABLE_SITE_PACKAGES = (
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "requested",
-            "certificate_path": "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem",
-            "certificate_key_path": "/etc/blitzecdn/tls/cdn-example-com/privkey.pem",
+            "certificate_path": "/etc/blitzecdn/tls/example-com/fullchain.pem",
+            "certificate_key_path": "/etc/blitzecdn/tls/example-com/privkey.pem",
         },
     ),
     (
@@ -98,8 +98,8 @@ DETACHABLE_SITE_PACKAGES = (
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "existing",
-            "certificate_path": "/etc/ssl/cdn-example-com.pem",
-            "certificate_key_path": "/etc/ssl/cdn-example-com.key",
+            "certificate_path": "/etc/ssl/example-com.pem",
+            "certificate_key_path": "/etc/ssl/example-com.key",
             "http3_enabled": True,
         },
     ),
@@ -256,8 +256,8 @@ class Environment:
         program = (
             "import json,sys;"
             "from blitzecdn.composition import load_control_plane_plugins;"
-            "from blitzecdn.capabilities.sites import CdnSite;"
-            "values={'name':'cdn-example-com',"
+            "from blitzecdn.capabilities.dns.domain import CdnSite;"
+            "values={'name':'example-com',"
             "'server_names':['cdn.example.com'],"
             "'origin_host':'198.51.100.10',**json.loads(sys.argv[1])};"
             "site=CdnSite.model_validate(values);"
@@ -288,7 +288,7 @@ class Environment:
         program = (
             "import json,sys;"
             "from blitzecdn.composition import load_control_plane_plugins;"
-            "from blitzecdn.capabilities.sites import CdnSite;"
+            "from blitzecdn.capabilities.dns.domain import CdnSite;"
             "sites=tuple(CdnSite.model_validate(v) for v in json.loads(sys.argv[1]));"
             "registry = load_control_plane_plugins();"
             "print(json.dumps(registry.fleet_variables(sites, object())))"
@@ -399,7 +399,7 @@ def test_core_alone_starts_and_registers_every_required_capability(
     report = core_only.report()
 
     assert report["rejected"] == []
-    assert {"sites", "dns", "edges", "deployments", "tls", "diagnostics"} <= set(
+    assert {"dns", "edges", "deployments", "tls", "diagnostics"} <= set(
         report["plugins"]  # type: ignore[arg-type]
     )
     assert report["commands"]
@@ -426,8 +426,8 @@ def test_core_alone_loads_off_and_unmanaged_site_contracts(core_only: Environmen
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "existing",
-            "certificate_path": "/etc/ssl/cdn-example-com.pem",
-            "certificate_key_path": "/etc/ssl/cdn-example-com.key",
+            "certificate_path": "/etc/ssl/example-com.pem",
+            "certificate_key_path": "/etc/ssl/example-com.key",
         }
     )
 
@@ -584,7 +584,7 @@ def test_uninstalling_a_distribution_makes_its_capability_disappear(
     assert LIFECYCLE_CAPABILITY not in after["capabilities"]
     assert LIFECYCLE_CAPABILITY not in after["commands"]
     assert after["rejected"] == []
-    assert {"sites", "dns", "edges", "deployments"} <= set(
+    assert {"dns", "edges", "deployments"} <= set(
         after["plugins"]  # type: ignore[arg-type]
     )
     assert after["routes"]
@@ -811,7 +811,7 @@ def test_attaching_http3_makes_the_capability_and_its_fleet_state_appear(
     after = environment.report()
     assert "http3" not in after["capabilities"]
     assert after["rejected"] == []
-    assert {"http", "sites", "deployments"} <= set(after["plugins"])  # type: ignore[arg-type]
+    assert {"http", "dns", "deployments"} <= set(after["plugins"])  # type: ignore[arg-type]
     assert environment.fleet_state(fleet) == {
         "blitzecdn_edge_http3_enabled": False,
         "blitzecdn_nginx_http3_listener_owner": "",
@@ -1572,7 +1572,7 @@ def test_core_locates_its_own_ansible_without_the_repository(
 #: the acceptance criteria call "a dependency on a capability token".
 def _country_site(**policy: object) -> dict[str, object]:
     return {
-        "name": "cdn-example-com",
+        "name": "example-com",
         "server_names": ["cdn.example.com"],
         "origin_host": "198.51.100.10",
         "compression": "off",
@@ -1690,7 +1690,7 @@ def test_attaching_geoip_makes_every_country_configuration_deployable(
     after = environment.report()
     assert "geoip" not in after["capabilities"]
     assert after["rejected"] == []
-    assert {"sites", "dns", "deployments", "http"} <= set(after["plugins"])  # type: ignore[arg-type]
+    assert {"dns", "deployments", "http"} <= set(after["plugins"])  # type: ignore[arg-type]
     assert after["routes"]
     for site in (_COUNTRY_HEADER, _ALLOWED_COUNTRIES, _DENIED_COUNTRIES):
         assert environment.site_capabilities(site)["missing"] == ["geoip"]

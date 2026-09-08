@@ -11,9 +11,8 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.dns.domain import Rule
+from blitzecdn.capabilities.dns.domain import CdnSite, Rule
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
-from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.plugins import StateValue, ValidationResult
@@ -21,24 +20,11 @@ from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
 
-class SiteRestore(Protocol):
-    """Putting the sites back, for a rollback that adopts an older snapshot.
-
-    One method, and deliberately not ``sites.ports.SiteStore``: a rollback
-    replaces the table wholesale and never edits one site, so the port it holds
-    should not be able to. The write side of a *single* site belongs to
-    ``SiteService`` and this capability has no business with it.
-    """
-
-    def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
-
-
 class RuleRestore(Protocol):
     """Putting the rules back, for a rollback that adopts an older snapshot.
 
-    One method, for the same reason ``SiteRestore`` has one: a rollback
-    replaces the table wholesale and never edits a rule, so the port it holds
-    should not be able to.
+    One method, not the rule editor: a rollback replaces the table wholesale
+    and never edits a rule, so the port it holds should not be able to.
 
     A rollback must restore them rather than leave them alone. The zone rows go
     out and back during an adoption, and a rule is keyed to its zone with ON
@@ -278,7 +264,7 @@ __all__ = [
     "EventRecorder",
     "LogReader",
     "QueueBackgroundRunner",
-    "SiteRestore",
+    "RuleRestore",
     "SiteValidator",
     "StateContributors",
     "UnitOfWork",

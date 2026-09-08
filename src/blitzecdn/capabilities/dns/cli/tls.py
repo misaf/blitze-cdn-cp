@@ -12,8 +12,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.sites.cli.app import _applied, _update, site_app
-from blitzecdn.capabilities.sites.domain import SitePatch
+from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
     SslAutomaticMode,
@@ -22,9 +22,9 @@ from blitzecdn.capabilities.tls.policy import (
 from blitzecdn.cli import common
 
 
-@site_app.command("ssl")
-def site_ssl(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("ssl")
+def domain_ssl(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
         SslMode,
         typer.Option(
@@ -34,24 +34,24 @@ def site_ssl(
     ],
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Set visitor and origin encryption for one site.
+    """Set visitor and origin encryption for one zone.
 
     Flexible encrypts visitors but uses HTTP to the origin. Full uses HTTPS to
     the origin without verifying its certificate. Full (strict) verifies the
     origin certificate and hostname. Every mode except Off requires an active
     edge certificate.
     """
-    site = _update(name, SitePatch(ssl_mode=mode))
-    common.emit(site, json_output=json_output)
+    zone = _update(name, DomainPatch(ssl_mode=mode))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         typer.echo(
-            _applied(site, f"{site.name} now uses SSL mode {site.ssl_mode.value!r}.")
+            _applied(zone, f"{zone.name} now uses SSL mode {zone.ssl_mode.value!r}.")
         )
 
 
-@site_app.command("ssl-automatic")
-def site_ssl_automatic(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("ssl-automatic")
+def domain_ssl_automatic(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
         SslAutomaticMode,
         typer.Option(
@@ -61,19 +61,19 @@ def site_ssl_automatic(
     ],
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Enroll a site in Automatic SSL/TLS or opt it into Custom mode."""
-    site = _update(name, SitePatch(ssl_automatic_mode=mode))
-    common.emit(site, json_output=json_output)
+    """Enroll a zone in Automatic SSL/TLS or opt it into Custom mode."""
+    zone = _update(name, DomainPatch(ssl_automatic_mode=mode))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         typer.echo(
-            f"{site.name} now uses SSL automatic mode "
-            f"{site.ssl_automatic_mode.value!r}."
+            f"{zone.name} now uses SSL automatic mode "
+            f"{zone.ssl_automatic_mode.value!r}."
         )
 
 
-@site_app.command("minimum-tls")
-def site_minimum_tls(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("minimum-tls")
+def domain_minimum_tls(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     version: Annotated[
         MinimumTlsVersion,
         typer.Option(
@@ -83,14 +83,14 @@ def site_minimum_tls(
     ],
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Set the minimum visitor TLS version for one site."""
-    site = _update(name, SitePatch(minimum_tls_version=version))
-    common.emit(site, json_output=json_output)
+    """Set the minimum visitor TLS version for one zone."""
+    zone = _update(name, DomainPatch(minimum_tls_version=version))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         typer.echo(
             _applied(
-                site,
-                f"{site.name} now requires TLS "
-                f"{site.minimum_tls_version.value} or newer.",
+                zone,
+                f"{zone.name} now requires TLS "
+                f"{zone.minimum_tls_version.value} or newer.",
             )
         )

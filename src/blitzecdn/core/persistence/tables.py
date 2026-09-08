@@ -13,7 +13,7 @@ a table: a schema built by anything but a migration is a schema no upgrade can
 reason about.
 
 The tables themselves are no longer all here. A capability's table lives beside
-the store that reads it — `capabilities/sites/adapters/tables.py` and its three
+the store that reads it — `capabilities/dns/adapters/tables.py` and its three
 siblings — and registers itself on this base by importing it, so there is still
 one metadata and still one migration tree. What is left here is core's own:
 fleet-wide Ansible settings and the audit log. Which table modules must be

@@ -64,7 +64,7 @@ def _with_seams(service, *, certificate_store=None, issuer=None, preflight=None)
         ),
         events=service.events,
         dns=service.dns,
-        site_editor=service.site_editor,
+        site_editor=service.dns,
         deployments=service.deployments,
         workflows=service.workflows,
     )
@@ -190,7 +190,7 @@ def _automatic_origin_report(
             "collected_at": "2026-01-01T00:00:00Z",
             "origins": [
                 {
-                    "site": "cdn-example-com",
+                    "site": "example-com",
                     "origin": f"198.51.100.10:{443 if scheme == 'https' else 80}",
                     "scheme": scheme,
                     "ssl_mode": mode.value,

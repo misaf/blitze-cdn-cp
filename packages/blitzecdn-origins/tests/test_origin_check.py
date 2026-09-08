@@ -93,7 +93,7 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
     report = build_origin_check_service(control).check_origins("alice")
 
     assert report.healthy is False
-    assert report.failing_sites == {"cdn-example-com": ("edge-b",)}
+    assert report.failing_sites == {"example-com": ("edge-b",)}
     assert report.silent == ()
 
 

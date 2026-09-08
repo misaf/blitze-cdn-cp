@@ -5,10 +5,10 @@ from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.dns.domain import CdnSite, SitePolicy
+from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
-from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import SslMode
 
 
@@ -25,9 +25,7 @@ def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
     assert CacheQueryStringMode.__module__ == "blitzecdn.capabilities.cache.policy"
     # The one that stays: no distribution could carry the ``BZ-*`` headers away,
     # so there is no capability to reunite this contract with.
-    assert (
-        SiteVisitorHeaders.__module__ == "blitzecdn.capabilities.sites.policy.headers"
-    )
+    assert SiteVisitorHeaders.__module__ == "blitzecdn.capabilities.dns.policy.headers"
     assert [mode.value for mode in CompressionMode] == ["off", "gzip", "brotli"]
 
 
@@ -98,17 +96,13 @@ def test_geoip_requirement_combines_security_and_header_policy():
     assert not SitePolicy().requires_geoip
 
 
-def test_site_package_re_exports_only_what_sites_owns():
-    """Importing another capability's contract from `sites` must not work."""
-    import blitzecdn.capabilities.sites as sites
+def test_the_policy_package_re_exports_only_what_it_owns():
+    """Importing another capability's contract from `dns.policy` must not work."""
+    import blitzecdn.capabilities.dns.policy as policy
 
-    assert set(sites.__all__) == {
-        "CdnSite",
+    assert set(policy.__all__) == {
         "HeaderPolicy",
         "OriginPolicy",
-        "SitePatch",
-        "SitePolicy",
-        "SiteService",
         "SiteVisitorHeaders",
     }
     borrowed_names = (
@@ -120,5 +114,5 @@ def test_site_package_re_exports_only_what_sites_owns():
         "CacheQueryStringMode",
     )
     for borrowed in borrowed_names:
-        assert not hasattr(sites, borrowed), borrowed
+        assert not hasattr(policy, borrowed), borrowed
     assert issubclass(CdnSite, SitePolicy)

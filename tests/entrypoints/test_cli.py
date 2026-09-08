@@ -40,24 +40,23 @@ runner = CliRunner()
 
 
 def _seed_site(control, label="api", origin="198.51.100.20", name=None):
-    """A site and the record that routes one hostname to it, through the CLI.
+    """A zone's origin and one proxied hostname in it, through the CLI.
 
-    Two commands where there used to be one flag. `record add --proxied` did
-    both jobs because a record *was* a site; they are separate objects now, so
-    the fixture creates the site and then points a hostname at it.
+    Back to two commands after a spell at three. `record add --proxied` once
+    did both jobs because a record *was* a site; then a site had to be created
+    first; now the origin is the zone's and the record only says the edge
+    serves the hostname.
     """
-    site = name or f"{label}-example-com"
-    assert (
-        runner.invoke(cli.app, ["site", "create", site, "--origin", origin]).exit_code
-        == 0
-    )
     assert (
         runner.invoke(
-            cli.app, ["record", "add", "example.com", label, "--site", site]
+            cli.app, ["domain", "origin", "example.com", "--origin", origin]
         ).exit_code
         == 0
     )
-    return site
+    assert (
+        runner.invoke(cli.app, ["record", "add", "example.com", label]).exit_code == 0
+    )
+    return name or "example-com"
 
 
 def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_path):
@@ -70,8 +69,10 @@ def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_pa
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     assert runner.invoke(cli.app, ["domain", "add", "example.com"]).exit_code == 0
     _seed_site(control, "cdn", "198.51.100.10")
-    listed = runner.invoke(cli.app, ["site", "list", "--json"])
-    assert listed.exit_code == 0 and "cdn-example-com" in listed.stdout
+    listed = runner.invoke(cli.app, ["domain", "list", "--json"])
+    assert listed.exit_code == 0 and "example.com" in listed.stdout
+    hosts = runner.invoke(cli.app, ["domain", "hosts", "--json"])
+    assert hosts.exit_code == 0 and "example-com" in hosts.stdout
     assert runner.invoke(cli.app, ["doctor", "--json"]).exit_code == 0
     assert runner.invoke(cli.app, ["audit", "--json"]).exit_code == 0
     assert (
@@ -214,7 +215,7 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
     assert "does not exist" in capsys.readouterr().err
 
 
-def test_cli_route_and_unroute_move_a_hostname_on_and_off_the_edge(
+def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
     settings, monkeypatch
 ):
     """`record route` / `record unroute` is the CDN switch for one hostname.
@@ -231,58 +232,32 @@ def test_cli_route_and_unroute_move_a_hostname_on_and_off_the_edge(
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
-        cli.app, ["site", "create", "api-example-com", "--origin", "198.51.100.20"]
+        cli.app, ["domain", "origin", "example.com", "--origin", "198.51.100.20"]
     )
     added = runner.invoke(
         cli.app,
         ["record", "add", "example.com", "api", "--value", "198.51.100.20", "--json"],
     )
     assert added.exit_code == 0
-    assert json.loads(added.stdout)["site"] is None
-    # Unrouted, the site answers for nothing.
-    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
-    assert [site["server_names"] for site in sites] == [[]]
+    assert json.loads(added.stdout)["proxied"] is False
+    # Unproxied, the zone derives no virtual host at all.
+    assert control.dns.list_sites() == []
 
-    routed = runner.invoke(
-        cli.app,
-        [
-            "record",
-            "route",
-            "example.com",
-            "api",
-            "--site",
-            "api-example-com",
-            "--json",
-        ],
+    proxied = runner.invoke(
+        cli.app, ["record", "proxy", "example.com", "api", "--json"]
     )
-    assert routed.exit_code == 0
-    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    assert proxied.exit_code == 0
+    sites = json.loads(runner.invoke(cli.app, ["domain", "hosts", "--json"]).stdout)
     assert [site["server_names"] for site in sites] == [["api.example.com"]]
     assert sites[0]["origin_host"] == "198.51.100.20"
 
     runner.invoke(
         cli.app,
-        ["record", "unroute", "example.com", "api", "--value", "203.0.113.7"],
+        ["record", "unproxy", "example.com", "api", "--value", "203.0.113.7"],
     )
-    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
-    assert [site["server_names"] for site in sites] == [[]]
-
-    # And `record add` refuses to be both at once.
+    # Off the edge, the zone derives nothing again.
     assert (
-        runner.invoke(
-            cli.app,
-            [
-                "record",
-                "add",
-                "example.com",
-                "www",
-                "--value",
-                "198.51.100.21",
-                "--site",
-                "api-example-com",
-            ],
-        ).exit_code
-        != 0
+        json.loads(runner.invoke(cli.app, ["domain", "hosts", "--json"]).stdout) == []
     )
 
 
@@ -296,26 +271,26 @@ def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypat
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
 
-    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    sites = json.loads(runner.invoke(cli.app, ["domain", "hosts", "--json"]).stdout)
     assert sites[0]["always_use_https"] is False
 
     enabled = runner.invoke(
         cli.app,
-        ["site", "always-use-https", "api-example-com", "--on", "--json"],
+        ["domain", "always-use-https", "example.com", "--on", "--json"],
     )
 
     assert enabled.exit_code == 0
     assert json.loads(enabled.stdout)["always_use_https"] is True
-    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    sites = json.loads(runner.invoke(cli.app, ["domain", "hosts", "--json"]).stdout)
     assert sites[0]["always_use_https"] is True
 
     disabled = runner.invoke(
         cli.app,
-        ["site", "always-use-https", "api-example-com", "--off"],
+        ["domain", "always-use-https", "example.com", "--off"],
     )
     assert disabled.exit_code == 0
     assert "now disabled" in disabled.stdout
-    assert control.sites.get_site("api-example-com").always_use_https is False
+    assert control.sites.get_site("example-com").always_use_https is False
 
 
 def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
@@ -337,9 +312,9 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     first = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "firewall",
-            "api-example-com",
+            "example.com",
             "--deny-source",
             "203.0.113.0/24",
             "--deny-path",
@@ -352,7 +327,7 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     # Names only the country list; the source and path rules must survive.
     second = runner.invoke(
         cli.app,
-        ["site", "firewall", "api-example-com", "--deny-country", "ru", "--json"],
+        ["domain", "firewall", "example.com", "--deny-country", "ru", "--json"],
     )
     assert second.exit_code == 0
     firewall = json.loads(second.stdout)["firewall"]
@@ -360,11 +335,11 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     assert firewall["denied_paths"] == ["/admin"]
     assert firewall["denied_countries"] == ["RU"]
 
-    sites = json.loads(runner.invoke(cli.app, ["site", "list", "--json"]).stdout)
+    sites = json.loads(runner.invoke(cli.app, ["domain", "list", "--json"]).stdout)
     assert sites[0]["firewall"]["denied_countries"] == ["RU"]
 
     cleared = runner.invoke(
-        cli.app, ["site", "firewall", "api-example-com", "--clear", "--json"]
+        cli.app, ["domain", "firewall", "example.com", "--clear", "--json"]
     )
     assert json.loads(cleared.stdout)["firewall"]["deny_sources"] == []
 
@@ -385,9 +360,9 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
     result = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "firewall",
-            "api-example-com",
+            "example.com",
             "--deny-source",
             "203.0.113.5/24",
         ],
@@ -406,14 +381,14 @@ def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
     runner.invoke(
         cli.app, ["record", "add", "example.com", "api", "--value", "198.51.100.20"]
     )
-    bare = runner.invoke(cli.app, ["site", "firewall", "api-example-com"])
+    bare = runner.invoke(cli.app, ["domain", "firewall", "api-example-com"])
     assert bare.exit_code != 0
     conflicting = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "firewall",
-            "api-example-com",
+            "example.com",
             "--clear",
             "--deny-path",
             "/admin",
@@ -433,7 +408,6 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
     _seed_site(control, "api", "198.51.100.20")
     exported = json.loads(runner.invoke(cli.app, ["dns", "export", "--json"]).stdout)
     assert exported[0]["proxied"] is True
-    assert exported[0]["site"] == "api-example-com"
     assert "value" not in exported[0]
 
 
@@ -668,7 +642,13 @@ def test_record_remove_keeps_the_record_when_the_operator_declines(
     control = _control(settings, monkeypatch)
     control.dns.create_domain(Domain(name="example.com"), "cli")
     control.dns.create_record(
-        DnsRecord(domain="example.com", name="cdn", value="198.51.100.10"), "cli"
+        DnsRecord(
+            domain="example.com",
+            name="cdn",
+            proxied=False,
+            value="198.51.100.10",
+        ),
+        "cli",
     )
 
     result = runner.invoke(
@@ -795,15 +775,15 @@ def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
     assert started == []
 
 
-def test_site_show_reveals_defaults_the_create_never_mentioned(settings, monkeypatch):
+def test_domain_show_reveals_defaults_nothing_ever_mentioned(settings, monkeypatch):
     """A site is derived, so its resolved policy is not visible on the record."""
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
-    result = runner.invoke(cli.app, ["site", "show", "cdn-example-com", "--json"])
+    result = runner.invoke(cli.app, ["domain", "hosts", "--json"])
 
     assert result.exit_code == 0
-    site = json.loads(result.stdout)
+    (site,) = json.loads(result.stdout)
     assert site["server_names"] == ["cdn.example.com"]
     assert site["origin_host"] == "198.51.100.10"
     # Never set on the record; only the derived site shows them.
@@ -818,7 +798,7 @@ def test_site_show_reveals_defaults_the_create_never_mentioned(settings, monkeyp
 
 def test_site_show_reports_an_unknown_site_without_a_traceback(settings, monkeypatch):
     _control(settings, monkeypatch)
-    monkeypatch.setattr(sys, "argv", ["blitzecdn", "site", "show", "absent"])
+    monkeypatch.setattr(sys, "argv", ["blitzecdn", "domain", "show", "absent"])
 
     with pytest.raises(SystemExit) as exit_info:
         cli.run()
@@ -830,7 +810,7 @@ def test_site_ssl_changes_the_combined_mode(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     seed_site(
         control,
-        name="cdn-example-com",
+        name="example-com",
         record="cdn",
         operator="cli",
         ssl_mode="flexible",
@@ -841,11 +821,11 @@ def test_site_ssl_changes_the_combined_mode(settings, monkeypatch):
 
     result = runner.invoke(
         cli.app,
-        ["site", "ssl", "cdn-example-com", "--mode", "full_strict"],
+        ["domain", "ssl", "example.com", "--mode", "full_strict"],
     )
 
     assert result.exit_code == 0
-    assert control.sites.get_site("cdn-example-com").ssl_mode == "full_strict"
+    assert control.sites.get_site("example-com").ssl_mode == "full_strict"
     assert "Run 'blitzecdn deploy'" in result.stdout
 
 
@@ -853,7 +833,7 @@ def test_site_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     seed_site(
         control,
-        name="cdn-example-com",
+        name="example-com",
         record="cdn",
         operator="cli",
         ssl_mode="flexible",
@@ -863,56 +843,56 @@ def test_site_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
     )
 
     result = runner.invoke(
-        cli.app, ["site", "http3", "cdn-example-com", "--on", "--json"]
+        cli.app, ["domain", "http3", "example.com", "--on", "--json"]
     )
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["http3_enabled"] is True
-    assert control.sites.get_site("cdn-example-com").http3_enabled is True
+    assert control.sites.get_site("example-com").http3_enabled is True
 
 
 def test_site_under_attack_toggles_edge_mitigation(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
-        cli.app, ["site", "under-attack", "cdn-example-com", "--on", "--json"]
+        cli.app, ["domain", "under-attack", "example.com", "--on", "--json"]
     )
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["under_attack_mode"] is True
-    assert control.sites.get_site("cdn-example-com").under_attack_mode is True
+    assert control.sites.get_site("example-com").under_attack_mode is True
 
 
 def test_site_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "ssl-automatic",
-            "cdn-example-com",
+            "example.com",
             "--mode",
             "custom",
         ],
     )
 
     assert result.exit_code == 0
-    assert control.sites.get_site("cdn-example-com").ssl_automatic_mode == "custom"
+    assert control.sites.get_site("example-com").ssl_automatic_mode == "custom"
 
 
 def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     tls = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "minimum-tls",
-            "cdn-example-com",
+            "example.com",
             "--version",
             "1.3",
             "--json",
@@ -921,9 +901,9 @@ def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch)
     query = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "cache-query-string",
-            "cdn-example-com",
+            "example.com",
             "--mode",
             "ignore",
             "--json",
@@ -934,67 +914,67 @@ def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch)
     assert json.loads(tls.stdout)["minimum_tls_version"] == "1.3"
     assert query.exit_code == 0
     assert json.loads(query.stdout)["cache_query_string_mode"] == "ignore"
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert site.minimum_tls_version == "1.3"
     assert site.cache_query_string_mode == "ignore"
 
 
 def test_site_max_upload_size_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
-    assert control.sites.get_site("cdn-example-com").max_upload_size == "100m"
+    seed_site(control, name="example-com", record="cdn", operator="cli")
+    assert control.sites.get_site("example-com").max_upload_size == "100m"
 
     result = runner.invoke(
         cli.app,
-        ["site", "max-upload-size", "cdn-example-com", "--size", "200m", "--json"],
+        ["domain", "max-upload-size", "example.com", "--size", "200m", "--json"],
     )
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["max_upload_size"] == "200m"
-    assert control.sites.get_site("cdn-example-com").max_upload_size == "200m"
+    assert control.sites.get_site("example-com").max_upload_size == "200m"
 
     rejected = runner.invoke(
         cli.app,
-        ["site", "max-upload-size", "cdn-example-com", "--size", "500m"],
+        ["domain", "max-upload-size", "example.com", "--size", "500m"],
     )
 
     assert rejected.exit_code != 0
-    assert control.sites.get_site("cdn-example-com").max_upload_size == "200m"
+    assert control.sites.get_site("example-com").max_upload_size == "200m"
 
 
 def test_site_compression_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
-    assert control.sites.get_site("cdn-example-com").compression == "brotli"
+    seed_site(control, name="example-com", record="cdn", operator="cli")
+    assert control.sites.get_site("example-com").compression == "brotli"
 
     result = runner.invoke(
         cli.app,
-        ["site", "compression", "cdn-example-com", "--mode", "gzip", "--json"],
+        ["domain", "compression", "example.com", "--mode", "gzip", "--json"],
     )
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["compression"] == "gzip"
-    assert control.sites.get_site("cdn-example-com").compression == "gzip"
+    assert control.sites.get_site("example-com").compression == "gzip"
 
     rejected = runner.invoke(
         cli.app,
-        ["site", "compression", "cdn-example-com", "--mode", "deflate"],
+        ["domain", "compression", "example.com", "--mode", "deflate"],
     )
 
     assert rejected.exit_code != 0
-    assert control.sites.get_site("cdn-example-com").compression == "gzip"
+    assert control.sites.get_site("example-com").compression == "gzip"
 
 
 def test_site_visitor_headers_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
-    site = control.sites.get_site("cdn-example-com")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
+    site = control.sites.get_site("example-com")
     assert site.visitor_headers.connecting_ip is True
     assert site.visitor_headers.ip_country is False
 
     result = runner.invoke(
         cli.app,
-        ["site", "visitor-headers", "cdn-example-com", "--ip-country", "--json"],
+        ["domain", "visitor-headers", "example.com", "--ip-country", "--json"],
     )
 
     assert result.exit_code == 0
@@ -1002,15 +982,15 @@ def test_site_visitor_headers_command(settings, monkeypatch):
         "connecting_ip": True,
         "ip_country": True,
     }
-    assert control.sites.get_site("cdn-example-com").visitor_headers.ip_country is True
+    assert control.sites.get_site("example-com").visitor_headers.ip_country is True
 
     # An option that is not named keeps its value rather than resetting it.
     narrowed = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "visitor-headers",
-            "cdn-example-com",
+            "example.com",
             "--no-connecting-ip",
             "--json",
         ],
@@ -1026,37 +1006,35 @@ def test_site_visitor_headers_command(settings, monkeypatch):
 def test_site_visitor_headers_requires_a_switch(settings, monkeypatch):
     """With no option the command would silently rewrite the block as-is."""
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
-    result = runner.invoke(cli.app, ["site", "visitor-headers", "cdn-example-com"])
+    result = runner.invoke(cli.app, ["domain", "visitor-headers", "example.com"])
 
     assert result.exit_code != 0
 
 
 def test_site_visitor_headers_reports_what_the_origin_will_see(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     enabled = runner.invoke(
         cli.app,
-        ["site", "visitor-headers", "cdn-example-com", "--ip-country"],
+        ["domain", "visitor-headers", "example.com", "--ip-country"],
     )
     assert "BZ-Connecting-IP, BZ-IPCountry" in enabled.stdout
 
     off = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "visitor-headers",
-            "cdn-example-com",
+            "example.com",
             "--no-connecting-ip",
             "--no-ip-country",
         ],
     )
     assert "no BZ-* visitor headers" in off.stdout
-    assert (
-        control.sites.get_site("cdn-example-com").visitor_headers.connecting_ip is False
-    )
+    assert control.sites.get_site("example-com").visitor_headers.connecting_ip is False
 
 
 def test_doctor_reports_a_resolver_that_invents_answers(settings, monkeypatch):
@@ -1172,16 +1150,14 @@ def test_plugins_lists_what_is_installed_and_why_something_is_not(
     result = runner.invoke(cli.app, ["plugins", "--json"])
     document = json.loads(result.stdout)
 
-    assert {"sites", "dns", "deployments"} <= {
-        plugin["name"] for plugin in document["plugins"]
-    }
+    assert {"dns", "deployments"} <= {plugin["name"] for plugin in document["plugins"]}
     # `required` is what separates a capability this distribution ships from
     # one installed beside it, which is the first thing an operator wants to
     # read off this table.
     by_name = {plugin["name"]: plugin for plugin in document["plugins"]}
-    assert by_name["sites"]["required"] is True
-    assert by_name["sites"]["capabilities"] == ["sites"]
-    assert "sites" in document["capabilities"]
+    assert by_name["dns"]["required"] is True
+    assert by_name["dns"]["capabilities"] == ["dns"]
+    assert "dns" in document["capabilities"]
     assert document["rejected"] == [
         {
             "source": "waf (blitzecdn_waf.plugin)",
@@ -1284,15 +1260,15 @@ def test_ansible_slots_answers_for_all_three_of_cores_plays():
 
 def test_site_cache_command_sets_the_switch_and_both_durations(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
         cli.app,
-        ["site", "cache", "cdn-example-com", "--success", "4h", "--not-found", "30s"],
+        ["domain", "cache", "example.com", "--success", "4h", "--not-found", "30s"],
     )
 
     assert result.exit_code == 0
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert (site.cache_valid_success, site.cache_valid_not_found) == ("4h", "30s")
     assert site.cache_enabled is True, "a duration change must not touch the switch"
 
@@ -1302,33 +1278,33 @@ def test_site_cache_off_withdraws_the_claim_on_the_cache_capability(
 ):
     """Turning caching off is what lets a core-only controller converge a site."""
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
-    result = runner.invoke(cli.app, ["site", "cache", "cdn-example-com", "--off"])
+    result = runner.invoke(cli.app, ["domain", "cache", "example.com", "--off"])
 
     assert result.exit_code == 0
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert site.cache_enabled is False
     assert "cache" not in site.capability_requirements
 
 
 def test_site_cache_refuses_a_duration_it_cannot_parse(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
-        cli.app, ["site", "cache", "cdn-example-com", "--success", "forever"]
+        cli.app, ["domain", "cache", "example.com", "--success", "forever"]
     )
 
     assert result.exit_code != 0
-    assert control.sites.get_site("cdn-example-com").cache_valid_success == "10m"
+    assert control.sites.get_site("example-com").cache_valid_success == "10m"
 
 
 def test_site_cache_with_no_option_says_what_to_name(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
-    result = runner.invoke(cli.app, ["site", "cache", "cdn-example-com"])
+    result = runner.invoke(cli.app, ["domain", "cache", "example.com"])
 
     assert result.exit_code != 0
     assert "--on/--off" in result.output
@@ -1339,15 +1315,15 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
 ):
     """The reason `--origin` became optional: SNI is settable on its own."""
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
-    before = control.sites.get_site("cdn-example-com").origin_host
+    seed_site(control, name="example-com", record="cdn", operator="cli")
+    before = control.sites.get_site("example-com").origin_host
 
     result = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "origin",
-            "cdn-example-com",
+            "example.com",
             "--request-host",
             "shared.example.net",
             "--sni",
@@ -1356,7 +1332,7 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
     )
 
     assert result.exit_code == 0
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert site.origin_request_host == "shared.example.net"
     assert site.origin_sni == "tls.example.net"
     assert site.origin_host == before
@@ -1364,23 +1340,23 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
 
 def test_site_origin_still_moves_the_address_on_its_own(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
-        cli.app, ["site", "origin", "cdn-example-com", "--origin", "203.0.113.40"]
+        cli.app, ["domain", "origin", "example.com", "--origin", "203.0.113.40"]
     )
 
     assert result.exit_code == 0
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert site.origin_host == "203.0.113.40"
     assert site.origin_request_host is None
 
 
 def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
-    result = runner.invoke(cli.app, ["site", "origin", "cdn-example-com"])
+    result = runner.invoke(cli.app, ["domain", "origin", "example.com"])
 
     assert result.exit_code != 0
     assert "--origin" in result.output
@@ -1389,31 +1365,31 @@ def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
 def test_site_origin_clears_an_override_it_can_set(settings, monkeypatch):
     """A setting an operator can turn on and never off is one they cannot undo."""
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
     runner.invoke(
         cli.app,
-        ["site", "origin", "cdn-example-com", "--request-host", "shared.example.net"],
+        ["domain", "origin", "example.com", "--request-host", "shared.example.net"],
     )
-    assert control.sites.get_site("cdn-example-com").origin_request_host is not None
+    assert control.sites.get_site("example-com").origin_request_host is not None
 
     result = runner.invoke(
-        cli.app, ["site", "origin", "cdn-example-com", "--no-request-host"]
+        cli.app, ["domain", "origin", "example.com", "--no-request-host"]
     )
 
     assert result.exit_code == 0
-    assert control.sites.get_site("cdn-example-com").origin_request_host is None
+    assert control.sites.get_site("example-com").origin_request_host is None
 
 
 def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatch):
     """The distinction the patch is built through a dict to preserve."""
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
     runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "origin",
-            "cdn-example-com",
+            "example.com",
             "--request-host",
             "shared.example.net",
             "--sni",
@@ -1421,24 +1397,24 @@ def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatc
         ],
     )
 
-    result = runner.invoke(cli.app, ["site", "origin", "cdn-example-com", "--no-sni"])
+    result = runner.invoke(cli.app, ["domain", "origin", "example.com", "--no-sni"])
 
     assert result.exit_code == 0
-    site = control.sites.get_site("cdn-example-com")
+    site = control.sites.get_site("example-com")
     assert site.origin_sni is None
     assert site.origin_request_host == "shared.example.net"
 
 
 def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    seed_site(control, name="example-com", record="cdn", operator="cli")
 
     result = runner.invoke(
         cli.app,
         [
-            "site",
+            "domain",
             "origin",
-            "cdn-example-com",
+            "example.com",
             "--sni",
             "tls.example.net",
             "--no-sni",
@@ -1446,4 +1422,4 @@ def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeyp
     )
 
     assert result.exit_code != 0
-    assert control.sites.get_site("cdn-example-com").origin_sni is None
+    assert control.sites.get_site("example-com").origin_sni is None

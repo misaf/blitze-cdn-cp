@@ -252,7 +252,6 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "http",
         "maintenance",
         "security",
-        "sites",
         "tls",
         "workflows",
     ],
@@ -754,40 +753,32 @@ def test_removed_subsystems_do_not_return():
     assert offenders == []
 
 
-def test_nothing_in_sites_can_write_the_hostnames_dns_owns():
-    """One field on `CdnSite` has a writer outside this capability. Keep it that way.
+def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
+    """The rule this replaces, and why there is nothing left for it to guard.
 
-    Sites are canonical, so `SiteStore` has the per-site create, update and
-    delete a canonical table needs. What it must not have is a second way to
-    set ``server_names``: that list is the set of records routed to the site,
-    `dns` maintains it through ``SiteHostnames``, and a site write that also
-    carried hostnames would silently revert a record change made between the
-    read and the write.
+    ``CdnSite.server_names`` used to be the one column with a writer outside
+    its own capability: `dns` maintained it from the records routed to a site,
+    through a `SiteHostnames` port, and a site write that also carried
+    hostnames would silently revert a record change made between the read and
+    the write. A whole test, a whole port and a projection revision existed to
+    keep that one field honest.
 
-    ``replace_all_sites`` is the deliberate exception and the reason this test
-    lists names rather than banning a substring: a rollback restores records
-    and sites from one snapshot in which the two already agree.
-
-    The mirror of this rule is on the patch: ``SitePatch`` has a field for every
-    `SitePolicy` knob and none for ``server_names``.
+    A derived host has no columns at all. What is asserted now is that it
+    stayed that way: nothing stores a virtual host, so nothing can be a second
+    writer of one.
     """
-    from blitzecdn.capabilities.sites.adapters.persistence import SiteStore
-    from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
-    from blitzecdn.capabilities.sites.service import SiteService
+    from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
+    from blitzecdn.capabilities.dns.adapters.rules import RuleStore
+    from blitzecdn.capabilities.dns.domain import CdnSite, DomainPatch
 
-    assert {name for name in vars(SiteStore) if not name.startswith("_")} == {
-        "list_sites",
-        "get_site",
-        "create_site",
-        "replace_site",
-        "delete_site",
-        "set_server_names",
-        "replace_all_sites",
-        "projection_revision",
-        "set_projection_revision",
+    writers = {name for name in vars(ZoneStore) if not name.startswith("_")} | {
+        name for name in vars(RuleStore) if not name.startswith("_")
     }
-    assert "set_server_names" not in vars(SiteService)
-    assert "server_names" not in SitePatch.model_fields
+    assert not any("site" in name for name in writers), sorted(writers)
+
+    # The mirror of the old rule, on the patch: every setting a zone stores can
+    # be patched, and `server_names` is not one of them because no one sets it.
+    assert "server_names" not in DomainPatch.model_fields
     assert "server_names" in CdnSite.model_fields
 
 
@@ -822,9 +813,9 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     # edge is an import of `workflows.domain` for `WorkflowKind` and nothing
     # more: the coordinator itself arrives as `deployments.ports.Workflows`,
     # which is why this is not an edge onto another capability's service.
-    "deployments": {"dns", "sites", "workflows"},
+    "deployments": {"dns", "workflows"},
     "diagnostics": set(),
-    "dns": {"sites"},
+    "dns": set(),
     # `dns` left this set with `check_origins`. Probing an origin needed the
     # site list, and `edges` reached it through a port on the zone capability —
     # the one place the fleet roster depended on it. The roster itself never
@@ -833,11 +824,10 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     # not point at `dns` at all now: `sites.ports.SiteReader` is the read side
     # and `dns.ports.SiteProjection` is the write side, which is why this arrow
     # runs the way it does.
-    "edges": {"sites"},
-    "http": {"sites"},
+    "edges": {"dns"},
+    "http": {"dns"},
     "maintenance": {"deployments"},
     "security": set(),
-    "sites": set(),
     "tls": set(),
     # Depends on nothing. A workflow records that *something* reached a
     # checkpoint and never asks what: `WorkflowKind` is the closest it comes to
@@ -859,16 +849,14 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "compression": set(),
     "deployments": set(),
     "diagnostics": set(),
-    # A zone carries the policy every hostname in it is served by, so `dns`
-    # composes capability contracts the way `sites` does. `security` is absent
-    # only because the firewall block is a nested model the published zone
-    # writes out for itself; the domain zone inherits it through `SitePolicy`.
-    "dns": {"cache", "compression", "http", "tls"},
+    # A zone carries the policy every hostname in it is served by, and the
+    # virtual host it resolves to composes the same contracts. Both live here
+    # now, so this is the set `sites` used to declare.
+    "dns": {"cache", "compression", "http", "security", "tls"},
     "edges": {"http", "tls"},
     "http": set(),
     "maintenance": set(),
     "security": set(),
-    "sites": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},
     "workflows": set(),
 }
@@ -892,14 +880,14 @@ def test_a_capability_contract_never_imports_an_implementation():
     assert offenders == []
 
 
-def test_sites_composes_the_capability_contracts_and_owns_no_other_capability():
-    """`sites` is the composition, not the owner of every setting.
+def test_dns_composes_the_capability_contracts_and_owns_no_other_capability():
+    """The zone carries every capability's policy and defines none of it.
 
     It was: compression, HTTP, security and TLS policy all lived under
-    `sites/policy/` while the behaviour they describe lived in capabilities that
-    imported `sites` to reach it. Reuniting each contract with its capability
-    is what this asserts, from both directions — `sites` imports the five, and
-    defines none of them.
+    `sites/policy/` while the behaviour they describe lived in capabilities
+    that imported `sites` to reach it. Reuniting each contract with its
+    capability is what this asserts, from both directions — the composition
+    imports the five, and defines none of them.
 
     `cache` was the last one out, and the one whose argument for staying was
     the most plausible: the `cache` *implementation* consumes `CdnSite`, so
@@ -908,32 +896,32 @@ def test_sites_composes_the_capability_contracts_and_owns_no_other_capability():
     exist to keep separate, and the reason this test can name `cache` in the
     contract graph and `test_the_capability_dependency_graph_is_acyclic` never
     sees the edge at all.
+
+    What changed with the collapse is only which package does the composing.
+    `sites` did it while a site was authored; `dns` does it now that the zone
+    holds the policy and the virtual host is derived from it.
     """
-    graph = _capability_graph()
-    assert graph["sites"] == set()
-    assert _policy_graph()["sites"] == {
+    assert "sites" not in _capability_graph()
+    assert _policy_graph()["dns"] == {
         "cache",
         "compression",
         "http",
         "security",
         "tls",
     }
-    assert "sites" in graph["dns"]
 
-    # The whole package, not one file: `domain.py` became `domain/` — `site.py`
-    # composing the contracts and `patch.py` mirroring them — and reading only
-    # the module somebody named here would let a contract be imported by the
-    # other one without this seeing it.
-    site_imports = set().union(
-        *(_imports(path) for path in (_CAPABILITIES / "sites/domain").glob("*.py"))
+    # The whole package, not one file: `host.py` composes the contracts,
+    # `patch.py` mirrors them, and reading only the module somebody named here
+    # would let a contract be imported by another without this seeing it.
+    domain_imports = set().union(
+        *(_imports(path) for path in (_CAPABILITIES / "dns/domain").glob("*.py"))
     )
-    assert all("dns" not in imported for imported in site_imports)
     for capability in ("cache", "compression", "http", "security", "tls"):
-        assert f"blitzecdn.capabilities.{capability}.policy" in site_imports
+        assert f"blitzecdn.capabilities.{capability}.policy" in domain_imports
 
     # What is left is what no distribution could carry away: the trusted `BZ-*`
     # headers the edge writes, and the `Host`/SNI it identifies itself with.
-    owned = {path.stem for path in (_CAPABILITIES / "sites/policy").glob("*.py")}
+    owned = {path.stem for path in (_CAPABILITIES / "dns/policy").glob("*.py")}
     assert owned == {"__init__", "headers", "origin"}
 
 

@@ -34,8 +34,12 @@ from blitzecdn_backup.service import BackupPolicy, BackupService
 from control_plane_fixtures import FakeRunner
 from typer.testing import CliRunner
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import (
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    RecordType,
+)
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
@@ -64,7 +68,7 @@ def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> N
         control.dns.create_domain(Domain(name="example.com"), operator="tester")
         store.close()
     if tls:
-        directory = settings.certificate_dir / "cdn-example-com"
+        directory = settings.certificate_dir / "example-com"
         directory.mkdir(parents=True, exist_ok=True)
         (directory / "fullchain-aa.pem").write_text("CERTIFICATE", encoding="utf-8")
         (directory / "privkey-aa.pem").write_text("PRIVATE KEY", encoding="utf-8")
@@ -73,14 +77,14 @@ def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> N
         root = settings.state_dir / "letsencrypt/config"
         (root / "accounts/acme-v02").mkdir(parents=True, exist_ok=True)
         (root / "accounts/acme-v02/private_key.json").write_text("{}", encoding="utf-8")
-        (root / "archive/cdn-example-com").mkdir(parents=True, exist_ok=True)
-        (root / "archive/cdn-example-com/fullchain1.pem").write_text(
+        (root / "archive/example-com").mkdir(parents=True, exist_ok=True)
+        (root / "archive/example-com/fullchain1.pem").write_text(
             "CHAIN", encoding="utf-8"
         )
-        (root / "live/cdn-example-com").mkdir(parents=True, exist_ok=True)
-        link = root / "live/cdn-example-com/fullchain.pem"
+        (root / "live/example-com").mkdir(parents=True, exist_ok=True)
+        link = root / "live/example-com/fullchain.pem"
         if not link.is_symlink():
-            link.symlink_to("../../archive/cdn-example-com/fullchain1.pem")
+            link.symlink_to("../../archive/example-com/fullchain1.pem")
     if config:
         (settings.project_dir / "blitzecdn.toml").write_text(
             "[blitzecdn]\n", encoding="utf-8"
@@ -262,8 +266,8 @@ def test_the_database_copy_is_consistent_and_readable(service, populated):
 
 def test_certificates_and_their_private_keys_are_both_included(service):
     names = _members(service.create(only=(BackupComponent.TLS,)))
-    assert "tls/cdn-example-com/fullchain-aa.pem" in names
-    assert "tls/cdn-example-com/privkey-aa.pem" in names
+    assert "tls/example-com/fullchain-aa.pem" in names
+    assert "tls/example-com/privkey-aa.pem" in names
 
 
 def test_config_includes_the_controller_ssh_identity(service):
@@ -365,7 +369,7 @@ def test_a_full_backup_restores_every_component(populated):
         "tls",
     ]
     assert populated.database_path.is_file()
-    assert (populated.certificate_dir / "cdn-example-com/privkey-aa.pem").is_file()
+    assert (populated.certificate_dir / "example-com/privkey-aa.pem").is_file()
     assert (populated.project_dir / ".env").is_file()
     assert (
         populated.state_dir / "letsencrypt/config/accounts/acme-v02/private_key.json"
@@ -374,7 +378,7 @@ def test_a_full_backup_restores_every_component(populated):
 
 def test_a_database_only_backup_restores_only_the_database(populated):
     archive = build_backup_service(populated).create(only=(BackupComponent.DATABASE,))
-    (populated.certificate_dir / "cdn-example-com/privkey-aa.pem").write_text(
+    (populated.certificate_dir / "example-com/privkey-aa.pem").write_text(
         "REPLACED", encoding="utf-8"
     )
     populated.database_path.unlink()
@@ -383,7 +387,7 @@ def test_a_database_only_backup_restores_only_the_database(populated):
     assert populated.database_path.is_file()
     # Untouched, because the manifest never mentioned it.
     assert (
-        populated.certificate_dir / "cdn-example-com/privkey-aa.pem"
+        populated.certificate_dir / "example-com/privkey-aa.pem"
     ).read_text() == "REPLACED"
 
 
@@ -395,7 +399,7 @@ def test_a_tls_only_restore_does_nothing_database_shaped(populated):
     service = build_backup_service(populated)
     service.services = _RecordingServices()
     service.restore(archive)
-    assert (populated.certificate_dir / "cdn-example-com/privkey-aa.pem").is_file()
+    assert (populated.certificate_dir / "example-com/privkey-aa.pem").is_file()
     assert populated.database_path.read_bytes() == before
     # TLS is read by the deploy that follows, never held open, so a restore of
     # it must not take the controller offline.
@@ -409,7 +413,7 @@ def test_multiple_selected_components_restore_together(populated):
     _clean(populated)
     build_backup_service(populated).restore(archive)
     assert populated.database_path.is_file()
-    assert (populated.certificate_dir / "cdn-example-com/fullchain-aa.pem").is_file()
+    assert (populated.certificate_dir / "example-com/fullchain-aa.pem").is_file()
     assert not (populated.project_dir / ".env").exists()
 
 
@@ -625,7 +629,7 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
     archive = build_backup_service(populated).create(
         only=(BackupComponent.DATABASE, BackupComponent.TLS)
     )
-    key = populated.certificate_dir / "cdn-example-com/privkey-aa.pem"
+    key = populated.certificate_dir / "example-com/privkey-aa.pem"
     key.write_text("STILL HERE", encoding="utf-8")
     database = populated.database_path.read_bytes()
 
@@ -644,7 +648,7 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
 
 def test_restored_tls_private_keys_are_not_world_readable(populated):
     archive = build_backup_service(populated).create(only=(BackupComponent.TLS,))
-    key = populated.certificate_dir / "cdn-example-com/privkey-aa.pem"
+    key = populated.certificate_dir / "example-com/privkey-aa.pem"
     key.chmod(0o644)
     build_backup_service(populated).restore(archive)
     assert key.stat().st_mode & 0o777 == 0o600
@@ -670,7 +674,7 @@ def test_an_acme_link_that_escapes_is_refused_before_restore(populated, tmp_path
     def escape(staging: Path) -> None:
         links = staging / "acme/.links.json"
         links.write_text(
-            json.dumps({"live/cdn-example-com/fullchain.pem": "../../../../outside"}),
+            json.dumps({"live/example-com/fullchain.pem": "../../../../outside"}),
             encoding="utf-8",
         )
 
@@ -750,16 +754,11 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     _populate(settings)
     store = Repository(settings.database_path)
     original = ControlPlane(settings=settings, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
-    original.site_editor.create_site(
-        CdnSite(name="cdn-example-com", origin_host="198.51.100.10"), "tester"
+    original.dns.update_domain(
+        "example.com", DomainPatch(origin_host="198.51.100.10"), "tester"
     )
     original.dns.create_record(
-        DnsRecord(
-            domain="example.com",
-            name="cdn",
-            type=RecordType.A,
-            site="cdn-example-com",
-        ),
+        DnsRecord(domain="example.com", name="cdn", type=RecordType.A),
         operator="tester",
     )
     expected = tmp_path / "expected.yml"
@@ -782,12 +781,12 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     finally:
         store.close()
     assert rendered.read_text(encoding="utf-8") == expected.read_text(encoding="utf-8")
-    assert (rebuilt.certificate_dir / "cdn-example-com/privkey-aa.pem").read_text() == (
+    assert (rebuilt.certificate_dir / "example-com/privkey-aa.pem").read_text() == (
         "PRIVATE KEY"
     )
     assert (rebuilt.project_dir / ".env").read_text().startswith("BLITZE_API_KEYS=")
     assert (rebuilt.state_dir / "id_ed25519").read_text() == "PRIVATE"
-    link = rebuilt.state_dir / "letsencrypt/config/live/cdn-example-com/fullchain.pem"
+    link = rebuilt.state_dir / "letsencrypt/config/live/example-com/fullchain.pem"
     assert link.is_symlink() and link.read_text() == "CHAIN"
 
 
@@ -798,7 +797,7 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
     fresh.mkdir()
     rebuilt = _relocated(settings, fresh)
     build_backup_service(rebuilt).restore(archive)
-    assert (rebuilt.certificate_dir / "cdn-example-com/fullchain-aa.pem").is_file()
+    assert (rebuilt.certificate_dir / "example-com/fullchain-aa.pem").is_file()
     assert not rebuilt.database_path.exists()
     assert not (rebuilt.project_dir / ".env").exists()
 

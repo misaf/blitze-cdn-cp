@@ -131,18 +131,6 @@ class ZoneStore:
                 )
             session.delete(row)
 
-    def delete_all_records(self) -> None:
-        """Remove every record, leaving the zones and the sites alone.
-
-        Exists for the restore paths. A record references the site that serves
-        its hostname, so sites cannot be replaced wholesale while records still
-        point at the old ones — the foreign key refuses it, and rightly. Taking
-        the records out first is what lets the two tables be restored in the
-        order the references run.
-        """
-        with self._db.session() as session:
-            session.execute(delete(DnsRecordRow))
-
     def replace_all_records(
         self, domains: list[Domain], records: list[DnsRecord]
     ) -> None:
@@ -181,7 +169,7 @@ class ZoneStore:
     def _apply(self, row: DnsRecordRow, record: DnsRecord) -> None:
         row.value = record.value
         row.ttl = record.ttl
-        row.site = record.site
+        row.proxied = record.proxied
         row.updated_at = self._db.now()
 
     @staticmethod
@@ -193,7 +181,7 @@ class ZoneStore:
                 "type": row.type,
                 "value": row.value,
                 "ttl": row.ttl,
-                "site": row.site,
+                "proxied": row.proxied,
             }
         )
 

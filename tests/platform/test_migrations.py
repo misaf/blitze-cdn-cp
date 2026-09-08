@@ -22,7 +22,6 @@ from paths import SOURCE
 from sqlalchemy import create_engine
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
-from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.persistence.engine import Database
@@ -63,13 +62,10 @@ def test_migrating_an_empty_file_produces_a_usable_database(tmp_path):
     command.upgrade(_config(path), "head")
 
     repository = Repository(path)
-    repository.zones.create_domain(Domain(name="example.com"))
-    repository.sites.create_site(
-        CdnSite(name="cdn-example-com", origin_host="203.0.113.10")
+    repository.zones.create_domain(
+        Domain(name="example.com", origin_host="203.0.113.10")
     )
-    repository.zones.create_record(
-        DnsRecord(domain="example.com", name="cdn", site="cdn-example-com")
-    )
+    repository.zones.create_record(DnsRecord(domain="example.com", name="cdn"))
     assert [record.name for record in repository.zones.list_records()] == ["cdn"]
     assert (
         _revision(path) == ScriptDirectory.from_config(_config(path)).get_current_head()
@@ -150,21 +146,20 @@ def test_the_schema_alembic_compares_against_holds_every_table(tmp_path):
     `Database()` runs Alembic's own comparison on the file it opens, so a table
     the migration creates and the metadata does not know about — or the other
     way round — is refused there rather than asserted here. What is left for
-    this test is the part that comparison cannot see: that the ten tables the
-    control plane is *supposed* to have are the ten it has, so dropping one
+    this test is the part that comparison cannot see: that the nine tables the
+    control plane is *supposed* to have are the nine it has, so dropping one
     from both halves at once still fails.
     """
     path = tmp_path / "control.db"
     Database(path).close()
     tables = set(Base.metadata.tables)
     assert {
-        "sites",
+        "zone_rules",
         "dns_records",
         "domains",
         "edges",
         "deployments",
         "deployment_requirements",
-        "projection_state",
         "audit_events",
         "workflows",
         "ansible_settings",

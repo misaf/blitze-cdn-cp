@@ -68,6 +68,7 @@ from blitzecdn.capabilities.deployments.ports import (
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.composition import build_dns_service, build_rule_service
+from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
@@ -78,9 +79,6 @@ from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
-from blitzecdn.capabilities.sites.composition import build_site_service
-from blitzecdn.capabilities.sites.ports import SiteReader
-from blitzecdn.capabilities.sites.service import SiteService
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
@@ -121,9 +119,8 @@ from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
 #: capability meant editing `core`. Naming is knowing.
 BUILTIN_PLUGINS: tuple[str, ...] = (
     # The capability contracts first: nothing they contribute depends on
-    # another capability being registered, and `sites` composes their policy.
+    # another capability being registered, and `dns` composes their policy.
     "blitzecdn.capabilities.http.plugin",
-    "blitzecdn.capabilities.sites.plugin",
     "blitzecdn.capabilities.dns.plugin",
     "blitzecdn.capabilities.edges.plugin",
     "blitzecdn.capabilities.workflows.plugin",
@@ -332,7 +329,11 @@ class ControlPlane:
         # across the edges in scope and knows nothing about what any play is
         # for. Between them they are the whole of what an optional package
         # needs and deliberately less than what a built-in service receives.
-        self.sites: SiteReader = store.sites
+        #: Assigned after `dns` is wired, below: what an installed package is
+        #: handed as "the sites the fleet serves" is now a derivation over
+        #: zones, rules and records rather than a table, and the service that
+        #: owns those three is what performs it.
+        self.sites: SiteReader
         self.fleet: PlaybookRunner = self._runner
         self.transactions: UnitOfWork = store
         self.deployment_requirements: DeploymentRequirements = (
@@ -352,15 +353,14 @@ class ControlPlane:
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
-        # Both halves of the site model, and the split between them is the
-        # architecture: `site_editor` owns everything about how a site is
-        # served, `dns` owns which hostnames route to it. The same store is
-        # behind both, seen through two ports that cannot write each other's
-        # half — which is what makes "who wrote this field" answerable.
-        self.site_editor: SiteService = build_site_service(self, sites=store.sites)
+        # One editor where there were two. There is no second half to split
+        # from: a virtual host is derived from the zone, its rules and its
+        # records, so "who wrote this field" has one answer for every field on
+        # it — whoever edited the zone or the rule it came from.
         self.dns: DnsService = build_dns_service(
-            self, zones=store.zones, sites=store.sites
+            self, zones=store.zones, rules=store.rules
         )
+        self.sites = self.dns
         # The overrides on a zone's policy, and the resolver over the two. The
         # zone store arrives through `ZoneReader`, which is one read: a rule
         # may consult the policy it overrides and may never write one.
@@ -382,7 +382,6 @@ class ControlPlane:
             self,
             deployments=store.deployments,
             zones=store.zones,
-            sites=store.sites,
             rules=store.rules,
             requirements=store.deployment_requirements,
             runner=self._runner,

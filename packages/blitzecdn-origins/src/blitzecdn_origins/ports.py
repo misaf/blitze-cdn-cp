@@ -12,7 +12,7 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Protocol
 
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.core.domain.runs import AnsibleRun
 
 

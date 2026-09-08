@@ -60,7 +60,7 @@ def test_origin_check_names_the_edges_that_could_not_reach_an_origin(
     result = runner.invoke(cli.app, ["origin", "check"])
 
     assert result.exit_code == cli.ExitCode.CONFIGURATION
-    assert "cdn-example-com: unreachable from edge-b" in result.output
+    assert "example-com: unreachable from edge-b" in result.output
     assert "edge-a" not in result.output.split("unreachable from")[1]
 
 

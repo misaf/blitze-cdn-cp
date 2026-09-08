@@ -1,6 +1,6 @@
 """How the maintenance capability is built.
 
-The same shape as :mod:`blitzecdn.capabilities.sites.composition`, with the one
+The same shape as :mod:`blitzecdn.capabilities.dns.composition`, with the one
 argument that is a closure rather than a store.
 """
 

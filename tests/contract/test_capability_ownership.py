@@ -19,15 +19,15 @@ from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.capabilities.cache.policy import CachePolicy
 from blitzecdn.capabilities.compression.policy import CompressionPolicy
-from blitzecdn.capabilities.http.policy import ProtocolPolicy
-from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
-from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
-from blitzecdn.capabilities.sites.policy import (
+from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.dns.domain import CdnSite, SitePolicy
+from blitzecdn.capabilities.dns.policy import (
     HeaderPolicy,
     OriginPolicy,
     SiteVisitorHeaders,
 )
+from blitzecdn.capabilities.http.policy import ProtocolPolicy
+from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
 from blitzecdn.capabilities.tls.policy import TlsPolicy
 
 _ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"

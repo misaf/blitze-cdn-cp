@@ -21,11 +21,12 @@ would put a placeholder in the field that matters most. Resolution is where
 its absence becomes an error, and only for a hostname that asked to be
 proxied.
 
-``SitePolicy`` is still imported from `sites` rather than declared here. It is
-the same twenty settings whichever object carries them, and duplicating the
-composition to avoid the import would leave two lists of capability contracts
-to keep in step — the exact failure ``_assert_patch_covers_policy`` exists to
-prevent. The class moves into this package when `sites` is removed.
+``SitePolicy`` is composed in
+:mod:`~blitzecdn.capabilities.dns.domain.host` and inherited here rather than
+declared twice. It is the same twenty settings whichever object carries them —
+the zone that authors them and the virtual host they are resolved into — and
+two lists of capability contracts to keep in step is exactly the failure
+``_assert_patch_covers_zone`` exists to prevent.
 """
 
 from __future__ import annotations
@@ -35,13 +36,8 @@ from typing import Self
 
 from pydantic import ConfigDict, field_validator, model_validator
 
-from blitzecdn.capabilities.sites.domain.site import SitePolicy
-from blitzecdn.capabilities.tls.policy import (
-    CERTIFICATE_ROOTS,
-    MANAGED_TLS_ROOT,
-    CertificateMode,
-    managed_certificate_paths,
-)
+from blitzecdn.capabilities.dns.domain.host import SitePolicy
+from blitzecdn.capabilities.tls.policy import CERTIFICATE_ROOTS, CertificateMode
 from blitzecdn.core.domain.validation import hostname
 
 __all__ = ["Domain"]
@@ -115,17 +111,11 @@ class Domain(SitePolicy):
             raise ValueError("TLS certificate modes require both certificate paths")
         if self.certificate_mode is CertificateMode.DISABLED and supplied:
             raise ValueError("certificate paths require certificate_mode='existing'")
-        if self.certificate_mode in {
-            CertificateMode.UPLOADED,
-            CertificateMode.REQUESTED,
-        } and (self.certificate_path, self.certificate_key_path) != (
-            managed_certificate_paths(self.name)
-        ):
-            raise ValueError(
-                f"certificate_mode={self.certificate_mode.value!r} is set by the "
-                "certificate upload and request endpoints, which own the paths "
-                f"under {MANAGED_TLS_ROOT}/<zone>/"
-            )
+        # Whether a managed path is the *right* managed path is not asked
+        # here. These paths name the virtual host a certificate was issued for,
+        # and a zone produces several — its own and one per rule — so the zone
+        # cannot say which of them this is. `CdnSite` can, because its name is
+        # exactly that, and it asks the same question there.
         if (
             self.ssl_mode.serves_tls
             and self.certificate_mode is CertificateMode.DISABLED

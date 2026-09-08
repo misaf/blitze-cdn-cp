@@ -32,12 +32,12 @@ def test_context_attached_by_a_caller_survives_formatting():
         "test", logging.INFO, __file__, 1, "converged", None, None
     )
     record.deployment_id = "abc123"
-    record.site = "cdn-example-com"
+    record.site = "example-com"
 
     payload = json.loads(JsonFormatter().format(record))
 
     assert payload["deployment_id"] == "abc123"
-    assert payload["site"] == "cdn-example-com"
+    assert payload["site"] == "example-com"
     # And nothing internal leaks in alongside it.
     assert "args" not in payload
     assert "msg" not in payload

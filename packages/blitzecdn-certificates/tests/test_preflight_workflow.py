@@ -40,7 +40,7 @@ def test_a_blocked_preflight_refuses_before_reaching_the_ca(settings, certificat
 
     with pytest.raises(ConflictError, match="preflight failed"):
         control.certificates.request_certificate(
-            "cdn-example-com", "alice", "ops@example.com"
+            "example-com", "alice", "ops@example.com"
         )
 
     assert issuer.issued == []
@@ -54,7 +54,7 @@ def test_the_refusal_names_the_failed_check_and_the_way_past_it(
 
     with pytest.raises(ConflictError) as raised:
         control.certificates.request_certificate(
-            "cdn-example-com", "alice", "ops@example.com"
+            "example-com", "alice", "ops@example.com"
         )
 
     assert "caa" in str(raised.value)
@@ -68,11 +68,11 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
     _seed_proxied_record(control)
 
     info = control.certificates.request_certificate(
-        "cdn-example-com", "alice", "ops@example.com", skip_preflight=True
+        "example-com", "alice", "ops@example.com", skip_preflight=True
     )
 
     assert info.source == "acme"
-    assert issuer.issued == [("cdn-example-com", "ops@example.com")]
+    assert issuer.issued == [("example-com", "ops@example.com")]
     overrides = [
         event
         for event in repository.audit_log.list_audit_events()
@@ -88,13 +88,11 @@ def test_an_override_issues_and_is_audited_as_its_own_event(settings, certificat
 def test_preflight_is_told_the_records_ttl(settings, certificate_pair):
     """The TTL is the record's, not the site's, so it has to come from `dns`."""
     control, _, _, preflight = _preflight_control(settings, certificate_pair)
-    seed_site(control, name="cdn-example-com", record="cdn", ttl=7200)
+    seed_site(control, name="example-com", record="cdn", ttl=7200)
 
-    control.certificates.request_certificate(
-        "cdn-example-com", "alice", "ops@example.com"
-    )
+    control.certificates.request_certificate("example-com", "alice", "ops@example.com")
 
-    assert preflight.calls[-1] == ("cdn-example-com", False, 7200)
+    assert preflight.calls[-1] == ("example-com", False, 7200)
 
 
 def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
@@ -103,9 +101,7 @@ def test_a_blocked_renewal_is_reported_as_failed_not_silently_skipped(
     """A renewal that cannot validate has to reach the timer's exit code."""
     control, _, issuer, preflight = _preflight_control(settings, certificate_pair)
     _proxied_site_with_certificate(control, None, certificate_pair, days=3)
-    control.certificates.request_certificate(
-        "cdn-example-com", "alice", "ops@example.com"
-    )
+    control.certificates.request_certificate("example-com", "alice", "ops@example.com")
     issuer.issued.clear()
     preflight.failures = ("dns",)
 
@@ -126,10 +122,10 @@ def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair)
     control._runner.results.append(ansible_run(host_run("edge-a")))
 
     control.deployments.deploy("alice", check=True)
-    assert control.deployments.site_is_deployed("cdn-example-com") is False
+    assert control.deployments.site_is_deployed("example-com") is False
 
     control.deployments.deploy("alice")
-    assert control.deployments.site_is_deployed("cdn-example-com") is True
+    assert control.deployments.site_is_deployed("example-com") is True
 
 
 def test_a_site_absent_from_the_last_deployment_is_not_deployed(
@@ -139,8 +135,8 @@ def test_a_site_absent_from_the_last_deployment_is_not_deployed(
     _seed_proxied_record(control)
     control.deployments.deploy("alice")
 
-    assert control.deployments.site_is_deployed("cdn-example-com") is True
-    assert control.deployments.site_is_deployed("other-example-com") is False
+    assert control.deployments.site_is_deployed("example-com") is True
+    assert control.deployments.site_is_deployed("example-com--other") is False
 
 
 def test_certificate_preflight_reports_without_contacting_a_ca(
@@ -149,9 +145,9 @@ def test_certificate_preflight_reports_without_contacting_a_ca(
     control, _, issuer, _ = _preflight_control(settings, certificate_pair, ("dns",))
     _seed_proxied_record(control)
 
-    report = control.certificates.certificate_preflight("cdn-example-com")
+    report = control.certificates.certificate_preflight("example-com")
 
-    assert report.site == "cdn-example-com"
+    assert report.site == "example-com"
     assert not report.ok
     assert issuer.issued == []
 

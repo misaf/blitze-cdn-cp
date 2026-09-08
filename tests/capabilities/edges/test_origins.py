@@ -16,16 +16,16 @@ import pytest
 from pydantic import ValidationError
 
 import blitzecdn.capabilities.edges.adapters.probe as origins_module
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.policy import HttpScheme
-from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import SslMode
 
 
 def _site(**overrides) -> CdnSite:
     payload = {
-        "name": "cdn-example-com",
+        "name": "example-com",
         "server_names": ["cdn.example.com"],
         "origin_host": "127.0.0.1",
         **overrides,
@@ -43,7 +43,7 @@ def test_origin_reports_require_the_current_ssl_mode():
     with pytest.raises(ValidationError, match="ssl_mode"):
         OriginCheck.model_validate(
             {
-                "site": "cdn-example-com",
+                "site": "example-com",
                 "origin": "origin.example.com:443",
                 "scheme": "https",
             }

@@ -8,6 +8,7 @@ from blitzecdn.api.dependencies import (
     require_operator,
 )
 from blitzecdn.capabilities.dns.api.models import (
+    CdnSite,
     DnsRecord,
     Domain,
     DomainPatch,
@@ -57,6 +58,25 @@ def delete_domain(
     domain: str, operator: OperatorDependency, control: ControlPlaneDependency
 ) -> None:
     control.dns.delete_domain(domain, operator)
+
+
+@router.get("/v1/hosts", response_model=list[CdnSite])
+def list_hosts(control: ControlPlaneDependency) -> list[CdnSite]:
+    """The virtual hosts the zones and their rules resolve to.
+
+    Its own collection rather than a sub-resource of a zone, because a host is
+    not inside one: it belongs to a zone *and* to whichever rule claimed its
+    hostnames, and one of the two would have had to be the parent.
+
+    Read-only, and there is no writing counterpart. Nothing authors these — to
+    change one, change the zone, the rule or the records it came from.
+    """
+    return [CdnSite.from_domain(host) for host in control.dns.list_sites()]
+
+
+@router.get("/v1/hosts/{name}", response_model=CdnSite)
+def get_host(name: str, control: ControlPlaneDependency) -> CdnSite:
+    return CdnSite.from_domain(control.dns.get_site(name))
 
 
 @router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])

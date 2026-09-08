@@ -9,9 +9,8 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.capabilities.dns.domain import DnsRecord
-from blitzecdn.capabilities.sites.domain import CdnSite
-from blitzecdn.capabilities.sites.ports import SiteReader
+from blitzecdn.capabilities.dns.domain import CdnSite, DnsRecord
+from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.ports import UnitOfWork
@@ -24,15 +23,16 @@ from blitzecdn_certificates.certificates.domain import (
 
 
 class SiteEditor(Protocol):
-    """The one site write this capability performs.
+    """The one write this capability performs, and it is no longer to a site.
 
-    Certificate state used to be written onto a DNS *record*, because the site
-    it derived was a projection that any record change would overwrite. Sites
-    are canonical now, so this is an ordinary site update and the port says so.
+    A virtual host is derived from a zone, its rules and its records, so there
+    is nothing to update on the host itself. These two record their result
+    against whatever *authored* the host — the zone, or the rule that bent it
+    — and the zone editor is what knows which. That the two methods still take
+    a host is right: the host is what a certificate was issued for.
 
-    Two methods out of ``SiteService``'s eight, declared here because this
-    package is the consumer: the control plane publishes the service and this
-    is the slice of it certificates may reach.
+    Two methods out of the zone editor's many, declared here because this
+    package is the consumer.
     """
 
     def activate_managed_certificate(
@@ -45,14 +45,18 @@ class SiteEditor(Protocol):
 
 
 class RecordReader(Protocol):
-    """Finding a record routed to a site, for its TTL.
+    """Finding a record for a hostname, for its TTL.
 
     Preflight compares the record's TTL against how long a validation may take,
     so this stays pointed at `dns` — it is genuinely a question about DNS and
-    not about the site.
+    not about the host.
+
+    It asks by hostname rather than by host name now. A host is a group of
+    hostnames that resolve alike, and "a record routed to this site" stopped
+    being a stored relationship anything could look up.
     """
 
-    def record_for_site(self, site_name: str) -> DnsRecord: ...
+    def record_for_hostname(self, fqdn: str) -> DnsRecord: ...
 
 
 class Issuer(Protocol):

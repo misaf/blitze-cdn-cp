@@ -224,10 +224,10 @@ def test_role_accepts_only_immutable_managed_certificate_destinations(
     managed = dict(desired_state["blitzecdn_nginx_sites"][0]) | {
         "certificate_mode": "uploaded",
         "certificate_path": (
-            f"/etc/blitzecdn/tls/cdn-example-com/fullchain-{fingerprint}.pem"
+            f"/etc/blitzecdn/tls/example-com/fullchain-{fingerprint}.pem"
         ),
         "certificate_key_path": (
-            f"/etc/blitzecdn/tls/cdn-example-com/privkey-{fingerprint}.pem"
+            f"/etc/blitzecdn/tls/example-com/privkey-{fingerprint}.pem"
         ),
         "certificate_source_path": "/controller/fullchain.pem",
         "certificate_key_source_path": "/controller/privkey.pem",
@@ -236,7 +236,7 @@ def test_role_accepts_only_immutable_managed_certificate_destinations(
     accepted = _run_validation([managed], tmp_path)
     assert accepted.returncode == 0, accepted.stdout
 
-    managed["certificate_path"] = "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem"
+    managed["certificate_path"] = "/etc/blitzecdn/tls/example-com/fullchain.pem"
     rejected = _run_validation([managed], tmp_path)
     assert rejected.returncode != 0
     assert "Invalid CDN site" in rejected.stdout
@@ -452,29 +452,30 @@ def test_the_converge_removes_a_detached_capabilitys_fragment(tmp_path):
     )
 
 
-def test_a_site_no_hostname_routes_to_never_reaches_the_edge(settings, tmp_path):
-    """Removing a site's last DNS record must not wedge every later deploy.
+def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
+    """A rule nothing matches is not a server block, and neither is a bare zone.
 
-    `serves_traffic` is the model's answer to this and it says exactly why: a
-    site with no hostnames would render a `server` block with an empty
-    `server_name`, which nginx reads as the default server for the listener, so
-    the site with the least configuration behind it starts answering for every
-    hostname nobody else claimed. `validate.yml` refuses the same shape from the
-    other side.
+    This used to be a joining problem and is now an arithmetic one. The
+    renderer published every site in the snapshot, so an operator who took the
+    last hostname off a site — one `record remove`, no site deleted — left
+    desired state carrying a site the role must reject, and *every* subsequent
+    converge failed on it, for that edge and every other one in the deployment.
 
-    Both halves existed; nothing joined them. The renderer published every site
-    in the snapshot, so an operator who took the last hostname off a site — one
-    `record remove`, no site deleted — left desired state carrying a site the
-    role must reject, and *every* subsequent converge failed on it, for that
-    edge and every other one in the deployment. The site is desired state; it is
-    simply not yet something to serve.
+    Nothing stores a site now: a host exists because hostnames resolve to it,
+    so one with no hostnames cannot be constructed, let alone published. What
+    is left to check is that the derivation actually leaves them out.
     """
     repository = Repository(settings.database_path)
     control = ControlPlane(settings=settings, repository=repository)
-    repository.zones.create_domain(Domain(name="example.com"))
-    _seed_site(repository, name="cdn-example-com", label="cdn", origin="198.51.100.20")
-    repository.sites.create_site(
-        CdnSite.model_validate({"name": "awaiting-dns", "origin_host": "192.0.2.10"})
+    _seed_site(repository, name="example-com", label="cdn", origin="198.51.100.20")
+    # A rule matching a hostname no record claims: the "awaiting DNS" case.
+    repository.rules.create_rule(
+        Rule(
+            domain="example.com",
+            name="awaiting-dns",
+            match="not-yet.example.com",
+            overrides={"origin_host": "192.0.2.10"},
+        )
     )
     control.deployments.write_desired_state(
         repository.snapshot(), settings.generated_vars_path
@@ -482,9 +483,9 @@ def test_a_site_no_hostname_routes_to_never_reaches_the_edge(settings, tmp_path)
     published = yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 
     names = [site["name"] for site in published["blitzecdn_nginx_sites"]]
-    assert names == ["cdn-example-com"], (
-        "a site with no hostnames was published to the edge; the role will "
-        "refuse it and the deploy will fail until someone deletes the site"
+    assert names == ["example-com"], (
+        "a policy no hostname uses was published to the edge; the role will "
+        "refuse an empty server_name and the deploy will fail"
     )
     result = _run_validation(published["blitzecdn_nginx_sites"], tmp_path)
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"

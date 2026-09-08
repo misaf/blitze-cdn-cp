@@ -10,9 +10,9 @@ from blitzecdn.api.dependencies import get_control_plane
 from blitzecdn.capabilities.deployments.api import routes as deployment_routes
 from blitzecdn.capabilities.diagnostics.api import readiness as diagnostics
 from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
+from blitzecdn.capabilities.dns.api import routes as site_routes
 from blitzecdn.capabilities.dns.api import routes as zone_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
-from blitzecdn.capabilities.sites.api import routes as site_routes
 
 
 def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
@@ -48,7 +48,6 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
         "blitzecdn.capabilities.deployments.api.routes",
         "blitzecdn.capabilities.diagnostics.api.routes",
         "blitzecdn.capabilities.edges.api.routes",
-        "blitzecdn.capabilities.sites.api.routes",
         "blitzecdn.capabilities.dns.api.routes",
     }
 
@@ -73,7 +72,7 @@ def test_openapi_documents_core_control_workflows(settings):
         schema = client.get("/openapi.json").json()
         assert schema["info"]["version"] == __version__
         paths = schema["paths"]
-        assert "/v1/sites" in paths
+        assert "/v1/hosts" in paths
         assert "/v1/deployments" in paths
         assert "/v1/workflows" in paths
         assert not [path for path in paths if path.startswith("/v2/")]

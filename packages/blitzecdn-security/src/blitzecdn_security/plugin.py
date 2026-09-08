@@ -50,7 +50,7 @@ from blitzecdn_security.config import (
 __version__ = distribution_version(__name__)
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.composition import ControlPlane
 
 

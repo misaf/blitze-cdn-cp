@@ -16,9 +16,16 @@ from dramatiq.brokers.stub import StubBroker
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    RecordType,
+    Rule,
+)
+from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
 from blitzecdn.capabilities.edges.domain import Edge
-from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
 from blitzecdn.core.config import Settings
@@ -82,7 +89,7 @@ def skip_tests_a_detached_capability_cannot_answer(request):
 def seed_site(
     control,
     *,
-    name: str = "cdn-example-com",
+    name: str = "example-com",
     origin: str = "198.51.100.10",
     domain: str = "example.com",
     record: str = "cdn",
@@ -92,19 +99,44 @@ def seed_site(
     operator: str = "alice",
     **policy,
 ) -> CdnSite:
-    """Create a site and, unless ``routed=False``, a record that reaches it.
+    """Set a zone's policy and proxy a hostname in it, then return the host.
 
-    Two calls, because there are two things now: the site holds the origin and
-    the policy, and the record puts a hostname on it. ``routed=False`` gives
-    the state that could not be expressed before — a configured site nothing
-    answers for yet.
+    ``name`` decides where the policy goes rather than what anything is
+    called: ``example-com`` is the zone's own policy, and anything else makes a
+    rule claiming this hostname — which derives ``example-com--<record>``,
+    whatever the caller asked for. Callers that need the name read it off the
+    returned host.
 
-    ``policy`` is any `SitePolicy` field. The zone is created on first use, so
-    several sites can be seeded into one domain without the caller tracking
-    which call was first.
+    ``routed=False`` sets the policy and proxies nothing, which derives no host
+    at all — a zone we answer DNS for and serve nothing of.
+
+    ``policy`` is any ``SitePolicy`` field. The zone is created on first use so
+    that several calls can share one domain without the caller tracking which
+    was first.
     """
-    control.site_editor.create_site(
-        CdnSite.model_validate({"name": name, "origin_host": origin, **policy}),
+    with suppress(ConflictError):
+        control.dns.create_domain(Domain(name=domain), operator)
+    expected = host_name_for(domain, None)
+    if name != expected:
+        # A second policy in one zone is a rule, named after the hostname it
+        # claims, so the host it derives is `<zone>--<label>`. A wildcard
+        # record has no name a rule could take, so it gets one.
+        rule = "wildcard" if record in {"*", "@"} else record.replace(".", "-")
+        with suppress(ConflictError):
+            control.rules.create_rule(
+                Rule(
+                    domain=domain,
+                    name=rule,
+                    match=f"{record}.{domain}",
+                    overrides={"origin_host": origin, **policy},
+                ),
+                operator,
+            )
+    else:
+        rule = None
+    control.dns.update_domain(
+        domain,
+        DomainPatch.model_validate({"origin_host": origin, **policy}),
         operator,
     )
     if routed:
@@ -114,10 +146,16 @@ def seed_site(
             name=record,
             record_type=record_type,
             ttl=ttl,
-            site=name,
             operator=operator,
         )
-    return control.sites.get_site(name)
+        return control.dns.get_site(host_name_for(domain, rule))
+    return CdnSite.model_validate(
+        {
+            **control.dns.get_domain(domain).model_dump(),
+            "name": host_name_for(domain, rule),
+            "server_names": (),
+        }
+    )
 
 
 def seed_record(
@@ -126,15 +164,15 @@ def seed_record(
     domain: str = "example.com",
     name: str = "cdn",
     value: str | None = None,
-    site: str | None = None,
+    proxied: bool | None = None,
     record_type: RecordType = RecordType.A,
     ttl: int = 300,
     operator: str = "alice",
 ) -> DnsRecord:
-    """Add one record, routed to ``site`` or answering with ``value``.
+    """Add one record, proxied or answering with ``value``.
 
     A record carries no policy any more, so this takes none. Use
-    :func:`seed_site` for a site with settings on it.
+    :func:`seed_site` for a zone with settings on it.
     """
     with suppress(ConflictError):
         control.dns.create_domain(Domain(name=domain), operator)
@@ -145,7 +183,8 @@ def seed_record(
                 "name": name,
                 "type": record_type,
                 "ttl": ttl,
-                **({"site": site} if site is not None else {"value": value}),
+                "value": value,
+                "proxied": value is None if proxied is None else proxied,
             }
         ),
         operator,
@@ -219,7 +258,7 @@ def ansible_run(
 def origin_report(
     host: str,
     *,
-    site: str = "cdn-example-com",
+    site: str = "example-com",
     origin: str = "origin.example.com:443",
     reachable: bool = True,
     tls_verified: object = True,
@@ -431,7 +470,7 @@ def site_payload() -> dict[str, object]:
     services it is maintained by `dns` and cannot be set.
     """
     return {
-        "name": "cdn-example-com",
+        "name": "example-com",
         "server_names": ["cdn.example.com"],
         "origin_host": "198.51.100.10",
     }
@@ -448,7 +487,7 @@ def record_payload() -> dict[str, object]:
         "domain": "example.com",
         "name": "cdn",
         "type": "A",
-        "site": "cdn-example-com",
+        "proxied": True,
     }
 
 
@@ -591,25 +630,25 @@ API_HEADERS = {"X-API-Key": "x" * 32}
 
 
 def seed_site_over_http(
-    client, headers=API_HEADERS, *, name="cdn-example-com", label="cdn", **policy
+    client, headers=API_HEADERS, *, name="example-com", label="cdn", **policy
 ):
-    """Zone, site, record — over HTTP, the way a client would.
+    """Zone, policy, record — over HTTP, the way a client would.
 
-    Three calls where there used to be two, and the middle one is the change:
-    a site is created in its own right rather than appearing because a record
-    was proxied.
+    Still three calls, and the middle one has changed again: the policy is set
+    on the zone rather than on a site of its own, and the record says only that
+    the hostname is on the edge.
     """
     client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
-    created = client.post(
-        "/v1/sites",
-        json={"name": name, "origin_host": "198.51.100.10", **policy},
+    created = client.patch(
+        "/v1/domains/example.com",
+        json={"origin_host": "198.51.100.10", **policy},
         headers=headers,
     )
-    assert created.status_code == 201, created.text
-    routed = client.post(
+    assert created.status_code == 200, created.text
+    proxied = client.post(
         "/v1/domains/example.com/records",
-        json={"domain": "example.com", "name": label, "site": name},
+        json={"domain": "example.com", "name": label, "proxied": True},
         headers=headers,
     )
-    assert routed.status_code == 201, routed.text
+    assert proxied.status_code == 201, proxied.text
     return created.json()

@@ -1,17 +1,18 @@
 """The flat site document the edge roles read.
 
-This is a projection of `sites`' own model onto somebody else's vocabulary,
-which is what an adapter is. It sat in ``core.ansible.mapping`` beside
-``edge_to_inventory``, one module holding two capabilities' projections, and
-core imported `CdnSite` to do it — the foundation reaching up into the tree it
-supports for a document only `sites` has ever produced or consumed.
+This is a projection of the derived virtual host onto somebody else's
+vocabulary, which is what an adapter is. It sat in ``core.ansible.mapping``
+beside ``edge_to_inventory``, one module holding two capabilities'
+projections, and core imported `CdnSite` to do it — the foundation reaching up
+into the tree it supports for a document only one capability has ever produced
+or consumed.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
 __all__ = ["site_to_ansible"]

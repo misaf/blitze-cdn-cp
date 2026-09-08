@@ -1,10 +1,18 @@
-"""The edge virtual host: one composition of every capability's site policy.
+"""The edge virtual host: one composition of every capability's policy.
 
 ``CdnSite`` is the whole of what the control plane asks an edge to serve, and
-it is canonical: a site is created, edited and deleted here, not derived from
-something else. What DNS contributes is ``server_names`` — the hostnames whose
-records route to this site — and nothing more. Every other fact on the model
-has exactly one writer, which is this capability.
+it is **derived**. Nothing creates one: a zone holds the policy, a rule holds
+the exceptions to it, records say which hostnames are on the edge, and
+:mod:`~blitzecdn.capabilities.dns.domain.hosts` composes the three into one of
+these per group of hostnames that resolve alike. There is no store behind it
+and no endpoint that writes one.
+
+It was canonical, and the name has been kept rather than the arrangement. What
+this models is an nginx ``server`` block, which is what the edge calls a site,
+and renaming the type would have renamed the Ansible variables and the edge
+collection's templates along with it — a large rename of the vocabulary the
+edge already speaks, to describe the same object. What changed is who writes
+it, and the answer is now: nobody.
 
 This module *composes*; it does not own. Cache, compression, HTTP protocol,
 security and TLS policy each belong to the capability of the same name and are
@@ -14,7 +22,7 @@ once the fragments are on one model: the rules that read across two
 capabilities at once — HTTP/3 needing edge TLS, a certificate mode agreeing
 with its two paths — and the site's identity.
 
-``OriginPolicy`` and ``HeaderPolicy`` stay under ``sites/policy/`` because no
+``OriginPolicy`` and ``HeaderPolicy`` live under ``dns/policy/`` because no
 capability owns them. Setting a ``Host`` header on the origin leg and writing
 the trusted ``BZ-*`` headers are things a managed edge does with nothing
 installed beside the control plane; there is no distribution to reunite them
@@ -35,13 +43,13 @@ from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.capabilities.cache.policy import CachePolicy
 from blitzecdn.capabilities.compression.policy import CompressionPolicy
+from blitzecdn.capabilities.dns.policy import HeaderPolicy, OriginPolicy
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
     HttpScheme,
     ProtocolPolicy,
 )
 from blitzecdn.capabilities.security.policy import SecurityPolicy
-from blitzecdn.capabilities.sites.policy import HeaderPolicy, OriginPolicy
 from blitzecdn.capabilities.tls.policy import (
     CERTIFICATE_ROOTS,
     MANAGED_TLS_ROOT,
@@ -50,7 +58,7 @@ from blitzecdn.capabilities.tls.policy import (
     managed_certificate_paths,
 )
 from blitzecdn.core.domain.policy import CapabilityPolicy
-from blitzecdn.core.domain.validation import SITE_NAME, hostname
+from blitzecdn.core.domain.validation import HOST_NAME, hostname
 
 __all__ = ["CdnSite", "SitePolicy"]
 
@@ -72,7 +80,7 @@ class SitePolicy(
     and never change again, which is exactly the failure the contract test
     cannot catch. ``SitePatch`` cannot inherit (every field has to become
     optional), so ``_assert_patch_covers_policy`` in
-    :mod:`~blitzecdn.capabilities.sites.domain.patch` refuses to import a
+    :mod:`~blitzecdn.capabilities.dns.domain.patch` refuses to import a
     version of that module where the two have drifted apart.
 
     Inheriting puts these fields ahead of the identity fields in ``model_dump``
@@ -154,17 +162,24 @@ class SitePolicy(
 
 
 class CdnSite(SitePolicy):
-    """Validated, provider-independent desired state for one CDN virtual host."""
+    """Validated, provider-independent desired state for one CDN virtual host.
+
+    Derived, and carrying no record of what it was derived from. A certificate
+    issued for these hostnames does have to be written back to the zone or the
+    rule that produced them — but ``name`` already says which, because
+    :func:`~blitzecdn.capabilities.dns.domain.hosts.host_name` is a function of
+    exactly those two things. Storing the answer beside the name would be a
+    second copy of it, free to disagree.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
-    #: The hostnames this site answers on. Not set here: every entry is the
-    #: fqdn of a DNS record routed to this site, and `dns` maintains the list
-    #: as records come and go. Empty is legal and means the site is configured
-    #: but not yet reachable — it contributes no server block, exactly as an
-    #: unproxied record used to leave no trace, so an empty `server_name` can
-    #: never reach nginx and turn the site into the default server.
+    #: The hostnames this virtual host answers on: every proxied record whose
+    #: fqdn resolved to this policy. Empty is legal and means a zone whose
+    #: hostnames are all unproxied — it contributes no server block, so an
+    #: empty `server_name` can never reach nginx and make this the default
+    #: server for the listener.
     server_names: tuple[str, ...] = Field(default=(), max_length=100)
     origin_host: str
 
@@ -172,9 +187,10 @@ class CdnSite(SitePolicy):
     @classmethod
     def validate_name(cls, value: str) -> str:
         normalized = value.strip().lower()
-        if not SITE_NAME.fullmatch(normalized):
+        if not HOST_NAME.fullmatch(normalized):
             raise ValueError(
-                "name must start with a letter and contain only a-z, 0-9, and hyphens"
+                "name must contain only a-z, 0-9, and hyphens, and start with "
+                "a letter or a digit"
             )
         return normalized
 
@@ -250,17 +266,15 @@ class CdnSite(SitePolicy):
     def serves_traffic(self) -> bool:
         """Whether this site should contribute a server block at all.
 
-        A site with no hostnames is configuration waiting for a DNS record to
-        route to it. Rendering it would emit a ``server`` block with an empty
-        ``server_name``, which nginx reads as the default server for the
-        listener — so the site with the least configuration behind it would
-        start answering for every hostname nobody else claimed. It is left out
-        instead, which is what an unproxied record used to achieve by deriving
-        no site at all.
+        A zone whose hostnames are all unproxied derives one of these with no
+        hostnames on it. Rendering it would emit a ``server`` block with an
+        empty ``server_name``, which nginx reads as the default server for the
+        listener — so the policy with the least behind it would start answering
+        for every hostname nobody else claimed.
 
-        ``enabled`` is a separate switch and stays separate: a disabled site
-        still occupies its name and its hostnames, and turning it back on is
-        one field rather than a re-pointed record.
+        ``enabled`` is a separate switch and stays separate: a zone turned off
+        keeps its policy and its hostnames, and turning it back on is one field
+        rather than a re-proxied record.
         """
         return bool(self.server_names)
 

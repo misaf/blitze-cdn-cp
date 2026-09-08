@@ -19,7 +19,7 @@ from pydantic import SecretStr
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.sites.domain import SitePatch
+from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import ControlPlane, Repository
 
@@ -29,7 +29,7 @@ runner = CliRunner()
 _SECRET = SecretStr("s" * 32)
 
 _REFUSAL = (
-    "security: cdn-example-com: under_attack_mode is on but "
+    "security: example-com: under_attack_mode is on but "
     f"{SECRET_VARIABLE} is not set on this controller, so the edge challenge "
     "capability cannot be enabled and the deployment would fail on every edge."
 )
@@ -42,9 +42,9 @@ def _control_serving(settings, runner_stub, **patch):
         repository=Repository(settings.database_path),
         runner=runner_stub,
     )  # type: ignore[arg-type]
-    seed_site(control, name="cdn-example-com", record="cdn")
+    seed_site(control, name="example-com", record="cdn")
     if patch:
-        control.site_editor.update_site("cdn-example-com", SitePatch(**patch), "alice")
+        control.dns.update_domain("example.com", DomainPatch(**patch), "alice")
     return control
 
 

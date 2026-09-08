@@ -370,12 +370,6 @@ def test_a_rollback_restores_the_rules_it_snapshotted(settings):
     assert repository.rules.list_rules() == []
 
     with repository.transaction():
-        rollback_policy.adopt_snapshot(
-            repository.zones,
-            repository.sites,
-            repository.rules,
-            control.dns,
-            snapshot,
-        )
+        rollback_policy.adopt_snapshot(repository.zones, repository.rules, snapshot)
 
     assert [rule.name for rule in repository.rules.list_rules()] == ["api"]

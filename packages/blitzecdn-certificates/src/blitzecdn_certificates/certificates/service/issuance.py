@@ -16,7 +16,7 @@ from time import monotonic
 from typing import Literal
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import (
@@ -157,7 +157,7 @@ class CertificateService:
         certbot's output.
         """
         site = self.persistence.sites.get_site(name)
-        record = self.dns.record_for_site(site.name)
+        record = self.dns.record_for_hostname(site.server_names[0])
         return self.execution.preflight.check(
             site,
             deployed=self.deployments.site_is_deployed(site.name),
@@ -177,7 +177,7 @@ class CertificateService:
         report = self.execution.preflight.check(
             site,
             deployed=self.deployments.site_is_deployed(site.name),
-            record_ttl=self.dns.record_for_site(site.name).ttl,
+            record_ttl=self.dns.record_for_hostname(site.server_names[0]).ttl,
         )
         for advisory in report.advisories:
             _LOGGER.warning(

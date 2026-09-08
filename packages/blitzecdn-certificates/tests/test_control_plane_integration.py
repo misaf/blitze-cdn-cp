@@ -29,14 +29,17 @@ from blitzecdn.core.exceptions import DeploymentBusyError
 def test_validate_rejects_acme_on_a_reserved_domain(settings):
     """No public CA issues for .test, so catch it before certbot is invoked."""
     control = certificate_control_plane(settings)
+    # The managed paths name the host a certificate was issued for, and a
+    # derived host is named after its zone — so a zone-wide policy carries the
+    # zone's own host name here, not the record's.
     seed_site(
         control,
-        name="api-vendra-test",
+        name="vendra-test",
         domain="vendra.test",
         record="api",
         certificate_mode=CertificateMode.REQUESTED,
-        certificate_path="/etc/blitzecdn/tls/api-vendra-test/fullchain.pem",
-        certificate_key_path="/etc/blitzecdn/tls/api-vendra-test/privkey.pem",
+        certificate_path="/etc/blitzecdn/tls/vendra-test/fullchain.pem",
+        certificate_key_path="/etc/blitzecdn/tls/vendra-test/privkey.pem",
     )
     assert any("reserved name" in error for error in control.deployments.validate())
 
@@ -60,7 +63,7 @@ def test_busy_external_work_does_not_create_a_false_workflow(settings):
         control.deployments.deploy("alice")
     with pytest.raises(DeploymentBusyError):
         control.certificates.request_certificate(
-            "cdn-example-com", "alice", email="ops@example.com"
+            "example-com", "alice", email="ops@example.com"
         )
 
     assert repository.workflows.list_workflows(10) == []
@@ -77,9 +80,8 @@ def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
     next run picks the site up regardless.
     """
     control = certificate_control_plane(settings)
-    repository = repository_on(settings)
     seed_site(control)
-    site = repository.sites.list_sites()[0]
+    site = control.dns.list_sites()[0]
     certificate, key = certificate_pair((site.server_names[0],), days=5)
     control.certificates.persistence.certificates.install(
         site, certificate, key, source=CertificateSource.ACME, email="ops@example.com"
@@ -126,7 +128,7 @@ def test_an_interrupted_issuance_says_how_far_it_got(settings, monkeypatch):
     )
 
     with pytest.raises(OSError):
-        control.certificates.request_certificate("cdn-example-com", "alice")
+        control.certificates.request_certificate("example-com", "alice")
 
     workflow = repository.workflows.list_workflows(10)[0]
     assert workflow.status is WorkflowStatus.FAILED

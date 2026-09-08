@@ -12,7 +12,7 @@ from blitzecdn.api.access import AllowedIPsMiddleware
 
 
 @pytest.mark.parametrize(
-    "path", ["/docs", "/redoc", "/openapi.json", "/health", "/v1/sites"]
+    "path", ["/docs", "/redoc", "/openapi.json", "/health", "/v1/hosts"]
 )
 @pytest.mark.parametrize("peer", ["198.51.100.8", "2001:db8:2::8", "not-an-ip"])
 def test_unlisted_clients_cannot_reach_any_route(settings, path, peer):
@@ -45,9 +45,9 @@ def test_allowed_clients_can_read_schema_but_still_need_auth(settings, peer):
     restricted = settings.model_copy(update={"allowed_ips": ("203.0.113.0/24",)})
     with TestClient(control_plane_app(restricted), client=(peer, 1234)) as client:
         assert client.get("/openapi.json").status_code == 200
-        assert client.get("/v1/sites").status_code == 401
+        assert client.get("/v1/hosts").status_code == 401
         assert (
-            client.get("/v1/sites", headers={"X-API-Key": "x" * 32}).status_code == 200
+            client.get("/v1/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
 
 

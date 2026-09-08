@@ -29,7 +29,7 @@ from blitzecdn import __version__
 from blitzecdn.core.plugins import FleetStateContribution, PluginMetadata, hookimpl
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.composition import ControlPlane
 
 

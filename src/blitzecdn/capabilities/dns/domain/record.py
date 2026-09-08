@@ -1,20 +1,18 @@
-"""A record in a zone, and the site it routes to.
+"""A record in a zone: an address of its own, or a hostname on the edge.
 
-A record used to *be* a site: it carried the whole of ``SitePolicy`` and
-``to_site`` turned it into one. It no longer does. A site is canonical and
-lives in :mod:`blitzecdn.capabilities.sites.domain`; a record either answers
-with an address of its own or names the site that answers for its hostname, and
-``site`` is the whole of that relationship.
+A record carries no policy and names no object that does. ``proxied`` says
+whether the edge serves this hostname; the zone says how, and a rule says how
+this hostname differs from the rest of the zone. That is the whole of it.
 
-What this bought is one writer per fact. The old shape had none for two of
-them: a hostname with an A and an AAAA record had two policies and two origins
-for one virtual host, and the deriving code kept whichever it saw first. That
-class of bug cannot be expressed here — both records name the same site, and
-the site holds the single origin and the single policy.
-
-This module still imports :mod:`blitzecdn.capabilities.sites` and never the
-other way round. It imports a *name*, though, not a model: what a record needs
-to know about a site is that it has one.
+The three shapes this has had are worth keeping straight, because each fixed
+the one before it. First a record *was* a site: it carried the whole of
+``SitePolicy``, and a hostname with an A and an AAAA record therefore had two
+policies and two origins for one virtual host, with the deriving code keeping
+whichever it saw first. Then it named a canonical site, which fixed that but
+made publishing a hostname a two-object job. Now it says ``proxied`` and the
+policy lives on the zone — one object for the common case, and the A and the
+AAAA still cannot disagree, because neither of them holds a policy to disagree
+with.
 """
 
 from __future__ import annotations
@@ -25,7 +23,7 @@ from typing import Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from blitzecdn.core.domain.validation import DNS_LABEL, SITE_NAME, hostname
+from blitzecdn.core.domain.validation import DNS_LABEL, hostname
 
 
 class RecordType(StrEnum):
@@ -34,25 +32,28 @@ class RecordType(StrEnum):
 
 
 class DnsRecord(BaseModel):
-    """One record in a zone: an address, or a route to a site.
+    """One record in a zone: an address of its own, or a hostname on the edge.
 
-    Exactly one of ``value`` and ``site`` is set, and which one is the CDN
-    on/off switch.
+    ``proxied`` is the CDN on/off switch and ``value`` is what DNS answers
+    with, and the two are tied together: a proxied record has no ``value`` and
+    an unproxied one must have one.
 
-    ``site`` set — the edge serves this hostname, and what DNS must answer with
-    is an edge address rather than anything stored here. The origin the edge
-    fetches from belongs to the site, along with every policy that used to sit
-    on this row; ``type`` still says whether the published answer is the
+    ``proxied=True`` — the edge serves this hostname. What DNS answers with is
+    an edge address, which the fleet supplies rather than anything stored here,
+    and how the hostname is served comes from the zone's policy and whichever
+    rule matches it. ``type`` still says whether the published answer is the
     fleet's A or its AAAA address.
 
-    ``value`` set — the record bypasses the CDN entirely and ``value`` is
+    ``proxied=False`` — the record bypasses the CDN entirely and ``value`` is
     simply what DNS answers with. The record still belongs to us; the edge does
     not know the hostname exists.
 
-    Turning the proxy off therefore means supplying the address DNS should
-    answer with instead. That is one field more than the old ``proxied=False``
-    and one guess fewer: the old switch left the origin address behind as the
-    public answer, which published the origin to anyone who looked.
+    Requiring the address when the proxy goes off is the one place this
+    deliberately parts company with Cloudflare, where ``content`` holds the
+    origin while proxying and becomes the public answer when it stops — which
+    publishes the origin address to anyone who looks, at the moment an operator
+    is least expecting it. There is no address the control plane could
+    substitute here that is not either that leak or a black hole, so it asks.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -62,7 +63,9 @@ class DnsRecord(BaseModel):
     type: RecordType = RecordType.A
     value: str | None = None
     ttl: int = Field(default=300, ge=1, le=604800)
-    site: str | None = None
+    #: Defaults to on, which is the reason an operator adds a record to a CDN
+    #: at all, and matches what the dashboard people arrive from does.
+    proxied: bool = True
 
     @field_validator("domain")
     @classmethod
@@ -82,30 +85,18 @@ class DnsRecord(BaseModel):
             raise ValueError(f"invalid record name: {value!r}")
         return normalized
 
-    @field_validator("site")
-    @classmethod
-    def validate_site_name(cls, value: str | None) -> str | None:
-        """Shape only. Whether the site *exists* is the service's question.
-
-        A record is validated wherever one is constructed — decoding a
-        snapshot, restoring a backup — and none of those places holds the site
-        store. Checking existence here would make the model need one.
-        """
-        if value is None:
-            return None
-        normalized = value.strip().lower()
-        if not SITE_NAME.fullmatch(normalized):
-            raise ValueError(
-                "site must start with a letter and contain only a-z, 0-9, and hyphens"
-            )
-        return normalized
-
     @model_validator(mode="after")
-    def validate_address_or_site(self) -> Self:
-        if (self.value is None) == (self.site is None):
+    def validate_address_matches_the_switch(self) -> Self:
+        if self.proxied and self.value is not None:
             raise ValueError(
-                "a record either answers with an address or routes to a site: "
-                "set exactly one of 'value' and 'site'"
+                "a proxied record is answered with an edge address, so it "
+                "cannot carry a 'value' of its own; set proxied=false to "
+                "answer with your own address instead"
+            )
+        if not self.proxied and self.value is None:
+            raise ValueError(
+                "an unproxied record is what DNS answers with, so it needs a "
+                "'value'; supply the address this hostname should resolve to"
             )
         if self.value is None:
             return self
@@ -129,29 +120,25 @@ class DnsRecord(BaseModel):
             return self.domain
         return f"{self.name}.{self.domain}"
 
-    @property
-    def proxied(self) -> bool:
-        """Whether the edge serves this hostname."""
-        return self.site is not None
-
 
 class RecordPatch(BaseModel):
     """A partial update to a record: every field optional, unset means untouched.
 
-    Three fields now, where there used to be twenty. The policy went to
-    ``SitePatch`` with the rest of the site.
+    Three fields now, where there used to be twenty. The policy went to the
+    zone with the rest of what a site used to hold.
 
-    ``site`` is the one field where "unset" and "null" differ, and pydantic's
-    ``exclude_unset`` is what tells them apart: omitting it leaves the routing
-    alone, while sending it as ``null`` — together with a ``value`` — takes the
-    hostname off the edge.
+    Taking a hostname off the edge is ``{"proxied": false, "value": ...}`` in
+    one request, because neither half is a valid record on its own — see
+    ``DnsRecord``. Putting it back on is ``{"proxied": true, "value": null}``,
+    and ``value`` is the field where "unset" and "null" differ: pydantic's
+    ``exclude_unset`` is what tells "leave the address alone" from "clear it".
     """
 
     model_config = ConfigDict(extra="forbid")
 
     value: str | None = None
     ttl: int | None = Field(default=None, ge=1, le=604800)
-    site: str | None = None
+    proxied: bool | None = None
 
 
 __all__ = ["DnsRecord", "RecordPatch", "RecordType"]
