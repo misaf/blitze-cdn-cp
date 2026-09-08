@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
@@ -32,7 +32,7 @@ def domain_ssl(
             help="Off, Flexible, Full, or Full (strict) edge/origin TLS policy.",
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Set visitor and origin encryption for one zone.
 
@@ -42,11 +42,11 @@ def domain_ssl(
     edge certificate.
     """
     zone = _update(name, DomainPatch(ssl_mode=mode))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(zone, f"{zone.name} now uses SSL mode {zone.ssl_mode.value!r}.")
-        )
+    _report(
+        zone,
+        f"{zone.name} now uses SSL mode {zone.ssl_mode.value!r}.",
+        json_output=json_output,
+    )
 
 
 @domain_app.command("ssl-automatic")
@@ -59,16 +59,18 @@ def domain_ssl_automatic(
             help="Auto upgrades after origin scans; Custom preserves ssl_mode.",
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Enroll a zone in Automatic SSL/TLS or opt it into Custom mode."""
     zone = _update(name, DomainPatch(ssl_automatic_mode=mode))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
+    common.emit(
+        zone,
+        json_output=json_output,
+        note=(
             f"{zone.name} now uses SSL automatic mode "
             f"{zone.ssl_automatic_mode.value!r}."
-        )
+        ),
+    )
 
 
 @domain_app.command("minimum-tls")
@@ -81,16 +83,12 @@ def domain_minimum_tls(
             help="Oldest visitor TLS version accepted at the edge: 1.2 or 1.3.",
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Set the minimum visitor TLS version for one zone."""
     zone = _update(name, DomainPatch(minimum_tls_version=version))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(
-                zone,
-                f"{zone.name} now requires TLS "
-                f"{zone.minimum_tls_version.value} or newer.",
-            )
-        )
+    _report(
+        zone,
+        f"{zone.name} now requires TLS {zone.minimum_tls_version.value} or newer.",
+        json_output=json_output,
+    )

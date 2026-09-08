@@ -32,7 +32,7 @@ def record_add(
     ] = True,
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
     ttl: Annotated[int, typer.Option("--ttl")] = 300,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Add a DNS record, served by the edge or answering with an address.
 
@@ -63,7 +63,7 @@ def record_add(
 @record_app.command("list")
 def record_list(
     domain: Annotated[str | None, typer.Argument()] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """List records and what each one answers with.
 
@@ -82,7 +82,7 @@ def record_proxy(
     domain: Annotated[str, typer.Argument()],
     name: Annotated[str, typer.Argument()],
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Put a hostname on the edge, served by its zone's policy.
 
@@ -92,12 +92,14 @@ def record_proxy(
     what clients resolve to.
     """
     record = common.control_plane().dns.proxy(domain, name, type_, "cli")
-    common.emit(record, json_output=json_output)
-    if not json_output:
-        typer.echo(
+    common.emit(
+        record,
+        json_output=json_output,
+        note=(
             f"{record.fqdn} is now served by the edge. Run 'blitzecdn deploy' "
             "to apply, and make sure DNS points at an edge."
-        )
+        ),
+    )
 
 
 @record_app.command("unproxy")
@@ -108,7 +110,7 @@ def record_unproxy(
         str, typer.Option("--value", help="Address DNS should answer with instead.")
     ],
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Take a hostname off the edge, answering with an address instead.
 
@@ -121,12 +123,14 @@ def record_unproxy(
     it simply stops being served.
     """
     record = common.control_plane().dns.unproxy(domain, name, type_, value, "cli")
-    common.emit(record, json_output=json_output)
-    if not json_output:
-        typer.echo(
+    common.emit(
+        record,
+        json_output=json_output,
+        note=(
             f"{record.fqdn} now bypasses the CDN and answers with {value}. "
             "Run 'blitzecdn deploy' to apply."
-        )
+        ),
+    )
 
 
 @record_app.command("remove")
@@ -154,7 +158,7 @@ def record_remove(
 
 
 @dns_app.command("export")
-def dns_export(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+def dns_export(json_output: common.JsonOutput = False) -> None:
     """Emit every record for the system that publishes DNS.
 
     A proxied record's address is the origin the edge fetches from, and the

@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.cli import common
@@ -36,7 +36,7 @@ def domain_visitor_headers(
             "Needs GeoIP on the edge.",
         ),
     ] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Choose what the edge tells the origin about the visitor.
 
@@ -68,21 +68,18 @@ def domain_visitor_headers(
     current = control.dns.get_domain(name).visitor_headers
     headers = SiteVisitorHeaders.model_validate(current.model_dump() | named)
     zone = _update(name, DomainPatch(visitor_headers=headers))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        sent = [
-            header
-            for header, on in (
-                ("BZ-Connecting-IP", zone.visitor_headers.connecting_ip),
-                ("BZ-IPCountry", zone.visitor_headers.ip_country),
-            )
-            if on
-        ]
-        typer.echo(
-            _applied(
-                zone,
-                f"{zone.name} now sends {', '.join(sent)} to the origin."
-                if sent
-                else f"{zone.name} now sends no BZ-* visitor headers to the origin.",
-            )
+    sent = [
+        header
+        for header, on in (
+            ("BZ-Connecting-IP", zone.visitor_headers.connecting_ip),
+            ("BZ-IPCountry", zone.visitor_headers.ip_country),
         )
+        if on
+    ]
+    _report(
+        zone,
+        f"{zone.name} now sends {', '.join(sent)} to the origin."
+        if sent
+        else f"{zone.name} now sends no BZ-* visitor headers to the origin.",
+        json_output=json_output,
+    )

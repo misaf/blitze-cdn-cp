@@ -20,7 +20,7 @@ edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
 
 
 @edge_app.command("list")
-def edge_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+def edge_list(json_output: common.JsonOutput = False) -> None:
     """List edge servers.
 
     This is exactly what Ansible is given: the same rows the `blitzecdn`
@@ -70,7 +70,7 @@ def edge_add(
             help="SSH private key for this edge. Omit to let SSH resolve one.",
         ),
     ] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Register an edge server.
 
@@ -94,9 +94,11 @@ def edge_add(
         ),
         "cli",
     )
-    common.emit(edge, json_output=json_output)
-    if not json_output:
-        typer.echo(f"\nRegistered {edge.name}. Run 'blitzecdn deploy' to converge it.")
+    common.emit(
+        edge,
+        json_output=json_output,
+        note=f"\nRegistered {edge.name}. Run 'blitzecdn deploy' to converge it.",
+    )
 
 
 @edge_app.command("update")
@@ -130,7 +132,7 @@ def edge_update(
             help="Replacement management CIDR; repeat when needed.",
         ),
     ] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Change an edge's connection details or public addresses.
 
@@ -155,9 +157,11 @@ def edge_update(
     edge = common.control_plane().edges.update_edge(
         name, EdgePatch.model_validate(named), "cli"
     )
-    common.emit(edge, json_output=json_output)
-    if not json_output:
-        typer.echo(f"\nUpdated {edge.name}. Run 'blitzecdn deploy' to apply.")
+    common.emit(
+        edge,
+        json_output=json_output,
+        note=f"\nUpdated {edge.name}. Run 'blitzecdn deploy' to apply.",
+    )
 
 
 @edge_app.command("remove")
@@ -213,7 +217,7 @@ edge_app.add_typer(image_app, name="image")
 
 @image_app.command("spec")
 def edge_image_spec(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Print the build arguments the edge runtime image is built from.
 

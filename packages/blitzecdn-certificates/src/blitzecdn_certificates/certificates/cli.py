@@ -26,7 +26,7 @@ def cert_list(
             help="Show only certificates with at most this many days left.",
         ),
     ] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """List managed certificates, soonest expiry first.
 
@@ -49,7 +49,7 @@ def cert_list(
 @cert_app.command("preflight")
 def cert_preflight(
     name: Annotated[str, typer.Argument(help="Site name.")],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Check whether a certificate could be issued for a site right now.
 
@@ -106,7 +106,7 @@ def cert_renew(
             help="Deploy once after successful renewals so edges receive them.",
         ),
     ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Reissue ACME certificates that are close to expiry.
 
@@ -155,7 +155,7 @@ def cert_renew(
 
 @cert_app.command("reconcile")
 def cert_reconcile(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Issue ready first certificates and deploy them to the edge fleet.
 

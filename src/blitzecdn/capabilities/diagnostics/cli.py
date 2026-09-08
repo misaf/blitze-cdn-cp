@@ -76,7 +76,7 @@ def check_resolver(settings: Any) -> ResolverCheck:
 
 @diagnostics_app.command()
 def plugins(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """List the capabilities this controller has, and any that failed to load.
 
@@ -242,7 +242,7 @@ def ansible_slots() -> None:
 @diagnostics_app.command()
 def audit(
     limit: Annotated[int, typer.Option(min=1, max=500)] = 100,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Show immutable operator audit events."""
     common.emit(
@@ -253,7 +253,7 @@ def audit(
 
 @diagnostics_app.command()
 def doctor(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
     resolver_check: Annotated[
         bool,
         typer.Option(

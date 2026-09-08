@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Annotated
-
 import typer
 import yaml
 
@@ -29,7 +27,7 @@ def _name(value: str) -> str:
 
 @config_app.command("list")
 def list_settings(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """List database-backed global edge settings."""
     common.emit(

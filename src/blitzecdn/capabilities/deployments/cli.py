@@ -17,7 +17,7 @@ deployment_app = typer.Typer()
 
 
 @deployment_app.command()
-def validate(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+def validate(json_output: common.JsonOutput = False) -> None:
     """Validate configuration, desired state, inventory, and playbook syntax."""
     errors = common.control_plane().deployments.validate()
     common.emit({"valid": not errors, "errors": errors}, json_output=json_output)
@@ -28,7 +28,7 @@ def validate(json_output: Annotated[bool, typer.Option("--json")] = False) -> No
 @deployment_app.command()
 def plan(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Run Ansible check mode and show the resulting deployment record."""
     result = common.control_plane().deployments.deploy(
@@ -48,7 +48,7 @@ def deploy(
         ),
     ] = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Validate, preview, and apply desired state to the configured edges.
 
@@ -97,7 +97,7 @@ def rollback(
     check: Annotated[
         bool, typer.Option("--check", help="Preview without changing canonical state.")
     ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Converge a prior successful snapshot, then make it canonical on success."""
     if (
@@ -119,7 +119,7 @@ def rollback(
 @deployment_app.command()
 def drift(
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Report whether the edges still match the declared desired state.
 
@@ -167,7 +167,7 @@ def drift(
 def status(
     deployment_id: Annotated[str | None, typer.Argument()] = None,
     limit: Annotated[int, typer.Option(min=1, max=100)] = 20,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Show one deployment or recent deployment history."""
     deployments = common.control_plane().deployments

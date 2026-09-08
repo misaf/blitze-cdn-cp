@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from enum import IntEnum
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 import yaml
@@ -64,7 +64,21 @@ def installed_plugins() -> PluginRegistry:
     return load_control_plane_plugins()
 
 
-def emit(value: Any, *, json_output: bool) -> None:
+#: The ``--json`` switch every command that prints a result carries. One
+#: definition rather than one per command, so the flag cannot come to mean
+#: something slightly different in one corner of the command line.
+JsonOutput = Annotated[bool, typer.Option("--json")]
+
+
+def emit(value: Any, *, json_output: bool, note: str | None = None) -> None:
+    """Print a result, and the operator-facing note that follows it.
+
+    ``note`` is for the sentence a human wants after the record — what changed,
+    what to run next. It is suppressed under ``--json`` because that output has
+    one consumer and it is not reading English. Pass only a note that is
+    already computed: anything that has to *ask* the control plane belongs
+    behind the caller's own ``if not json_output``.
+    """
     if hasattr(value, "model_dump"):
         value = value.model_dump(mode="json")
     elif isinstance(value, list):
@@ -79,6 +93,8 @@ def emit(value: Any, *, json_output: bool) -> None:
         # renders all three. There is deliberately no scalar branch: a command
         # that wants to print a bare string calls typer.echo itself.
         typer.echo(yaml.safe_dump(value, sort_keys=False).rstrip())
+    if note is not None and not json_output:
+        typer.echo(note)
 
 
 def describe_hosts(hosts: Sequence[HostRun]) -> str:

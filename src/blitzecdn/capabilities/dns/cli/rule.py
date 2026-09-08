@@ -66,7 +66,7 @@ def rule_add(
         int,
         typer.Option("--priority", help="Lower runs first. The first match wins."),
     ] = 100,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Override some of a zone's policy for the hostnames a rule matches."""
     common.emit(
@@ -87,7 +87,7 @@ def rule_add(
 @rule_app.command("list")
 def rule_list(
     domain: Annotated[str, typer.Argument(help="Zone to list the rules of.")],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """List a zone's rules in the order a hostname is matched against them."""
     common.emit(
@@ -99,7 +99,7 @@ def rule_list(
 def rule_show(
     domain: str,
     name: str,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Show one rule: what it matches, and what it changes."""
     common.emit(
@@ -115,7 +115,7 @@ def rule_set(
     match: Annotated[str | None, typer.Option("--match")] = None,
     priority: Annotated[int | None, typer.Option("--priority")] = None,
     enabled: Annotated[bool | None, typer.Option("--enabled/--disabled")] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Change a rule. Any --set replaces every override the rule had.
 

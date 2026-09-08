@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.cli import common
@@ -26,7 +26,7 @@ def domain_http3(
             "--on/--off", help="Offer HTTP/3 over QUIC on UDP/443, or withdraw it."
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Enable or disable visitor HTTP/3 for one TLS-enabled zone.
 
@@ -34,14 +34,11 @@ def domain_http3(
     the protocol used from the edge to the origin.
     """
     zone = _update(name, DomainPatch(http3_enabled=on))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(
-                zone,
-                f"HTTP/3 is now {'enabled' if on else 'disabled'} for {zone.name}.",
-            )
-        )
+    _report(
+        zone,
+        f"HTTP/3 is now {'enabled' if on else 'disabled'} for {zone.name}.",
+        json_output=json_output,
+    )
 
 
 @domain_app.command("max-upload-size")
@@ -51,7 +48,7 @@ def domain_max_upload_size(
         MaxUploadSize,
         typer.Option("--size", help="Largest visitor request body this zone accepts."),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Set the largest request body this zone accepts from a visitor.
 
@@ -60,11 +57,11 @@ def domain_max_upload_size(
     what the origin is willing to receive.
     """
     zone = _update(name, DomainPatch(max_upload_size=size))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(zone, f"{zone.name} now accepts uploads up to {size.value}.")
-        )
+    _report(
+        zone,
+        f"{zone.name} now accepts uploads up to {size.value}.",
+        json_output=json_output,
+    )
 
 
 @domain_app.command("always-use-https")
@@ -77,7 +74,7 @@ def domain_always_use_https(
             help="Redirect all visitor HTTP requests to HTTPS, or serve both schemes.",
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Enable or disable the HTTP-to-HTTPS redirect for one zone.
 
@@ -85,12 +82,8 @@ def domain_always_use_https(
     leaves HTTPS available and serves HTTP requests through to the origin.
     """
     zone = _update(name, DomainPatch(always_use_https=on))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(
-                zone,
-                f"Always Use HTTPS is now {'enabled' if on else 'disabled'} "
-                f"for {zone.name}.",
-            )
-        )
+    _report(
+        zone,
+        f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for {zone.name}.",
+        json_output=json_output,
+    )
