@@ -161,3 +161,31 @@ def test_preflight_dns_servers_must_be_addresses(tmp_path, raw):
         Settings.from_environment(
             {"BLITZE_PREFLIGHT_DNS_SERVERS": raw}, project_dir=tmp_path
         )
+
+
+def test_allowed_ips_sources_and_normalization(tmp_path):
+    (tmp_path / "blitzecdn.toml").write_text(
+        '[blitzecdn]\nallowed_ips = ["203.0.113.8", "2001:db8::1/64"]\n'
+    )
+    configured = Settings.from_environment({}, project_dir=tmp_path)
+    assert configured.allowed_ips == ("203.0.113.8/32", "2001:db8::/64")
+    overridden = Settings.from_environment(
+        {"BLITZE_ALLOWED_IPS": "198.51.100.8,198.51.100.8/32"}, project_dir=tmp_path
+    )
+    assert overridden.allowed_ips == ("198.51.100.8/32",)
+    assert not overridden.capability_environment
+    assert not overridden.capability_config_file
+    assert (
+        Settings.from_environment(
+            {"BLITZE_ALLOWED_IPS": ""}, project_dir=tmp_path
+        ).allowed_ips
+        == ()
+    )
+
+
+@pytest.mark.parametrize(
+    "value", ["example.com", "203.0.113.8/99", "203.0.113.8,", "*"]
+)
+def test_invalid_allowed_ips_fail_configuration(tmp_path, value):
+    with pytest.raises(ConfigurationError):
+        Settings.from_environment({"BLITZE_ALLOWED_IPS": value}, project_dir=tmp_path)

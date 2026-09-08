@@ -68,6 +68,7 @@ _VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
     ),
     ("redis_url", "BLITZE_REDIS_URL", "redis_url", "redis://127.0.0.1:6379/0"),
     ("api_worker_threads", "BLITZE_API_WORKER_THREADS", "api_worker_threads", 2),
+    ("allowed_ips", "BLITZE_ALLOWED_IPS", "allowed_ips", ()),
 )
 
 _PROJECT_KEYS = {
