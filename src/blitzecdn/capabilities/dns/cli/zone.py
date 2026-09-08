@@ -14,7 +14,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.cli import common
 
@@ -22,7 +22,7 @@ from blitzecdn.cli import common
 @domain_app.command("add")
 def domain_add(
     name: Annotated[str, typer.Argument(help="Zone to serve, e.g. example.com.")],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Register a DNS zone delegated to Blitzecdn.
 
@@ -38,7 +38,7 @@ def domain_add(
 
 @domain_app.command("hosts")
 def domain_hosts(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """List the virtual hosts the zones and their rules resolve to.
 
@@ -56,7 +56,7 @@ def domain_hosts(
 @domain_app.command("show")
 def domain_show(
     name: str,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Show a zone and the policy every hostname in it is served by."""
     common.emit(common.control_plane().dns.get_domain(name), json_output=json_output)
@@ -98,7 +98,7 @@ def domain_origin(
         bool,
         typer.Option("--no-sni", help="Offer the request host as the TLS name again."),
     ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Set the identity the edge presents on this zone's origin leg.
 
@@ -140,10 +140,12 @@ def domain_origin(
     # would clear the override instead of leaving it alone. Going through the
     # dict is what keeps "not mentioned" and "explicitly cleared" distinct.
     zone = _update(name, DomainPatch.model_validate(named))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        identity = zone.origin_request_host or "the visitor's Host header"
-        typer.echo(_applied(zone, f"{zone.name} reaches its origin as {identity}."))
+    identity = zone.origin_request_host or "the visitor's Host header"
+    _report(
+        zone,
+        f"{zone.name} reaches its origin as {identity}.",
+        json_output=json_output,
+    )
 
 
 @domain_app.command("enable")
@@ -152,7 +154,7 @@ def domain_enable(
     on: Annotated[
         bool, typer.Option("--on/--off", help="Serve this zone, or withdraw it.")
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Serve or withdraw a zone without touching its records.
 
@@ -161,15 +163,15 @@ def domain_enable(
     answers with, which is a different decision.
     """
     zone = _update(name, DomainPatch(enabled=on))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(zone, f"{zone.name} is now {'enabled' if on else 'disabled'}.")
-        )
+    _report(
+        zone,
+        f"{zone.name} is now {'enabled' if on else 'disabled'}.",
+        json_output=json_output,
+    )
 
 
 @domain_app.command("list")
-def domain_list(json_output: Annotated[bool, typer.Option("--json")] = False) -> None:
+def domain_list(json_output: common.JsonOutput = False) -> None:
     """List the DNS zones delegated to BlitzeCDN."""
     common.emit(common.control_plane().dns.list_domains(), json_output=json_output)
 

@@ -13,7 +13,7 @@ blitzecdn	sdk	blitzecdn.api.requests.RequestModel	class(BaseModel)
 blitzecdn	sdk	blitzecdn.cli.common.ExitCode	class(IntEnum)
 blitzecdn	sdk	blitzecdn.cli.common.control_plane	def() -> ControlPlane
 blitzecdn	sdk	blitzecdn.cli.common.describe_hosts	def(hosts: Sequence[HostRun]) -> str
-blitzecdn	sdk	blitzecdn.cli.common.emit	def(value: Any, json_output: bool) -> None
+blitzecdn	sdk	blitzecdn.cli.common.emit	def(value: Any, json_output: bool, note: str | None = None) -> None
 blitzecdn	sdk	blitzecdn.cli.common.installed_plugins	def() -> PluginRegistry
 blitzecdn	sdk	blitzecdn.cli.common.settings	def() -> Settings
 blitzecdn	sdk	blitzecdn.core.config.MACHINE_SPECIFIC_CONFIG_KEYS	frozenset

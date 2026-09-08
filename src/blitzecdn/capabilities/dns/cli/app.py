@@ -1,4 +1,4 @@
-"""The three command groups, and the two helpers every policy command uses.
+"""The three command groups, and the helpers every policy command uses.
 
 Separate from the commands so that a command module can import a group without
 importing its siblings. Nothing here is a command; `__init__` imports the
@@ -31,6 +31,20 @@ __all__ = ["dns_app", "domain_app", "record_app", "rule_app"]
 
 def _update(name: str, patch: DomainPatch) -> Domain:
     return common.control_plane().dns.update_domain(name, patch, "cli")
+
+
+def _report(zone: Domain, message: str, *, json_output: bool) -> None:
+    """Print the zone, then say what it now does and whether it is served.
+
+    Every policy command ends this way, so it ends here rather than in each of
+    them. Not `common.emit(note=...)`: composing the note means asking the
+    control plane whether anything in the zone is proxied, and a `--json`
+    caller should not pay for a query whose only output is a sentence it
+    discards.
+    """
+    common.emit(zone, json_output=json_output)
+    if not json_output:
+        typer.echo(_applied(zone, message))
 
 
 def _applied(zone: Domain, message: str) -> str:

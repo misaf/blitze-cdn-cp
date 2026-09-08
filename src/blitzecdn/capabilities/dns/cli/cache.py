@@ -12,7 +12,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.cli import common
 
@@ -38,7 +38,7 @@ def domain_cache(
             help="How long a cached 404 stays valid, e.g. 1m.",
         ),
     ] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Choose whether this zone is cached, and for how long.
 
@@ -69,15 +69,13 @@ def domain_cache(
     # that were *set*, so passing `cache_enabled=None` for an option nobody
     # named would clear the switch rather than leave it alone.
     zone = _update(name, DomainPatch.model_validate(named))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        state = (
-            f"caching 2xx for {zone.cache_valid_success} and 404 for "
-            f"{zone.cache_valid_not_found}"
-            if zone.cache_enabled
-            else "not caching"
-        )
-        typer.echo(_applied(zone, f"{zone.name} is now {state}."))
+    state = (
+        f"caching 2xx for {zone.cache_valid_success} and 404 for "
+        f"{zone.cache_valid_not_found}"
+        if zone.cache_enabled
+        else "not caching"
+    )
+    _report(zone, f"{zone.name} is now {state}.", json_output=json_output)
 
 
 @domain_app.command("cache-query-string")
@@ -89,16 +87,13 @@ def domain_cache_query_string(
             "--mode", help="Include query strings in cache keys, or ignore them."
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Choose whether query strings distinguish cached responses."""
     zone = _update(name, DomainPatch(cache_query_string_mode=mode))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(
-                zone,
-                f"{zone.name} cache query-string mode is now "
-                f"{zone.cache_query_string_mode.value!r}.",
-            )
-        )
+    _report(
+        zone,
+        f"{zone.name} cache query-string mode is now "
+        f"{zone.cache_query_string_mode.value!r}.",
+        json_output=json_output,
+    )

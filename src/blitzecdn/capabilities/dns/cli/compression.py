@@ -12,7 +12,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.cli import common
 
@@ -27,7 +27,7 @@ def domain_compression(
             help="Compress at the edge with Brotli and gzip, gzip only, or not at all.",
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Choose which encodings the edge produces for this zone.
 
@@ -37,11 +37,8 @@ def domain_compression(
     through, because nginx never re-encodes an encoded body.
     """
     zone = _update(name, DomainPatch(compression=mode))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(
-                zone,
-                f"{zone.name} edge compression is now {zone.compression.value!r}.",
-            )
-        )
+    _report(
+        zone,
+        f"{zone.name} edge compression is now {zone.compression.value!r}.",
+        json_output=json_output,
+    )

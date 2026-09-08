@@ -8,8 +8,6 @@ none of it.
 
 from __future__ import annotations
 
-from typing import Annotated
-
 import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
@@ -25,7 +23,7 @@ ssl_app = typer.Typer(
 
 @ssl_app.command("reconcile")
 def reconcile(
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Run the same Automatic SSL/TLS scan as the monthly scheduler."""
     result = build_automatic_ssl_service(common.control_plane()).reconcile("cli")

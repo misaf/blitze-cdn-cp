@@ -52,7 +52,7 @@ def cache_purge(
         typer.Option("--yes", help="Required confirmation for --all."),
     ] = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Remove cached responses from the edges.
 
@@ -113,7 +113,7 @@ def stats(
         bool,
         typer.Option("--by-site", help="Break the numbers down by virtual host."),
     ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Report cache effectiveness across the edges.
 

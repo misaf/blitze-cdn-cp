@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.cli import common
@@ -28,7 +28,7 @@ def domain_under_attack(
             help="Challenge unverified browser traffic at the edge, or disable it.",
         ),
     ],
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Enable or disable emergency edge challenge/mitigation mode.
 
@@ -37,15 +37,11 @@ def domain_under_attack(
     zone whose edge cannot enforce it.
     """
     zone = _update(name, DomainPatch(under_attack_mode=on))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        typer.echo(
-            _applied(
-                zone,
-                f"Under Attack Mode is now {'enabled' if on else 'disabled'} "
-                f"for {zone.name}.",
-            )
-        )
+    _report(
+        zone,
+        f"Under Attack Mode is now {'enabled' if on else 'disabled'} for {zone.name}.",
+        json_output=json_output,
+    )
 
 
 @domain_app.command("firewall")
@@ -89,7 +85,7 @@ def domain_firewall(
     clear: Annotated[
         bool, typer.Option("--clear", help="Remove every rule and serve everyone.")
     ] = False,
-    json_output: Annotated[bool, typer.Option("--json")] = False,
+    json_output: common.JsonOutput = False,
 ) -> None:
     """Filter requests to one zone at the edge.
 
@@ -133,14 +129,11 @@ def domain_firewall(
         current = control.dns.get_domain(name).firewall
         firewall = SiteFirewall.model_validate(current.model_dump() | named)
     zone = _update(name, DomainPatch(firewall=firewall))
-    common.emit(zone, json_output=json_output)
-    if not json_output:
-        rules = sum(len(getattr(zone.firewall, f)) for f in SiteFirewall.model_fields)
-        typer.echo(
-            _applied(
-                zone,
-                f"{zone.name} now carries {rules} firewall rule(s)."
-                if rules
-                else f"{zone.name} no longer filters any requests.",
-            )
-        )
+    rules = sum(len(getattr(zone.firewall, f)) for f in SiteFirewall.model_fields)
+    _report(
+        zone,
+        f"{zone.name} now carries {rules} firewall rule(s)."
+        if rules
+        else f"{zone.name} no longer filters any requests.",
+        json_output=json_output,
+    )
