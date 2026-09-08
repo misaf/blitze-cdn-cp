@@ -66,24 +66,39 @@ sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml \
 
 The installed API binds to `0.0.0.0:8000` only when this list is non-empty.
 Unlisted clients receive HTTP 403 on every route, including `/docs`,
-`/openapi.json`, and `/health`. Allowed clients still need `X-API-Key` for
-control endpoints. Loopback clients remain allowed for health checks and SSH
-tunnels. Forwarded-IP headers are ignored; do not put an unrestricted local
-reverse proxy in front of this listener, because it would appear as loopback.
+`/openapi.json`, and `/health`. Loopback clients remain allowed for health
+checks and SSH tunnels. Forwarded-IP headers are ignored; do not put an
+unrestricted local reverse proxy in front of this listener, because it would
+appear as loopback.
 
-On a standalone server with UFW enabled, also admit each trusted source:
+The list decides who may reach the API, not what they may do. Every control
+endpoint still requires `X-API-Key`, and an admitted client that does not send
+one gets HTTP 401. What being on the list grants without a key is the published
+schema — `/docs`, `/redoc`, `/openapi.json` — and `/health`, so Swagger UI
+works in a browser.
+
+Where UFW is active, the installer converges port 8000 for exactly these
+addresses on the next run:
+
+```bash
+sudo /opt/blitzecdn/install.sh update
+```
+
+It records the rules it installs, so an address removed from
+`BLITZE_ALLOWED_IPS` has its rule withdrawn rather than left behind. Rules you
+added by hand are not touched, UFW is never enabled by this role, and the
+default policy is left alone. Where UFW is inactive or another firewall is
+authoritative, the run says so and admits each source yourself:
 
 ```bash
 sudo ufw allow from 203.0.113.8/32 to any port 8000 proto tcp
-sudo ufw allow from 198.51.100.0/24 to any port 8000 proto tcp
 ```
 
-Apply the same source restrictions in your provider firewall if present. The
-API setting does not change firewall rules. Remove old firewall rules when
-removing addresses; the application denies removed addresses after recreation
-even if an old firewall rule remains. You can then fetch
-`http://SERVER_IP:8000/openapi.json` from an allowed IP. Direct port 8000 uses
-HTTP; use an SSH tunnel for encrypted access when sending API credentials.
+Apply the same source restrictions in your provider firewall if present. Until
+the firewall agrees, an allowed address is denied at the packet rather than by
+the API. You can then fetch `http://SERVER_IP:8000/openapi.json` from an
+allowed IP. Direct port 8000 uses HTTP; use an SSH tunnel for encrypted access
+when sending API credentials.
 
 Set `BLITZE_ALLOWED_IPS=` and recreate the API to return to loopback-only access.
 The environment file survives installer updates and backup/restore. For a

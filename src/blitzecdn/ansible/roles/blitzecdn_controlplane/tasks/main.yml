@@ -361,3 +361,129 @@
   retries: 24
   delay: 5
   until: blitzecdn_controlplane_health.stdout == 'healthy'
+
+# Strictly after the API is healthy. A rule installed before the listener
+# exists is an open port nothing serves, and this play is `any_errors_fatal`,
+# so a run that never got the container up ends without having widened
+# anything.
+- name: Read the environment the API was started with
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+  register: blitzecdn_controlplane_environment_content
+  no_log: true
+
+# The commented example the template ships does not match: the name has to
+# start the line. A quoted value is unwrapped because dotenv accepts one and an
+# operator who writes quotes should not get a rule for `"203.0.113.8/32`.
+- name: Compose the API rules this role manages
+  ansible.builtin.set_fact:
+    blitzecdn_controlplane_desired_rules: >-
+      {{
+        (
+          [''] + (
+            blitzecdn_controlplane_environment_content.content
+            | b64decode
+            | regex_findall('(?m)^[ \t]*BLITZE_ALLOWED_IPS[ \t]*=[ \t]*(.*)$')
+          )
+        )
+        | last
+        | regex_replace('^["\x27](.*)["\x27]$', '\1')
+        | split(',')
+        | map('trim')
+        | select
+        | map('regex_replace', '^(.+)$',
+              'tcp|' ~ (blitzecdn_controlplane_api_port | string) ~ '|\1')
+        | list
+      }}
+
+# ufw is neither installed nor enabled here, and the default policy is left
+# alone. A controller-only host may be firewalled by something else entirely,
+# and switching an unprepared host to deny-by-default from a play it did not
+# ask for would cut off the SSH session running it. Where ufw is not the
+# authority this role manages no rule and says so; the README's manual
+# commands remain the answer for any other firewall.
+- name: Inspect the host firewall
+  ansible.builtin.command: ufw status
+  register: blitzecdn_controlplane_ufw
+  changed_when: false
+  failed_when: false
+
+- name: Decide whether ufw is the authority on this host
+  ansible.builtin.set_fact:
+    blitzecdn_controlplane_ufw_active: >-
+      {{
+        blitzecdn_controlplane_ufw.rc == 0
+        and 'Status: active' in blitzecdn_controlplane_ufw.stdout
+      }}
+
+- name: Report a firewall this role cannot converge
+  ansible.builtin.debug:
+    msg: >-
+      ufw is not active on this host, so the API rules for
+      {{ blitzecdn_controlplane_desired_rules | length }} allowed source(s)
+      were not applied. Admit port {{ blitzecdn_controlplane_api_port }} from
+      those addresses in whichever firewall is authoritative here.
+  when:
+    - not blitzecdn_controlplane_ufw_active | bool
+    - blitzecdn_controlplane_desired_rules | length > 0
+
+- name: Converge the API firewall rules
+  when: blitzecdn_controlplane_ufw_active | bool
+  block:
+    - name: Inspect the managed API rule registry
+      ansible.builtin.stat:
+        path: "{{ blitzecdn_controlplane_firewall_registry_file }}"
+      register: blitzecdn_controlplane_registry
+
+    - name: Read the managed API rule registry
+      ansible.builtin.slurp:
+        path: "{{ blitzecdn_controlplane_firewall_registry_file }}"
+      register: blitzecdn_controlplane_registry_content
+      when: blitzecdn_controlplane_registry.stat.exists
+
+    # Only well-formed lines select a rule for deletion. The registry is ours,
+    # but it is a plain file on a host an operator can edit, and a malformed
+    # line would otherwise be handed to ufw as a rule specification.
+    - name: Calculate API rules this role no longer manages
+      ansible.builtin.set_fact:
+        blitzecdn_controlplane_stale_rules: >-
+          {{
+            (blitzecdn_controlplane_registry_content.content | default('') | b64decode).splitlines()
+            | select('match', '^tcp\|[0-9]{1,5}\|[^|]+$')
+            | difference(blitzecdn_controlplane_desired_rules)
+            | list
+          }}
+
+    - name: Allow the API from its allowed sources
+      community.general.ufw:
+        rule: allow
+        direction: in
+        proto: tcp
+        port: "{{ blitzecdn_controlplane_api_port }}"
+        src: "{{ item.split('|')[2] }}"
+        comment: BlitzeCDN control-plane API
+      loop: "{{ blitzecdn_controlplane_desired_rules }}"
+
+    # After the additions, for the same reason the edge role withdraws last: on
+    # a run that swaps one office range for another, withdrawing first would
+    # open a window in which the replacement had not landed yet.
+    - name: Withdraw API rules this role no longer manages
+      community.general.ufw:
+        rule: allow
+        direction: in
+        delete: true
+        proto: tcp
+        port: "{{ item.split('|')[1] }}"
+        src: "{{ item.split('|')[2] }}"
+      loop: "{{ blitzecdn_controlplane_stale_rules }}"
+
+    # Written last and only once the rules above have all applied, so a run
+    # that failed midway leaves the previous registry in place rather than
+    # claiming rules the host never had.
+    - name: Record the managed API rule set
+      ansible.builtin.copy:
+        content: "{{ blitzecdn_controlplane_desired_rules | sort | join('\n') }}\n"
+        dest: "{{ blitzecdn_controlplane_firewall_registry_file }}"
+        owner: root
+        group: root
+        mode: "0644"

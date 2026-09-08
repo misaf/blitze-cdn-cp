@@ -56,3 +56,23 @@ blitzecdn_controlplane_ssl_automatic_scan_seconds: 2592000
 blitzecdn_controlplane_certificate_renewal_seconds: 43200
 blitzecdn_controlplane_drift_check_seconds: 3600
 blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
+
+# The API listener, and the host firewall rules that admit it.
+#
+# The port is `blitzecdn.api.__main__.API_PORT`, and a contract test fails if
+# the two disagree: the role would otherwise be admitting a port nothing
+# serves while the listener sat behind a closed one, and neither half says so.
+#
+# Which sources are admitted is not set here. It is BLITZE_ALLOWED_IPS in the
+# managed environment file — the same value the API itself reads — because an
+# operator edits that file and recreates the container, and a second copy in
+# the inventory would be a list that silently disagreed with the one enforcing
+# access. Empty, the API stays on loopback and this role manages no rule.
+blitzecdn_controlplane_api_port: 8000
+# The rules this role installed on its last successful run, one per line as
+# `proto|port|source`. Same mechanism and the same reason as the edge
+# firewall's registry: ufw keeps every rule it has ever been given, so an
+# address removed from the allowlist has to be read back from somewhere before
+# it can be withdrawn. Without it the role could only ever open ports.
+blitzecdn_controlplane_firewall_registry_file: >-
+  {{ blitzecdn_controlplane_state_dir }}/api-firewall-rules

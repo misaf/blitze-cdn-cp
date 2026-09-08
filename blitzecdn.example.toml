@@ -89,15 +89,20 @@ redis_url = "redis://127.0.0.1:6379/0"
 #
 
 # Client IPv4 addresses and CIDRs permitted to reach the API. The listener is
-# IPv4, so an IPv6 entry is refused here rather than never matched.
-# Empty keeps the installed listener on loopback, reachable only through an
-# SSH tunnel. A non-empty list
-# binds it publicly and answers 403 to every unlisted client, including /docs,
-# /openapi.json, and /health. Loopback stays allowed so local health probes and
-# tunnels keep working; for that reason, never place an unrestricted local
-# reverse proxy in front of the listener. The decision uses the transport peer,
-# so forwarded-IP headers cannot grant access. This setting changes no firewall
-# rule: admit each address in UFW and your provider firewall as well.
+# IPv4, so an IPv6 entry is refused here rather than never matched. Empty keeps
+# the installed listener on loopback, reachable only through an SSH tunnel.
+#
+# A non-empty list binds the API publicly and answers 403 to every unlisted
+# client, including /docs, /openapi.json, and /health. Loopback stays allowed so
+# local health probes and tunnels keep working; for that reason, never place an
+# unrestricted local reverse proxy in front of the listener. The decision uses
+# the transport peer, so forwarded-IP headers cannot grant access.
+#
+# In a checkout this setting changes no firewall rule, so admit each address in
+# the host firewall as well. On an installed server the control-plane role
+# converges the ufw rules for the API port from BLITZE_ALLOWED_IPS, and
+# withdraws the rule for an address that leaves the list.
+#
 # Default: [] (loopback only).
 allowed_ips = []
 
