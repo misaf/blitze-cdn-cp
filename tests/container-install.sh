@@ -47,6 +47,15 @@ in_container() { docker exec "${container}" bash -c "$1"; }
 # Same, but with stdin attached, for streaming an image into the host's engine.
 into_container() { docker exec -i "${container}" bash -c "$1"; }
 
+# Whatever the edge presents for the ACME hostname, through whichever `x509`
+# fields the caller asks for. Every certificate assertion below reads the wire
+# rather than the store: what the control plane believes it installed and what
+# an edge answers with are two facts, and only the second one is the product.
+served_certificate() {
+  in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
+    </dev/null 2>/dev/null | openssl x509 -noout $*"
+}
+
 say "Starting ${IMAGE} with systemd"
 # `-v /var/lib/docker -v /var/lib/containerd`: anonymous volumes, and the only
 # reason this host can run a container at all. The engine installed inside it
@@ -333,15 +342,22 @@ docker cp "${pebble_config}" "${container}:/root/pebble/config.json" >/dev/null 
 # Every name resolves here, so Pebble looks for the challenge where the edge is
 # actually serving. Its own challenge responders are switched off: answering
 # HTTP-01 is the edge's job and the thing under test.
+# On 127.0.0.1:53, not the default :8053, because the control plane's
+# `preflight_dns_servers` is a list of addresses and dnspython gives them all
+# one port. The loopback address specifically: systemd-resolved holds
+# 127.0.0.53:53 in this host, and binding the wildcard would collide with it.
 in_container "docker run -d --name pebble-dns --network host ${CHALLTESTSRV_IMAGE} \
-  -http01 '' -https01 '' -tlsalpn01 ''" >/dev/null ||
+  -dns01 127.0.0.1:53 -http01 '' -https01 '' -tlsalpn01 ''" >/dev/null ||
   fail "could not start the challenge DNS server"
 # NOSLEEP and NONCEREJECT: Pebble's defaults inject a random validation delay
 # and reject one nonce in twenty on purpose, to shake out client bugs. Neither
 # is what this stage is asking about, and both make it slower and flakier.
+# AUTHZREUSE, because the default reuses an authorization half the time: the
+# renewal below would then revalidate over HTTP-01 on some runs and skip
+# straight to issuance on others, which is coverage decided by a coin toss.
 in_container "docker run -d --name pebble --network host -v /root/pebble:/pebble:ro \
-  -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=0 ${PEBBLE_IMAGE} \
-  -config /pebble/config.json -dnsserver 127.0.0.1:8053" >/dev/null ||
+  -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=0 -e PEBBLE_AUTHZREUSE=0 \
+  ${PEBBLE_IMAGE} -config /pebble/config.json -dnsserver 127.0.0.1:53" >/dev/null ||
   fail "could not start the ACME server"
 
 for _ in $(seq 30); do
@@ -359,6 +375,17 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:14000/dir >/dev/null' || 
 in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebble\"\n" \
   >> /opt/blitzecdn/blitzecdn.toml' ||
   fail "could not point the control plane at the test certbot"
+# And preflight asks *public* DNS whether the hostname points at an edge, which
+# for example.test it does not. Pointing it at the same server the CA uses is
+# what lets renewal run at all: renewal goes through preflight and, unlike the
+# request endpoint, has no override — an unattended timer must not be able to
+# force past a failed check. Replaced rather than appended: this key is already
+# in the file, and a second one is a TOML parse error, not an override.
+in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"127.0.0.1\"]|" \
+  /opt/blitzecdn/blitzecdn.toml' ||
+  fail "could not point preflight at the challenge DNS server"
+in_container 'grep -q "^preflight_dns_servers = \[\"127.0.0.1\"\]$" /opt/blitzecdn/blitzecdn.toml' ||
+  fail "the preflight resolver was not rewritten"
 # Configuration is read once at start, so the running processes have to be
 # replaced to see it. `--force-recreate` because nothing in the Compose file
 # changed: without it `up` finds both services already up-to-date, reports
@@ -451,9 +478,52 @@ in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN}
 # Printing the subject showed an empty line, which reads like a fault and is
 # not one — `-verify_hostname` above is what actually holds the name to
 # account.
-in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
-  </dev/null 2>/dev/null | openssl x509 -noout -issuer -ext subjectAltName -enddate" ||
+served_certificate -issuer -ext subjectAltName -enddate ||
   fail "could not read back the certificate that just verified"
+
+
+say "Renewing that certificate the way the timer does"
+# Renewal is the unattended half of ACME, and it is not issuance with a flag on
+# it: it chooses its own candidates, goes through preflight with no override —
+# a timer must not be able to force past a failed check — and has to leave the
+# edge serving something other than what it served a moment ago.
+#
+# Preflight first, and asserted rather than assumed. It is the gate renewal
+# cannot bypass, so a failure there arrives as a renewal that reports the site
+# as skipped, exits zero, and proves nothing. This is also the only place
+# preflight runs for real: the request above skipped it, because until the
+# resolver was pointed at the challenge server there was no public DNS in which
+# example.test pointed anywhere.
+in_container "cd / && blitzecdn cert preflight ${ACME_SITE}" ||
+  fail "preflight blocks issuance for a site the edge is already serving"
+
+renewed_from=$(served_certificate -fingerprint -sha256) ||
+  fail "could not read the certificate the edge is serving"
+
+# --force because the certificate was issued minutes ago and nothing is due.
+# --deploy because reaching the edge is the half the timer owns, and a renewal
+# that stops in the store is a certificate that expires anyway.
+in_container "cd / && blitzecdn cert renew --force --site ${ACME_SITE} --deploy --json >/dev/null" || {
+  in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
+  in_container 'docker logs --tail 40 pebble' || true
+  fail "the renewal did not complete"
+}
+
+renewed_to=$(served_certificate -fingerprint -sha256) ||
+  fail "could not read the certificate the edge serves after renewing"
+# The assertion that separates a renewal from a no-op that reports success.
+[[ ${renewed_from} != "${renewed_to}" ]] || {
+  printf 'still serving: %s\n' "${renewed_to}"
+  fail "the edge serves the same certificate it served before the renewal"
+}
+in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
+  -CAfile /root/pebble/root.pem -verify_return_error -verify_hostname ${ACME_DOMAIN} \
+  </dev/null >/dev/null 2>&1" || {
+  served_certificate -issuer -ext subjectAltName -enddate || true
+  fail "the renewed certificate does not validate against the ACME root"
+}
+served_certificate -issuer -ext subjectAltName -enddate ||
+  fail "could not read back the renewed certificate"
 
 # Removing the record must withdraw the vhost, which is the registry's job.
 in_container 'cd / && blitzecdn record remove example.test cdn --yes' ||
