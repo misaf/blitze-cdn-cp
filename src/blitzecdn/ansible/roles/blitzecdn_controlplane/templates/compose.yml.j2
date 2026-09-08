@@ -37,7 +37,7 @@ services:
   blitzecdn-api:
     <<: *blitzecdn-runtime
     container_name: blitzecdn-api
-    command: ["uvicorn", "blitzecdn.api.app:create_app", "--factory", "--host", "127.0.0.1", "--port", "8000"]
+    command: ["python", "-m", "blitzecdn.api"]
     restart: unless-stopped
     depends_on:
       redis:

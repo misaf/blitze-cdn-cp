@@ -298,4 +298,6 @@ def serve(
     settings = common.settings()
     if not settings.api_keys:
         raise typer.BadParameter("configure BLITZE_API_KEYS before starting the API")
-    uvicorn.run(create_app(settings), host=host, port=port, access_log=True)
+    uvicorn.run(
+        create_app(settings), host=host, port=port, access_log=True, proxy_headers=False
+    )

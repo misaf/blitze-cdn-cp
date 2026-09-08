@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from blitzecdn import __version__
+from blitzecdn.api.access import AllowedIPsMiddleware
 from blitzecdn.composition import (
     build_control_plane,
     build_scheduler,
@@ -94,6 +95,10 @@ def create_app(
         separate_input_output_schemas=False,
     )
     application.state.settings = resolved
+    if resolved.allowed_ips:
+        application.add_middleware(
+            AllowedIPsMiddleware, allowed_ips=resolved.allowed_ips
+        )
 
     _register_exception_handlers(application)
     # The application does not know which capabilities exist. Every router is a
