@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Self
 
 from pydantic import ConfigDict, Field, field_validator, model_validator
@@ -77,6 +77,25 @@ class SiteFirewall(OmittedWhenEmpty):
     denied_countries: tuple[str, ...] = Field(default=(), max_length=250)
     denied_methods: tuple[str, ...] = Field(default=(), max_length=20)
     denied_paths: tuple[str, ...] = Field(default=(), max_length=100)
+
+    def replacing(self, lists: Mapping[str, Sequence[str]]) -> SiteFirewall:
+        """This firewall with the named lists replaced and the rest kept.
+
+        Per-list replacement, which is what an operator editing one rule at a
+        time means by it: naming ``deny_sources`` says nothing about the
+        countries, and leaving a list unnamed must not clear it. The whole-block
+        replacement is the other reasonable reading, and it is what ``PATCH``
+        does — the two surfaces differ on purpose, and
+        ``test_the_two_surfaces_replace_different_things`` is what says so.
+
+        Revalidated rather than copied. ``model_copy`` installs raw
+        values without running a field validator, and every list here ends up
+        interpolated into an nginx directive.
+        """
+        unknown = sorted(set(lists) - set(type(self).model_fields))
+        if unknown:
+            raise ValueError("a firewall has no such rule list: " + ", ".join(unknown))
+        return type(self).model_validate(self.model_dump() | dict(lists))
 
     @field_validator("allow_sources", "deny_sources")
     @classmethod

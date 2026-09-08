@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
 from blitzecdn.capabilities.dns.domain import Domain
+from blitzecdn.capabilities.security.policy import SiteFirewall
 
 
 def test_the_api_carries_every_zone_field_the_zone_has():
@@ -146,3 +147,44 @@ def test_a_rule_naming_a_hostname_outside_its_zone_is_refused(settings):
         )
         assert response.status_code == 422
         assert "not inside" in response.text
+
+
+def test_the_two_surfaces_replace_different_things(settings):
+    """The CLI replaces one rule list; PATCH replaces the whole block.
+
+    Both are reasonable readings of "set the firewall", and an operator who
+    learns one on the command line and then scripts the other will be surprised
+    by whichever they meet second — so the difference is asserted here rather
+    than left to be discovered. `zone firewall` edits one rule at a time and
+    keeps the lists it was not given; `PATCH` is a document update and the
+    document it is given is the whole `firewall`.
+
+    If the two are ever brought together, this is the test that should fail.
+    """
+    seeded = SiteFirewall(deny_sources=("203.0.113.0/24",), denied_countries=("DE",))
+
+    # The command line: name one list, keep the other.
+    merged = seeded.replacing({"deny_sources": ["198.51.100.0/24"]})
+    assert merged.deny_sources == ("198.51.100.0/24",)
+    assert merged.denied_countries == ("DE",)
+
+    # The API: the same edit as a PATCH body drops what it does not mention.
+    with TestClient(control_plane_app(settings)) as client:
+        client.post("/v1/domains", json={"name": "example.com"}, headers=API_HEADERS)
+        client.patch(
+            "/v1/domains/example.com",
+            json={"firewall": seeded.model_dump(mode="json")},
+            headers=API_HEADERS,
+        )
+        response = client.patch(
+            "/v1/domains/example.com",
+            json={"firewall": {"deny_sources": ["198.51.100.0/24"]}},
+            headers=API_HEADERS,
+        )
+
+    assert response.status_code == 200
+    patched = response.json()["firewall"]
+    assert patched["deny_sources"] == ["198.51.100.0/24"]
+    assert patched.get("denied_countries", []) == [], (
+        "PATCH replaces the whole block; a list it does not name is cleared"
+    )

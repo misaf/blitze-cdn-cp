@@ -123,11 +123,7 @@ def domain_firewall(
     if clear:
         firewall = SiteFirewall()
     else:
-        # Merged as a plain mapping and revalidated, rather than model_copy'd:
-        # model_copy would install the raw lists without running a validator,
-        # and these end up interpolated into an nginx directive.
-        current = control.dns.get_domain(name).firewall
-        firewall = SiteFirewall.model_validate(current.model_dump() | named)
+        firewall = control.dns.get_domain(name).firewall.replacing(named)
     zone = _update(name, DomainPatch(firewall=firewall))
     rules = sum(len(getattr(zone.firewall, f)) for f in SiteFirewall.model_fields)
     _report(
