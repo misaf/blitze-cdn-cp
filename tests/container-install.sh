@@ -529,6 +529,17 @@ renewed_to=$(served_certificate -fingerprint -sha256) ||
 # The assertion that separates a renewal from a no-op that reports success.
 [[ ${renewed_from} != "${renewed_to}" ]] || {
   printf 'still serving: %s\n' "${renewed_to}"
+  # Which of the three hops kept the old bytes. The store's own view, the file
+  # the deploy is supposed to have replaced, what Nginx has loaded, and the
+  # deploy's changed tasks — a renewal that reached the store but not the disk
+  # and one that reached the disk but not a reload look identical from the
+  # wire, and want opposite fixes.
+  in_container 'cd / && blitzecdn cert list --json' || true
+  in_container "openssl x509 -noout -fingerprint -sha256 \
+    -in /etc/blitzecdn/tls/${ACME_SITE}/fullchain.pem" || true
+  in_container 'ls -la /etc/blitzecdn/tls/'"${ACME_SITE}" || true
+  in_container 'docker exec blitzecdn-edge nginx -T 2>/dev/null | grep ssl_certificate' || true
+  dump_ansible_log
   fail "the edge serves the same certificate it served before the renewal"
 }
 in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
