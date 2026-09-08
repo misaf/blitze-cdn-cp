@@ -86,6 +86,19 @@ def skip_tests_a_detached_capability_cannot_answer(request):
         pytest.skip(f"detached: {', '.join(detached)}")
 
 
+#: What a rule overrides when the caller asked for a distinct site and named no
+#: policy — several sites in one zone, each holding its own certificate, which
+#: is what the certificate and backup suites need.
+#:
+#: It has to override *something*: a rule that overrides nothing is refused,
+#: because first match wins and such a rule would shadow every rule after it
+#: while changing nothing. `enabled` restates the zone's own default, so the
+#: rule is real without moving any desired state. That is enough to get a
+#: separate host, because `derive_hosts` groups by which rule won rather than
+#: by whether the resolved policies differ.
+_IDENTITY_ONLY = {"enabled": True}
+
+
 def seed_site(
     control,
     *,
@@ -112,9 +125,13 @@ def seed_site(
     nothing, which derives no host at all — a zone we answer DNS for and serve
     nothing of.
 
-    ``policy`` is any ``SitePolicy`` field. The zone is created on first use so
-    that several calls can share one domain without the caller tracking which
-    was first.
+    ``policy`` is any ``SitePolicy`` field, and it is set in both places: on
+    the zone, and as the rule's overrides when ``name`` asked for one. A caller
+    that names a rule and passes no policy gets :data:`_IDENTITY_ONLY`, which
+    is what "a second site here, however it differs" has to be spelled as.
+
+    The zone is created on first use so that several calls can share one domain
+    without the caller tracking which was first.
     """
     with suppress(ConflictError):
         control.dns.create_domain(Domain(name=domain), operator)
@@ -130,7 +147,7 @@ def seed_site(
                     domain=domain,
                     name=rule,
                     match=f"{record}.{domain}",
-                    overrides={**policy},
+                    overrides=dict(policy) or _IDENTITY_ONLY,
                 ),
                 operator,
             )
