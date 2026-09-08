@@ -54,16 +54,10 @@ class RuleReader(Protocol):
 
 
 class RuleOverrides(RuleReader, Protocol):
-    """Reading a zone's rules, and writing back the fields an issuer owns.
+    """Rule access for certificate activation and automatic SSL upgrades.
 
-    The zone editor holds this rather than ``RuleReader`` for one path: a
-    managed certificate is recorded against whatever authored object produced
-    the virtual host it was issued for, and for a host that came from a rule
-    that means the rule's overrides. It is the same narrow arrangement the
-    hostname projection used to have — a second writer of one specific fact,
-    named by a port so that "who wrote this" stays answerable — except that
-    this one writes three fields an operator never sets by hand.
-    """
+    Writeback targets the rule overrides when a rule produced the derived host;
+    otherwise the DNS service updates the zone."""
 
     def get_rule(self, domain: str, name: str) -> Rule: ...
 
@@ -97,14 +91,9 @@ class ZoneReader(Protocol):
 
 
 class SiteReader(Protocol):
-    """The virtual hosts, read-only. What an installed package is handed.
+    """Read-only access to derived virtual hosts for installed packages.
 
-    ``platform.sites`` for a distribution that has to know what the fleet
-    serves — which origins to probe, which hostnames need a certificate — and
-    it can answer that without being able to write anything at all. There is no
-    write side to withhold any more: these are derived, and the way to change
-    one is to change the zone, the rule or the record it came from.
-    """
+    Changing a host requires editing its source zone, rule, or record."""
 
     def list_sites(self) -> list[CdnSite]: ...
 
@@ -112,15 +101,7 @@ class SiteReader(Protocol):
 
 
 class ZoneEditor(Protocol):
-    """What `deployments` needs from the zone editor, and it is now one thing.
-
-    It used to be four. Two — ``activate_managed_certificate`` and
-    ``apply_automatic_ssl_upgrade`` — were certificate state reaching into a
-    record because the derived site could not hold it; they went to the zone
-    with the rest of the policy. ``resync_hostnames`` went with the projection
-    it maintained: ``server_names`` is derived from the records at render time
-    now, so there is no table to keep in step and nothing to resync.
-    """
+    """Desired-state validation required by deployments before convergence."""
 
     #: Ways canonical state contradicts itself. A deploy asks before it
     #: converges anything, because the contradictions are the kind that would

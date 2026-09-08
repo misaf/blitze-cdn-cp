@@ -1,33 +1,14 @@
-"""The delegated zone, and how every hostname in it is served by default.
+"""Delegated zones and their default serving policy.
 
-Its own module because it is its own aggregate. A zone holds no records — they
-are stored separately and keyed by zone, so a zone with a thousand records is
-not rewritten to change one of them — and the name's own invariant, that it is
-delegable, is a different question from anything
-:mod:`~blitzecdn.capabilities.dns.domain.record` asks.
+Records are stored separately and keyed by zone. Hostname-specific overrides
+live in ``dns.domain.rule``; ``dns.domain.resolution`` merges them with the
+zone policy.
 
-What is new here is the policy. A zone used to be a name and nothing else,
-with every setting living on a site that records pointed at. The settings are
-here now: one delegated domain is one configuration, which is the shape an
-operator arriving from Cloudflare already has in mind, and the hostnames that
-need to differ from it say so through a rule rather than through a second
-object each. :mod:`~blitzecdn.capabilities.rules` holds those overrides and
-:mod:`~blitzecdn.capabilities.dns.service.resolution` merges the two.
+``origin_host`` may be omitted while configuring a zone. Deployment validation
+requires an effective origin for each proxied hostname.
 
-``origin_host`` is optional here and required of anything actually served. A
-zone is added before anyone has decided what it proxies to — Cloudflare does
-not ask for an origin when a site is added either — so demanding one up front
-would put a placeholder in the field that matters most. Resolution is where
-its absence becomes an error, and only for a hostname that asked to be
-proxied.
-
-``SitePolicy`` is composed in
-:mod:`~blitzecdn.capabilities.dns.domain.host` and inherited here rather than
-declared twice. It is the same twenty settings whichever object carries them —
-the zone that authors them and the virtual host they are resolved into — and
-two lists of capability contracts to keep in step is exactly the failure
-``_assert_patch_covers_zone`` exists to prevent.
-"""
+``SitePolicy`` is shared with derived virtual hosts through ``dns.domain.host``.
+``_assert_patch_covers_zone`` checks that partial updates cover the zone fields."""
 
 from __future__ import annotations
 

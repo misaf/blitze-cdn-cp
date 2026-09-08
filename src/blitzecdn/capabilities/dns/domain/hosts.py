@@ -1,30 +1,12 @@
-"""Turning zones, rules and records into the virtual hosts an edge serves.
+"""Derive virtual hosts from zones, rules, and proxied records.
 
-This is where a site comes from now. Nothing authors one: every proxied record
-resolves to a policy — its zone's, bent by the first rule that matches it — and
-the hostnames that resolve alike share one ``server`` block, because that is
-what an nginx ``server_name`` list is for.
+Group hostnames by their zone and winning rule, not by policy equality:
+rules with identical settings remain distinct so later edits preserve identity.
+Only groups containing proxied records produce a server block.
 
-Grouping by *which rule won* rather than by comparing merged policies is
-deliberate. Two rules can produce identical settings today and diverge with the
-next edit, and a grouping that noticed the coincidence would silently split one
-server block into two the moment somebody changed a field. The rule is the
-identity of the exception; hostnames that share an exception share a block.
-
-The name is derived and has to be stable, because it is the directory a managed
-certificate lives in: ``example-com`` for a zone's own policy, and
-``example-com--api`` for the hostnames its ``api`` rule claims. Renaming a rule
-therefore moves that directory, which is the same as saying a renamed rule is a
-new exception — which it is.
-
-Only groups that actually claim a hostname produce a host. A rule nothing
-matches is an exception waiting for a record; a zone with nothing proxied is a
-zone we answer DNS for and serve nothing of. Neither is a server block, and
-emitting one for either would put an empty ``server_name`` in front of nginx,
-which reads that as the default server for the listener.
-
-Unproxied records never reach any of this: the edge does not know those
-hostnames exist.
+Host names also determine managed certificate paths: ``example-com`` for a
+zone and ``example-com--api`` for its ``api`` rule. Renaming a rule changes the
+derived host identity and certificate path; this function does not move files.
 """
 
 from __future__ import annotations

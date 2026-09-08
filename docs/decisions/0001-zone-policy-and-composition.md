@@ -1,0 +1,52 @@
+# Zone policy, derived hosts, and composition ownership
+
+Status: accepted; documents the design merged in commits `3bec1d9` and `d5fe7cc`.
+
+## Context
+
+Serving policy previously lived on stored sites referenced by DNS records.
+Maintaining that relationship required hostname projection updates, revision
+tracking, repair operations, and checks for conflicting record-to-site links.
+Moving policy onto zones and rules made the stored site a duplicate of canonical
+state.
+
+## Decision
+
+Zones own default serving policy. Rules override it for matching hostnames.
+Records identify the DNS answers and which hostnames are proxied. Virtual hosts
+are derived from those three inputs rather than persisted separately.
+
+The package-facing `CdnSite` and `SiteReader` contracts continue to represent the
+hosts an edge serves. Certificate activation and automatic SSL upgrades write
+back to the source zone or rule. A certificate for a rule-derived host must not
+be written onto the zone and thereby affect unrelated hostnames.
+
+Wire models remain explicit and validate through domain models. Parity tests
+protect field coverage without making HTTP schemas the source of domain policy.
+
+## Consequences
+
+There is no stored hostname projection to repair or keep synchronized. Reads
+perform derivation, and a single-host lookup currently scans the resulting hosts.
+Deployment validation still checks that every proxied hostname has an effective
+origin, including state loaded by restore or rollback.
+
+## Composition boundary
+
+`ControlPlane` remains the production composition root. It chooses concrete
+adapters and invokes capability-local builders with explicit ports. The built-in
+plugin roster belongs here because choosing installed capabilities is composition;
+core discovery provides the loading mechanism without naming capabilities.
+
+Entry layers receive services and ports rather than the concrete repository.
+Optional packages use published contracts. The worker constructs a control plane
+as an entry point, so composition accesses the queue through the runtime broker
+instead of importing the worker.
+
+## Code and verification
+
+- [DNS service](../../src/blitzecdn/capabilities/dns/service/zones.py)
+- [Host derivation](../../src/blitzecdn/capabilities/dns/domain/hosts.py)
+- [Composition root](../../src/blitzecdn/composition/control_plane.py)
+- [Zone rule tests](../../tests/capabilities/dns/test_zone_rules.py)
+- [Architecture tests](../../tests/architecture/test_layering.py)

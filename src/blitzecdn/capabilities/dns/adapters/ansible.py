@@ -1,12 +1,4 @@
-"""The flat site document the edge roles read.
-
-This is a projection of the derived virtual host onto somebody else's
-vocabulary, which is what an adapter is. It sat in ``core.ansible.mapping``
-beside ``edge_to_inventory``, one module holding two capabilities'
-projections, and core imported `CdnSite` to do it — the foundation reaching up
-into the tree it supports for a document only one capability has ever produced
-or consumed.
-"""
+"""Serialize derived virtual hosts into the flat document consumed by edge roles."""
 
 from __future__ import annotations
 
@@ -19,15 +11,10 @@ __all__ = ["site_to_ansible"]
 
 
 def site_to_ansible(site: CdnSite) -> dict[str, Any]:
-    """The flat site document, minus every block that declares itself absent.
+    """Serialize a host, omitting nulls and empty blocks that opt into omission.
 
-    The pruning is by declaration rather than by name. This used to read ``if
-    site.firewall.empty``, which is a capability's own vocabulary in a generic
-    adapter: core knew what a firewall was, and a second such block would have
-    been a second branch here. A block opts in by subclassing
-    :class:`~blitzecdn.core.domain.validation.OmittedWhenEmpty`, and this asks
-    nothing about what it holds.
-    """
+    Blocks declare this behavior with ``OmittedWhenEmpty``; the adapter does not
+    need to know their capability-specific fields."""
     document = site.model_dump(mode="json", exclude_none=True)
     for field in type(site).model_fields:
         value = getattr(site, field)

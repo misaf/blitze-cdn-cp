@@ -1,21 +1,9 @@
-"""A partial update to a zone's policy, and the check that it can express it all.
+"""Partial zone policy updates, also used to validate rule overrides.
 
-Separate from :mod:`~blitzecdn.capabilities.dns.domain.zone` because it is a
-different kind of value with a different lifetime: a ``Domain`` is what a zone
-*is*, a ``DomainPatch`` is one request to change one, and the two are related
-only by the parity this module asserts. Splitting them puts that assertion
-beside the model it constrains rather than under the model it compares against.
-
-This was ``SitePatch`` and it patched a site. The fields did not change when
-the policy moved to the zone, because they are the same settings; what changed
-is the object they are merged into and the second use they have grown — a
-rule's ``overrides`` are validated through this model too, so there is one
-answer to "what does this setting take" for a zone and for an exception to one.
-
-``_assert_patch_covers_zone`` runs at import rather than only under pytest, and
-importing :mod:`blitzecdn.capabilities.dns.domain` imports this, so a control
-plane whose patch and zone have drifted apart refuses to start.
-"""
+Unset fields leave stored values unchanged. The complete zone is validated
+after merging a patch so that constraints across fields are checked together.
+``_assert_patch_covers_zone`` runs at import time to reject field or type drift
+between the zone and its patch model."""
 
 from __future__ import annotations
 

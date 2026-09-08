@@ -1,19 +1,8 @@
-"""Zones, the policy on them, and the records in them.
+"""Zone and record editing, derived virtual hosts, and certificate writeback.
 
-The zone editor decides how everything is served, and a record decides only
-whether the edge serves a hostname at all. Between them that is the whole of
-canonical desired state; the virtual hosts an edge converges are derived from
-it by :mod:`~blitzecdn.capabilities.dns.domain.hosts` and stored nowhere.
-
-What left this module is most of what used to be in it, and the reason is the
-same each time: the derivation of a site from a record, the flattening of a
-hostname into an internal site name, the two certificate writes that reached
-into a record because the derived site could not hold them, the check that a
-record named a site that existed, the check that a hostname's two records named
-the same site, and the ``server_names`` projection with its revision stamp.
-Every one of those guarded a relationship between a record and a site. There is
-no such relationship left to guard.
-"""
+Zones, rules, and records are canonical desired state. Virtual hosts are
+derived by ``dns.domain.hosts`` and are never stored independently.
+See docs/decisions/0001-zone-policy-and-composition.md for the design history."""
 
 from __future__ import annotations
 
@@ -227,17 +216,9 @@ class DnsService:
     # -- The virtual hosts, derived ------------------------------------
 
     def list_sites(self) -> list[CdnSite]:
-        """Every virtual host the fleet should serve.
+        """Derive all virtual hosts from current zones, rules, and records.
 
-        Derived on every call rather than stored. It used to be a table with a
-        revision stamp beside it and a command to repair it, because a table
-        that restates canonical state can fall behind it. A function cannot,
-        which is why the stamp, the repair command and the staleness check in
-        ``validation_errors`` all went at once.
-
-        The name is ``list_sites`` because this is what an installed package is
-        handed as ``platform.sites``; see ``dns.ports.SiteReader``.
-        """
+        This implements the ``SiteReader`` contract exposed as ``platform.sites``."""
         return derive_hosts(
             self.zones.list_domains(),
             self.rules.list_rules(),
@@ -352,23 +333,10 @@ class DnsService:
         ]
 
     def validation_errors(self) -> list[str]:
-        """Ways canonical state contradicts itself.
+        """Report proxied hostnames whose effective policy has no origin.
 
-        A backstop as well as a gate: records also arrive from a restored
-        backup and from a rollback's wholesale rewrite, neither of which goes
-        through an editor.
-
-        There is one check left, and the list is short for a reason worth
-        recording. The others asked whether a record named a site that existed,
-        whether one hostname's records named two different sites, and whether
-        the stored ``server_names`` still matched the records. All three
-        guarded a stored relationship between a record and a site; none of them
-        can be violated now, because the relationship is computed.
-
-        What remains cannot be: a hostname can be put on the edge before
-        anybody says where the edge should fetch from, and that reaches an edge
-        as a server block with nothing behind it.
-        """
+        Deployment validation also covers state loaded through backup restoration or
+        rollback, which can bypass the editing services."""
         errors: list[str] = []
         zones = {domain.name: domain for domain in self.zones.list_domains()}
         rules = self.rules.list_rules()
