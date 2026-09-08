@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn-http3"
-version = "4.0.0"
+version = "4.0.1"
 description = "HTTP/3 over QUIC capability for BlitzeCDN"
 readme = "README.md"
 requires-python = ">=3.12"
