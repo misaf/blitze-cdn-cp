@@ -423,6 +423,8 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--email"),
         ("standalone", "--public-address"),
         ("standalone", "--allowed-ips"),
+        ("update", "--allowed-ips"),
+        ("upgrade", "--allowed-ips"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
@@ -500,7 +502,9 @@ def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     ],
 )
 def test_admin_cidr_validation(cidr: str, accepted: bool):
-    result = _run_embedded(_embedded_python("ip_network"), cidr, "operator@example.com")
+    result = _run_embedded(
+        _embedded_python("--admin-cidr"), cidr, "operator@example.com"
+    )
     assert (result.returncode == 0) is accepted
 
 
@@ -515,17 +519,12 @@ def test_admin_cidr_validation(cidr: str, accepted: bool):
     ],
 )
 def test_acme_email_validation(email: str, accepted: bool):
-    result = _run_embedded(_embedded_python("ip_network"), "203.0.113.8/32", email)
+    result = _run_embedded(_embedded_python("--admin-cidr"), "203.0.113.8/32", email)
     assert (result.returncode == 0) is accepted
 
 
-def _validate_allowed_ips(*values: str) -> subprocess.CompletedProcess[str]:
-    return _run_embedded(
-        _embedded_python("ip_network"),
-        "203.0.113.8/32",
-        "operator@example.com",
-        *values,
-    )
+def _validate_allowed_ips(value: str) -> subprocess.CompletedProcess[str]:
+    return _run_embedded(_embedded_python("--allowed-ips"), value)
 
 
 @pytest.mark.parametrize(
@@ -652,12 +651,54 @@ def test_standalone_collects_the_access_list_from_either_spelling():
         )
         == "0"
     )
-    # The join and the extra-var live inside a root-only command, so the last
-    # hop stays structural.
-    standalone = _section("standalone")
-    assert 'allowed_ips="${allowed_ips:+${allowed_ips},}${allowed_entry}"' in standalone
     assert (
-        '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in standalone
+        _query(
+            f"parse_options standalone usage_standalone {required} "
+            "--allowed-ips '203.0.113.8/32, 198.51.100.0/24'\n"
+            "allowed_ips_value"
+        )
+        == "203.0.113.8/32, 198.51.100.0/24"
+    )
+    # The extra-var lives inside a root-only command, so the last hop stays
+    # structural.
+    assert (
+        '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"'
+        in _section("standalone")
+    )
+
+
+@pytest.mark.parametrize("subcommand", ["update", "upgrade"])
+def test_a_release_move_can_repoint_the_access_list(subcommand: str):
+    """The three commands that converge the control plane all take the list.
+
+    A server's access list is not a property of the release it is on, so an
+    update that could only be run without one would send an operator back to
+    editing the environment file by hand for a change they could have made in
+    the same breath. Omitting the flag is the common case and leaves the
+    installed list untouched.
+    """
+    section = _section(subcommand)
+    assert '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in section
+    # Before the point of no return, not after it. A rejected access list must
+    # cost a refused command, never a host sitting with its services stopped.
+    assert section.index("allowed_ips_value") < section.index(
+        "stop_control_plane_services"
+    )
+    assert section.index("allowed_ips_value") < section.index("backup")
+
+
+def test_the_access_list_survives_an_empty_flag_on_bash_3():
+    """macOS ships Bash 3.2, which calls an empty array unbound under `set -u`.
+
+    Every `update` evaluates this whether the flag was given or not, so the
+    plain expansion would abort the run that did not ask for an access list at
+    all — the overwhelmingly common one.
+    """
+    assert (
+        _query(
+            'parse_options update usage_update --yes\nallowed_ips_value\necho "[empty]"'
+        )
+        == "[empty]"
     )
 
 

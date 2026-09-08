@@ -307,8 +307,8 @@ parsed_forward_args=()
 readonly COMMAND_TABLE='
 install|usage_root||
 standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips
-update|usage_update|updater|--yes --no-backup
-upgrade|usage_upgrade|updater|--yes --no-backup
+update|usage_update|updater|--yes --no-backup --allowed-ips
+upgrade|usage_upgrade|updater|--yes --no-backup --allowed-ips
 uninstall|usage_uninstall|uninstaller|--yes
 fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips --yes
 '
@@ -472,6 +472,55 @@ run_playbook() {
     ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections" \
     ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" -i localhost, "${playbook}" "$@"
+}
+
+# Validate `--allowed-ips` and print the single comma-separated value the role
+# takes, whether the flag was repeated, given a list, or never given at all.
+#
+# Every subcommand that converges the control plane calls this before it
+# changes anything, because the alternative is a host whose services are
+# already stopped discovering the typo. The rules are the three
+# `Settings.validate_allowed_ips` enforces -- IPv4 only, host bits clear, no
+# empty entry -- restated here rather than imported: `update` runs this before
+# it rebuilds the virtualenv the control plane lives in, and `standalone` runs
+# it before that virtualenv exists at all. A test drives the same entries
+# through both and asserts they agree.
+allowed_ips_value() {
+  # `${array[@]+"${array[@]}"}` rather than the plain expansion: under `set -u`
+  # macOS's Bash 3.2 calls an empty array unbound, and this runs on every
+  # `update` whether the flag was given or not.
+  local joined='' entry
+  for entry in ${parsed_allowed_ips[@]+"${parsed_allowed_ips[@]}"}; do
+    joined="${joined:+${joined},}${entry}"
+  done
+  if [[ -n ${joined} ]]; then
+    python3 - "${joined}" <<'PY'
+import ipaddress
+import sys
+
+for entry in (part.strip() for part in sys.argv[1].split(",")):
+    if not entry:
+        raise SystemExit("error: --allowed-ips entries must be non-empty IPs/CIDRs")
+    try:
+        network = ipaddress.ip_network(entry, strict=False)
+    except ValueError as error:
+        raise SystemExit(f"error: invalid --allowed-ips entry {entry!r}: {error}") from error
+    if network.version != 4:
+        raise SystemExit(
+            f"error: --allowed-ips entry {entry!r} is IPv6; the API "
+            "listens on IPv4 and cannot admit it"
+        )
+    try:
+        ipaddress.ip_network(entry, strict=True)
+    except ValueError:
+        raise SystemExit(
+            f"error: --allowed-ips entry {entry!r} has host bits set. Write "
+            f"'{network}' to admit that whole range, or "
+            f"'{entry.split('/', 1)[0]}/32' to admit only that address"
+        ) from None
+PY
+  fi
+  printf '%s' "${joined}"
 }
 
 converge_control_plane() {
@@ -702,7 +751,7 @@ cmd_standalone() {
   # the host is converged: a typo then costs a package install rather than a
   # provisioned server that has to be corrected afterwards. A minimal image may
   # genuinely have no python3 until the line above installs it.
-  python3 - "${parsed_admin_cidr}" "${parsed_email}" "${parsed_allowed_ips[@]}" <<'PY'
+  python3 - "${parsed_admin_cidr}" "${parsed_email}" <<'PY'
 import ipaddress
 import sys
 
@@ -713,36 +762,13 @@ except ValueError as error:
 email = sys.argv[2]
 if email.count("@") != 1 or any(char.isspace() for char in email):
     raise SystemExit("error: --email must be a valid email address")
-
-# The three rules `Settings.validate_allowed_ips` enforces, applied to the flag
-# that seeds the list. They are restated rather than imported because this runs
-# on the host interpreter, before the virtualenv holding the control plane
-# exists; a contract test holds the two readings together. Refusing here costs
-# a package install, while accepting a bad entry costs a provisioned server
-# whose API answers nobody, or admits a range wider than the one written.
-for value in sys.argv[3:]:
-    for entry in (part.strip() for part in value.split(",")):
-        if not entry:
-            raise SystemExit("error: --allowed-ips entries must be non-empty IPs/CIDRs")
-        try:
-            network = ipaddress.ip_network(entry, strict=False)
-        except ValueError as error:
-            raise SystemExit(f"error: invalid --allowed-ips entry {entry!r}: {error}") from error
-        if network.version != 4:
-            raise SystemExit(
-                f"error: --allowed-ips entry {entry!r} is IPv6; the API "
-                "listens on IPv4 and cannot admit it"
-            )
-        try:
-            ipaddress.ip_network(entry, strict=True)
-        except ValueError:
-            raise SystemExit(
-                f"error: --allowed-ips entry {entry!r} has host bits set. Write "
-                f"'{network}' to admit that whole range, or "
-                f"'{entry.split('/', 1)[0]}/32' to admit only that address"
-            ) from None
 PY
 
+  # Same moment and the same reason, now that three subcommands share the
+  # check: before the host is converged, and after the line above has
+  # guaranteed an interpreter to run it with.
+  local allowed_ips
+  allowed_ips=$(allowed_ips_value)
 
   # This virtualenv supplies Ansible and the host Docker SDK runner. Application
   # processes are installed into the image built by the role, never the host.
@@ -757,16 +783,10 @@ PY
   local rendered_capabilities
   rendered_capabilities=$(capability_json)
 
-  # One comma-separated value, whether the flag was repeated or given a list.
-  # The role writes it into the environment file the API and the firewall
-  # convergence both read, so the first boot is already public and port 8000 is
-  # already open for exactly these sources — no second pass and no window in
-  # which one half of that agreement is in force without the other.
-  local allowed_ips='' allowed_entry
-  for allowed_entry in "${parsed_allowed_ips[@]}"; do
-    allowed_ips="${allowed_ips:+${allowed_ips},}${allowed_entry}"
-  done
-
+  # The role writes the access list into the environment file the API and the
+  # firewall convergence both read, so a first boot is already public and port
+  # 8000 is already open for exactly those sources — no second pass, and no
+  # window in which one half of that agreement is in force without the other.
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}" \
@@ -823,6 +843,9 @@ non-destructive counterpart to --fresh, which destroys all four.
 Options:
   --yes        Do not ask for confirmation
   --no-backup  Skip the database backup taken before anything changes
+  --allowed-ips LIST
+               Repoint the API access list while updating; comma-separated or
+               repeated. Omitted, this update does not touch it.
   -h, --help   Show this help
 
 The checkout must be /opt/blitzecdn, must have the upstream origin, and must
@@ -964,6 +987,9 @@ confirmation you type the target version into rather than answer y/N.
 Options:
   --yes        Do not ask for confirmation
   --no-backup  Skip the backup taken before anything changes
+  --allowed-ips LIST
+               Repoint the API access list while upgrading; comma-separated or
+               repeated. Omitted, this upgrade does not touch it.
 EOF
 }
 
@@ -1005,6 +1031,13 @@ cmd_upgrade() {
     "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to upgrade from" \
     "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
   cd -- "${script_dir}"
+
+  # Checked here, before the fetch and long before the services are stopped: a
+  # typo in the access list has to cost a refused command, not a host left with
+  # its containers down. Empty when the flag was not given, which is the role's
+  # default and means this run leaves the installed list alone.
+  local allowed_ips
+  allowed_ips=$(allowed_ips_value)
 
   require_upstream_origin >/dev/null
 
@@ -1073,7 +1106,8 @@ cmd_upgrade() {
       "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
 
   bootstrap_runtime ansible-only
-  converge_control_plane
+  converge_control_plane \
+    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
   echo "Upgraded to ${target}."
@@ -1089,6 +1123,13 @@ cmd_update() {
     "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to update from" \
     "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
   cd -- "${script_dir}"
+
+  # Checked here, before the fetch and long before the services are stopped: a
+  # typo in the access list has to cost a refused command, not a host left with
+  # its containers down. Empty when the flag was not given, which is the role's
+  # default and means this run leaves the installed list alone.
+  local allowed_ips
+  allowed_ips=$(allowed_ips_value)
 
   # An update fetches code and then runs it as root, exactly as --fresh does,
   # so it accepts only the upstream repository.
@@ -1177,7 +1218,8 @@ cmd_update() {
   # same functions: bootstrap tooling from the new lockfile, then the role,
   # which owns image build, schema migration, and Compose service recreation.
   bootstrap_runtime ansible-only
-  converge_control_plane
+  converge_control_plane \
+    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
   echo "Updated to ${target}."

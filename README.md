@@ -63,8 +63,17 @@ sudo /opt/blitzecdn/install.sh standalone \
 
 The API is then reachable from those addresses on its first boot, with UFW
 already admitting exactly them — there is no window where one half of that
-agreement is in force without the other. Passing the flag on a later run
-repoints the list; leaving it off keeps whatever the server already has.
+agreement is in force without the other.
+
+`update` and `upgrade` take the same flag, so a release move can repoint the
+list in one step:
+
+```bash
+sudo /opt/blitzecdn/install.sh update --allowed-ips 198.51.100.0/24
+```
+
+Leaving the flag off keeps whatever the server already has, hand edits
+included, so a routine update never changes who may reach the API.
 
 To change the list without an installer run, edit
 `/etc/blitzecdn/blitzecdn.env` (replace the examples with your trusted
@@ -95,8 +104,7 @@ schema — `/docs`, `/redoc`, `/openapi.json` — and `/health`, so Swagger UI
 works in a browser.
 
 Where UFW is active, the installer converges port 8000 for exactly these
-addresses on the next run — this is also what `--allowed-ips` does for you
-during a fresh install:
+addresses on the next run:
 
 ```bash
 sudo /opt/blitzecdn/install.sh update
@@ -127,8 +135,8 @@ addresses are IPv4 too; an IPv6 entry is refused when the setting is read
 rather than accepted and then never matched. A CIDR must have its host bits
 clear: `203.0.113.8/24` is refused, naming both `203.0.113.0/24` and
 `203.0.113.8/32` so the widening is chosen rather than assumed. `--allowed-ips`
-applies the same three rules before it installs a single package, so a typo
-costs a rejected command rather than a provisioned server.
+applies the same three rules before the run changes anything, so a typo costs a
+rejected command rather than a provisioned server or a stopped one.
 
 ## Controller quick start
 
