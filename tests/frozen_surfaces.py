@@ -513,7 +513,7 @@ def _default(field: dataclasses.Field[Any]) -> str:
 def sdk_surface(public_prefixes: tuple[str, ...]) -> str:
     """Every published name, at the one path this project promises for it.
 
-    `_PUBLIC_SDK_PREFIXES` in `test_packages` decides which *modules* a wheel
+    `_PUBLIC_SDK_PREFIXES` in `published_surface` decides which *modules* a wheel
     may import. It says nothing about what is in them, so a symbol an installed
     package uses can be renamed or removed with the allowlist untouched. This
     is the symbol-level half.

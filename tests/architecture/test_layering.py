@@ -61,7 +61,8 @@ _IO_IMPORTS = (
 #: `renderer.py` would have been free to import the composition root.
 #:
 #: `domain`, `adapters`, `service` and `api` are directories in every capability
-#: — `_MANDATORY_LAYER_DIRECTORIES` in `test_packages` refuses the file
+#: — `_MANDATORY_LAYER_DIRECTORIES` in `packages/test_package_layout.py`
+#: refuses the file
 #: spelling by name — so a module is inside the rule the moment it is put where
 #: it belongs, and choosing the directory is choosing the rule. The
 #: `removesuffix(".py")` below is what still admits `policy.py` and `cli.py`,
@@ -577,7 +578,7 @@ def test_core_domain_and_ports_are_framework_and_io_independent():
     refused `core.domain.audit` an import of `core.persistence.engine`.
 
     What rests on the property is the published SDK. `_PUBLIC_SDK_PREFIXES` in
-    `test_packages` admits `core.domain` and `core.ports` *whole*, while
+    `published_surface.py` admits `core.domain` and `core.ports` *whole*, while
     `core.runtime` and `core.persistence` publish one named module at a time —
     `resources`, `filesystem`, `process`, `schema` — because those do I/O and
     each one is a separate promise. The comment there says the two packages are
@@ -1171,7 +1172,8 @@ def test_every_capability_registers_itself_through_a_plugin_module():
     # Anything beyond `__init__.py` and the contract is something that would
     # have had to be registered to run. These have no `plugin.py` by
     # construction, so this is the same question
-    # `test_packages._implemented_here` asks with `plugin.py` allowed.
+    # `_implemented_here` in `packages/test_package_layout.py` also allows
+    # `plugin.py`.
     offenders = [
         f"{name} registers nothing but holds {path.relative_to(_CAPABILITIES)}"
         for name in sorted(capabilities - registered)
