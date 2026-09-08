@@ -105,6 +105,35 @@ uv-pin version:
     rm -f install.sh.bak
     echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
 
+# Move this distribution to a new version, and the edge image pins with it.
+#
+# One number lives in three files. `.github/workflows/edge-image.yml` tags what
+# it publishes with `type=semver,pattern={{{{version}}}}`, so the published edge
+# image tag *is* the version in pyproject.toml — bumping one and not the others
+# leaves a controller deploying an edge runtime from another release. It did:
+# the pin sat at 2.7.0 for four releases after the runtime moved to Alpine, and
+# the mismatch surfaced on an operator's terminal as a chown failure inside a
+# container.
+#
+# The tag itself is still cut by hand, and deliberately: publishing an image is
+# a release decision, not a side effect of editing a version string.
+#
+# Bump the version in pyproject.toml, both edge image pins and the lockfile.
+release-version version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sed -i.bak -E 's|^version = ".*"|version = "{{version}}"|' pyproject.toml
+    sed -i.bak -E \
+        's|(blitzecdn_edge_runtime_image_default: .*blitzecdn-edge):.*|\1:{{version}}|' \
+        src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml
+    sed -i.bak -E 's|^blitzecdn_edge_image_tag: ".*"|blitzecdn_edge_image_tag: "{{version}}"|' \
+        src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml
+    rm -f pyproject.toml.bak \
+        src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml.bak \
+        src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml.bak
+    uv lock
+    echo "Moved to {{version}}. Commit, then tag v{{version}} to publish the edge image."
+
 # --- the gates, in CI order ---------------------------------------------
 
 # Format and lint every distribution in the workspace.
