@@ -7,6 +7,7 @@ value *comes from* is :mod:`blitzecdn.core.config.loading`'s question.
 from __future__ import annotations
 
 from collections.abc import Mapping
+from ipaddress import ip_network
 from pathlib import Path
 from typing import Self
 
@@ -190,8 +191,24 @@ class Settings(BaseSettings):
     #: Small on purpose: the work it carries serialises on the deployment lock
     #: anyway, so more workers would only queue deeper.
     api_worker_threads: int = Field(default=2, ge=1, le=16)
+    #: Public API client IPs/CIDRs. Empty keeps the installed API on loopback.
+    allowed_ips: tuple[str, ...] = ()
     allow_empty_sites: bool = False
     api_keys: dict[str, SecretStr] = Field(default_factory=dict)
+
+    @field_validator("allowed_ips", mode="before")
+    @classmethod
+    def validate_allowed_ips(cls, value: object) -> tuple[str, ...]:
+        if isinstance(value, str):
+            value = value.split(",") if value.strip() else []
+        if not isinstance(value, (list, tuple)):
+            raise ValueError("allowed_ips must be a list or comma-separated IPs/CIDRs")
+        networks = []
+        for item in value:
+            if not isinstance(item, str) or not item.strip():
+                raise ValueError("allowed_ips entries must be non-empty IPs/CIDRs")
+            networks.append(str(ip_network(item.strip(), strict=False)))
+        return tuple(dict.fromkeys(networks))
 
     @field_validator(
         "project_dir",
