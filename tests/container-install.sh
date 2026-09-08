@@ -32,7 +32,9 @@ readonly CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
 # The site the record below routes to, and the hostname that record publishes —
 # the label and the zone, joined. Spelled once because the issuance stage has to
 # ask a CA for exactly the name the deploy told the edge to serve.
-readonly ACME_SITE=cdn-example-test
+# The virtual host a zone derives is named after the zone, with its dots
+# turned into hyphens. Nothing names it; it follows from `${ACME_DOMAIN}`.
+readonly ACME_SITE=example-test
 readonly ACME_DOMAIN=cdn.example.test
 
 project_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
@@ -279,16 +281,15 @@ in_container 'cd / && blitzecdn config set blitzecdn_edge_image blitzecdn-edge:s
 in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
   fail "could not disable the registry pull"
 
-in_container 'cd / && blitzecdn domain add example.test' || fail "could not add a zone"
-# The site first, then the record that routes a hostname to it. A record is
-# proxied exactly when it names a site — there is no `--proxied` switch to set,
-# because turning the proxy off means saying what DNS should answer with
-# instead. The site name is what the edge writes its virtual host as, which is
-# why the assertions below look for `${ACME_SITE}`.
-in_container "cd / && blitzecdn site create ${ACME_SITE} --origin 127.0.0.1" ||
-  fail "could not create the site the record routes to"
-in_container "cd / && blitzecdn record add example.test cdn --site ${ACME_SITE}" ||
-  fail "could not route the hostname to the site"
+# The zone carries the origin and the policy; the record only says the edge
+# serves the hostname, and records are proxied by default. There is no site to
+# create in between. The virtual host the edge writes is named after the zone —
+# `example-test` for `example.test` — which is why the assertions below look
+# for `${ACME_SITE}`.
+in_container 'cd / && blitzecdn domain add example.test --origin 127.0.0.1' ||
+  fail "could not add a zone"
+in_container 'cd / && blitzecdn record add example.test cdn' ||
+  fail "could not put the hostname on the edge"
 
 # Check mode first: it must survive a host that has never converged, which is
 # the case the `not ansible_check_mode` gates exist for.
@@ -499,7 +500,7 @@ printf '%s' "${issued}" | grep -q "${ACME_DOMAIN}" ||
 # doing it the other way round is refused rather than half-applied. Flexible
 # because this site's origin speaks plain HTTP; the modes above it would have
 # the edge open TLS to an origin that has none.
-in_container "cd / && blitzecdn site ssl ${ACME_SITE} --mode flexible --json >/dev/null" ||
+in_container "cd / && blitzecdn domain ssl example.test --mode flexible --json >/dev/null" ||
   fail "could not turn on TLS for the site that now has a certificate"
 
 # The certificate exists in the control plane; a deploy is what puts it on the

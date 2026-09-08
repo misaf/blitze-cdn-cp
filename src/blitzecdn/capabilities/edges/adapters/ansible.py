@@ -1,6 +1,6 @@
 """An edge, as Ansible's connection variables.
 
-The mirror of ``blitzecdn.capabilities.sites.adapters.ansible``: the
+The mirror of ``blitzecdn.capabilities.dns.adapters.ansible``: the
 capability that owns the model owns the projection of it. The ``blitzecdn``
 inventory plugin publishes the same variables from the same rows and is kept in
 step by ``tests/contract/test_inventory.py``, because that plugin runs inside

@@ -66,7 +66,7 @@ def test_jobs_are_owned_by_the_certificate_package(monkeypatch) -> None:
     }
     jobs["certificate-reconciliation"].run("scheduler")
     assert calls == ["reconcile scheduler"]
-    issued.append("cdn-example-com")
+    issued.append("example-com")
     jobs["certificate-reconciliation"].run("scheduler")
     jobs["certificate-renewal"].run("scheduler")
     jobs["automatic-ssl-scan"].run("scheduler")

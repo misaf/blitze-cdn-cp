@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import os
 import re
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -38,7 +39,16 @@ from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    Rule,
+    SitePolicy,
+)
+from blitzecdn.capabilities.dns.domain.hosts import host_name
+from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
@@ -46,9 +56,6 @@ from blitzecdn.capabilities.http.policy import (
     MaxUploadSize,
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
-from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
@@ -56,6 +63,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
 from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
+from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 
 jinja2 = pytest.importorskip("jinja2")
@@ -215,19 +223,37 @@ def _capability_defaults() -> dict[str, Any]:
 
 
 def _seed_site(repository, *, name, label, origin, **policy):
-    """One site and the record that routes a hostname to it.
+    """A zone carrying the policy, and one proxied hostname in it.
 
     Written through the stores rather than the services because these fixtures
     describe *state*, not the operations that produce it, and the desired-state
-    document is what is under test. The hostname is stamped explicitly for the
-    same reason: `dns` maintains that column and no service is involved here.
+    document is what is under test.
+
+    ``name`` is the host the caller expects to be derived, and it decides where
+    the policy goes: ``example-com`` is the zone's own policy, and any other
+    name becomes a rule matching this hostname. There is no site to create
+    under either name.
     """
-    repository.sites.create_site(
-        CdnSite.model_validate({"name": name, "origin_host": origin, **policy})
-    )
-    record = DnsRecord(domain="example.com", name=label, site=name)
-    repository.zones.create_record(record)
-    repository.sites.set_server_names(name, (record.fqdn,))
+    zone = "example.com"
+    with suppress(ConflictError):
+        repository.zones.create_domain(Domain(name=zone))
+    if name == host_name(zone, None):
+        current = repository.zones.get_domain(zone)
+        repository.zones.replace_domain(
+            Domain.model_validate(
+                {**current.model_dump(), "origin_host": origin, **policy}
+            )
+        )
+    else:
+        repository.rules.create_rule(
+            Rule(
+                domain=zone,
+                name=name.removeprefix(f"{host_name(zone, None)}--"),
+                match=f"{label}.{zone}",
+                overrides={"origin_host": origin, **policy},
+            )
+        )
+    repository.zones.create_record(DnsRecord(domain=zone, name=label))
 
 
 @pytest.fixture
@@ -243,7 +269,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     repository.zones.create_domain(Domain(name="example.com"))
     _seed_site(
         repository,
-        name="cdn-example-com",
+        name="example-com",
         label="cdn",
         # An A record has no address of its own once it routes to a site, so the
         # origin lives here — and the origin *hostname* travels in
@@ -742,7 +768,7 @@ def test_the_default_site_sends_the_address_and_not_the_country(desired_state):
     site = next(
         entry
         for entry in desired_state["blitzecdn_nginx_sites"]
-        if entry["name"] == "cdn-example-com"
+        if entry["name"] == "example-com"
     )
     rendered = _render(site)
 

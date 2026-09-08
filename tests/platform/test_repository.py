@@ -9,13 +9,18 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
 )
 from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    RecordType,
+    derive_hosts,
+)
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
 )
-from blitzecdn.composition import Repository
+from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
@@ -49,28 +54,40 @@ def test_repository_close_disposes_the_engine(settings, monkeypatch):
     assert disposed
 
 
-def test_the_site_projection_is_only_ever_rewritten_wholesale(settings, site_payload):
-    """`replace_all_sites` is the store's whole write side, and deliberately.
+def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
+    """There is no site table left to rewrite, and that is the whole point.
 
-    A projection with per-row create, update and delete invites a caller to
-    edit a site that the next record change would silently re-derive over. The
-    store offers no such call, so the round trip worth holding is the one the
-    derivation performs: whatever it hands over is what the table then holds,
-    and a name it stops producing stops existing.
+    This test used to hold ``replace_all_sites`` to being the store's entire
+    write side, because a projection with per-row create, update and delete
+    invites a caller to edit a site the next record change would silently
+    re-derive over. The projection is gone: what an edge serves is computed
+    from the zones, their rules and their records on every read.
+
+    So the round trip worth holding is the one the derivation performs — change
+    a row and the hosts change with it, and stop producing a name and it stops
+    existing — with no call anywhere that could write one directly.
     """
     repository = Repository(settings.database_path)
-    site = CdnSite.model_validate(site_payload)
+    control = ControlPlane(settings=settings, repository=repository)  # type: ignore[arg-type]
+    repository.zones.create_domain(Domain(name="example.com", origin_host="192.0.2.1"))
+    repository.zones.create_record(DnsRecord(domain="example.com", name="cdn"))
 
-    repository.sites.replace_all_sites([site])
-    assert repository.sites.list_sites() == [site]
+    (site,) = control.dns.list_sites()
+    assert site.name == "example-com"
+    assert site.origin_host == "192.0.2.1"
 
-    moved = site.model_copy(update={"origin_host": "192.0.2.2"})
-    repository.sites.replace_all_sites([moved])
-    assert repository.sites.list_sites() == [moved], "a rewrite replaces, not merges"
+    repository.zones.replace_domain(Domain(name="example.com", origin_host="192.0.2.2"))
+    assert control.dns.list_sites()[0].origin_host == "192.0.2.2"
 
-    repository.sites.replace_all_sites([])
+    repository.zones.delete_record("example.com", "cdn", RecordType.A)
     with pytest.raises(NotFoundError):
-        repository.sites.get_site(site.name)
+        control.dns.get_site("example-com")
+
+    assert not any(
+        "site" in name
+        for name in vars(type(repository.zones))
+        if not name.startswith("_")
+    )
 
 
 def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_payload):
@@ -127,21 +144,33 @@ def test_an_audit_log_under_its_retention_loses_nothing(settings):
 
 
 def _seed(repository, domain_payload, record_payload, site_payload, **policy):
-    """Zone, site, record — the three rows a snapshot is made of.
+    """Zone and record — the two rows a snapshot is made of.
 
     Store-level, so it deliberately goes through the stores rather than the
     services: the point of these tests is what survives a round trip through
-    SQLite, not what the services do on the way.
+    SQLite, not what the services do on the way. ``site_payload`` supplies the
+    origin the zone now carries; there is no site row to create.
     """
-    repository.zones.create_domain(Domain.model_validate(domain_payload))
-    repository.sites.create_site(
-        CdnSite.model_validate({**site_payload, "server_names": [], **policy})
+    repository.zones.create_domain(
+        Domain.model_validate(
+            {
+                **domain_payload,
+                "origin_host": site_payload["origin_host"],
+                **policy,
+            }
+        )
     )
     repository.zones.create_record(DnsRecord.model_validate(record_payload))
-    repository.sites.set_server_names(
-        site_payload["name"], (DnsRecord.model_validate(record_payload).fqdn,)
+    return _hosts(repository)[0]
+
+
+def _hosts(repository):
+    """The virtual hosts these rows derive, read the way a deploy reads them."""
+    return derive_hosts(
+        repository.zones.list_domains(),
+        repository.rules.list_rules(),
+        repository.zones.list_records(),
     )
-    return repository.sites.get_site(site_payload["name"])
 
 
 def test_visitor_headers_survive_persistence_and_the_snapshot(
@@ -162,7 +191,7 @@ def test_visitor_headers_survive_persistence_and_the_snapshot(
         visitor_headers={"connecting_ip": False, "ip_country": True},
     )
 
-    stored = repository.sites.get_site(site_payload["name"])
+    (stored,) = _hosts(repository)
     assert stored.visitor_headers.connecting_ip is False
     assert stored.visitor_headers.ip_country is True
 
@@ -178,18 +207,18 @@ def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
     _seed(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
-    assert repository.sites.get_site(site_payload["name"]).under_attack_mode is True
+    assert _hosts(repository)[0].under_attack_mode is True
     assert decode_snapshot(repository.snapshot())[0].under_attack_mode is True
 
     connection = sqlite3.connect(settings.database_path)
     try:
         connection.execute(
-            "UPDATE sites SET policy = json_remove(policy, '$.under_attack_mode')"
+            "UPDATE domains SET policy = json_remove(policy, '$.under_attack_mode')"
         )
         connection.commit()
     finally:
         connection.close()
-    assert repository.sites.get_site(site_payload["name"]).under_attack_mode is False
+    assert _hosts(repository)[0].under_attack_mode is False
 
 
 def test_deployment_transitions_snapshots_and_recovery(
@@ -202,7 +231,7 @@ def test_deployment_transitions_snapshots_and_recovery(
         decode_snapshot(repository.deployments.deployment_snapshot(deployment.id))[
             0
         ].name
-        == "cdn-example-com"
+        == "example-com"
     )
     running = repository.deployments.transition(
         deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
@@ -285,7 +314,7 @@ def test_transactions_never_leak_between_repository_instances(settings):
 def test_workflow_progress_is_durable(settings):
     repository = Repository(settings.database_path)
     workflow = repository.workflows.create(
-        "workflow-1", "certificate", "alice", "cdn-example-com"
+        "workflow-1", "certificate", "alice", "example-com"
     )
     assert workflow.status is WorkflowStatus.PENDING
     repository.workflows.advance(
@@ -348,7 +377,7 @@ def test_record_updates_detect_a_stale_expected_version(settings):
     repository = Repository(settings.database_path)
     repository.zones.create_domain(Domain(name="example.com"))
     original = repository.zones.create_record(
-        DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
+        DnsRecord(domain="example.com", name="cdn", proxied=False, value="192.0.2.1")
     )
     winner = original.model_copy(update={"value": "192.0.2.2"})
     # Under a Unit of Work, as the services do it. The comparison is only
@@ -423,7 +452,7 @@ def test_workflow_retention_never_drops_an_unfinished_one(settings):
     repository = Repository(settings.database_path)
     for index in range(6):
         workflow = repository.workflows.create(
-            f"workflow-{index}", "certificate", "alice", "cdn-example-com"
+            f"workflow-{index}", "certificate", "alice", "example-com"
         )
         if index < 4:
             repository.workflows.advance(workflow.id, WorkflowStatus.SUCCEEDED)
@@ -446,7 +475,7 @@ def test_a_compare_and_swap_outside_a_transaction_is_refused(settings):
     repository = Repository(settings.database_path)
     repository.zones.create_domain(Domain(name="example.com"))
     original = repository.zones.create_record(
-        DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
+        DnsRecord(domain="example.com", name="cdn", proxied=False, value="192.0.2.1")
     )
 
     with pytest.raises(ValueError, match="must run inside a Unit of Work"):

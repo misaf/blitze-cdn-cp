@@ -14,7 +14,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 
 
@@ -188,7 +188,7 @@ def test_certbot_issuer_builds_http01_command(
     def fake_popen(command, **_kwargs):
         captured.extend(command)
         config_dir = command[command.index("--config-dir") + 1]
-        live = settings.project_dir.__class__(config_dir) / "live/cdn-example-com"
+        live = settings.project_dir.__class__(config_dir) / "live/example-com"
         live.mkdir(parents=True)
         (live / "fullchain.pem").write_bytes(certificate)
         (live / "privkey.pem").write_bytes(key)

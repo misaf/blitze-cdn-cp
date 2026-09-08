@@ -11,7 +11,7 @@ from blitzecdn_certificates.certificates.domain import (
 def _info(days: int, source: CertificateSource) -> CertificateInfo:
     now = datetime.now(UTC)
     return CertificateInfo(
-        site="cdn-example-com",
+        site="example-com",
         source=source,
         domains=("cdn.example.com",),
         not_before=now - timedelta(days=1),

@@ -1,19 +1,20 @@
-"""A partial update to a zone, and the check that it can express every setting.
+"""A partial update to a zone's policy, and the check that it can express it all.
 
-``DomainPatch`` inherits ``SitePatch`` rather than restating twenty optional
-fields beside it. The fields are the same fields — a zone carries the policy a
-site used to — and a second handwritten copy would be a third place to forget
-one, which is the failure the parity check below and its counterpart in
-:mod:`blitzecdn.capabilities.sites.domain.patch` both exist to make impossible.
+Separate from :mod:`~blitzecdn.capabilities.dns.domain.zone` because it is a
+different kind of value with a different lifetime: a ``Domain`` is what a zone
+*is*, a ``DomainPatch`` is one request to change one, and the two are related
+only by the parity this module asserts. Splitting them puts that assertion
+beside the model it constrains rather than under the model it compares against.
 
-The check here is not the one there. That one asks whether every *policy*
-setting can be patched; this one asks whether every field of the *zone* can,
-which is a larger set by ``origin_host`` and a smaller one by ``name``. A zone
-is renamed by deleting it and adding another — the records hang off the name —
-so a patch that could set it would be a rename that silently orphaned them.
+This was ``SitePatch`` and it patched a site. The fields did not change when
+the policy moved to the zone, because they are the same settings; what changed
+is the object they are merged into and the second use they have grown — a
+rule's ``overrides`` are validated through this model too, so there is one
+answer to "what does this setting take" for a zone and for an exception to one.
 
-Like its counterpart, this runs at import rather than only under pytest: a
-control plane whose patch and zone have drifted apart should not start.
+``_assert_patch_covers_zone`` runs at import rather than only under pytest, and
+importing :mod:`blitzecdn.capabilities.dns.domain` imports this, so a control
+plane whose patch and zone have drifted apart refuses to start.
 """
 
 from __future__ import annotations
@@ -21,26 +22,86 @@ from __future__ import annotations
 from types import UnionType
 from typing import Union, get_args, get_origin
 
+from pydantic import BaseModel, ConfigDict
+
+from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
+from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain.zone import Domain
-from blitzecdn.capabilities.sites.domain.patch import SitePatch
+from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.http.policy import MaxUploadSize
+from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.tls.policy import (
+    CertificateMode,
+    MinimumTlsVersion,
+    SslAutomaticMode,
+    SslMode,
+)
 
 __all__ = ["DomainPatch"]
 
-#: Set by adding a zone, changed by deleting one. See the module docstring.
+#: Set by adding a zone, changed by deleting one. The records and the rules
+#: hang off the name, so a patch that could set it would be a rename that
+#: silently orphaned both.
 _NOT_PATCHABLE = frozenset({"name"})
 
 
-class DomainPatch(SitePatch):
+class DomainPatch(BaseModel):
     """A partial update to a zone: every field optional, unset means untouched.
 
-    Adds nothing of its own today. It exists as a name rather than an alias so
-    that the published schema says what it patches, and so the check below has
-    a class to point at when the zone grows a field the patch has not.
+    This cannot inherit ``Domain`` — each field has to become optional, and an
+    inherited required field would silently gain a default here. It is written
+    out instead, and ``_assert_patch_covers_zone`` below refuses to import a
+    version of this module where the two have drifted apart.
+
+    Generating these fields with ``create_model`` would remove the duplication
+    outright, but the generated class is opaque to mypy — every ``DomainPatch``
+    field access in the API and the CLI would stop being type-checked. Keeping
+    the fields visible and checking the parity at import buys the same
+    guarantee without giving up static checking.
     """
+
+    model_config = ConfigDict(extra="forbid")
+
+    origin_host: str | None = None
+    ssl_mode: SslMode | None = None
+    ssl_automatic_mode: SslAutomaticMode | None = None
+    minimum_tls_version: MinimumTlsVersion | None = None
+    http3_enabled: bool | None = None
+    max_upload_size: MaxUploadSize | None = None
+    always_use_https: bool | None = None
+    under_attack_mode: bool | None = None
+    origin_request_host: str | None = None
+    origin_sni: str | None = None
+    enabled: bool | None = None
+    certificate_mode: CertificateMode | None = None
+    certificate_path: str | None = None
+    certificate_key_path: str | None = None
+    cache_enabled: bool | None = None
+    cache_query_string_mode: CacheQueryStringMode | None = None
+    cache_valid_success: str | None = None
+    cache_valid_not_found: str | None = None
+    compression: CompressionMode | None = None
+    # Replaces the block wholesale; see the note on SitePolicy.firewall. Send
+    # {"firewall": {}} to clear every rule.
+    firewall: SiteFirewall | None = None
+    # Replaced wholesale as well. Sending {"visitor_headers": {}} restores the
+    # defaults rather than leaving the current switches in place.
+    visitor_headers: SiteVisitorHeaders | None = None
 
 
 def _without_none(annotation: object) -> object:
-    """``T`` from ``T | None``, so a patch field and its zone field compare."""
+    """``T`` from ``T | None``, so a patch field and its zone field compare.
+
+    Applied to both sides rather than only to the patch. Several zone fields
+    are themselves optional — ``origin_sni`` is ``str | None`` on the zone as
+    well as on the patch — and stripping ``None`` from just one side would
+    report every one of them as a type mismatch, which is how a check like this
+    ends up deleted for crying wolf. What survives is the question worth
+    asking: do the two agree on the type once "unset" is set aside.
+
+    ``Optional[T]`` is ``Union[T, None]`` at runtime whichever spelling was
+    used, so this reads the union's arms rather than the syntax.
+    """
     if get_origin(annotation) is not UnionType and get_origin(annotation) is not Union:
         return annotation
     arms = [arm for arm in get_args(annotation) if arm is not type(None)]
@@ -48,7 +109,20 @@ def _without_none(annotation: object) -> object:
 
 
 def _assert_patch_covers_zone() -> None:
-    """Refuse to import if a zone setting cannot be patched, or patched wrongly."""
+    """Refuse to import if a zone setting cannot be patched, or patched wrongly.
+
+    Runs at import rather than only under pytest. The failures this guards
+    against — a setting an operator can set on a zone and never change again,
+    or one whose patch takes a different type than the zone stores — are silent
+    everywhere else, so the process should not start with either.
+
+    Three checks, because there are three ways to drift: a field can be absent,
+    it can be present but required (an unset field would then stop meaning
+    "untouched"), or it can be present and optional while carrying a type the
+    zone will refuse. The last one is why this is not just a name comparison: a
+    zone field widened from ``int`` to ``int | str`` and not widened here fails
+    only when an operator finally sends the new form.
+    """
     patchable = set(Domain.model_fields) - _NOT_PATCHABLE
     missing = sorted(patchable - set(DomainPatch.model_fields))
     if missing:
@@ -57,6 +131,14 @@ def _assert_patch_covers_zone() -> None:
             + ", ".join(missing)
             + ". Add them as optional, defaulting to None, or an operator can "
             "set them once and never change them."
+        )
+    required = sorted(
+        name for name in patchable if DomainPatch.model_fields[name].default is not None
+    )
+    if required:
+        raise RuntimeError(
+            "DomainPatch fields must default to None so an unset field means "
+            "'untouched'; these do not: " + ", ".join(required)
         )
     mistyped = sorted(
         f"{name} (zone stores {Domain.model_fields[name].annotation}, patch "

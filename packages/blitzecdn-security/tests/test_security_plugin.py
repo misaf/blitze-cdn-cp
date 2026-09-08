@@ -6,7 +6,7 @@ from blitzecdn_security import plugin
 from blitzecdn_security.config import MINIMUM_SECRET_BYTES, SECRET_VARIABLE
 from pydantic import SecretStr
 
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.plugins import (
     ResolvedCapabilityEnvironment,

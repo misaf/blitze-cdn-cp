@@ -1,7 +1,7 @@
-"""The `cache` contract\'s switches on one site.
+"""The `cache` contract\'s switches on one zone.
 
 Edits fields declared by :mod:`blitzecdn.capabilities.cache.policy`. Purging
-and cache statistics are operations rather than site policy, so they arrive
+and cache statistics are operations rather than zone policy, so they arrive
 with `blitzecdn-cache` and are not here.
 """
 
@@ -12,17 +12,17 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.sites.cli.app import _applied, _update, site_app
-from blitzecdn.capabilities.sites.domain import SitePatch
+from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.cli import common
 
 
-@site_app.command("cache")
-def site_cache(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("cache")
+def domain_cache(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
         bool | None,
-        typer.Option("--on/--off", help="Cache this site's responses, or stop."),
+        typer.Option("--on/--off", help="Cache this zone's responses, or stop."),
     ] = None,
     success: Annotated[
         str | None,
@@ -40,10 +40,10 @@ def site_cache(
     ] = None,
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
-    """Choose whether this site is cached, and for how long.
+    """Choose whether this zone is cached, and for how long.
 
-    A site is cached by default, so `--off` is the opt-out; turning caching off
-    also withdraws the site's claim on the 'cache' capability, which is what
+    A zone is cached by default, so `--off` is the opt-out; turning caching off
+    also withdraws the zone's claim on the 'cache' capability, which is what
     lets a controller without blitzecdn-cache converge it. Turning it back on
     means a deploy will refuse by name until that distribution is attached,
     rather than quietly serving everything from the origin.
@@ -68,21 +68,21 @@ def site_cache(
     # Built from the dict rather than by keyword: a patch applies the fields
     # that were *set*, so passing `cache_enabled=None` for an option nobody
     # named would clear the switch rather than leave it alone.
-    site = _update(name, SitePatch.model_validate(named))
-    common.emit(site, json_output=json_output)
+    zone = _update(name, DomainPatch.model_validate(named))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         state = (
-            f"caching 2xx for {site.cache_valid_success} and 404 for "
-            f"{site.cache_valid_not_found}"
-            if site.cache_enabled
+            f"caching 2xx for {zone.cache_valid_success} and 404 for "
+            f"{zone.cache_valid_not_found}"
+            if zone.cache_enabled
             else "not caching"
         )
-        typer.echo(_applied(site, f"{site.name} is now {state}."))
+        typer.echo(_applied(zone, f"{zone.name} is now {state}."))
 
 
-@site_app.command("cache-query-string")
-def site_cache_query_string(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("cache-query-string")
+def domain_cache_query_string(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
         CacheQueryStringMode,
         typer.Option(
@@ -92,13 +92,13 @@ def site_cache_query_string(
     json_output: Annotated[bool, typer.Option("--json")] = False,
 ) -> None:
     """Choose whether query strings distinguish cached responses."""
-    site = _update(name, SitePatch(cache_query_string_mode=mode))
-    common.emit(site, json_output=json_output)
+    zone = _update(name, DomainPatch(cache_query_string_mode=mode))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         typer.echo(
             _applied(
-                site,
-                f"{site.name} cache query-string mode is now "
-                f"{site.cache_query_string_mode.value!r}.",
+                zone,
+                f"{zone.name} cache query-string mode is now "
+                f"{zone.cache_query_string_mode.value!r}.",
             )
         )

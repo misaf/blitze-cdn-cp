@@ -21,9 +21,9 @@ from blitzecdn_certificates.certificates.adapters.preflight import (
 from blitzecdn_certificates.certificates.domain import PreflightSeverity
 from control_plane_fixtures import FakeEdgeStore
 
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
-from blitzecdn.capabilities.sites.domain import CdnSite
 
 
 class FakeOriginProbe:
@@ -47,7 +47,7 @@ class FakeOriginProbe:
 @pytest.fixture
 def site() -> CdnSite:
     return CdnSite(
-        name="cdn-example-com",
+        name="example-com",
         server_names=("cdn.example.com",),
         origin_host="198.51.100.10",
     )

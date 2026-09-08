@@ -54,17 +54,17 @@ class DomainRow(Base, table=True):
 
 
 class DnsRecordRow(Base, table=True):
-    """One record: an address of its own, or a route to a site.
+    """One record: an address of its own, or a hostname the edge serves.
 
-    There is no ``policy`` column any more and no ``proxied`` flag. Both
-    existed because a record used to *be* a site; a site is its own row now, so
-    what is left here is the answer DNS gives (``value``, ``ttl``) and the site
-    that answers instead (``site``).
+    No policy column and no site reference. The policy is the zone's, and which
+    virtual host serves this hostname is computed from the zone and its rules
+    rather than stored — so what is left here is the answer DNS gives
+    (``value``, ``ttl``) and whether the edge answers instead (``proxied``).
 
-    The check constraint is the database's copy of the domain rule: exactly one
-    of ``value`` and ``site``. It is written down twice deliberately — records
-    also arrive from a restored backup and from a rollback's wholesale rewrite,
-    neither of which goes through the record editor.
+    The check constraint is the database's copy of the domain rule: a proxied
+    record has no value and an unproxied one must have one. It is written down
+    twice deliberately — records also arrive from a restored backup and from a
+    rollback's wholesale rewrite, neither of which goes through the editor.
     """
 
     __tablename__ = "dns_records"
@@ -73,7 +73,7 @@ class DnsRecordRow(Base, table=True):
         CheckConstraint("type IN ('A', 'AAAA')", name="dns_records_type_check"),
         CheckConstraint("length(name) > 0", name="dns_records_name_nonempty_check"),
         CheckConstraint(
-            "(value IS NULL) <> (site IS NULL)", name="dns_records_target_check"
+            "proxied <> (value IS NOT NULL)", name="dns_records_target_check"
         ),
         CheckConstraint(
             "value IS NULL OR length(value) > 0",
@@ -94,19 +94,7 @@ class DnsRecordRow(Base, table=True):
     type: str = Field(sa_column=Column(String, primary_key=True))
     value: str | None = Field(default=None, sa_column=Column(String, nullable=True))
     ttl: int
-    # RESTRICT rather than CASCADE or SET NULL: deleting a site that hostnames
-    # still route to is a mistake worth refusing, not one to resolve by
-    # guessing. `SiteService.delete_site` names the records first; this is the
-    # backstop for the paths that do not go through it.
-    site: str | None = Field(
-        default=None,
-        sa_column=Column(
-            String,
-            ForeignKey("sites.name", ondelete="RESTRICT"),
-            nullable=True,
-            index=True,
-        ),
-    )
+    proxied: bool = True
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 

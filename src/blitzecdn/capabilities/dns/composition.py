@@ -1,6 +1,6 @@
 """How the DNS capability is built.
 
-The same shape as :mod:`blitzecdn.capabilities.sites.composition`, and the same
+Every capability builder here follows the same
 rule: what a package could have comes from ``platform``, what only a built-in
 may have is an explicit argument.
 """
@@ -10,8 +10,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from blitzecdn.capabilities.dns.ports import (
+    RuleOverrides,
     RuleStore,
-    SiteHostnames,
     ZoneReader,
     ZoneStore,
 )
@@ -24,18 +24,18 @@ __all__ = ["build_dns_service", "build_rule_service"]
 
 
 def build_dns_service(
-    platform: ControlPlane, *, zones: ZoneStore, sites: SiteHostnames
+    platform: ControlPlane, *, zones: ZoneStore, rules: RuleOverrides
 ) -> DnsService:
-    """Wire the service that owns which hostnames route to which site.
+    """Wire the service that owns zones, their policy, and their records.
 
-    Both stores are explicit. ``zones`` has no published counterpart at all,
-    and ``sites`` is wanted here through ``SiteHostnames`` — a wider read than
-    the ``SiteReader`` core publishes, because deriving ``server_names`` means
-    reading which site a record's target names.
+    ``rules`` arrives as ``RuleOverrides`` and not the store: this service
+    reads every rule in a zone to derive its virtual hosts, and writes back
+    only the certificate fields an issuer owns. Creating and deleting rules is
+    ``RuleService``'s, and the port is what says so.
     """
     return DnsService(
         zones=zones,
-        sites=sites,
+        rules=rules,
         events=platform.events,
         uow=platform.transactions,
     )

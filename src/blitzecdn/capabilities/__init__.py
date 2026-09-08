@@ -8,7 +8,7 @@ map is worth having in one place:
 
 | capability | implemented by | absent without the wheel |
 | --- | --- | --- |
-| `sites` `dns` `edges` | itself | nothing: this is the control plane |
+| `dns` `edges` | itself | nothing: this is the control plane |
 | `deployments` `diagnostics` `maintenance` | itself | nothing, likewise |
 | `workflows` | itself | nothing, likewise |
 | `cache` | `blitzecdn-cache` | purge, cache statistics |
@@ -26,14 +26,14 @@ carries, so none has a contract here to be the other half of.
 
 A capability reaches the control plane by being named in
 `composition.control_plane.BUILTIN_PLUGINS`, which imports its `plugin.py` and
-hands the hookimpls to Pluggy. Nine of these twelve directories hold one, and
+hands the hookimpls to Pluggy. Eight of these eleven directories hold one, and
 the split is not the one the table above describes: `http` and `tls` are
 contract capabilities that register anyway, while `cache`, `compression` and
 `security` do not register at all.
 
 What decides it is who else claims the name. A plugin name is unique across
 everything installed — discovery refuses two plugins answering to one — and
-`capability_requirements` is written in those names: a site with `cache_enabled`
+`capability_requirements` is written in those names: a zone with `cache_enabled`
 requires `cache`, one with `under_attack_mode` requires `security`. The wheels
 that implement those three register under exactly those names, so core cannot
 also register them; the requirement is satisfied by the wheel's presence and
@@ -46,12 +46,12 @@ a version, a summary, or an answer to "is it installed?". `tls` registers
 metadata and nothing else for that reason alone.
 
 So an absent `plugin.py` is not an omission to correct. It says this directory
-is a policy class and nothing more — imported by `sites`, which composes it, and
-composition is an import rather than a hook.
+is a policy class and nothing more — imported by `dns`, which composes it onto
+the zone, and composition is an import rather than a hook.
 
-The contract stays behind when the wheel goes because a stored site has to read
+The contract stays behind when the wheel goes because a stored zone has to read
 back either way: a controller with `blitzecdn-cache` detached must still load a
-site whose `cache_enabled` is set, and refuse the *deployment* by name through
+zone whose `cache_enabled` is set, and refuse the *deployment* by name through
 `CapabilityPolicy.capability_requirements`, rather than fail to parse it. See
 `PLUGINS.md` for the whole of that argument.
 """

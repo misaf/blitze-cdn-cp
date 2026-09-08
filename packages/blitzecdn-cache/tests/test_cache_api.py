@@ -22,7 +22,7 @@ def _proxied_site(client, domain_payload, record_payload):
         json={**record_payload, "proxied": True},
         headers=_HEADERS,
     )
-    return client.get("/v1/sites", headers=_HEADERS).json()[0]["server_names"][0]
+    return client.get("/v1/hosts", headers=_HEADERS).json()[0]["server_names"][0]
 
 
 def test_purging_a_hostname_no_site_serves_is_a_404(settings):

@@ -13,7 +13,7 @@ installed, which is the case this file cannot see.
 import pytest
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.composition import load_control_plane_plugins
 
 #: Every setting on the stable site schema that asks the edge which country a

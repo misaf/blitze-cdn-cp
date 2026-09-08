@@ -59,7 +59,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
 
     # Three distinct desired states. A snapshot carries the zones, the records
     # and the sites, so any of the three produces a different one.
-    seed_site(control, name="cdn-example-com", record="cdn")
+    seed_site(control, name="example-com", record="cdn")
     full = control.deployments.deploy("alice")
 
     repository.zones.delete_record("example.com", "cdn", RecordType.A)

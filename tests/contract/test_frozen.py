@@ -149,7 +149,7 @@ def test_the_command_line_needs_no_database_to_describe_itself():
     from blitzecdn.cli import main
 
     assert main.app.registered_groups
-    assert "site" in {group.name for group in main.app.registered_groups}
+    assert "domain" in {group.name for group in main.app.registered_groups}
 
 
 def test_what_the_sdk_publishes_is_what_a_wheel_is_allowed_to_import():

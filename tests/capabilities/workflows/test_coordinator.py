@@ -119,13 +119,13 @@ def coordinator(journal: FakeJournal, uow: RecordingUnitOfWork):
 
 def test_a_workflow_opens_running_and_closes_succeeded(coordinator, journal):
     """The ordinary path, and the only one that ends `SUCCEEDED`."""
-    with coordinator.run("deployment", "alice", "cdn-example-com") as progress:
+    with coordinator.run("deployment", "alice", "example-com") as progress:
         assert progress.error is None
         opened = next(iter(journal.workflows.values()))
         assert opened.status is WorkflowStatus.RUNNING
         assert opened.kind == "deployment"
         assert opened.operator == "alice"
-        assert opened.resource_id == "cdn-example-com"
+        assert opened.resource_id == "example-com"
 
     closed = next(iter(journal.workflows.values()))
     assert closed.status is WorkflowStatus.SUCCEEDED
@@ -243,7 +243,7 @@ def test_restart_recovery_turns_unfinished_work_into_something_to_read(
     coordinator, journal
 ):
     """What a controller does with whatever it finds still running."""
-    journal.create("stranded", "certificate", "alice", "cdn-example-com")
+    journal.create("stranded", "certificate", "alice", "example-com")
     journal.advance("stranded", WorkflowStatus.RUNNING)
     journal.create("also-stranded", "deployment", "bob")
 

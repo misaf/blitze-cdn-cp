@@ -1,6 +1,6 @@
 """What the edge tells the origin about the visitor.
 
-Edits the block declared by :mod:`blitzecdn.capabilities.sites.policy.headers`,
+Edits the block declared by :mod:`blitzecdn.capabilities.dns.policy.headers`,
 which this capability owns for the reason given there: writing the trusted
 `BZ-*` headers is something a managed edge does with nothing installed beside
 the control plane, so there is no distribution to reunite it with.
@@ -12,15 +12,15 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.sites.cli.app import _applied, site_app
-from blitzecdn.capabilities.sites.domain import SitePatch
-from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.dns.cli.app import _applied, _update, domain_app
+from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.cli import common
 
 
-@site_app.command("visitor-headers")
-def site_visitor_headers(
-    name: Annotated[str, typer.Argument()],
+@domain_app.command("visitor-headers")
+def domain_visitor_headers(
+    name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     connecting_ip: Annotated[
         bool | None,
         typer.Option(
@@ -65,26 +65,24 @@ def site_visitor_headers(
             "give at least one of --connecting-ip/--no-connecting-ip or "
             "--ip-country/--no-ip-country"
         )
-    current = control.sites.get_site(name).visitor_headers
+    current = control.dns.get_domain(name).visitor_headers
     headers = SiteVisitorHeaders.model_validate(current.model_dump() | named)
-    site = control.site_editor.update_site(
-        name, SitePatch(visitor_headers=headers), "cli"
-    )
-    common.emit(site, json_output=json_output)
+    zone = _update(name, DomainPatch(visitor_headers=headers))
+    common.emit(zone, json_output=json_output)
     if not json_output:
         sent = [
             header
             for header, on in (
-                ("BZ-Connecting-IP", site.visitor_headers.connecting_ip),
-                ("BZ-IPCountry", site.visitor_headers.ip_country),
+                ("BZ-Connecting-IP", zone.visitor_headers.connecting_ip),
+                ("BZ-IPCountry", zone.visitor_headers.ip_country),
             )
             if on
         ]
         typer.echo(
             _applied(
-                site,
-                f"{site.name} now sends {', '.join(sent)} to the origin."
+                zone,
+                f"{zone.name} now sends {', '.join(sent)} to the origin."
                 if sent
-                else f"{site.name} now sends no BZ-* visitor headers to the origin.",
+                else f"{zone.name} now sends no BZ-* visitor headers to the origin.",
             )
         )

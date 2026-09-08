@@ -1,47 +1,35 @@
 ---
 blitzecdn_edge_http3_enabled: false
-blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_http3_listener_owner: ''
+blitzecdn_nginx_allow_empty_sites: false
 blitzecdn_nginx_sites:
-  - ssl_mode: 'off'
-    ssl_automatic_mode: auto
-    minimum_tls_version: '1.2'
-    http3_enabled: false
-    max_upload_size: 100m
-    always_use_https: false
+  - visitor_headers:
+      connecting_ip: true
+      ip_country: false
     under_attack_mode: false
-    origin_request_host: origin.example.com
-    origin_sni: origin.example.com
-    enabled: true
-    certificate_mode: disabled
+    compression: brotli
     cache_enabled: true
     cache_query_string_mode: include
     cache_valid_success: 10m
     cache_valid_not_found: 1m
-    compression: brotli
-    visitor_headers:
-      connecting_ip: true
-      ip_country: false
-    name: cdn-example-com
+    origin_request_host: origin.example.com
+    origin_sni: origin.example.com
+    http3_enabled: false
+    max_upload_size: 100m
+    ssl_mode: 'off'
+    ssl_automatic_mode: auto
+    minimum_tls_version: '1.2'
+    always_use_https: false
+    certificate_mode: disabled
+    enabled: true
+    name: example-com
     server_names:
       - cdn.example.com
     origin_host: 198.51.100.20
-  - ssl_mode: flexible
-    ssl_automatic_mode: auto
-    minimum_tls_version: '1.2'
-    http3_enabled: false
-    max_upload_size: 100m
-    always_use_https: false
+  - visitor_headers:
+      connecting_ip: true
+      ip_country: false
     under_attack_mode: false
-    enabled: false
-    certificate_mode: existing
-    certificate_path: /etc/ssl/plain/fullchain.pem
-    certificate_key_path: /etc/ssl/plain/privkey.pem
-    cache_enabled: false
-    cache_query_string_mode: include
-    cache_valid_success: 10m
-    cache_valid_not_found: 1m
-    compression: brotli
     firewall:
       allow_sources:
         - 203.0.113.9/32
@@ -56,10 +44,24 @@ blitzecdn_nginx_sites:
       denied_paths:
         - /admin
         - /.git
-    visitor_headers:
-      connecting_ip: true
-      ip_country: false
-    name: static-example-com
+    compression: brotli
+    cache_enabled: false
+    cache_query_string_mode: include
+    cache_valid_success: 10m
+    cache_valid_not_found: 1m
+    origin_request_host: origin.example.com
+    origin_sni: origin.example.com
+    http3_enabled: false
+    max_upload_size: 100m
+    ssl_mode: flexible
+    ssl_automatic_mode: auto
+    minimum_tls_version: '1.2'
+    always_use_https: false
+    certificate_mode: existing
+    certificate_path: /etc/ssl/plain/fullchain.pem
+    certificate_key_path: /etc/ssl/plain/privkey.pem
+    enabled: false
+    name: example-com--static-example-com
     server_names:
       - static.example.com
     origin_host: 192.0.2.10

@@ -73,7 +73,7 @@ _PUBLIC_SDK_PREFIXES = (
 #: `certificates` does after a renewal converges — publishes the shape
 #: `deployments` defined rather than a second one of its own.
 _PUBLIC_CAPABILITY_MODULES = (
-    "blitzecdn.capabilities.sites",
+    "blitzecdn.capabilities.dns",
     "blitzecdn.capabilities.cache.policy",
     "blitzecdn.capabilities.http.policy",
     "blitzecdn.capabilities.dns.domain",

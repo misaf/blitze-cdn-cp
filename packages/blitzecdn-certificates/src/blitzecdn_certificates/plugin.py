@@ -32,7 +32,7 @@ from blitzecdn_certificates.composition import (
 from blitzecdn_certificates.config import SETTINGS
 
 if TYPE_CHECKING:
-    from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.composition import ControlPlane
 
 _CONTROLLER_MANAGED = frozenset({CertificateMode.UPLOADED, CertificateMode.REQUESTED})

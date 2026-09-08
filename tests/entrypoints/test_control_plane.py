@@ -13,19 +13,25 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordPatch, RecordType
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    RecordPatch,
+    RecordType,
+    Rule,
+)
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
-    ConflictError,
     DeploymentBusyError,
 )
 
 
 def _seed_proxied_record(control: ControlPlane) -> CdnSite:
-    """The zone, site and record most tests need: `cdn-example-com`."""
+    """The zone, site and record most tests need: `example-com`."""
     return seed_site(control)
 
 
@@ -98,9 +104,8 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
         repository=repository,
         runner=FakeRunner(),  # type: ignore[arg-type]
     )
-    control.dns.create_domain(Domain(name="example.com"), "alice")
-    control.site_editor.create_site(
-        CdnSite(name="cdn-example-com", origin_host="198.51.100.10"), "alice"
+    control.dns.create_domain(
+        Domain(name="example.com", origin_host="198.51.100.10"), "alice"
     )
 
     def refuse_event(_event):
@@ -111,32 +116,40 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
     monkeypatch.setattr(repository.audit_log, "record", refuse_event)
     with pytest.raises(RuntimeError, match="audit recorder failed"):
         control.dns.create_record(
-            DnsRecord(domain="example.com", name="cdn", site="cdn-example-com"),
+            DnsRecord(domain="example.com", name="cdn"),
             "alice",
         )
 
     assert repository.zones.list_records() == []
-    assert repository.sites.get_site("cdn-example-com").server_names == ()
+    assert control.dns.list_sites() == []
     assert sorted(
         event.action for event in repository.audit_log.list_audit_events()
-    ) == ["domain.created", "site.created"]
+    ) == ["domain.created"]
 
 
-def test_projection_drift_is_detected_and_repairable(settings):
+def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
+    """The test this replaces existed because a table restated the records.
+
+    ``CdnSite.server_names`` was a projection with a revision stamp beside it,
+    ``validation_errors`` reported it stale, and ``rebuild_hostname_projection``
+    repaired it. All three are gone: the hostnames are computed from the
+    records on every read, so there is no second copy to fall behind.
+
+    What is left to assert is that it really is computed — that a record
+    written behind the service's back still shows up.
+    """
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
-    site = _seed_proxied_record(control)
-    repository.sites.set_server_names(site.name, ())
+    _seed_proxied_record(control)
 
-    assert control.dns.validation_errors() == [
-        "the site hostname projection is stale; rebuild it before deploying"
-    ]
-    control.dns.rebuild_hostname_projection()
+    repository.zones.create_record(DnsRecord(domain="example.com", name="www"))
 
+    (site,) = control.dns.list_sites()
+    assert site.server_names == ("cdn.example.com", "www.example.com")
     assert control.dns.validation_errors() == []
-    assert repository.sites.get_site(site.name).server_names == ("cdn.example.com",)
+    assert not hasattr(control.dns, "rebuild_hostname_projection")
 
 
 def test_external_deployment_run_never_holds_a_database_transaction(settings):
@@ -157,11 +170,11 @@ def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
-    site = seed_site(control, name="cdn-example-com", record="cdn")
-    control.site_editor.update_site(
-        site.name, SitePatch(cache_enabled=False, compression="off"), "alice"
+    site = seed_site(control, name="example-com", record="cdn")
+    control.dns.update_domain(
+        "example.com", DomainPatch(cache_enabled=False, compression="off"), "alice"
     )
-    assert repository.sites.get_site(site.name).cache_enabled is False
+    assert control.dns.get_site(site.name).cache_enabled is False
     assert control.deployments.validate() == []
     result = control.deployments.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -221,25 +234,25 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
-    seed_site(control, name="cdn-example-com", record="cdn")
+    seed_site(control, name="example-com", record="cdn")
     control.dns.create_record(
-        DnsRecord(domain="example.com", name="db", value="198.51.100.11"), "alice"
+        DnsRecord(
+            domain="example.com", name="db", proxied=False, value="198.51.100.11"
+        ),
+        "alice",
     )
 
-    # Only the routed record puts a hostname on the edge.
-    assert [site.server_names for site in repository.sites.list_sites()] == [
+    # Only the proxied record puts a hostname on the edge.
+    assert [site.server_names for site in control.dns.list_sites()] == [
         ("cdn.example.com",)
     ]
 
-    control.dns.stop_routing("example.com", "cdn", RecordType.A, "203.0.113.7", "alice")
-    (site,) = repository.sites.list_sites()
-    assert site.server_names == ()
-    assert not site.serves_traffic
+    control.dns.unproxy("example.com", "cdn", RecordType.A, "203.0.113.7", "alice")
+    # Nothing proxied, so the zone derives no virtual host at all.
+    assert control.dns.list_sites() == []
 
-    control.dns.route_to_site(
-        "example.com", "cdn", RecordType.A, "cdn-example-com", "alice"
-    )
-    assert [site.server_names for site in repository.sites.list_sites()] == [
+    control.dns.proxy("example.com", "cdn", RecordType.A, "alice")
+    assert [site.server_names for site in control.dns.list_sites()] == [
         ("cdn.example.com",)
     ]
 
@@ -249,116 +262,107 @@ def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
     )  # type: ignore[arg-type]
-    seed_site(control, name="cdn-example-com", record="cdn")
+    seed_site(control, name="example-com", record="cdn")
     control.dns.delete_domain("example.com", "alice")
     assert repository.zones.list_records() == []
-    # The site stays; it simply has nothing routed to it any more.
-    assert [site.server_names for site in repository.sites.list_sites()] == [()]
+    # The zone went, and everything derived from it went with it.
+    assert control.dns.list_sites() == []
 
 
 def _plane(settings, repository):
     return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())  # type: ignore[arg-type]
 
 
-def test_a_hostname_routed_to_two_sites_is_refused(settings):
-    """One hostname is one virtual host, whichever record says so.
+def test_a_hostname_can_no_longer_be_claimed_by_two_policies(settings):
+    """Three refusals, retired one at a time, and this is the last of them.
 
-    This replaced two separate refusals that the old model needed. A record
-    used to *be* a site, so two records for one hostname were two sites' worth
-    of policy fighting over one ``server_name`` — and two different hostnames
-    could flatten to one derived site name, which was the other half. Sites are
-    named by the operator now and records point at them, so only this one
-    conflict is left to refuse.
+    A record used to *be* a site, so two records for one hostname were two
+    policies fighting over one ``server_name`` — and two different hostnames
+    could flatten to one derived site name, which was the other half. Naming
+    sites and pointing records at them retired the second and left the first as
+    an explicit ``ConflictError``.
+
+    Neither can be written now. A hostname resolves once, through its zone and
+    the first rule that matches it, so the A and the AAAA record cannot reach
+    different policies however they are written — including behind the
+    service's back, which is what this checks.
     """
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
-    seed_site(control, name="www-example-com", record="www")
-    seed_site(control, name="other-site", routed=False)
-
-    with pytest.raises(ConflictError, match="already served by site"):
-        control.dns.create_record(
-            DnsRecord(
-                domain="example.com",
-                name="www",
-                type=RecordType.AAAA,
-                site="other-site",
-            ),
-            "alice",
-        )
-
-
-def test_a_dual_stack_hostname_routed_to_one_site_is_ordinary(settings):
-    """The case the old model refused because it could not represent it.
-
-    Both records name the same site, so there is one origin and one policy —
-    and one ``server_name``, not two.
-    """
-    repository = Repository(settings.database_path)
-    control = _plane(settings, repository)
-    seed_site(control, name="www-example-com", record="www")
-    control.dns.create_record(
-        DnsRecord(
-            domain="example.com",
-            name="www",
-            type=RecordType.AAAA,
-            site="www-example-com",
-        ),
-        "alice",
+    seed_site(control, name="example-com", record="www")
+    repository.zones.create_record(
+        DnsRecord(domain="example.com", name="www", type=RecordType.AAAA)
     )
 
-    (site,) = repository.sites.list_sites()
+    (site,) = control.dns.list_sites()
     assert site.server_names == ("www.example.com",)
     assert control.dns.validation_errors() == []
 
 
-def test_validate_reports_a_split_hostname_that_bypassed_the_create_check(settings):
-    """Backstop for records restored from a snapshot rather than created."""
+def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
+    """Two policies in one zone, and each hostname resolves to exactly one."""
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
-    seed_site(control, name="www-example-com", record="www")
-    seed_site(control, name="other-site", routed=False)
-    repository.zones.create_record(
-        DnsRecord(
-            domain="example.com", name="www", type=RecordType.AAAA, site="other-site"
-        )
+    seed_site(control, name="example-com", record="www")
+    control.rules.create_rule(
+        Rule(
+            domain="example.com",
+            name="api",
+            match="api.example.com",
+            overrides={"cache_enabled": False},
+        ),
+        "alice",
     )
+    control.dns.create_record(DnsRecord(domain="example.com", name="api"), "alice")
 
-    assert any("is routed to both" in error for error in control.deployments.validate())
+    hosts = {site.name: site for site in control.dns.list_sites()}
+    assert hosts["example-com"].server_names == ("www.example.com",)
+    assert hosts["example-com--api"].server_names == ("api.example.com",)
+    assert hosts["example-com--api"].cache_enabled is False
+    assert control.dns.validation_errors() == []
 
 
-def test_validate_reports_a_record_pointing_at_a_site_that_is_gone(settings):
-    """The foreign key refuses this on the way in; a restore does not go that way."""
+def test_validate_reports_a_proxied_hostname_with_no_origin(settings):
+    """The one contradiction canonical state can still hold.
+
+    It replaces two that it cannot: a record naming a site that is gone, and a
+    hostname routed to two sites. Both were about a stored reference between a
+    record and a site, and there is no such reference now — so what is left is
+    a hostname put on the edge before anyone said where to fetch it from.
+
+    Written behind the service, which is what a restore from a damaged backup
+    amounts to.
+    """
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
-    seed_site(control, name="www-example-com", record="www")
-    # Written behind the foreign key, which is what a restore from a damaged
-    # backup amounts to: the reference is there and its target is not.
+    seed_site(control, name="example-com", record="www")
     connection = sqlite3.connect(settings.database_path)
     try:
-        connection.execute("UPDATE dns_records SET site = 'vanished-site'")
-        connection.execute("DELETE FROM sites")
+        connection.execute("UPDATE domains SET origin_host = NULL")
+        connection.execute(
+            "UPDATE domains SET policy = "
+            "json_set(policy, '$.origin_host', json('null'))"
+        )
         connection.commit()
     finally:
         connection.close()
 
-    assert any("does not exist" in error for error in control.dns.validation_errors())
+    errors = control.dns.validation_errors()
+    assert any("nothing says where to fetch it from" in error for error in errors)
 
 
-def test_a_routed_record_may_still_be_updated_in_place(settings):
-    """The guard skips the row being replaced, which is keyed by type not fqdn."""
+def test_a_proxied_record_may_still_be_updated_in_place(settings):
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
-    seed_site(control, name="www-example-com", record="www")
+    seed_site(control, name="example-com", record="www")
 
     updated = control.dns.update_record(
         "example.com", "www", RecordType.A, RecordPatch(ttl=600), "alice"
     )
 
     assert updated.ttl == 600
-    assert updated.site == "www-example-com"
-    assert repository.sites.get_site("www-example-com").server_names == (
-        "www.example.com",
-    )
+    assert updated.proxied
+    assert control.dns.get_site("example-com").server_names == ("www.example.com",)
 
 
 def test_failed_and_timed_out_deployments_are_recorded(settings):
@@ -389,15 +393,16 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
-    original = seed_site(control, name="cdn-example-com", record="cdn")
+    original = seed_site(control, name="example-com", record="cdn")
     successful = control.deployments.deploy("alice")
-    control.site_editor.update_site(
-        original.name, SitePatch(origin_host="192.0.2.99"), "alice"
+    control.dns.update_domain(
+        "example.com", DomainPatch(origin_host="192.0.2.99"), "alice"
     )
     result = control.deployments.rollback("alice", successful.id)
     assert result.status is DeploymentStatus.SUCCEEDED
-    # Rollback restores the site the snapshot carried, and its hostnames with it.
-    restored = repository.sites.get_site(original.name)
+    # Rollback restores the zone the snapshot carried, so the host it derives
+    # comes back with the origin and the hostnames it had.
+    restored = control.dns.get_site(original.name)
     assert restored.origin_host == original.origin_host
     assert restored.server_names == ("cdn.example.com",)
     assert control.dns.validation_errors() == []
@@ -412,19 +417,19 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     )  # type: ignore[arg-type]
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
-    control.site_editor.update_site(
-        original.name, SitePatch(origin_host="192.0.2.99"), "alice"
+    control.dns.update_domain(
+        "example.com", DomainPatch(origin_host="192.0.2.99"), "alice"
     )
-    current = repository.sites.get_site(original.name)
+    current = control.dns.get_site(original.name)
 
-    def fail_restore(_sites):
+    def fail_restore(_domains, _records):
         raise RuntimeError("restore failed")
 
-    repository.sites.replace_all_sites = fail_restore  # type: ignore[method-assign]
+    repository.zones.replace_all_records = fail_restore  # type: ignore[method-assign]
     result = control.deployments.rollback("alice", successful.id)
 
     assert result.status is DeploymentStatus.FAILED
-    assert repository.sites.get_site(original.name) == current
+    assert control.dns.get_site(original.name) == current
     assert repository.zones.list_records() != []
     actions = [event.action for event in repository.audit_log.list_audit_events(10)]
     assert "rollback.applied" not in actions
@@ -434,7 +439,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
 
 
 def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
-    """Swapping sites after the lock released would drop concurrent edits."""
+    """Swapping canonical state after the lock released would drop edits."""
     events: list[str] = []
     repository = Repository(settings.database_path)
 
@@ -452,25 +457,25 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
         repository=repository,
         runner=LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )  # type: ignore[arg-type]
-    site = seed_site(control)
+    seed_site(control)
 
     # Recording starts after the seeding, so nothing but the rollback's own
     # wholesale restore is counted.
-    original_replace = repository.sites.replace_all_sites
+    original_replace = repository.zones.replace_all_records
 
-    def recording_replace(sites):
-        events.append("sites-replaced")
-        original_replace(sites)
+    def recording_replace(domains, records):
+        events.append("state-replaced")
+        original_replace(domains, records)
 
-    repository.sites.replace_all_sites = recording_replace  # type: ignore[method-assign]
+    repository.zones.replace_all_records = recording_replace  # type: ignore[method-assign]
 
     successful = control.deployments.deploy("alice")
     # A concurrent edit while the fleet converges. The rollback restores the
-    # snapshot's sites over it, and must do so while still holding the lock —
+    # snapshot's zones over it, and must do so while still holding the lock —
     # swapping them after releasing it would drop whatever landed in between
     # without the guard ever seeing it.
-    control.site_editor.update_site(
-        site.name, SitePatch(origin_host="192.0.2.99"), "bob"
+    control.dns.update_domain(
+        "example.com", DomainPatch(origin_host="192.0.2.99"), "bob"
     )
 
     control.deployments.rollback("alice", successful.id)
@@ -479,7 +484,7 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
         "locked",
         "unlocked",  # the initial deploy
         "locked",
-        "sites-replaced",
+        "state-replaced",
         "unlocked",
     ]
 
@@ -549,7 +554,7 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
             stranded.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
         )
         workflow = repository.workflows.create(
-            "interrupted", "certificate", "alice", "cdn-example-com"
+            "interrupted", "certificate", "alice", "example-com"
         )
         repository.workflows.advance(workflow.id, WorkflowStatus.RUNNING)
 
@@ -581,7 +586,7 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
     )  # type: ignore[arg-type]
     live = repository.deployments.create_deployment("alice", check_mode=False)
     workflow = repository.workflows.create(
-        "live", "certificate", "alice", "cdn-example-com"
+        "live", "certificate", "alice", "example-com"
     )
     repository.workflows.advance(workflow.id, WorkflowStatus.RUNNING)
 
@@ -610,7 +615,9 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
 
-    concurrent = DnsRecord(domain="example.com", name="late", value="198.51.100.77")
+    concurrent = DnsRecord(
+        domain="example.com", name="late", proxied=False, value="198.51.100.77"
+    )
 
     class WritingRunner(FakeRunner):
         def run(self, *, check, host_limit=None):
@@ -644,11 +651,11 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     )  # type: ignore[arg-type]
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
-    control.site_editor.update_site(
-        original.name, SitePatch(origin_host="203.0.113.55"), "alice"
+    control.dns.update_domain(
+        "example.com", DomainPatch(origin_host="203.0.113.55"), "alice"
     )
 
     rolled_back = control.deployments.rollback("alice", successful.id)
 
     assert rolled_back.status is DeploymentStatus.SUCCEEDED
-    assert repository.sites.get_site(original.name) == original
+    assert control.dns.get_site(original.name) == original

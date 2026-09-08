@@ -9,16 +9,36 @@ from control_plane_fixtures import (
 from fastapi.testclient import TestClient
 
 from blitzecdn.capabilities.deployments import DeploymentService
+from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
+from blitzecdn.capabilities.dns.api.models import ZonePolicy as ZonePolicyModel
+from blitzecdn.capabilities.dns.domain import SitePolicy
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.sites.api.models import SitePatch
-from blitzecdn.capabilities.sites.api.models import SitePolicy as SitePolicyModel
-from blitzecdn.capabilities.sites.domain import SitePolicy
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import (
     ConfigurationError,
     DeploymentBusyError,
     ExecutionError,
 )
+
+
+def _zone(client, **policy):
+    """A zone carrying the policy, and one proxied hostname so it derives a host.
+
+    Two calls where a site used to be one, and the reason is the whole change:
+    the policy belongs to the zone, and a record is what puts a hostname on the
+    edge for that policy to apply to.
+    """
+    created = client.post(
+        "/v1/domains",
+        json={"name": "example.com", "origin_host": "198.51.100.10", **policy},
+        headers=API_HEADERS,
+    )
+    client.post(
+        "/v1/domains/example.com/records",
+        json={"domain": "example.com", "name": "cdn"},
+        headers=API_HEADERS,
+    )
+    return created
 
 
 def test_the_api_carries_every_policy_field_the_domain_has():
@@ -28,17 +48,17 @@ def test_the_api_carries_every_policy_field_the_domain_has():
     project a new field away from: a field added to `SitePolicy` is expected
     here and in the patch body, and this is what says so.
     """
-    missing = set(SitePolicy.model_fields) - set(SitePolicyModel.model_fields)
+    missing = set(SitePolicy.model_fields) - set(ZonePolicyModel.model_fields)
     assert not missing, f"the API does not expose {sorted(missing)}"
 
-    unpatchable = set(SitePolicy.model_fields) - set(SitePatch.model_fields)
+    unpatchable = set(SitePolicy.model_fields) - set(DomainPatchModel.model_fields)
     assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 
 def test_interrupted_workflows_are_recovered_and_visible(settings):
     repository = Repository(settings.database_path)
     workflow = repository.workflows.create(
-        "interrupted", "certificate", "alice", "cdn-example-com"
+        "interrupted", "certificate", "alice", "example-com"
     )
 
     with TestClient(control_plane_app(settings)) as client:
@@ -72,26 +92,20 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         )
         assert orphan.status_code == 404
 
-        # A record cannot route to a site that does not exist either.
+        # The zone says where its proxied hostnames are fetched from.
         assert (
-            client.post(
-                "/v1/domains/example.com/records", json=record_payload, headers=headers
-            ).status_code
-            == 404
-        )
-        assert (
-            client.post(
-                "/v1/sites",
-                json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
+            client.patch(
+                "/v1/domains/example.com",
+                json={"origin_host": "198.51.100.10"},
                 headers=headers,
             ).status_code
-            == 201
+            == 200
         )
         created = client.post(
             "/v1/domains/example.com/records", json=record_payload, headers=headers
         )
         assert created.status_code == 201
-        assert created.json()["site"] == "cdn-example-com"
+        assert created.json()["proxied"] is True
 
         # The body's domain must agree with the path.
         mismatched = client.post(
@@ -101,8 +115,8 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         )
         assert mismatched.status_code == 409
 
-        # Routing a record is what puts a hostname on the virtual host.
-        sites = client.get("/v1/sites", headers=headers).json()
+        # A proxied record is what puts a hostname on a virtual host.
+        sites = client.get("/v1/hosts", headers=headers).json()
         assert len(sites) == 1
         assert sites[0]["server_names"] == ["cdn.example.com"]
         assert sites[0]["always_use_https"] is False
@@ -110,15 +124,19 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert sites[0]["cache_query_string_mode"] == "include"
 
         redirect = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"always_use_https": True},
             headers=headers,
         )
         assert redirect.status_code == 200
         assert redirect.json()["always_use_https"] is True
+        assert (
+            client.get("/v1/hosts", headers=headers).json()[0]["always_use_https"]
+            is True
+        )
 
         policy = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={
                 "minimum_tls_version": "1.3",
                 "cache_query_string_mode": "ignore",
@@ -129,21 +147,16 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert policy.json()["minimum_tls_version"] == "1.3"
         assert policy.json()["cache_query_string_mode"] == "ignore"
 
-        # Unrouting takes the hostname off the site and leaves the site.
-        unrouted = client.patch(
+        # Unproxying takes the hostname off the edge and leaves the zone.
+        unproxied = client.patch(
             "/v1/domains/example.com/records/cdn",
-            json={"site": None, "value": "203.0.113.7"},
+            json={"proxied": False, "value": "203.0.113.7"},
             headers=headers,
         )
-        assert unrouted.json()["site"] is None
-        assert unrouted.json()["value"] == "203.0.113.7"
-        assert client.get("/v1/sites", headers=headers).json()[0]["server_names"] == []
-
-        # And a site nothing routes to can be deleted; one with hostnames cannot.
-        assert (
-            client.delete("/v1/sites/cdn-example-com", headers=headers).status_code
-            == 204
-        )
+        assert unproxied.json()["proxied"] is False
+        assert unproxied.json()["value"] == "203.0.113.7"
+        # With nothing proxied the zone derives no virtual host at all.
+        assert client.get("/v1/hosts", headers=headers).json() == []
         assert (
             client.delete(
                 "/v1/domains/example.com/records/cdn", headers=headers
@@ -156,38 +169,35 @@ def test_domain_and_record_crud_and_errors(settings, domain_payload, record_payl
         assert client.get("/v1/deployments/missing", headers=headers).status_code == 404
 
 
-def test_a_site_is_created_and_deleted_but_its_hostnames_are_not_writable(settings):
-    """The write routes exist now; `server_names` still is not a field a client sets.
+def test_a_virtual_host_is_read_only_and_nothing_can_write_one(settings):
+    """There is no writing counterpart, and the published document says so.
 
-    It is the set of records routed to the site, so a body carrying it is
-    refused rather than quietly ignored — the alternative is a client that
-    believes it set the hostnames and a site that never served them.
+    ``server_names`` used to be the one field a site's own API refused to take,
+    because `dns` owned it. Every field is like that now: a host is derived, so
+    the collection publishes GET and nothing else, and the way to change one is
+    to change the zone, the rule or the records behind it.
     """
     headers = {"X-API-Key": "x" * 32}
     with TestClient(control_plane_app(settings)) as client:
+        seed_site_over_http(client, headers)
+        assert client.get("/v1/hosts", headers=headers).json()[0]["server_names"] == [
+            "cdn.example.com"
+        ]
+        for method in (client.post, client.put):
+            assert (
+                method(
+                    "/v1/hosts",
+                    json={"name": "example-com", "origin_host": "198.51.100.10"},
+                    headers=headers,
+                ).status_code
+                == 405
+            )
         assert (
-            client.post(
-                "/v1/sites",
-                json={
-                    "name": "cdn-example-com",
-                    "origin_host": "198.51.100.10",
-                    "server_names": ["cdn.example.com"],
-                },
-                headers=headers,
-            ).status_code
-            == 422
-        )
-        assert (
-            client.post(
-                "/v1/sites",
-                json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
-                headers=headers,
-            ).json()["server_names"]
-            == []
+            client.delete("/v1/hosts/example-com", headers=headers).status_code == 405
         )
         schema = client.get("/openapi.json").json()
-        assert set(schema["paths"]["/v1/sites"]) == {"get", "post"}
-        assert set(schema["paths"]["/v1/sites/{name}"]) == {"get", "patch", "delete"}
+        assert set(schema["paths"]["/v1/hosts"]) == {"get"}
+        assert set(schema["paths"]["/v1/hosts/{name}"]) == {"get"}
 
 
 def test_dns_export_omits_addresses_for_proxied_records(
@@ -199,7 +209,12 @@ def test_dns_export_omits_addresses_for_proxied_records(
         seed_site_over_http(client, headers)
         client.post(
             "/v1/domains/example.com/records",
-            json={"domain": "example.com", "name": "db", "value": "198.51.100.10"},
+            json={
+                "domain": "example.com",
+                "name": "db",
+                "proxied": False,
+                "value": "198.51.100.10",
+            },
             headers=headers,
         )
         exported = {
@@ -207,7 +222,7 @@ def test_dns_export_omits_addresses_for_proxied_records(
             for row in client.get("/v1/dns/export", headers=headers).json()
         }
         assert "value" not in exported["cdn.example.com"]
-        assert exported["cdn.example.com"]["site"] == "cdn-example-com"
+        assert exported["cdn.example.com"]["proxied"] is True
         assert exported["db.example.com"]["value"] == "198.51.100.10"
 
 
@@ -284,9 +299,9 @@ def test_an_applied_deployment_is_not_readable_as_drift(settings):
 def test_a_single_site_is_readable_by_name(settings):
     with TestClient(control_plane_app(settings)) as client:
         seed_site_over_http(client, API_HEADERS)
-        name = client.get("/v1/sites", headers=API_HEADERS).json()[0]["name"]
+        name = client.get("/v1/hosts", headers=API_HEADERS).json()[0]["name"]
 
-        response = client.get(f"/v1/sites/{name}", headers=API_HEADERS)
+        response = client.get(f"/v1/hosts/{name}", headers=API_HEADERS)
 
         assert response.status_code == 200
         assert response.json()["name"] == name
@@ -362,7 +377,7 @@ def test_removed_origin_port_is_rejected_on_patch(
 
 def test_an_unknown_site_is_a_404(settings):
     with TestClient(control_plane_app(settings)) as client:
-        assert client.get("/v1/sites/absent", headers=API_HEADERS).status_code == 404
+        assert client.get("/v1/hosts/absent", headers=API_HEADERS).status_code == 404
 
 
 # ----------------------------------------------------------------------
@@ -612,8 +627,6 @@ def test_no_cloudflare_header_name_is_published_by_the_api(settings):
 
 def test_http3_create_read_patch_and_validation(settings):
     site = {
-        "name": "cdn-example-com",
-        "origin_host": "198.51.100.10",
         "ssl_mode": "flexible",
         "http3_enabled": True,
         "certificate_mode": "existing",
@@ -621,16 +634,16 @@ def test_http3_create_read_patch_and_validation(settings):
         "certificate_key_path": "/etc/ssl/private/edge.key",
     }
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=site, headers=API_HEADERS)
+        created = _zone(client, **site)
         assert created.status_code == 201
         assert created.json()["http3_enabled"] is True
         assert (
-            client.get("/v1/sites", headers=API_HEADERS).json()[0]["http3_enabled"]
+            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["http3_enabled"]
             is True
         )
 
         unchanged = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"http3_enabled": True},
             headers=API_HEADERS,
         )
@@ -638,7 +651,7 @@ def test_http3_create_read_patch_and_validation(settings):
         assert unchanged.json()["http3_enabled"] is True
 
         disabled = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"http3_enabled": False},
             headers=API_HEADERS,
         )
@@ -646,7 +659,7 @@ def test_http3_create_read_patch_and_validation(settings):
         assert disabled.json()["http3_enabled"] is False
 
         rejected = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"ssl_mode": "off", "http3_enabled": True},
             headers=API_HEADERS,
         )
@@ -654,40 +667,36 @@ def test_http3_create_read_patch_and_validation(settings):
         assert "requires ssl_mode" in rejected.text
 
         events = client.get("/v1/audit-events", headers=API_HEADERS).json()
-        updates = [event for event in events if event["action"] == "site.updated"]
+        updates = [event for event in events if event["action"] == "domain.updated"]
         assert any("http3_enabled" in event["details"]["fields"] for event in updates)
 
 
 def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
     with TestClient(control_plane_app(settings)) as client:
         schema = client.get("/openapi.json").json()
-        property_schema = schema["components"]["schemas"]["SitePatch"]["properties"][
+        property_schema = schema["components"]["schemas"]["DomainPatch"]["properties"][
             "under_attack_mode"
         ]
         assert property_schema["anyOf"][0]["type"] == "boolean"
 
-        created = client.post(
-            "/v1/sites",
-            json={"name": "cdn-example-com", "origin_host": "198.51.100.10"},
-            headers=API_HEADERS,
-        )
+        created = _zone(client, origin_host="198.51.100.10")
         assert created.status_code == 201
         assert created.json()["under_attack_mode"] is False
 
         patched = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"under_attack_mode": True},
             headers=API_HEADERS,
         )
         assert patched.status_code == 200
         assert patched.json()["under_attack_mode"] is True
         assert (
-            client.get("/v1/sites", headers=API_HEADERS).json()[0]["under_attack_mode"]
+            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["under_attack_mode"]
             is True
         )
 
         invalid = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"under_attack_mode": "sometimes"},
             headers=API_HEADERS,
         )
@@ -695,14 +704,14 @@ def test_under_attack_mode_is_visible_patchable_and_in_openapi(settings):
 
 
 def test_max_upload_size_is_reported_patchable_and_validated(settings):
-    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
+    payload = {"origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=payload, headers=API_HEADERS)
+        created = _zone(client, **payload)
         assert created.status_code == 201
         assert created.json()["max_upload_size"] == "100m"
 
         patched = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"max_upload_size": "200m"},
             headers=API_HEADERS,
         )
@@ -711,7 +720,7 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
 
         # A size nginx would accept but the tier list does not name.
         rejected = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"max_upload_size": "500m"},
             headers=API_HEADERS,
         )
@@ -719,25 +728,25 @@ def test_max_upload_size_is_reported_patchable_and_validated(settings):
 
         # A patch that does not name the field leaves it where it was.
         client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"cache_enabled": False},
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v1/sites", headers=API_HEADERS).json()[0]["max_upload_size"]
+            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["max_upload_size"]
             == "200m"
         )
 
 
 def test_compression_is_reported_patchable_and_validated(settings):
-    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
+    payload = {"origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=payload, headers=API_HEADERS)
+        created = _zone(client, **payload)
         assert created.status_code == 201
         assert created.json()["compression"] == "brotli"
 
         patched = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"compression": "off"},
             headers=API_HEADERS,
         )
@@ -745,7 +754,7 @@ def test_compression_is_reported_patchable_and_validated(settings):
         assert patched.json()["compression"] == "off"
 
         rejected = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"compression": "deflate"},
             headers=API_HEADERS,
         )
@@ -753,20 +762,20 @@ def test_compression_is_reported_patchable_and_validated(settings):
 
         # A patch that does not name the field leaves it where it was.
         client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"cache_enabled": False},
             headers=API_HEADERS,
         )
         assert (
-            client.get("/v1/sites", headers=API_HEADERS).json()[0]["compression"]
+            client.get("/v1/hosts", headers=API_HEADERS).json()[0]["compression"]
             == "off"
         )
 
 
 def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings):
-    payload = {"name": "cdn-example-com", "origin_host": "203.0.113.10"}
+    payload = {"origin_host": "203.0.113.10"}
     with TestClient(control_plane_app(settings)) as client:
-        created = client.post("/v1/sites", json=payload, headers=API_HEADERS)
+        created = _zone(client, **payload)
         assert created.status_code == 201
         assert created.json()["visitor_headers"] == {
             "connecting_ip": True,
@@ -774,7 +783,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         }
 
         patched = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"visitor_headers": {"connecting_ip": False, "ip_country": True}},
             headers=API_HEADERS,
         )
@@ -787,7 +796,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         # A partial block replaces the whole thing rather than merging, so the
         # unnamed switch comes back at its default.
         replaced = client.patch(
-            "/v1/sites/cdn-example-com",
+            "/v1/domains/example.com",
             json={"visitor_headers": {"ip_country": True}},
             headers=API_HEADERS,
         )
@@ -799,7 +808,7 @@ def test_visitor_headers_are_reported_replaced_wholesale_and_validated(settings)
         # No aliases, and no Cloudflare spelling smuggled in as an extra.
         for unknown in ({"cf_connecting_ip": True}, {"true_client_ip": True}):
             rejected = client.patch(
-                "/v1/sites/cdn-example-com",
+                "/v1/domains/example.com",
                 json={"visitor_headers": unknown},
                 headers=API_HEADERS,
             )

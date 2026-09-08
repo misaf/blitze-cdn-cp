@@ -2,31 +2,15 @@ from __future__ import annotations
 
 from typing import Protocol
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType, Rule
-from blitzecdn.capabilities.sites.ports import SiteReader
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    RecordType,
+    Rule,
+)
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
-
-
-class SiteHostnames(SiteReader, Protocol):
-    """The one part of a site this capability writes, and the reads it needs.
-
-    A site is canonical and `sites` owns it. What `dns` owns is the answer to
-    "which hostnames route here", because that answer *is* the set of records
-    pointing at the site — so ``server_names`` is maintained from this side and
-    from nowhere else, and the site's own service has no method that sets it.
-
-    The read half comes along because the checks this capability runs before a
-    deploy are cross-cutting: whether a record names a site that exists, and
-    whether the hostnames stored on each site still match the records. Both
-    need to see sites; neither may change one.
-    """
-
-    def set_server_names(self, site: str, server_names: tuple[str, ...]) -> None: ...
-
-    def projection_revision(self) -> str | None: ...
-
-    def set_projection_revision(self, revision: str) -> None: ...
 
 
 class ZoneStore(Protocol):
@@ -54,8 +38,6 @@ class ZoneStore(Protocol):
 
     def delete_record(self, domain: str, name: str, type_: RecordType) -> None: ...
 
-    def delete_all_records(self) -> None: ...
-
     def replace_all_records(
         self, domains: list[Domain], records: list[DnsRecord]
     ) -> None: ...
@@ -71,14 +53,27 @@ class RuleReader(Protocol):
     def list_rules(self, domain: str | None = None) -> list[Rule]: ...
 
 
-class RuleStore(RuleReader, Protocol):
-    """The overrides, and the writes the rule editor makes to them."""
+class RuleOverrides(RuleReader, Protocol):
+    """Reading a zone's rules, and writing back the fields an issuer owns.
+
+    The zone editor holds this rather than ``RuleReader`` for one path: a
+    managed certificate is recorded against whatever authored object produced
+    the virtual host it was issued for, and for a host that came from a rule
+    that means the rule's overrides. It is the same narrow arrangement the
+    hostname projection used to have — a second writer of one specific fact,
+    named by a port so that "who wrote this" stays answerable — except that
+    this one writes three fields an operator never sets by hand.
+    """
 
     def get_rule(self, domain: str, name: str) -> Rule: ...
 
-    def create_rule(self, rule: Rule) -> Rule: ...
-
     def replace_rule(self, rule: Rule) -> Rule: ...
+
+
+class RuleStore(RuleOverrides, Protocol):
+    """The overrides, and the writes the rule editor makes to them."""
+
+    def create_rule(self, rule: Rule) -> Rule: ...
 
     def delete_rule(self, domain: str, name: str) -> None: ...
 
@@ -101,17 +96,31 @@ class ZoneReader(Protocol):
     def get_domain(self, name: str) -> Domain: ...
 
 
-class ZoneEditor(Protocol):
-    """What `deployments` needs from the zone editor, and it is now two things.
+class SiteReader(Protocol):
+    """The virtual hosts, read-only. What an installed package is handed.
 
-    It used to be four. Two of them — ``activate_managed_certificate`` and
-    ``apply_automatic_ssl_upgrade`` — were certificate state reaching back into
-    a record because the derived site could not hold it. The site holds it now,
-    so both moved to ``SiteService`` and this port lost the reason it had to
-    know what a certificate is.
+    ``platform.sites`` for a distribution that has to know what the fleet
+    serves — which origins to probe, which hostnames need a certificate — and
+    it can answer that without being able to write anything at all. There is no
+    write side to withhold any more: these are derived, and the way to change
+    one is to change the zone, the rule or the record it came from.
     """
 
-    def resync_hostnames(self) -> None: ...
+    def list_sites(self) -> list[CdnSite]: ...
+
+    def get_site(self, name: str) -> CdnSite: ...
+
+
+class ZoneEditor(Protocol):
+    """What `deployments` needs from the zone editor, and it is now one thing.
+
+    It used to be four. Two — ``activate_managed_certificate`` and
+    ``apply_automatic_ssl_upgrade`` — were certificate state reaching into a
+    record because the derived site could not hold it; they went to the zone
+    with the rest of the policy. ``resync_hostnames`` went with the projection
+    it maintained: ``server_names`` is derived from the records at render time
+    now, so there is no table to keep in step and nothing to resync.
+    """
 
     #: Ways canonical state contradicts itself. A deploy asks before it
     #: converges anything, because the contradictions are the kind that would
@@ -121,9 +130,10 @@ class ZoneEditor(Protocol):
 
 __all__ = [
     "EventRecorder",
+    "RuleOverrides",
     "RuleReader",
     "RuleStore",
-    "SiteHostnames",
+    "SiteReader",
     "UnitOfWork",
     "ZoneEditor",
     "ZoneReader",

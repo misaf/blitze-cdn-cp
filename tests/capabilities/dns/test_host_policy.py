@@ -17,6 +17,14 @@ from blitzecdn.capabilities.deployments.domain.snapshots import (
     decode_snapshot,
     encode_snapshot,
 )
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    DomainPatch,
+    SitePolicy,
+)
+from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
@@ -24,8 +32,6 @@ from blitzecdn.capabilities.http.policy import (
     HttpScheme,
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePatch, SitePolicy
-from blitzecdn.capabilities.sites.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
     SslAutomaticMode,
@@ -70,7 +76,7 @@ def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
 
 
 def test_snapshots_fail_closed_on_unknown_schema_versions():
-    snapshot = '{"schema_version":999,"domains":[],"records":[],"rules":[],"sites":[]}'
+    snapshot = '{"schema_version":999,"domains":[],"records":[],"rules":[]}'
     with pytest.raises(ValueError, match="unsupported deployment snapshot"):
         decode_snapshot(snapshot)
 
@@ -363,7 +369,7 @@ def test_removed_origin_scheme_is_rejected(site_payload):
     site_payload["origin_scheme"] = "http"
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         CdnSite.model_validate(site_payload)
-    assert "origin_scheme" not in SitePatch.model_fields
+    assert "origin_scheme" not in DomainPatch.model_fields
 
 
 @pytest.mark.parametrize(
@@ -394,23 +400,19 @@ def test_managed_certificate_modes_reject_operator_chosen_paths(site_payload):
 
 def test_managed_certificate_modes_accept_their_own_paths(site_payload):
     site_payload["certificate_mode"] = "uploaded"
-    site_payload["certificate_path"] = (
-        "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem"
-    )
-    site_payload["certificate_key_path"] = (
-        "/etc/blitzecdn/tls/cdn-example-com/privkey.pem"
-    )
+    site_payload["certificate_path"] = "/etc/blitzecdn/tls/example-com/fullchain.pem"
+    site_payload["certificate_key_path"] = "/etc/blitzecdn/tls/example-com/privkey.pem"
     assert CdnSite.model_validate(site_payload).certificate_mode == "uploaded"
 
 
 def _managed_site(**overrides: object) -> dict[str, object]:
     return {
-        "name": "cdn-example-com",
+        "name": "example-com",
         "server_names": ["cdn.example.com"],
         "origin_host": "198.51.100.10",
         "certificate_mode": "uploaded",
-        "certificate_path": "/etc/blitzecdn/tls/cdn-example-com/fullchain.pem",
-        "certificate_key_path": "/etc/blitzecdn/tls/cdn-example-com/privkey.pem",
+        "certificate_path": "/etc/blitzecdn/tls/example-com/fullchain.pem",
+        "certificate_key_path": "/etc/blitzecdn/tls/example-com/privkey.pem",
         **overrides,
     }
 
@@ -422,7 +424,7 @@ def test_site_patch_cannot_redirect_a_managed_certificate():
     it reaches the desired state.
     """
     site = CdnSite.model_validate(_managed_site())
-    patch = SitePatch(certificate_path="/etc/cron.d/blitzecdn")
+    patch = DomainPatch(certificate_path="/etc/cron.d/blitzecdn")
     with pytest.raises(ValidationError):
         CdnSite.model_validate(
             {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
@@ -431,7 +433,7 @@ def test_site_patch_cannot_redirect_a_managed_certificate():
 
 def test_site_patch_revalidates_the_whole_site():
     site = CdnSite.model_validate(_managed_site())
-    patch = SitePatch(origin_host="192.0.2.20", cache_enabled=False)
+    patch = DomainPatch(origin_host="192.0.2.20", cache_enabled=False)
     updated = CdnSite.model_validate(
         {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
@@ -440,7 +442,7 @@ def test_site_patch_revalidates_the_whole_site():
 
 
 def test_site_patch_covers_every_shared_policy_field():
-    """`SitePatch` cannot inherit `SitePolicy`, so nothing else keeps it honest.
+    """`DomainPatch` cannot inherit `SitePolicy`, so nothing else keeps it honest.
 
     Every policy field has to be patchable. One missing is not an error anyone
     sees: the API accepts the request, silently drops the unknown key under
@@ -448,33 +450,33 @@ def test_site_patch_covers_every_shared_policy_field():
     creation but never change. Adding a field to `SitePolicy` should fail here
     until it is added below it too.
     """
-    assert set(SitePolicy.model_fields) <= set(SitePatch.model_fields), (
-        "SitePatch is missing "
-        f"{sorted(set(SitePolicy.model_fields) - set(SitePatch.model_fields))}. "
-        "Add the field to SitePatch as an optional defaulting to None."
+    assert set(SitePolicy.model_fields) <= set(DomainPatch.model_fields), (
+        "DomainPatch is missing "
+        f"{sorted(set(SitePolicy.model_fields) - set(DomainPatch.model_fields))}. "
+        "Add the field to DomainPatch as an optional defaulting to None."
     )
 
 
 def test_the_patch_cannot_reach_the_field_dns_owns():
     """`server_names` is maintained from the records, so a patch has no word for
     it. Everything else about a site is patchable; this one thing is not."""
-    assert "server_names" not in SitePatch.model_fields
-    assert "origin_host" in SitePatch.model_fields
+    assert "server_names" not in DomainPatch.model_fields
+    assert "origin_host" in DomainPatch.model_fields
 
 
 def test_every_patchable_policy_field_is_optional():
     """An inherited required field would arrive here with a default and apply
     itself on every unrelated patch."""
     for name in SitePolicy.model_fields:
-        assert SitePatch.model_fields[name].default is None, (
-            f"SitePatch.{name} must default to None so an unset field means "
+        assert DomainPatch.model_fields[name].default is None, (
+            f"DomainPatch.{name} must default to None so an unset field means "
             "'leave alone' rather than 'reset to this value'"
         )
 
 
 def test_under_attack_mode_defaults_off_and_is_patchable():
     assert SitePolicy().under_attack_mode is False
-    assert SitePatch(under_attack_mode=True).under_attack_mode is True
+    assert DomainPatch(under_attack_mode=True).under_attack_mode is True
     assert (
         CdnSite.model_validate(_managed_site(under_attack_mode=True)).under_attack_mode
         is True
@@ -617,7 +619,7 @@ def test_a_patch_replaces_the_whole_visitor_header_block():
     site = CdnSite.model_validate(
         _managed_site(visitor_headers={"connecting_ip": True, "ip_country": True})
     )
-    patch = SitePatch(visitor_headers=SiteVisitorHeaders())
+    patch = DomainPatch(visitor_headers=SiteVisitorHeaders())
     updated = CdnSite.model_validate(
         {**site.model_dump(), **patch.model_dump(exclude_unset=True)}
     )
@@ -626,12 +628,25 @@ def test_a_patch_replaces_the_whole_visitor_header_block():
     assert updated.visitor_headers.ip_country is False
 
 
-def test_visitor_headers_survive_a_snapshot_round_trip():
-    """Desired state is JSON on the way to a run and back from a rollback."""
-    stored = CdnSite.model_validate(
-        _managed_site(visitor_headers={"connecting_ip": False, "ip_country": True})
+def _snapshot_of(**policy: object) -> str:
+    """A snapshot of one zone with one proxied hostname in it.
+
+    Sites are not in a snapshot any more — they are derived from it — so a
+    round trip has to go through the zone that produces one. That is the point
+    of these tests either way: what survives JSON on the way to a run and back
+    from a rollback.
+    """
+    zone = Domain.model_validate(
+        {"name": "example.com", "origin_host": "198.51.100.10", **policy}
     )
-    snapshot = encode_snapshot([], [], [], [stored])
+    record = DnsRecord(domain="example.com", name="cdn")
+    return encode_snapshot([zone], [record], [])
+
+
+def test_visitor_headers_survive_a_snapshot_round_trip():
+    snapshot = _snapshot_of(
+        visitor_headers={"connecting_ip": False, "ip_country": True}
+    )
 
     (site,) = decode_snapshot(snapshot)
 
@@ -641,22 +656,28 @@ def test_visitor_headers_survive_a_snapshot_round_trip():
 
 
 def test_http3_survives_a_snapshot_round_trip():
-    stored = CdnSite.model_validate(
-        _managed_site(ssl_mode="flexible", http3_enabled=True)
+    (site,) = decode_snapshot(
+        _snapshot_of(
+            ssl_mode="flexible",
+            http3_enabled=True,
+            certificate_mode="existing",
+            certificate_path="/etc/ssl/certs/edge.pem",
+            certificate_key_path="/etc/ssl/private/edge.key",
+        )
     )
-    (site,) = decode_snapshot(encode_snapshot([], [], [], [stored]))
     assert site.http3_enabled is True
 
 
 def test_http3_changes_snapshot_identity_only_when_the_value_changes():
-    disabled = CdnSite.model_validate(
-        _managed_site(ssl_mode="flexible", http3_enabled=False)
-    )
-    enabled = disabled.model_copy(update={"http3_enabled": True})
-
-    baseline = encode_snapshot([], [], [], [disabled])
-    assert encode_snapshot([], [], [], [disabled]) == baseline
-    assert encode_snapshot([], [], [], [enabled]) != baseline
+    tls = {
+        "ssl_mode": "flexible",
+        "certificate_mode": "existing",
+        "certificate_path": "/etc/ssl/certs/edge.pem",
+        "certificate_key_path": "/etc/ssl/private/edge.key",
+    }
+    baseline = _snapshot_of(**tls, http3_enabled=False)
+    assert _snapshot_of(**tls, http3_enabled=False) == baseline
+    assert _snapshot_of(**tls, http3_enabled=True) != baseline
 
 
 def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():
@@ -736,7 +757,7 @@ _SET_ELSEWHERE = frozenset(
 def test_every_patchable_field_can_be_reached_from_the_command_line():
     """The fourth register of the site document, and the one nothing checked.
 
-    A site setting exists in the domain model, in `SitePatch`, in the API model
+    A site setting exists in the domain model, in `DomainPatch`, in the API model
     and in `blitzecdn_nginx`'s argument spec, and all four are held in step —
     `_assert_patch_covers_policy` at import, the Ansible spec in
     `tests/contract/`. The CLI was the fifth and had no such check, so a
@@ -754,19 +775,19 @@ def test_every_patchable_field_can_be_reached_from_the_command_line():
     happened, and it is worth one cheap assertion.
     """
     named: set[str] = set()
-    for path in (SOURCE / "capabilities/sites/cli").glob("*.py"):
+    for path in (SOURCE / "capabilities/dns/cli").glob("*.py"):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.keyword) and node.arg:
                 named.add(node.arg)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 named.add(node.value)
 
-    unreachable = sorted(set(SitePatch.model_fields) - named - _SET_ELSEWHERE)
+    unreachable = sorted(set(DomainPatch.model_fields) - named - _SET_ELSEWHERE)
     assert unreachable == [], (
-        f"no `blitzecdn site` command mentions {unreachable}. Add one, or add "
+        f"no `blitzecdn domain` command mentions {unreachable}. Add one, or add "
         "the field to _SET_ELSEWHERE with the reason it is not an operator's "
         "to set."
     )
-    assert set(SitePatch.model_fields) >= _SET_ELSEWHERE, (
+    assert set(DomainPatch.model_fields) >= _SET_ELSEWHERE, (
         "_SET_ELSEWHERE names a field that no longer exists"
     )

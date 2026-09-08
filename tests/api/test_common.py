@@ -21,12 +21,12 @@ def test_health_is_public_and_controls_require_auth(settings):
     with TestClient(control_plane_app(settings)) as client:
         assert client.get("/health").json() == {"status": "ok"}
         assert client.get("/metrics").status_code == 401
-        assert client.get("/v1/sites").status_code == 401
-        wrong = client.get("/v1/sites", headers={"X-API-Key": "wrong"})
+        assert client.get("/v1/hosts").status_code == 401
+        wrong = client.get("/v1/hosts", headers={"X-API-Key": "wrong"})
         assert wrong.status_code == 401
         assert wrong.headers["WWW-Authenticate"] == "ApiKey"
         assert (
-            client.get("/v1/sites", headers={"X-API-Key": "x" * 32}).status_code == 200
+            client.get("/v1/hosts", headers={"X-API-Key": "x" * 32}).status_code == 200
         )
 
 
@@ -80,7 +80,7 @@ def test_openapi_declares_the_api_key_as_a_security_scheme(settings):
 def test_api_fails_closed_without_keys(settings):
     insecure = settings.model_copy(update={"api_keys": {}})
     with TestClient(create_app(insecure)) as client:
-        assert client.get("/v1/sites").status_code == 503
+        assert client.get("/v1/hosts").status_code == 503
 
 
 _HEADERS = {"X-API-Key": "x" * 32}

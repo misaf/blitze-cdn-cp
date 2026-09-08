@@ -26,6 +26,7 @@ from pydantic import Field, model_validator
 from blitzecdn.api.models import Model
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.dns.domain import CdnSite as DomainCdnSite
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
 from blitzecdn.capabilities.dns.domain import DomainPatch as DomainDomainPatch
@@ -146,14 +147,14 @@ class RecordType(StrEnum):
 
 
 class DnsRecord(Model):
-    """A record: an address of its own, or the site that answers for it."""
+    """A record: an address of its own, or a hostname the edge answers for."""
 
     domain: str
     name: str
     type: Literal["A", "AAAA"] = "A"
     value: str | None = None
     ttl: int = Field(default=300, ge=1, le=604800)
-    site: str | None = None
+    proxied: bool = True
 
     @model_validator(mode="after")
     def valid_record(self) -> Self:
@@ -169,14 +170,36 @@ class DnsRecord(Model):
 
 
 class RecordPatch(Model):
-    """Send ``site`` as ``null`` together with a ``value`` to unroute a name."""
+    """Send ``proxied`` and ``value`` together to move a hostname either way.
+
+    Off the edge is ``{"proxied": false, "value": "203.0.113.9"}``; back onto
+    it is ``{"proxied": true, "value": null}``. Neither half is a valid record
+    on its own, so both go in one request.
+    """
 
     value: str | None = None
     ttl: int | None = Field(default=None, ge=1, le=604800)
-    site: str | None = None
+    proxied: bool | None = None
 
     def to_domain(self) -> DomainRecordPatch:
         return DomainRecordPatch.model_validate(self.model_dump(exclude_unset=True))
+
+
+class CdnSite(ZonePolicy):
+    """One virtual host, as the fleet will be asked to serve it.
+
+    Published without the two identity fields a zone has, and with the two a
+    host has instead: ``name`` is derived from the zone and the rule that
+    produced it, and ``server_names`` is the hostnames that resolved here.
+    """
+
+    name: str
+    server_names: tuple[str, ...]
+    origin_host: str
+
+    @classmethod
+    def from_domain(cls, value: DomainCdnSite) -> Self:
+        return cls.model_validate(value.model_dump(mode="json"))
 
 
 class RuleBody(Model):
@@ -278,6 +301,7 @@ class ResolvedPolicy(Model):
 
 
 __all__ = [
+    "CdnSite",
     "DnsRecord",
     "Domain",
     "DomainPatch",

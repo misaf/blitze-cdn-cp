@@ -21,7 +21,7 @@ from fastapi import APIRouter
 from paths import PACKAGES, REPO_ROOT, SOURCE
 from typer import Typer
 
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
@@ -109,7 +109,7 @@ def platform() -> SimpleNamespace:
 def site(**overrides: object) -> CdnSite:
     return CdnSite.model_validate(
         {
-            "name": "cdn-example-com",
+            "name": "example-com",
             "server_names": ["cdn.example.com"],
             "origin_host": "198.51.100.10",
             "compression": "off",
@@ -168,7 +168,7 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
     of `SslMode`. Each name here would be a plausible package, and each belongs
     inside one that already exists.
     """
-    for capability in ("http", "tls", "sites"):
+    for capability in ("http", "tls", "dns"):
         assert capability in builtins
         assert f"blitzecdn.capabilities.{capability}.plugin" in BUILTIN_PLUGINS
 
@@ -452,8 +452,8 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(builtins):
     differ, which is what lets a replacement implementation answer for a token
     another package used to supply, under its own name.
     """
-    assert "sites" in builtins.capabilities
-    assert builtins.missing(["sites", "waf"]) == ("waf",)
+    assert "dns" in builtins.capabilities
+    assert builtins.missing(["dns", "waf"]) == ("waf",)
 
     register_external(builtins._manager, points=[entry_point("waf", "external")])
     metadata = PluginMetadata(
@@ -472,15 +472,15 @@ def test_requiring_a_capability_nothing_provides_names_it(builtins):
     available" without the second half leaves an operator unable to tell a
     typo from an uninstalled package.
     """
-    builtins.require(["sites"], subject="a test")
+    builtins.require(["dns"], subject="a test")
 
     with pytest.raises(PluginError) as failure:
-        builtins.require(["sites", "waf"], subject="this installation")
+        builtins.require(["dns", "waf"], subject="this installation")
 
     message = str(failure.value)
     assert "waf" in message
     assert "this installation" in message
-    assert "sites" in message
+    assert "dns" in message
     assert "compression" not in message.split("Installed capabilities:")[0]
 
 
@@ -519,16 +519,14 @@ def test_contributions_come_back_in_registration_order(builtins):
     register_external(builtins._manager, points=[entry_point("waf", "external")])
     names = [group.name for group in builtins.cli_commands()]
 
-    assert names.index("site") < names.index("edge") < names.index("waf")
+    assert names.index("domain") < names.index("edge") < names.index("waf")
 
 
 # --- merging desired state --------------------------------------------------
 
 
 def test_a_declared_override_wins_wherever_it_registered():
-    base = SiteStateContribution(
-        plugin="sites", variables={"certificate_path": "/model"}
-    )
+    base = SiteStateContribution(plugin="dns", variables={"certificate_path": "/model"})
     override = SiteStateContribution(
         plugin="certificates",
         variables={"certificate_path": "/real"},
@@ -581,7 +579,7 @@ def test_an_override_of_a_variable_nobody_else_writes_is_allowed():
 
 def test_fleet_variables_merge_under_the_same_rule():
     contributions = [
-        FleetStateContribution(plugin="sites", variables={"a": True}),
+        FleetStateContribution(plugin="dns", variables={"a": True}),
         FleetStateContribution(plugin="waf", variables={"b": False}),
     ]
 

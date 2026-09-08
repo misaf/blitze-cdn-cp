@@ -9,6 +9,7 @@ import os
 import re
 import shutil
 import subprocess
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
@@ -17,10 +18,16 @@ import yaml
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    Rule,
+    SitePolicy,
+)
+from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.sites.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.sites.domain import CdnSite, SitePolicy
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
@@ -28,6 +35,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
 from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.exceptions import ConflictError
 
 jinja2 = pytest.importorskip("jinja2")
 
@@ -261,19 +269,37 @@ def run_role_tasks(
 
 
 def _seed_site(repository, *, name, label, origin, **policy):
-    """One site and the record that routes a hostname to it.
+    """A zone carrying the policy, and one proxied hostname in it.
 
     Written through the stores rather than the services because these fixtures
     describe *state*, not the operations that produce it, and the desired-state
-    document is what is under test. The hostname is stamped explicitly for the
-    same reason: `dns` maintains that column and no service is involved here.
+    document is what is under test.
+
+    ``name`` is the host the caller expects to be derived. There is no site to
+    create under that name any more, so it decides whether the policy goes on
+    the zone or on a rule: ``example-com`` is the zone's own, and anything else
+    becomes a rule matching this hostname.
     """
-    repository.sites.create_site(
-        CdnSite.model_validate({"name": name, "origin_host": origin, **policy})
-    )
-    record = DnsRecord(domain="example.com", name=label, site=name)
-    repository.zones.create_record(record)
-    repository.sites.set_server_names(name, (record.fqdn,))
+    zone = "example.com"
+    with suppress(ConflictError):
+        repository.zones.create_domain(Domain(name=zone))
+    if name == host_name(zone, None):
+        current = repository.zones.get_domain(zone)
+        repository.zones.replace_domain(
+            Domain.model_validate(
+                {**current.model_dump(), "origin_host": origin, **policy}
+            )
+        )
+    else:
+        repository.rules.create_rule(
+            Rule(
+                domain=zone,
+                name=name.removeprefix(f"{host_name(zone, None)}--"),
+                match=f"{label}.{zone}",
+                overrides={"origin_host": origin, **policy},
+            )
+        )
+    repository.zones.create_record(DnsRecord(domain=zone, name=label))
 
 
 @pytest.fixture
@@ -283,7 +309,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     repository.zones.create_domain(Domain(name="example.com"))
     _seed_site(
         repository,
-        name="cdn-example-com",
+        name="example-com",
         label="cdn",
         origin="198.51.100.20",
         **{

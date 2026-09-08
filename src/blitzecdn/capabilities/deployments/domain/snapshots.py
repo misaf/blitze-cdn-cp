@@ -1,14 +1,20 @@
 """The desired state a deployment converges, and can be rolled back to.
 
 A snapshot is the whole of canonical desired state at one instant: the zones,
-the rules that override their policy, their records, and the sites those
-records route to. A deployment records one and converges it; a rollback reads
-an older one back.
+the rules that override their policy, and the records in them. A deployment
+records one and converges it; a rollback reads an older one back.
 
-The rules are in it for a reason worth stating: a rollback deletes the zone
-rows and writes them again, and a rule is keyed to its zone with ON DELETE
-CASCADE. A snapshot that did not carry them would not merely fail to restore
-them — it would take every rule in the installation with it.
+There is no ``sites`` section and there is deliberately no place to add one.
+The virtual hosts an edge serves are derived from those three, so writing them
+down would put a second, older answer beside the state they come from — and a
+rollback restoring both would be restoring a document that could disagree with
+itself. ``decode_snapshot`` derives them on the way out instead, which is why
+an old snapshot converges to what the *current* derivation makes of it.
+
+The rules are in it for a sharper reason: a rollback deletes the zone rows and
+writes them again, and a rule is keyed to its zone with ON DELETE CASCADE. A
+snapshot that did not carry them would not merely fail to restore them — it
+would take every rule in the installation with it.
 
 The schema version is written down because a snapshot outlives the run that
 made it — an older successful deployment is a rollback target for as long as it
@@ -23,26 +29,26 @@ import hashlib
 import json
 from typing import Any
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
-from blitzecdn.capabilities.sites.domain import CdnSite
+from blitzecdn.capabilities.dns.domain import (
+    CdnSite,
+    DnsRecord,
+    Domain,
+    Rule,
+    derive_hosts,
+)
 
 SNAPSHOT_SCHEMA_VERSION = 1
 
-_SECTIONS = ("domains", "records", "rules", "sites")
+_SECTIONS = ("domains", "records", "rules")
 
 
 def encode_snapshot(
-    domains: list[Domain],
-    records: list[DnsRecord],
-    rules: list[Rule],
-    sites: list[CdnSite],
+    domains: list[Domain], records: list[DnsRecord], rules: list[Rule]
 ) -> str:
     """Serialise the desired state a deployment converges and can roll back to.
 
-    All four, because all four are canonical. Sites are written down rather
-    than derived from the records on read: a site no record routes to yet is
-    desired state that no record mentions. Rules are written down for the
-    sharper reason in the module docstring.
+    Three sections, because three things are canonical. What an edge serves is
+    not among them; see the module docstring.
     """
     return json.dumps(
         {
@@ -50,7 +56,6 @@ def encode_snapshot(
             "domains": [domain.model_dump(mode="json") for domain in domains],
             "records": [record.model_dump(mode="json") for record in records],
             "rules": [rule.model_dump(mode="json") for rule in rules],
-            "sites": [site.model_dump(mode="json") for site in sites],
         },
         sort_keys=True,
     )
@@ -69,20 +74,20 @@ def snapshot_digest(snapshot: str) -> str:
 
 
 def decode_snapshot(snapshot: str) -> list[CdnSite]:
-    """Return the sites a snapshot converges."""
-    return decode_snapshot_state(snapshot)[3]
+    """The virtual hosts a snapshot converges, derived from what it holds."""
+    domains, records, rules = decode_snapshot_state(snapshot)
+    return derive_hosts(domains, rules, records)
 
 
 def decode_snapshot_state(
     snapshot: str,
-) -> tuple[list[Domain], list[DnsRecord], list[Rule], list[CdnSite]]:
-    """Everything a rollback restores: zones, records, rules, and sites."""
+) -> tuple[list[Domain], list[DnsRecord], list[Rule]]:
+    """Everything a rollback restores: zones, records, and rules."""
     document = _document(snapshot)
     return (
         [Domain.model_validate(item) for item in document["domains"]],
         [DnsRecord.model_validate(item) for item in document["records"]],
         [Rule.model_validate(item) for item in document["rules"]],
-        [CdnSite.model_validate(item) for item in document["sites"]],
     )
 
 

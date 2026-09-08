@@ -1,6 +1,6 @@
 """How the edges capability is built.
 
-The same shape as :mod:`blitzecdn.capabilities.sites.composition`.
+The same shape as :mod:`blitzecdn.capabilities.dns.composition`.
 """
 
 from __future__ import annotations

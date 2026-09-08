@@ -34,7 +34,7 @@ from blitzecdn.core.runtime.resources import package_directory
 from blitzecdn_http3 import __version__, ansible
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.capabilities.sites.domain import CdnSite
+    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.composition import ControlPlane
 
 #: The two fleet variables this capability owns the value of. Named once

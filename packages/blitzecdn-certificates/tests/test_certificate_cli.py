@@ -49,7 +49,7 @@ def _store(settings):
 
 def _seed_certificate(control, certificate_pair, *, days):
     """Create the site a certificate has to belong to, and upload one."""
-    site = seed_site(control, name="cdn-example-com", record="cdn", operator="cli")
+    site = seed_site(control, name="example-com", record="cdn", operator="cli")
     certificate, key = certificate_pair((site.server_names[0],), days=days)
     control.certificates.upload_certificate(site.name, certificate, key, "cli")
     return site.name
@@ -182,7 +182,7 @@ def test_cert_renew_points_at_the_deploy_that_installs_the_result(
     monkeypatch.setattr(
         control.certificates,
         "renew_certificates",
-        lambda *a, **k: _renewal(renewed=["cdn-example-com"]),
+        lambda *a, **k: _renewal(renewed=["example-com"]),
     )
 
     result = runner.invoke(cli.app, ["cert", "renew"])
@@ -226,7 +226,7 @@ def test_cert_renew_reports_skipped_certificates_without_failing(settings, monke
     monkeypatch.setattr(
         control.certificates,
         "renew_certificates",
-        lambda *a, **k: _renewal(skipped=["cdn-example-com: was uploaded"]),
+        lambda *a, **k: _renewal(skipped=["example-com: was uploaded"]),
     )
 
     result = runner.invoke(cli.app, ["cert", "renew"])
@@ -280,14 +280,14 @@ def test_cert_renew_can_deploy_successful_renewals(settings, monkeypatch):
     monkeypatch.setattr(
         control.certificates,
         "renew_certificates",
-        lambda *a, **k: _renewal(renewed=["cdn-example-com"]),
+        lambda *a, **k: _renewal(renewed=["example-com"]),
     )
 
     result = runner.invoke(cli.app, ["cert", "renew", "--deploy", "--json"])
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["renewed"] == ["cdn-example-com"]
+    assert payload["renewed"] == ["example-com"]
     assert payload["deployment"]["status"] == "succeeded"
 
 
@@ -296,7 +296,7 @@ def test_cert_renew_does_not_deploy_after_a_failed_renewal(settings, monkeypatch
     monkeypatch.setattr(
         control.certificates,
         "renew_certificates",
-        lambda *a, **k: _renewal(failed=["cdn-example-com: CA said no"]),
+        lambda *a, **k: _renewal(failed=["example-com: CA said no"]),
     )
 
     result = runner.invoke(cli.app, ["cert", "renew", "--deploy", "--json"])
@@ -344,7 +344,7 @@ def test_cert_preflight_reports_each_check_and_exits_zero_when_ready(
     control = _control(settings, monkeypatch)
     _seed_certificate(control, certificate_pair, days=30)
 
-    result = runner.invoke(cli.app, ["cert", "preflight", "cdn-example-com"])
+    result = runner.invoke(cli.app, ["cert", "preflight", "example-com"])
 
     assert result.exit_code == 0
     assert "ready for issuance" in result.output
@@ -357,7 +357,7 @@ def test_cert_preflight_exits_three_and_names_the_blocking_check(
     control = _control(settings, monkeypatch, preflight=FakePreflight(("dns", "caa")))
     _seed_certificate(control, certificate_pair, days=30)
 
-    result = runner.invoke(cli.app, ["cert", "preflight", "cdn-example-com"])
+    result = runner.invoke(cli.app, ["cert", "preflight", "example-com"])
 
     assert result.exit_code == cli.ExitCode.CONFIGURATION
     assert "dns" in result.output
@@ -370,10 +370,10 @@ def test_cert_preflight_emits_json_for_a_machine_caller(
     control = _control(settings, monkeypatch, preflight=FakePreflight(("dns",)))
     _seed_certificate(control, certificate_pair, days=30)
 
-    result = runner.invoke(cli.app, ["cert", "preflight", "cdn-example-com", "--json"])
+    result = runner.invoke(cli.app, ["cert", "preflight", "example-com", "--json"])
 
     assert result.exit_code == cli.ExitCode.CONFIGURATION
     document = json.loads(result.stdout)
-    assert document["site"] == "cdn-example-com"
+    assert document["site"] == "example-com"
     assert document["checks"][0]["name"] == "dns"
     assert document["checks"][0]["severity"] == "blocking"

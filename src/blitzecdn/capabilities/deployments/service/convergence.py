@@ -54,7 +54,6 @@ from blitzecdn.capabilities.deployments.ports import (
     LogReader,
     QueueBackgroundRunner,
     RuleRestore,
-    SiteRestore,
     SiteValidator,
     UnitOfWork,
     Workflows,
@@ -90,8 +89,7 @@ class DeploymentPersistence:
 
     deployments: DeploymentStore
     zones: ZoneStore
-    #: Only a rollback writes to either, and only wholesale.
-    sites: SiteRestore
+    #: Only a rollback writes here, and only wholesale.
     rules: RuleRestore
     uow: UnitOfWork
     requirements: DeploymentRequirements
@@ -506,11 +504,7 @@ class DeploymentService:
                     self.persistence.deployments, deployment
                 )
                 rollback_policy.adopt_snapshot(
-                    self.persistence.zones,
-                    self.persistence.sites,
-                    self.persistence.rules,
-                    self.dns,
-                    snapshot,
+                    self.persistence.zones, self.persistence.rules, snapshot
                 )
             deployment = self.persistence.deployments.transition(
                 deployment.id,
