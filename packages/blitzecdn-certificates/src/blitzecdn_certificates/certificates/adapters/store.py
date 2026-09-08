@@ -248,6 +248,20 @@ class CertbotIssuer:
             f"{hook} absent",
             "--non-interactive",
             "--agree-tos",
+            # Certbot's default is `--keep-until-expiring`: given an existing
+            # lineage that is not near expiry it prints "Certificate not yet
+            # due for renewal", exits 0, and leaves `live/` untouched. This
+            # adapter then reads the *old* PEM back and returns it as freshly
+            # issued, so a renewal reports success, stores the same
+            # fingerprint, and changes nothing on any edge.
+            #
+            # Whether a certificate is due is this product's decision, taken
+            # before `issue` is ever called -- by the renewal threshold, or by
+            # an operator passing `--force`. Certbot re-making that decision
+            # from its own view of expiry can only silently overrule the
+            # caller, never inform it, because "kept" and "issued" are the
+            # same exit code and the same files.
+            "--force-renewal",
             "--email",
             email,
             "--cert-name",

@@ -201,6 +201,9 @@ def test_certbot_issuer_builds_http01_command(
     assert result == (certificate, key)
     assert "--manual-auth-hook" in captured
     assert captured[captured.index("--domain") + 1] == "cdn.example.com"
+    # Certbot keeps a lineage that is not near expiry and still exits 0, so
+    # without this a renewal reads the old PEM back and reports success.
+    assert "--force-renewal" in captured
 
 
 def test_certbot_issuer_rejects_wildcards_and_reports_failure(
