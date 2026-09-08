@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Run the whole installer lifecycle against a throwaway container.
 #
-#   tests/container-install.sh debian:13
+#   tests/container-install.sh ubuntu:26.04
 #
 # This is the only test that exercises what `install.sh standalone` actually
 # does. Everything else asserts on the script's shape or runs it in a sandbox
 # with the privileged commands stubbed, because provisioning needs root and a
 # real init. Here it gets both: systemd as PID 1, a real apt, real accounts.
 #
-# It also checks the supported fresh-edge platform contract against a real OS.
+# It also checks the supported fresh-edge platform contract against a real OS,
+# which is why the example above names Ubuntu and CI runs nothing else: a
+# standalone host is an edge too, and the edge platform is the narrower one.
 #
 # Requires Docker and about five minutes per image.
 set -Eeuo pipefail
@@ -16,6 +18,12 @@ set -Eeuo pipefail
 readonly IMAGE=${1:?usage: container-install.sh IMAGE}
 readonly ADMIN_CIDR=203.0.113.8/32
 readonly ACME_EMAIL=ops@example.com
+# The API access list, and the one a later run repoints it to. Neither contains
+# this container's own address on purpose: the gate has to refuse a peer that
+# is not on the list, and a list that happened to include the only address the
+# harness can call from would prove nothing.
+readonly ALLOWED_IPS=203.0.113.8/32,198.51.100.0/24
+readonly REPOINTED_IPS=198.51.100.0/24
 # A CA that speaks ACME, for the issuance stage. Pinned rather than :latest —
 # a harness that silently follows someone else's release is one that fails on a
 # commit that did not touch it.
@@ -111,7 +119,7 @@ docker cp "${archive}" "${container}:/root/source.tgz" >/dev/null
 in_container 'tar -xzf /root/source.tgz -C /opt/blitzecdn' 2>/dev/null
 
 say "Installing"
-if ! in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}"; then
+if ! in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${ALLOWED_IPS}"; then
   # Preserve the evidence before the EXIT trap removes the disposable host.
   # This catches corrupt source/package copies that otherwise surface only as
   # an opaque import error several layers inside the installer.
@@ -158,6 +166,29 @@ in_container 'test -f /var/lib/blitzecdn/permission-test.db && rm -f /var/lib/bl
 in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outside the checkout"
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
 
+say "Checking the API access list the installer was given"
+# The one place this is asserted by running it. Everywhere else the feature is
+# checked on shape -- the flag parses, the role has the task, the rule set
+# composes -- and none of that executes the template branch, the listener's
+# binding decision, or the gate. Here all four are one chain: the flag reached
+# the role, the role wrote the file, the API read it, and the gate is deciding.
+in_container "grep -qx 'BLITZE_ALLOWED_IPS=${ALLOWED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
+  fail "the installer did not seed the API access list"
+in_container "cd / && blitzecdn doctor --json | grep -q '203.0.113.8/32'" ||
+  fail "doctor does not report the API access list"
+# A non-empty list binds the listener publicly, so a request to this host's own
+# address connects -- and is then refused by the gate, because that address is
+# not on the list. The two failures are different and only one of them is this
+# assertion passing: a listener still on loopback would fail to connect, which
+# is why the code is compared rather than the exit status.
+# shellcheck disable=SC2016
+in_container 'test "$(curl -s -o /dev/null -w "%{http_code}" "http://$(hostname):8000/health")" = 403' ||
+  fail "the API did not refuse an unlisted client on its public address"
+# And the exemption the gate makes for itself, which is what keeps the health
+# check and an SSH tunnel working after the list changes.
+in_container 'curl -sf http://127.0.0.1:8000/health >/dev/null' ||
+  fail "the API stopped answering on loopback"
+
 say "Seeding the edge runtime image this host will run"
 # The edge is a container now, so converging one needs an image before the
 # first deploy — and CI must test the commit under review rather than a
@@ -174,10 +205,17 @@ docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/src/blitzec
 
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null' ||
   fail "could not install the Docker repository prerequisites"
-in_container 'install -d -m 0755 /etc/apt/keyrings && curl -fsSL --proto "=https" --tlsv1.2 https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && chmod 0644 /etc/apt/keyrings/docker.asc' ||
+# Both URLs carry the running distribution, exactly as the play composes them
+# from `ansible_distribution | lower`. They were spelled `linux/ubuntu` here,
+# so the Debian image this script's own usage line names asked Docker's Ubuntu
+# repository for a suite named `trixie` and got no Release file -- a harness
+# that could only ever have reached this stage on Ubuntu, while claiming to
+# seed the repository the way the role does.
+# shellcheck disable=SC2016
+in_container 'install -d -m 0755 /etc/apt/keyrings && curl -fsSL --proto "=https" --tlsv1.2 "https://download.docker.com/linux/$(. /etc/os-release && printf %s "${ID}")/gpg" -o /etc/apt/keyrings/docker.asc && chmod 0644 /etc/apt/keyrings/docker.asc' ||
   fail "could not fetch the Docker signing key"
 # shellcheck disable=SC2016
-in_container 'printf "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n" "$(. /etc/os-release && printf %s "${VERSION_CODENAME}")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources' ||
+in_container 'printf "Types: deb\nURIs: https://download.docker.com/linux/%s\nSuites: %s\nComponents: stable\nArchitectures: %s\nSigned-By: /etc/apt/keyrings/docker.asc\n" "$(. /etc/os-release && printf %s "${ID}")" "$(. /etc/os-release && printf %s "${VERSION_CODENAME}")" "$(dpkg --print-architecture)" > /etc/apt/sources.list.d/docker.sources' ||
   fail "could not configure the Docker repository"
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin >/dev/null' ||
   fail "could not install Docker Engine"
@@ -618,9 +656,28 @@ in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps 
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps --status running --services | grep -qx blitzecdn-worker' ||
   fail "Compose cannot discover the worker recreated through the Docker SDK"
 
+say "Repointing the API access list"
+# The environment file is written once and never rewritten, so this is the
+# other half of the flag: on a host that already has one, the access list is
+# converged rather than seeded. Without it --allowed-ips would work on a first
+# installation and silently do nothing ever after.
+in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${REPOINTED_IPS}" ||
+  fail "the installer could not repoint the API access list"
+in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
+  fail "the access list was not repointed"
+in_container "grep -c '^BLITZE_ALLOWED_IPS=' /etc/blitzecdn/blitzecdn.env | grep -qx 1" ||
+  fail "repointing the access list left more than one assignment behind"
+# Still the operator's credential, on a run that rewrote a line of their file.
+in_container 'grep -q "^BLITZE_API_KEYS=operator:" /etc/blitzecdn/blitzecdn.env' ||
+  fail "repointing the access list disturbed the API credential"
+
 say "Re-running the installer"
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
   fail "the installer is not re-runnable on ${IMAGE}"
+# Omitting the flag is not the same as clearing the list. A routine re-run must
+# leave who may reach the API exactly as the operator left it.
+in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
+  fail "a run without --allowed-ips changed the access list"
 
 say "Checking the updater refuses a checkout it cannot verify"
 # The working tree is copied in here rather than cloned, so this host has no
