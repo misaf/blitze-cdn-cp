@@ -404,8 +404,14 @@ def plugin_abi_surface() -> str:
         signature = inspect.signature(function)
         lines.append(_line(ROOT, "hook", f"{name}{_signature(signature)}"))
 
+    # Any module of the `types` package, not just its facade: the classes are
+    # defined in one module per hook family and re-exported, so `__module__` is
+    # `...types.ansible` rather than `...types`. The test is still "declared
+    # here rather than imported", which is what keeps `Path` and `Typer` out.
     for name, declared in sorted(vars(types).items()):
-        if not inspect.isclass(declared) or declared.__module__ != types.__name__:
+        if not inspect.isclass(declared) or not declared.__module__.startswith(
+            types.__name__
+        ):
             continue
         if dataclasses.is_dataclass(declared):
             for field in dataclasses.fields(declared):
@@ -449,8 +455,20 @@ def _abi_frameworks(*modules: Any) -> list[str]:
     import sys
 
     imported: set[str] = set()
+    sources = []
     for module in modules:
-        tree = ast.parse(Path(inspect.getfile(module)).read_text(encoding="utf-8"))
+        # A package here is read whole. `types` is one module per hook family
+        # behind a facade, and the facade imports none of the libraries the
+        # ABI is expressed in — reading only `__init__.py` would report that a
+        # contract carrying a `Typer` is written against nothing.
+        path = Path(inspect.getfile(module))
+        sources.extend(
+            sorted(path.parent.glob("*.py"))
+            if module.__file__ and path.name == "__init__.py"
+            else [path]
+        )
+    for source in sources:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 imported.update(alias.name.split(".")[0] for alias in node.names)
