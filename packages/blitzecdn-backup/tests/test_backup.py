@@ -985,6 +985,35 @@ def test_cli_restore_needs_confirmation_and_says_what_it_did(cli_settings):
     assert "Restored: tls" in accepted.stdout
 
 
+def test_restoring_configuration_says_the_firewall_is_still_behind(
+    cli_settings, tmp_path
+):
+    """The archive moves the access list; nothing moves the rules with it.
+
+    `BLITZE_ALLOWED_IPS` is portable, so a restore replaces who the API answers
+    while the host goes on admitting packets for the list it was converged
+    against. The installer reconciles the two and nothing else does, so the
+    restore says so rather than leaving it to be discovered -- the same reason
+    it already names `blitzecdn deploy` for the edges. A tls-only restore
+    carries no configuration and must stay quiet.
+    """
+
+    def restore(component: str) -> str:
+        # Named archives rather than the default directory: the default name is
+        # a timestamp to the second, and these two are written in the same one.
+        archive = tmp_path / f"{component}.tar.gz"
+        created = runner.invoke(
+            cli.app, ["backup", "create", "--only", component, "-o", str(archive)]
+        )
+        assert created.exit_code == 0, created.output
+        return runner.invoke(
+            cli.app, ["backup", "restore", str(archive), "--yes"]
+        ).stdout
+
+    assert "install.sh update" in restore("config")
+    assert "install.sh update" not in restore("tls")
+
+
 def test_the_legacy_database_backup_command_is_not_registered(cli_settings):
     result = runner.invoke(cli.app, ["db", "backup"])
     assert result.exit_code != 0
