@@ -15,8 +15,8 @@ import os
 import shlex
 import shutil
 import tempfile
-from collections.abc import Mapping, Sequence
 from contextlib import suppress
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -26,15 +26,39 @@ import ansible_runner  # type: ignore[import-untyped]
 from ansible_runner import (
     exceptions as runner_exceptions,
 )
-from pydantic import SecretStr
 
+from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.ansible.events import RunnerEvents
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun, HostRun, RunStatus
 from blitzecdn.core.exceptions import ExecutionError
-from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
 
-__all__ = ["PlaybookExecutor"]
+__all__ = ["PlaybookExecutor", "PlaybookRun"]
+
+
+@dataclass(frozen=True, slots=True)
+class PlaybookRun:
+    """One play to run, and the bounds to run it under.
+
+    The caller's whole request, so that `execute` and the Runner call beneath
+    it pass one object rather than restating six parameters each — which is
+    how a `check` run came to be describable in two places that could disagree.
+    """
+
+    playbook: Path
+    variables: Path
+    limit: str
+    timeout: int
+    #: Ansible's `--check --diff`: report what would change, change nothing.
+    check: bool = False
+    #: `--syntax-check`: parse the play and execute nothing. Mutually
+    #: exclusive with `check`, and it wins — a parse is the cheaper answer and
+    #: a run that cannot parse has nothing to report about hosts.
+    syntax_check: bool = False
+    #: The hosts `limit` expands to, recorded on the result so a partial
+    #: rollout says which edges it reached.
+    targeted: tuple[str, ...] = ()
+
 
 #: Exit code recorded for a run killed at its timeout, matching the shell
 #: convention for a process ended by a signal after a deadline.
@@ -45,54 +69,17 @@ class PlaybookExecutor:
     """Runs one playbook and returns the structured account of what happened."""
 
     def __init__(
-        self,
-        settings: Settings,
-        roles_path: Sequence[Path],
-        capability_roles: Sequence[str] = (),
-        host_capability_roles: Sequence[str] = (),
-        teardown_capability_roles: Sequence[str] = (),
-        nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
-        edge_modules: Sequence[ResolvedEdgeModule] = (),
-        capability_environment: Mapping[str, SecretStr] | None = None,
+        self, settings: Settings, contributions: EdgeContributions | None = None
     ) -> None:
         self._settings = settings
-        #: Where Ansible resolves a role name, composed by
-        #: :func:`blitzecdn.core.plugins.resolution.resolve_role_search_path` from
-        #: core's roles and the installed plugins'. Passed in rather than read
-        #: from configuration because it is a fact about what is *installed*,
-        #: which only the composition root knows.
-        self._roles_path = tuple(roles_path)
-        #: Which contributed roles the edge play runs, from the same source.
-        self._capability_roles = tuple(capability_roles)
-        #: And which it runs in its host slot, after the edge is serving.
-        self._host_capability_roles = tuple(host_capability_roles)
-        #: And which the decommission play runs before core's teardown, to
-        #: take a capability's own files off a host that is leaving.
-        self._teardown_capability_roles = tuple(teardown_capability_roles)
-        self._nginx_resources = {
-            context: tuple(resources)
-            for context, resources in (nginx_resources or {}).items()
-        }
-        #: The Nginx dynamic modules the installed capabilities need loaded,
-        #: composed by
-        #: :func:`blitzecdn.core.plugins.resolution.resolve_edge_modules`. The
-        #: same kind of fact as the role slots, travelling the same way: it is
-        #: what is *installed*, so it is not desired state and never enters the
-        #: snapshot a rollback converges.
-        self._edge_modules = tuple(edge_modules)
-        self._capability_environment = dict(capability_environment or {})
+        #: What the installed capabilities add to a run: the role search path,
+        #: the three play slots, the Nginx fragments and modules, and the
+        #: secrets forwarded into Ansible's environment. Passed in rather than
+        #: resolved here because it is a fact about what is *installed*, which
+        #: only the composition root knows.
+        self._contributions = contributions or EdgeContributions()
 
-    def execute(
-        self,
-        *,
-        playbook: Path,
-        variables: Path,
-        limit: str,
-        timeout: int,
-        check: bool = False,
-        syntax_check: bool = False,
-        targeted: tuple[str, ...] = (),
-    ) -> AnsibleRun:
+    def execute(self, request: PlaybookRun) -> AnsibleRun:
         run_id = uuid4().hex
         started_at = datetime.now(UTC)
         log_path = self._settings.log_dir / f"{run_id}.log"
@@ -109,15 +96,10 @@ class PlaybookExecutor:
             with tempfile.TemporaryDirectory(dir=control_root) as control_path:
                 environment["ANSIBLE_SSH_CONTROL_PATH_DIR"] = control_path
                 result = self._run_ansible(
+                    request,
                     run_id=run_id,
                     artifact_root=artifact_root,
-                    playbook=playbook,
-                    variables=variables,
-                    limit=limit,
                     environment=environment,
-                    timeout=timeout,
-                    check=check,
-                    syntax_check=syntax_check,
                     event_handler=events,
                 )
         except BaseException:
@@ -145,35 +127,31 @@ class PlaybookExecutor:
         self._prune_logs()
         return AnsibleRun(
             id=run_id,
-            playbook=playbook.name,
+            playbook=request.playbook.name,
             status=status,
             return_code=return_code,
             started_at=started_at,
             finished_at=datetime.now(UTC),
             hosts=hosts,
-            targeted=targeted,
+            targeted=request.targeted,
             log_path=str(log_path),
             error=self._unreported_detail(status, hosts, log_path),
         )
 
     def _run_ansible(
         self,
+        request: PlaybookRun,
         *,
         run_id: str,
         artifact_root: Path,
-        playbook: Path,
-        variables: Path,
-        limit: str,
         environment: dict[str, str],
-        timeout: int,
-        check: bool,
-        syntax_check: bool,
         event_handler: RunnerEvents,
     ) -> Any:
         """Execute through Ansible Runner without exposing it above this adapter."""
+        resources_by_context = self._contributions.nginx_resources
         options = [
             "--extra-vars",
-            f"@{variables}",
+            f"@{request.variables}",
             # What is installed, on the command line rather than in the
             # variables file. The variables file for a deployment *is* the
             # desired-state snapshot — the document a rollback converges months
@@ -189,12 +167,12 @@ class PlaybookExecutor:
             "--extra-vars",
             json.dumps(
                 {
-                    "blitzecdn_capability_roles": list(self._capability_roles),
+                    "blitzecdn_capability_roles": list(self._contributions.edge_roles),
                     "blitzecdn_host_capability_roles": list(
-                        self._host_capability_roles
+                        self._contributions.host_roles
                     ),
                     "blitzecdn_edge_teardown_capability_roles": list(
-                        self._teardown_capability_roles
+                        self._contributions.teardown_roles
                     ),
                     "blitzecdn_nginx_modules": [
                         {
@@ -202,7 +180,7 @@ class PlaybookExecutor:
                             "name": module.name,
                             "objects": list(module.objects),
                         }
-                        for module in self._edge_modules
+                        for module in self._contributions.edge_modules
                     ],
                     "blitzecdn_nginx_resources": {
                         context: [
@@ -213,19 +191,19 @@ class PlaybookExecutor:
                             }
                             for resource in resources
                         ]
-                        for context, resources in self._nginx_resources.items()
+                        for context, resources in resources_by_context.items()
                     },
                 }
             ),
         ]
-        if syntax_check:
+        if request.syntax_check:
             options.append("--syntax-check")
-        elif check:
+        elif request.check:
             options.extend(("--check", "--diff"))
         # Supplying a custom binary puts Runner in raw execution mode, where it
         # deliberately does not append its `playbook` parameter. Keep the
         # configured executable support and make the playbook explicit.
-        options.append(str(playbook))
+        options.append(str(request.playbook))
         try:
             return ansible_runner.run(
                 private_data_dir=str(self._settings.state_dir),
@@ -233,12 +211,12 @@ class PlaybookExecutor:
                 artifact_dir=str(artifact_root),
                 ident=run_id,
                 inventory=str(self._settings.inventory_path),
-                limit=limit,
+                limit=request.limit,
                 binary=self._settings.ansible_playbook,
                 cmdline=shlex.join(options),
                 envvars=environment,
                 settings={"runner_mode": "subprocess"},
-                timeout=timeout,
+                timeout=request.timeout,
                 quiet=True,
                 suppress_env_files=True,
                 rotate_artifacts=0,
@@ -267,7 +245,7 @@ class PlaybookExecutor:
         # resolved, and set even when it holds only core's directory so a run
         # never depends on the cfg value and the env value agreeing.
         environment["ANSIBLE_ROLES_PATH"] = os.pathsep.join(
-            str(path) for path in self._roles_path
+            str(path) for path in self._contributions.roles_path
         )
         environment["ANSIBLE_LOCAL_TEMP"] = str(
             self._settings.state_dir / "ansible-local"
@@ -301,7 +279,7 @@ class PlaybookExecutor:
         # The environment, and not `--extra-vars`, because these are usually
         # credentials: an extra-var is in the process table for every user on
         # the controller, and in any file the run writes.
-        for name, value in self._capability_environment.items():
+        for name, value in self._contributions.environment.items():
             environment[name] = value.get_secret_value()
         return environment
 

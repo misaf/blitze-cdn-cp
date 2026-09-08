@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import shutil
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from pathlib import Path
 
-from pydantic import SecretStr
-
-from blitzecdn.core.ansible.execution import PlaybookExecutor
+from blitzecdn.core.ansible.contributions import EdgeContributions
+from blitzecdn.core.ansible.execution import PlaybookExecutor, PlaybookRun
 from blitzecdn.core.ansible.hosts import resolve_limit, targeted_hosts
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.ansible.variables import run_variables
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.plugins.resolution import ResolvedEdgeModule, ResolvedNginxResource
 from blitzecdn.core.ports.fleet import FleetRoster
 
 __all__ = ["AnsibleRunner"]
@@ -51,30 +49,19 @@ class AnsibleRunner:
         self,
         settings: Settings,
         fleet: FleetRoster,
-        roles_path: Sequence[Path] | None = None,
-        capability_roles: Sequence[str] = (),
-        host_capability_roles: Sequence[str] = (),
-        teardown_capability_roles: Sequence[str] = (),
-        nginx_resources: Mapping[str, Sequence[ResolvedNginxResource]] | None = None,
-        edge_modules: Sequence[ResolvedEdgeModule] = (),
-        capability_environment: Mapping[str, SecretStr] | None = None,
+        contributions: EdgeContributions | None = None,
     ) -> None:
         self._settings = settings
         self._fleet = fleet
         # Core's roles alone, and no capability roles, when nobody says
-        # otherwise. The composition root resolves both from the installed
-        # plugins and passes them; a test that only runs core's plays needs
-        # neither the registry nor a plugin manager to build a runner.
-        self._executor = PlaybookExecutor(
-            settings,
-            roles_path if roles_path is not None else (settings.ansible_dir / "roles",),
-            capability_roles=capability_roles,
-            host_capability_roles=host_capability_roles,
-            teardown_capability_roles=teardown_capability_roles,
-            nginx_resources=nginx_resources,
-            edge_modules=edge_modules,
-            capability_environment=capability_environment,
-        )
+        # otherwise. The composition root resolves what is installed and passes
+        # it; a test that only runs core's plays needs neither the registry nor
+        # a plugin manager to build a runner.
+        if contributions is None:
+            contributions = EdgeContributions(
+                roles_path=(settings.ansible_dir / "roles",)
+            )
+        self._executor = PlaybookExecutor(settings, contributions)
 
     def lock(self) -> DeploymentLock:
         return DeploymentLock(self._settings.deployment_lock_path)
@@ -93,23 +80,27 @@ class AnsibleRunner:
         """
         self._validate_paths()
         return self._executor.execute(
-            playbook=self._settings.playbook_path,
-            variables=variables,
-            limit=self._limit(None),
-            timeout=_PARSE_TIMEOUT,
-            syntax_check=True,
+            PlaybookRun(
+                playbook=self._settings.playbook_path,
+                variables=variables,
+                limit=self._limit(None),
+                timeout=_PARSE_TIMEOUT,
+                syntax_check=True,
+            )
         )
 
     def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun:
         self._validate_paths()
         limit = self._limit(host_limit)
         return self._executor.execute(
-            playbook=self._settings.playbook_path,
-            variables=self._settings.generated_vars_path,
-            limit=limit,
-            timeout=self._settings.deployment_timeout_seconds,
-            check=check,
-            targeted=targeted_hosts(self._fleet, limit),
+            PlaybookRun(
+                playbook=self._settings.playbook_path,
+                variables=self._settings.generated_vars_path,
+                limit=limit,
+                timeout=self._settings.deployment_timeout_seconds,
+                check=check,
+                targeted=targeted_hosts(self._fleet, limit),
+            )
         )
 
     def run_decommission(self, *, host_limit: str) -> AnsibleRun:
@@ -162,11 +153,13 @@ class AnsibleRunner:
             raise ConfigurationError(f"playbook does not exist: {playbook}")
         limit = self._limit(host_limit)
         return self._executor.execute(
-            playbook=playbook,
-            variables=variables,
-            limit=limit,
-            timeout=self._settings.deployment_timeout_seconds,
-            targeted=targeted_hosts(self._fleet, limit),
+            PlaybookRun(
+                playbook=playbook,
+                variables=variables,
+                limit=limit,
+                timeout=self._settings.deployment_timeout_seconds,
+                targeted=targeted_hosts(self._fleet, limit),
+            )
         )
 
     def _limit(self, host_limit: str | None) -> str:

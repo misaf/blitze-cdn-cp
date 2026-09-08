@@ -41,6 +41,7 @@ from blitzecdn.capabilities.maintenance.composition import build_maintenance_ser
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
+from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
 from blitzecdn.core.plugins import (
     HealthCheck,
@@ -205,29 +206,24 @@ class ControlPlane:
             self.settings.capability_config_file,
             self.settings.state_dir,
         )
-        self._runner = runner or AnsibleRunner(
-            self.settings,
-            # The fleet as core reads it: host names and the group they form.
-            # Core declares that port and `edges` satisfies it, so running a
-            # playbook does not make `core.ansible` import a capability.
-            EdgeRoster(self._edges_store),
-            # An installed capability's roles, alongside core's. This is the
-            # one place that knows both halves: the registry answers what is
-            # installed, `resolve_role_search_path` decides the order and
-            # refuses a role two packages both ship, and the runner is handed
-            # a finished list. Detaching a package removes its directory from
-            # this list with nothing in core edited.
-            resolve_role_search_path(
+        # What the installed capabilities add to a run, assembled once. This is
+        # the one place that knows both halves: the registry answers what is
+        # installed, and each resolver decides the order and refuses what
+        # cannot work — a role two packages both ship, a module nothing
+        # declared. Detaching a package empties its share of this with nothing
+        # in core edited.
+        edge_contributions = EdgeContributions.of(
+            roles_path=resolve_role_search_path(
                 self.settings.ansible_dir / "roles",
                 contributions,
             ),
-            # And which of those roles core's own plays run, in each of the
-            # three slots: two in the edge play, one in the decommission play.
-            # Four questions, one source — a package that ships a role only its
-            # own plays reach declares the directory and no slot at all.
-            capability_roles=resolve_edge_capability_roles(contributions),
-            host_capability_roles=resolve_host_capability_roles(contributions),
-            teardown_capability_roles=resolve_teardown_capability_roles(contributions),
+            # Which of those roles core's own plays run, in each of the three
+            # slots: two in the edge play, one in the decommission play. A
+            # package that ships a role only its own plays reach declares the
+            # directory and no slot at all.
+            edge_roles=resolve_edge_capability_roles(contributions),
+            host_roles=resolve_host_capability_roles(contributions),
+            teardown_roles=resolve_teardown_capability_roles(contributions),
             nginx_resources=nginx_resources,
             # And the dynamic modules those resources need loaded. The same
             # question one level down: a contributed `brotli` directive is a
@@ -235,7 +231,15 @@ class ControlPlane:
             # edge that loads one no installed capability asked for is the
             # image enumerating capabilities instead of the controller.
             edge_modules=edge_modules,
-            capability_environment=self.capability_config.environment,
+            environment=self.capability_config.environment,
+        )
+        self._runner = runner or AnsibleRunner(
+            self.settings,
+            # The fleet as core reads it: host names and the group they form.
+            # Core declares that port and `edges` satisfies it, so running a
+            # playbook does not make `core.ansible` import a capability.
+            EdgeRoster(self._edges_store),
+            edge_contributions,
         )
         self._origin_probe = origin_probe or OriginProbe(self.settings)
         self.origin_probe: OriginProbePort = self._origin_probe
