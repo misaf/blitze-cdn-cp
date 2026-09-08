@@ -1,9 +1,7 @@
-"""Records: what DNS answers with, and whether the edge answers instead.
+"""Commands for DNS records and their proxy status.
 
-A record used to carry the whole of a site's policy, and this module used to
-carry the ten commands that set it. Those are `domain` commands now, beside the
-zone that holds the policy; what is left here is the record and its one switch.
-"""
+Serving policy is configured through the domain commands; records specify
+which hostnames are proxied or answered directly."""
 
 from __future__ import annotations
 

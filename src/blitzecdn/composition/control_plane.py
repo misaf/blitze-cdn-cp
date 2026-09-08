@@ -1,57 +1,16 @@
-"""The composition root.
+"""The production composition root.
 
-This is the one module that knows both halves: it builds concrete adapters from
-:mod:`blitzecdn.core` and the capability packages, then injects them into capability
-services. Production wiring lives here and nowhere else, so
-"what does a real control plane consist of" is answerable by reading one
-constructor.
+Construction proceeds through adapters, services, plugins, and contributions.
+Plugin discovery runs first so contributed Ansible roles are available when
+the runner is constructed. Plugins receive the assembled control plane.
 
-Then it loads the plugins. The order matters and is the whole architecture in
-four lines: adapters, services, plugins, contributions. Discovery is the one
-step that runs first, because an installed package's Ansible roles have to be
-in the search path before the runner that will resolve them exists — but a
-plugin is still *given* the control plane last, when every service is built.
-Services are built with explicit constructor injection and know nothing about
-plugins; plugins are given the finished control plane and use it to register
-what they contribute — routes, commands, jobs, health checks, desired state.
-Nothing flows the other way, and no service is ever *looked up*:
-`platform.cache` in a `plugin.py` is a typed attribute read once at
-registration, not a resolution step in a request.
+Capability-local builders assemble services from explicitly injected ports.
+Entry layers call these services directly; the concrete repository is not
+published. Optional packages use the published services and ports.
 
-``ControlPlane`` is that constructor and nothing else. It holds the capability
-services and the ports the entry layers read through, and it forwards no calls:
-the CLI and the API reach the service that owns the work —
-``control_plane.dns.create_record(...)`` — rather than a method here that would
-restate a signature already written on the service.
-
-What it decides is *which concrete thing*, never *how a capability is put
-together*. Each capability is built by a ``composition.py`` beside its own
-service, so that "how is this assembled" has one answer whichever side of the
-packaging boundary a capability is on — ``capabilities/deployments`` and
-``blitzecdn-cache`` answer it in a file of the same name doing the same job.
-This file passes each one the persistence slice it declared a port for and the
-adapters chosen above, and that argument list is the whole of a built-in's
-privilege over a package: everything else both kinds read from ``platform``.
-
-The difference is deliberate and is why the two are not one. A package is
-handed only what core publishes — ``settings``, ``sites``, ``events``,
-``fleet`` — and a built-in is additionally handed a store, because the built-in
-services *are* what the platform publishes. Putting those stores on
-``ControlPlane`` so that every capability could build itself from one argument
-would publish the write side of the site model to every entry layer, which is
-the next paragraph's rule.
-
-Everything reachable from here is a service or a port. The concrete
-``Repository`` is deliberately not an attribute: an entry layer that could
-reach it would be one import away from calling SQLite directly, which is easy
-to do by accident in a read path and invisible in review — so the rule is
-written down rather than assumed.
-
-The queue is reached through :mod:`blitzecdn.core.runtime.broker` and never
-through :mod:`blitzecdn.worker`. The worker is an entry point that builds a
-control plane, so importing it from here would point the arrow both ways;
-``tests/architecture/test_layering.py`` refuses that import by name.
-"""
+Queue access goes through ``core.runtime.broker``. The worker is an entry
+point and must not be imported here. Architecture tests enforce this boundary.
+See docs/decisions/0001-zone-policy-and-composition.md for the design rationale."""
 
 from __future__ import annotations
 
@@ -103,20 +62,9 @@ from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
 from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
 
-#: Every capability this distribution ships, in dependency order — a plugin is
-#: registered after the capabilities it builds on, which is what makes the CLI's
-#: command order and the API's route order stable rather than incidental.
-#:
-#: Order is a presentation decision here and nothing more. Desired-state
-#: merging is deliberately order-independent (see `registry.merge_variables`),
-#: so moving a line in this tuple can never change what an edge converges to.
-#:
-#: It lives here rather than in `core.plugins.discovery`, where it was, for the
-#: same reason `Repository` lives beside it: choosing which parts make one
-#: control plane is composition. Core held this roster without
-#: importing them, so `test_core_imports_no_capability` stayed green while the
-#: foundation carried the roster of the tree it supports, and adding a built-in
-#: capability meant editing `core`. Naming is knowing.
+#: Built-in plugins in stable registration and presentation order.
+#: The roster belongs to composition; core discovery accepts arbitrary plugins.
+#: Desired-state merging is order-independent.
 BUILTIN_PLUGINS: tuple[str, ...] = (
     # The capability contracts first: nothing they contribute depends on
     # another capability being registered, and `dns` composes their policy.
@@ -249,16 +197,8 @@ class ControlPlane:
         contributions = self.plugins.ansible_contributions()
         nginx_resources = resolve_nginx_resources(self.plugins.nginx_contributions())
         edge_modules = resolve_edge_modules(contributions)
-        # Each installed package's own configuration, resolved once here and
-        # never read out of `Settings` by the packages themselves. Flat for
-        # Ansible, scoped for the controller: `platform.capability_config` is
-        # how a capability reads what it claimed — a credential or a setting —
-        # and it can reach nothing it did not claim.
-        #
-        # It answers for a different contribution than the roles above.
-        # Configuration used to ride on `AnsibleContribution`, which was true
-        # of a secret forwarded into a play and false of every setting that
-        # never leaves the controller.
+        # Resolve package-owned configuration once: scoped for the controller,
+        # with separately declared forwarding into Ansible.
         self.capability_config = resolve_capability_environment(
             self.plugins.configuration_contributions(),
             self.settings.capability_environment,
@@ -315,24 +255,8 @@ class ControlPlane:
         # cannot manufacture an event for an action no service performed.
         self.audit: AuditTrail = store.audit_log
 
-        # The two contracts an installed capability builds itself from, both
-        # typed as ports rather than as the concrete things behind them.
-        #
-        # `sites` is the read side of the site model. It is a port for the same
-        # reason `audit` is: a reader is not a repository, and a package handed
-        # one can answer "which hostnames does the fleet serve" without being
-        # able to write a site or reach SQLite. A package that genuinely has to
-        # write one — `blitzecdn-certificates` activating a certificate it just
-        # issued — reaches `site_editor` and narrows it to the two methods it
-        # calls with a port of its own, exactly as it used to do with the zone
-        # editor. `fleet` runs a named play
-        # across the edges in scope and knows nothing about what any play is
-        # for. Between them they are the whole of what an optional package
-        # needs and deliberately less than what a built-in service receives.
-        #: Assigned after `dns` is wired, below: what an installed package is
-        #: handed as "the sites the fleet serves" is now a derivation over
-        #: zones, rules and records rather than a table, and the service that
-        #: owns those three is what performs it.
+        # Packages read derived hosts through SiteReader and run plays through
+        # PlaybookRunner. DNS supplies the host projection after it is built.
         self.sites: SiteReader
         self.fleet: PlaybookRunner = self._runner
         self.transactions: UnitOfWork = store
@@ -353,10 +277,7 @@ class ControlPlane:
 
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
-        # One editor where there were two. There is no second half to split
-        # from: a virtual host is derived from the zone, its rules and its
-        # records, so "who wrote this field" has one answer for every field on
-        # it — whoever edited the zone or the rule it came from.
+        # DNS owns canonical zones, rules, records, and their host projection.
         self.dns: DnsService = build_dns_service(
             self, zones=store.zones, rules=store.rules
         )

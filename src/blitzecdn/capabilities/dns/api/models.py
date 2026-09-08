@@ -1,20 +1,8 @@
-"""The HTTP representations this capability publishes, and the bodies it takes.
+"""HTTP request and response models for zones, records, rules, and resolved hosts.
 
-A zone and a record both validate by round-tripping through `dns.domain`: the
-published shapes carry no rule of their own, so the wire form and the domain
-form cannot drift apart while sitting in different packages.
-
-The zone's policy fields are written out below rather than imported from
-`sites`' published copy of the same twenty settings. A published shape may not
-cross a capability boundary — only `domain`, `policy`, `ports` and `reporting`
-may — and that rule is right: what one capability publishes is not another's
-to re-export, or removing a field from one API silently removes it from two.
-
-So they are duplicated, and `test_the_api_carries_every_zone_field_the_zone_has`
-is what makes the duplication safe. The nested models are named for the zone
-rather than the site because two components with one name collide in a single
-OpenAPI document. Both sets exist only until `sites` is removed.
-"""
+Validation delegates to the DNS domain models. Explicit wire models keep
+OpenAPI shapes independent of internal representations; parity tests ensure
+that the zone API exposes every domain field."""
 
 from __future__ import annotations
 

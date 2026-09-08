@@ -147,11 +147,8 @@ class SitePolicy(
     def requires_geoip(self) -> bool:
         """Whether serving this site needs ``$blitzecdn_country`` to exist.
 
-        Asked of the two contracts that can answer it rather than derived from
-        a token this module names: a country firewall rule needs the lookup and
-        so does ``BZ-IPCountry``, and each says so on its own model. The list of
-        country-aware settings that used to live here — and the ``geoip``
-        string beside it — went with them.
+        Firewall and visitor-header contracts declare whether they need the
+        country lookup on their own models.
 
         Ungated by ``enabled`` on purpose. This is what the edge role's
         validation asks of a document it was handed; whether the site converges

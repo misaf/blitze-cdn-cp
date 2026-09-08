@@ -7,6 +7,8 @@ Full configuration, operations, API, recovery, and architecture documentation
 lives in [blitze-cdn-web](https://github.com/misaf/blitze-cdn-web). Use
 `blitzecdn --help` or `blitzecdn COMMAND --help` for the current CLI reference.
 
+Implementation decisions are recorded in [docs/decisions](docs/decisions/0001-zone-policy-and-composition.md).
+
 ## Requirements
 
 - Python 3.12–3.14 for controller development

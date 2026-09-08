@@ -124,9 +124,6 @@ class DnsRecord(BaseModel):
 class RecordPatch(BaseModel):
     """A partial update to a record: every field optional, unset means untouched.
 
-    Three fields now, where there used to be twenty. The policy went to the
-    zone with the rest of what a site used to hold.
-
     Taking a hostname off the edge is ``{"proxied": false, "value": ...}`` in
     one request, because neither half is a valid record on its own — see
     ``DnsRecord``. Putting it back on is ``{"proxied": true, "value": null}``,
