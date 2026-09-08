@@ -21,6 +21,11 @@ class AllowedIPsMiddleware:
         except ValueError:
             address = None
         addresses = [address] if address is not None else []
+        # The allowlist is IPv4, but a dual-stack socket reports an IPv4 client
+        # as ::ffff:198.51.100.8. Which form arrives is a property of the
+        # server's socket, not of the client, so both are matched. An address
+        # that is IPv6 in its own right matches nothing: a network of a
+        # different version never contains it.
         if isinstance(address, IPv6Address) and address.ipv4_mapped is not None:
             addresses.append(address.ipv4_mapped)
         # Local health probes and SSH tunnels remain usable after a list change.
