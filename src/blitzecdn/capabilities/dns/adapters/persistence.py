@@ -1,4 +1,11 @@
-"""Persistence for DNS zones and records."""
+"""Persistence for DNS zones, the policy on them, and their records.
+
+``_DOMAIN_COLUMNS`` names the zone fields that have columns of their own; the
+rest of the model is the ``policy`` document. Keeping the split in one frozen
+set rather than in both directions of the mapping is what stops a field being
+written to a column and read back out of the JSON, which decodes as a zone
+whose policy silently lost a setting.
+"""
 
 from sqlalchemy import delete, select
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +15,8 @@ from blitzecdn.capabilities.dns.adapters.tables import DnsRecordRow, DomainRow
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
+
+_DOMAIN_COLUMNS = frozenset({"name", "origin_host"})
 
 
 class ZoneStore:
@@ -19,22 +28,31 @@ class ZoneStore:
     def list_domains(self) -> list[Domain]:
         with self._db.session() as session:
             rows = session.scalars(select(DomainRow).order_by(DomainRow.name)).all()
-            return [Domain.model_validate({"name": row.name}) for row in rows]
+            return [self._domain(row) for row in rows]
 
     def get_domain(self, name: str) -> Domain:
         with self._db.session() as session:
             row = session.get(DomainRow, name)
             if row is None:
                 raise NotFoundError(f"domain {name!r} does not exist")
-            return Domain.model_validate({"name": row.name})
+            return self._domain(row)
 
     def create_domain(self, domain: Domain) -> Domain:
         with self._db.session() as session:
-            session.add(DomainRow(name=domain.name, updated_at=self._db.now()))
+            session.add(self._domain_row(domain))
             try:
                 session.flush()
             except IntegrityError as exc:
                 raise ConflictError(f"domain {domain.name!r} already exists") from exc
+        return domain
+
+    def replace_domain(self, domain: Domain) -> Domain:
+        """Write the zone's policy. The name is its identity and is not moved."""
+        with self._db.session() as session:
+            row = session.get(DomainRow, domain.name)
+            if row is None:
+                raise NotFoundError(f"domain {domain.name!r} does not exist")
+            self._apply_domain(row, domain)
         return domain
 
     def delete_domain(self, name: str) -> None:
@@ -133,12 +151,25 @@ class ZoneStore:
             session.execute(delete(DnsRecordRow))
             session.execute(delete(DomainRow))
             session.flush()
-            now = self._db.now()
-            session.add_all(
-                [DomainRow(name=domain.name, updated_at=now) for domain in domains]
-            )
+            session.add_all([self._domain_row(domain) for domain in domains])
             session.flush()
             session.add_all([self._row(record) for record in records])
+
+    def _domain_row(self, domain: Domain) -> DomainRow:
+        row = DomainRow(name=domain.name)
+        self._apply_domain(row, domain)
+        return row
+
+    def _apply_domain(self, row: DomainRow, domain: Domain) -> None:
+        row.origin_host = domain.origin_host
+        row.policy = domain.model_dump(mode="json", exclude=set(_DOMAIN_COLUMNS))
+        row.updated_at = self._db.now()
+
+    @staticmethod
+    def _domain(row: DomainRow) -> Domain:
+        return Domain.model_validate(
+            {**row.policy, "name": row.name, "origin_host": row.origin_host}
+        )
 
     def _row(self, record: DnsRecord) -> DnsRecordRow:
         row = DnsRecordRow(

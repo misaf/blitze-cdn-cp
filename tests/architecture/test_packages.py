@@ -1398,7 +1398,9 @@ def test_core_knows_no_kind_of_firewall_rule():
 #:
 #: * `api/models.py` holds the published *resource* shapes, which restate the
 #:   fields rather than re-export the contract, because what a client is
-#:   shown is a decision separate from what a policy happens to hold;
+#:   shown is a decision separate from what a policy happens to hold — and
+#:   there are two of them now, because the zone carries the same policy the
+#:   site does and a published shape may not cross a capability boundary;
 #: * `dns/cli.py` carries `blitzecdn record firewall`, because a record patch
 #:   is the DNS capability's surface and `dns -> security` is a declared
 #:   contract edge in `ALLOWED_POLICY_DEPENDENCIES`;
@@ -1413,6 +1415,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: having for a list whose whole purpose is to stay short.
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/policy.py": None,
+    "capabilities/dns/api/models.py": None,
     "capabilities/sites/api/models.py": None,
     "capabilities/sites/cli/security.py": None,
 }

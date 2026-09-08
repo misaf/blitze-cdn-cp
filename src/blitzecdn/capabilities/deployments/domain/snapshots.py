@@ -1,8 +1,14 @@
 """The desired state a deployment converges, and can be rolled back to.
 
 A snapshot is the whole of canonical desired state at one instant: the zones,
-their records, and the sites those records route to. A deployment records one
-and converges it; a rollback reads an older one back.
+the rules that override their policy, their records, and the sites those
+records route to. A deployment records one and converges it; a rollback reads
+an older one back.
+
+The rules are in it for a reason worth stating: a rollback deletes the zone
+rows and writes them again, and a rule is keyed to its zone with ON DELETE
+CASCADE. A snapshot that did not carry them would not merely fail to restore
+them — it would take every rule in the installation with it.
 
 The schema version is written down because a snapshot outlives the run that
 made it — an older successful deployment is a rollback target for as long as it
@@ -17,28 +23,33 @@ import hashlib
 import json
 from typing import Any
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.sites.domain import CdnSite
 
 SNAPSHOT_SCHEMA_VERSION = 1
 
-_SECTIONS = ("domains", "records", "sites")
+_SECTIONS = ("domains", "records", "rules", "sites")
 
 
 def encode_snapshot(
-    domains: list[Domain], records: list[DnsRecord], sites: list[CdnSite]
+    domains: list[Domain],
+    records: list[DnsRecord],
+    rules: list[Rule],
+    sites: list[CdnSite],
 ) -> str:
     """Serialise the desired state a deployment converges and can roll back to.
 
-    All three, because all three are canonical. Sites are written down rather
+    All four, because all four are canonical. Sites are written down rather
     than derived from the records on read: a site no record routes to yet is
-    desired state that no record mentions.
+    desired state that no record mentions. Rules are written down for the
+    sharper reason in the module docstring.
     """
     return json.dumps(
         {
             "schema_version": SNAPSHOT_SCHEMA_VERSION,
             "domains": [domain.model_dump(mode="json") for domain in domains],
             "records": [record.model_dump(mode="json") for record in records],
+            "rules": [rule.model_dump(mode="json") for rule in rules],
             "sites": [site.model_dump(mode="json") for site in sites],
         },
         sort_keys=True,
@@ -59,17 +70,18 @@ def snapshot_digest(snapshot: str) -> str:
 
 def decode_snapshot(snapshot: str) -> list[CdnSite]:
     """Return the sites a snapshot converges."""
-    return decode_snapshot_state(snapshot)[2]
+    return decode_snapshot_state(snapshot)[3]
 
 
 def decode_snapshot_state(
     snapshot: str,
-) -> tuple[list[Domain], list[DnsRecord], list[CdnSite]]:
-    """Return everything a rollback restores: zones, records, and sites."""
+) -> tuple[list[Domain], list[DnsRecord], list[Rule], list[CdnSite]]:
+    """Everything a rollback restores: zones, records, rules, and sites."""
     document = _document(snapshot)
     return (
         [Domain.model_validate(item) for item in document["domains"]],
         [DnsRecord.model_validate(item) for item in document["records"]],
+        [Rule.model_validate(item) for item in document["rules"]],
         [CdnSite.model_validate(item) for item in document["sites"]],
     )
 

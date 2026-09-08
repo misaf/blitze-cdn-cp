@@ -1,4 +1,4 @@
-"""The zones and the records in them, as they are stored.
+"""The zones, their policy, the rules that bend it, and their records, stored.
 
 Part of the one description of what is on disk. The rules `core.persistence`
 sets out still hold — a column per queryable fact, JSON for a value object no
@@ -16,22 +16,40 @@ the same reason the wire shapes moved beside the routes that publish them.
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import CheckConstraint, Column, ForeignKey, String
+from sqlalchemy.dialects.sqlite import JSON
 from sqlmodel import Field
 
 from blitzecdn.core.persistence.tables import Base, UtcDateTime, utcnow
 
 
 class DomainRow(Base, table=True):
-    """A delegated zone. Holds no records; they are keyed by name below."""
+    """A delegated zone and its policy. Holds no records; they are keyed below.
+
+    ``policy`` stays whole because nothing queries inside it: it is written and
+    read back as one document and validated by the domain model on the way out.
+    ``origin_host`` is out of it and in a column of its own — "which zones
+    proxy to this origin" is a question worth asking of the database rather
+    than of every decoded policy in turn — and is nullable because a zone is
+    delegable before anything is served from it.
+    """
 
     __tablename__ = "domains"
     __table_args__ = (
         CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
+        CheckConstraint(
+            "origin_host IS NULL OR length(origin_host) > 0",
+            name="domains_origin_host_nonempty_check",
+        ),
     )
 
     name: str = Field(sa_column=Column(String, primary_key=True))
+    origin_host: str | None = Field(
+        default=None, sa_column=Column(String, nullable=True)
+    )
+    policy: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
 
 
@@ -89,4 +107,37 @@ class DnsRecordRow(Base, table=True):
             index=True,
         ),
     )
+    updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)
+
+
+class RuleRow(Base, table=True):
+    """One override in a zone.
+
+    ``overrides`` stays whole because nothing queries inside it: it is written
+    and read back as one document and validated by the domain model on the way
+    out. ``match`` and ``priority`` are columns because ordering the rules of a
+    zone is the one thing every read of this table does.
+    """
+
+    __tablename__ = "zone_rules"
+    __table_args__ = (
+        CheckConstraint("length(name) > 0", name="zone_rules_name_nonempty_check"),
+        CheckConstraint("length(match) > 0", name="zone_rules_match_nonempty_check"),
+        CheckConstraint(
+            "priority BETWEEN 1 AND 1000", name="zone_rules_priority_check"
+        ),
+    )
+
+    # ON DELETE CASCADE for the same reason the records have it: a rule
+    # outliving its zone would be an override for a domain we no longer serve.
+    domain: str = Field(
+        sa_column=Column(
+            String, ForeignKey("domains.name", ondelete="CASCADE"), primary_key=True
+        )
+    )
+    name: str = Field(sa_column=Column(String, primary_key=True))
+    priority: int
+    match: str
+    overrides: dict[str, Any] = Field(default_factory=dict, sa_type=JSON)
+    enabled: bool = True
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

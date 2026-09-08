@@ -168,6 +168,52 @@ blitzecdn deploy
 Verify SSH fingerprints through a trusted channel and use an SSH agent or a key
 outside this repository. Do not disable host-key checking.
 
+## Zone policy and rules
+
+A zone carries the policy every hostname in it is served by. Set it once when
+the zone is added, or change it afterwards:
+
+```bash
+blitzecdn domain add example.com --origin origin.example.com
+blitzecdn domain show example.com
+blitzecdn domain origin example.com origin2.example.com
+```
+
+The origin is optional at creation. A zone is delegable long before anyone has
+decided what it proxies to, and a placeholder in that field is worse than an
+absence.
+
+When one hostname has to differ from the rest of its zone, write a rule rather
+than a second configuration. A rule is a match and the settings it overrides,
+and nothing else:
+
+```bash
+blitzecdn rule add example.com api \
+  --match api.example.com --priority 10 --set cache_enabled=false
+blitzecdn rule add example.com everything-else \
+  --match '*' --priority 50 --set cache_valid_success=1h
+blitzecdn rule list example.com
+```
+
+`--match` takes `*` for the whole zone, an exact hostname, or `*.suffix`.
+Rules are ordered by `--priority`, lowest first, and **the first match wins**:
+the winning rule's overrides are applied to the zone's policy and no other rule
+contributes. `api.example.com` above is served with caching off and the zone's
+own `cache_valid_success`, not the `1h` from the rule behind it.
+
+To see what a hostname actually resolves to, and which rule decided it:
+
+```bash
+curl -sG http://127.0.0.1:8000/v1/domains/example.com/resolve \
+  --data-urlencode hostname=api.example.com \
+  -H "x-api-key: $BLITZE_API_KEY"
+```
+
+The response carries both the merged policy and the name of the rule that
+applied, so "why is this hostname not caching" does not need a second request.
+A rule whose overrides would produce an impossible zone — HTTP/3 on a hostname
+serving no TLS — is refused where the zone itself would refuse it.
+
 ## Essential operations
 
 ```bash

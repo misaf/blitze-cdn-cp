@@ -114,13 +114,40 @@ def upgrade() -> None:
     op.create_table(
         "domains",
         sa.Column("name", sa.String(), nullable=False),
+        sa.Column("origin_host", sa.String(), nullable=True),
+        sa.Column("policy", sqlite.JSON(), nullable=False),
         sa.Column(
             "updated_at",
             blitzecdn.core.persistence.tables.UtcDateTime(),
             nullable=False,
         ),
         sa.CheckConstraint("length(name) > 0", name="domains_name_nonempty_check"),
+        sa.CheckConstraint(
+            "origin_host IS NULL OR length(origin_host) > 0",
+            name="domains_origin_host_nonempty_check",
+        ),
         sa.PrimaryKeyConstraint("name"),
+    )
+    op.create_table(
+        "zone_rules",
+        sa.Column("domain", sa.String(), nullable=False),
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("priority", sa.Integer(), nullable=False),
+        sa.Column("match", sa.String(), nullable=False),
+        sa.Column("overrides", sqlite.JSON(), nullable=False),
+        sa.Column("enabled", sa.Boolean(), nullable=False),
+        sa.Column(
+            "updated_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(["domain"], ["domains.name"], ondelete="CASCADE"),
+        sa.CheckConstraint("length(name) > 0", name="zone_rules_name_nonempty_check"),
+        sa.CheckConstraint("length(match) > 0", name="zone_rules_match_nonempty_check"),
+        sa.CheckConstraint(
+            "priority BETWEEN 1 AND 1000", name="zone_rules_priority_check"
+        ),
+        sa.PrimaryKeyConstraint("domain", "name"),
     )
     op.create_table(
         "deployment_requirements",
@@ -268,6 +295,7 @@ def downgrade() -> None:
     op.drop_table("sites")
     op.drop_table("projection_state")
     op.drop_table("edges")
+    op.drop_table("zone_rules")
     op.drop_table("domains")
     with op.batch_alter_table("deployments", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_deployments_status"))

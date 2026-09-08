@@ -11,6 +11,7 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
+from blitzecdn.capabilities.dns.domain import Rule
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.sites.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
@@ -30,6 +31,22 @@ class SiteRestore(Protocol):
     """
 
     def replace_all_sites(self, sites: list[CdnSite]) -> None: ...
+
+
+class RuleRestore(Protocol):
+    """Putting the rules back, for a rollback that adopts an older snapshot.
+
+    One method, for the same reason ``SiteRestore`` has one: a rollback
+    replaces the table wholesale and never edits a rule, so the port it holds
+    should not be able to.
+
+    A rollback must restore them rather than leave them alone. The zone rows go
+    out and back during an adoption, and a rule is keyed to its zone with ON
+    DELETE CASCADE — so a rollback that ignored rules would not preserve them,
+    it would delete every one.
+    """
+
+    def replace_all_rules(self, rules: list[Rule]) -> None: ...
 
 
 class DeploymentRequirements(Protocol):

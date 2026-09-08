@@ -198,15 +198,16 @@ def test_deleting_a_zone_takes_its_hostnames_off_the_sites(settings):
     assert control.dns.validation_errors() == []
 
 
-def test_snapshot_round_trips_zones_records_and_sites(settings):
+def test_snapshot_round_trips_zones_records_rules_and_sites(settings):
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
     seed_site(control, name="cdn-example-com", record="cdn")
     # A site nothing routes to is desired state the old snapshot could not hold.
     seed_site(control, name="staged-site", routed=False)
     snapshot = repository.snapshot()
-    domains, records, sites = decode_snapshot_state(snapshot)
+    domains, records, rules, sites = decode_snapshot_state(snapshot)
     assert [domain.name for domain in domains] == ["example.com"]
+    assert rules == []
     assert [record.fqdn for record in records] == ["cdn.example.com"]
     assert sorted(site.name for site in sites) == ["cdn-example-com", "staged-site"]
     assert sorted(site.name for site in decode_snapshot(snapshot)) == [

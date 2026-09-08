@@ -67,7 +67,8 @@ from blitzecdn.capabilities.deployments.ports import (
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.composition import build_dns_service
+from blitzecdn.capabilities.dns.composition import build_dns_service, build_rule_service
+from blitzecdn.capabilities.dns.service import RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
@@ -360,6 +361,12 @@ class ControlPlane:
         self.dns: DnsService = build_dns_service(
             self, zones=store.zones, sites=store.sites
         )
+        # The overrides on a zone's policy, and the resolver over the two. The
+        # zone store arrives through `ZoneReader`, which is one read: a rule
+        # may consult the policy it overrides and may never write one.
+        self.rules: RuleService = build_rule_service(
+            self, rules=store.rules, zones=store.zones
+        )
         self._wire_capability_services(store)
 
     def _wire_capability_services(self, store: Repository) -> None:
@@ -376,6 +383,7 @@ class ControlPlane:
             deployments=store.deployments,
             zones=store.zones,
             sites=store.sites,
+            rules=store.rules,
             requirements=store.deployment_requirements,
             runner=self._runner,
             background=self._background,

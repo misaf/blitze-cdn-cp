@@ -19,7 +19,7 @@ def blitzecdn_plugin_metadata() -> PluginMetadata:
         version=__version__,
         api_version=1,
         required=True,
-        summary="DNS zones, records, and site derivation.",
+        summary="DNS zones, their policy, the rules on it, and their records.",
     )
 
 
@@ -33,5 +33,6 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
     return (
         CliCommandGroup(plugin="dns", name="domain", app=cli.domain_app),
         CliCommandGroup(plugin="dns", name="record", app=cli.record_app),
+        CliCommandGroup(plugin="dns", name="rule", app=cli.rule_app),
         CliCommandGroup(plugin="dns", name="dns", app=cli.dns_app),
     )

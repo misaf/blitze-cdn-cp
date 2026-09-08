@@ -6,6 +6,7 @@ blitzecdn	check	dns_records.dns_records_ttl_check	ttl BETWEEN 1 AND 604800
 blitzecdn	check	dns_records.dns_records_type_check	type IN ('A', 'AAAA')
 blitzecdn	check	dns_records.dns_records_value_nonempty_check	value IS NULL OR length(value) > 0
 blitzecdn	check	domains.domains_name_nonempty_check	length(name) > 0
+blitzecdn	check	domains.domains_origin_host_nonempty_check	origin_host IS NULL OR length(origin_host) > 0
 blitzecdn	check	edges.edges_host_nonempty_check	length(host) > 0
 blitzecdn	check	edges.edges_name_nonempty_check	length(name) > 0
 blitzecdn	check	edges.edges_port_check	port BETWEEN 1 AND 65535
@@ -14,6 +15,9 @@ blitzecdn	check	sites.sites_name_nonempty_check	length(name) > 0
 blitzecdn	check	sites.sites_origin_host_nonempty_check	length(origin_host) > 0
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
 blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')
+blitzecdn	check	zone_rules.zone_rules_match_nonempty_check	length(match) > 0
+blitzecdn	check	zone_rules.zone_rules_name_nonempty_check	length(name) > 0
+blitzecdn	check	zone_rules.zone_rules_priority_check	priority BETWEEN 1 AND 1000
 blitzecdn	column	ansible_settings.name	type=VARCHAR not-null pk
 blitzecdn	column	ansible_settings.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	ansible_settings.value	type=JSON not-null
@@ -46,6 +50,8 @@ blitzecdn	column	dns_records.type	type=VARCHAR not-null pk
 blitzecdn	column	dns_records.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	dns_records.value	type=VARCHAR null
 blitzecdn	column	domains.name	type=VARCHAR not-null pk
+blitzecdn	column	domains.origin_host	type=VARCHAR null
+blitzecdn	column	domains.policy	type=JSON not-null
 blitzecdn	column	domains.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	edges.host	type=VARCHAR not-null
 blitzecdn	column	edges.name	type=VARCHAR not-null pk
@@ -72,6 +78,13 @@ blitzecdn	column	workflows.resource_id	type=VARCHAR null
 blitzecdn	column	workflows.status	type=VARCHAR not-null
 blitzecdn	column	workflows.steps	type=JSON not-null
 blitzecdn	column	workflows.updated_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	zone_rules.domain	type=VARCHAR not-null pk fk=domains.name ondelete=CASCADE
+blitzecdn	column	zone_rules.enabled	type=BOOLEAN not-null
+blitzecdn	column	zone_rules.match	type=VARCHAR not-null
+blitzecdn	column	zone_rules.name	type=VARCHAR not-null pk
+blitzecdn	column	zone_rules.overrides	type=JSON not-null
+blitzecdn	column	zone_rules.priority	type=INTEGER not-null
+blitzecdn	column	zone_rules.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	index	deployments.ix_deployments_created_at	(created_at)
 blitzecdn	index	deployments.ix_deployments_rollback_of	(rollback_of)
 blitzecdn	index	deployments.ix_deployments_status_created_at	(status,created_at)
