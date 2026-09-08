@@ -270,6 +270,24 @@
     group: root
     mode: "0600"
 
+# The template above writes this line only on a first installation, and the file
+# is never rewritten after that. Without this task `--allowed-ips` would work
+# once and then silently do nothing on every later run — the worst shape for a
+# flag about who may reach the API. Supplying it is the operator naming the list
+# on the command line; omitting it leaves whatever the file says, hand edits
+# included. The regexp cannot match the commented example the template ships:
+# the name has to start the line, which is the rule the firewall composition
+# below reads by as well.
+- name: Set the API access list this run was given
+  ansible.builtin.lineinfile:
+    path: "{{ blitzecdn_controlplane_config_dir }}/blitzecdn.env"
+    regexp: '^[ \t]*BLITZE_ALLOWED_IPS[ \t]*='
+    line: "BLITZE_ALLOWED_IPS={{ blitzecdn_controlplane_allowed_ips }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: blitzecdn_controlplane_allowed_ips | length > 0
+
 # --- Compose runtime ---------------------------------------------------------
 
 - name: Render the control-plane Compose project

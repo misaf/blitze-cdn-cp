@@ -290,6 +290,7 @@ parsed_deploy=0
 parsed_allow_empty_sites=0
 parsed_no_backup=0
 parsed_public_addresses=()
+parsed_allowed_ips=()
 parsed_forward_args=()
 
 # Every subcommand, in one table: name, its usage function, what to call it in
@@ -305,11 +306,11 @@ parsed_forward_args=()
 # install form runs on developer machines.
 readonly COMMAND_TABLE='
 install|usage_root||
-standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address
+standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips
 update|usage_update|updater|--yes --no-backup
 upgrade|usage_upgrade|updater|--yes --no-backup
 uninstall|usage_uninstall|uninstaller|--yes
-fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --yes
+fresh|usage_fresh|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips --yes
 '
 
 # Print one field of one command's row. Fields: 2 usage, 3 root label, 4 options.
@@ -369,13 +370,14 @@ parse_options() {
         fi
         shift
         ;;
-      --admin-cidr|--email|--public-address)
+      --admin-cidr|--email|--public-address|--allowed-ips)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
         [[ $# -ge 2 ]] || die 2 "error: ${option} needs a value"
         case "${option}" in
           --admin-cidr) parsed_admin_cidr=$2 ;;
           --email) parsed_email=$2 ;;
           --public-address) parsed_public_addresses+=("$2") ;;
+          --allowed-ips) parsed_allowed_ips+=("$2") ;;
         esac
         if [[ ${command} == fresh ]]; then
           parsed_forward_args+=("${option}" "$2")
@@ -663,6 +665,9 @@ Options:
   --allow-empty-sites Permit --deploy to remove every previously managed site
   --public-address ADDRESS
                       Public edge IP or hostname; repeat when needed (NAT safe)
+  --allowed-ips LIST  Client IPv4 addresses or CIDRs allowed to reach the API,
+                      comma-separated or repeated. Omitted, the API stays on
+                      loopback and is reached through an SSH tunnel.
   -h, --help         Show this help
 
 The checkout must be /opt/blitzecdn because it is the immutable image build
@@ -697,7 +702,7 @@ cmd_standalone() {
   # the host is converged: a typo then costs a package install rather than a
   # provisioned server that has to be corrected afterwards. A minimal image may
   # genuinely have no python3 until the line above installs it.
-  python3 - "${parsed_admin_cidr}" "${parsed_email}" <<'PY'
+  python3 - "${parsed_admin_cidr}" "${parsed_email}" "${parsed_allowed_ips[@]}" <<'PY'
 import ipaddress
 import sys
 
@@ -708,6 +713,34 @@ except ValueError as error:
 email = sys.argv[2]
 if email.count("@") != 1 or any(char.isspace() for char in email):
     raise SystemExit("error: --email must be a valid email address")
+
+# The three rules `Settings.validate_allowed_ips` enforces, applied to the flag
+# that seeds the list. They are restated rather than imported because this runs
+# on the host interpreter, before the virtualenv holding the control plane
+# exists; a contract test holds the two readings together. Refusing here costs
+# a package install, while accepting a bad entry costs a provisioned server
+# whose API answers nobody, or admits a range wider than the one written.
+for value in sys.argv[3:]:
+    for entry in (part.strip() for part in value.split(",")):
+        if not entry:
+            raise SystemExit("error: --allowed-ips entries must be non-empty IPs/CIDRs")
+        try:
+            network = ipaddress.ip_network(entry, strict=False)
+        except ValueError as error:
+            raise SystemExit(f"error: invalid --allowed-ips entry {entry!r}: {error}") from error
+        if network.version != 4:
+            raise SystemExit(
+                f"error: --allowed-ips entry {entry!r} is IPv6; the API "
+                "listens on IPv4 and cannot admit it"
+            )
+        try:
+            ipaddress.ip_network(entry, strict=True)
+        except ValueError:
+            raise SystemExit(
+                f"error: --allowed-ips entry {entry!r} has host bits set. Write "
+                f"'{network}' to admit that whole range, or "
+                f"'{entry.split('/', 1)[0]}/32' to admit only that address"
+            ) from None
 PY
 
 
@@ -724,8 +757,19 @@ PY
   local rendered_capabilities
   rendered_capabilities=$(capability_json)
 
+  # One comma-separated value, whether the flag was repeated or given a list.
+  # The role writes it into the environment file the API and the firewall
+  # convergence both read, so the first boot is already public and port 8000 is
+  # already open for exactly these sources — no second pass and no window in
+  # which one half of that agreement is in force without the other.
+  local allowed_ips='' allowed_entry
+  for allowed_entry in "${parsed_allowed_ips[@]}"; do
+    allowed_ips="${allowed_ips:+${allowed_ips},}${allowed_entry}"
+  done
+
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
+    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}" \
     --extra-vars "{\"blitzecdn_controlplane_capabilities\": [${rendered_capabilities}]}"
 
   local handoff_args=(standalone --admin-cidr "${parsed_admin_cidr}")
@@ -745,6 +789,10 @@ PY
   echo "Connect from your workstation with your existing operator account and key:"
   echo "  ssh -L 8000:127.0.0.1:8000 OPERATOR@THIS_SERVER"
   echo "API:     http://127.0.0.1:8000"
+  if [[ -n ${allowed_ips} ]]; then
+    echo "The API also answers ${allowed_ips} directly on port 8000, over plain"
+    echo "HTTP. Prefer the tunnel above when sending API credentials."
+  fi
   echo "Status:  docker compose --file ${CONTROL_PLANE_COMPOSE_FILE} ps"
 }
 
@@ -1196,6 +1244,7 @@ standalone installer. The standalone options pass through unchanged:
   --email ADDRESS    Default ACME account email
   --public-address ADDRESS
                      Public edge IP or hostname; repeat when needed
+  --allowed-ips LIST Client IPv4 addresses or CIDRs allowed to reach the API
   --deploy           Run the initial edge deployment (default: prepare only)
   --allow-empty-sites
                      Permit --deploy to remove every previously managed site

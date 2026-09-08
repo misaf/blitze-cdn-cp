@@ -47,6 +47,16 @@ argument_specs:
       blitzecdn_controlplane_ssl_automatic_scan_seconds: {type: int, required: true}
       blitzecdn_controlplane_certificate_renewal_seconds: {type: int, required: true}
       blitzecdn_controlplane_drift_check_seconds: {type: int, required: true}
+      blitzecdn_controlplane_allowed_ips:
+        type: str
+        required: false
+        default: ""
+        description: >-
+          Comma-separated client IPv4 addresses and CIDRs allowed to reach the
+          API, as install.sh --allowed-ips supplied them. Seeds BLITZE_ALLOWED_IPS
+          on a first installation and repoints it on a later run, so the flag
+          never quietly does nothing; empty leaves the line alone, because the
+          environment file is the operator's to edit.
       blitzecdn_controlplane_api_port:
         type: int
         required: true
