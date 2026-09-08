@@ -652,6 +652,7 @@ def test_site_capability_wheels_attach_and_detach_through_real_entry_points(
 
 def test_configuration_requiring_an_absent_capability_fails_deterministically(
     core_only: Environment,
+    tmp_path: Path,
 ):
     """The deliberate half of "the package is not installed".
 
@@ -665,10 +666,22 @@ def test_configuration_requiring_an_absent_capability_fails_deterministically(
     environment = dict(os.environ)
     environment.pop("VIRTUAL_ENV", None)
     environment["BLITZE_REQUIRED_CAPABILITIES"] = "backup"
+    # The subject is plugin metadata, so the installation this command reads
+    # must be one this test owns. Inherited, the project root is pytest's own
+    # working directory — a developer's checkout — and the command opens, and
+    # on a clean tree *creates*, the `.state/control-plane.db` beside it. Both
+    # halves are wrong: writing into the working tree is a leak the gitignore
+    # hides, and a database already there from another branch or an older
+    # schema makes this run fail on migrations rather than on the capability
+    # check. Naming the root moves every state path with it; the database is
+    # named as well because it is the one file this test must not touch.
+    environment["BLITZE_PROJECT_DIR"] = str(tmp_path)
+    environment["BLITZE_DATABASE_PATH"] = str(tmp_path / "control-plane.db")
     finished = subprocess.run(
         [str(core_only.blitzecdn), "plugins"],
         capture_output=True,
         text=True,
+        cwd=tmp_path,
         env=environment,
         timeout=300,
     )
