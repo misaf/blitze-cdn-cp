@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn-cache"
-version = "4.0.1"
+version = "4.1.0"
 description = "Cache purge and cache-effectiveness reporting for the BlitzeCDN control plane"
 readme = "README.md"
 requires-python = ">=3.12"
