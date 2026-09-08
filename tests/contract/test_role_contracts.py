@@ -1749,6 +1749,62 @@ def test_the_control_plane_can_withdraw_an_api_rule_it_no_longer_manages():
     assert "policy: deny" not in tasks
 
 
+def test_uninstalling_withdraws_the_api_rules_the_installation_added():
+    """The registry lives in the directory the uninstall deletes.
+
+    Withdrawing after that removal, or not at all, leaves the host admitting
+    port 8000 for an API that no longer exists and no file left on disk able to
+    name those rules -- an opening no later run could close. The edge teardown
+    already reads its own registry before removing its state; this is the same
+    ordering for the control plane's.
+
+    The two roles are held to one path rather than two literals, because a
+    registry written to one file and read from another is a withdrawal that
+    silently finds nothing to withdraw.
+    """
+    control = _role("blitzecdn_controlplane")
+    uninstall = _role("blitzecdn_uninstall")
+
+    def registry(role: Path, prefix: str) -> str:
+        defaults = _defaults_of(role)
+        return (
+            jinja2.Template(defaults[f"{prefix}_firewall_registry_file"])
+            .render(defaults)
+            .strip()
+        )
+
+    assert registry(control, "blitzecdn_controlplane") == registry(
+        uninstall, "blitzecdn_uninstall"
+    )
+
+    tasks = yaml.safe_load((uninstall / "tasks/main.yml").read_text(encoding="utf-8"))
+    names = [task["name"] for task in tasks]
+    withdraw = "Withdraw the API firewall rules this installation added"
+    assert names.index(withdraw) < names.index(
+        "Remove exact BlitzeCDN-owned host paths"
+    )
+    assert tasks[names.index(withdraw)]["community.general.ufw"]["delete"] is True
+
+    # The rule shape the control plane records is the shape this reads back. The
+    # allow lives inside a block, so the search descends into one.
+    def flatten(entries: list[dict]) -> list[dict]:
+        found = []
+        for entry in entries:
+            found.append(entry)
+            found.extend(flatten(entry.get("block", [])))
+        return found
+
+    recorded = flatten(
+        yaml.safe_load((control / "tasks/main.yml").read_text(encoding="utf-8"))
+    )
+    allow = next(
+        task
+        for task in recorded
+        if task["name"] == "Allow the API from its allowed sources"
+    )
+    assert allow["community.general.ufw"]["src"] == "{{ item.split('|')[2] }}"
+
+
 def test_the_control_plane_applies_a_given_access_list_on_every_run():
     """The environment file is written once; the flag is given on every run.
 
