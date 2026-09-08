@@ -2,8 +2,7 @@
 
 Publishing an HTTP-01 challenge is issuance, not convergence: it exists only
 because this distribution is installed, so the play belongs here rather than in
-the control plane's Ansible tree, where it used to sit behind a core setting
-named after ACME.
+the control plane's Ansible tree behind a core setting named after ACME.
 
 There is no roles directory and therefore no ``blitzecdn_ansible_contributions``
 implementation. The play writes into the webroot the *core* ``blitzecdn_edge``

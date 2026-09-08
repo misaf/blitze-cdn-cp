@@ -46,13 +46,13 @@ __all__ = [
 class CapabilityConfig:
     """One installed package's own configuration, and nothing else's.
 
-    A capability that needs a credential used to reach for
-    ``Settings.capability_environment`` itself — an untyped ``getattr`` against
-    a model core owns, returning every claimed key in the installation, out of
-    which the package picked its own by re-spelling the name. It worked, and
-    every part of it was a copy waiting to drift: the name in two places, the
-    read in a helper each package wrote again, and no answer at all to "what
-    does this capability need" for anything that had to ask.
+    A capability that needs a credential does not reach for
+    ``Settings.capability_environment`` itself. That read is an untyped
+    ``getattr`` against a model core owns, returning every claimed key in the
+    installation, out of which the package picks its own by re-spelling the
+    name — every part of it a copy waiting to drift: the name in two places, the
+    read in a helper each package writes again, and no answer at all to "what
+    does this capability need" for anything that has to ask.
 
     This is that read, done once by core and handed back scoped: the keys *this
     plugin declared*, resolved from the merged environment, with an unset one
@@ -196,9 +196,9 @@ def resolve_capability_environment(
     ``from_file`` is ``blitzecdn.toml``, which is neither. A setting may come
     from either, the environment winning; a *secret* may come only from the
     first, so a package cannot document its signing key into a file an
-    operator would commit. That rule used to be enforced by the TOML reader
-    refusing every name it did not recognise — which also made every
-    non-secret capability setting unconfigurable there.
+    operator would commit. The rule is enforced here rather than by the TOML
+    reader refusing every name it does not recognise, which would also make
+    every non-secret capability setting unconfigurable there.
     """
     owners: dict[str, str] = {}
     declared: dict[str, ConfigurationContribution] = {}

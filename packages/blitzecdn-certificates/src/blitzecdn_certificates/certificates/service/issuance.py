@@ -1,8 +1,9 @@
 """Issuing, uploading, renewing and reporting on TLS certificates.
 
 Certificate state is written to the *record*, through
-``SiteService.activate_managed_certificate`` — it used to be written to the
-table would survive only until the next record change re-derived over it.
+``SiteService.activate_managed_certificate``, rather than to the virtual host
+the certificate was issued for. The host is derived, so a write to it would
+survive only until the next record change re-derived over it.
 """
 
 from __future__ import annotations

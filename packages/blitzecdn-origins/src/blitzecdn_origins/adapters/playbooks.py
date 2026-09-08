@@ -1,10 +1,10 @@
 """The one play this capability runs, and the document it is given.
 
-This is the seam the extraction was about. ``run_origin_check`` used to be a
-method on core's ``AnsibleRunner`` and the play's location a field on
-``Settings``, which meant the shared Ansible adapter — the one every capability
-reaches through — carried an operation only this capability performs, pointing
-at a file only this wheel ships. Core kept the generic primitive: run this
+This is the seam the whole distribution turns on. As a ``run_origin_check``
+method on core's ``AnsibleRunner``, with the play's location a field on
+``Settings``, the shared Ansible adapter — the one every capability reaches
+through — would carry an operation only this capability performs, pointing at a
+file only this wheel ships. Core keeps the generic primitive instead: run this
 play, with these variables, against these hosts.
 
 It is also what makes the play reachable from *two* distributions without

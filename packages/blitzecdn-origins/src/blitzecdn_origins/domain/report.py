@@ -1,12 +1,11 @@
 """What the fleet says about the origins it proxies to.
 
-The check runs *on the fleet*, not on the controller. It used to run on the
-controller, and the answer it gave was about the controller's network: its
-routes, its resolver, its egress firewall. None of those are the ones that
-matter. An origin that allow-lists the edges' addresses refuses the controller,
-and one reachable only from the controller's subnet passes a check and then
-502s on every edge — both of which are the check reporting confidently on a
-question nobody asked.
+The check runs *on the fleet*, not on the controller. Run on the controller it
+answers about the controller's network — its routes, its resolver, its egress
+firewall — and none of those are the ones that matter. An origin that
+allow-lists the edges' addresses refuses the controller, and one reachable only
+from the controller's subnet passes and then 502s on every edge: both are the
+check reporting confidently on a question nobody asked.
 
 So each edge answers for itself, through the same ``blitzecdn_report`` channel
 the statistics role uses, and the report is per edge *and* per site: "the origin

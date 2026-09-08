@@ -3,12 +3,12 @@
 Two modules because there are two value types with different lifetimes: an
 `Edge` is desired state an operator declares, and an `OriginCheck` is one
 answer about one origin at one instant. The package is the capability's public
-face, so `edges.domain` still means what it did when it was a file.
+face, so `edges.domain` is the whole of what another capability imports.
 
-`origins.py` sat a directory higher, which made it the second name a
-capability could import from `edges` and put a rule in the layering test —
-`origins` was listed beside `domain` and `policy` as a public module — where a
-directory now says the same thing.
+A directory is what says that. `origins.py` a level higher would be a second
+name a capability could import from `edges`, and would need a rule in the
+layering test — `origins` listed beside `domain` and `policy` as a public
+module — to say what the directory says by itself.
 """
 
 from blitzecdn.capabilities.edges.domain.edge import (

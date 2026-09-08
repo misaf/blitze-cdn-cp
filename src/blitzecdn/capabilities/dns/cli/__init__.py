@@ -1,10 +1,11 @@
 """`domain`, `record`, `rule` and `dns` — the zone editor's command groups.
 
 A directory rather than a file because the `domain` group is nineteen commands
-across seven capabilities' contracts. It was one 572-line module once, under
-`sites`, and every unrelated command in it shared the firewall exemption
-written for two of them; splitting by the contract each command edits is what
-made those exemptions specific again.
+across seven capabilities' contracts. In one module they share every exemption
+written for any of them — a firewall exemption written for two commands
+covering seventeen that never needed it — so the split is by the contract each
+command edits, which is what keeps an exemption specific to the commands that
+earned it.
 
 `_HELP_ORDER` below is the reading order of the `domain` group, and a command
 missing from it is an import error rather than a command sorted quietly to the

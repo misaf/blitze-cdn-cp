@@ -211,7 +211,7 @@ class CertificateStore:
 class CertbotIssuer:
     def __init__(self, settings: Settings, certbot: str) -> None:
         self._settings = settings
-        # Passed rather than read off `Settings`, which no longer carries it:
+        # Passed rather than read off `Settings`, which does not carry it:
         # which certbot to run is this capability's configuration, and an
         # installation without this distribution has no certbot to name.
         self._certbot = certbot

@@ -6,9 +6,8 @@ query reaches, and no invariant here that `domain` does not own. Alembic still
 compares against `Base.metadata`, which this row registers itself in by
 importing that base.
 
-It was one of the three rows left in `core.persistence.tables` after every
-capability's table moved beside the store that reads it. It stayed because the
-journal was core's; it moves because the journal is this capability's.
+Here rather than in `core.persistence.tables` for the reason every capability's
+table sits beside the store that reads it: the journal is this capability's.
 """
 
 from __future__ import annotations
@@ -47,9 +46,9 @@ class WorkflowRow(Base, table=True):
         # former and none by the latter, so the second column bought nothing
         # and the sort was done in a temp b-tree anyway.
         Index("workflows_status_idx", "status", "created_at"),
-        # And the same column alone, for the unfiltered list. `deployments` is
-        # this table's twin and has had one since it was written; the omission
-        # here made "show me the recent workflows" a full scan and a sort.
+        # And the same column alone, for the unfiltered list, which is a full
+        # scan and a sort without it. `deployments` is this table's twin and
+        # carries the same pair.
         Index("ix_workflows_created_at", "created_at"),
     )
 

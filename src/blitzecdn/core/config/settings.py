@@ -25,8 +25,8 @@ class Settings(BaseSettings):
     defaults that are relative to ``project_dir``; ``from_environment`` is the
     seam between the two and does nothing but validate what that module
     assembled.  ``BaseSettings`` owns typed coercion and the settings model
-    itself, so booleans, integers and secrets no longer need a parallel
-    hand-written conversion layer.
+    itself, so booleans, integers and secrets need no parallel hand-written
+    conversion layer.
     """
 
     model_config = SettingsConfigDict(
@@ -55,11 +55,10 @@ class Settings(BaseSettings):
     #: directory is created `0700` and each archive `0600`.
     #: The plays core itself owns. A capability's play is not here: it ships
     #: inside that capability's wheel and reaches ``run_playbook`` as a path
-    #: the package resolved for itself, so detaching the package takes the
-    #: play with it and leaves no setting behind pointing at nothing. The
-    #: origin check used to be the exception and is not any more — it is
-    #: ``blitzecdn-origins``'. Decommissioning stays, because removing an edge
-    #: has to work on an installation with no capability attached at all.
+    #: the package resolved for itself, so detaching the package takes the play
+    #: with it and leaves no setting behind pointing at nothing.
+    #: Decommissioning is here because removing an edge has to work on an
+    #: installation with no capability attached at all.
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
@@ -96,26 +95,26 @@ class Settings(BaseSettings):
     required_capabilities: tuple[str, ...] = ()
     #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:
-    #: The generic answer to "an optional capability needs a credential". A
-    #: MaxMind license key and an Under Attack signing secret used to be fields
-    #: on this model, which meant core carried the name of a capability that
-    #: may not be installed — and a package this repository has never heard of
-    #: had no way to be configured at all. Core carries neither name. During
-    #: composition, installed plugins explicitly claim names through
-    #: `ConfigurationContribution` — as an `EnvironmentKey` when the value is a
-    #: secret and a `CapabilitySetting` when it is not; unclaimed and multiply
-    #: claimed names are configuration errors. Only the resolved *secrets*
-    #: reach the package role through the subprocess environment.
+    #: The generic answer to "an optional capability needs a credential". Core
+    #: carries no capability's name: a MaxMind license key or an Under Attack
+    #: signing secret as a field here would name a capability that may not be
+    #: installed, and would still leave a package this repository has never
+    #: heard of no way to be configured at all. During composition, installed
+    #: plugins explicitly claim names through `ConfigurationContribution` — as
+    #: an `EnvironmentKey` when the value is a secret and a `CapabilitySetting`
+    #: when it is not; unclaimed and multiply claimed names are configuration
+    #: errors. Only the resolved *secrets* reach the package role through the
+    #: subprocess environment.
     #:
     #: `SecretStr` because core cannot know which of these are credentials, and
     #: the safe assumption for a value it cannot interpret is that it is one:
     #: a traceback or a debugger that reprs `Settings` prints `**********`.
-    #: Not environment-only any more: a `blitzecdn.toml` key core does not
-    #: recognise is staged here as `BLITZE_<KEY>` rather than refused outright,
-    #: because a non-secret capability setting has to be writable in the file
-    #: that holds every other non-secret default. The refusal did not
-    #: disappear, it moved — an unclaimed name is rejected by the plugin
-    #: resolver, which is the only thing that knows what is claimed.
+    #: Not environment-only: a `blitzecdn.toml` key core does not recognise is
+    #: staged here as `BLITZE_<KEY>` rather than refused outright, because a
+    #: non-secret capability setting has to be writable in the file that holds
+    #: every other non-secret default. The refusal lives one layer on — an
+    #: unclaimed name is rejected by the plugin resolver, which is the only
+    #: thing that knows what is claimed.
     #:
     #: Core's own names are excluded, which keeps `BLITZE_API_KEY` and
     #: `BLITZE_API_KEYS` — controller authentication, no edge's business — out
@@ -163,12 +162,13 @@ class Settings(BaseSettings):
     #: How many audit events to keep.
     #:
     #: The audit log is the only table with a writer on every mutation and no
-    #: reader that ever removed one, so it was the one thing here that grew
-    #: without bound — a control plane that eventually dies of having recorded
-    #: too well. This is a bound against that, not a judgement about what is
-    #: worth keeping: the default holds years of ordinary operation, and an
-    #: installation that needs a longer trail than a local SQLite file should
-    #: be shipping these events off the box rather than raising this.
+    #: reader that ever removes one, so it is the one thing here that would
+    #: otherwise grow without bound — a control plane that eventually dies of
+    #: having recorded too well. This is a bound against that, not a judgement
+    #: about what is worth keeping: the default holds years of ordinary
+    #: operation, and an installation that needs a longer trail than a local
+    #: SQLite file should be shipping these events off the box rather than
+    #: raising this.
     audit_retention: int = Field(default=100_000, ge=1_000, le=10_000_000)
     drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
     redis_url: RedisDsn = RedisDsn("redis://127.0.0.1:6379/0")
@@ -180,13 +180,11 @@ class Settings(BaseSettings):
     #: including `/health`, so the controller would look dead to a load
     #: balancer while working perfectly.
     #:
-    #: This is core's, and it stayed core's when the certificate settings
-    #: around it left. It was called `certificate_renewal_workers`, which read
-    #: as one capability's setting and was not: the pool is API infrastructure,
-    #: a package cannot create an application-scoped resource from a
+    #: Core's, despite a certificate sweep being the standing example of what
+    #: fills it. The pool is API infrastructure rather than one capability's
+    #: setting: a package cannot create an application-scoped resource from a
     #: registration hook, and an installation with no `blitzecdn-certificates`
-    #: still has the pool and still wants it bounded. Only the name named a
-    #: capability.
+    #: still has the pool and still wants it bounded.
     #:
     #: Small on purpose: the work it carries serialises on the deployment lock
     #: anyway, so more workers would only queue deeper.

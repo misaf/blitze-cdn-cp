@@ -35,10 +35,10 @@ from blitzecdn.core.domain.validation import SITE_NAME, hostname
 __all__ = ["Rule", "RulePatch"]
 
 #: A rule may not change the zone's identity. ``origin_host`` needs no place on
-#: the list: it is not a zone setting at all any more. Where the edge fetches
-#: from is the business of the per-record value, so the two most common reasons
-#: to write a rule — "this host caches differently" and "this host points
-#: elsewhere" — are now split: policy, and the record's own address.
+#: the list: it is not a zone setting at all. Where the edge fetches from is the
+#: business of the per-record value, which splits the two most common reasons to
+#: write a rule — "this host caches differently" and "this host points
+#: elsewhere" — into policy, and the record's own address.
 _NOT_OVERRIDABLE = frozenset({"name"})
 
 

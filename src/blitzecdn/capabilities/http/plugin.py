@@ -50,11 +50,10 @@ def blitzecdn_fleet_desired_state(
 ) -> FleetStateContribution:
     """State the baseline: the fleet opens no QUIC listener and names no owner.
 
-    Constant, and deliberately so. Deriving anything from `sites` here would be
-    HTTP/3 behavior living in the capability that no longer owns it, and it
-    would produce a fleet document that disagreed with itself the moment
-    ``blitzecdn-http3`` was detached from a controller whose sites still asked
-    for it.
+    Constant, and deliberately so. Deriving anything from `sites` here would
+    put HTTP/3 behavior in a capability that does not own it, and would produce
+    a fleet document that disagreed with itself the moment ``blitzecdn-http3``
+    was detached from a controller whose sites still asked for it.
     """
     return FleetStateContribution(
         plugin="http",

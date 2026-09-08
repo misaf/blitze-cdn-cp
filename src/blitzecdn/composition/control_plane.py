@@ -114,9 +114,9 @@ class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
     is what an *installed* capability is handed: the generic "run this play"
     and nothing capability-shaped. A detachable package declares its own narrow
     port over it — ``blitzecdn_cache.ports.CacheRunner`` — which is why no
-    ``CacheRunner`` appears in this list any more. That is the difference
-    between a built-in, whose port core may name, and a distribution core has
-    never heard of.
+    ``CacheRunner`` appears in this list. That is the difference between a
+    built-in, whose port core may name, and a distribution core has never heard
+    of.
     """
 
 

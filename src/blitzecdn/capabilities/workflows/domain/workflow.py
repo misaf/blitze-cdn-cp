@@ -4,20 +4,19 @@ A workflow is the record of work SQLite cannot roll back — a fleet converging,
 a CA issuing a certificate — written so a controller that restarts mid-flight
 leaves an operator something to read rather than silence.
 
-`WorkflowKind` is a *shape*, not a list. It was a closed enum naming
-`deployment`, `rollback` and `certificate` — the third of which is
-`blitzecdn-certificates`' concept, so this capability enumerated the work of a
-distribution that may not be installed, and a wheel that wanted a journal entry
-of its own had to be added to an enum in a package it does not ship. Whose work
-it is belongs to whoever is doing it: each capability declares its own name
-beside the operation it names, and this validates that the name is one a
-journal can hold. It is the arrangement `capability_requirements` already uses
+`WorkflowKind` is a *shape*, not a list. A closed enum naming `deployment`,
+`rollback` and `certificate` would have this capability enumerate the work of a
+distribution that may not be installed, `certificate` being that of
+`blitzecdn-certificates` — and would leave a wheel that wants a journal entry of
+its own waiting to be added to an enum in a package it does not ship.
+Whose work it is belongs to whoever is doing it: each capability declares its
+own name beside the operation it names, and this validates that the name is one
+a journal can hold. It is the arrangement `capability_requirements` already uses
 for capability tokens — declared by the contract that wants one, merged by
 something that names none.
 
-The identifier aliases that used to sit above these models are core's
-vocabulary rather than this capability's, and are
-:mod:`blitzecdn.core.domain.identifiers` now.
+The identifier aliases these models are written in are core's vocabulary rather
+than this capability's, and live in :mod:`blitzecdn.core.domain.identifiers`.
 """
 
 from __future__ import annotations

@@ -21,10 +21,9 @@ from blitzecdn.core.domain.validation import hostname
 
 #: The journal entry an issuance opens, named by the capability that opens it.
 #:
-#: It was a member of `WorkflowKind` in the control plane — a distribution that
-#: need not be installed, named in an enum shipped by one that always is. This
-#: is the same string; what changed is which side of the packaging boundary
-#: gets to say it.
+#: Declared here rather than as a member of `WorkflowKind` in the control
+#: plane, which would name a distribution that need not be installed in an enum
+#: shipped by one that always is.
 CERTIFICATE_WORKFLOW: WorkflowKind = "certificate"
 
 

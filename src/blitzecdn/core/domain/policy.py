@@ -13,11 +13,10 @@ for it, so a token travels with the settings that requested it, named as the
 stable schema names them: what the message says to change is what a patch would
 set.
 
-Declared by the contract that owns the setting, never by the composition. It
-was the other way round — one ``if`` chain on ``SitePolicy`` restated every
-capability's rule beside its own — which made ``sites`` the second place a
-capability's requirement was written down, and the two could disagree without
-anything saying so.
+Declared by the contract that owns the setting, never by the composition. One
+``if`` chain on ``SitePolicy`` restating every capability's rule beside its own
+would make ``sites`` a second place each requirement is written down, and the
+two could disagree without anything saying so.
 """
 
 from __future__ import annotations

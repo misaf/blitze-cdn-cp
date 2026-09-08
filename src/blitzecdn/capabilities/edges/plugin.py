@@ -30,7 +30,6 @@ def blitzecdn_api_routers() -> Sequence[APIRouter]:
 
 @hookimpl
 def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
-    # `origin` is not here any more: the group left with the play behind it,
-    # into `blitzecdn-origins`, and appears only while that package is
-    # installed.
+    # `origin` is not here: the group travels with the play behind it, in
+    # `blitzecdn-origins`, and appears only while that package is installed.
     return (CliCommandGroup(plugin="edges", name="edge", app=cli.edge_app),)

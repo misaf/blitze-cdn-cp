@@ -39,13 +39,12 @@ class OmittedWhenEmpty(BaseModel):
     """A nested policy block the edge document leaves out when it holds nothing.
 
     Opting in by subclassing, rather than core inspecting every nested model,
-    is the point. ``sites``' own
-    :func:`~blitzecdn.capabilities.dns.adapters.ansible.site_to_ansible`
-    used to name one block — ``firewall`` — which put the vocabulary of a detachable
-    capability into a generic adapter and meant a second such block would be a
-    second branch there. A capability now declares that its block is absent
-    rather than empty in the document, and core prunes whatever declares it
-    without knowing what any of them contain.
+    is the point. Naming a block — ``firewall``, say — inside ``sites``' own
+    :func:`~blitzecdn.capabilities.dns.adapters.ansible.site_to_ansible` would
+    put the vocabulary of a detachable capability into a generic adapter, and
+    make a second such block a second branch there. So a capability declares
+    that its block is absent rather than empty in the document, and core prunes
+    whatever declares it without knowing what any of them contain.
 
     It is deliberately not every nested block. ``visitor_headers`` carries
     switches whose *default* is meaningful to the role, so a block that has
@@ -156,11 +155,11 @@ _SETTING_PREFIX = "blitzecdn_"
 def validate_setting_name(value: str) -> str:
     """Normalise a fleet-wide Ansible setting name, or raise ``ValueError``.
 
-    These rules used to live in the Typer callback behind ``blitzecdn config
-    set``, which made them a property of one entry point rather than of the
-    setting. Everything downstream — the store, and the inventory plugin that
-    publishes these rows to every host — behaved as though they had been
-    applied, so any second writer would have bypassed them silently.
+    A property of the setting, not of one entry point. Left in the Typer
+    callback behind ``blitzecdn config set``, they would be bypassed silently
+    by any second writer: everything downstream — the store, and the inventory
+    plugin that publishes these rows to every host — behaves as though they had
+    been applied.
     """
     candidate = value.strip()
     if not candidate.startswith(_SETTING_PREFIX):

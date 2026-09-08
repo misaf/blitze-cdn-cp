@@ -1,32 +1,27 @@
 """This capability's own configuration, read from what the controller was given.
 
-Seven names, and every one of them used to be a field on core's ``Settings``:
-``certbot``, ``acme_default_email``, ``acme_ca_domain``, three intervals and a
-renewal budget. That is the largest single instance of the thing the rule
-against it describes — a core distribution carrying the configuration of a
-wheel that may not be installed, and an operator of a controller with no
-``blitzecdn-certificates`` attached still being offered somewhere to set an
-ACME email.
+Seven names: ``certbot``, ``acme_default_email``, ``acme_ca_domain``, three
+intervals and a renewal budget. None is a secret — a renewal interval is
+exactly the sort of non-secret default that belongs in ``blitzecdn.toml`` — so
+each is declared as a :class:`~blitzecdn.core.plugins.CapabilitySetting` rather
+than as an ``EnvironmentKey``.
 
-They stayed there longer than the secrets did for one reason: until
-:class:`~blitzecdn.core.plugins.CapabilitySetting` existed, the only thing a
-capability could declare was an ``EnvironmentKey``, and none of these is a
-secret. A renewal interval is exactly the sort of non-secret default that
-belongs in ``blitzecdn.toml``, and the mechanism that could hold one had not
-been built — so ``Settings`` held them, and the rule held for
-``blitzecdn-security`` alone, whose whole configuration happens to be a
-credential.
+As fields on core's ``Settings`` they would be the largest single instance of
+what the rule against that describes: a core distribution carrying the
+configuration of a wheel that may not be installed, and an operator of a
+controller with no ``blitzecdn-certificates`` attached still being offered
+somewhere to set an ACME email.
 
 The module is shaped like ``blitzecdn_security``'s deliberately: names as
 module constants so the declaration and the read cannot drift, one frozen
 dataclass, and one ``from_capability_config`` that turns the scoped
 ``CapabilityConfig`` core hands back into it.
 
-What did *not* move is ``certificate_dir``. Two distributions read it —
-this one writes the chains and ``blitzecdn-backup`` archives them — so it is
-genuinely shared state rather than this capability's setting, and moving it
-here would break backup on the day it was moved. Settling that ownership is
-the backup-component question, not this one.
+``certificate_dir`` is not here. Two distributions read it — this one writes
+the chains and ``blitzecdn-backup`` archives them — so it is genuinely shared
+state rather than this capability's setting, and claiming it here would break
+backup. Settling that ownership is the backup-component question, not this
+one.
 """
 
 from __future__ import annotations

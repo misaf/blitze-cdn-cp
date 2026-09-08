@@ -4,9 +4,9 @@ Issuance goes through HTTP-01: the CA resolves the hostname in public DNS and
 fetches ``/.well-known/acme-challenge/<token>`` over port 80. Everything that
 has to be true for that to work lives outside the control plane — public DNS
 must point at an edge, the vhost must already exist on that edge, and CAA must
-permit our CA. None of it was checked before, so the three most common customer
-mistakes all surfaced the same way: an opaque certbot error, minutes later,
-after a rate-limited request had already been spent.
+permit our CA. Unchecked, the three most common customer mistakes all surface
+the same way: an opaque certbot error, minutes later, after a rate-limited
+request has already been spent.
 
 This looks at each of those from the controller and reports what it found. The
 controller is not the CA's vantage point, so a pass is evidence rather than

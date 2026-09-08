@@ -20,17 +20,16 @@ does not carry is refused now, with the distribution named, rather than much
 later by Ansible with only the role named — and in the decommission slot, later
 means after the play has begun taking a host apart.
 
-These used to live in two modules named after their *consumers*:
-`core/ansible/roles.py` and `core/nginx.py`. Neither name was true of the whole
-of what it held — the capability *environment* resolver sat in the Nginx module
-and had nothing to do with Nginx — so they were folded into one module named
-after the job. That fixed the naming and left one file holding four unrelated
-resolvers, which is a different way to lose the same thing: the shared rules
-above were stated at the top and then the reader had seven hundred lines to
-find out which of them a given refusal came from.
+The package is named after the job rather than after any consumer of it: a
+module called `ansible/roles.py` or `nginx.py` is a name that stops being true
+of the whole of what it holds the moment a resolver like the capability
+*environment* one — which has nothing to do with Nginx — has to go somewhere.
+One module holding every resolver loses the same thing a different way: the
+shared rules above get stated once at the top, and a reader is then several
+hundred lines from finding out which of them a given refusal came from.
 
-So the job keeps the name and the split is by *what is resolved*, one module
-per kind, mirroring the contribution types in :mod:`blitzecdn.core.plugins.types`:
+So the split is by *what is resolved*, one module per kind, mirroring the
+contribution types in :mod:`blitzecdn.core.plugins.types`:
 
 * :mod:`~blitzecdn.core.plugins.resolution.ansible` — where a role is, and
   which roles core's own plays run in each slot;

@@ -22,17 +22,17 @@ __all__ = [
 class EnvironmentKey:
     """One `BLITZE_*` name an installed capability claims, and its shape.
 
-    This used to be a bare string, and a bare string answers only half the
-    question. It says the name is this package's — which is what stops a typo,
-    a detached package's leftover setting and two packages claiming one name —
-    and it says nothing about whether the capability can work without it or
-    what a usable value looks like. Every package therefore answered that half
-    itself, in its own module, in its own way, and at its own moment: the
-    security capability re-spelled its own key in a constant, read it back off
-    `Settings` through an untyped `getattr`, and enforced a 32-byte minimum in
-    a deployment check — so a controller configured with a placeholder secret
-    started, converged, and only reported the mistake when a site turned Under
-    Attack Mode on.
+    A name and a *shape*, rather than a bare string. The name alone answers
+    only half the question: it says which package owns the name — enough to
+    stop a typo, a detached package's leftover setting and two packages
+    claiming one name — and says nothing about whether the capability can work
+    without it or what a usable value looks like. Left to answer that half
+    itself, each package answers it in its own module, in its own way, and at
+    its own moment: re-spelling its key in a constant, reading it back off
+    `Settings` through an untyped `getattr`, enforcing a minimum length in a
+    deployment check — so a controller configured with a placeholder secret
+    starts, converges, and reports the mistake only when a site first needs the
+    value.
 
     Declaring the shape here moves each of those to the one moment they are
     all cheap: composition, before an adapter exists or a play could start.
@@ -93,13 +93,12 @@ class CapabilitySetting:
     configure — a secret whose value core must never look at, and a setting
     whose value core resolves, type-checks and hands back.
 
-    The absence of this class is why the rule it enforces was, until now,
-    documentation rather than architecture. "An optional capability's
-    configuration is not a field on ``Settings``" was written down and true of
-    exactly one capability: ``blitzecdn-security``, whose only configuration is
-    a secret, which was the only kind that could be declared. Every non-secret
-    one had nowhere else to go, so nine of them stayed on ``Settings`` —
-    ``certbot``, an ACME email, four renewal intervals, a backup directory —
+    This class is what makes "an optional capability's configuration is not a
+    field on ``Settings``" architecture rather than documentation. With only
+    :class:`EnvironmentKey` to declare, the rule holds for a capability whose
+    configuration happens to be a secret — ``blitzecdn-security`` — and no
+    other: a non-secret setting has nowhere else to go, so ``certbot``, an ACME
+    email, four renewal intervals and a backup directory stay on ``Settings``,
     each one a field the core distribution carries for a wheel that may not be
     installed, and each one unreachable for the capability that owns it without
     reading a model core owns.

@@ -47,13 +47,11 @@ class RuntimeContext:
 
     process: ProcessKind
     #: The process's resolved configuration. Annotated under `TYPE_CHECKING`,
-    #: the same way `Typer` is. It was `object`, and said the reason was that
-    #: `core.plugins` and `core.config` sit in no particular order — but
-    #: `core.config` imports nothing from `core.plugins`, in either direction,
-    #: so there was no cycle to avoid. What it left was the one untyped member
-    #: of an otherwise fully typed ABI: a startup hook is handed this and mypy
-    #: had nothing to say about any attribute read off it, in this repository
-    #: or in a wheel.
+    #: the same way `Typer` is, and not left as `object`: `core.config` imports
+    #: nothing from `core.plugins`, in either direction, so there is no cycle
+    #: to avoid here — and an untyped member is the one place in an otherwise
+    #: fully typed ABI where mypy has nothing to say about an attribute a
+    #: startup hook reads off it, in this repository or in a wheel.
     settings: Settings
 
 
@@ -68,12 +66,12 @@ class CliCommandGroup:
     """
 
     #: The contributing plugin's `PluginMetadata.name`. Declared rather than
-    #: inferred: ownership of a command used to be read off its callback's
-    #: `__module__`, which answers where a function was *written* and not which
-    #: wheel ships it — a group whose commands delegate to a shared helper, or
-    #: whose callbacks are wrapped, is attributed to whoever defined the
-    #: wrapper. A group belongs to exactly one plugin and so does every command
-    #: in it, so the group is the honest place to say which.
+    #: inferred from the callback's `__module__`, which answers where a function
+    #: was *written* and not which wheel ships it — a group whose commands
+    #: delegate to a shared helper, or whose callbacks are wrapped, would be
+    #: attributed to whoever defined the wrapper. A group belongs to exactly one
+    #: plugin and so does every command in it, so the group is the honest place
+    #: to say which.
     plugin: str
     name: str | None
     app: Typer

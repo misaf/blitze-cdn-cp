@@ -6,8 +6,8 @@ or a value; everything here does I/O, which is the whole reason the package
 exists — `capabilities/*/domain.py` and every capability contract are refused
 these imports as a package rather than one module name at a time.
 
-That was the failure mode of the flat layout it replaces. `core.filesystem`
-and `core.process` were named individually in the layering test's forbidden
-tuple, so the rule covered exactly the infrastructure modules somebody had
-remembered to list, and a new one was unguarded until it wasn't.
+A package, because naming modules individually is the failure mode: with
+`core.filesystem` and `core.process` listed one by one in the layering test's
+forbidden tuple, the rule covers exactly the infrastructure modules somebody
+remembered to list, and a new one is unguarded until it is not.
 """
