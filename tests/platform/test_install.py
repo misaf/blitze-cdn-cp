@@ -150,6 +150,10 @@ def _instrument(sandbox: Path) -> tuple[Path, Path]:
     script = sandbox / "install.sh"
     text = SCRIPT.read_text(encoding="utf-8")
     for real, redirected in (
+        # The standalone platform gate reads this, and `--fresh` runs the gate
+        # before it tears anything down. Redirected like every other absolute
+        # path so the sandbox can say what host it is pretending to be.
+        ("/etc/os-release", root / "etc/os-release"),
         ("/etc/blitzecdn", root / "etc/blitzecdn"),
         ("/etc/sudoers.d", root / "etc/sudoers.d"),
         ("/etc/nginx", root / "etc/nginx"),
@@ -167,6 +171,10 @@ def _instrument(sandbox: Path) -> tuple[Path, Path]:
     ):
         text = text.replace(real, str(redirected))
     text = text.replace("[[ ${EUID} -eq 0 ]]", "[[ 0 -eq 0 ]]")
+    (root / "etc").mkdir(parents=True, exist_ok=True)
+    (root / "etc/os-release").write_text(
+        'ID=ubuntu\nVERSION_ID="26.04"\n', encoding="utf-8"
+    )
     script.write_text(text, encoding="utf-8")
     script.chmod(0o700)
     return script, root
@@ -628,6 +636,58 @@ def test_standalone_defaults_to_no_deployment():
     assert "handoff_args+=(--deploy)" in _section("standalone")
 
 
+@pytest.mark.parametrize(
+    ("distribution", "version", "accepted"),
+    [
+        ("ubuntu", "26.04", True),
+        # Both of these are supported control-plane platforms and neither can be
+        # an edge, which is the whole reason this check is separate from the
+        # role's.
+        ("ubuntu", "24.04", False),
+        ("debian", "13", False),
+        ("ubuntu", "26.10", False),
+        ("", "", False),
+    ],
+)
+def test_a_standalone_host_must_satisfy_the_edge_platform(
+    distribution: str, version: str, accepted: bool
+):
+    """The narrower of the two contracts a standalone server signs.
+
+    It is a control plane and an edge on one machine: the control-plane role
+    takes Debian 13+ and Ubuntu 24.04+, the edge play takes Ubuntu 26.04 alone.
+    Accepting the wider one here is what made a Debian host install everything
+    and then fail at an assert it had no way to anticipate.
+    """
+    supported = (
+        _query(
+            f'edge_platform_supported "{distribution}" "{version}" '
+            "&& echo yes || echo no"
+        )
+        == "yes"
+    )
+    assert supported is accepted
+
+
+def test_the_platform_is_checked_before_anything_is_installed():
+    """Before apt, for the reason --admin-cidr is checked before apt.
+
+    And in `--fresh`, before the confirmation rather than after it: a rebuild
+    that cannot reinstall is a destroyed installation, and the platform is
+    knowable before the teardown starts.
+    """
+    standalone = _section("standalone")
+    assert standalone.index("require_edge_platform") < standalone.index("apt-get")
+    fresh = _section("fresh")
+    assert fresh.index("require_edge_platform") < fresh.index("converge_uninstall")
+    assert fresh.index("require_edge_platform") < fresh.index("confirm_destructive")
+    # Deliberately not the release-move commands: they converge the control
+    # plane alone, so refusing them on the platform a host already runs would
+    # strand it rather than protect it.
+    for command in ("update", "upgrade"):
+        assert "require_edge_platform" not in _section(command)
+
+
 def test_standalone_collects_the_access_list_from_either_spelling():
     """Repeat the flag or hand it a list; the role receives one value.
 
@@ -1064,6 +1124,31 @@ def test_fresh_clone_failure_preserves_the_running_installation(tmp_path: Path):
 
     assert result.returncode == 1
     assert "current installation was not changed" in result.stderr
+    assert all(path.exists() for path in owned)
+
+
+def test_fresh_refuses_an_unsupported_platform_before_destroying_anything(
+    tmp_path: Path,
+):
+    """The refusal that matters most, because the alternative is unrecoverable.
+
+    `--fresh` uninstalls and then reinstalls by running `standalone` again. On
+    a host the reinstall would refuse, doing the teardown first turns a rebuild
+    into a deletion -- so the platform is read before the confirmation, not
+    after it.
+    """
+    sandbox = tmp_path / "sandbox"
+    script, root = _instrument(sandbox)
+    _stub_bin(sandbox, root)
+    owned = _fake_installation(root)
+    (root / "etc/os-release").write_text(
+        'ID=debian\nVERSION_ID="13"\n', encoding="utf-8"
+    )
+
+    result = _run_sandboxed(script, "--fresh", "--yes")
+
+    assert result.returncode == 1
+    assert "requires Ubuntu 26.04" in result.stderr
     assert all(path.exists() for path in owned)
 
 

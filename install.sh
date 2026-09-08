@@ -474,6 +474,43 @@ run_playbook() {
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" -i localhost, "${playbook}" "$@"
 }
 
+# Whether this host can be the edge half of a standalone installation.
+#
+# A pure predicate so it can be exercised directly: the caller below is the one
+# that reads /etc/os-release, and this is the rule it reads it for.
+edge_platform_supported() {
+  local id=$1 version=$2
+  [[ ${id} == ubuntu && ${version} == 26.04 ]]
+}
+
+# Refuse a standalone installation this host cannot finish.
+#
+# A standalone server is a control plane and an edge on one machine, and the
+# two have different platform contracts: the control-plane role accepts Debian
+# 13+ and Ubuntu 24.04+, while the edge play accepts Ubuntu 26.04 and nothing
+# else. The narrower one is what this command promises, so it is checked here
+# -- before apt, for the same reason --admin-cidr is checked before apt. The
+# alternative is what a Debian host got until now: packages, a virtualenv, an
+# image build and a converged control plane, and then a refusal from a play it
+# had no way to know was coming.
+#
+# `update` and `upgrade` deliberately do not call this. They converge the
+# control plane alone and never reach the edge assert, so refusing to move a
+# host onto a newer release because of the platform it already runs would
+# strand it on the release it is on rather than protect it from anything.
+# shellcheck disable=SC1091 # /etc/os-release is the host's, not this repository's
+require_edge_platform() {
+  [[ -r /etc/os-release ]] ||
+    die 1 "error: cannot identify this operating system: /etc/os-release is unreadable"
+  local id version
+  id=$(. /etc/os-release && printf %s "${ID:-}")
+  version=$(. /etc/os-release && printf %s "${VERSION_ID:-}")
+  edge_platform_supported "${id}" "${version}" || die 1 \
+    "error: a standalone installation requires Ubuntu 26.04 LTS; this host is ${id:-unknown} ${version:-unknown}" \
+    "A standalone server is its own edge, and edges for this release require Ubuntu 26.04." \
+    "To use this host as a controller only, run ./install.sh with no arguments and register a separate Ubuntu 26.04 edge."
+}
+
 # Validate `--allowed-ips` and print the single comma-separated value the role
 # takes, whether the flag was repeated, given a list, or never given at all.
 #
@@ -727,6 +764,7 @@ EOF
 cmd_standalone() {
   [[ -n ${parsed_admin_cidr} ]] || die 2 "error: --admin-cidr is required"
   [[ -n ${parsed_email} ]] || die 2 "error: --email is required"
+  require_edge_platform
 
   [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
     die 1 "error: clone or copy this release to ${INSTALL_DIR}, then run the installer there"
@@ -1358,6 +1396,10 @@ cmd_fresh() {
       named_revision=0
     fi
   fi
+
+  # Before the confirmation, not after it: a rebuild that cannot reinstall is
+  # a destroyed installation, and this host's platform is knowable now.
+  require_edge_platform
 
   confirm_destructive "${parsed_yes}" fresh
 
