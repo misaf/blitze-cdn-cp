@@ -86,3 +86,43 @@ def test_a_firewall_survives_a_round_trip_through_its_serialised_form():
     )
 
     assert SecurityPolicy.model_validate_json(policy.model_dump_json()) == policy
+
+
+def test_replacing_swaps_the_named_lists_and_keeps_the_rest():
+    """What an operator editing one rule at a time means by it.
+
+    Naming `deny_sources` says nothing about the countries, so leaving a list
+    unnamed must not clear it. Clearing a list is expressible by naming it
+    empty, which is what keeps "not mentioned" and "emptied" distinct.
+    """
+    firewall = SiteFirewall(
+        deny_sources=("203.0.113.0/24",),
+        denied_countries=("DE",),
+        denied_methods=("TRACE",),
+    )
+
+    replaced = firewall.replacing({"deny_sources": ["198.51.100.0/24"]})
+
+    assert replaced.deny_sources == ("198.51.100.0/24",)
+    assert replaced.denied_countries == ("DE",)
+    assert replaced.denied_methods == ("TRACE",)
+    assert firewall.deny_sources == ("203.0.113.0/24",), "the original is unchanged"
+    assert firewall.replacing({"denied_countries": []}).denied_countries == ()
+
+
+def test_replacing_revalidates_what_it_is_given():
+    """`model_copy` would not, and every list here reaches an nginx directive."""
+    firewall = SiteFirewall(deny_sources=("203.0.113.0/24",))
+
+    with pytest.raises(ValidationError, match="is not an IP address or CIDR"):
+        firewall.replacing({"deny_sources": ["not-a-network"]})
+    with pytest.raises(ValidationError, match="ISO 3166-1 alpha-2"):
+        firewall.replacing({"denied_countries": ["UK"]})
+    # Normalisation is the validator's too, so it applies on the way through.
+    assert firewall.replacing({"denied_countries": ["de"]}).denied_countries == ("DE",)
+
+
+def test_replacing_refuses_a_list_a_firewall_does_not_have():
+    """A typo that silently changed nothing would read as a rule that applied."""
+    with pytest.raises(ValueError, match="no such rule list: deny_contries"):
+        SiteFirewall().replacing({"deny_contries": ["DE"]})
