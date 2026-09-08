@@ -106,7 +106,8 @@ redis_url = "redis://127.0.0.1:6379/0"
 # converges the ufw rules for the API port from BLITZE_ALLOWED_IPS, and
 # withdraws the rule for an address that leaves the list. There the list is
 # usually given to install.sh as --allowed-ips instead of written here, which
-# seeds BLITZE_ALLOWED_IPS before the API's first boot.
+# seeds BLITZE_ALLOWED_IPS before the API's first boot; standalone, update and
+# upgrade all take that flag, and omitting it leaves the installed list alone.
 #
 # Default: [] (loopback only).
 allowed_ips = []
