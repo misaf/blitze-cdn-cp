@@ -52,7 +52,7 @@ dependencies = [
 # That is the packaging half of "installed is not enabled": the extra decides
 # whether the capability is *present*, and configuration decides whether a site
 # uses it. Naming them here creates no import and no code path — core has no
-# `if backup_installed:` anywhere, and `tests/architecture/test_packages.py`
+# `if backup_installed:` anywhere, and `tests/architecture/packages/`
 # asserts it.
 [project.optional-dependencies]
 backup = ["blitzecdn-backup"]

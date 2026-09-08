@@ -182,7 +182,7 @@ test-package package *args:
 # the developer happened to have it installed. This syncs it away first, so the
 # run really is core-only, and puts the workspace back afterwards.
 #
-# `tests/architecture/test_packages.py` and `test_lifecycle.py` are about the
+# `tests/architecture/packages/` and `test_lifecycle.py` are about the
 # packages and are deselected — the lifecycle suite builds its own core-only
 # environment and asserts the same property from the outside.
 test-core-only *args:
@@ -191,7 +191,7 @@ test-core-only *args:
     trap 'uv sync --frozen --all-packages >/dev/null' EXIT
     uv sync --frozen
     uv run pytest --no-cov -n auto --dist=worksteal tests \
-        --ignore=tests/architecture/test_packages.py \
+        --ignore=tests/architecture/packages/ \
         --ignore=tests/architecture/test_lifecycle.py {{args}}
 
 # One file, or one case. Without coverage, because a subset would otherwise

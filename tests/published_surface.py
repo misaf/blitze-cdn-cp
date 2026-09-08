@@ -1,17 +1,9 @@
-"""What an installed capability may name inside the control plane.
+"""The public import policy shared by package and frozen-contract tests.
 
-Three tuples, one policy, and both suites that enforce it read them from here.
-
-`test_packages` asks whether any wheel in the workspace imports something
-outside the allowlist. `contract/test_frozen` expands the same prefixes into the
-symbols behind them and pins those, because a prefix decides which *modules* a
-package may import and says nothing about what is in them — a name an installed
-package uses can be renamed with the allowlist untouched.
-
-They were constants inside `test_packages`, which made the second reader import
-a test module to reach them. A promise this project makes to distributions it
-does not ship is not architecture-test scaffolding; it is the policy, and it
-belongs somewhere both suites can name.
+``architecture/packages/test_package_imports.py`` checks which modules optional
+packages may import. ``contract/test_frozen.py`` pins the symbols exposed by
+those modules. Keeping the declarations here lets both suites enforce the same
+policy without importing another test module.
 """
 
 from __future__ import annotations

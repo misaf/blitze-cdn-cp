@@ -30,7 +30,7 @@ Both functions take :mod:`importlib.resources`' *anchor* — any module or
 package in the distribution, so every call site is ``__name__`` — and derive
 the distribution from it. That is not a guess: this workspace's convention is
 that a distribution's import package is its name with hyphens replaced by
-underscores, and ``tests/architecture/test_packages.py`` enforces it in both
+underscores, and ``tests/architecture/packages/`` enforces it in both
 directions — so the mapping is a rule the suite already holds rather than a
 heuristic this module invented.
 """

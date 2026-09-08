@@ -31,7 +31,7 @@ remove the package   →  pluggy discovers nothing      →  core still works
 
 No line of core is edited either way. Nothing in `blitzecdn` imports an optional
 distribution, and no feature-specific installation check exists.
-`tests/architecture/test_packages.py` enforces that direction;
+`tests/architecture/packages/` enforces that direction;
 `tests/architecture/test_lifecycle.py` builds real wheels and asserts attachment
 and detachment in throwaway virtualenvs.
 
@@ -188,7 +188,7 @@ resource models was the one place every capability had to edit and none owned.
 on a shape by imitation give the eleventh author ten examples and no rule,
 which is how one package's settings ended up in `config.py` and another's
 inline in `plugin.py`. `test_a_package_organises_its_python_into_the_documented_modules`
-in `tests/architecture/test_packages.py` walks each distribution's `src/` and
+in `tests/architecture/packages/` walks each distribution's `src/` and
 refuses a module name that is not one of the above, and
 `test_a_built_in_capability_organises_its_python_the_same_way` walks
 `src/blitzecdn/capabilities/` and holds the built-ins to the same set — one
@@ -605,7 +605,7 @@ Optional-to-optional dependencies are **avoided**. If one genuinely needs
 another, declare it as a real dependency in `pyproject.toml` so pip installs
 both — never rely on an import that happens to work because both are installed
 today, and never on plugin initialization order. The graph stays acyclic and
-`tests/architecture/test_packages.py` enforces it.
+`tests/architecture/packages/` enforces it.
 
 ### The public SDK boundary
 
@@ -645,7 +645,7 @@ blitzecdn.core.ansible       # the concrete runner, reached through `platform.fl
 ```
 
 The allowlist is written out in `_PUBLIC_SDK_PREFIXES` in
-`tests/architecture/test_packages.py`; adding to it is a deliberate decision
+`tests/architecture/packages/`; adding to it is a deliberate decision
 about what BlitzeCDN promises an installed capability. There is no separate
 `blitzecdn-sdk` distribution, and there should not be one until something
 concretely needs it.
@@ -1352,7 +1352,7 @@ no network and no mounts and reads what it can load; the assertion beside it,
 `modules-invariant.yml`, checks that output against the modules the *installed
 capabilities* declared rather than against a list of its own. So the failure it
 reports names the capability, the module and the image — and
-`tests/architecture/test_packages.py` now carries no exemption at all to
+`tests/architecture/packages/` now carries no exemption at all to
 "core's Ansible names no capability's implementation".
 
 #### An optional capability's configuration
@@ -1559,7 +1559,7 @@ claiming a built-in's name collides with it rather than displacing it.
 * `api/app.py` and `cli/main.py` import no feature at all.
 
 Every one of these is a test in `tests/architecture/test_layering.py` (the
-control plane's internal boundaries) or `tests/architecture/test_packages.py`
+control plane's internal boundaries) or `tests/architecture/packages/`
 (the distribution boundary), not a convention. The packaging lifecycle itself —
 build, install, discover, uninstall, and the deterministic failure when a
 required capability is absent — is `tests/architecture/test_lifecycle.py`,
