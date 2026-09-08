@@ -105,32 +105,85 @@ uv-pin version:
     rm -f install.sh.bak
     echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
 
-# Move this distribution to a new version, and the edge image pins with it.
+# Move this distribution to a new version, and everything pinned to it.
+
 #
-# One number lives in three files. `.github/workflows/edge-image.yml` tags what
-# it publishes with `type=semver,pattern={{{{version}}}}`, so the published edge
-# image tag *is* the version in pyproject.toml — bumping one and not the others
-# leaves a controller deploying an edge runtime from another release. It did:
-# the pin sat at 2.7.0 for four releases after the runtime moved to Alpine, and
-# the mismatch surfaced on an operator's terminal as a chown failure inside a
-# container.
+# One number lives in twenty-three places. COMPATIBILITY.md says core and the
+# ten optional wheels "share a version and release together", and
+# `.github/workflows/edge-image.yml` tags what it publishes with
+# `type=semver,pattern={{{{version}}}}` — so the published edge image tag *is*
+# the version in pyproject.toml. None of that is enforced by anything that runs
+# before a release; it was held together by memory, and memory lost it. The edge
+# pin sat at 2.7.0 for four releases after the runtime moved to Alpine, and an
+# operator met the mismatch as a chown failure inside a container.
+#
+# The dependency bounds move only when the major does. A wheel declares
+# `blitzecdn>=MAJOR.0.0,<MAJOR+1`: the lower bound is the release the frozen
+# surfaces began at, the upper is the next major, and neither is a function of
+# the minor or the patch. So 4.1.0 -> 4.2.0 leaves every bound alone, and
+# 4.1.0 -> 5.0.0 rewrites all eleven — which is the release where forgetting
+# would mean `pip` refusing to install a wheel against the core it ships with.
 #
 # The tag itself is still cut by hand, and deliberately: publishing an image is
 # a release decision, not a side effect of editing a version string.
 #
-# Bump the version in pyproject.toml, both edge image pins and the lockfile.
+# Bump the version everywhere it is pinned: core, the ten wheels, their
+# dependency bounds, both edge image pins and the lockfile.
 release-version version:
     #!/usr/bin/env bash
     set -euo pipefail
-    sed -i.bak -E 's|^version = ".*"|version = "{{version}}"|' pyproject.toml
-    sed -i.bak -E \
-        's|(blitzecdn_edge_runtime_image_default: .*blitzecdn-edge):.*|\1:{{version}}|' \
-        src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml
-    sed -i.bak -E 's|^blitzecdn_edge_image_tag: ".*"|blitzecdn_edge_image_tag: "{{version}}"|' \
-        src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml
-    rm -f pyproject.toml.bak \
-        src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml.bak \
-        src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml.bak
+    python3 - <<'PY'
+    import pathlib
+    import re
+    import sys
+
+    version = "{{version}}"
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        sys.exit("error: expected MAJOR.MINOR.PATCH, got %r" % version)
+    major = version.split(".")[0]
+    following = str(int(major) + 1)
+
+
+    def reversion(text):
+        return re.sub(r'(?m)^version = ".*"$', 'version = "%s"' % version, text, count=1)
+
+
+    def rebound(text):
+        # Every sibling bound too: blitzecdn-certificates depends on
+        # blitzecdn-origins on the same terms it depends on core.
+        return re.sub(
+            r"(blitzecdn(?:-[a-z0-9]+)?)>=\d+\.\d+\.\d+,<\d+",
+            lambda match: "%s>=%s.0.0,<%s" % (match.group(1), major, following),
+            text,
+        )
+
+
+    core = pathlib.Path("pyproject.toml")
+    core.write_text(reversion(core.read_text()))
+
+    wheels = sorted(pathlib.Path("packages").glob("*/pyproject.toml"))
+    if len(wheels) != 10:
+        sys.exit("error: expected 10 optional wheels, found %d" % len(wheels))
+    for wheel in wheels:
+        wheel.write_text(rebound(reversion(wheel.read_text())))
+
+    pins = {
+        "src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml": (
+            r"(blitzecdn_edge_runtime_image_default: .*blitzecdn-edge):\S+",
+            r"\1:%s" % version,
+        ),
+        "src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml": (
+            r'(?m)^blitzecdn_edge_image_tag: ".*"$',
+            'blitzecdn_edge_image_tag: "%s"' % version,
+        ),
+    }
+    for name, (pattern, replacement) in pins.items():
+        path = pathlib.Path(name)
+        text, count = re.subn(pattern, replacement, path.read_text())
+        if count != 1:
+            sys.exit("error: %s: expected one edge image pin, rewrote %d" % (name, count))
+        path.write_text(text)
+    PY
     uv lock
     echo "Moved to {{version}}. Commit, then tag v{{version}} to publish the edge image."
 
@@ -211,7 +264,7 @@ test-package package *args:
 # the developer happened to have it installed. This syncs it away first, so the
 # run really is core-only, and puts the workspace back afterwards.
 #
-# `tests/architecture/packages/` and `test_lifecycle.py` are about the
+# `tests/architecture/packages/` and `tests/architecture/lifecycle/` are about the
 # packages and are deselected — the lifecycle suite builds its own core-only
 # environment and asserts the same property from the outside.
 test-core-only *args:
@@ -221,7 +274,7 @@ test-core-only *args:
     uv sync --frozen
     uv run pytest --no-cov -n auto --dist=worksteal tests \
         --ignore=tests/architecture/packages/ \
-        --ignore=tests/architecture/test_lifecycle.py {{args}}
+        --ignore=tests/architecture/lifecycle/ {{args}}
 
 # One file, or one case. Without coverage, because a subset would otherwise
 # fail on the global coverage floor rather than on the test.
