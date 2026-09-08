@@ -80,6 +80,26 @@ history_retention = 1000
 redis_url = "redis://127.0.0.1:6379/0"
 
 # |--------------------------------------------------------------------------
+# | API Access
+# |--------------------------------------------------------------------------
+#
+# These addresses decide which clients the API answers at all. They are not
+# authentication: an allowed client still presents X-API-Key on every control
+# endpoint. Set BLITZE_ALLOWED_IPS to override this list from the environment.
+#
+
+# Client IPs and CIDRs permitted to reach the API. Empty keeps the installed
+# listener on loopback, reachable only through an SSH tunnel. A non-empty list
+# binds it publicly and answers 403 to every unlisted client, including /docs,
+# /openapi.json, and /health. Loopback stays allowed so local health probes and
+# tunnels keep working; for that reason, never place an unrestricted local
+# reverse proxy in front of the listener. The decision uses the transport peer,
+# so forwarded-IP headers cannot grant access. This setting changes no firewall
+# rule: admit each address in UFW and your provider firewall as well.
+# Default: [] (loopback only).
+allowed_ips = []
+
+# |--------------------------------------------------------------------------
 # | Deployment Safety
 # |--------------------------------------------------------------------------
 #

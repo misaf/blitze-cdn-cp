@@ -50,6 +50,48 @@ ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 
 Swagger UI is then available at `http://127.0.0.1:8000/docs`.
 
+To allow public API access from specific client IPs, set this in
+`/etc/blitzecdn/blitzecdn.env` (replace the examples with your trusted addresses):
+
+```dotenv
+BLITZE_ALLOWED_IPS=203.0.113.8/32,198.51.100.0/24
+```
+
+Recreate the API to load the new environment:
+
+```bash
+sudo docker compose --file /etc/blitzecdn/control-plane.compose.yml \
+  up -d --no-deps --force-recreate blitzecdn-api
+```
+
+The installed API binds to `0.0.0.0:8000` only when this list is non-empty.
+Unlisted clients receive HTTP 403 on every route, including `/docs`,
+`/openapi.json`, and `/health`. Allowed clients still need `X-API-Key` for
+control endpoints. Loopback clients remain allowed for health checks and SSH
+tunnels. Forwarded-IP headers are ignored; do not put an unrestricted local
+reverse proxy in front of this listener, because it would appear as loopback.
+
+On a standalone server with UFW enabled, also admit each trusted source:
+
+```bash
+sudo ufw allow from 203.0.113.8/32 to any port 8000 proto tcp
+sudo ufw allow from 198.51.100.0/24 to any port 8000 proto tcp
+```
+
+Apply the same source restrictions in your provider firewall if present. The
+API setting does not change firewall rules. Remove old firewall rules when
+removing addresses; the application denies removed addresses after recreation
+even if an old firewall rule remains. You can then fetch
+`http://SERVER_IP:8000/openapi.json` from an allowed IP. Direct port 8000 uses
+HTTP; use an SSH tunnel for encrypted access when sending API credentials.
+
+Set `BLITZE_ALLOWED_IPS=` and recreate the API to return to loopback-only access.
+The environment file survives installer updates and backup/restore. For a
+source checkout, the equivalent setting is `allowed_ips = ["203.0.113.8/32"]`
+under `[blitzecdn]` in `blitzecdn.toml`; the environment takes precedence. Run
+`python -m blitzecdn.api` to use automatic binding. The installed listener is
+IPv4; the request filter also understands IPv6 peers when used by an IPv6 server.
+
 ## Controller quick start
 
 For a controller-only checkout or development environment:
