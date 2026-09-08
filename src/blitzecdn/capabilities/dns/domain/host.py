@@ -5,7 +5,9 @@ it is **derived**. Nothing creates one: a zone holds the policy, a rule holds
 the exceptions to it, records say which hostnames are on the edge, and
 :mod:`~blitzecdn.capabilities.dns.domain.hosts` composes the three into one of
 these per group of hostnames that resolve alike. There is no store behind it
-and no endpoint that writes one.
+and no endpoint that writes one. Why policy sits on the zone and the host is
+derived rather than stored is
+``docs/decisions/0001-zone-policy-and-composition.md``.
 
 The name is the edge's own. What this models is an nginx ``server`` block,
 which is what the edge calls a site, so renaming the type would rename the

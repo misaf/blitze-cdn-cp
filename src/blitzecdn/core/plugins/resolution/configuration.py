@@ -1,20 +1,16 @@
 """What an operator configured, resolved into what each capability may read.
 
 The one resolver here that is not about a *fleet* value. The role search path,
-the slot lists, the module set and the fragment set are all single
-process-wide answers core composes and hands to an adapter; a capability's
-configuration is composed once and then handed back **scoped**, so that a
-package reads the keys it declared and cannot see another's credential.
+the slot lists, the module set and the fragment set are all single process-wide
+answers core composes and hands to an adapter; a capability's configuration is
+composed once and then handed back **scoped**, so that a package reads the keys
+it declared and cannot see another's credential.
 
-That scoping is why the collision rules in the package docstring are enforced
-across every contribution before a single value is read: names share one
-``BLITZE_*`` namespace, and two capabilities claiming one name is two packages
-reading a value either of them may reconfigure for the other's sake.
+Secrets and settings are both here because they arrive together and are refused
+together, and are separated only once they have owners.
 
-Secrets and settings are both here because they arrive together and are
-refused together, and are separated only once they have owners — a secret is
-forwarded to Ansible and never written to a committed file, a setting is
-resolved for the controller and always has a value.
+The ownership rules this enforces, and why each refusal exists, are
+``docs/decisions/0002-capability-configuration-ownership.md``.
 """
 
 from __future__ import annotations
@@ -46,15 +42,9 @@ __all__ = [
 class CapabilityConfig:
     """One installed package's own configuration, and nothing else's.
 
-    A capability that needs a credential does not reach for
-    ``Settings.capability_environment`` itself. That read is an untyped
-    ``getattr`` against a model core owns, returning every claimed key in the
-    installation, out of which the package picks its own by re-spelling the
-    name — every part of it a copy waiting to drift: the name in two places, the
-    read in a helper each package writes again, and no answer at all to "what
-    does this capability need" for anything that has to ask.
-
-    This is that read, done once by core and handed back scoped: the keys *this
+    The read a capability would otherwise do against
+    ``Settings.capability_environment`` itself, done once by core and handed
+    back scoped: the keys *this
     plugin declared*, resolved from the merged environment, with an unset one
     present as an empty secret rather than absent. A name the package did not
     declare is refused rather than returned empty, because the two mistakes
@@ -164,41 +154,20 @@ def resolve_capability_environment(
 ) -> ResolvedCapabilityEnvironment:
     """Resolve claimed configuration, and refuse what cannot be worked with.
 
-    Four refusals, and each one is here because the alternative is a failure
-    much later that names nothing useful. A key without the ``BLITZE_`` prefix
-    is a package claiming a name the controller never collects. A key claimed
-    twice is two packages reading one value, either of which may be reconfigured
-    for the other's sake. A configured key nobody claims is a typo, a setting
-    left behind by a detached package, or a package that was never installed —
-    and silently ignoring it is how an operator spends an afternoon on a
-    credential that was reaching nothing.
+    Four refusals — an unprefixed claim, a name claimed twice, a configured name
+    nobody claims, and a value that cannot be worked with — each because the
+    alternative is a failure much later that names nothing useful. The first
+    three are ``PluginError``, being about what the installed packages claim;
+    the fourth is ``ConfigurationError``, the fix being a value the operator can
+    change.
 
-    The fourth is the value itself: a declared-required key that is absent, a
-    present one shorter than the length its capability declared usable, or a
-    setting that cannot be read as the type it was declared with. All are
-    ``ConfigurationError`` rather than ``PluginError``, and the distinction is
-    the one the exception hierarchy already draws — nothing is wrong with the
-    installed package, and the fix is a value the operator can change.
+    ``configured`` is the process environment and the controller's ``.env``,
+    which is 0600 and uncommitted; ``from_file`` is ``blitzecdn.toml``, which is
+    neither. A setting may come from either, the environment winning; a secret
+    may come only from the first. Only secrets are forwarded to Ansible.
 
-    Secrets and settings share one namespace deliberately. They arrive as one
-    set of `BLITZE_*` names and an operator sets them the same way, so a
-    capability claiming one name as both — or two capabilities disagreeing
-    about which kind a name is — is the same collision as any other and is
-    reported as one.
-
-    Only *secrets* are forwarded to Ansible. A setting is resolved for the
-    controller, and a role that needs the same value reads it from the desired
-    state document or from its own role defaults, which is where non-secret
-    fleet policy already lives.
-
-    The two sources are kept apart on purpose. ``configured`` is the process
-    environment and the controller's ``.env``, which is 0600 and uncommitted;
-    ``from_file`` is ``blitzecdn.toml``, which is neither. A setting may come
-    from either, the environment winning; a *secret* may come only from the
-    first, so a package cannot document its signing key into a file an
-    operator would commit. The rule is enforced here rather than by the TOML
-    reader refusing every name it does not recognise, which would also make
-    every non-secret capability setting unconfigurable there.
+    Each rule and the reason for it is
+    ``docs/decisions/0002-capability-configuration-ownership.md``.
     """
     owners: dict[str, str] = {}
     declared: dict[str, ConfigurationContribution] = {}

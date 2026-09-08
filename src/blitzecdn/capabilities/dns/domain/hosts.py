@@ -6,6 +6,9 @@ identity, and hostnames proxied to different origins cannot share one server
 block, because a block has one upstream. Only groups containing proxied records
 produce a server block.
 
+The design this implements is
+``docs/decisions/0001-zone-policy-and-composition.md``.
+
 Host names also determine managed certificate paths: ``example-com`` for a
 zone and ``example-com--api`` for its ``api`` rule. When a zone and rule group
 spans more than one origin, the first keeps the plain name and each further

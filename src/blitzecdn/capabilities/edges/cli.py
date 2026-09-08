@@ -222,12 +222,10 @@ def edge_image_spec(
     """Print the build arguments the edge runtime image is built from.
 
     The image needs one thing from this control plane that it cannot work out
-    for itself: which Nginx dynamic modules to carry. Written into the
-    Dockerfile, that list makes the image build a second register of which
-    capabilities exist — and the only one that keeps naming a capability after
-    its distribution is detached, because an image is built once and pinned by
-    digest. So the modules are declared by the capabilities that need them and
-    this command emits them, in the form `docker build --build-arg` takes:
+    for itself: which Nginx dynamic modules to carry. They are declared by the
+    capabilities that need them — see
+    `docs/decisions/0003-what-a-capability-puts-on-an-edge.md` — and this
+    command emits them, in the form `docker build --build-arg` takes:
 
         docker build $(blitzecdn edge image spec | sed 's/^/--build-arg /') \\
             "$(python -c 'from blitzecdn import docker; print(docker.EDGE_CONTEXT)')"
