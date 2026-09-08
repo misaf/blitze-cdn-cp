@@ -76,3 +76,9 @@ blitzecdn_controlplane_api_port: 8000
 # it can be withdrawn. Without it the role could only ever open ports.
 blitzecdn_controlplane_firewall_registry_file: >-
   {{ blitzecdn_controlplane_state_dir }}/api-firewall-rules
+# The API access list this run was given, comma-separated, as `--allowed-ips`
+# supplied it. Empty means the command line said nothing about access, and the
+# environment file's line is left exactly as the operator left it — so the flag
+# seeds a first installation without taking the file over from anyone who has
+# since edited it by hand.
+blitzecdn_controlplane_allowed_ips: ""

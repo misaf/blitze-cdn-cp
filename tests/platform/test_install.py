@@ -39,6 +39,8 @@ import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.capabilities.deployments.adapters import desired_state
+from blitzecdn.core.config.settings import Settings
+from blitzecdn.core.exceptions import ConfigurationError
 
 PROJECT_DIR = REPO_ROOT
 SCRIPT = PROJECT_DIR / "install.sh"
@@ -420,6 +422,7 @@ def test_privileged_subcommands_refuse_to_run_unprivileged(subcommand: str):
         ("standalone", "--admin-cidr"),
         ("standalone", "--email"),
         ("standalone", "--public-address"),
+        ("standalone", "--allowed-ips"),
     ],
 )
 def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option: str):
@@ -516,6 +519,88 @@ def test_acme_email_validation(email: str, accepted: bool):
     assert (result.returncode == 0) is accepted
 
 
+def _validate_allowed_ips(*values: str) -> subprocess.CompletedProcess[str]:
+    return _run_embedded(
+        _embedded_python("ip_network"),
+        "203.0.113.8/32",
+        "operator@example.com",
+        *values,
+    )
+
+
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        ("203.0.113.8/32", True),
+        ("203.0.113.8", True),
+        ("198.51.100.0/24", True),
+        ("10.0.0.0/8,192.0.2.1", True),
+        ("203.0.113.8/32, 198.51.100.0/24", True),
+        # The listener is IPv4, so an IPv6 entry could only ever be a list that
+        # admits nobody.
+        ("2001:db8::/32", False),
+        # One address or 256 of them, and the silent reading is the wide one.
+        ("203.0.113.8/24", False),
+        ("not-an-ip", False),
+        ("203.0.113.8/99", False),
+        ("", False),
+        ("203.0.113.8/32,", False),
+    ],
+)
+def test_allowed_ips_validation(value: str, accepted: bool):
+    assert (_validate_allowed_ips(value).returncode == 0) is accepted
+
+
+def test_allowed_ips_is_refused_before_anything_is_installed():
+    """The refusal has to name the two readings, not just say no.
+
+    An operator who writes a host-bit CIDR meant one of them, and the whole
+    point of refusing rather than masking is that the widening is chosen out
+    loud. A message that only reported "invalid" would leave them to guess
+    which correction the installer would have applied.
+    """
+    result = _validate_allowed_ips("203.0.113.8/24")
+    assert result.returncode != 0
+    assert "203.0.113.0/24" in result.stderr
+    assert "203.0.113.8/32" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "203.0.113.8/32",
+        "203.0.113.8",
+        "10.0.0.0/8",
+        "2001:db8::/32",
+        "203.0.113.8/24",
+        "10.1.2.3/8",
+        "not-an-ip",
+        "203.0.113.8/32,",
+    ],
+)
+def test_the_installer_and_the_setting_it_seeds_agree(tmp_path, value: str):
+    """One list, two validators, and the flag runs first.
+
+    `--allowed-ips` is checked by the host interpreter before a package is
+    installed, while `Settings` checks the same list when the API reads it. The
+    rules are written twice because there is no virtualenv yet to import the
+    first from; this is what keeps the second copy honest. A flag that accepted
+    what the control plane later refused would provision a server that cannot
+    start.
+
+    The empty value is deliberately not in this list: an empty environment
+    variable is how a server is returned to loopback, while an empty `--allowed-ips`
+    is a flag given nothing and is refused.
+    """
+    accepted_by_installer = _validate_allowed_ips(value).returncode == 0
+    try:
+        Settings.from_environment({"BLITZE_ALLOWED_IPS": value}, project_dir=tmp_path)
+        accepted_by_setting = True
+    except ConfigurationError:
+        accepted_by_setting = False
+    assert accepted_by_installer is accepted_by_setting
+
+
 # --- structural guarantees no unprivileged run can reach ---------------------
 def test_standalone_keeps_the_management_api_on_loopback():
     script = _script()
@@ -542,6 +627,54 @@ def test_standalone_defaults_to_no_deployment():
     )
     # Forwarding happens inside a root-only command, so it stays structural.
     assert "handoff_args+=(--deploy)" in _section("standalone")
+
+
+def test_standalone_collects_the_access_list_from_either_spelling():
+    """Repeat the flag or hand it a list; the role receives one value.
+
+    Both spellings exist because the setting itself accepts a comma-separated
+    string, and an operator who has three offices should not have to remember
+    which of the two this script wanted.
+    """
+    required = "--admin-cidr 203.0.113.8/32 --email operator@example.com"
+    assert (
+        _query(
+            f"parse_options standalone usage_standalone {required} "
+            "--allowed-ips 203.0.113.8/32 --allowed-ips 198.51.100.0/24\n"
+            'printf "%s\\n" "${parsed_allowed_ips[@]}"'
+        )
+        == "203.0.113.8/32\n198.51.100.0/24"
+    )
+    assert (
+        _query(
+            f"parse_options standalone usage_standalone {required}\n"
+            'echo "${#parsed_allowed_ips[@]}"'
+        )
+        == "0"
+    )
+    # The join and the extra-var live inside a root-only command, so the last
+    # hop stays structural.
+    standalone = _section("standalone")
+    assert 'allowed_ips="${allowed_ips:+${allowed_ips},}${allowed_entry}"' in standalone
+    assert (
+        '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in standalone
+    )
+
+
+def test_a_rebuild_carries_the_access_list_with_it():
+    """`--fresh` reinstalls exactly as a new server is installed.
+
+    Every standalone option it forwards is one an operator does not have to
+    reapply afterwards. An access list left behind would silently return a
+    public API to loopback on a rebuild.
+    """
+    assert (
+        _query(
+            "parse_options fresh usage_fresh --allowed-ips 203.0.113.8/32 --yes\n"
+            'printf "%s\\n" "${parsed_forward_args[@]}"'
+        )
+        == "--allowed-ips\n203.0.113.8/32"
+    )
 
 
 def test_standalone_guards_existing_sites_from_empty_desired_state():

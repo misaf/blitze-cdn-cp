@@ -50,8 +50,25 @@ ssh -L 8000:127.0.0.1:8000 OPERATOR@EDGE_ADDRESS
 
 Swagger UI is then available at `http://127.0.0.1:8000/docs`.
 
-To allow public API access from specific client IPs, set this in
-`/etc/blitzecdn/blitzecdn.env` (replace the examples with your trusted addresses):
+To allow public API access from specific client IPs, name them when you
+install (comma-separated, or repeat the flag):
+
+```bash
+sudo /opt/blitzecdn/install.sh standalone \
+  --admin-cidr 203.0.113.8/32 \
+  --public-address 203.0.113.10 \
+  --email admin@example.com \
+  --allowed-ips 203.0.113.8/32,198.51.100.0/24
+```
+
+The API is then reachable from those addresses on its first boot, with UFW
+already admitting exactly them — there is no window where one half of that
+agreement is in force without the other. Passing the flag on a later run
+repoints the list; leaving it off keeps whatever the server already has.
+
+To change the list without an installer run, edit
+`/etc/blitzecdn/blitzecdn.env` (replace the examples with your trusted
+addresses):
 
 ```dotenv
 BLITZE_ALLOWED_IPS=203.0.113.8/32,198.51.100.0/24
@@ -78,7 +95,8 @@ schema — `/docs`, `/redoc`, `/openapi.json` — and `/health`, so Swagger UI
 works in a browser.
 
 Where UFW is active, the installer converges port 8000 for exactly these
-addresses on the next run:
+addresses on the next run — this is also what `--allowed-ips` does for you
+during a fresh install:
 
 ```bash
 sudo /opt/blitzecdn/install.sh update
@@ -108,7 +126,9 @@ under `[blitzecdn]` in `blitzecdn.toml`; the environment takes precedence. Run
 addresses are IPv4 too; an IPv6 entry is refused when the setting is read
 rather than accepted and then never matched. A CIDR must have its host bits
 clear: `203.0.113.8/24` is refused, naming both `203.0.113.0/24` and
-`203.0.113.8/32` so the widening is chosen rather than assumed.
+`203.0.113.8/32` so the widening is chosen rather than assumed. `--allowed-ips`
+applies the same three rules before it installs a single package, so a typo
+costs a rejected command rather than a provisioned server.
 
 ## Controller quick start
 

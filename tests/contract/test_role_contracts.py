@@ -1749,6 +1749,45 @@ def test_the_control_plane_can_withdraw_an_api_rule_it_no_longer_manages():
     assert "policy: deny" not in tasks
 
 
+def test_the_control_plane_applies_a_given_access_list_on_every_run():
+    """The environment file is written once; the flag is given on every run.
+
+    Without this task `--allowed-ips` would seed a first installation and then
+    silently do nothing, which is the worst possible shape for a flag that says
+    who may reach the API. It has to land before the services are recreated,
+    because Compose reads that file when it starts them, and it must not touch
+    the commented example the template ships — a comment that became a rule
+    would open a port nobody asked for.
+    """
+    role = _role("blitzecdn_controlplane")
+    tasks = yaml.safe_load((role / "tasks/main.yml").read_text(encoding="utf-8"))
+    names = [task["name"] for task in tasks]
+    setter = tasks[names.index("Set the API access list this run was given")]
+
+    assert names.index("Set the API access list this run was given") < names.index(
+        "Recreate and start the control-plane services"
+    )
+    assert "blitzecdn_controlplane_allowed_ips | length > 0" in setter["when"]
+    assert (
+        re.search(
+            setter["ansible.builtin.lineinfile"]["regexp"],
+            "# BLITZE_ALLOWED_IPS=203.0.113.8/32",
+        )
+        is None
+    )
+    assert (
+        re.search(
+            setter["ansible.builtin.lineinfile"]["regexp"],
+            "BLITZE_ALLOWED_IPS=203.0.113.8/32",
+        )
+        is not None
+    )
+    # The default is what makes omitting the flag mean "leave the file alone"
+    # rather than "empty the list", so a routine `update` cannot cut off access
+    # an operator configured by hand.
+    assert _defaults_of(role)["blitzecdn_controlplane_allowed_ips"] == ""
+
+
 def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
     """Executed, not read: this is the rule set ufw is actually handed.
 
@@ -1824,11 +1863,16 @@ def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
         assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
         return set(yaml.safe_load(computed.read_text(encoding="utf-8")))
 
-    shipped = (
-        (role / "templates/blitzecdn.env.j2")
-        .read_text(encoding="utf-8")
-        .replace("{{ blitzecdn_controlplane_api_key }}", "secret")
-    )
+    def render(allowed_ips: str) -> str:
+        return jinja2.Template(
+            (role / "templates/blitzecdn.env.j2").read_text(encoding="utf-8"),
+            trim_blocks=True,
+        ).render(
+            blitzecdn_controlplane_api_key="secret",
+            blitzecdn_controlplane_allowed_ips=allowed_ips,
+        )
+
+    shipped = render("")
     # The template as installed: the allowlist is present only as a comment,
     # and a commented example that opened a port would be the worst kind of
     # default.
@@ -1846,3 +1890,12 @@ def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
     # Emptied to return the API to loopback. Every rule is then stale, which is
     # what makes the withdrawal above revoke them.
     assert rules("BLITZE_ALLOWED_IPS=\n", 3) == set()
+
+    # And the other branch of the same template: what `install.sh --allowed-ips`
+    # seeds is read back as rules by the same parser, so the flag, the list the
+    # API enforces and the ports ufw opens are one fact rather than three that
+    # agree today.
+    assert rules(render("203.0.113.8/32,198.51.100.0/24"), 4) == {
+        "tcp|8000|203.0.113.8/32",
+        "tcp|8000|198.51.100.0/24",
+    }
