@@ -13,9 +13,11 @@ from blitzecdn.capabilities.dns.domain import (
     RecordPatch,
     RecordType,
     reject_issuer_owned_certificate,
+    unservable_hosts,
 )
 from blitzecdn.capabilities.dns.ports import (
     EventRecorder,
+    RuleReader,
     UnitOfWork,
     ZoneStore,
 )
@@ -30,10 +32,15 @@ class DnsService:
         self,
         *,
         zones: ZoneStore,
+        rules: RuleReader,
         events: EventRecorder,
         uow: UnitOfWork,
     ) -> None:
         self.zones = zones
+        #: ``RuleReader`` and not ``RuleStore``: validation resolves hostnames
+        #: the way a deployment will, and the zone editor may never write a
+        #: rule. The narrow port is what says so.
+        self.rules = rules
         self.events = events
         self.uow = uow
 
@@ -66,12 +73,18 @@ class DnsService:
         Nothing is resynced afterwards. This changes how hostnames are served,
         not which ones exist, and ``server_names`` is a projection of records.
         """
-        current = self.zones.get_domain(name)
         changes = patch.model_dump(exclude_unset=True)
         reject_issuer_owned_certificate(changes)
-        updated = Domain.model_validate({**current.model_dump(), **changes})
         with self.uow.transaction():
-            saved = self.zones.replace_domain(updated)
+            # Read inside the boundary, and write against what was read. A
+            # patch is merged onto the whole stored document, so the write
+            # carries every field — including the ones this operator did not
+            # mention. Read outside, and a zone edited in between is not
+            # merged with but overwritten by a document assembled from a
+            # version that no longer exists.
+            current = self.zones.get_domain(name)
+            updated = Domain.model_validate({**current.model_dump(), **changes})
+            saved = self.zones.replace_domain(updated, expected=current)
             self.events.record(
                 domain_event(
                     operator,
@@ -127,10 +140,10 @@ class DnsService:
         patch: RecordPatch,
         operator: str,
     ) -> DnsRecord:
-        current = self.zones.get_record(domain, name, type_)
         changes = patch.model_dump(exclude_unset=True)
-        updated = DnsRecord.model_validate({**current.model_dump(), **changes})
         with self.uow.transaction():
+            current = self.zones.get_record(domain, name, type_)
+            updated = DnsRecord.model_validate({**current.model_dump(), **changes})
             saved = self.zones.replace_record(updated, expected=current)
             self.events.record(
                 domain_event(
@@ -177,8 +190,8 @@ class DnsService:
     def delete_record(
         self, domain: str, name: str, type_: RecordType, operator: str
     ) -> None:
-        record = self.zones.get_record(domain, name, type_)
         with self.uow.transaction():
+            record = self.zones.get_record(domain, name, type_)
             self.zones.delete_record(domain, name, type_)
             self.events.record(
                 domain_event(operator, "record.deleted", "record", record.fqdn)
@@ -229,10 +242,20 @@ class DnsService:
         one upstream. Deployment validation also covers state loaded through
         backup restoration or rollback, which can bypass the editing services.
         """
-        errors: list[str] = []
-        zones = {domain.name for domain in self.zones.list_domains()}
+        domains = self.zones.list_domains()
+        records = self.zones.list_records()
+        # What the derivation refused to build. `derive_hosts` drops those
+        # groups rather than raising — one zone left inconsistent by a rollback
+        # must not make every read of the fleet fail — which means the drop is
+        # silent unless somebody asks. This is the asking, and a deploy asks
+        # before it converges.
+        errors = [
+            refused.message
+            for refused in unservable_hosts(domains, self.rules.list_rules(), records)
+        ]
+        zones = {domain.name for domain in domains}
         by_hostname: dict[str, dict[str, list[str]]] = {}
-        for record in self.zones.list_records():
+        for record in records:
             if record.domain not in zones or not record.proxied:
                 continue
             by_hostname.setdefault(record.fqdn, {}).setdefault(record.value, []).append(

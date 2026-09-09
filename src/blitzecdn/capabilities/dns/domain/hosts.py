@@ -7,7 +7,9 @@ block, because a block has one upstream. Only groups containing proxied records
 produce a server block.
 
 The design this implements is
-``docs/decisions/0001-zone-policy-and-composition.md``.
+``docs/decisions/0001-zone-policy-and-composition.md``. Why a group whose policy
+no longer composes is dropped and reported rather than raised on is
+``docs/decisions/0005-canonical-writes-and-derived-state.md``.
 
 Host names also determine managed certificate paths: ``example-com`` for a
 zone and ``example-com--api`` for its ``api`` rule. When a zone and rule group
@@ -22,6 +24,9 @@ from __future__ import annotations
 import hashlib
 import re
 from collections.abc import Sequence
+from dataclasses import dataclass
+
+from pydantic import ValidationError
 
 from blitzecdn.capabilities.dns.domain.host import CdnSite
 from blitzecdn.capabilities.dns.domain.record import DnsRecord
@@ -29,7 +34,13 @@ from blitzecdn.capabilities.dns.domain.resolution import resolve_policy
 from blitzecdn.capabilities.dns.domain.rule import Rule
 from blitzecdn.capabilities.dns.domain.zone import Domain
 
-__all__ = ["derive_hosts", "host_name", "host_source"]
+__all__ = [
+    "UnservableHost",
+    "derive_hosts",
+    "host_name",
+    "host_source",
+    "unservable_hosts",
+]
 
 #: Two hyphens between the zone and the rule, because one is legal inside both
 #: a zone label and a rule name: `example-com-api` could be the `api` rule of
@@ -91,6 +102,61 @@ def _unique_name(candidate: str, used: set[str]) -> str:
     raise ValueError(f"cannot derive a unique host name for {candidate!r}")
 
 
+@dataclass(frozen=True)
+class UnservableHost:
+    """Hostnames whose policy no longer composes into a virtual host.
+
+    A derivation reads state it did not author. Zones and rules are edited
+    through services that validate, but a rollback adopts a snapshot wholesale,
+    a restore writes rows directly, and the certificates capability reaches
+    ``replace_domain`` and ``replace_rule`` without passing the entry-point
+    guards — so the composition can be handed a zone whose certificate pair
+    names a host that no longer exists, or a rule whose overrides contradict
+    the zone underneath them.
+
+    Raising on one of those would make every read of the fleet fail for one
+    broken zone: ``list_sites`` derives all of them together, and the API's
+    handler reports a ``ValidationError`` as a 422, so a corrupt *stored* row
+    would come back to an operator as though their request were malformed.
+    Dropping the host is the answer the rest of the code already assumes —
+    ``dns.domain.patch`` says so in prose — and this type is what makes the
+    drop visible instead of silent.
+    """
+
+    #: The hostnames that stop being served. Never empty.
+    hostnames: tuple[str, ...]
+    #: What the model refused, in its own words.
+    reason: str
+    #: The derived host name, when the failure came late enough to have one. A
+    #: rule whose overrides will not merge fails before any group is named.
+    name: str | None = None
+
+    @property
+    def message(self) -> str:
+        """One sentence naming the hostnames, the refusal, and the two fixes."""
+        derived = f" (derived host {self.name!r})" if self.name is not None else ""
+        return (
+            f"{', '.join(self.hostnames)}{derived} cannot be served: "
+            f"{self.reason}. The zone or rule these hostnames are served by "
+            "holds policy no virtual host can be built from; correct it, or "
+            "unproxy the hostnames."
+        )
+
+
+def _reason(exc: ValidationError) -> str:
+    """What a model refused, without pydantic's frame around it.
+
+    The messages only. An operator reading ``blitzecdn validate`` is being told
+    which combination of settings is impossible, and the field locations repeat
+    what the message already names — while the model and error counts around
+    them describe the derivation's internals rather than the zone they have to
+    go and fix.
+    """
+    return "; ".join(
+        str(error["msg"]).removeprefix("Value error, ") for error in exc.errors()
+    )
+
+
 def derive_hosts(
     domains: Sequence[Domain],
     rules: Sequence[Rule],
@@ -105,25 +171,64 @@ def derive_hosts(
     origins split into separate sites.
 
     The origin always exists — a proxied record's ``value`` is where the edge
-    fetches from — but a site can also be absent because restoring an old
-    snapshot may present policy that no longer agrees (e.g. a certificate pair
-    from a zone the rollback does not bring back), which ``CdnSite`` validation
-    refuses. That is not the check that catches the mistake —
-    ``DnsService.validation_errors`` refuses the deploy and names the hostname
-    — but a derivation cannot raise on state that is merely incomplete.
+    fetches from — but a site can be absent, because state this function did
+    not author can present policy that no longer agrees. Those groups are
+    dropped rather than raised on; :func:`unservable_hosts` is the same
+    derivation asked for what it dropped and why, and
+    ``DnsService.validation_errors`` is where an operator meets the answer.
     """
+    hosts, _ = _derive(domains, rules, records)
+    return hosts
+
+
+def unservable_hosts(
+    domains: Sequence[Domain],
+    rules: Sequence[Rule],
+    records: Sequence[DnsRecord],
+) -> list[UnservableHost]:
+    """What :func:`derive_hosts` dropped from this state, and why.
+
+    The same derivation, asked the other question. Two functions over one
+    implementation rather than a second pass that re-decides what is servable:
+    a second answer here would be free to disagree with the first, and the
+    disagreement would read as "validate says the fleet is fine and the
+    hostnames are still dark".
+    """
+    _, refused = _derive(domains, rules, records)
+    return refused
+
+
+def _derive(
+    domains: Sequence[Domain],
+    rules: Sequence[Rule],
+    records: Sequence[DnsRecord],
+) -> tuple[list[CdnSite], list[UnservableHost]]:
+    """The derivation itself: the hosts it could build, and the ones it could not."""
     by_zone = {domain.name: domain for domain in domains}
     rules_by_zone: dict[str, list[Rule]] = {name: [] for name in by_zone}
     for rule in rules:
         if rule.domain in rules_by_zone:
             rules_by_zone[rule.domain].append(rule)
 
+    # Keyed rather than appended: a hostname's A and AAAA record resolve
+    # through the same rule and fail identically, and one dark hostname should
+    # be reported once.
+    refusals: dict[tuple[str | None, tuple[str, ...]], str] = {}
+
     hostnames: dict[tuple[str, str | None, str], list[str]] = {}
     for record in records:
         zone = by_zone.get(record.domain)
         if zone is None or not record.proxied:
             continue
-        resolved = resolve_policy(zone, rules_by_zone[zone.name], record.fqdn)
+        try:
+            resolved = resolve_policy(zone, rules_by_zone[zone.name], record.fqdn)
+        except ValidationError as exc:
+            # The rule that won this hostname produces a merged zone the zone's
+            # own invariants refuse. It fails here, before any group exists, so
+            # there is no derived host name to name — the hostname is what the
+            # operator has to go and look at anyway.
+            refusals[(None, (record.fqdn,))] = _reason(exc)
+            continue
         # `dict.fromkeys` further down keeps this de-duplicated: the A and the
         # AAAA record for one hostname resolve to the same group — same origin,
         # or validation has already refused — and must contribute one
@@ -150,26 +255,39 @@ def derive_hosts(
                 names = hostnames[(zone_name, rule_name, origin)]
                 if not names:
                     continue
-                policy = _policy_for(zone, rules_by_zone[zone_name], rule_name)
                 # The first origin of a group keeps the plain name so that the
                 # common one-origin case is exactly as it always was; further
                 # origins add a slug, and a name already taken gets a counter.
                 candidate = (
                     base if index == 0 else f"{base}{_SEPARATOR}{_origin_slug(origin)}"
                 )
+                # Claimed even when the group turns out to be unservable. A
+                # name is a certificate directory, so the host that follows a
+                # broken one must not move into its place and then move back
+                # when the break is fixed.
                 name = _unique_name(candidate, used)
                 used.add(name)
-                hosts.append(
-                    CdnSite.model_validate(
+                server_names = tuple(dict.fromkeys(names))
+                try:
+                    policy = _policy_for(zone, rules_by_zone[zone_name], rule_name)
+                    site = CdnSite.model_validate(
                         {
                             **policy.model_dump(),
                             "name": name,
-                            "server_names": tuple(dict.fromkeys(names)),
+                            "server_names": server_names,
                             "origin_host": origin,
                         }
                     )
-                )
-    return hosts
+                except ValidationError as exc:
+                    refusals[(name, server_names)] = _reason(exc)
+                    continue
+                hosts.append(site)
+    return hosts, [
+        UnservableHost(hostnames=group, reason=reason, name=derived)
+        for (derived, group), reason in sorted(
+            refusals.items(), key=lambda item: (item[0][1], item[0][0] or "")
+        )
+    ]
 
 
 def _policy_for(zone: Domain, rules: Sequence[Rule], rule_name: str | None) -> Domain:
