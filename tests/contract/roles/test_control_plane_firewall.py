@@ -1,9 +1,15 @@
 """The controller's own API rules: opened, withdrawn, and re-applied."""
 
-# ruff: noqa: F403,F405
 import base64
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
 
-from contract_support import *
+import pytest
+import yaml
+from contract_support import PROJECT_DIR, _role, jinja2
 from role_contract_support import (
     _defaults_of,
 )
@@ -207,7 +213,7 @@ def test_the_control_plane_opens_exactly_the_allowed_sources(tmp_path):
             ),
             encoding="utf-8",
         )
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
             [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
             capture_output=True,
             text=True,

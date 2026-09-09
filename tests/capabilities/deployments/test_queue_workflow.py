@@ -1,5 +1,22 @@
-# ruff: noqa: F403,F405
-from application_support import *
+import pytest
+from application_support import _await_terminal, _await_workflow
+from control_plane_fixtures import (
+    FakeRunner,
+    RecordingBackgroundQueue,
+    RefusingBackgroundQueue,
+    ansible_run,
+    host_run,
+    seed_site,
+)
+
+from blitzecdn.capabilities.deployments.domain import (
+    DEPLOYMENT_WORKFLOW,
+    DeploymentStatus,
+)
+from blitzecdn.capabilities.workflows.domain import WorkflowStatus
+from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.exceptions import ExecutionError, NotFoundError
 
 
 def test_submit_deployment_queues_and_converges_on_a_worker(settings):
@@ -16,7 +33,7 @@ def test_submit_deployment_queues_and_converges_on_a_worker(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=queue,
     )
     seed_site(control)
@@ -45,7 +62,7 @@ def test_durable_queue_receives_only_the_deployment_id(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=queue,
     )
     seed_site(control)
@@ -74,7 +91,7 @@ def test_durable_queue_delivery_is_idempotent(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=runner,  # type: ignore[arg-type]
+        runner=runner,
         background=Queue(),
     )
     seed_site(control)
@@ -101,7 +118,7 @@ def test_a_queued_deployment_leaves_a_workflow_record(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=queue,
     )
     seed_site(control)
@@ -134,7 +151,7 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings):
             ]
         ),
         background=queue,
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
@@ -150,7 +167,7 @@ def test_submit_rollback_reports_conflicts_synchronously(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
     with pytest.raises(NotFoundError):
         control.deployments.submit_rollback("alice")
 
@@ -161,7 +178,7 @@ def test_submit_releases_the_lock_after_queue_publication(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=queue,
     )
     seed_site(control)
@@ -182,7 +199,7 @@ def test_a_queued_deployment_converges_when_its_identifier_is_delivered(settings
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=queue,
     )
     seed_site(control)
@@ -212,7 +229,7 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=refusing,
     )
     seed_site(control)
@@ -242,7 +259,7 @@ def test_runner_errors_are_recorded_and_reraised(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=ExplodingRunner()
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     with pytest.raises(ExecutionError):
@@ -285,7 +302,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=ExplodingOnceRunner(),  # type: ignore[arg-type]
+        runner=ExplodingOnceRunner(),
         background=queue,
     )
     seed_site(control)

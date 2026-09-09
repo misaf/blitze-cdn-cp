@@ -209,8 +209,18 @@ fmt:
 # against a published release, which is the point of the workspace: a change to
 # a contract an optional capability depends on fails here rather than after a
 # release.
+#
+# One file out of the suite, and for one reason: `control_plane_fixtures.py`
+# holds the doubles every distribution's tests inject — the fake runner, the
+# fake edge store, the background queues — and each of them stands in for a
+# Protocol that core declares. Nothing checked that they still satisfied it.
+# The call sites had grown `# type: ignore[arg-type]` instead, which suppressed
+# nothing at all, since the file it was written in is not checked; the fakes
+# did in fact conform, so the comments were wrong as well as inert. The
+# `if TYPE_CHECKING:` block at the end of the doubles states the conformance
+# and this line is what holds it.
 types:
-    uv run mypy src packages/*/src
+    uv run mypy src packages/*/src tests/control_plane_fixtures.py
 
 # Lint the shell scripts that run as root.
 shell-lint:

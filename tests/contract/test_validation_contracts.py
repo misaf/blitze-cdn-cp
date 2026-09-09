@@ -1,5 +1,21 @@
-# ruff: noqa: F403,F405
-from contract_support import *
+import os
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
+from contract_support import (
+    PROJECT_DIR,
+    ROLE_DIR,
+    _role_defaults,
+    _seed_site,
+    _split_runtime,
+)
+
+from blitzecdn.capabilities.dns.domain import Rule
+from blitzecdn.composition import ControlPlane, Repository
 
 # ----------------------------------------------------------------------
 # Executing the role's validation tasks
@@ -55,7 +71,7 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
         ),
         encoding="utf-8",
     )
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
         [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
         capture_output=True,
         text=True,
@@ -138,7 +154,7 @@ def _run_nginx_invariant(tmp_path: Path, tasks_file: Path, variables: dict[str, 
         ),
         encoding="utf-8",
     )
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
         [
             shutil.which("ansible-playbook")
             or str(PROJECT_DIR / ".venv/bin/ansible-playbook"),
@@ -389,7 +405,7 @@ def _run_capability_http_resources(
         ),
         encoding="utf-8",
     )
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
         [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
         capture_output=True,
         text=True,

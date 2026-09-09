@@ -1,13 +1,23 @@
-# ruff: noqa: F403,F405
-from application_support import *
+import pytest
+import yaml
+from application_support import _seed_proxied_record
 from certificate_support import (
     FakePreflight,
     _proxied_site_with_certificate,
     _RecordingIssuer,
     certificate_control_plane,
 )
+from control_plane_fixtures import (
+    FakeEdgeStore,
+    FakeRunner,
+    ansible_run,
+    host_run,
+    seed_site,
+)
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
+from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.exceptions import ConflictError
 
 # ----------------------------------------------------------------------
 # Certificate preflight enforcement
@@ -163,7 +173,7 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner()
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _seed_proxied_record(control)
 
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)

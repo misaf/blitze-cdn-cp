@@ -1,8 +1,14 @@
 """Converging the shipped contract against a real playbook run."""
 
-# ruff: noqa: F403,F405
+import os
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
 
-from contract_support import *
+import pytest
+import yaml
+from contract_support import PROJECT_DIR, ROLES_DIR, _role, _runtime_defaults
 from role_contract_support import (
     _defaults_of,
 )
@@ -42,7 +48,7 @@ def _run_contract(
         ),
         encoding="utf-8",
     )
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
         [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
         capture_output=True,
         text=True,
@@ -197,7 +203,7 @@ def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path
             ),
             encoding="utf-8",
         )
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
             [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
             capture_output=True,
             text=True,

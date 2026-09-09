@@ -7,9 +7,18 @@ converge already does, and an Ansible check folded into the probe loses the
 failure that fails a deploy.
 """
 
-# ruff: noqa: F403,F405
+import re
 
-from contract_support import *
+import yaml
+from contract_support import (
+    PROJECT_DIR,
+    ROLE_DIR,
+    STACK_ROLE_DIR,
+    _ansible_jinja,
+    _role,
+    _role_defaults,
+)
+from paths import CORE_ANSIBLE
 from role_contract_support import (
     COMPOSE_TEMPLATE,
     _defaults_of,

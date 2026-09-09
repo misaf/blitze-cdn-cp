@@ -1,6 +1,7 @@
-# ruff: noqa: F403,F405
-from application_support import *
 from blitzecdn_cache.composition import build_cache_service
+from control_plane_fixtures import FakeRunner, ansible_run, host_run
+
+from blitzecdn.composition import ControlPlane, Repository
 
 # ----------------------------------------------------------------------
 # Cache statistics
@@ -17,7 +18,7 @@ def _stats_control(settings, *hosts):
     fake = FakeRunner([ansible_run(*hosts)])
     return ControlPlane(
         settings=settings, repository=Repository(settings.database_path), runner=fake
-    ), fake  # type: ignore[arg-type]
+    ), fake
 
 
 def _report(cache, *, reachable=True):
@@ -167,7 +168,7 @@ def test_a_collection_reads_only_its_own_run(settings):
             ),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
 
     first = build_cache_service(control).cache_stats("alice")
     second = build_cache_service(control).cache_stats("alice")

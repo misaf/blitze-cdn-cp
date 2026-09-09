@@ -453,7 +453,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     def fail_restore(_domains, _records):
         raise RuntimeError("restore failed")
 
-    repository.zones.replace_all_records = fail_restore  # type: ignore[method-assign]
+    repository.zones.replace_all_records = fail_restore
     result = control.deployments.rollback("alice", successful.id)
 
     assert result.status is DeploymentStatus.FAILED
@@ -495,7 +495,7 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
         events.append("state-replaced")
         original_replace(domains, records)
 
-    repository.zones.replace_all_records = recording_replace  # type: ignore[method-assign]
+    repository.zones.replace_all_records = recording_replace
 
     successful = control.deployments.deploy("alice")
     # A concurrent edit while the fleet converges. The rollback restores the

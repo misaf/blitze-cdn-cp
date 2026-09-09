@@ -22,7 +22,7 @@ from blitzecdn_cache.domain import PurgeEntry
 def purges(fake: object) -> list[tuple[tuple[PurgeEntry, ...], bool, str | None]]:
     """Every cache purge the fleet was asked to run, as this capability meant it."""
     recorded: Sequence[tuple[str, object, dict[str, object], str | None]] = (
-        fake.playbooks  # type: ignore[attr-defined]
+        fake.playbooks
     )
     return [
         (
@@ -41,6 +41,6 @@ def purges(fake: object) -> list[tuple[tuple[PurgeEntry, ...], bool, str | None]
 def stats_limits(fake: object) -> list[str | None]:
     """The host limit each statistics run was asked for."""
     recorded: Sequence[tuple[str, object, dict[str, object], str | None]] = (
-        fake.playbooks  # type: ignore[attr-defined]
+        fake.playbooks
     )
     return [limit for name, _playbook, _variables, limit in recorded if name == "stats"]

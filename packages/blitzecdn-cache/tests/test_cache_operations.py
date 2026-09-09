@@ -1,8 +1,15 @@
-# ruff: noqa: F403,F405
-from application_support import *
+import re
+
+import pytest
 from blitzecdn_cache.composition import build_cache_service
 from blitzecdn_cache.domain import PurgeEntry
 from cache_support import purges
+from control_plane_fixtures import FakeRunner, ansible_run, host_run, seed_site
+
+from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
 
 # ----------------------------------------------------------------------
 # Cache purge
@@ -26,7 +33,7 @@ def _site(control, name="cdn", domain="example.com", **policy):
 def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control)
 
     result = build_cache_service(control).purge_cache(
@@ -48,7 +55,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     """Otherwise it reports success having removed nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control)
 
     with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
@@ -62,7 +69,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     """nginx matches *.example.com to a.example.com, so purge must too."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control, name="*", domain="assets.example.com")
 
     result = build_cache_service(control).purge_cache(
@@ -79,7 +86,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
 def test_a_purge_drops_the_query_when_the_site_ignores_it(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control, cache_query_string_mode="ignore")
 
     result = build_cache_service(control).purge_cache(
@@ -107,7 +114,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control)
 
     with pytest.raises(ConflictError, match="scheme"):
@@ -126,7 +133,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     """Port 80 only answers 301 for a TLS site, so it caches nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(
         control,
         name="tls",
@@ -151,7 +158,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
 def test_a_purge_for_a_disabled_site_is_refused(settings):
     repository = Repository(settings.database_path)
     fake = FakeRunner([_purge_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control, name="off", enabled=False)
 
     with pytest.raises(NotFoundError):
@@ -164,7 +171,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
     _site(control)
 
     with pytest.raises(ConflictError):
@@ -182,7 +189,7 @@ def test_a_purge_with_nothing_to_do_is_refused(settings):
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
-    )  # type: ignore[arg-type]
+    )
     with pytest.raises(ConflictError):
         build_cache_service(control).purge_cache("alice")
 
@@ -192,7 +199,7 @@ def test_purging_everything_needs_no_site_to_exist(settings):
     fake = FakeRunner([_purge_run()])
     control = ControlPlane(
         settings=settings, repository=Repository(settings.database_path), runner=fake
-    )  # type: ignore[arg-type]
+    )
 
     result = build_cache_service(control).purge_cache("alice", purge_all=True)
 
@@ -208,7 +215,7 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
     )
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([partial])
-    )  # type: ignore[arg-type]
+    )
     _site(control)
 
     result = build_cache_service(control).purge_cache(
@@ -229,7 +236,7 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(status=RunStatus.FAILED, return_code=1)]),
-    )  # type: ignore[arg-type]
+    )
     _site(control)
 
     with pytest.raises(ExecutionError, match="no edge reported"):
@@ -245,7 +252,7 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([_purge_run()])
-    )  # type: ignore[arg-type]
+    )
     _site(control)
 
     build_cache_service(control).purge_cache(

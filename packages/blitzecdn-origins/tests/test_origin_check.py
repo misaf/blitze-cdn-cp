@@ -36,10 +36,10 @@ def origin_checks(
     test helper.
     """
     recorded: Sequence[tuple[str, object, dict[str, object], str | None]] = (
-        fake.playbooks  # type: ignore[attr-defined]
+        fake.playbooks
     )
     return [
-        (list(variables["blitzecdn_origins_sites"]), limit)  # type: ignore[call-overload]
+        (list(variables["blitzecdn_origins_sites"]), limit)
         for name, _playbook, variables, limit in recorded
         if name == "origin-check"
     ]
