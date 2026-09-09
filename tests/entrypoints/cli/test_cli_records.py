@@ -51,7 +51,7 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
     assert json.loads(added.stdout)["proxied"] is False
     assert json.loads(added.stdout)["value"] == "198.51.100.20"
     # Unproxied, the zone derives no virtual host at all.
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
 
     proxied = runner.invoke(
         cli.app, ["record", "proxy", "example.com", "api", "--json"]

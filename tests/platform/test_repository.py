@@ -75,18 +75,18 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
         DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")
     )
 
-    (site,) = control.dns.list_sites()
+    (site,) = control.sites.list_sites()
     assert site.name == "example-com"
     assert site.origin_host == "192.0.2.1"
 
     repository.zones.replace_record(
         DnsRecord(domain="example.com", name="cdn", value="192.0.2.2")
     )
-    assert control.dns.list_sites()[0].origin_host == "192.0.2.2"
+    assert control.sites.list_sites()[0].origin_host == "192.0.2.2"
 
     repository.zones.delete_record("example.com", "cdn", RecordType.A)
     with pytest.raises(NotFoundError):
-        control.dns.get_site("example-com")
+        control.sites.get_site("example-com")
 
     assert not any(
         "site" in name

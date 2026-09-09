@@ -81,7 +81,7 @@ def build_certificate_service(platform: ControlPlane) -> CertificateService:
         ),
         events=platform.events,
         dns=platform.dns,
-        site_editor=platform.dns,
+        site_editor=platform.site_editor,
         deployments=platform.deployments,
         # ``@contextmanager`` exposes its concrete private context-manager type
         # to mypy. The public behavior is the narrow protocol the service uses.
@@ -105,7 +105,7 @@ def build_automatic_ssl_service(platform: ControlPlane) -> AutomaticSslService:
         # both and detaching that package cannot leave this import dangling.
         runner=OriginCheckPlaybook(platform.fleet),
         origin_probe=platform.origin_probe,
-        site_editor=platform.dns,
+        site_editor=platform.site_editor,
         deployments=platform.deployments,
     )
     _automatic_ssl_services[platform] = service

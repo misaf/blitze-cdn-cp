@@ -122,7 +122,7 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
         )
 
     assert repository.zones.list_records() == []
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
     assert sorted(
         event.action for event in repository.audit_log.list_audit_events()
     ) == ["domain.created"]
@@ -154,7 +154,7 @@ def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
         )
     )
 
-    (site,) = control.dns.list_sites()
+    (site,) = control.sites.list_sites()
     assert site.server_names == ("cdn.example.com", "www.example.com")
     assert control.dns.validation_errors() == []
     assert not hasattr(control.dns, "rebuild_hostname_projection")
@@ -182,7 +182,7 @@ def test_crud_validate_and_successful_deploy(settings):
     control.dns.update_domain(
         "example.com", DomainPatch(cache_enabled=False, compression="off"), "alice"
     )
-    assert control.dns.get_site(site.name).cache_enabled is False
+    assert control.sites.get_site(site.name).cache_enabled is False
     assert control.deployments.validate() == []
     result = control.deployments.deploy("alice")
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -251,16 +251,16 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
     )
 
     # Only the proxied record puts a hostname on the edge.
-    assert [site.server_names for site in control.dns.list_sites()] == [
+    assert [site.server_names for site in control.sites.list_sites()] == [
         ("cdn.example.com",)
     ]
 
     control.dns.unproxy("example.com", "cdn", RecordType.A, "203.0.113.7", "alice")
     # Nothing proxied, so the zone derives no virtual host at all.
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
 
     control.dns.proxy("example.com", "cdn", RecordType.A, "alice")
-    assert [site.server_names for site in control.dns.list_sites()] == [
+    assert [site.server_names for site in control.sites.list_sites()] == [
         ("cdn.example.com",)
     ]
 
@@ -274,7 +274,7 @@ def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
     control.dns.delete_domain("example.com", "alice")
     assert repository.zones.list_records() == []
     # The zone went, and everything derived from it went with it.
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
 
 
 def _plane(settings, repository):
@@ -312,7 +312,7 @@ def test_a_hostname_cannot_reach_two_origins_at_once(settings):
     control.dns.update_record(
         "example.com", "www", RecordType.AAAA, RecordPatch(proxied=False), "alice"
     )
-    (site,) = control.dns.list_sites()
+    (site,) = control.sites.list_sites()
     assert site.server_names == ("www.example.com",)
     assert control.dns.validation_errors() == []
 
@@ -335,7 +335,7 @@ def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
         DnsRecord(domain="example.com", name="api", value="198.51.100.10"), "alice"
     )
 
-    hosts = {site.name: site for site in control.dns.list_sites()}
+    hosts = {site.name: site for site in control.sites.list_sites()}
     assert hosts["example-com"].server_names == ("www.example.com",)
     assert hosts["example-com--api"].server_names == ("api.example.com",)
     assert hosts["example-com--api"].cache_enabled is False
@@ -393,7 +393,7 @@ def test_a_proxied_record_may_still_be_updated_in_place(settings):
 
     assert updated.ttl == 600
     assert updated.proxied
-    assert control.dns.get_site("example-com").server_names == ("www.example.com",)
+    assert control.sites.get_site("example-com").server_names == ("www.example.com",)
 
 
 def test_failed_and_timed_out_deployments_are_recorded(settings):
@@ -431,7 +431,7 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
     assert result.status is DeploymentStatus.SUCCEEDED
     # Rollback restores the zone the snapshot carried, so the host it derives
     # comes back with the origin, the hostnames and the policy it had.
-    restored = control.dns.get_site(original.name)
+    restored = control.sites.get_site(original.name)
     assert restored.origin_host == original.origin_host
     assert restored.server_names == ("cdn.example.com",)
     assert restored.cache_enabled is True
@@ -448,7 +448,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
-    current = control.dns.get_site(original.name)
+    current = control.sites.get_site(original.name)
 
     def fail_restore(_domains, _records):
         raise RuntimeError("restore failed")
@@ -457,7 +457,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     result = control.deployments.rollback("alice", successful.id)
 
     assert result.status is DeploymentStatus.FAILED
-    assert control.dns.get_site(original.name) == current
+    assert control.sites.get_site(original.name) == current
     assert repository.zones.list_records() != []
     actions = [event.action for event in repository.audit_log.list_audit_events(10)]
     assert "rollback.applied" not in actions
@@ -682,4 +682,4 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     rolled_back = control.deployments.rollback("alice", successful.id)
 
     assert rolled_back.status is DeploymentStatus.SUCCEEDED
-    assert control.dns.get_site(original.name) == original
+    assert control.sites.get_site(original.name) == original

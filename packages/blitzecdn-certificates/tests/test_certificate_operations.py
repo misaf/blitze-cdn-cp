@@ -73,8 +73,8 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
         "example-com", certificate, key, "alice"
     )
     assert uploaded.source == "uploaded"
-    assert control.dns.get_site("example-com").certificate_mode == "uploaded"
-    assert control.dns.get_site("example-com").ssl_mode == "off"
+    assert control.sites.get_site("example-com").certificate_mode == "uploaded"
+    assert control.sites.get_site("example-com").ssl_mode == "off"
 
     control.dns.update_domain("example.com", DomainPatch(ssl_mode="full"), "alice")
 
@@ -83,8 +83,8 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     )
     assert requested.source == "acme"
     assert control.certificates.certificate("example-com") == requested
-    assert control.dns.get_site("example-com").certificate_mode == "requested"
-    assert control.dns.get_site("example-com").ssl_mode == "full"
+    assert control.sites.get_site("example-com").certificate_mode == "requested"
+    assert control.sites.get_site("example-com").ssl_mode == "full"
 
     result = control.deployments.deploy("alice", check=True)
     assert result.status is DeploymentStatus.SUCCEEDED
@@ -262,8 +262,8 @@ def test_reconcile_issues_ready_first_certificate_and_deploys(
     assert result.skipped == {}
     assert result.failed == {}
     assert result.deployment.status is DeploymentStatus.SUCCEEDED
-    assert control.dns.get_site(site_name).certificate_mode == "requested"
-    assert control.dns.get_site(site_name).ssl_mode == "off"
+    assert control.sites.get_site(site_name).certificate_mode == "requested"
+    assert control.sites.get_site(site_name).ssl_mode == "off"
 
 
 def test_reconcile_skips_blocked_site_without_contacting_ca(settings, certificate_pair):

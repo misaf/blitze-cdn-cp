@@ -129,7 +129,7 @@ def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
         "example.com", "cdn", RecordType.AAAA, RecordPatch(proxied=False), "alice"
     )
     assert control.dns.validation_errors() == []
-    (host,) = control.dns.list_sites()
+    (host,) = control.sites.list_sites()
     assert host.server_names == ("cdn.example.com",)
     assert host.origin_host == "198.51.100.10"
 
@@ -141,11 +141,11 @@ def test_hostnames_accumulate_and_drop_as_records_come_and_go(settings):
     seed_record(control, name="cdn")
     seed_record(control, name="www")
 
-    (host,) = control.dns.list_sites()
+    (host,) = control.sites.list_sites()
     assert host.server_names == ("cdn.example.com", "www.example.com")
 
     control.dns.delete_record("example.com", "www", RecordType.A, "alice")
-    (host,) = control.dns.list_sites()
+    (host,) = control.sites.list_sites()
     assert host.server_names == ("cdn.example.com",)
 
 
@@ -156,7 +156,7 @@ def test_a_zone_serving_nothing_derives_no_virtual_host(settings):
     _zone(control)
     seed_record(control, name="db", value="198.51.100.11", proxied=False)
 
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
 
 
 def test_unproxying_publishes_the_address_the_record_holds(settings):
@@ -176,7 +176,7 @@ def test_unproxying_publishes_the_address_the_record_holds(settings):
     record = control.dns.get_record("example.com", "cdn", RecordType.A)
     assert not record.proxied
     assert record.value == "198.51.100.10"
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
 
     control.dns.unproxy("example.com", "cdn", RecordType.A, "198.51.100.20", "alice")
     record = control.dns.get_record("example.com", "cdn", RecordType.A)
@@ -193,7 +193,7 @@ def test_proxying_keeps_the_address_as_the_origin(settings):
 
     assert record.proxied
     assert record.value == "198.51.100.20"
-    (site,) = control.dns.list_sites()
+    (site,) = control.sites.list_sites()
     assert site.server_names == ("cdn.example.com",)
     assert site.origin_host == "198.51.100.20"
 
@@ -207,7 +207,7 @@ def test_deleting_a_zone_takes_its_records_and_its_hosts(settings):
     control.dns.delete_domain("example.com", "alice")
 
     assert repository.zones.list_records() == []
-    assert control.dns.list_sites() == []
+    assert control.sites.list_sites() == []
 
 
 def test_snapshot_round_trips_zones_records_and_rules(settings):
