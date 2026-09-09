@@ -59,7 +59,7 @@ def _populate(settings, *, database=True, tls=True, acme=True, config=True) -> N
     """Give a controller the state a disaster-recovery backup has to capture."""
     if database:
         store = Repository(settings.database_path)
-        control = ControlPlane(settings=settings, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
+        control = ControlPlane(settings=settings, repository=store, runner=FakeRunner())
         control.dns.create_domain(Domain(name="example.com"), operator="tester")
         store.close()
     if tls:
@@ -655,7 +655,7 @@ def test_a_restored_database_is_consistent_and_migrated(populated):
     populated.database_path.unlink()
     build_backup_service(populated).restore(archive)
     store = Repository(populated.database_path)
-    control = ControlPlane(settings=populated, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(settings=populated, repository=store, runner=FakeRunner())
     try:
         assert [domain.name for domain in control.dns.list_domains()] == ["example.com"]
     finally:
@@ -748,7 +748,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     """
     _populate(settings)
     store = Repository(settings.database_path)
-    original = ControlPlane(settings=settings, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
+    original = ControlPlane(settings=settings, repository=store, runner=FakeRunner())
     # Where the edge fetches from is the proxied record's own value now, not a
     # zone setting, so one record says both that `cdn.example.com` is served
     # and where from — which is what makes the snapshot render a host at all.
@@ -765,7 +765,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     assert set(manifest.components) == set(BackupComponent)
 
     store = Repository(rebuilt.database_path)
-    control = ControlPlane(settings=rebuilt, repository=store, runner=FakeRunner())  # type: ignore[arg-type]
+    control = ControlPlane(settings=rebuilt, repository=store, runner=FakeRunner())
     try:
         assert [domain.name for domain in control.dns.list_domains()] == ["example.com"]
         rendered = tmp_path / "rendered.yml"
