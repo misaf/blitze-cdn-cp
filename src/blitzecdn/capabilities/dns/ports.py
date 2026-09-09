@@ -57,7 +57,7 @@ class RuleOverrides(RuleReader, Protocol):
     """Rule access for certificate activation and automatic SSL upgrades.
 
     Writeback targets the rule overrides when a rule produced the derived host;
-    otherwise the DNS service updates the zone."""
+    otherwise the host service updates the zone."""
 
     def get_rule(self, domain: str, name: str) -> Rule: ...
 

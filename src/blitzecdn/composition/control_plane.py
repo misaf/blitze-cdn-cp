@@ -26,9 +26,13 @@ from blitzecdn.capabilities.deployments.ports import (
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
-from blitzecdn.capabilities.dns.composition import build_dns_service, build_rule_service
+from blitzecdn.capabilities.dns.composition import (
+    build_dns_service,
+    build_host_service,
+    build_rule_service,
+)
 from blitzecdn.capabilities.dns.ports import SiteReader
-from blitzecdn.capabilities.dns.service import RuleService
+from blitzecdn.capabilities.dns.service import HostService, RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
@@ -273,10 +277,11 @@ class ControlPlane:
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
         # DNS owns canonical zones, rules, records, and their host projection.
-        self.dns: DnsService = build_dns_service(
+        self.dns: DnsService = build_dns_service(self, zones=store.zones)
+        self.site_editor: HostService = build_host_service(
             self, zones=store.zones, rules=store.rules
         )
-        self.sites = self.dns
+        self.sites = self.site_editor
         # The overrides on a zone's policy, and the resolver over the two. The
         # zone store arrives through `ZoneReader`, which is one read: a rule
         # may consult the policy it overrides and may never write one.

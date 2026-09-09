@@ -21,6 +21,13 @@ hosts an edge serves. Certificate activation and automatic SSL upgrades write
 back to the source zone or rule. A certificate for a rule-derived host must not
 be written onto the zone and thereby affect unrelated hostnames.
 
+`DnsService` owns zone and record editing, DNS export, and desired-state
+validation. `HostService` owns derived-host reads and certificate/automatic SSL
+writeback. Composition exposes the same host service through `platform.sites`
+for reads and `platform.site_editor` for writeback. Certificate preflight still
+reads record TTLs through DNS. The certificate package declares its own narrow
+`SiteEditor` protocol; core does not import that optional package.
+
 Wire models remain explicit and validate through domain models. Parity tests
 protect field coverage without making HTTP schemas the source of domain policy.
 
@@ -70,6 +77,8 @@ after its services have been wired.
 ## Code and verification
 
 - [DNS service](../../src/blitzecdn/capabilities/dns/service/zones.py)
+- [Host service](../../src/blitzecdn/capabilities/dns/service/hosts.py)
+- [Host service tests](../../tests/capabilities/dns/test_host_service.py)
 - [Host derivation](../../src/blitzecdn/capabilities/dns/domain/hosts.py)
 - [Composition root](../../src/blitzecdn/composition/control_plane.py)
 - [Convergence service](../../src/blitzecdn/capabilities/deployments/service/convergence.py)
