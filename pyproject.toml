@@ -45,15 +45,10 @@ dependencies = [
   "ansible-runner>=2.4,<3",
 ]
 
-# Optional capabilities: real distributions in `packages/`, attached by name.
-#
-# An extra, not a dependency. `pip install blitzecdn` installs the control
-# plane and neither of these; `pip install 'blitzecdn[all]'` installs both.
-# That is the packaging half of "installed is not enabled": the extra decides
-# whether the capability is *present*, and configuration decides whether a site
-# uses it. Naming them here creates no import and no code path — core has no
-# `if backup_installed:` anywhere, and `tests/architecture/packages/`
-# asserts it.
+# Optional capabilities are independent distributions under packages/.
+# `pip install blitzecdn` installs core; `pip install 'blitzecdn[all]'`
+# includes every extra listed below. Installation makes a capability available;
+# configuration determines its use. See PLUGINS.md for the contribution model.
 [project.optional-dependencies]
 backup = ["blitzecdn-backup"]
 cache = ["blitzecdn-cache"]
@@ -145,19 +140,10 @@ markers = [
 ]
 addopts = "--strict-config --strict-markers --cov=blitzecdn --cov=blitzecdn_backup --cov=blitzecdn_cache --cov=blitzecdn_compression --cov=blitzecdn_certificates --cov=blitzecdn_security --cov=blitzecdn_http3 --cov=blitzecdn_geoip --cov=blitzecdn_hardening --cov=blitzecdn_origins --cov=blitzecdn_resolver --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = ["error"]
-# The workspace's whole suite: the control plane's own tests, plus each
-# optional distribution's tests, which live with the distribution. A package
-# is the unit of modularity, so removing `packages/blitzecdn-cache` removes its
-# implementation *and* its tests in one move and this list needs no edit — a
-# missing directory contributes nothing rather than failing collection.
+# Collect core and package-owned tests. Keep this list aligned with the workspace
+# distributions when adding or removing a package.
 testpaths = ["tests", "packages/blitzecdn-backup/tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-compression/tests", "packages/blitzecdn-certificates/tests", "packages/blitzecdn-security/tests", "packages/blitzecdn-http3/tests", "packages/blitzecdn-geoip/tests", "packages/blitzecdn-hardening/tests", "packages/blitzecdn-origins/tests", "packages/blitzecdn-resolver/tests"]
-# Tests live in per-capability directories now, so the shared helpers beside
-# `conftest.py` are no longer guaranteed onto `sys.path` by a top-level test
-# module. Name the directory rather than relying on where the first collected
-# file happens to sit.
-# Shared test helpers, imported by name rather than found by adjacency:
-# `tests/` holds the control plane's, and each optional package holds its
-# own beside its tests.
+# Shared helpers are imported by name from core and package test directories.
 pythonpath = ["tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-certificates/tests"]
 
 [tool.coverage.run]
