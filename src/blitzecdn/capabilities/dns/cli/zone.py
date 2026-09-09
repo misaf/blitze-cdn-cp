@@ -179,7 +179,7 @@ def domain_list(json_output: common.JsonOutput = False) -> None:
 @domain_app.command("remove")
 def domain_remove(
     name: str,
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: common.Yes = False,
 ) -> None:
     """Remove a zone and every record in it.
 

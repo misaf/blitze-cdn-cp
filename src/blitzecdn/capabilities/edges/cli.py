@@ -167,7 +167,7 @@ def edge_update(
 @edge_app.command("remove")
 def edge_remove(
     name: str,
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: common.Yes = False,
     decommission: Annotated[
         bool,
         typer.Option(

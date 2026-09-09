@@ -147,7 +147,7 @@ def rule_set(
 def rule_remove(
     domain: str,
     name: str,
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: common.Yes = False,
 ) -> None:
     """Remove a rule. The hostnames it covered fall back to the zone's policy."""
     if not yes and not typer.confirm(f"Delete rule {name!r} in {domain!r}?"):

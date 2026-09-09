@@ -138,7 +138,7 @@ def record_remove(
     domain: Annotated[str, typer.Argument()],
     name: Annotated[str, typer.Argument()],
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: common.Yes = False,
 ) -> None:
     """Delete one record.
 

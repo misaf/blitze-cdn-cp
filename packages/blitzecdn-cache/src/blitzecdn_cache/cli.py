@@ -46,10 +46,7 @@ def cache_purge(
             help="Empty the cache entirely instead of removing named URLs.",
         ),
     ] = False,
-    yes: Annotated[
-        bool,
-        typer.Option("--yes", help="Required confirmation for --all."),
-    ] = False,
+    yes: common.Yes = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
