@@ -12,6 +12,7 @@ from blitzecdn.capabilities.dns.domain import (
     DomainPatch,
     RecordPatch,
     RecordType,
+    reject_issuer_owned_certificate,
 )
 from blitzecdn.capabilities.dns.ports import (
     EventRecorder,
@@ -67,6 +68,7 @@ class DnsService:
         """
         current = self.zones.get_domain(name)
         changes = patch.model_dump(exclude_unset=True)
+        reject_issuer_owned_certificate(changes)
         updated = Domain.model_validate({**current.model_dump(), **changes})
         with self.uow.transaction():
             saved = self.zones.replace_domain(updated)

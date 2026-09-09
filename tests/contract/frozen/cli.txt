@@ -59,5 +59,7 @@ blitzecdn_certificates	command	blitzecdn cert list	--expiring-in type=int --json
 blitzecdn_certificates	command	blitzecdn cert preflight	<name> type=str required --json type=boolean default=False
 blitzecdn_certificates	command	blitzecdn cert reconcile	--json type=boolean default=False
 blitzecdn_certificates	command	blitzecdn cert renew	--expiring-in type=int default=30 --force type=boolean default=False --site type=str --deploy type=boolean default=False --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert request	<name> type=str required --email type=str --skip-preflight type=boolean default=False --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert upload	<name> type=str required --certificate type=path required --private-key type=path required --json type=boolean default=False
 blitzecdn_certificates	command	blitzecdn ssl reconcile	--json type=boolean default=False
 blitzecdn_origins	command	blitzecdn origin check	--limit type=str --json type=boolean default=False

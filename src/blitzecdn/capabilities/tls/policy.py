@@ -92,12 +92,33 @@ class MinimumTlsVersion(StrEnum):
 
 
 class CertificateMode(StrEnum):
-    """How the site's edge certificate material is managed."""
+    """How the site's edge certificate material is managed.
+
+    The four split in two along ``issuer_owned``: who is entitled to write the
+    mode and the pair of paths that must agree with it.
+    """
 
     DISABLED = "disabled"
     EXISTING = "existing"
     UPLOADED = "uploaded"
     REQUESTED = "requested"
+
+    @property
+    def issuer_owned(self) -> bool:
+        """Whether the certificates capability, not an operator, sets this.
+
+        ``uploaded`` and ``requested`` name material the control plane put on
+        the edge itself, under a path derived from the *derived host's* name.
+        Only the issuer knows that name — a zone produces several hosts, its
+        own and one per rule — so only the issuer can write the mode and the
+        two paths consistently. ``CdnSite`` refuses the pair when they
+        disagree, and the operator-facing edits refuse the mode outright.
+
+        ``disabled`` and ``existing`` are the operator's: the first says the
+        host serves no TLS, the second points at material somebody else put on
+        the box, which the control plane neither issues nor renews.
+        """
+        return self in {CertificateMode.UPLOADED, CertificateMode.REQUESTED}
 
 
 class TlsPolicy(CapabilityPolicy):

@@ -18,7 +18,10 @@ by nobody, being what the other three resolve to.
 
 from blitzecdn.capabilities.dns.domain.host import CdnSite, SitePolicy
 from blitzecdn.capabilities.dns.domain.hosts import derive_hosts
-from blitzecdn.capabilities.dns.domain.patch import DomainPatch
+from blitzecdn.capabilities.dns.domain.patch import (
+    DomainPatch,
+    reject_issuer_owned_certificate,
+)
 from blitzecdn.capabilities.dns.domain.record import (
     DnsRecord,
     RecordPatch,
@@ -43,5 +46,6 @@ __all__ = [
     "RulePatch",
     "SitePolicy",
     "derive_hosts",
+    "reject_issuer_owned_certificate",
     "resolve_policy",
 ]

@@ -7,8 +7,9 @@ between the zone and its patch model."""
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from types import UnionType
-from typing import Union, get_args, get_origin
+from typing import Any, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict
 
@@ -25,12 +26,46 @@ from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
 
-__all__ = ["DomainPatch"]
+__all__ = ["DomainPatch", "reject_issuer_owned_certificate"]
 
 #: Set by adding a zone, changed by deleting one. The records and the rules
 #: hang off the name, so a patch that could set it would be a rename that
 #: silently orphaned both.
 _NOT_PATCHABLE = frozenset({"name"})
+
+
+def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
+    """Refuse an operator edit that claims controller-managed TLS material.
+
+    Called from the two places an operator authors policy — updating a zone,
+    and authoring a rule's overrides — and from neither of the writes the
+    certificates capability makes, which reach the store through
+    ``replace_domain`` and ``replace_rule`` without passing here.
+
+    The check cannot live on ``DomainPatch`` itself even though both callers
+    speak in patches, because ``HostService.activate_managed_certificate``
+    records a rule's issued certificate *as* an overrides mapping, and that
+    mapping is the one thing that legitimately carries ``requested``. Nor can
+    it live on ``Domain``: a zone holds the mode perfectly well once the issuer
+    has written it. What is being checked is not the value but who is setting
+    it, and the entry point is the only place that knows.
+
+    Without it the mode is merely *inconsistent* rather than refused, and the
+    failure is quiet: ``CdnSite`` rejects a controller-managed mode whose paths
+    are not the ones derived from the host's name, ``derive_hosts`` drops the
+    host it could not build instead of raising, and the zone's hostnames stop
+    being served until ``blitzecdn validate`` names them.
+    """
+    mode = changes.get("certificate_mode")
+    if mode is None:
+        return
+    if CertificateMode(mode).issuer_owned:
+        raise ValueError(
+            f"certificate_mode={CertificateMode(mode).value!r} is set by the "
+            "certificate upload and request endpoints, which own the material "
+            "and the paths it lives under; an operator sets 'disabled' or "
+            "'existing'"
+        )
 
 
 class DomainPatch(BaseModel):

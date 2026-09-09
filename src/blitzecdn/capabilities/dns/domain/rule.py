@@ -88,6 +88,11 @@ def _validate_overrides(value: Mapping[str, Any]) -> Mapping[str, Any]:
         )
     # Raises for a value the zone would refuse, with pydantic's own message.
     DomainPatch.model_validate(dict(value))
+    # Who may set ``certificate_mode`` is deliberately *not* asked here. This
+    # runs on every rule the store rehydrates as well as on every rule an
+    # operator writes, and the issuer's own overrides — which legitimately
+    # carry a controller-managed mode — would stop being readable. The
+    # question belongs to ``RuleService``, which sees only authoring.
     return dict(value)
 
 

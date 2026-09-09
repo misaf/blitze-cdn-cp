@@ -26,10 +26,12 @@ from blitzecdn.capabilities.dns.domain import (
     DomainPatch,
     RecordType,
     Rule,
+    RulePatch,
 )
 from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import (
     ControlPlane,
@@ -110,6 +112,41 @@ def skip_tests_a_detached_capability_cannot_answer(
 _IDENTITY_ONLY = {"enabled": True}
 
 
+def _issuer_owned_mode(policy: Mapping[str, object]) -> CertificateMode | None:
+    """The controller-managed mode a caller asked for, if it asked for one."""
+    mode = policy.get("certificate_mode")
+    if mode is None:
+        return None
+    parsed = CertificateMode(str(mode))
+    return parsed if parsed.issuer_owned else None
+
+
+def _set_policy(
+    control: ControlPlane,
+    domain: str,
+    rule: str | None,
+    policy: Mapping[str, object],
+    operator: str,
+) -> None:
+    """Write policy where this host's policy lives: its zone, or its rule.
+
+    The same choice ``HostService._apply_to_source`` makes, and for the same
+    reason — a rule's host must not have its settings merged into the zone,
+    where every other hostname would pick them up.
+    """
+    if rule is None:
+        control.dns.update_domain(domain, DomainPatch.model_validate(policy), operator)
+        return
+    control.rules.update_rule(
+        domain,
+        rule,
+        RulePatch(
+            overrides={**control.rules.get_rule(domain, rule).overrides, **policy}
+        ),
+        operator,
+    )
+
+
 def seed_site(
     control: ControlPlane,
     *,
@@ -143,7 +180,22 @@ def seed_site(
 
     The zone is created on first use so that several calls can share one domain
     without the caller tracking which was first.
+
+    A caller naming a controller-managed ``certificate_mode`` is seeding a site
+    the *issuer* already acted on, and gets the sequence a real one goes
+    through rather than a single write: the operator's policy first, then
+    ``activate_managed_certificate``, then the TLS mode that only becomes legal
+    once there is a certificate. The one-shot version used to work and no
+    longer does — the operator-facing writes refuse an issuer-owned mode — but
+    it was fabricating a state no deployment can reach in one step, so the
+    sequence is the more faithful fixture regardless.
     """
+    issuer_mode = _issuer_owned_mode(policy)
+    if issuer_mode is not None:
+        # Held back and replayed below in the order the system reaches them.
+        deferred_ssl = policy.pop("ssl_mode", None)
+        for field in ("certificate_mode", "certificate_path", "certificate_key_path"):
+            policy.pop(field, None)
     with suppress(ConflictError):
         control.dns.create_domain(Domain(name=domain), operator)
     expected = host_name_for(domain, None)
@@ -180,6 +232,16 @@ def seed_site(
             ttl=ttl,
             operator=operator,
         )
+        site = control.sites.get_site(host_name_for(domain, rule))
+        if issuer_mode is None:
+            return site
+        # The issuer's own write, which derives the two paths from this host's
+        # name — so a caller cannot seed a certificate recorded against the
+        # wrong one of a zone's several hosts, which is the mistake the
+        # operator-facing guard exists to refuse.
+        control.site_editor.activate_managed_certificate(site, issuer_mode)
+        if deferred_ssl is not None:
+            _set_policy(control, domain, rule, {"ssl_mode": deferred_ssl}, operator)
         return control.sites.get_site(host_name_for(domain, rule))
     return CdnSite.model_validate(
         {
