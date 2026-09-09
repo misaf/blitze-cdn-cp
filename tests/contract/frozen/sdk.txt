@@ -47,8 +47,10 @@ blitzecdn	sdk	blitzecdn.core.exceptions.ConfigurationError	class(BlitzeError)
 blitzecdn	sdk	blitzecdn.core.exceptions.ConflictError	class(BlitzeError)
 blitzecdn	sdk	blitzecdn.core.exceptions.DeploymentBusyError	class(ConflictError)
 blitzecdn	sdk	blitzecdn.core.exceptions.ExecutionError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.exceptions.FailureKind	class(StrEnum)
 blitzecdn	sdk	blitzecdn.core.exceptions.NotFoundError	class(BlitzeError)
 blitzecdn	sdk	blitzecdn.core.exceptions.PluginError	class(BlitzeError)
+blitzecdn	sdk	blitzecdn.core.exceptions.classify	def(error: BlitzeError) -> FailureKind
 blitzecdn	sdk	blitzecdn.core.persistence.schema.DatabaseSchema	class(object)
 blitzecdn	sdk	blitzecdn.core.persistence.schema.MIGRATIONS_PATH	PosixPath
 blitzecdn	sdk	blitzecdn.core.plugins.AnsibleContribution	class(object)

@@ -16,14 +16,7 @@ from blitzecdn.composition import (
     load_control_plane_plugins,
 )
 from blitzecdn.core.config import Settings
-from blitzecdn.core.exceptions import (
-    BlitzeError,
-    ConfigurationError,
-    ConflictError,
-    DeploymentBusyError,
-    ExecutionError,
-    NotFoundError,
-)
+from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.plugins import PluginRegistry, ProcessKind
 
 
@@ -109,6 +102,31 @@ def create_app(
     return application
 
 
+#: How a failure reaches a client. The projection of core's `FailureKind` onto
+#: this delivery layer; `blitzecdn.cli.main` projects the same kinds onto exit
+#: codes. Both used to classify exceptions themselves and disagreed about the
+#: unmapped case — see `FailureKind`.
+#:
+#: Total over `FailureKind` by construction: `_failure_response` subscripts it,
+#: so a kind added to core without a line here is a `KeyError` the parity test
+#: in `tests/contract/test_delivery_parity.py` raises before a release does.
+_HTTP_STATUS: dict[FailureKind, int] = {
+    # `Retry-After` rides along below, because the header is the difference
+    # between this and a plain conflict and is meaningless off it.
+    FailureKind.BUSY: status.HTTP_409_CONFLICT,
+    FailureKind.CONFLICT: status.HTTP_409_CONFLICT,
+    FailureKind.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    # The controller is fine; what it was driving is not. A gateway error says
+    # that, where a 500 would blame this service for its dependency.
+    FailureKind.EXECUTION: status.HTTP_502_BAD_GATEWAY,
+    FailureKind.CONFIGURATION: status.HTTP_400_BAD_REQUEST,
+    # Not 503. A plugin that will not load is not a service that is briefly
+    # unavailable, and inviting a retry that cannot succeed is worse than
+    # admitting the installation is broken.
+    FailureKind.INTERNAL: status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
+
+
 def _register_exception_handlers(application: FastAPI) -> None:
     @application.exception_handler(ValidationError)
     async def validation_error_handler(
@@ -117,41 +135,25 @@ def _register_exception_handlers(application: FastAPI) -> None:
         # PATCH merges with current state inside the application service, so
         # some cross-field failures are discovered after request parsing. They
         # are still client validation errors rather than internal failures.
+        # Not part of core's taxonomy: a `ValidationError` is pydantic's, not a
+        # `BlitzeError`, and the CLI answers it out of band for the same reason.
         return _error_response(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
 
-    @application.exception_handler(NotFoundError)
-    async def not_found_handler(_request: object, exc: NotFoundError) -> JSONResponse:
-        return _error_response(status.HTTP_404_NOT_FOUND, str(exc))
-
-    @application.exception_handler(DeploymentBusyError)
-    async def deployment_busy_handler(
-        _request: object, exc: DeploymentBusyError
-    ) -> JSONResponse:
-        return _error_response(
-            status.HTTP_409_CONFLICT, str(exc), headers={"Retry-After": "30"}
-        )
-
-    @application.exception_handler(ConflictError)
-    async def conflict_handler(_request: object, exc: ConflictError) -> JSONResponse:
-        return _error_response(status.HTTP_409_CONFLICT, str(exc))
-
-    @application.exception_handler(ConfigurationError)
-    async def configuration_error_handler(
-        _request: object, exc: ConfigurationError
-    ) -> JSONResponse:
-        return _error_response(status.HTTP_400_BAD_REQUEST, str(exc))
-
-    @application.exception_handler(ExecutionError)
-    async def execution_error_handler(
-        _request: object, exc: ExecutionError
-    ) -> JSONResponse:
-        return _error_response(status.HTTP_502_BAD_GATEWAY, str(exc))
-
+    # One handler for the whole hierarchy. Starlette resolves a handler by
+    # walking the raised exception's MRO, so registering the base class catches
+    # every subclass, and which status each one gets is `_HTTP_STATUS` above
+    # rather than the registration order of six near-identical decorators.
     @application.exception_handler(BlitzeError)
     async def application_error_handler(
         _request: object, exc: BlitzeError
     ) -> JSONResponse:
-        return _error_response(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc))
+        return _failure_response(exc)
+
+
+def _failure_response(exc: BlitzeError) -> JSONResponse:
+    kind = classify(exc)
+    headers = {"Retry-After": "30"} if kind is FailureKind.BUSY else None
+    return _error_response(_HTTP_STATUS[kind], str(exc), headers=headers)
 
 
 def _error_response(
