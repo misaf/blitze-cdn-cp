@@ -199,7 +199,7 @@ fmt:
     uv run ruff format src tests packages
     uv run ruff check --fix src tests packages
 
-# Strict type checking, across the whole workspace.
+# Strict type checking, using the file globs in pyproject.toml.
 #
 # Each distribution's `src` tree, plus the suite's shared helper modules. The
 # test *cases* are still unannotated and out of scope; `src` and the two helper
@@ -228,7 +228,7 @@ fmt:
 # it. A helper added tomorrow is checked because it is there, not because
 # somebody remembered to add a line here.
 types:
-    uv run mypy src packages/*/src tests/*.py packages/*/tests/*_support.py
+    uv run mypy
 
 # Lint the shell scripts that run as root.
 shell-lint:
