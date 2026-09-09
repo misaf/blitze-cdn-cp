@@ -35,7 +35,7 @@ def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, ca
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
-    )  # type: ignore[arg-type]
+    )
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     monkeypatch.setattr(sys, "argv", ["blitzecdn", "record", "list", "absent.example"])

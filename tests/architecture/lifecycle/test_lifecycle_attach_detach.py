@@ -103,9 +103,7 @@ def test_uninstalling_a_distribution_makes_its_capability_disappear(
     assert LIFECYCLE_CAPABILITY not in after["capabilities"]
     assert LIFECYCLE_CAPABILITY not in after["commands"]
     assert after["rejected"] == []
-    assert {"dns", "edges", "deployments"} <= set(
-        after["plugins"]  # type: ignore[arg-type]
-    )
+    assert {"dns", "edges", "deployments"} <= set(after["plugins"])
     assert after["routes"]
 
 
@@ -149,9 +147,9 @@ def test_site_capability_wheels_attach_and_detach_through_real_entry_points(
     _uv("pip", "check", "--python", str(environment.python))
 
     if capability == "certificates":
-        assert {"cert", "ssl"} <= set(attached["commands"])  # type: ignore[arg-type]
-        assert any("certificates" in path for path in attached["routes"])  # type: ignore[union-attr]
-        assert any("/ssl/automatic/" in path for path in attached["routes"])  # type: ignore[union-attr]
+        assert {"cert", "ssl"} <= set(attached["commands"])
+        assert any("certificates" in path for path in attached["routes"])
+        assert any("/ssl/automatic/" in path for path in attached["routes"])
 
     environment.uninstall(distribution)
     detached_report = environment.report()
@@ -161,9 +159,9 @@ def test_site_capability_wheels_attach_and_detach_through_real_entry_points(
     assert detached_report["routes"]
     assert environment.site_capabilities(overrides)["missing"] == [capability]
     if capability == "certificates":
-        assert not {"cert", "ssl"} & set(detached_report["commands"])  # type: ignore[arg-type]
-        assert not any("certificates" in path for path in detached_report["routes"])  # type: ignore[union-attr]
-        assert not any("/ssl/automatic/" in path for path in detached_report["routes"])  # type: ignore[union-attr]
+        assert not {"cert", "ssl"} & set(detached_report["commands"])
+        assert not any("certificates" in path for path in detached_report["routes"])
+        assert not any("/ssl/automatic/" in path for path in detached_report["routes"])
 
 
 def test_configuration_requiring_an_absent_capability_fails_deterministically(

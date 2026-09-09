@@ -103,7 +103,7 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
     )
     control.dns.create_domain(Domain(name="example.com"), "alice")
 
@@ -142,7 +142,7 @@ def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
     _seed_proxied_record(control)
 
     repository.zones.create_record(
@@ -170,14 +170,14 @@ def test_external_deployment_run_never_holds_a_database_transaction(settings):
 
     control = ControlPlane(
         settings=settings, repository=repository, runner=TransactionAwareRunner()
-    )  # type: ignore[arg-type]
+    )
     control.deployments.deploy("alice")
 
 
 def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     site = seed_site(control, name="example-com", record="cdn")
     control.dns.update_domain(
         "example.com", DomainPatch(cache_enabled=False, compression="off"), "alice"
@@ -195,7 +195,7 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
 
     assert control.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
@@ -205,7 +205,7 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
         settings=settings.model_copy(update={"allow_empty_sites": True}),
         repository=repository,
         runner=FakeRunner(),
-    )  # type: ignore[arg-type]
+    )
     assert approved.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "blitzecdn_nginx_allow_empty_sites: true" in desired
@@ -219,7 +219,7 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=InterruptedRunner()
-    )  # type: ignore[arg-type]
+    )
 
     with pytest.raises(KeyboardInterrupt):
         control.deployments.deploy("alice")
@@ -241,7 +241,7 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
     seed_site(control, name="example-com", record="cdn")
     control.dns.create_record(
         DnsRecord(
@@ -269,7 +269,7 @@ def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
     seed_site(control, name="example-com", record="cdn")
     control.dns.delete_domain("example.com", "alice")
     assert repository.zones.list_records() == []
@@ -278,7 +278,7 @@ def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
 
 
 def _plane(settings, repository):
-    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())  # type: ignore[arg-type]
+    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())
 
 
 def test_a_hostname_cannot_reach_two_origins_at_once(settings):
@@ -408,7 +408,7 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
             ansible_run(status=RunStatus.TIMED_OUT, return_code=124),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     assert control.deployments.deploy("alice").status is DeploymentStatus.FAILED
     assert (
         control.deployments.deploy("alice", check=True).status
@@ -423,7 +423,7 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
-    )  # type: ignore[arg-type]
+    )
     original = seed_site(control, name="example-com", record="cdn")
     successful = control.deployments.deploy("alice")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
@@ -444,7 +444,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
-    )  # type: ignore[arg-type]
+    )
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
@@ -484,7 +484,7 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
         settings=settings,
         repository=repository,
         runner=LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     # Recording starts after the seeding, so nothing but the rollback's own
@@ -534,7 +534,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
     )
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([stopped])
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     deployment = control.deployments.deploy("alice")
@@ -555,7 +555,7 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
     )
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([partial])
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     report = control.deployments.check_drift("alice")
@@ -571,7 +571,7 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
     control = ControlPlane(
         settings=settings,
         repository=repository,
-        runner=FakeRunner(),  # type: ignore[arg-type]
+        runner=FakeRunner(),
         background=queue,
     )
     with repository.transaction():
@@ -609,7 +609,7 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
 
     control = ControlPlane(
         settings=settings, repository=repository, runner=BusyRunner()
-    )  # type: ignore[arg-type]
+    )
     live = repository.deployments.create_deployment("alice", check_mode=False)
     workflow = repository.workflows.create(
         "live", "certificate", "alice", "example-com"
@@ -637,7 +637,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
-    )  # type: ignore[arg-type]
+    )
     _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
 
@@ -674,7 +674,7 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
-    )  # type: ignore[arg-type]
+    )
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")

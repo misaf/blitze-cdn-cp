@@ -38,9 +38,8 @@ import enum
 import importlib.util
 import inspect
 import re
-import typing
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import click
 import yaml
@@ -170,7 +169,10 @@ def cli_surface() -> str:
 
     owners = _command_owners(common.installed_plugins())
     lines = []
-    for path, command in _walk_commands(get_command(main.app)):
+    # Typer vendors its own copy of click, so what `get_command` hands back is
+    # `typer._click.core.Command` — the same class by structure and a different
+    # one by name. `_walk_commands` duck-types on `commands` either way.
+    for path, command in _walk_commands(cast(click.Command, get_command(main.app))):
         owner = owners.get(path.split(" ")[0]) or _root_command_owner(path, command)
         params = " ".join(_parameter(param) for param in command.params)
         lines.append(_line(owner, "command", f"blitzecdn {path}\t{params}".rstrip()))
@@ -514,13 +516,14 @@ def _annotation(annotation: Any) -> str:
         return "-"
     if isinstance(annotation, str):
         return annotation
-    return typing.get_type_hints and getattr(annotation, "__name__", str(annotation))
+    name = getattr(annotation, "__name__", None)
+    return name if isinstance(name, str) else str(annotation)
 
 
 def _default(field: dataclasses.Field[Any]) -> str:
     if field.default is not dataclasses.MISSING:
         return f" = {field.default!r}"
-    if field.default_factory is not dataclasses.MISSING:  # type: ignore[misc]
+    if field.default_factory is not dataclasses.MISSING:
         return " = <factory>"
     return ""
 
@@ -790,7 +793,7 @@ def schema_surface() -> str:
             _line(ROOT, "check", f"{name}.{check.name}\t{check.sqltext}")
             for check in sorted(
                 (c for c in table.constraints if isinstance(c, CheckConstraint)),
-                key=lambda c: c.name or "",
+                key=lambda c: str(c.name or ""),
             )
         )
         for index in sorted(table.indexes, key=lambda i: i.name or ""):

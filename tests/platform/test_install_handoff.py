@@ -54,7 +54,7 @@ def test_finalize_standalone_registers_and_updates_the_local_edge(settings):
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
-    )  # type: ignore[arg-type]
+    )
 
     first = finalize_standalone(
         control,
