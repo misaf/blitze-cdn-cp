@@ -4,7 +4,7 @@ One capability, three parts, and the reason they are one:
 
 * :mod:`~blitzecdn.capabilities.tls.policy` — the configuration contract. The
   encryption mode, the minimum protocol version, the certificate mode and the
-  paths BlitzeCDN manages. Pure values; ``sites`` composes them into the flat
+  paths BlitzeCDN manages. Pure values; ``dns`` composes them into the flat
   site model without depending on anything below.
 * ``blitzecdn-certificates`` — optional issuing, uploading, renewing,
   publishing, and the Automatic SSL/TLS scan that may upgrade ``ssl_mode``.

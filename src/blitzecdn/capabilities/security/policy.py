@@ -193,7 +193,7 @@ class SecurityPolicy(CapabilityPolicy):
         Two tokens, because a country rule needs two things that detach
         separately: this capability, which renders the rule, and the GeoIP
         lookup that gives it a country to compare against. Both are named here
-        rather than by `sites` on this contract's behalf, which would make the
+        rather than by `dns` on this contract's behalf, which would make the
         composition the place to edit when a third country-aware setting
         appears.
 

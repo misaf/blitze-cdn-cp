@@ -6,7 +6,7 @@ publishing material, and the Automatic SSL/TLS scan that upgrades ``ssl_mode``
 — lives in the optional ``blitzecdn-certificates`` distribution.
 
 This module imports nothing but ``core`` and another capability's policy
-contract, which is what lets ``sites`` compose it without depending on the TLS
+contract, which is what lets ``dns`` compose it without depending on the TLS
 implementation that consumes ``CdnSite``.
 """
 

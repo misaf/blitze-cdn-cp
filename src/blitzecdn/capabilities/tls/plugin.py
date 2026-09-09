@@ -5,7 +5,7 @@ issuing, renewing, publishing, and overriding the two certificate paths a site
 projects with the fingerprinted files the material is actually stored under —
 went with ``blitzecdn-certificates``, where the code that knows those paths
 lives. What is left here is the contract: ``TlsPolicy``, composed into
-``CdnSite`` by ``sites``, which is an import rather than a hook.
+``CdnSite`` by ``dns``, which is an import rather than a hook.
 
 A capability with nothing to contribute still registers, because the name is
 what a refusal is written in. A site whose ``ssl_mode`` needs issuance is

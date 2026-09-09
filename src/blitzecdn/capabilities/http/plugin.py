@@ -11,7 +11,7 @@ document an operator reads should say what the fleet's listener stance is in
 every installation rather than only in the ones that happen to have HTTP/3
 attached. ``blitzecdn-http3`` declares both in its ``overrides`` and replaces
 them when it is installed, which is the same mechanism ``certificates`` uses
-for the certificate paths ``sites`` projects.
+for the certificate paths ``dns`` projects.
 
 So the document has one shape whichever distributions are present, and the
 difference between "HTTP/3 is not installed" and "no site asked for HTTP/3" is
