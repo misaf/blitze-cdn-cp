@@ -138,16 +138,21 @@ markers = [
   # `just check` does not.
   "packaging: exercises real distribution build, install and uninstall",
 ]
-addopts = "--strict-config --strict-markers --cov=blitzecdn --cov=blitzecdn_backup --cov=blitzecdn_cache --cov=blitzecdn_compression --cov=blitzecdn_certificates --cov=blitzecdn_security --cov=blitzecdn_http3 --cov=blitzecdn_geoip --cov=blitzecdn_hardening --cov=blitzecdn_origins --cov=blitzecdn_resolver --cov-report=term-missing --cov-fail-under=85"
+addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = ["error"]
-# Collect core and package-owned tests. Keep this list aligned with the workspace
-# distributions when adding or removing a package.
-testpaths = ["tests", "packages/blitzecdn-backup/tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-compression/tests", "packages/blitzecdn-certificates/tests", "packages/blitzecdn-security/tests", "packages/blitzecdn-http3/tests", "packages/blitzecdn-geoip/tests", "packages/blitzecdn-hardening/tests", "packages/blitzecdn-origins/tests", "packages/blitzecdn-resolver/tests"]
+# Discover tests using the packages/* workspace layout.
+testpaths = ["tests", "packages/*/tests"]
 # Shared helpers are imported by name from core and package test directories.
 pythonpath = ["tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-certificates/tests"]
 
 [tool.coverage.run]
 branch = true
+source = ["src", "packages"]
+omit = ["packages/*/tests/*"]
+
+[tool.coverage.report]
+include_namespace_packages = true
+include = ["src/*", "packages/*/src/*"]
 
 [tool.ruff]
 target-version = "py312"
@@ -199,10 +204,8 @@ max-statements = 60
 [tool.mypy]
 python_version = "3.12"
 strict = true
-# Every distribution in the workspace, checked together. A package that only
-# type-checks against a stale installed core is a package whose boundary is not
-# really being held.
-packages = ["blitzecdn", "blitzecdn_backup", "blitzecdn_cache", "blitzecdn_compression", "blitzecdn_certificates", "blitzecdn_security", "blitzecdn_http3", "blitzecdn_geoip", "blitzecdn_hardening", "blitzecdn_origins", "blitzecdn_resolver"]
+# Check all workspace source trees and shared test helpers.
+files = ["src", "packages/*/src", "tests/*.py", "packages/*/tests/*_support.py"]
 
 # The dynamic inventory plugin is Ansible's code, not the control plane's. It
 # ships inside the package because Ansible loads inventory plugins by directory
