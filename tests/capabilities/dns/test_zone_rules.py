@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-import pytest
-from control_plane_fixtures import FakeRunner
+from contextlib import contextmanager
 
+import pytest
+from control_plane_fixtures import FakeRunner, seed_site
+
+from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import (
     Domain,
     DomainPatch,
@@ -12,6 +15,7 @@ from blitzecdn.capabilities.dns.domain import (
     RulePatch,
     resolve_policy,
 )
+from blitzecdn.capabilities.dns.service import DnsService, RuleService
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
@@ -488,3 +492,140 @@ def test_a_rollback_restores_the_rules_it_snapshotted(settings):
         rollback_policy.adopt_snapshot(repository.zones, repository.rules, snapshot)
 
     assert [rule.name for rule in repository.rules.list_rules()] == ["api"]
+
+
+def _competing_writer(control, write):
+    """A Unit of Work that commits somebody else's write as the lock is taken.
+
+    Places a competing commit in the one window a read-modify-write has: after
+    this caller read, before it writes. The real boundary closes that window by
+    doing both under `BEGIN IMMEDIATE`, so what this asserts is that the read
+    happens inside the transaction — a property a threaded race can only
+    demonstrate on a good day.
+    """
+
+    class _Interfering:
+        @contextmanager
+        def transaction(self):
+            with control.transactions.transaction():
+                write()
+                yield
+
+    return _Interfering()
+
+
+def test_two_operators_patching_one_zone_do_not_lose_a_setting(settings):
+    """A zone patch is a whole document, so a stale read is a silent revert.
+
+    Both operators change one setting each. Merged onto a zone read before the
+    other landed, the second write carries the *old* value of the first one's
+    field alongside its own, and neither operator is told that a setting went
+    back. Reading inside the boundary is what makes the merge a merge: the
+    write is built from the document the write will replace, not from one that
+    stopped existing while the request was in flight.
+
+    Records were already written this way and zones were not, which left the
+    aggregate every hostname inherits from as the unprotected one.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "alice")
+
+    editor = DnsService(
+        zones=repository.zones,
+        rules=repository.rules,
+        events=control.events,
+        uow=_competing_writer(
+            control,
+            lambda: control.dns.update_domain(
+                "example.com", DomainPatch(cache_enabled=False), "bob"
+            ),
+        ),
+    )
+    editor.update_domain(
+        "example.com", DomainPatch(compression=CompressionMode.GZIP), "alice"
+    )
+
+    zone = control.dns.get_domain("example.com")
+    assert zone.compression is CompressionMode.GZIP
+    assert zone.cache_enabled is False
+
+
+def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settings):
+    """``overrides`` is replaced wholesale, so a stale read drops what it lacks.
+
+    The issuer writes a certificate into a rule's overrides unattended. An
+    operator who read that rule beforehand and then changes only its ``match``
+    writes the whole mapping back — without the certificate — and the rule's
+    hostnames lose the material they were just issued, with nothing in the
+    audit trail saying so.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="rule-host", record="api")
+
+    site = control.sites.get_site("example-com--api")
+    editor = RuleService(
+        rules=repository.rules,
+        zones=repository.zones,
+        events=control.events,
+        uow=_competing_writer(
+            control,
+            lambda: control.site_editor.activate_managed_certificate(
+                site, CertificateMode.REQUESTED
+            ),
+        ),
+    )
+    editor.update_rule("example.com", "api", RulePatch(match="*.example.com"), "alice")
+
+    rule = control.rules.get_rule("example.com", "api")
+    assert rule.match == "*.example.com"
+    assert rule.overrides["certificate_mode"] == CertificateMode.REQUESTED
+
+
+def test_the_zone_and_rule_stores_refuse_a_write_built_on_a_stale_read(settings):
+    """The compare-and-swap under the two editors, asked directly.
+
+    Reading inside the Unit of Work is what keeps a caller from assembling a
+    stale document; `expected` is what refuses one that got assembled anyway —
+    by a caller outside this package, or by a future edit that moves a read
+    back out. The second is the reason it is a check and not a convention:
+    conventions do not fail the build.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    seed_site(control, name="rule-host", record="api")
+
+    stale_zone = control.dns.get_domain("example.com")
+    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "bob")
+    with (
+        repository.transaction(),
+        pytest.raises(ConflictError, match="changed while it was being edited"),
+    ):
+        repository.zones.replace_domain(stale_zone, expected=stale_zone)
+
+    stale_rule = control.rules.get_rule("example.com", "api")
+    control.rules.update_rule("example.com", "api", RulePatch(priority=50), "bob")
+    with (
+        repository.transaction(),
+        pytest.raises(ConflictError, match="changed while it was being edited"),
+    ):
+        repository.rules.replace_rule(stale_rule, expected=stale_rule)
+
+
+def test_a_compare_and_swap_outside_a_unit_of_work_is_refused(settings):
+    """Outside `BEGIN IMMEDIATE` the comparison and the update are not one act.
+
+    SQLite answers the upgrade from a deferred read to a write with a
+    snapshot-busy error no `busy_timeout` waits out, which reaches the caller
+    as something other than the conflict it is. The store says so up front
+    rather than leaving it to a docstring, which is the same call the record
+    store already makes.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    zone = Domain(name="a.test")
+    control.dns.create_domain(zone, "alice")
+
+    with pytest.raises(ValueError, match="must run inside a Unit of Work"):
+        repository.zones.replace_domain(zone, expected=zone)
