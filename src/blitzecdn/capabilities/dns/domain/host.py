@@ -51,7 +51,6 @@ from blitzecdn.capabilities.http.policy import (
 )
 from blitzecdn.capabilities.security.policy import SecurityPolicy
 from blitzecdn.capabilities.tls.policy import (
-    CERTIFICATE_ROOTS,
     MANAGED_TLS_ROOT,
     CertificateMode,
     TlsPolicy,
@@ -205,22 +204,6 @@ class CdnSite(SitePolicy):
     @classmethod
     def validate_origin(cls, value: str) -> str:
         return hostname(value)
-
-    @field_validator("certificate_path", "certificate_key_path")
-    @classmethod
-    def validate_remote_path(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.startswith("/") or ".." in value.split("/"):
-            raise ValueError(
-                "certificate paths must be absolute and cannot contain '..'"
-            )
-        if not value.startswith(CERTIFICATE_ROOTS):
-            raise ValueError(
-                "certificate paths must live under one of: "
-                + ", ".join(CERTIFICATE_ROOTS)
-            )
-        return value
 
     @model_validator(mode="after")
     def validate_certificate_pair(self) -> Self:

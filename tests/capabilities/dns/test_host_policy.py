@@ -36,6 +36,7 @@ from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
     SslAutomaticMode,
     SslMode,
+    TlsPolicy,
 )
 
 
@@ -388,6 +389,42 @@ def test_certificate_paths_stay_inside_certificate_directories(site_payload, pat
     site_payload["certificate_key_path"] = "/etc/ssl/example/privkey.pem"
     with pytest.raises(ValidationError, match="must live under"):
         CdnSite.model_validate(site_payload)
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/etc/ssl/x.pem;\n    add_header X-Owned 1;\n    root /etc",
+        "/etc/ssl/x.pem; return 200 'owned'",
+        "/etc/ssl/x.pem}\nserver {\n    listen 80;",
+        "/etc/ssl/two words.pem",
+    ],
+)
+def test_certificate_paths_cannot_carry_nginx_directives(site_payload, path):
+    """A path that stays inside the roots can still escape its own directive.
+
+    ``site.conf.j2`` writes ``ssl_certificate {{ path }};`` unquoted, so the
+    root and traversal checks alone leave a path free to close the directive
+    and open whichever ones its author wants — on every edge the site reaches.
+    """
+    site_payload["certificate_mode"] = "existing"
+    site_payload["certificate_path"] = path
+    site_payload["certificate_key_path"] = "/etc/ssl/example/privkey.pem"
+    with pytest.raises(ValidationError, match="may contain only"):
+        CdnSite.model_validate(site_payload)
+
+
+def test_zone_and_site_share_one_certificate_path_rule(site_payload):
+    """The rule belongs to the TLS contract, so both carriers inherit it.
+
+    Written out on each of them once, which made tightening one and not the
+    other a silent way to leave the other open.
+    """
+    assert (
+        Domain.validate_remote_path.__func__
+        is CdnSite.validate_remote_path.__func__
+        is TlsPolicy.validate_remote_path.__func__
+    )
 
 
 def test_managed_certificate_modes_reject_operator_chosen_paths(site_payload):
