@@ -390,12 +390,25 @@ class FakeEdgeStore:
         self.edges.append(new)
         return new
 
-    def replace_edge(self, updated: Edge) -> Edge:
+    def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge:
+        """Replace one edge, refusing the write if it moved underneath.
+
+        `expected` is the caller's copy of the row it read. The real store
+        compares it against what is on disk and refuses a write that would
+        overwrite someone else's, in that order — a name that does not exist
+        is missing rather than conflicted, whatever `expected` says. The
+        transaction the real one requires alongside `expected` is a fact about
+        the database and has nothing to model here.
+        """
         for index, candidate in enumerate(self.edges):
-            if candidate.name == updated.name:
-                self.edges[index] = updated
-                return updated
-        raise NotFoundError(f"edge {updated.name!r} does not exist")
+            if candidate.name == edge.name:
+                if expected is not None and candidate != expected:
+                    raise ConflictError(
+                        f"edge {edge.name!r} changed while it was being edited"
+                    )
+                self.edges[index] = edge
+                return edge
+        raise NotFoundError(f"edge {edge.name!r} does not exist")
 
     def delete_edge(self, name: str) -> None:
         remaining = [candidate for candidate in self.edges if candidate.name != name]
