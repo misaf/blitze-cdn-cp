@@ -68,9 +68,6 @@ class Settings(BaseSettings):
     #: Environment/secrets file. Installed controllers keep this under /etc;
     #: checkouts use the project-local `.env`.
     environment_path: Path
-    #: Where `backup create` writes when it is given no destination. The
-    #: archives here hold private keys and the whole audit trail, so the
-    #: directory is created `0700` and each archive `0600`.
     #: The plays core itself owns. A capability's play is not here: it ships
     #: inside that capability's wheel and reaches ``run_playbook`` as a path
     #: the package resolved for itself, so detaching the package takes the play

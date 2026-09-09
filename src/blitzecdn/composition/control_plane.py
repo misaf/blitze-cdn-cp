@@ -148,20 +148,11 @@ class ControlPlane:
             audit_retention=settings.audit_retention,
         )
         self._owned_repository = store if repository is None else None
-        # Discovered before the adapters, because one adapter is built from
-        # what is installed: Ansible resolves a role name against a single
-        # process-wide search path, so a package that ships a role has to be
-        # known before the runner exists. Nothing else reads the registry this
-        # early — plugins are still *given* the control plane last, once every
-        # service they might register against has been built.
+        # Discover package roles before constructing the Ansible runner.
+        # Plugins receive the control plane after its services are wired.
         self.plugins = plugins if plugins is not None else load_control_plane_plugins()
-        # Before anything is wired: an optional capability this installation
-        # says it depends on has to actually be installed. Detaching a package
-        # is a supported operation, so its absence is not an error on its own —
-        # but a configuration that still asks for it must fail here, with the
-        # token named, rather than start and behave as if the capability had
-        # been switched off. The tokens are configuration and the answer is
-        # plugin metadata; nothing in between names a capability.
+        # Refuse missing required capabilities before wiring services.
+        # See docs/decisions/0002-capability-configuration-ownership.md.
         self.plugins.require(
             self.settings.required_capabilities,
             subject="this installation's `required_capabilities`",

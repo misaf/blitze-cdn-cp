@@ -36,6 +36,12 @@ never reaches.
 
 ### Claims decide ownership
 
+Installation makes a capability available; configuration determines whether it
+is used. `Settings.required_capabilities` declares the tokens an installation
+needs. Composition checks those tokens against plugin metadata before wiring
+services, so detaching a required package fails at startup with the missing
+token named. An absent optional package is otherwise supported.
+
 Core stages every non-core `BLITZE_*` name it can see — the process
 environment, the controller's `.env`, and `blitzecdn.toml` — and then refuses
 any that no installed capability claims. The resolver makes four refusals, each

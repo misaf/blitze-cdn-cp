@@ -1,30 +1,12 @@
-"""Convergence, history, rollback, and drift.
+"""Run stored snapshots through Ansible and record their outcomes.
 
-Everything here is about turning a stored snapshot into a run of Ansible and
-recording what happened. Nothing here decides *what* should be deployed; that
-is the zone editor's job, and this service reads its output through
-``DnsService.resync_hostnames`` only when a rollback rewrites canonical state.
+DeploymentService owns convergence locking, workflow records, and finalization.
+Rollback policy, validation, and reporting live in their respective service
+modules. Validation uses a scratch file without taking the deployment lock.
 
-One service for the convergence paths, deliberately. Deploy, queued deploy,
-rollback, drift and recovery look like five use cases, but they are one run of
-Ansible reached five ways: each has to take the same cross-process lock, move
-the same record through the same transition table, and finalise inside the same
-transaction. Splitting *those* into handlers would hand each a copy of the same
-four collaborators and leave the lock ordering — the part that is actually
-difficult — spread across the pieces rather than stated once.
-
-What is lifted out is everything with its own reason to change that does not
-touch the lock, because keeping it here made "must hold the lock" and "must
-never take it" neighbours in one class:
-
-* ``service.rollback`` owns what rolling back means.
-* ``service.validation`` owns whether desired state could be converged at all —
-  asked without the lock, and answered against a scratch file precisely so it
-  cannot publish over a deploy in flight.
-* ``service.reporting`` owns what a *recorded* run may be read as evidence of,
-  which is a rule about stored rows and touches neither Ansible nor the lock.
-
-``domain.aborted_run`` is a pure value. What is left here is the run.
+Rollback restores canonical zones, records, and rules; subsequent reads derive
+hosts from that state. See docs/decisions/0001-zone-policy-and-composition.md
+for the ownership and transaction boundaries.
 """
 
 from __future__ import annotations
@@ -132,8 +114,7 @@ class DeploymentService:
         self.persistence = persistence
         self.execution = execution
         self.events = events
-        #: ``resync_hostnames`` on the rollback path, ``validation_errors``
-        #: before every run, and nothing else.
+        #: Canonical DNS validation, also passed to DeploymentValidation.
         self.dns = dns
         self.workflows = workflows
         #: Built here rather than injected: every collaborator it needs is one

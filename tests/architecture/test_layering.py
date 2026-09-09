@@ -7,10 +7,10 @@ the capability is configured, importing nothing but ``core`` and another
 capability's contract. Its other modules are its **implementation**: the
 services, adapters, routers and commands that act on those values.
 
-``sites`` composes every capability's contract into one flat virtual host, and
+``dns`` composes every capability's contract into one flat virtual host, and
 most capabilities' implementations consume ``CdnSite``. Counting both as one
 kind of edge would make that a cycle and force the contracts back into
-``sites`` — which is exactly the "one capability owns every setting" shape this
+``dns`` — which is exactly the "one capability owns every setting" shape this
 replaced. So contract edges and implementation edges are declared and checked
 separately, and the layer rule that keeps the whole thing a DAG is asserted
 directly: **a contract never imports an implementation.**
