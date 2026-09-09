@@ -68,7 +68,7 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
     existing — with no call anywhere that could write one directly.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings=settings, repository=repository)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")

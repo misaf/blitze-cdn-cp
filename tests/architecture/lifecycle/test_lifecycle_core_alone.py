@@ -51,7 +51,7 @@ def test_core_alone_starts_and_registers_every_required_capability(
 
     assert report["rejected"] == []
     assert {"dns", "edges", "deployments", "tls", "diagnostics"} <= set(
-        report["plugins"]  # type: ignore[arg-type]
+        report["plugins"]
     )
     assert report["commands"]
     assert report["routes"]
@@ -63,7 +63,7 @@ def test_core_alone_offers_no_optional_capability(core_only: Environment):
     assert LIFECYCLE_CAPABILITY not in report["capabilities"]
     assert LIFECYCLE_CAPABILITY not in report["commands"]
     assert "cache" not in report["capabilities"]
-    assert not [path for path in report["routes"] if "cache" in path]  # type: ignore[union-attr]
+    assert not [path for path in report["routes"] if "cache" in path]
 
 
 def test_core_alone_loads_off_and_unmanaged_site_contracts(core_only: Environment):

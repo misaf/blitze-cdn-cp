@@ -16,6 +16,7 @@ import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from paths import REPO_ROOT
 
@@ -177,7 +178,7 @@ class Environment:
         )
         return json.loads(finished.stdout)
 
-    def ansible_roles(self) -> dict[str, object]:
+    def ansible_roles(self) -> dict[str, Any]:
         """Which role directories this installation would give Ansible.
 
         Resolved the way a deployment resolves it — the registry's

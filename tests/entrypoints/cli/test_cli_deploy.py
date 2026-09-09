@@ -28,7 +28,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
             ansible_run(host_run("edge-a")),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control)
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
@@ -54,7 +54,7 @@ def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch
             ansible_run(host_run("edge-a", changes=("Render managed sites",))),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     # Nothing optional: this is about the interactive flow, and a site left on
     # its defaults asks for `cache` and `compression`, which the core-only
     # workspace does not have and would refuse the deploy over.
@@ -150,7 +150,7 @@ def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
                 )
             ]
         ),
-    )  # type: ignore[arg-type]
+    )
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     assert runner.invoke(cli.app, ["plan"]).exit_code == cli.ExitCode.DEPLOYMENT_FAILED
@@ -177,7 +177,7 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
 ):
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 

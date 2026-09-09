@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -78,7 +79,7 @@ TEARDOWN_ROLES = (HOST_TEARDOWN_ROLE, TEARDOWN_ROLE)
 @pytest.fixture(scope="session")
 def ansible_cycle(
     tmp_path_factory: pytest.TempPathFactory, wheels: dict[str, Path]
-) -> dict[str, dict[str, object]]:
+) -> dict[str, dict[str, Any]]:
     """One environment, read at all three points of the cycle.
 
     Three subprocess reports rather than three virtualenvs: what is being
@@ -110,7 +111,7 @@ def ansible_cycle(
 
 
 def test_core_alone_offers_no_capability_owned_role(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """The root wheel carries the platform's roles and nobody else's.
 
@@ -138,7 +139,7 @@ def test_core_alone_offers_no_capability_owned_role(
 
 
 def test_installing_a_distribution_makes_its_roles_resolvable(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """Attach, on the Ansible side. One `pip install` and the roles are there.
 
@@ -176,7 +177,7 @@ def test_installing_a_distribution_makes_its_roles_resolvable(
 
 
 def test_installing_a_distribution_puts_its_role_into_the_edge_play(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """Attach, all the way to what a deploy actually converges.
 
@@ -195,7 +196,7 @@ def test_installing_a_distribution_puts_its_role_into_the_edge_play(
 
 
 def test_installing_a_distribution_puts_its_module_into_the_edge_s_load_list(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """Attach, all the way to what the running Nginx loads.
 
@@ -214,7 +215,7 @@ def test_installing_a_distribution_puts_its_module_into_the_edge_s_load_list(
 
 
 def test_installing_a_host_capability_fills_the_other_slot_only(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """The two slots are composed independently, from one set of contributions.
 
@@ -243,7 +244,7 @@ def test_installing_a_host_capability_fills_the_other_slot_only(
 
 
 def test_a_capability_that_writes_outside_core_s_trees_can_take_it_off_again(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """The decommission slot, and the pairing it exists for.
 
@@ -284,7 +285,7 @@ def test_a_capability_that_writes_outside_core_s_trees_can_take_it_off_again(
 
 
 def test_uninstalling_a_distribution_takes_its_roles_with_it(
-    ansible_cycle: dict[str, dict[str, object]],
+    ansible_cycle: dict[str, dict[str, Any]],
 ):
     """Detach, on the Ansible side, and the acceptance criterion in full.
 

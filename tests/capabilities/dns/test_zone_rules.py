@@ -17,7 +17,7 @@ from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
 def _control(settings, repository):
-    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())  # type: ignore[arg-type]
+    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())
 
 
 # -- The zone carries the policy ------------------------------------------

@@ -627,7 +627,7 @@ def cli_control_plane(settings, monkeypatch, runner_double=None):
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_double or FakeRunner(),
-    )  # type: ignore[arg-type]
+    )
     monkeypatch.setattr(cli_common, "control_plane", lambda: control)
     monkeypatch.setattr(cli_common, "settings", lambda: settings)
     return control

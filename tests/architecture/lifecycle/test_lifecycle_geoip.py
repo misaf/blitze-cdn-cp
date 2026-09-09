@@ -114,7 +114,7 @@ def test_the_site_schema_is_identical_with_and_without_geoip_installed(
     attached_shape = attached.site_capabilities(_COUNTRY_HEADER)
 
     assert detached_shape["shape"] == attached_shape["shape"]
-    assert {"visitor_headers", "firewall"} <= set(detached_shape["shape"])  # type: ignore[operator]
+    assert {"visitor_headers", "firewall"} <= set(detached_shape["shape"])
 
 
 def test_attaching_geoip_makes_every_country_configuration_deployable(
@@ -145,7 +145,7 @@ def test_attaching_geoip_makes_every_country_configuration_deployable(
     after = environment.report()
     assert "geoip" not in after["capabilities"]
     assert after["rejected"] == []
-    assert {"dns", "deployments", "http"} <= set(after["plugins"])  # type: ignore[arg-type]
+    assert {"dns", "deployments", "http"} <= set(after["plugins"])
     assert after["routes"]
     for site in (_COUNTRY_HEADER, _ALLOWED_COUNTRIES, _DENIED_COUNTRIES):
         assert environment.site_capabilities(site)["missing"] == ["geoip"]

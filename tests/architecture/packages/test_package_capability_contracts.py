@@ -222,6 +222,7 @@ def test_the_journal_names_no_capability_s_work():
         for path in sorted((SOURCE / "capabilities/workflows").rglob("*.py"))
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
         and (owner := _WORKFLOW_KINDS_OWNED_BY_A_CAPABILITY.get(node.value))
     ]
     assert offenders == []

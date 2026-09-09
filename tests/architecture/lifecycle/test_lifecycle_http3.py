@@ -137,7 +137,7 @@ def test_attaching_http3_makes_the_capability_and_its_fleet_state_appear(
     after = environment.report()
     assert "http3" not in after["capabilities"]
     assert after["rejected"] == []
-    assert {"http", "dns", "deployments"} <= set(after["plugins"])  # type: ignore[arg-type]
+    assert {"http", "dns", "deployments"} <= set(after["plugins"])
     assert environment.fleet_state(fleet) == {
         "blitzecdn_edge_http3_enabled": False,
         "blitzecdn_nginx_http3_listener_owner": "",
