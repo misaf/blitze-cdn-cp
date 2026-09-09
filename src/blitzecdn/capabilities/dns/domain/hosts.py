@@ -61,8 +61,14 @@ def _origin_slug(origin: str) -> str:
     if not slug:
         slug = "origin"
     if len(slug) > _SLUG_LIMIT:
-        # A stable name suffix, not a secret or a key: sha1 is fine here.
-        digest = hashlib.sha1(origin.encode()).hexdigest()  # noqa: S324
+        # A stable name suffix, not a secret or a key. `usedforsecurity=False`
+        # is that claim stated to the interpreter rather than only to the
+        # reader: it leaves the digest byte-identical, keeps this working on a
+        # FIPS build where an unqualified sha1 raises, and satisfies both
+        # linters at once. A ruff suppression comment spoke to ruff alone, so
+        # bandit's B324 went on failing `just audit` with the rationale for it
+        # sitting right there in the source.
+        digest = hashlib.sha1(origin.encode(), usedforsecurity=False).hexdigest()
         suffix = digest[: _SLUG_DIGEST_BITS // 4]
         slug = f"{slug[:_SLUG_LIMIT]}-{suffix}"
     return slug
