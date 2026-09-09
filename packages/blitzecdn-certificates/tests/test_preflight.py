@@ -217,7 +217,7 @@ def test_an_unreadable_fleet_does_not_raise(settings, monkeypatch, site):
     )
     report = CertificatePreflight(
         settings,
-        ExplodingEdgeStore(),  # type: ignore[arg-type]
+        ExplodingEdgeStore(),
         ca_domain="letsencrypt.org",
         origin_probe=FakeOriginProbe(),
     ).check(site, deployed=True)

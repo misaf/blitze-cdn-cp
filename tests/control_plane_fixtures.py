@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from importlib.util import find_spec
 from pathlib import Path
+from typing import TYPE_CHECKING, Any
 
 import dramatiq
 import pytest
@@ -13,9 +14,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from dramatiq.brokers.stub import StubBroker
+from fastapi import FastAPI
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
+from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
 from blitzecdn.capabilities.dns.domain import (
     CdnSite,
     DnsRecord,
@@ -26,8 +29,14 @@ from blitzecdn.capabilities.dns.domain import (
 )
 from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.cli import common as cli_common
-from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
+from blitzecdn.composition import (
+    ControlPlane,
+    FleetRunner,
+    Repository,
+    load_control_plane_plugins,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import (
     AnsibleRun,
@@ -41,14 +50,14 @@ from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
 @pytest.fixture(autouse=True)
-def dramatiq_stub_broker(monkeypatch):
+def dramatiq_stub_broker(monkeypatch: pytest.MonkeyPatch) -> Iterator[StubBroker]:
     """Keep unit and API tests independent of an external Redis process."""
     broker = StubBroker()
     monkeypatch.setattr(
         "blitzecdn.composition.control_plane.redis_ready", lambda _url: True
     )
     previous_broker = dramatiq.get_broker()
-    actors = (run_deployment, run_scheduled_job)
+    actors: tuple[dramatiq.Actor[Any, Any], ...] = (run_deployment, run_scheduled_job)
     previous_actor_brokers = [actor.broker for actor in actors]
     dramatiq.set_broker(broker)
     for actor in actors:
@@ -63,7 +72,9 @@ def dramatiq_stub_broker(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
-def skip_tests_a_detached_capability_cannot_answer(request):
+def skip_tests_a_detached_capability_cannot_answer(
+    request: pytest.FixtureRequest,
+) -> None:
     """Run a root test that reads a capability's own output only while it is attached.
 
     The rendered edge configuration is composed: core frames the server block
@@ -100,7 +111,7 @@ _IDENTITY_ONLY = {"enabled": True}
 
 
 def seed_site(
-    control,
+    control: ControlPlane,
     *,
     name: str = "example-com",
     origin: str = "198.51.100.10",
@@ -110,7 +121,7 @@ def seed_site(
     ttl: int = 300,
     routed: bool = True,
     operator: str = "alice",
-    **policy,
+    **policy: object,
 ) -> CdnSite:
     """Set a zone's policy and proxy a hostname in it, then return the host.
 
@@ -184,7 +195,7 @@ _DEFAULT_ORIGINS = {RecordType.A: "198.51.100.10", RecordType.AAAA: "2001:db8::1
 
 
 def seed_record(
-    control,
+    control: ControlPlane,
     *,
     domain: str = "example.com",
     name: str = "cdn",
@@ -417,7 +428,7 @@ class FakeEdgeStore:
         self.edges = remaining
 
 
-def edge(name: str = "edge1", **overrides) -> Edge:
+def edge(name: str = "edge1", **overrides: object) -> Edge:
     """An edge with plausible defaults, for a test that does not care."""
     return Edge.model_validate(
         {"name": name, "host": f"{name}.example.net", **overrides}
@@ -447,6 +458,20 @@ class RefusingBackgroundQueue(RecordingBackgroundQueue):
         super().enqueue(deployment_id)
 
 
+if TYPE_CHECKING:
+    # The doubles above stand in for ports, and this is where that claim is
+    # *checked* rather than asserted in a docstring. `FleetRunner`'s own
+    # docstring already names "a test that injects a fake runner" as its other
+    # implementer; before this block nothing held that to be true, and every
+    # call site had grown a `# type: ignore[arg-type]` which suppressed nothing
+    # because the suite is outside mypy's scope. A double that drifts from its
+    # port now fails `just types`, in this file, where the double is.
+    _runner_is_a_fleet_runner: FleetRunner = FakeRunner()
+    _edge_store_is_an_edge_store: EdgeStorePort = FakeEdgeStore()
+    _queue_is_a_background_runner: QueueBackgroundRunner = RecordingBackgroundQueue()
+    _refusing_queue_is_one_too: QueueBackgroundRunner = RefusingBackgroundQueue()
+
+
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     ansible = tmp_path / "ansible"
@@ -474,7 +499,7 @@ def settings(tmp_path: Path) -> Settings:
         environment_path=tmp_path / ".env",
         decommission_playbook_path=ansible / "playbooks/decommission.yml",
         ansible_playbook="/usr/bin/true",
-        api_keys={"tester": "x" * 32},
+        api_keys={"tester": SecretStr("x" * 32)},
     )
 
 
@@ -532,14 +557,13 @@ def record_payload() -> dict[str, object]:
 
 
 @pytest.fixture
-def seeded(settings):
+def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]:
     """A control plane holding one site with one hostname routed to it.
 
     Returns ``(control, repository)``.
     """
 
-    def build(runner=None):
-        from blitzecdn.composition import ControlPlane, Repository
+    def build(runner: FleetRunner | None = None) -> tuple[ControlPlane, Repository]:
 
         repository = Repository(settings.database_path)
         control = ControlPlane(
@@ -570,7 +594,7 @@ def _pooled_key(index: int) -> rsa.RSAPrivateKey:
 
 
 @pytest.fixture(scope="session")
-def rsa_keys():
+def rsa_keys() -> tuple[rsa.RSAPrivateKey, ...]:
     """Distinct cached RSA keys, for a test that needs two that disagree."""
     return tuple(_pooled_key(index) for index in range(_KEY_POOL_SIZE))
 
@@ -584,7 +608,7 @@ def private_key_pem(key: rsa.RSAPrivateKey) -> bytes:
 
 
 @pytest.fixture
-def certificate_pair():
+def certificate_pair() -> Callable[..., tuple[bytes, bytes]]:
     #: Per test, not per session: successive calls within one test hand back
     #: *different* keys, so a test that installs one pair over another can still
     #: tell the two apart on disk.
@@ -628,7 +652,11 @@ def certificate_pair():
     return generate
 
 
-def cli_control_plane(settings, monkeypatch, runner_double=None):
+def cli_control_plane(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    runner_double: FleetRunner | None = None,
+) -> ControlPlane:
     """A control plane wired to doubles, with the CLI pointed at it.
 
     Shared because more than one distribution's CLI tests need it: the command
@@ -646,7 +674,7 @@ def cli_control_plane(settings, monkeypatch, runner_double=None):
     return control
 
 
-def repository_on(settings):
+def repository_on(settings: Settings) -> Repository:
     """A second handle on the test database, for seeding and reading back.
 
     The control plane does not hand out its stores — that is the point of the
@@ -657,7 +685,7 @@ def repository_on(settings):
     return Repository(settings.database_path)
 
 
-def control_plane_app(settings):
+def control_plane_app(settings: Settings) -> FastAPI:
     """The all-package workspace API used by cross-capability integration tests."""
     return create_app(settings, plugins=load_control_plane_plugins())
 
@@ -670,8 +698,13 @@ API_HEADERS = {"X-API-Key": "x" * 32}
 
 
 def seed_site_over_http(
-    client, headers=API_HEADERS, *, name="example-com", label="cdn", **policy
-):
+    client: Any,
+    headers: Mapping[str, str] = API_HEADERS,
+    *,
+    name: str = "example-com",
+    label: str = "cdn",
+    **policy: object,
+) -> Any:
     """Zone, policy, record — over HTTP, the way a client would.
 
     Still three calls: the policy is set on the zone, and the record proxies

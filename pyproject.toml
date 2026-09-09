@@ -187,10 +187,16 @@ max-statements = 60
 # the repository — there is no untrusted input for S603 to be about, and
 # asserting on a real install is the whole point of the file.
 "tests/architecture/lifecycle/*" = ["S101", "S603"]
-# The shared Ansible contract helpers run `ansible-playbook` for the same
-# reason: a role's assertions are only ever *evaluated* by executing them, and
-# every argument is a fixed array over `tmp_path` and paths inside this
-# workspace.
+# The Ansible contract suites run `ansible-playbook` for the same reason: a
+# role's assertions are only ever *evaluated* by executing them, and every
+# argument is a fixed array over `tmp_path` and paths inside this workspace.
+#
+# The helpers module was the only entry here while the suites reached
+# `subprocess` through `from contract_support import *`, which left ruff unable
+# to tell the name was the standard library and quietly firing S603 nowhere.
+# The imports are explicit now, so the rule reaches the eight call sites it
+# always should have, and the exemption is stated where they are rather than
+# being an accident of how the name arrived.
 "tests/contract_support.py" = ["S603"]
 # Expanding the published SDK means importing every module behind a published
 # prefix, and a module that cannot be imported in this environment is a fact

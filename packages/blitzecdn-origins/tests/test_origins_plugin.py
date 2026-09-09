@@ -55,9 +55,7 @@ def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None
     an operator upgrading past the extraction types what they typed before.
     """
     routes = {
-        route.path  # type: ignore[attr-defined]
-        for router in blitzecdn_api_routers()
-        for route in router.routes
+        route.path for router in blitzecdn_api_routers() for route in router.routes
     }
     assert routes == {"/v1/origins/check"}
 

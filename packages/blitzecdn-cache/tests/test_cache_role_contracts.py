@@ -13,9 +13,17 @@ deployment resolves the roles by, rather than a directory in the checkout that
 an installed wheel would not have.
 """
 
-# ruff: noqa: F403,F405
+import hashlib
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
+
+import pytest
+import yaml
 from blitzecdn_cache import ansible
-from contract_support import *
+from contract_support import PROJECT_DIR, _role_defaults, _runtime_defaults
 
 CACHE_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_purge"
 CONFIG_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_config"
@@ -196,7 +204,7 @@ def test_named_purge_computes_the_same_port_cache_entry(tmp_path):
         ),
         encoding="utf-8",
     )
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
         [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
         capture_output=True,
         text=True,

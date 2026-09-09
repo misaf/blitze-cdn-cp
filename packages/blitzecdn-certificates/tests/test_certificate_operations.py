@@ -15,8 +15,11 @@ distribution's composition root builds and substitutes only the named seam.
 
 from __future__ import annotations
 
-# ruff: noqa: F403,F405
-from application_support import *
+from contextlib import contextmanager
+
+import pytest
+import yaml
+from application_support import _seed_proxied_record
 from blitzecdn_certificates.certificates.domain import CertificateSource
 from certificate_support import (
     FakePreflight,
@@ -26,6 +29,22 @@ from certificate_support import (
     _seed_automatic_ssl_record,
     certificate_control_plane,
 )
+from control_plane_fixtures import (
+    FakeRunner,
+    ansible_run,
+    host_run,
+    seed_site,
+    with_capability_settings,
+)
+
+from blitzecdn.capabilities.deployments.domain import (
+    DeploymentRequirementKind,
+    DeploymentStatus,
+)
+from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
+from blitzecdn.composition import Repository
+from blitzecdn.core.exceptions import NotFoundError
 
 
 def _two_acme_sites(control, certificate_pair):

@@ -1,10 +1,16 @@
-"""Shared paths and loaders for Ansible contract tests."""
+"""Shared paths and loaders for Ansible contract tests.
 
-# ruff: noqa: F401 -- these names are deliberately re-exported to test modules
+Paths, readers and the one fixture, and nothing else. This module used to
+re-export the domain types and the standard library alongside them so that
+consumers could say ``from contract_support import *`` — which left a reader
+unable to tell where ``SslMode`` came from, and left ruff unable to see that
+``subprocess`` was the standard library, so S603 fired on none of the eight
+``ansible-playbook`` calls the contract suites make. The consumers import what
+they use from where it is defined now.
+"""
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import shutil
@@ -17,23 +23,9 @@ import pytest
 import yaml
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-    DnsRecord,
-    Domain,
-    Rule,
-    SitePolicy,
-)
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
-from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.tls.policy import (
-    CertificateMode,
-    MinimumTlsVersion,
-    SslAutomaticMode,
-    SslMode,
-)
+from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConflictError
 
@@ -346,4 +338,26 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 
 
-__all__ = [name for name in globals() if not name.startswith("__")]
+__all__ = [
+    "DOCKER_ROLE_DIR",
+    "FIXTURE",
+    "PROJECT_DIR",
+    "ROLES_DIR",
+    "ROLE_DIR",
+    "RUNTIME_INPUTS",
+    "RUNTIME_ROLE_DIR",
+    "STACK_ROLE_DIR",
+    "_IndentedDumper",
+    "_ansible_jinja",
+    "_resolve",
+    "_role",
+    "_role_defaults",
+    "_role_spec",
+    "_runtime_defaults",
+    "_seed_site",
+    "_split_runtime",
+    "ansible_bool",
+    "desired_state",
+    "jinja2",
+    "run_role_tasks",
+]

@@ -5,16 +5,25 @@ defaults and build the context a converge would supply. Helpers used by one
 module stay beside its tests.
 """
 
-# ruff: noqa: F403,F405
+from pathlib import Path
+from typing import Any
 
-from contract_support import *
+import yaml
+from contract_support import (
+    STACK_ROLE_DIR,
+    _ansible_jinja,
+    _role_defaults,
+    _split_runtime,
+    jinja2,
+)
 
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:
     """A role's `defaults/main.yml`, parsed.
 
-    Local to this module because `from contract_support import *` does not
-    carry names with a leading underscore, and the helper is one line.
+    Local to this module rather than shared: it is one line, and the two
+    callers below are the only ones that read a role's defaults without also
+    resolving them against the runtime contract.
     """
     return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
 

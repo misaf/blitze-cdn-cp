@@ -6,9 +6,23 @@ serves, a mount the configuration test cannot see, a persistent path nothing
 creates, a runtime removal that takes a customer's keys with it.
 """
 
-# ruff: noqa: F403,F405
+import os
+import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any
 
-from contract_support import *
+import pytest
+import yaml
+from contract_support import (
+    PROJECT_DIR,
+    ROLE_DIR,
+    ROLES_DIR,
+    STACK_ROLE_DIR,
+    _role,
+    _role_defaults,
+)
 from role_contract_support import (
     COMPOSE_TEMPLATE,
     _defaults_of,
@@ -303,7 +317,7 @@ def test_fresh_host_guard_is_validation_only_and_runs_first(tmp_path):
         ),
         encoding="utf-8",
     )
-    result = subprocess.run(
+    result = subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
         [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
         capture_output=True,
         text=True,

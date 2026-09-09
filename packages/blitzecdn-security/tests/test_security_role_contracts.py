@@ -12,9 +12,19 @@ same path a deployment resolves it by, rather than a directory in the checkout
 that an installed wheel would not have.
 """
 
-# ruff: noqa: F403,F405
+from typing import Any
+
+import yaml
 from blitzecdn_security import ansible
-from contract_support import *
+from contract_support import (
+    STACK_ROLE_DIR,
+    _ansible_jinja,
+    _resolve,
+    _role_defaults,
+    _runtime_defaults,
+    jinja2,
+    run_role_tasks,
+)
 
 ROLE = ansible.ROLES_PATH / ansible.EDGE_ROLE
 TASKS = ROLE / "tasks/main.yml"

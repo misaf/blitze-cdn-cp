@@ -1,44 +1,17 @@
-# ruff: noqa: F403,F405
-from application_support import *
+import pytest
+from application_support import _seed_proxied_record
+from control_plane_fixtures import FakeRunner, ansible_run, host_run, seed_site
 
-
-def _await_terminal(
-    repository: Repository, deployment_id: str, timeout: float = 5.0
-) -> DeploymentStatus:
-    deadline = time.monotonic() + timeout
-    pending = {DeploymentStatus.QUEUED, DeploymentStatus.RUNNING}
-    while time.monotonic() < deadline:
-        status = repository.deployments.get_deployment(deployment_id).status
-        if status not in pending:
-            return status
-        time.sleep(0.01)
-    raise AssertionError(f"deployment {deployment_id} never finished")
-
-
-def _await_workflow(
-    repository: Repository, resource_id: str, timeout: float = 5.0
-) -> WorkflowStatus:
-    """Wait for the workflow covering a queued run to close.
-
-    A separate wait from `_await_terminal`: the deployment reaches a terminal
-    status inside the convergence, and the workflow closes around it, so the
-    two finish in that order and asserting on the second right after the first
-    is a race.
-    """
-    deadline = time.monotonic() + timeout
-    pending = {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}
-    while time.monotonic() < deadline:
-        for workflow in repository.workflows.list_workflows(10):
-            if workflow.resource_id == resource_id and workflow.status not in pending:
-                return workflow.status
-        time.sleep(0.01)
-    raise AssertionError(f"no workflow for {resource_id} finished")
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.dns.domain import RecordType
+from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.exceptions import ConflictError, ExecutionError
 
 
 def test_a_canary_records_its_limit_and_passes_it_to_ansible(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     result = control.deployments.deploy("alice", host_limit=" edge-a ")
@@ -55,7 +28,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
     """
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
 
     # Three distinct desired states. A snapshot carries the zones, the records
     # and the sites, so any of the three produces a different one.
@@ -79,7 +52,7 @@ def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(settings):
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner()
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     with pytest.raises(ValueError, match="only narrow a deploy"):
@@ -110,7 +83,7 @@ def _drifted_run():
 def test_drift_check_runs_without_changing_anything(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_in_sync_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     report = control.deployments.check_drift("alice")
@@ -123,7 +96,7 @@ def test_drift_check_runs_without_changing_anything(settings):
 def test_drift_check_names_the_edges_that_moved(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     report = control.deployments.check_drift("alice")
@@ -139,7 +112,7 @@ def test_drift_check_names_the_edges_that_moved(settings):
 def test_a_drift_report_can_be_reread_from_the_recorded_deployment(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     first = control.deployments.check_drift("alice")
@@ -152,7 +125,7 @@ def test_an_applied_deployment_is_not_a_drift_report(settings):
     """Its output says what it did, not what had drifted."""
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     applied = control.deployments.deploy("alice")
