@@ -15,29 +15,29 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneReader,
     ZoneStore,
 )
-from blitzecdn.capabilities.dns.service import DnsService, RuleService
+from blitzecdn.capabilities.dns.service import DnsService, HostService, RuleService
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.composition import ControlPlane
 
-__all__ = ["build_dns_service", "build_rule_service"]
+__all__ = ["build_dns_service", "build_host_service", "build_rule_service"]
 
 
-def build_dns_service(
+def build_dns_service(platform: ControlPlane, *, zones: ZoneStore) -> DnsService:
+    """Wire canonical zone and record editing and validation."""
+    return DnsService(zones=zones, events=platform.events, uow=platform.transactions)
+
+
+def build_host_service(
     platform: ControlPlane, *, zones: ZoneStore, rules: RuleOverrides
-) -> DnsService:
-    """Wire the service that owns zones, their policy, and their records.
+) -> HostService:
+    """Wire derived-host reads and source-policy writeback.
 
-    ``rules`` arrives as ``RuleOverrides`` and not the store: this service
-    reads every rule in a zone to derive its virtual hosts, and writes back
-    only the certificate fields an issuer owns. Creating and deleting rules is
-    ``RuleService``'s, and the port is what says so.
+    RuleOverrides permits updating an existing rule without giving this service
+    ownership of rule creation or deletion.
     """
-    return DnsService(
-        zones=zones,
-        rules=rules,
-        events=platform.events,
-        uow=platform.transactions,
+    return HostService(
+        zones=zones, rules=rules, events=platform.events, uow=platform.transactions
     )
 
 
