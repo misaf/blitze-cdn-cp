@@ -247,15 +247,15 @@ blitzecdn_cache	schema	SiteCacheStats.outcomes	object optional
 blitzecdn_cache	schema	SiteCacheStats.site	string required
 blitzecdn_cache	schema	StatsRequest.host_limit	string|null optional
 blitzecdn_certificates	route	GET /v1/certificates
-blitzecdn_certificates	route	GET /v1/sites/{name}/certificate
-blitzecdn_certificates	route	GET /v1/sites/{name}/certificate/preflight
+blitzecdn_certificates	route	GET /v1/hosts/{name}/certificate
+blitzecdn_certificates	route	GET /v1/hosts/{name}/certificate/preflight
 blitzecdn_certificates	route	POST /v1/certificates/reconcile
 blitzecdn_certificates	route	POST /v1/certificates/renew
-blitzecdn_certificates	route	POST /v1/sites/{name}/certificate/request
-blitzecdn_certificates	route	POST /v1/sites/{name}/certificate/upload
+blitzecdn_certificates	route	POST /v1/hosts/{name}/certificate/request
+blitzecdn_certificates	route	POST /v1/hosts/{name}/certificate/upload
 blitzecdn_certificates	route	POST /v1/ssl/automatic/reconcile
-blitzecdn_certificates	schema	Body_upload_certificate_v1_sites__name__certificate_upload_post.certificate	string required
-blitzecdn_certificates	schema	Body_upload_certificate_v1_sites__name__certificate_upload_post.private_key	string required
+blitzecdn_certificates	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.certificate	string required
+blitzecdn_certificates	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.private_key	string required
 blitzecdn_certificates	schema	CertificateInfo.domains	array[string] required
 blitzecdn_certificates	schema	CertificateInfo.email	string|null optional
 blitzecdn_certificates	schema	CertificateInfo.fingerprint_sha256	string required
