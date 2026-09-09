@@ -12,6 +12,7 @@ rejected. Rationale local to one function stays in that function's docstring.
 | [0001](0001-zone-policy-and-composition.md) | Zone policy, derived hosts, and composition ownership |
 | [0002](0002-capability-configuration-ownership.md) | Capability configuration ownership |
 | [0003](0003-what-a-capability-puts-on-an-edge.md) | What a capability puts on an edge host |
+| [0004](0004-what-each-delivery-surface-carries.md) | What each delivery surface carries |
 
 Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes

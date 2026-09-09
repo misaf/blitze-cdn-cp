@@ -12,6 +12,7 @@ from blitzecdn.capabilities.dns.domain import (
     ResolvedPolicy,
     Rule,
     RulePatch,
+    reject_issuer_owned_certificate,
     resolve_policy,
 )
 from blitzecdn.capabilities.dns.ports import (
@@ -61,6 +62,7 @@ class RuleService:
 
     def create_rule(self, rule: Rule, operator: str) -> Rule:
         self.zones.get_domain(rule.domain)
+        reject_issuer_owned_certificate(rule.overrides)
         with self.uow.transaction():
             created = self.rules.create_rule(rule)
             self.events.record(
@@ -85,6 +87,12 @@ class RuleService:
         """
         current = self.rules.get_rule(domain, name)
         changes = patch.model_dump(exclude_unset=True)
+        # Asked of the incoming overrides, not of the merged rule: a rule the
+        # issuer already wrote carries a controller-managed mode, and an
+        # operator editing that rule's ``match`` must not be refused for a
+        # value they did not send.
+        if "overrides" in changes:
+            reject_issuer_owned_certificate(changes["overrides"])
         updated = Rule.model_validate({**current.model_dump(), **changes})
         with self.uow.transaction():
             saved = self.rules.replace_rule(updated)

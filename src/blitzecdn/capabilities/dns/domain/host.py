@@ -239,12 +239,10 @@ class CdnSite(SitePolicy):
             raise ValueError("TLS certificate modes require both certificate paths")
         if self.certificate_mode is CertificateMode.DISABLED and supplied:
             raise ValueError("certificate paths require certificate_mode='existing'")
-        if self.certificate_mode in {
-            CertificateMode.UPLOADED,
-            CertificateMode.REQUESTED,
-        } and (self.certificate_path, self.certificate_key_path) != (
-            managed_certificate_paths(self.name)
-        ):
+        if self.certificate_mode.issuer_owned and (
+            self.certificate_path,
+            self.certificate_key_path,
+        ) != managed_certificate_paths(self.name):
             raise ValueError(
                 f"certificate_mode={self.certificate_mode.value!r} is set by the "
                 "certificate upload and request endpoints, which own the paths "

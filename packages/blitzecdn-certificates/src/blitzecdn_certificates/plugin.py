@@ -35,8 +35,6 @@ if TYPE_CHECKING:
     from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.composition import ControlPlane
 
-_CONTROLLER_MANAGED = frozenset({CertificateMode.UPLOADED, CertificateMode.REQUESTED})
-
 #: Names no public CA will issue for (RFC 6761/2606).
 _RESERVED_SUFFIXES = (".test", ".invalid", ".localhost", ".example")
 
@@ -115,7 +113,7 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
 def blitzecdn_site_desired_state(
     site: CdnSite, platform: ControlPlane
 ) -> SiteStateContribution | None:
-    if site.certificate_mode not in _CONTROLLER_MANAGED:
+    if not site.certificate_mode.issuer_owned:
         return None
     certificate, private_key = build_certificate_service(platform).installed_sources(
         site.name

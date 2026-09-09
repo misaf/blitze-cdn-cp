@@ -12,6 +12,7 @@ from blitzecdn.capabilities.dns.domain import (
     RulePatch,
     resolve_policy,
 )
+from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
@@ -91,7 +92,124 @@ def test_a_zone_patch_that_would_break_a_pair_is_refused(settings):
         )
 
 
+def test_a_zone_patch_cannot_claim_a_controller_managed_certificate(settings):
+    """The mode belongs to the issuer, and an operator taking it de-serves the zone.
+
+    Not a validation nicety. `CdnSite` refuses a controller-managed mode whose
+    paths are not the ones derived from *that host's* name, `derive_hosts`
+    drops a host it cannot build rather than raising, and the result is a zone
+    whose hostnames quietly stop being served — visible only to
+    `blitzecdn validate`, which nobody runs before the traffic goes.
+
+    The zone itself cannot catch it: one zone derives several hosts, its own
+    and one per rule, so it cannot know which name the paths should have been
+    built from. Only the entry point knows who is asking.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+
+    with pytest.raises(ValueError, match="set by the certificate upload"):
+        control.dns.update_domain(
+            "example.com",
+            DomainPatch(
+                ssl_mode=SslMode.FULL,
+                certificate_mode=CertificateMode.REQUESTED,
+                certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
+                certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+            ),
+            "tester",
+        )
+
+
+def test_an_operator_may_still_point_a_zone_at_material_of_their_own(settings):
+    """`existing` is the operator's mode, and the guard must not take it away.
+
+    Material somebody else put on the box, which the control plane neither
+    issues nor renews. It is the whole reason the guard names modes rather than
+    forbidding the three certificate fields outright.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+
+    zone = control.dns.update_domain(
+        "example.com",
+        DomainPatch(
+            ssl_mode=SslMode.FULL,
+            certificate_mode=CertificateMode.EXISTING,
+            certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
+            certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+        ),
+        "tester",
+    )
+    assert zone.certificate_mode is CertificateMode.EXISTING
+
+
 # -- A rule is an override, not a policy -----------------------------------
+
+
+def test_a_rule_cannot_claim_a_controller_managed_certificate(settings):
+    """The other door into the same policy, and it was standing open too.
+
+    `_NOT_OVERRIDABLE` held only the zone's identity, so a rule could author
+    what `update_domain` now refuses.
+
+    Asked by the service rather than by `Rule`, and the difference is not
+    cosmetic: `_validate_overrides` runs on every rule the store rehydrates,
+    so refusing the mode there would make the issuer's own rules — which
+    legitimately carry it — unreadable, and `list_rules` would raise for the
+    whole fleet.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+
+    with pytest.raises(ValueError, match="set by the certificate upload"):
+        control.rules.create_rule(
+            Rule(
+                domain="example.com",
+                name="r",
+                match="*.example.com",
+                overrides={"certificate_mode": CertificateMode.UPLOADED},
+            ),
+            "tester",
+        )
+
+
+def test_a_rule_the_issuer_wrote_still_reads_back(settings):
+    """The regression the first placement of that guard caused, held down.
+
+    `HostService.activate_managed_certificate` records an issued certificate
+    as a rule override, so a controller-managed mode is a value the store
+    legitimately holds. Refusing it on the way *out* took down every read.
+    """
+    repository = Repository(settings.database_path)
+    control = _control(settings, repository)
+    control.dns.create_domain(Domain(name="example.com"), "tester")
+    control.rules.create_rule(
+        Rule(
+            domain="example.com",
+            name="r",
+            match="*.example.com",
+            overrides={"cache_enabled": False},
+        ),
+        "tester",
+    )
+    stored = repository.rules.get_rule("example.com", "r")
+    repository.rules.replace_rule(
+        stored.model_copy(
+            update={
+                "overrides": {
+                    **stored.overrides,
+                    "certificate_mode": CertificateMode.UPLOADED,
+                }
+            }
+        )
+    )
+
+    read_back = repository.rules.list_rules("example.com")
+    assert read_back[0].overrides["certificate_mode"] == CertificateMode.UPLOADED
 
 
 def test_a_rule_can_only_override_settings_a_zone_has():
