@@ -41,12 +41,8 @@ def plan(
 
 @deployment_app.command()
 def deploy(
-    yes: Annotated[
-        bool,
-        typer.Option(
-            "--yes", help="Required confirmation for non-interactive execution."
-        ),
-    ] = False,
+    yes: common.Yes = False,
+    skip_preflight: common.SkipPreflight = False,
     limit: Annotated[str | None, common.LIMIT_OPTION] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
@@ -54,20 +50,29 @@ def deploy(
 
     With --limit this is a canary: the named edges converge and the rest keep
     serving what they have. Re-run without it to finish the rollout.
+
+    --yes answers the confirmation and nothing else: an unattended run still
+    validates and still previews, and still refuses to converge if either says
+    no. Giving those up is --skip-preflight, separately, because a caller that
+    cannot answer a prompt is not thereby a caller that wants no checks.
     """
     control = common.control_plane()
-    if not yes:
+    if not skip_preflight:
         errors = control.deployments.validate()
         if errors:
             common.emit({"valid": False, "errors": errors}, json_output=json_output)
             raise typer.Exit(ExitCode.CONFIGURATION)
-        typer.echo("Configuration is valid. Previewing changes...")
+        # Under --json this line would be the one non-JSON byte on stdout.
+        if not json_output:
+            typer.echo("Configuration is valid. Previewing changes...")
         preview = control.deployments.deploy("cli", check=True, host_limit=limit)
         if preview.status is not DeploymentStatus.SUCCEEDED:
             common.emit(preview, json_output=json_output)
             raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
-        rendered = common.describe_hosts(preview.hosts)
-        typer.echo(rendered or "  No edge reported a result.")
+        if not json_output:
+            rendered = common.describe_hosts(preview.hosts)
+            typer.echo(rendered or "  No edge reported a result.")
+    if not yes:
         target = f"edges matching {limit!r}" if limit else "all configured edges"
         if not typer.confirm(f"Apply these changes to {target}?"):
             raise typer.Abort()
@@ -93,7 +98,7 @@ def rollback(
             help="Successful deployment ID; defaults to the latest different state."
         ),
     ] = None,
-    yes: Annotated[bool, typer.Option("--yes")] = False,
+    yes: common.Yes = False,
     check: Annotated[
         bool, typer.Option("--check", help="Preview without changing canonical state.")
     ] = False,

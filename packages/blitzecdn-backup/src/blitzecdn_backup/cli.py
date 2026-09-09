@@ -74,9 +74,7 @@ def inspect(
 @backup_app.command("restore")
 def restore(
     archive: Annotated[Path, typer.Argument(help="The archive to restore from.")],
-    assume_yes: Annotated[
-        bool, typer.Option("--yes", "-y", help="Do not ask for confirmation.")
-    ] = False,
+    assume_yes: common.Yes = False,
 ) -> None:
     """Restore the components the archive's manifest declares, and nothing else.
 

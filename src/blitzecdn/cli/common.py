@@ -69,6 +69,37 @@ def installed_plugins() -> PluginRegistry:
 #: something slightly different in one corner of the command line.
 JsonOutput = Annotated[bool, typer.Option("--json")]
 
+#: The ``--yes`` switch every destructive command carries, and it means exactly
+#: one thing: **do not prompt**. Nothing else. It never skips a check.
+#:
+#: One definition for the same reason ``JsonOutput`` has one — and this flag is
+#: why that reason is not hypothetical. Declared command by command, ``--yes``
+#: drifted into three meanings: "skip the confirmation" on the `remove`
+#: commands, "skip the confirmation for the dangerous subset" on `cache purge`
+#: and `rollback`, and on `blitzecdn deploy` — the most destructive command in
+#: the product — "skip validation, skip the check-mode preview, *and* skip the
+#: confirmation". An operator putting `deploy --yes` in a CI job to answer a
+#: prompt they could not answer was silently giving up two safety gates they
+#: had no reason to think were attached to it. Skipping those is now
+#: ``--skip-preflight``, which says so.
+Yes = Annotated[
+    bool,
+    typer.Option("--yes", "-y", help="Do not prompt for confirmation."),
+]
+
+#: Give up `deploy`'s pre-flight: the configuration validation and the
+#: check-mode preview that runs before anything converges. Separate from
+#: ``--yes`` because they are separate decisions — an unattended caller wants
+#: "do not prompt" and almost never wants "and do not check either" — and named
+#: for what it costs rather than for the interaction it happens to remove.
+SkipPreflight = Annotated[
+    bool,
+    typer.Option(
+        "--skip-preflight",
+        help="Apply without validating configuration or previewing changes first.",
+    ),
+]
+
 
 def emit(value: Any, *, json_output: bool, note: str | None = None) -> None:
     """Print a result, and the operator-facing note that follows it.

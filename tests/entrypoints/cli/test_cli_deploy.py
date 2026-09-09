@@ -33,7 +33,10 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
-    deployed = runner.invoke(cli.app, ["deploy", "--yes", "--json"])
+    # --skip-preflight, so this stays the straight-through path it was written
+    # to cover: one scripted run per command. The validate-and-preview flow
+    # --yes no longer skips has its own test below.
+    deployed = runner.invoke(cli.app, ["deploy", "--yes", "--skip-preflight", "--json"])
     assert deployed.exit_code == 0
     deployment_id = json.loads(deployed.stdout)["id"]
     assert runner.invoke(cli.app, ["status", deployment_id, "--json"]).exit_code == 0
@@ -209,3 +212,50 @@ def test_drift_says_so_when_no_edge_answered(settings, monkeypatch):
 
     assert result.exit_code == cli.ExitCode.DRIFT_DETECTED
     assert "No edge reported a result" in result.output
+
+
+def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkeypatch):
+    """--yes means "do not prompt". It does not mean "do not check".
+
+    The regression this pins: --yes used to gate the whole pre-flight, so
+    `blitzecdn deploy --yes` — the obvious way to run the most destructive
+    command in the product from a CI job that cannot answer a prompt — silently
+    gave up configuration validation *and* the check-mode preview as well. An
+    operator had no reason to think either was attached to the flag, and
+    nothing said so. Giving them up is now --skip-preflight, spelled out.
+    """
+    fake = FakeRunner(
+        [
+            ansible_run(host_run("edge-a", changes=("Render managed sites",))),
+            ansible_run(host_run("edge-a", changes=("Render managed sites",))),
+        ]
+    )
+    control = ControlPlane(
+        settings=settings, repository=Repository(settings.database_path), runner=fake
+    )
+    seed_site(control, cache_enabled=False, compression="off")
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+
+    # No `input=`: a prompt here would fail the test rather than hang it, which
+    # is the point — --yes still answers the confirmation.
+    result = runner.invoke(cli.app, ["deploy", "--yes"])
+
+    assert result.exit_code == 0
+    assert "Configuration is valid" in result.stdout
+    assert "edge-a: would change 1 task(s)" in result.stdout
+
+
+def test_skip_preflight_is_what_gives_up_the_checks(settings, monkeypatch):
+    """The escape hatch still exists; it just has to be asked for by name."""
+    fake = FakeRunner([ansible_run(host_run("edge-a"))])
+    control = ControlPlane(
+        settings=settings, repository=Repository(settings.database_path), runner=fake
+    )
+    seed_site(control, cache_enabled=False, compression="off")
+    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+
+    result = runner.invoke(cli.app, ["deploy", "--yes", "--skip-preflight"])
+
+    assert result.exit_code == 0
+    # One scripted run was enough, so no preview ran.
+    assert "Configuration is valid" not in result.stdout
