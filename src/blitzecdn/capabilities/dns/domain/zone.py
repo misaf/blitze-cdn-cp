@@ -17,7 +17,7 @@ from typing import Self
 from pydantic import ConfigDict, field_validator, model_validator
 
 from blitzecdn.capabilities.dns.domain.host import SitePolicy
-from blitzecdn.capabilities.tls.policy import CERTIFICATE_ROOTS, CertificateMode
+from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.core.domain.validation import hostname
 
 __all__ = ["Domain"]
@@ -47,22 +47,6 @@ class Domain(SitePolicy):
                 ) from None
             return normalized
         raise ValueError("domain must be a name, not an IP address")
-
-    @field_validator("certificate_path", "certificate_key_path")
-    @classmethod
-    def validate_remote_path(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if not value.startswith("/") or ".." in value.split("/"):
-            raise ValueError(
-                "certificate paths must be absolute and cannot contain '..'"
-            )
-        if not value.startswith(CERTIFICATE_ROOTS):
-            raise ValueError(
-                "certificate paths must live under one of: "
-                + ", ".join(CERTIFICATE_ROOTS)
-            )
-        return value
 
     @model_validator(mode="after")
     def validate_certificate_pair(self) -> Self:

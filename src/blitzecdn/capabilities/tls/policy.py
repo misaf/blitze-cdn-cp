@@ -10,16 +10,33 @@ contract, which is what lets ``sites`` compose it without depending on the TLS
 implementation that consumes ``CdnSite``.
 """
 
+import re
 from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, field_validator
 
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
 from blitzecdn.core.domain.policy import CapabilityPolicy
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"
 CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
+
+#: Every character a certificate path may contain.
+#:
+#: Here rather than in ``core.domain.validation`` for the reason that module
+#: states about itself: a shape with exactly one consumer belongs with the
+#: contract that validates against it, and this one has exactly the consumer
+#: below. ``CERTIFICATE_ROOTS`` already lives here for the same reason.
+#:
+#: The set is what an nginx directive argument may safely hold, not what a
+#: filesystem will accept. ``ssl_certificate {{ path }};`` in the nginx role's
+#: ``site.conf.j2`` interpolates the value unquoted, so a path containing a
+#: semicolon or a newline does not name an unusual file — it ends the directive
+#: and starts one of the author's choosing, on every edge the site converges to.
+#: The three checks below therefore bound *where* the path points; this one
+#: bounds what it is able to say once it is written into the config.
+CERTIFICATE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
 def managed_certificate_paths(site_name: str) -> tuple[str, str]:
@@ -133,6 +150,42 @@ class TlsPolicy(CapabilityPolicy):
     certificate_mode: CertificateMode = CertificateMode.DISABLED
     certificate_path: str | None = None
     certificate_key_path: str | None = None
+
+    @field_validator("certificate_path", "certificate_key_path")
+    @classmethod
+    def validate_remote_path(cls, value: str | None) -> str | None:
+        """Bound where an edge certificate path may point, and what it may say.
+
+        On the contract that declares the two fields, so that every model
+        carrying them inherits one rule. It was written out twice — on
+        ``CdnSite`` and again on ``Domain`` — which is the arrangement
+        ``dns.domain.host`` describes itself as not having: a rule about one
+        capability's own fields belongs to that capability, and the composition
+        keeps only what reads across two of them. Two copies of a security
+        check are also two things that can be tightened separately, and the
+        pair had to agree for either to mean anything.
+
+        A deploy copies these paths as root, which is what the traversal and
+        root checks are about. The character check is about the other end: the
+        value is rendered unquoted into an nginx directive.
+        """
+        if value is None:
+            return None
+        if not value.startswith("/") or ".." in value.split("/"):
+            raise ValueError(
+                "certificate paths must be absolute and cannot contain '..'"
+            )
+        if not value.startswith(CERTIFICATE_ROOTS):
+            raise ValueError(
+                "certificate paths must live under one of: "
+                + ", ".join(CERTIFICATE_ROOTS)
+            )
+        if not CERTIFICATE_PATH.fullmatch(value):
+            raise ValueError(
+                "certificate paths may contain only letters, digits, '.', '_', "
+                "'-' and '/'"
+            )
+        return value
 
     @property
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
