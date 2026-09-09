@@ -54,12 +54,27 @@ class RuleStore:
                 ) from exc
         return rule
 
-    def replace_rule(self, rule: Rule) -> Rule:
+    def replace_rule(self, rule: Rule, *, expected: Rule | None = None) -> Rule:
+        """Write a stored rule. ``domain`` and ``name`` are its identity.
+
+        ``expected`` makes it a compare-and-swap, for the same reason the zone
+        store has one: ``overrides`` is replaced wholesale rather than merged,
+        so an editor that read a rule, changed one key and wrote the mapping
+        back would silently drop whatever another writer added in between.
+        The certificate issuer is one such writer, and it writes unattended.
+        """
+        if expected is not None:
+            self._db.require_transaction("replace_rule(expected=...)")
         with self._db.session() as session:
             row = session.get(RuleRow, (rule.domain, rule.name))
             if row is None:
                 raise NotFoundError(
                     f"rule {rule.name!r} in {rule.domain!r} does not exist"
+                )
+            if expected is not None and self._rule(row) != expected:
+                raise ConflictError(
+                    f"rule {rule.name!r} in {rule.domain!r} changed while it "
+                    "was being edited"
                 )
             self._apply(row, rule)
         return rule
