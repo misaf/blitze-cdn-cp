@@ -27,6 +27,7 @@ from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 
 jinja2 = pytest.importorskip("jinja2")
@@ -118,10 +119,22 @@ def _resolve(value: Any, context: dict[str, Any], environment: Any) -> Any:
     return value
 
 
+def _yaml_mapping(path: Path) -> dict[str, Any]:
+    """One YAML document, as the mapping every caller here expects.
+
+    PyYAML is untyped, so `safe_load` is `Any` and every reader below used to
+    hand that straight back through a `dict[str, Any]` annotation — which is
+    how a `dict[str, Any]` becomes a promise nothing keeps. Asserting the shape
+    once is what turns the annotation into a fact, and it fails on the file
+    that is wrong rather than at whichever subscript first noticed.
+    """
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    assert isinstance(document, dict), f"{path} is not a mapping"
+    return document
+
+
 def _runtime_source() -> dict[str, Any]:
-    return yaml.safe_load(
-        (RUNTIME_ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8")
-    )
+    return _yaml_mapping(RUNTIME_ROLE_DIR / "defaults/main.yml")
 
 
 #: The contract's flat inputs — the members that are not fixed runtime layout.
@@ -165,10 +178,10 @@ class _IndentedDumper(yaml.SafeDumper):
 
 
 def _role_spec() -> dict[str, Any]:
-    document = yaml.safe_load(
-        (ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )
-    return document["argument_specs"]["main"]["options"]
+    document = _yaml_mapping(ROLE_DIR / "meta/argument_specs.yml")
+    options = document["argument_specs"]["main"]["options"]
+    assert isinstance(options, dict), "argument_specs main options is not a mapping"
+    return options
 
 
 def _role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
@@ -178,8 +191,8 @@ def _role_defaults(**runtime_inputs: Any) -> dict[str, Any]:
     `blitzecdn_edge_runtime` as a required option and reads the paths, the
     listener sets, the status endpoint and the GeoIP database from it.
     """
-    context = _runtime_defaults(**runtime_inputs) | yaml.safe_load(
-        (ROLE_DIR / "defaults/main.yml").read_text(encoding="utf-8")
+    context = _runtime_defaults(**runtime_inputs) | _yaml_mapping(
+        ROLE_DIR / "defaults/main.yml"
     )
     # Resolved, because Ansible resolves: a default written as an expression
     # over the contract — the status file's path, the access log's — is a real
@@ -260,7 +273,14 @@ def run_role_tasks(
     )
 
 
-def _seed_site(repository, *, name, label, origin, **policy):
+def _seed_site(
+    repository: Repository,
+    *,
+    name: str,
+    label: str,
+    origin: str,
+    **policy: Any,
+) -> None:
     """A zone carrying the policy, and one proxied hostname in it.
 
     Written through the stores rather than the services because these fixtures
@@ -294,7 +314,7 @@ def _seed_site(repository, *, name, label, origin, **policy):
 
 
 @pytest.fixture
-def desired_state(settings, tmp_path) -> dict[str, Any]:
+def desired_state(settings: Settings, tmp_path: Path) -> dict[str, Any]:
     repository = Repository(settings.database_path)
     control = ControlPlane(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
@@ -335,7 +355,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     control.deployments.write_desired_state(
         repository.snapshot(), settings.generated_vars_path
     )
-    return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
+    return _yaml_mapping(settings.generated_vars_path)
 
 
 __all__ = [

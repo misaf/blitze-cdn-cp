@@ -11,7 +11,10 @@ from __future__ import annotations
 
 import sys
 import tempfile
+from collections.abc import Callable
 from pathlib import Path
+
+from blitzecdn.core.config import Settings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -20,10 +23,14 @@ from control_plane_fixtures import settings as _settings_fixture
 from published_surface import _PUBLIC_SDK_PREFIXES
 
 
-def _settings():
+def _settings() -> Settings:
     """The same Settings the suite's fixture builds, without pytest running it."""
-    generator = _settings_fixture.__wrapped__
-    return generator(Path(tempfile.mkdtemp()))
+    # `pytest.fixture` returns a `FixtureFunctionDefinition`, which carries the
+    # undecorated function at run time and does not declare it. The ignore is a
+    # real one — this file is in `just types` — and the annotation beside it is
+    # what makes the call below checked rather than `Any` all the way down.
+    build: Callable[[Path], Settings] = _settings_fixture.__wrapped__  # type: ignore[attr-defined]
+    return build(Path(tempfile.mkdtemp()))
 
 
 def main() -> int:

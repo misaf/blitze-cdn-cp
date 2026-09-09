@@ -8,6 +8,8 @@ policy without importing another test module.
 
 from __future__ import annotations
 
+from types import ModuleType
+
 #: What an optional package may reach for inside the control plane, by module
 #: prefix. Everything here is a *contract*: the plugin SDK, configuration, the
 #: shared value types, the ports an installed capability is handed, and the
@@ -121,7 +123,7 @@ def facade_private_modules() -> frozenset[str]:
     import importlib
     import pkgutil
 
-    modules: dict[str, object] = {}
+    modules: dict[str, ModuleType] = {}
     for prefix in _PUBLIC_SDK_PREFIXES:
         try:
             package = importlib.import_module(prefix)
@@ -158,7 +160,7 @@ def facade_private_modules() -> frozenset[str]:
     return frozenset(private)
 
 
-def _public_names(module: object) -> list[str]:
+def _public_names(module: ModuleType) -> list[str]:
     """What a module declares, or — with no `__all__` — what it defined itself."""
     declared = getattr(module, "__all__", None)
     if declared is not None:
