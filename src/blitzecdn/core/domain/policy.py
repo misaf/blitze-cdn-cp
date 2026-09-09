@@ -15,7 +15,7 @@ set.
 
 Declared by the contract that owns the setting, never by the composition. One
 ``if`` chain on ``SitePolicy`` restating every capability's rule beside its own
-would make ``sites`` a second place each requirement is written down, and the
+would make ``dns`` a second place each requirement is written down, and the
 two could disagree without anything saying so.
 """
 

@@ -7,7 +7,7 @@ removes the capability and ``uv add`` puts it back, with no line of core edited
 either way.
 
 ``required=False`` is the failure policy that goes with that. A built-in is
-required by definition — a control plane without ``sites`` is not degraded but
+required by definition — a control plane without ``dns`` is not degraded but
 wrong — whereas a broken optional package is reported by name and skipped, and
 the node still serves. ``provides`` is the other half: it is what a
 configuration means when it says it depends on this capability, and it is how

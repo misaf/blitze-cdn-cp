@@ -39,7 +39,7 @@ class OmittedWhenEmpty(BaseModel):
     """A nested policy block the edge document leaves out when it holds nothing.
 
     Opting in by subclassing, rather than core inspecting every nested model,
-    is the point. Naming a block — ``firewall``, say — inside ``sites``' own
+    is the point. Naming a block — ``firewall``, say — inside ``dns``' own
     :func:`~blitzecdn.capabilities.dns.adapters.ansible.site_to_ansible` would
     put the vocabulary of a detachable capability into a generic adapter, and
     make a second such block a second branch there. So a capability declares

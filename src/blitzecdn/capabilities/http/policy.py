@@ -1,7 +1,7 @@
 """The HTTP capability's configuration contract.
 
 The scheme, the public proxy port sets, and the one protocol switch a site
-owns. ``sites`` composes :class:`ProtocolPolicy` into its flat policy.
+owns. ``dns`` composes :class:`ProtocolPolicy` into its flat policy.
 
 The contract is deliberately wider than what this distribution implements.
 HTTP/1.1 and HTTP/2 are invariants of the managed edge and carry no policy;

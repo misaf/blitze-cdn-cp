@@ -2,7 +2,7 @@
 
 This renderer knows how a desired-state document is *framed* — a list of site
 documents under one key, with fleet-wide variables beside it — and nothing at
-all about what goes in one. Every variable comes from a plugin: `sites` projects
+all about what goes in one. Every variable comes from a plugin: `dns` projects
 the site model, `certificates` replaces the two TLS paths with the files on this
 controller, `http` states the fleet's baseline listener stance, and `http3`
 overrides it with the QUIC requirement it derives — when that distribution is
