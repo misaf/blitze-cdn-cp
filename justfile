@@ -201,26 +201,34 @@ fmt:
 
 # Strict type checking, across the whole workspace.
 #
-# Each distribution's `src` tree, and only those: the suite is not annotated
-# and never has been, and `packages` as a bare path would have swept the
-# packages' tests in while `src` leaves `tests/` out.
+# Each distribution's `src` tree, plus the suite's shared helper modules. The
+# test *cases* are still unannotated and out of scope; `src` and the two helper
+# globs are what draws that line, where `packages` as a bare path would have
+# swept every package's test cases in.
 #
 # The packages are checked against the core in *this* environment rather than
 # against a published release, which is the point of the workspace: a change to
 # a contract an optional capability depends on fails here rather than after a
 # release.
 #
-# One file out of the suite, and for one reason: `control_plane_fixtures.py`
-# holds the doubles every distribution's tests inject — the fake runner, the
-# fake edge store, the background queues — and each of them stands in for a
-# Protocol that core declares. Nothing checked that they still satisfied it.
-# The call sites had grown `# type: ignore[arg-type]` instead, which suppressed
-# nothing at all, since the file it was written in is not checked; the fakes
-# did in fact conform, so the comments were wrong as well as inert. The
-# `if TYPE_CHECKING:` block at the end of the doubles states the conformance
-# and this line is what holds it.
+# The helpers are here because that is where the test doubles live, and a
+# double is a claim about a Protocol somebody else declared. `FakeRunner`,
+# `FakeEdgeStore` and the background queues stand in for core's ports;
+# `FakePreflight` and `_RecordingIssuer` stand in for the certificates
+# package's. Nothing checked that any of them still satisfied the thing it
+# replaced — the call sites had grown `# type: ignore[arg-type]` instead, which
+# suppressed nothing at all, because the files they were written in were not
+# checked. Each helper module now states its conformance in an
+# `if TYPE_CHECKING:` block, and this line is what holds those.
+#
+# Globs rather than a list, for the reason `ansible-check` uses them: which
+# helper modules exist is a property of the checkout. `tests/*.py` is exactly
+# the control plane's shared helpers, since its test cases live in
+# subdirectories; a package's helpers sit beside its cases and are named for
+# it. A helper added tomorrow is checked because it is there, not because
+# somebody remembered to add a line here.
 types:
-    uv run mypy src packages/*/src tests/control_plane_fixtures.py
+    uv run mypy src packages/*/src tests/*.py packages/*/tests/*_support.py
 
 # Lint the shell scripts that run as root.
 shell-lint:

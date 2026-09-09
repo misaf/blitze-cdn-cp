@@ -10,37 +10,44 @@ Asserting through here rather than against a hand-written `CacheRunner` double
 is deliberate: it exercises the real adapter, so a change to the variable names
 the purge role reads fails a test rather than passing one written against a
 stub of ourselves.
+
+`just types` checks this module. Both readers below used to take `fake: object`
+and then reach for `.playbooks`, which is not a thing an `object` has — the
+annotation was the widest one that would silence a reader rather than the type
+the argument has, and nothing was in a position to say so. Naming `FakeRunner`
+is what makes the record's shape come from the double's definition instead of
+from a `Sequence[...]` alias restated here, which had already drifted: it
+called the playbook `object` where the double records a `Path`.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from blitzecdn_cache.domain import PurgeEntry
+from control_plane_fixtures import FakeRunner
 
 
-def purges(fake: object) -> list[tuple[tuple[PurgeEntry, ...], bool, str | None]]:
+def purges(fake: FakeRunner) -> list[tuple[tuple[PurgeEntry, ...], bool, str | None]]:
     """Every cache purge the fleet was asked to run, as this capability meant it."""
-    recorded: Sequence[tuple[str, object, dict[str, object], str | None]] = (
-        fake.playbooks
-    )
-    return [
-        (
-            tuple(
-                PurgeEntry.model_validate(entry)
-                for entry in variables["blitzecdn_cache_purge_entries"]
-            ),
-            bool(variables["blitzecdn_cache_purge_all"]),
-            limit,
+    purged = []
+    for name, _playbook, variables, limit in fake.playbooks:
+        if name != "cache-purge":
+            continue
+        entries = variables["blitzecdn_cache_purge_entries"]
+        assert isinstance(entries, list)
+        purged.append(
+            (
+                tuple(PurgeEntry.model_validate(entry) for entry in entries),
+                bool(variables["blitzecdn_cache_purge_all"]),
+                limit,
+            )
         )
-        for name, _playbook, variables, limit in recorded
-        if name == "cache-purge"
-    ]
+    return purged
 
 
-def stats_limits(fake: object) -> list[str | None]:
+def stats_limits(fake: FakeRunner) -> list[str | None]:
     """The host limit each statistics run was asked for."""
-    recorded: Sequence[tuple[str, object, dict[str, object], str | None]] = (
-        fake.playbooks
-    )
-    return [limit for name, _playbook, _variables, limit in recorded if name == "stats"]
+    return [
+        limit
+        for name, _playbook, _variables, limit in fake.playbooks
+        if name == "stats"
+    ]

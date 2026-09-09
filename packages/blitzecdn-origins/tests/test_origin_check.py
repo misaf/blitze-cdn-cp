@@ -10,8 +10,6 @@ ourselves.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from blitzecdn_origins.composition import build_origin_check_service
 from control_plane_fixtures import (
     FakeRunner,
@@ -25,7 +23,7 @@ from blitzecdn.composition import ControlPlane, Repository
 
 
 def origin_checks(
-    fake: object,
+    fake: FakeRunner,
 ) -> list[tuple[list[dict[str, object]], str | None]]:
     """Every origin check the fleet was asked to run, in this capability's terms.
 
@@ -35,12 +33,9 @@ def origin_checks(
     document is this package's job, so translating it back is this package's
     test helper.
     """
-    recorded: Sequence[tuple[str, object, dict[str, object], str | None]] = (
-        fake.playbooks
-    )
     return [
         (list(variables["blitzecdn_origins_sites"]), limit)
-        for name, _playbook, variables, limit in recorded
+        for name, _playbook, variables, limit in fake.playbooks
         if name == "origin-check"
     ]
 

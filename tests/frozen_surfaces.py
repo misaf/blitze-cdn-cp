@@ -353,7 +353,9 @@ def _body_models(route: Any) -> tuple[Any, ...]:
 def _schema_shape(spec: dict[str, Any]) -> str:
     """A field's type, flattened enough to diff and to read."""
     if "$ref" in spec:
-        return spec["$ref"].rsplit("/", 1)[-1]
+        reference = spec["$ref"]
+        assert isinstance(reference, str), "$ref is not a string"
+        return reference.rsplit("/", 1)[-1]
     if "enum" in spec:
         return f"enum[{','.join(str(value) for value in spec['enum'])}]"
     if "anyOf" in spec:

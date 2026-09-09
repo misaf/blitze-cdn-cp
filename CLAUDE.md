@@ -84,15 +84,21 @@ act. After the first release, changing one is a version decision.
 
 ## Types
 
-`just types` is `mypy --strict` over `src`, every package's `src`, and exactly one test
-module: `tests/control_plane_fixtures.py`.
+`just types` is `mypy --strict` over `src`, every package's `src`, and the suite's
+**shared helper modules** — `tests/*.py` and `packages/*/tests/*_support.py`. The test
+cases themselves are not annotated and are out of scope.
 
-That one file holds the doubles every distribution injects — the fake fleet runner, the
-fake edge store, the background queues — and each stands in for a `Protocol` core
-declares. The `if TYPE_CHECKING:` block at the end of it *states* that conformance and
-the gate holds it. The rest of `tests/` is outside mypy's scope, so **a `# type: ignore`
-written in a test file suppresses nothing**. If you find one, it is inert; the question is
-whether the claim it was making is true, not whether to keep the comment.
+The helpers are in the gate because that is where the doubles live, and a double is a
+claim about a `Protocol` somebody else declared. `FakeRunner`, `FakeEdgeStore` and the
+background queues stand in for core's ports; `FakePreflight` and `_RecordingIssuer` stand
+in for the certificates package's. Each helper module states its conformance in an
+`if TYPE_CHECKING:` block at the end, and `just types` is what holds it — a double that
+drifts from its port fails in the file where the double is, with the signature diff.
+
+Because test *cases* are outside that scope, **a `# type: ignore` written in a test case
+suppresses nothing**. If you find one, it is inert; the question is whether the claim it
+was making is true, not whether to keep the comment. An ignore inside a helper module is
+the opposite — `strict` checks those, so one that stops being needed fails as unused.
 
 ## Test conventions
 

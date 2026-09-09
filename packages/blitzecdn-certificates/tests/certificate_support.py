@@ -11,16 +11,32 @@ Here the wiring is the real one. ``build_certificate_service`` is the same
 function the plugin's registration calls, and the seams a test needs — the
 store, the issuer, the preflight — are substituted by rebuilding the two
 dataclasses around it rather than by intercepting a constructor.
+
+`just types` checks this module, which is what makes the seams above claims
+rather than hopes. ``FakePreflight`` and ``_RecordingIssuer`` are handed
+straight to ``CertificateExecution``, whose fields are the ``Preflight`` and
+``Issuer`` protocols; before the gate reached here, a double that had drifted
+from its port would have been caught by whichever test happened to call the
+method that moved, and reported as that test failing.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
+from typing import TYPE_CHECKING
 
+import pytest
 from blitzecdn_certificates.certificates.domain import (
+    CertificateInfo,
     PreflightCheck,
     PreflightReport,
     PreflightSeverity,
+)
+from blitzecdn_certificates.certificates.ports import (
+    CertificateStore,
+    Issuer,
+    Preflight,
 )
 from blitzecdn_certificates.certificates.service import CertificateService
 from blitzecdn_certificates.composition import (
@@ -35,13 +51,25 @@ from control_plane_fixtures import (
     seed_site,
 )
 
+from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import ControlPlane, FleetRunner, Repository
+from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ExecutionError
 
+#: What `certificate_pair` hands back: a callable making a certificate and its
+#: key. Spelled once because three signatures below take it.
+CertificatePair = Callable[..., tuple[bytes, bytes]]
 
-def _with_seams(service, *, certificate_store=None, issuer=None, preflight=None):
+
+def _with_seams(
+    service: CertificateService,
+    *,
+    certificate_store: CertificateStore | None = None,
+    issuer: Issuer | None = None,
+    preflight: Preflight | None = None,
+) -> CertificateService:
     """``service`` again, with the named collaborators replaced.
 
     ``CertificateService`` is a plain class, so it is rebuilt; the two halves it
@@ -64,33 +92,47 @@ def _with_seams(service, *, certificate_store=None, issuer=None, preflight=None)
         ),
         events=service.events,
         dns=service.dns,
-        site_editor=service.dns,
+        # `service.site_editor`, not `service.dns` a second time. The composition
+        # root hands the same object to both, so reconstructing this slot from
+        # `dns` was right by coincidence — and `just types` reaching this file
+        # is what said so: `dns` is a `RecordReader` and the slot wants a
+        # `SiteEditor`. Preserving what the service already holds is what
+        # "again, with the named collaborators replaced" claims to do.
+        site_editor=service.site_editor,
         deployments=service.deployments,
         workflows=service.workflows,
     )
 
 
-def _attach(control, service):
+def _attach(control: ControlPlane, service: CertificateService) -> ControlPlane:
     """Publish ``service`` where the routes, jobs and sibling services look.
 
     ``_certificate_services`` is the composition root's per-control-plane cache;
     a substituted service has to be the one it hands back, or the API routes
-    and the Automatic SSL builder would each find the unsubstituted one.
+    and the Automatic SSL builder would each find the unsubstituted one. That
+    line is the one production depends on: nothing outside this suite reads the
+    two attributes below, which are shorthand this package's tests use to say
+    ``control.certificates`` instead of rebuilding the service per assertion.
+
+    Core does not declare them, and cannot — it has no idea this distribution
+    exists. So the ignores are real ones, in a file mypy reads: under `strict`
+    they are themselves checked, and the day `ControlPlane` grows a
+    ``certificates`` attribute they fail as unused rather than lingering.
     """
     _certificate_services[control] = service
-    control.certificates = service
-    control.automatic_ssl = build_automatic_ssl_service(control)
+    control.certificates = service  # type: ignore[attr-defined]
+    control.automatic_ssl = build_automatic_ssl_service(control)  # type: ignore[attr-defined]
     return control
 
 
 def certificate_control_plane(
-    settings,
+    settings: Settings,
     *,
-    runner=None,
-    certificate_store=None,
-    issuer=None,
-    preflight=None,
-):
+    runner: FleetRunner | None = None,
+    certificate_store: CertificateStore | None = None,
+    issuer: Issuer | None = None,
+    preflight: Preflight | None = None,
+) -> ControlPlane:
     """A control plane with this capability's services built onto it.
 
     Returns the control plane. ``control.certificates`` and
@@ -118,8 +160,11 @@ def certificate_control_plane(
 
 
 def certificate_cli_control_plane(
-    settings, monkeypatch, runner_double=None, preflight=None
-):
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    runner_double: FleetRunner | None = None,
+    preflight: Preflight | None = None,
+) -> ControlPlane:
     """`cli_control_plane`, with this capability's services built onto it.
 
     The command tree an operator sees is assembled from every installed plugin,
@@ -151,7 +196,9 @@ class FakePreflight:
         self.failures = failures
         self.calls: list[tuple[str, bool, int | None]] = []
 
-    def check(self, site, *, deployed: bool, record_ttl: int | None = None):
+    def check(
+        self, site: CdnSite, *, deployed: bool, record_ttl: int | None = None
+    ) -> PreflightReport:
         self.calls.append((site.name, deployed, record_ttl))
         return PreflightReport(
             site=site.name,
@@ -227,22 +274,41 @@ def _seed_automatic_ssl_record(
 class _RecordingIssuer:
     """Stands in for certbot: hands back a fresh pair and remembers the call."""
 
-    def __init__(self, certificate_pair, *, fails: set[str] | None = None) -> None:
+    def __init__(
+        self, certificate_pair: CertificatePair, *, fails: set[str] | None = None
+    ) -> None:
         self._pair = certificate_pair
         self._fails = fails or set()
         self.issued: list[tuple[str, str]] = []
 
-    def issue(self, site, email):
+    def issue(self, site: CdnSite, email: str) -> tuple[bytes, bytes]:
         if site.name in self._fails:
             raise ExecutionError("challenge failed")
         self.issued.append((site.name, email))
         return self._pair((site.server_names[0],), days=90)
 
 
-def _proxied_site_with_certificate(control, repository, certificate_pair, *, days):
+def _proxied_site_with_certificate(
+    control: ControlPlane,
+    repository: Repository,
+    certificate_pair: CertificatePair,
+    *,
+    days: int,
+) -> CertificateInfo:
     site = seed_site(control)
     certificate, key = certificate_pair((site.server_names[0],), days=days)
-    return control.certificates.upload_certificate(site.name, certificate, key, "alice")
+    return build_certificate_service(control).upload_certificate(
+        site.name, certificate, key, "alice"
+    )
+
+
+if TYPE_CHECKING:
+    # The doubles above stand in for this capability's ports, stated here and
+    # held by `just types` — the same arrangement `control_plane_fixtures.py`
+    # uses for core's. `CertificateExecution` takes both, so a drift used to
+    # surface as whichever test called the method that moved.
+    _preflight_is_a_preflight: Preflight = FakePreflight()
+    _issuer_is_an_issuer: Issuer = _RecordingIssuer(lambda *a, **k: (b"", b""))
 
 
 __all__ = [
