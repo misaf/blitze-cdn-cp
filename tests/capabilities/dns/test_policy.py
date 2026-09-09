@@ -17,7 +17,7 @@ def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
 
     ``__module__`` is where a class was defined, not where it was imported
     from, so this fails if a capability's contract is redefined or aliased into
-    ``sites`` rather than composed from its owner.
+    ``dns`` rather than composed from its owner.
     """
     assert CompressionMode.__module__ == "blitzecdn.capabilities.compression.policy"
     assert SslMode.__module__ == "blitzecdn.capabilities.tls.policy"

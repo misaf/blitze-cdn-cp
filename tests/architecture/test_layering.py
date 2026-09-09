@@ -219,8 +219,8 @@ def _policy_files() -> list[Path]:
     """Every capability contract module, wherever the capability keeps it.
 
     Both shapes count: `tls/policy.py`, one file because the contract is one
-    cohesive set of TLS values, and `sites/policy/`, a package because a site's
-    own configuration splits cleanly into cache, headers and origin.
+    cohesive set of TLS values, and `dns/policy/`, a package because what the
+    zone owns itself splits cleanly into headers and origin.
     """
     return sorted(
         path
@@ -788,18 +788,19 @@ def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
 #: a declared edge nothing uses any more.
 #:
 #: Implementation edges only — see `ALLOWED_POLICY_DEPENDENCIES` for the
-#: contract layer. The direction is the point. `sites` composes the capability
-#: contracts and knows no other implementation. DNS points records at sites and
-#: maintains the one field on them it owns; cache, TLS, deployments and edges
-#: consume public site contracts without reaching into DNS persistence or
-#: adapters. Diagnostics reports on the capabilities above it.
+#: contract layer. The direction is the point. `dns` composes the capability
+#: contracts and knows no other implementation: it owns the zones and the rules
+#: that override their policy, and derives the virtual hosts from the two.
+#: Everything downstream consumes that derived model — `CdnSite` out of
+#: `dns.domain` — without reaching into DNS persistence or adapters.
+#: Diagnostics reports on the capabilities above it.
 #:
-#: The `dns -> sites` arrow survived the inversion, and it is worth saying why
-#: it did not simply turn around. Sites became canonical, so `dns` no longer
-#: derives one — but a record still names the site that serves its hostname,
-#: and the hostname projection is still written from this side. Both are `dns`
-#: reaching for `sites`, so the arrow points the way it always did while
-#: meaning something much smaller.
+#: `dns` itself depends on nothing, and that is the collapse rather than an
+#: accident. While a site was authored there were two capabilities and an arrow
+#: between them: `sites` composed the contracts, and `dns` reached for a site to
+#: point a record at and to write a hostname projection back to. Deriving the
+#: host from the zone left one capability holding both ends, so the arrow has no
+#: endpoints left to connect and the set below is empty rather than shrunken.
 #:
 #: Shared foundations under `core` are deliberately outside this graph: `core`
 #: is what a capability is allowed to build on without that counting as knowing
@@ -807,7 +808,7 @@ def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     # Contract only in this distribution: purge and statistics ship in
     # `blitzecdn-cache`, and that wheel is where an edge from `cache` to
-    # `sites` would be recorded if this graph covered installed packages.
+    # `dns` would be recorded if this graph covered installed packages.
     "cache": set(),
     "compression": set(),
     # `workflows` is the journal a convergence writes its checkpoints to. The
@@ -817,14 +818,13 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "deployments": {"dns", "workflows"},
     "diagnostics": set(),
     "dns": set(),
-    # `dns` left this set with `check_origins`. Probing an origin needed the
-    # site list, and `edges` reached it through a port on the zone capability —
-    # the one place the fleet roster depended on it. The roster itself never
-    # needed a site: `blitzecdn-origins` reads `platform.sites` for itself, and
-    # an edge is added, updated and removed without either. Reading a site does
-    # not point at `dns` at all now: `sites.ports.SiteReader` is the read side
-    # and `dns.ports.SiteProjection` is the write side, which is why this arrow
-    # runs the way it does.
+    # The whole of this arrow is `CdnSite` out of `dns.domain`, named in
+    # `edges.ports` and in the origin probe. It is the derived model and not a
+    # store: the roster adds, updates and removes an edge without reading a
+    # zone, and `blitzecdn-origins` reaches `platform.sites` — the `SiteReader`
+    # port — for itself rather than through this capability. What used to make
+    # the arrow wider was `check_origins`, which needed the site list and got it
+    # through a port on the zone capability; that left with `dns`.
     "edges": {"dns"},
     "http": {"dns"},
     "maintenance": {"deployments"},
@@ -837,14 +837,17 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 }
 
 #: Which capability's *contract* another may compose. Separate from the graph
-#: above and pointing the other way in three places, which is the whole reason
-#: it is separate: `sites` composes the compression, HTTP, security and TLS
-#: contracts, while those capabilities' implementations consume the `CdnSite`
-#: that composition produces.
+#: above, and pointing the other way, which is the whole reason it is separate:
+#: `dns` composes the cache, compression, HTTP, security and TLS contracts,
+#: while the implementations of those capabilities consume the `CdnSite` that
+#: composition produces. Most of those implementations ship as wheels and are
+#: outside both graphs, so `http` is the one reversal visible here — `dns`
+#: composes its contract, and `http` names `CdnSite`.
 #:
-#: `http` and `security` appear in both. Their contracts depend on nothing;
-#: their `plugin.py` annotates a hook with `CdnSite`, which is knowledge of
-#: `sites` even under `TYPE_CHECKING` and is declared rather than excused.
+#: That is why `http` is the one capability with an edge in each. Its contract
+#: depends on nothing; its `plugin.py` annotates a hook with `CdnSite`, which is
+#: knowledge of `dns` even under `TYPE_CHECKING` and is declared rather than
+#: excused.
 ALLOWED_POLICY_DEPENDENCIES = {
     "cache": set(),
     "compression": set(),
@@ -852,7 +855,7 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "diagnostics": set(),
     # A zone carries the policy every hostname in it is served by, and the
     # virtual host it resolves to composes the same contracts. Both live here
-    # now, so this is the set `sites` used to declare.
+    # now, so this is the set `sites` declared before the two collapsed.
     "dns": {"cache", "compression", "http", "security", "tls"},
     "edges": {"http", "tls"},
     "http": set(),

@@ -179,7 +179,7 @@ def test_the_country_settings_derive_their_token_generically_in_core():
 
     `capability_requirements` maps every stable setting onto the token it needs
     the same way, so `geoip` arrives by the same path as `compression` or
-    `http3` — declared by the contract that wants it, merged by `sites` with no
+    `http3` — declared by the contract that wants it, merged by `dns` with no
     branch that knows the name. What this refuses is the shape the acceptance
     criteria warn about: a `registry.require("geoip")` sprinkled through
     unrelated services.
@@ -210,7 +210,7 @@ def test_the_journal_names_no_capability_s_work():
     """`workflows` records that something reached a checkpoint, never what.
 
     The mirror of `test_the_composition_names_no_capability_token_at_all`, one
-    layer down: `sites` composes every contract's requirements without naming
+    layer down: `dns` composes every contract's requirements without naming
     one, and `workflows` records every capability's long operations without
     naming one either. `WorkflowKind` is a validated shape now, each kind is
     declared beside the work it names, and what the database checks is that
@@ -231,18 +231,18 @@ def test_the_journal_names_no_capability_s_work():
 def test_the_composition_names_no_capability_token_at_all():
     """The property the whitelist above is only the GeoIP half of.
 
-    `sites/domain/` composes every contract's requirements and may not name one
+    `dns/domain/` composes every contract's requirements and may not name one
     of them. It named six, in an `if` chain that restated each capability's own
     rule beside it — two places to edit, and nothing to catch the day they
     disagreed.
 
-    Held over the package rather than over `site.py` alone: `patch.py` mirrors
+    Held over the package rather than over `host.py` alone: `patch.py` mirrors
     every field the composition carries, so a token could be reintroduced there
     just as easily.
     """
     tokens = ("geoip", "cache", "compression", "http3", "certificates", "security")
     offenders = [
-        f"sites/domain/{path.name} names the {node.value} token"
+        f"dns/domain/{path.name} names the {node.value} token"
         for path in sorted((SOURCE / "capabilities/dns/domain").glob("*.py"))
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
         if isinstance(node, ast.Constant) and node.value in tokens

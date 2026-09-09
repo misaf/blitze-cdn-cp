@@ -14,7 +14,7 @@ from blitzecdn.capabilities.security.policy import SiteFirewall
 def test_the_api_carries_every_zone_field_the_zone_has():
     """A knob an operator can set but never see would fail nowhere else.
 
-    The published zone is written out rather than imported from `sites`, since
+    The published zone is written out rather than imported from `dns`, since
     a published surface may not cross a capability boundary. This is what makes
     the duplication safe: a field added to the zone is expected on both bodies.
     """

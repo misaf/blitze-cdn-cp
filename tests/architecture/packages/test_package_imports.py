@@ -111,7 +111,7 @@ def test_a_built_in_declares_itself_required_and_an_optional_package_does_not():
     """The failure policy follows the packaging, in both directions.
 
     A built-in that failed would leave a control plane that is not degraded but
-    wrong — a `sites` that did not load renders an empty fleet — so it is fatal
+    wrong — a `dns` that did not load renders an empty fleet — so it is fatal
     by definition, and `register_builtins` already refuses a built-in that
     claims otherwise. An optional package's failure is reported by name and
     skipped, and one that declared itself required would take the node down on

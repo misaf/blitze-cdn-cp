@@ -92,7 +92,7 @@ def test_uninstalling_a_distribution_makes_its_capability_disappear(
 ):
     """Detach: the capability goes, and everything else keeps working.
 
-    The second half is the one worth stating. A control plane that lost `sites`
+    The second half is the one worth stating. A control plane that lost `dns`
     along with `backup`, or that reported the removed package as *rejected*
     rather than absent, would both pass a test that only checked the capability
     was gone.
