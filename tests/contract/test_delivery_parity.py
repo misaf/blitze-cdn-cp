@@ -323,3 +323,77 @@ def test_a_one_sided_operation_says_why():
         "these operations are on one surface only and say nothing about why: "
         + ", ".join(silent)
     )
+
+
+def test_every_failure_kind_reaches_both_surfaces():
+    """Neither delivery layer may leave a `FailureKind` unanswered.
+
+    The two projections are the same decision made twice — what a failure is,
+    stated as a number a caller can branch on — and they drifted precisely
+    because nothing held them together. Both classified exceptions themselves,
+    from their own ordered list, and an unmapped `BlitzeError` came out as exit
+    2 (`INVALID_INPUT`, "you typed it wrong") on the command line and 503 ("the
+    service is down, retry") over HTTP. Both cannot be true of one error.
+
+    Core now owns the taxonomy and each layer owns only its projection, so the
+    drift this test forbids is narrower than it was: not two lists of exception
+    types disagreeing, but one of the two tables failing to cover a kind. Both
+    are subscripted rather than `.get()`, so an uncovered kind is a `KeyError`
+    at the moment a failure is being reported — the worst time to discover it.
+    """
+    from blitzecdn.api.app import _HTTP_STATUS
+    from blitzecdn.cli.main import _EXIT_CODES
+    from blitzecdn.core.exceptions import FailureKind
+
+    missing = {
+        "exit codes (blitzecdn.cli.main._EXIT_CODES)": set(FailureKind)
+        - set(_EXIT_CODES),
+        "HTTP statuses (blitzecdn.api.app._HTTP_STATUS)": set(FailureKind)
+        - set(_HTTP_STATUS),
+    }
+    report = "; ".join(
+        f"{table} does not answer {sorted(k.value for k in kinds)}"
+        for table, kinds in missing.items()
+        if kinds
+    )
+    assert not report, report
+
+
+def test_every_error_class_is_classified():
+    """Every `BlitzeError` subclass names a kind deliberately.
+
+    `classify` falls back to INTERNAL so that an unclassified error is at worst
+    honest rather than a lie about the operator's input. That fallback is a
+    safety net, not the place to leave a class: INTERNAL tells a caller "this
+    installation is broken", which is wrong for an error that is actually a
+    conflict or a missing thing. So the net is checked here rather than relied
+    on, and a new subclass has to say which kind it is.
+    """
+    from blitzecdn.core import exceptions
+    from blitzecdn.core.exceptions import BlitzeError, PluginError
+
+    classification = exceptions._CLASSIFICATION
+    classified = {kind for kind, _ in classification}
+    subclasses = {
+        value
+        for value in vars(exceptions).values()
+        if isinstance(value, type)
+        and issubclass(value, BlitzeError)
+        and value is not BlitzeError
+    }
+    unclassified = sorted(cls.__name__ for cls in subclasses - classified)
+    assert not unclassified, (
+        "these BlitzeError subclasses fall through to the INTERNAL default: "
+        + ", ".join(unclassified)
+        + ". Add each to _CLASSIFICATION with the kind it actually is."
+    )
+    # The ordering the walk depends on: a subclass listed below its base can
+    # never be reached, and `DeploymentBusyError` under `ConflictError` is
+    # exactly that mistake waiting to be made again.
+    for position, (kind, _) in enumerate(classification):
+        for later, _ in classification[position + 1 :]:
+            assert not issubclass(later, kind) or later is kind, (
+                f"{kind.__name__} is a base of {later.__name__} but is listed "
+                "before it, so the subclass can never match"
+            )
+    assert exceptions.classify(PluginError("x")) is exceptions.FailureKind.INTERNAL

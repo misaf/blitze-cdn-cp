@@ -32,14 +32,7 @@ from blitzecdn.cli import common, configuration, setup
 from blitzecdn.cli.common import ExitCode, control_plane, emit, settings
 from blitzecdn.cli.root import app, main
 from blitzecdn.core.config import Settings
-from blitzecdn.core.exceptions import (
-    BlitzeError,
-    ConfigurationError,
-    ConflictError,
-    DeploymentBusyError,
-    ExecutionError,
-    NotFoundError,
-)
+from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.plugins import PluginRegistry
 
 app.add_typer(configuration.config_app, name="config")
@@ -78,32 +71,38 @@ __all__ = [
 ]
 
 
-#: How a failure reaches a script, mirroring the API's status mapping.
+#: How a failure reaches a script. The projection of core's `FailureKind` onto
+#: this delivery layer; `blitzecdn.api.app` projects the same kinds onto status
+#: codes, and neither table classifies exceptions itself any more.
 #:
-#: The HTTP layer separates these deliberately — a conflict is not a bad
-#: request, and a dependency that misbehaved is not a controller that is down —
-#: and a caller driving the CLI needs the same distinction for the same reason.
+#: The distinctions are kept apart deliberately — a conflict is not a bad
+#: request, and a dependency that misbehaved is not a controller that is down.
 #: Collapsed onto one code, a systemd timer cannot tell "a deployment is
 #: already running, come back shortly" from "you typed the site name wrong",
 #: and both look like a usage error.
 #:
-#: Walked most-specific first, because `DeploymentBusyError` is a
-#: `ConflictError` and would otherwise be matched by its parent.
-_EXIT_CODES: tuple[tuple[type[BlitzeError], ExitCode], ...] = (
-    (DeploymentBusyError, ExitCode.BUSY),
-    (ConflictError, ExitCode.CONFLICT),
-    (NotFoundError, ExitCode.NOT_FOUND),
-    (ExecutionError, ExitCode.DEPLOYMENT_FAILED),
-    (ConfigurationError, ExitCode.CONFIGURATION),
-)
+#: Total over `FailureKind` by construction: `_exit_code` subscripts it, so a
+#: kind added to core without a line here is a `KeyError` the parity test in
+#: `tests/contract/test_delivery_parity.py` raises before a release does.
+_EXIT_CODES: dict[FailureKind, ExitCode] = {
+    FailureKind.BUSY: ExitCode.BUSY,
+    FailureKind.CONFLICT: ExitCode.CONFLICT,
+    FailureKind.NOT_FOUND: ExitCode.NOT_FOUND,
+    FailureKind.EXECUTION: ExitCode.DEPLOYMENT_FAILED,
+    FailureKind.CONFIGURATION: ExitCode.CONFIGURATION,
+    # Not INVALID_INPUT. A plugin that will not load is not a mistyped
+    # argument, and telling a script it was one sends the operator to their
+    # command line instead of to their installation.
+    FailureKind.INTERNAL: ExitCode.CONFIGURATION,
+}
 
 
 def _exit_code(error: BaseException) -> ExitCode:
-    for kind, code in _EXIT_CODES:
-        if isinstance(error, kind):
-            return code
-    # A `BlitzeError` with no mapping above, or a ValidationError/OSError:
-    # the input or the environment was wrong in a way no command anticipated.
+    if isinstance(error, BlitzeError):
+        return _EXIT_CODES[classify(error)]
+    # A ValidationError or OSError: not part of core's taxonomy because neither
+    # is a `BlitzeError`. The value handed in, or the environment it named, was
+    # wrong in a way no command anticipated — which *is* the operator's input.
     return ExitCode.INVALID_INPUT
 
 
