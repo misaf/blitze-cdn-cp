@@ -81,7 +81,7 @@ def test_a_renewal_blocked_by_a_deployment_is_skipped_not_failed(
     """
     control = certificate_control_plane(settings)
     seed_site(control)
-    site = control.dns.list_sites()[0]
+    site = control.sites.list_sites()[0]
     certificate, key = certificate_pair((site.server_names[0],), days=5)
     control.certificates.persistence.certificates.install(
         site, certificate, key, source=CertificateSource.ACME, email="ops@example.com"

@@ -28,11 +28,11 @@ class SiteEditor(Protocol):
     A virtual host is derived from a zone, its rules and its records, so there
     is nothing to update on the host itself. These two record their result
     against whatever *authored* the host — the zone, or the rule that bent it
-    — and the zone editor is what knows which. That the two methods still take
+    — and the host service knows which. That the two methods still take
     a host is right: the host is what a certificate was issued for.
 
-    Two methods out of the zone editor's many, declared here because this
-    package is the consumer.
+    The two writeback methods are declared here because this package is
+    their consumer.
     """
 
     def activate_managed_certificate(

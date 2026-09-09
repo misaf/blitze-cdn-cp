@@ -50,7 +50,7 @@ def domain_hosts(
     This is desired state, not what the fleet is running: an edit that has not
     been deployed is already here. Use 'drift' for the fleet's view.
     """
-    common.emit(common.control_plane().dns.list_sites(), json_output=json_output)
+    common.emit(common.control_plane().sites.list_sites(), json_output=json_output)
 
 
 @domain_app.command("show")

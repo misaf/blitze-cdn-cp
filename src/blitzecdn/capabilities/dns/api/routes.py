@@ -71,12 +71,12 @@ def list_hosts(control: ControlPlaneDependency) -> list[CdnSite]:
     Read-only, and there is no writing counterpart. Nothing authors these — to
     change one, change the zone, the rule or the records it came from.
     """
-    return [CdnSite.from_domain(host) for host in control.dns.list_sites()]
+    return [CdnSite.from_domain(host) for host in control.sites.list_sites()]
 
 
 @router.get("/v1/hosts/{name}", response_model=CdnSite)
 def get_host(name: str, control: ControlPlaneDependency) -> CdnSite:
-    return CdnSite.from_domain(control.dns.get_site(name))
+    return CdnSite.from_domain(control.sites.get_site(name))
 
 
 @router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])

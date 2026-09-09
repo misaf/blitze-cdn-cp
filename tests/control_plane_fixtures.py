@@ -180,7 +180,7 @@ def seed_site(
             ttl=ttl,
             operator=operator,
         )
-        return control.dns.get_site(host_name_for(domain, rule))
+        return control.sites.get_site(host_name_for(domain, rule))
     return CdnSite.model_validate(
         {
             **control.dns.get_domain(domain).model_dump(),
