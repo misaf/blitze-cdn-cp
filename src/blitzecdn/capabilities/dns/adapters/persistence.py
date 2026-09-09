@@ -46,12 +46,31 @@ class ZoneStore:
                 raise ConflictError(f"domain {domain.name!r} already exists") from exc
         return domain
 
-    def replace_domain(self, domain: Domain) -> Domain:
-        """Write the zone's policy. The name is its identity and is not moved."""
+    def replace_domain(
+        self, domain: Domain, *, expected: Domain | None = None
+    ) -> Domain:
+        """Write the zone's policy. The name is its identity and is not moved.
+
+        ``expected`` is the zone the caller merged its patch onto. Passing it
+        turns the write into a compare-and-swap and is what a read-modify-write
+        has to do here: a zone is the policy every hostname in it inherits, so
+        two operators patching different settings would otherwise leave the
+        second one's whole document on top of the first one's change, and the
+        setting that vanished is one nobody was told about.
+
+        Records got this first, and only records, which left the aggregate with
+        the widest reach as the one with no protection at all.
+        """
+        if expected is not None:
+            self._db.require_transaction("replace_domain(expected=...)")
         with self._db.session() as session:
             row = session.get(DomainRow, domain.name)
             if row is None:
                 raise NotFoundError(f"domain {domain.name!r} does not exist")
+            if expected is not None and self._domain(row) != expected:
+                raise ConflictError(
+                    f"domain {domain.name!r} changed while it was being edited"
+                )
             self._apply_domain(row, domain)
         return domain
 

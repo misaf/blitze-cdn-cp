@@ -85,7 +85,6 @@ class RuleService:
         ``RulePatch``. Everything else is a scalar, so "unset means untouched"
         needs nothing beyond ``exclude_unset``.
         """
-        current = self.rules.get_rule(domain, name)
         changes = patch.model_dump(exclude_unset=True)
         # Asked of the incoming overrides, not of the merged rule: a rule the
         # issuer already wrote carries a controller-managed mode, and an
@@ -93,9 +92,14 @@ class RuleService:
         # value they did not send.
         if "overrides" in changes:
             reject_issuer_owned_certificate(changes["overrides"])
-        updated = Rule.model_validate({**current.model_dump(), **changes})
         with self.uow.transaction():
-            saved = self.rules.replace_rule(updated)
+            # Read and written under one boundary. The issuer writes here too,
+            # through ``HostService``, and an operator changing ``match`` would
+            # otherwise write back a rule carrying the overrides as they were
+            # before the certificate landed in them.
+            current = self.rules.get_rule(domain, name)
+            updated = Rule.model_validate({**current.model_dump(), **changes})
+            saved = self.rules.replace_rule(updated, expected=current)
             self.events.record(
                 domain_event(
                     operator,
