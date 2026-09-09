@@ -28,7 +28,7 @@ def purges(fake: object) -> list[tuple[tuple[PurgeEntry, ...], bool, str | None]
         (
             tuple(
                 PurgeEntry.model_validate(entry)
-                for entry in variables["blitzecdn_cache_purge_entries"]  # type: ignore[union-attr]
+                for entry in variables["blitzecdn_cache_purge_entries"]
             ),
             bool(variables["blitzecdn_cache_purge_all"]),
             limit,

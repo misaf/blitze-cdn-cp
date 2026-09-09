@@ -104,7 +104,7 @@ def certificate_control_plane(
         settings=settings,
         repository=repository,
         runner=runner if runner is not None else FakeRunner(),
-    )  # type: ignore[arg-type]
+    )
 
     return _attach(
         control,

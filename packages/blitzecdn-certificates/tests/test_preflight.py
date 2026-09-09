@@ -82,9 +82,9 @@ def build(settings, monkeypatch):
 
         return CertificatePreflight(
             settings,
-            FakeEdgeStore(edges),  # type: ignore[arg-type]
+            FakeEdgeStore(edges),
             ca_domain=ca_domain,
-            origin_probe=FakeOriginProbe(ok=origin_ok),  # type: ignore[arg-type]
+            origin_probe=FakeOriginProbe(ok=origin_ok),
         )
 
     return make
@@ -219,7 +219,7 @@ def test_an_unreadable_fleet_does_not_raise(settings, monkeypatch, site):
         settings,
         ExplodingEdgeStore(),  # type: ignore[arg-type]
         ca_domain="letsencrypt.org",
-        origin_probe=FakeOriginProbe(),  # type: ignore[arg-type]
+        origin_probe=FakeOriginProbe(),
     ).check(site, deployed=True)
     assert not _check(report, "dns").passed
 

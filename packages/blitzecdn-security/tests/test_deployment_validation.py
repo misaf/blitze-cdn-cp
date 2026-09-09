@@ -41,7 +41,7 @@ def _control_serving(settings, runner_stub, **patch):
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_stub,
-    )  # type: ignore[arg-type]
+    )
     seed_site(control, name="example-com", record="cdn")
     if patch:
         control.dns.update_domain("example.com", DomainPatch(**patch), "alice")

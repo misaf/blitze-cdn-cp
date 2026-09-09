@@ -57,7 +57,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control)
 
     report = build_origin_check_service(control).check_origins(
@@ -86,7 +86,7 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
                     origin_report("edge-b", reachable=False, detail="timed out"),
                 )
             ]
-        ),  # type: ignore[arg-type]
+        ),
     )
     seed_site(control)
 
@@ -104,7 +104,7 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
-    )  # type: ignore[arg-type]
+    )
     seed_site(control)
 
     report = build_origin_check_service(control).check_origins("alice")
@@ -117,7 +117,7 @@ def test_a_disabled_site_is_not_probed(settings, site_payload):
     """The edge will not proxy to it, so its origin being down says nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control, enabled=False)
 
     build_origin_check_service(control).check_origins("alice")
@@ -134,7 +134,7 @@ def test_the_check_takes_no_deployment_lock(settings, site_payload):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)  # type: ignore[arg-type]
+    control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control)
 
     build_origin_check_service(control).check_origins("alice")
