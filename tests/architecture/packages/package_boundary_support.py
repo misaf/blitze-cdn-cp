@@ -76,9 +76,9 @@ def _built_in_capabilities() -> list[Path]:
 
 
 #: A capability that decides something has a `service/`, an `api/`, or both.
-#: The contract-only ones — `cache`, `compression`, `tls` — are a set of
-#: pydantic models composed into `SitePolicy`, and they are tested where they
-#: compose, in `tests/capabilities/sites/test_policy.py` and in
+#: The contract-only ones — `cache`, `compression`, `http`, `security`, `tls` —
+#: are a set of pydantic models composed into `SitePolicy`, and they are tested
+#: where they compose, in `tests/capabilities/dns/test_policy.py` and in
 #: `tests/contract/`. Requiring a directory for those would buy a file that
 #: restates the composition test from one capability's side.
 _BEHAVIOUR_LAYERS = ("service", "api")
