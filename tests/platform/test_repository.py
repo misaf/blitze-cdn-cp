@@ -16,6 +16,7 @@ from blitzecdn.capabilities.dns.domain import (
     RecordType,
     derive_hosts,
 )
+from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -388,6 +389,44 @@ def test_record_updates_detect_a_stale_expected_version(settings):
         repository.zones.replace_record(
             original.model_copy(update={"value": "192.0.2.3"}), expected=original
         )
+
+
+def test_edge_updates_detect_a_stale_expected_version(settings):
+    """The fleet's half of the compare-and-swap the records store already holds.
+
+    `EdgeOperationsService.update_edge` reads the edge, merges the patch and
+    writes back with `expected=` the copy it read, so an operator whose edit
+    raced another's is told rather than silently overwriting them. Nothing
+    reached this branch before: the in-memory `FakeEdgeStore` did not take
+    `expected` at all, so no test could ask the question, and the real store's
+    refusal had never once been executed.
+
+    Written against the real store on purpose. What is being asserted is the
+    compare-and-swap itself — the read, the comparison and the write happening
+    inside one `BEGIN IMMEDIATE` — and a list standing in for a table cannot
+    demonstrate that.
+    """
+    repository = Repository(settings.database_path)
+    original = repository.edges.create_edge(
+        Edge.model_validate({"name": "edge-a", "host": "edge-a.example.net"})
+    )
+    winner = original.model_copy(update={"host": "moved.example.net"})
+    # Under a Unit of Work, as `update_edge` does it: the store refuses the
+    # comparison outside one, because only there is it atomic.
+    with repository.transaction():
+        repository.edges.replace_edge(winner, expected=original)
+
+    # The loser still holds the copy it read before the winner landed.
+    with (
+        pytest.raises(ConflictError, match="changed while it was being edited"),
+        repository.transaction(),
+    ):
+        repository.edges.replace_edge(
+            original.model_copy(update={"host": "stale.example.net"}),
+            expected=original,
+        )
+
+    assert repository.edges.get_edge("edge-a").host == "moved.example.net"
 
 
 @pytest.mark.parametrize(
