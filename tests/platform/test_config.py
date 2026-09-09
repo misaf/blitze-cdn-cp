@@ -7,6 +7,41 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 
 
+def test_unconfigured_values_use_model_defaults(tmp_path, monkeypatch):
+    class CustomSettings(Settings):
+        deployment_timeout_seconds: int = 240
+        allow_empty_sites: bool = True
+
+    monkeypatch.setenv("DEPLOYMENT_TIMEOUT_SECONDS", "300")
+    monkeypatch.setenv("ALLOW_EMPTY_SITES", "false")
+    monkeypatch.setenv("BLITZE_DEPLOYMENT_TIMEOUT_SECONDS", "360")
+    settings = CustomSettings.from_environment({}, project_dir=tmp_path)
+
+    assert settings.deployment_timeout_seconds == 240
+    assert settings.allow_empty_sites is True
+
+
+def test_configured_values_preserve_precedence_and_falsey_values(tmp_path):
+    (tmp_path / "blitzecdn.toml").write_text(
+        "[blitzecdn]\ndeployment_timeout_seconds = 120\n"
+        "allow_empty_sites = false\ndrift_check_interval_seconds = 0\n"
+    )
+    configured = Settings.from_environment({}, project_dir=tmp_path)
+    assert configured.deployment_timeout_seconds == 120
+    assert configured.allow_empty_sites is False
+    assert configured.drift_check_interval_seconds == 0
+
+    (tmp_path / ".env").write_text("BLITZE_DEPLOYMENT_TIMEOUT_SECONDS=180\n")
+    assert (
+        Settings.from_environment({}, project_dir=tmp_path).deployment_timeout_seconds
+        == 180
+    )
+    overridden = Settings.from_environment(
+        {"BLITZE_DEPLOYMENT_TIMEOUT_SECONDS": "240"}, project_dir=tmp_path
+    )
+    assert overridden.deployment_timeout_seconds == 240
+
+
 def test_environment_configuration_and_precedence(tmp_path: Path):
     env = {
         "BLITZE_API_KEY": "a" * 32,

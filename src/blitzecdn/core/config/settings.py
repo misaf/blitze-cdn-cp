@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Self
 
 from pydantic import Field, RedisDsn, SecretStr, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import (
+    BaseSettings,
+    PydanticBaseSettingsSource,
+    SettingsConfigDict,
+)
 
 from blitzecdn.core.config.loading import settings_payload
 from blitzecdn.core.exceptions import ConfigurationError
@@ -34,6 +38,20 @@ class Settings(BaseSettings):
         frozen=True,
         populate_by_name=True,
     )
+
+    @classmethod
+    def settings_customise_sources(
+        cls,
+        settings_cls: type[BaseSettings],
+        init_settings: PydanticBaseSettingsSource,
+        env_settings: PydanticBaseSettingsSource,
+        dotenv_settings: PydanticBaseSettingsSource,
+        file_secret_settings: PydanticBaseSettingsSource,
+    ) -> tuple[PydanticBaseSettingsSource, ...]:
+        # loading.py has already resolved the supported sources. Reading the
+        # process environment again would let unprefixed variables override
+        # model defaults, even when from_environment received an explicit {}.
+        return (init_settings,)
 
     project_dir: Path
     state_dir: Path
