@@ -277,7 +277,9 @@ class ControlPlane:
         # Each store is passed where its port is asked for, so a service is
         # handed the slice of persistence it declared and no more.
         # DNS owns canonical zones, rules, records, and their host projection.
-        self.dns: DnsService = build_dns_service(self, zones=store.zones)
+        self.dns: DnsService = build_dns_service(
+            self, zones=store.zones, rules=store.rules
+        )
         self.site_editor: HostService = build_host_service(
             self, zones=store.zones, rules=store.rules
         )

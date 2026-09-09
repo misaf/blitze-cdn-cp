@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 
 from blitzecdn.capabilities.dns.ports import (
     RuleOverrides,
+    RuleReader,
     RuleStore,
     ZoneReader,
     ZoneStore,
@@ -23,9 +24,18 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 __all__ = ["build_dns_service", "build_host_service", "build_rule_service"]
 
 
-def build_dns_service(platform: ControlPlane, *, zones: ZoneStore) -> DnsService:
-    """Wire canonical zone and record editing and validation."""
-    return DnsService(zones=zones, events=platform.events, uow=platform.transactions)
+def build_dns_service(
+    platform: ControlPlane, *, zones: ZoneStore, rules: RuleReader
+) -> DnsService:
+    """Wire canonical zone and record editing and validation.
+
+    ``rules`` arrives as the reader rather than the store. Validating desired
+    state means resolving hostnames through the overrides exactly as a
+    deployment will, and the zone editor writes none of them.
+    """
+    return DnsService(
+        zones=zones, rules=rules, events=platform.events, uow=platform.transactions
+    )
 
 
 def build_host_service(

@@ -17,7 +17,11 @@ by nobody, being what the other three resolve to.
 """
 
 from blitzecdn.capabilities.dns.domain.host import CdnSite, SitePolicy
-from blitzecdn.capabilities.dns.domain.hosts import derive_hosts
+from blitzecdn.capabilities.dns.domain.hosts import (
+    UnservableHost,
+    derive_hosts,
+    unservable_hosts,
+)
 from blitzecdn.capabilities.dns.domain.patch import (
     DomainPatch,
     reject_issuer_owned_certificate,
@@ -45,7 +49,9 @@ __all__ = [
     "Rule",
     "RulePatch",
     "SitePolicy",
+    "UnservableHost",
     "derive_hosts",
     "reject_issuer_owned_certificate",
     "resolve_policy",
+    "unservable_hosts",
 ]
