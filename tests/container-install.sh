@@ -475,7 +475,7 @@ issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitz
   [ -n "${key}" ] || { printf "no operator API key in blitzecdn.env\n" >&2; exit 1; }
   curl -sS --max-time 600 -X POST -H "X-API-Key: ${key}" -H "Content-Type: application/json" \
     -d "{\"skip_preflight\": true}" \
-    http://127.0.0.1:8000/v1/sites/'"${ACME_SITE}"'/certificate/request') || {
+    http://127.0.0.1:8000/v1/hosts/'"${ACME_SITE}"'/certificate/request') || {
   # certbot's own log first: it names the ACME server it contacted and the
   # problem document it got back, which is the difference between "the CA
   # refused" and "the CA was never the one this stage started".

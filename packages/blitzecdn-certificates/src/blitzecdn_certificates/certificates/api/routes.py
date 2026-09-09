@@ -28,7 +28,7 @@ from blitzecdn_certificates.composition import (
 router = APIRouter(dependencies=[Depends(require_operator)])
 
 
-@router.get("/v1/sites/{name}/certificate", response_model=CertificateInfo)
+@router.get("/v1/hosts/{name}/certificate", response_model=CertificateInfo)
 def certificate(name: str, control: ControlPlaneDependency) -> CertificateInfo:
     return as_operation(
         build_certificate_service(control).certificate(name), CertificateInfo
@@ -81,7 +81,7 @@ def reconcile_certificates(
     )
 
 
-@router.post("/v1/sites/{name}/certificate/upload", response_model=CertificateInfo)
+@router.post("/v1/hosts/{name}/certificate/upload", response_model=CertificateInfo)
 async def upload_certificate(
     name: str,
     operator: OperatorDependency,
@@ -100,7 +100,7 @@ async def upload_certificate(
     )
 
 
-@router.post("/v1/sites/{name}/certificate/request", response_model=CertificateInfo)
+@router.post("/v1/hosts/{name}/certificate/request", response_model=CertificateInfo)
 def request_certificate(
     name: str,
     request: CertificateRequest,
@@ -118,7 +118,7 @@ def request_certificate(
     )
 
 
-@router.get("/v1/sites/{name}/certificate/preflight", response_model=PreflightReport)
+@router.get("/v1/hosts/{name}/certificate/preflight", response_model=PreflightReport)
 def certificate_preflight(
     name: str, control: ControlPlaneDependency
 ) -> PreflightReport:
