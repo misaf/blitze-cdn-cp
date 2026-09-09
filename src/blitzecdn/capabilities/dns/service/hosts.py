@@ -2,7 +2,9 @@
 
 Zones, rules, and records are canonical desired state. Virtual hosts are
 derived by ``dns.domain.hosts`` and are never stored independently.
-See docs/decisions/0001-zone-policy-and-composition.md for the design history."""
+See docs/decisions/0001-zone-policy-and-composition.md for the design history,
+and 0005-canonical-writes-and-derived-state.md for why the writes here read
+inside the transaction they write in."""
 
 from __future__ import annotations
 
@@ -12,6 +14,7 @@ from typing import Any
 from blitzecdn.capabilities.dns.domain import (
     CdnSite,
     Domain,
+    Rule,
     derive_hosts,
 )
 from blitzecdn.capabilities.dns.domain.hosts import host_source
@@ -99,16 +102,29 @@ class HostService:
     ) -> CdnSite | None:
         """Persist an upgrade only while the host remains enrolled in Auto.
 
-        The checks happen outside this service, but the decision is re-checked
-        against canonical state at write time. An operator opting out or
-        choosing an equal/stronger mode while a scan is running therefore wins.
+        The scan that proposes the upgrade probes origins over the network and
+        takes as long as that does, so the state it decided against is old by
+        the time it gets here. Both guards are therefore asked again — inside
+        the transaction, against the canonical rows, at the moment of writing.
+        An operator who opts out of Auto or picks a stronger mode while a scan
+        is running wins, because the guard they lose to is the one that runs
+        after them or not at all.
+
+        Re-reading inside the Unit of Work is what makes that true rather than
+        nearly true: ``transaction`` reserves the SQLite writer with ``BEGIN
+        IMMEDIATE`` before the read, so no operator write can land between the
+        two guards and the ``replace_domain`` they are guarding. Read outside
+        it — which is what this did — and the guards are answers about a zone
+        that may already have changed, which is precisely the case they exist
+        for. The cost is the write lock held across a derivation; this runs on
+        a reconciliation interval, not on a request.
         """
-        current = self.get_site(site_name)
-        if current.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
-            return None
-        if target.security_rank <= current.ssl_mode.security_rank:
-            return None
         with self.uow.transaction():
+            current = self.get_site(site_name)
+            if current.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
+                return None
+            if target.security_rank <= current.ssl_mode.security_rank:
+                return None
             self._apply_to_source(current, {"ssl_mode": target})
             self.events.record(
                 domain_event(
@@ -137,10 +153,20 @@ class HostService:
         if rule_name is None:
             zone = self.zones.get_domain(domain)
             self.zones.replace_domain(
-                Domain.model_validate({**zone.model_dump(), **changes})
+                Domain.model_validate({**zone.model_dump(), **changes}), expected=zone
             )
             return
         rule = self.rules.get_rule(domain, rule_name)
+        # `model_validate` and not `model_copy`: the latter runs no validators,
+        # so this branch was writing overrides that `Rule` had never agreed to
+        # while the zone branch three lines up was fully checked. One method,
+        # two guarantees, and the unchecked one is the branch an issuer takes
+        # unattended. What it now has to satisfy is `_validate_overrides` —
+        # every key a zone setting, every value one the zone would accept —
+        # which the issuer's own mode and paths do.
         self.rules.replace_rule(
-            rule.model_copy(update={"overrides": {**rule.overrides, **changes}})
+            Rule.model_validate(
+                {**rule.model_dump(), "overrides": {**rule.overrides, **changes}}
+            ),
+            expected=rule,
         )
