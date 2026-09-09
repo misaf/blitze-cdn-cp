@@ -32,43 +32,38 @@ _STATE_PATH_SETTINGS = (
     ("database_path", "BLITZE_DATABASE_PATH", "database_path", "control-plane.db"),
 )
 
-_VALUE_SETTINGS: tuple[tuple[str, str, str, object], ...] = (
+_VALUE_SETTINGS: tuple[tuple[str, str, str], ...] = (
     (
         "deployment_timeout_seconds",
         "BLITZE_DEPLOYMENT_TIMEOUT_SECONDS",
         "deployment_timeout_seconds",
-        900,
     ),
     (
         "output_limit_bytes",
         "BLITZE_DEPLOYMENT_OUTPUT_LIMIT_BYTES",
         "output_limit_bytes",
-        1_048_576,
     ),
-    ("run_log_retention", "BLITZE_RUN_LOG_RETENTION", "run_log_retention", 500),
-    ("history_retention", "BLITZE_HISTORY_RETENTION", "history_retention", 1000),
+    ("run_log_retention", "BLITZE_RUN_LOG_RETENTION", "run_log_retention"),
+    ("history_retention", "BLITZE_HISTORY_RETENTION", "history_retention"),
     (
         "preflight_dns_timeout_seconds",
         "BLITZE_PREFLIGHT_DNS_TIMEOUT_SECONDS",
         "preflight_dns_timeout_seconds",
-        5,
     ),
-    ("allow_empty_sites", "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites", False),
+    ("allow_empty_sites", "BLITZE_ALLOW_EMPTY_SITES", "allow_empty_sites"),
     (
         "origin_check_timeout_seconds",
         "BLITZE_ORIGIN_CHECK_TIMEOUT_SECONDS",
         "origin_check_timeout_seconds",
-        5,
     ),
     (
         "drift_check_interval_seconds",
         "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
         "drift_check_interval_seconds",
-        3600,
     ),
-    ("redis_url", "BLITZE_REDIS_URL", "redis_url", "redis://127.0.0.1:6379/0"),
-    ("api_worker_threads", "BLITZE_API_WORKER_THREADS", "api_worker_threads", 2),
-    ("allowed_ips", "BLITZE_ALLOWED_IPS", "allowed_ips", ()),
+    ("redis_url", "BLITZE_REDIS_URL", "redis_url"),
+    ("api_worker_threads", "BLITZE_API_WORKER_THREADS", "api_worker_threads"),
+    ("allowed_ips", "BLITZE_ALLOWED_IPS", "allowed_ips"),
 )
 
 _PROJECT_KEYS = {
@@ -217,8 +212,13 @@ def _configuration_values(
         values[field] = path_value(
             environment_name, config_name, state / relative_default
         )
-    for field, environment_name, config_name, default in _VALUE_SETTINGS:
-        values[field] = value(environment_name, config_name, default)
+    # Unset values belong to Settings. Supplying a fallback here would mask
+    # changes to the model defaults and create a second source of truth.
+    for field, environment_name, config_name in _VALUE_SETTINGS:
+        if environment_name in env:
+            values[field] = env[environment_name]
+        elif config_name in project_config:
+            values[field] = project_config[config_name]
 
     values.update(
         preflight_dns_servers=_read_dns_servers(
