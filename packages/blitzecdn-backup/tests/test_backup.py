@@ -754,7 +754,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     # and where from — which is what makes the snapshot render a host at all.
     seed_record(original, value="198.51.100.10", operator="tester")
     expected = tmp_path / "expected.yml"
-    original.deployments.write_desired_state(store.deployments.snapshot(), expected)
+    original.deployments.publish_artifact(original.releases.compile(), expected)
     store.close()
     archive = build_backup_service(settings).create()
 
@@ -769,7 +769,7 @@ def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     try:
         assert [domain.name for domain in control.dns.list_domains()] == ["example.com"]
         rendered = tmp_path / "rendered.yml"
-        control.deployments.write_desired_state(store.deployments.snapshot(), rendered)
+        control.deployments.publish_artifact(control.releases.compile(), rendered)
     finally:
         store.close()
     assert rendered.read_text(encoding="utf-8") == expected.read_text(encoding="utf-8")
@@ -796,7 +796,9 @@ def test_a_selected_round_trip_restores_only_what_was_taken(settings, tmp_path):
 
 def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_path):
     settings.environment_path.write_text(
-        "BLITZE_API_KEYS=old:" + "o" * 32 + "\nBLITZE_REDIS_URL=redis://old/0\n",
+        "BLITZE_API_KEYS=old:"
+        + "o" * 32
+        + "\nBLITZE_DATABASE_PATH=/old/controller.db\n",
         encoding="utf-8",
     )
     (settings.project_dir / "blitzecdn.toml").write_text(
@@ -804,7 +806,6 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
         'database_path = "/old/controller.db"\n'
         'backup_dir = "/old/backups"\n'
         'environment_path = "/old/blitzecdn.env"\n'
-        'redis_url = "redis://old/0"\n'
         "deployment_timeout_seconds = 1200\n",
         encoding="utf-8",
     )
@@ -816,7 +817,9 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
     fresh = _relocated(settings, tmp_path / "fresh-config")
     fresh.project_dir.mkdir()
     fresh.environment_path.write_text(
-        "BLITZE_API_KEYS=fresh:" + "f" * 32 + "\nBLITZE_REDIS_URL=redis://fresh/0\n",
+        "BLITZE_API_KEYS=fresh:"
+        + "f" * 32
+        + "\nBLITZE_DATABASE_PATH=/fresh/controller.db\n",
         encoding="utf-8",
     )
     (fresh.project_dir / "blitzecdn.toml").write_text(
@@ -824,7 +827,6 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
         'database_path = ".state/fresh.db"\n'
         'backup_dir = "/fresh/backups"\n'
         'environment_path = ".env"\n'
-        'redis_url = "redis://fresh/0"\n'
         "deployment_timeout_seconds = 900\n",
         encoding="utf-8",
     )
@@ -833,11 +835,11 @@ def test_config_restore_preserves_fresh_machine_specific_settings(settings, tmp_
     restored = (fresh.project_dir / "blitzecdn.toml").read_text(encoding="utf-8")
     assert 'database_path = ".state/fresh.db"' in restored
     assert 'backup_dir = "/fresh/backups"' in restored
-    assert 'redis_url = "redis://fresh/0"' in restored
+    assert 'environment_path = ".env"' in restored
     assert "deployment_timeout_seconds = 1200" in restored
     environment = fresh.environment_path.read_text(encoding="utf-8")
     assert "BLITZE_API_KEYS=old:" in environment
-    assert "BLITZE_REDIS_URL=redis://fresh/0" in environment
+    assert "BLITZE_DATABASE_PATH=/fresh/controller.db" in environment
 
 
 # --- the archive adapter ----------------------------------------------
