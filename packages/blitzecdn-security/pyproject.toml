@@ -4,12 +4,12 @@ build-backend = "hatchling.build"
 
 [project]
 name = "blitzecdn-security"
-version = "4.1.0"
+version = "5.0.0"
 description = "Site-level security capability for BlitzeCDN"
 readme = "README.md"
 requires-python = ">=3.12"
 license = { file = "LICENSE" }
-dependencies = ["blitzecdn>=4.0.0,<5"]
+dependencies = ["blitzecdn>=5.0.0,<6"]
 
 [project.entry-points."blitzecdn.plugins"]
 security = "blitzecdn_security.plugin"
