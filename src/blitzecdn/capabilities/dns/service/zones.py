@@ -7,6 +7,8 @@ See docs/decisions/0001-zone-policy-and-composition.md for the design history.""
 from __future__ import annotations
 
 from blitzecdn.capabilities.dns.domain import (
+    PUBLICATION,
+    DnsPublication,
     DnsRecord,
     Domain,
     DomainPatch,
@@ -214,25 +216,49 @@ class DnsService:
 
     # -- Reporting -----------------------------------------------------
 
-    def dns_export(self) -> list[dict[str, object]]:
-        """Every record, for the system that publishes DNS.
+    def dns_export(self) -> dict[str, object]:
+        """Every record, for the system that publishes DNS — and who that is.
 
-        A proxied record's address stays home: it is the origin the edge fetches
-        from, not the public answer, and the published A/AAAA is the fleet's —
-        which edge addressing belongs to the DNS system rather than here.
+        An envelope rather than the bare list it used to be, because the list
+        alone was read as an answer to a question it does not answer. A caller
+        fetching it wants to know what DNS should say; what it also has to know
+        is that nothing here is going to say it. ``publication`` carries that,
+        so a client cannot consume this without meeting it.
+
+        A proxied record's address stays home: it is the origin the edge
+        fetches from, not the public answer, and the published A/AAAA is the
+        fleet's — edge addressing belongs to the DNS system rather than here.
         """
-        return [
-            {
-                "fqdn": record.fqdn,
-                "domain": record.domain,
-                "name": record.name,
-                "type": record.type.value,
-                "ttl": record.ttl,
-                "proxied": record.proxied,
-                **({} if record.proxied else {"value": record.value}),
-            }
-            for record in self.zones.list_records()
-        ]
+        return {
+            "publication": PUBLICATION.model_dump(mode="json"),
+            "records": [
+                {
+                    "fqdn": record.fqdn,
+                    "domain": record.domain,
+                    "name": record.name,
+                    "type": record.type.value,
+                    "ttl": record.ttl,
+                    "proxied": record.proxied,
+                    # The answer this record asks for, said outright rather
+                    # than left to the reader: a proxied hostname needs an edge
+                    # address, which only the fleet knows, and an unproxied one
+                    # needs exactly this value.
+                    "answer": ("an edge address" if record.proxied else record.value),
+                    **({} if record.proxied else {"value": record.value}),
+                }
+                for record in self.zones.list_records()
+            ],
+        }
+
+    @staticmethod
+    def publication() -> DnsPublication:
+        """Whether this installation publishes DNS. It does not.
+
+        A method on the service rather than a constant every caller imports,
+        because the delivery surfaces reach the domain through here and a
+        capability that did publish would answer this differently.
+        """
+        return PUBLICATION
 
     def validation_errors(self) -> list[str]:
         """Report proxy configurations no edge could serve.
