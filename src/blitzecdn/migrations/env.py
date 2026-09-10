@@ -25,6 +25,10 @@ from blitzecdn.capabilities.deployments.adapters import (
 )
 from blitzecdn.capabilities.dns.adapters import tables as _dns  # noqa: F401
 from blitzecdn.capabilities.edges.adapters import tables as _edges  # noqa: F401
+from blitzecdn.capabilities.jobs.adapters import tables as _jobs  # noqa: F401
+from blitzecdn.capabilities.releases.adapters import (
+    tables as _releases,  # noqa: F401
+)
 from blitzecdn.capabilities.workflows.adapters import (
     tables as _workflows,  # noqa: F401
 )

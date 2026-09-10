@@ -60,6 +60,124 @@ def upgrade() -> None:
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
+        "jobs",
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("kind", sa.String(), nullable=False),
+        sa.Column("payload", sqlite.JSON(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("dedupe_key", sa.String(), nullable=True),
+        sa.Column("attempts", sa.Integer(), nullable=False),
+        sa.Column("max_attempts", sa.Integer(), nullable=False),
+        sa.Column(
+            "available_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.Column(
+            "leased_until",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column("leased_by", sa.String(), nullable=True),
+        sa.Column("fence", sa.Integer(), nullable=False),
+        sa.Column(
+            "created_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.Column(
+            "finished_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column("last_error", sa.String(), nullable=True),
+        sa.CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed')",
+            name="jobs_status_check",
+        ),
+        sa.CheckConstraint("attempts >= 0", name="jobs_attempts_check"),
+        sa.CheckConstraint("max_attempts >= 1", name="jobs_max_attempts_check"),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    with op.batch_alter_table("jobs", schema=None) as batch_op:
+        batch_op.create_index(
+            batch_op.f("ix_jobs_created_at"), ["created_at"], unique=False
+        )
+        # Partial, so the single-flight guarantee binds only while a job is
+        # unfinished: a scheduled job that ran an hour ago must not keep the
+        # next firing out of the queue.
+        batch_op.create_index(
+            "ix_jobs_dedupe_key_unfinished",
+            ["dedupe_key"],
+            unique=True,
+            sqlite_where=sa.text("status IN ('pending', 'running')"),
+        )
+        batch_op.create_index("ix_jobs_leased_until", ["leased_until"], unique=False)
+        batch_op.create_index(
+            "ix_jobs_status_available_at", ["status", "available_at"], unique=False
+        )
+
+    op.create_table(
+        "job_schedules",
+        sa.Column("name", sa.String(), nullable=False),
+        sa.Column("interval_seconds", sa.Integer(), nullable=False),
+        sa.Column("jitter_seconds", sa.Integer(), nullable=False),
+        sa.Column("lease_seconds", sa.Integer(), nullable=False),
+        sa.Column(
+            "next_run_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.Column(
+            "last_run_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.CheckConstraint(
+            "interval_seconds >= 1", name="job_schedules_interval_check"
+        ),
+        sa.CheckConstraint("lease_seconds >= 1", name="job_schedules_lease_check"),
+        sa.PrimaryKeyConstraint("name"),
+    )
+    with op.batch_alter_table("job_schedules", schema=None) as batch_op:
+        batch_op.create_index(
+            "ix_job_schedules_next_run_at", ["next_run_at"], unique=False
+        )
+
+    op.create_table(
+        "release_inputs",
+        sa.Column("digest", sa.String(), nullable=False),
+        sa.Column("document", sa.String(), nullable=False),
+        sa.Column(
+            "created_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.PrimaryKeyConstraint("digest"),
+    )
+    op.create_table(
+        "releases",
+        sa.Column("digest", sa.String(), nullable=False),
+        sa.Column("id", sa.String(), nullable=False),
+        sa.Column("compiler_version", sa.Integer(), nullable=False),
+        sa.Column("inputs_digest", sa.String(), nullable=False),
+        sa.Column(
+            "created_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=False,
+        ),
+        sa.Column("document", sqlite.JSON(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["inputs_digest"],
+            ["release_inputs.digest"],
+        ),
+        sa.PrimaryKeyConstraint("digest"),
+    )
+    with op.batch_alter_table("releases", schema=None) as batch_op:
+        batch_op.create_index("ix_releases_created_at", ["created_at"], unique=False)
+        batch_op.create_index("ix_releases_id", ["id"], unique=True)
+
+    op.create_table(
         "deployments",
         sa.Column("id", sa.String(), nullable=False),
         sa.Column("status", sa.String(), nullable=False),
@@ -81,8 +199,13 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("result", sqlite.JSON(), nullable=True),
-        sa.Column("snapshot", sa.String(), nullable=False),
+        sa.Column("release_id", sa.String(), nullable=False),
         sa.Column("canonical_digest", sa.String(), nullable=True),
+        sa.Column("generation", sa.Integer(), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["release_id"],
+            ["releases.id"],
+        ),
         sa.ForeignKeyConstraint(
             ["rollback_of"],
             ["deployments.id"],
@@ -105,10 +228,49 @@ def upgrade() -> None:
         batch_op.create_index(
             batch_op.f("ix_deployments_rollback_of"), ["rollback_of"], unique=False
         )
+        batch_op.create_index("ix_deployments_release_id", ["release_id"], unique=False)
         batch_op.create_index(
             batch_op.f("ix_deployments_status_created_at"),
             ["status", "created_at"],
             unique=False,
+        )
+
+    op.create_table(
+        "deployment_targets",
+        sa.Column("deployment_id", sa.String(), nullable=False),
+        sa.Column("edge", sa.String(), nullable=False),
+        sa.Column("status", sa.String(), nullable=False),
+        sa.Column("phase", sa.String(), nullable=True),
+        sa.Column("attempts", sa.Integer(), nullable=False),
+        sa.Column("fence", sa.Integer(), nullable=False),
+        sa.Column(
+            "started_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column(
+            "finished_at",
+            blitzecdn.core.persistence.tables.UtcDateTime(),
+            nullable=True,
+        ),
+        sa.Column("last_error", sa.String(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["deployment_id"], ["deployments.id"], ondelete="CASCADE"
+        ),
+        sa.CheckConstraint(
+            "status IN ('pending', 'running', 'succeeded', 'failed', 'skipped')",
+            name="deployment_targets_status_check",
+        ),
+        sa.CheckConstraint(
+            "phase IS NULL OR phase IN "
+            "('prepare', 'validate', 'stage', 'activate', 'verify')",
+            name="deployment_targets_phase_check",
+        ),
+        sa.PrimaryKeyConstraint("deployment_id", "edge"),
+    )
+    with op.batch_alter_table("deployment_targets", schema=None) as batch_op:
+        batch_op.create_index(
+            "ix_deployment_targets_deployment_id", ["deployment_id"], unique=False
         )
 
     op.create_table(
@@ -163,6 +325,7 @@ def upgrade() -> None:
         sa.Column("private_key_file", sa.String(), nullable=True),
         sa.Column("public_addresses", sqlite.JSON(), nullable=False),
         sa.Column("ssh_sources", sqlite.JSON(), nullable=False),
+        sa.Column("capabilities", sqlite.JSON(), nullable=True),
         sa.Column(
             "updated_at",
             blitzecdn.core.persistence.tables.UtcDateTime(),
@@ -241,6 +404,10 @@ def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table("dns_records")
     op.drop_table("deployment_requirements")
+    with op.batch_alter_table("deployment_targets", schema=None) as batch_op:
+        batch_op.drop_index("ix_deployment_targets_deployment_id")
+
+    op.drop_table("deployment_targets")
     with op.batch_alter_table("workflows", schema=None) as batch_op:
         batch_op.drop_index("workflows_status_idx")
 
@@ -253,6 +420,23 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f("ix_deployments_created_at"))
 
     op.drop_table("deployments")
+    with op.batch_alter_table("releases", schema=None) as batch_op:
+        batch_op.drop_index("ix_releases_id")
+        batch_op.drop_index("ix_releases_created_at")
+
+    op.drop_table("releases")
+    op.drop_table("release_inputs")
+    with op.batch_alter_table("job_schedules", schema=None) as batch_op:
+        batch_op.drop_index("ix_job_schedules_next_run_at")
+
+    op.drop_table("job_schedules")
+    with op.batch_alter_table("jobs", schema=None) as batch_op:
+        batch_op.drop_index("ix_jobs_status_available_at")
+        batch_op.drop_index("ix_jobs_leased_until")
+        batch_op.drop_index("ix_jobs_dedupe_key_unfinished")
+        batch_op.drop_index(batch_op.f("ix_jobs_created_at"))
+
+    op.drop_table("jobs")
     with op.batch_alter_table("audit_events", schema=None) as batch_op:
         batch_op.drop_index(batch_op.f("ix_audit_events_created_at"))
 
