@@ -112,7 +112,12 @@ def record_unproxy(
     type_: Annotated[RecordType, typer.Option("--type")] = RecordType.A,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Take a hostname off the edge, answering with an address instead.
+    """Take a hostname off the edge, and record the address DNS should answer.
+
+    Two halves, and BlitzeCDN owns one of them. This stops the edge serving the
+    hostname at the next deploy; making DNS answer with ``--value`` is the
+    other half and belongs to whatever is authoritative for the zone. Nothing
+    here publishes it — see ``blitzecdn dns export``.
 
     The address is required rather than inferred from the origin. That is
     deliberate: answering with the origin address is what publishes an origin
@@ -127,8 +132,10 @@ def record_unproxy(
         record,
         json_output=json_output,
         note=(
-            f"{record.fqdn} now bypasses the CDN and answers with {value}. "
-            "Run 'blitzecdn deploy' to apply."
+            f"{record.fqdn} is no longer served by the edge. Run 'blitzecdn "
+            f"deploy' to withdraw it, and publish {value} for {record.fqdn} in "
+            "DNS — BlitzeCDN records the answer and does not publish it, so "
+            "until then visitors still reach whatever DNS says today."
         ),
     )
 
@@ -159,11 +166,16 @@ def record_remove(
 
 @dns_app.command("export")
 def dns_export(json_output: common.JsonOutput = False) -> None:
-    """Emit every record for the system that publishes DNS.
+    """Emit every record for the system that publishes DNS — which is not this one.
 
-    A proxied record's address is the origin the edge fetches from, and the
-    published answer is the fleet's own edge address — edge addressing is owned
-    by the DNS system rather than the control plane, and the origin never
-    leaves this side. The site name is reported so the two can be reconciled.
+    BlitzeCDN holds zones and records and publishes neither. What comes back is
+    desired state for whatever is authoritative: each record says what DNS
+    should answer with, and ``publication`` says plainly that nothing here is
+    going to make it so.
+
+    A proxied record's address is the origin the edge fetches from, and its
+    public answer is an edge address the fleet supplies — so the origin never
+    leaves this side. The record's own value is emitted only when it is
+    unproxied, which is the case where the value *is* the public answer.
     """
     common.emit(common.control_plane().dns.dns_export(), json_output=json_output)

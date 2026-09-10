@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, status
 
@@ -135,7 +135,14 @@ def delete_record(
 
 
 @router.get("/v1/dns/export")
-def dns_export(control: ControlPlaneDependency) -> list[dict[str, object]]:
+def dns_export(control: ControlPlaneDependency) -> dict[str, Any]:
+    """Desired DNS state for whatever is authoritative for these zones.
+
+    Unmodelled, and an envelope rather than a bare list. A client consuming
+    this is being handed instructions for a system BlitzeCDN does not operate,
+    so ``publication`` travels with them and says so — a caller cannot read the
+    records without meeting the fact that nothing here publishes them.
+    """
     return control.dns.dns_export()
 
 

@@ -286,6 +286,15 @@ def doctor(
         # the list the gate enforces wherever that process is listening.
         "api_allowed_ips": list(settings.allowed_ips),
         "configuration_errors": settings.validate_runtime(),
+        # Stated on the readiness report because its absence is the kind of
+        # thing an operator discovers from a customer. Every other line here
+        # says whether a thing this control plane does is working; this one
+        # says that publishing DNS is a thing it does not do, so a fleet that
+        # is otherwise perfectly ready still serves nobody until something
+        # else answers for these hostnames.
+        "dns_publication": common.control_plane()
+        .dns.publication()
+        .model_dump(mode="json"),
     }
     resolver_report = check_resolver(settings) if resolver_check else None
     if resolver_report is not None:

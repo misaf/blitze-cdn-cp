@@ -26,6 +26,11 @@ from blitzecdn.capabilities.dns.domain.patch import (
     DomainPatch,
     reject_issuer_owned_certificate,
 )
+from blitzecdn.capabilities.dns.domain.publication import (
+    PUBLICATION,
+    DnsPublication,
+    PublicationMode,
+)
 from blitzecdn.capabilities.dns.domain.record import (
     DnsRecord,
     RecordPatch,
@@ -39,10 +44,13 @@ from blitzecdn.capabilities.dns.domain.rule import Rule, RulePatch
 from blitzecdn.capabilities.dns.domain.zone import Domain
 
 __all__ = [
+    "PUBLICATION",
     "CdnSite",
+    "DnsPublication",
     "DnsRecord",
     "Domain",
     "DomainPatch",
+    "PublicationMode",
     "RecordPatch",
     "RecordType",
     "ResolvedPolicy",
