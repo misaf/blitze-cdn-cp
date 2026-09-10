@@ -53,4 +53,10 @@ class EdgeRow(Base, table=True):
     #: the edge, and never joined or filtered on.
     public_addresses: list[Any] = Field(default_factory=list, sa_type=JSON)
     ssh_sources: list[Any] = Field(default_factory=list, sa_type=JSON)
+    #: Nullable rather than an empty list, because the two mean different
+    #: things: NULL is "this edge has declared nothing, assume the
+    #: controller's set", and an empty list is "this edge provides no optional
+    #: capability at all". An operator who wants the second must be able to say
+    #: it, and the inventory plugin's explicit SELECT does not read this column.
+    capabilities: list[Any] | None = Field(default=None, sa_type=JSON)
     updated_at: datetime = Field(default_factory=utcnow, sa_type=UtcDateTime)

@@ -69,6 +69,12 @@ class EdgeStore:
         row.private_key_file = edge.private_key_file
         row.public_addresses = list(edge.public_addresses)
         row.ssh_sources = list(edge.ssh_sources)
+        # `None` survives as NULL rather than becoming `[]`: an edge that has
+        # declared nothing and an edge that declares no optional capability are
+        # different statements, and only the second should refuse a site.
+        row.capabilities = (
+            None if edge.capabilities is None else list(edge.capabilities)
+        )
         row.updated_at = self._db.now()
 
     @staticmethod
@@ -82,6 +88,9 @@ class EdgeStore:
                 "private_key_file": row.private_key_file,
                 "public_addresses": tuple(row.public_addresses),
                 "ssh_sources": tuple(row.ssh_sources),
+                "capabilities": (
+                    None if row.capabilities is None else tuple(row.capabilities)
+                ),
             }
         )
 

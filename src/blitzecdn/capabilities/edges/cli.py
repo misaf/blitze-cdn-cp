@@ -70,6 +70,16 @@ def edge_add(
             help="SSH private key for this edge. Omit to let SSH resolve one.",
         ),
     ] = None,
+    capability: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--capability",
+            help=(
+                "A capability this edge's runtime provides; repeat for more. "
+                "Omit to assume whatever the controller has installed."
+            ),
+        ),
+    ] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
     """Register an edge server.
@@ -77,6 +87,13 @@ def edge_add(
     Nothing is converged and nothing reaches the host: the edge exists from now
     on, so the next `blitzecdn deploy` includes it. There is no inventory file
     to write — Ansible reads the fleet from the control plane on every run.
+
+    `--capability` is what this edge's runtime image can actually do. Naming
+    them makes compilation refuse a site whose settings this edge could not
+    serve — Brotli on an nginx that never loaded the module is a syntax error
+    at converge time — before a run starts rather than partway through one.
+    Omitting them keeps the old assumption: the edge provides whatever the
+    controller has installed.
     """
     if not ssh_source:
         raise typer.BadParameter(
@@ -91,6 +108,7 @@ def edge_add(
             private_key_file=private_key_file,
             public_addresses=tuple(public_address or ()),
             ssh_sources=tuple(ssh_source),
+            capabilities=None if capability is None else tuple(capability),
         ),
         "cli",
     )
@@ -132,9 +150,16 @@ def edge_update(
             help="Replacement management CIDR; repeat when needed.",
         ),
     ] = None,
+    capability: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--capability",
+            help="Replacement capability token for this edge's runtime; repeat.",
+        ),
+    ] = None,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Change an edge's connection details or public addresses.
+    """Change an edge's connection details, addresses, or declared capabilities.
 
     Each option replaces its own value; anything you do not name is kept. The
     two list options replace their whole list rather than appending, so
@@ -150,6 +175,7 @@ def edge_update(
         "private_key_file": private_key_file,
         "public_addresses": None if public_address is None else tuple(public_address),
         "ssh_sources": None if ssh_source is None else tuple(ssh_source),
+        "capabilities": None if capability is None else tuple(capability),
     }
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:

@@ -25,6 +25,10 @@ class Edge(Model):
     private_key_file: str | None = None
     public_addresses: tuple[str, ...] = Field(default=(), max_length=20)
     ssh_sources: tuple[str, ...] = Field(default=(), max_length=100)
+    #: What this edge's runtime provides, as capability tokens. ``None`` — the
+    #: default — means "whatever the controller has installed", which is what
+    #: every edge registered before this field existed already behaves like.
+    capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
 
     @model_validator(mode="after")
     def valid_edge(self) -> Self:
@@ -46,6 +50,7 @@ class EdgePatch(Model):
     private_key_file: str | None = None
     public_addresses: tuple[str, ...] | None = None
     ssh_sources: tuple[str, ...] | None = None
+    capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
 
     def to_domain(self) -> DomainEdgePatch:
         return DomainEdgePatch.model_validate(self.model_dump(exclude_unset=True))

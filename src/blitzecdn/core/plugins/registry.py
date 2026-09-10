@@ -329,9 +329,44 @@ class PluginRegistry:
         and the settings that asked are quoted straight out of the mapping.
         Nothing here knows what any capability is, so a token supplied by a
         distribution this repository has never heard of reads the same way.
+
+        Both halves, which is what a caller asking "can this installation serve
+        this site" wants. The release compiler asks a narrower question and
+        uses :meth:`site_objections` instead — see there for why the difference
+        matters.
         """
+        return ValidationResult(
+            site=site.name,
+            issues=self._missing_capability_issues(site)
+            + self.site_objections(site, platform),
+        )
+
+    def site_objections(
+        self, site: CdnSite, platform: ControlPlane
+    ) -> tuple[ValidationIssue, ...]:
+        """What the *installed* plugins object to about this site.
+
+        Separate from :meth:`validate_site` because the two answers have
+        different consequences. A capability that is missing cannot be asked
+        for anything and simply contributes nothing; a capability that is
+        installed and objects must not then be asked to render this site,
+        because the objection is usually the reason asking would fail.
+
+        The release compiler makes the missing-capability check itself, against
+        the edges as well as against this controller, so asking for both here
+        would report each of them twice.
+        """
+        return _flatten(
+            self._manager.hook.blitzecdn_deployment_checks(
+                site=site, platform=platform
+            ),
+            "blitzecdn_deployment_checks",
+            ValidationIssue,
+        )
+
+    def _missing_capability_issues(self, site: CdnSite) -> tuple[ValidationIssue, ...]:
         requested = site.capability_requirements
-        missing = tuple(
+        return tuple(
             ValidationIssue(
                 plugin="capabilities",
                 site=site.name,
@@ -344,17 +379,6 @@ class PluginRegistry:
                 ),
             )
             for capability in self.missing(requested)
-        )
-        return ValidationResult(
-            site=site.name,
-            issues=missing
-            + _flatten(
-                self._manager.hook.blitzecdn_deployment_checks(
-                    site=site, platform=platform
-                ),
-                "blitzecdn_deployment_checks",
-                ValidationIssue,
-            ),
         )
 
     def contributions_for(self, platform: ControlPlane) -> StateContributions:
