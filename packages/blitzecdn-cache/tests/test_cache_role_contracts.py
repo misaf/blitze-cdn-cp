@@ -251,3 +251,39 @@ def test_the_stats_role_no_longer_wants_a_controller_directory():
     )["argument_specs"]["main"]["options"]
 
     assert "blitzecdn_cache_stats_output_dir" not in spec
+
+
+def test_nothing_private_is_cached_or_served_from_cache():
+    """The exclusions a shared cache has to get right, asserted one by one.
+
+    Three of the four are nginx's own defaults and the risk is that a future
+    edit switches them off — `proxy_ignore_headers` is the one directive that
+    would, and its absence is checked rather than assumed:
+
+    * a response carrying `Set-Cookie` is not cached;
+    * a response carrying `Cache-Control: private`, `no-cache` or `no-store`,
+      or an `Expires` in the past, is not cached;
+    * only GET and HEAD are cached, because `proxy_cache_methods` is left at
+      its default and the purge role agrees with that.
+
+    The fourth is not a default and had to be added. A shared cache must not
+    store a response to an *authorized* request and hand it to the next
+    visitor, and nginx has nothing to say about the request's credentials — so
+    an origin that authorizes a request and answers without a `Cache-Control`
+    of its own would have that answer cached under a key no credential is part
+    of. Both directives are required: bypass alone still stores the private
+    answer, and no_cache alone still serves an entry stored earlier.
+    """
+    template = (NGINX_DIR / "cache-upstream.conf.j2").read_text(encoding="utf-8")
+
+    assert "proxy_cache_bypass $http_upgrade $http_authorization;" in template
+    assert "proxy_no_cache $http_upgrade $http_authorization;" in template
+    # Nothing anywhere in this distribution's nginx fragments may tell nginx to
+    # disregard what the origin said about cacheability.
+    for fragment in sorted(NGINX_DIR.glob("*.conf.j2")):
+        assert "proxy_ignore_headers" not in fragment.read_text(encoding="utf-8"), (
+            f"{fragment.name} would switch off nginx's own Set-Cookie and "
+            "Cache-Control handling, which is what keeps private responses out "
+            "of a shared cache"
+        )
+    assert "proxy_cache_methods" not in template

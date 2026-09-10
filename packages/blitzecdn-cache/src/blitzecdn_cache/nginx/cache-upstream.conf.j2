@@ -1,8 +1,26 @@
 {% if site.cache_enabled | default(true) %}
 {% set cache_uri = '$blitzecdn_uri_without_query' if site.cache_query_string_mode | default('include') == 'ignore' else '$request_uri' %}
         proxy_cache {{ blitzecdn_cache_config_zone }};
-        proxy_cache_bypass $http_upgrade;
-        proxy_no_cache $http_upgrade;
+        # What is never cached and never served from cache.
+        #
+        # `$http_upgrade` keeps WebSocket handshakes out of it. `$http_authorization`
+        # is the one worth spelling out: a shared cache must not store a
+        # response to an authorized request and hand it to the next visitor,
+        # and nginx does not apply that rule for you — it honours `Set-Cookie`
+        # and `Cache-Control: private|no-cache|no-store` on the *response* by
+        # default, and has nothing to say about the request's credentials. So
+        # an origin that authorizes a request and answers without a
+        # `Cache-Control` of its own would have that answer cached under a key
+        # no credential is part of, and served to everyone.
+        #
+        # Both directives, because they answer different questions:
+        # `proxy_cache_bypass` says do not serve this from cache, and
+        # `proxy_no_cache` says do not store what comes back. Either alone
+        # leaks: bypass alone still stores the private answer for the next
+        # anonymous visitor, and no_cache alone still serves them an entry
+        # stored earlier.
+        proxy_cache_bypass $http_upgrade $http_authorization;
+        proxy_no_cache $http_upgrade $http_authorization;
         proxy_cache_key "$scheme$server_port$request_method$host{{ cache_uri }}$blitzecdn_accept_encoding";
         proxy_cache_valid 200 301 302 {{ site.cache_valid_success | default('10m') }};
         proxy_cache_valid 404 {{ site.cache_valid_not_found | default('1m') }};
