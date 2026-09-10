@@ -15,9 +15,16 @@ this owns only what a stored run means.
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus, DriftReport
-from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
-from blitzecdn.capabilities.deployments.ports import DeploymentStore
+from blitzecdn.capabilities.deployments.domain import (
+    DeploymentStatus,
+    DriftReport,
+    TargetStatus,
+)
+from blitzecdn.capabilities.deployments.ports import (
+    DeploymentStore,
+    DeploymentTargets,
+    Releases,
+)
 from blitzecdn.core.exceptions import ConflictError
 
 #: How far back :func:`site_is_deployed` will look for a run to read. A bound
@@ -29,7 +36,11 @@ _DEPLOYMENT_LOOKBACK = 50
 __all__ = ["drift_report", "site_is_deployed"]
 
 
-def drift_report(deployments: DeploymentStore, deployment_id: str) -> DriftReport:
+def drift_report(
+    deployments: DeploymentStore,
+    targets: DeploymentTargets,
+    deployment_id: str,
+) -> DriftReport:
     """Read a recorded check-mode run as a drift report.
 
     Derived from the stored deployment rather than only from a live run, so the
@@ -45,10 +56,21 @@ def drift_report(deployments: DeploymentStore, deployment_id: str) -> DriftRepor
             "previewing them, so its result describes what it did, not "
             "what had drifted. Run 'blitzecdn drift' instead."
         )
-    return DriftReport.of(deployment)
+    # The edges this check never reached, read from their own rows. A rollout
+    # stops at the first edge that failed, and those after it are recorded
+    # SKIPPED — which is the honest answer to "is the fleet in sync": we have
+    # no answer for them at all.
+    unreached = tuple(
+        target.edge
+        for target in targets.targets(deployment_id)
+        if target.status in (TargetStatus.PENDING, TargetStatus.SKIPPED)
+    )
+    return DriftReport.of(deployment, unreached)
 
 
-def site_is_deployed(deployments: DeploymentStore, site_name: str) -> bool:
+def site_is_deployed(
+    deployments: DeploymentStore, releases: Releases, site_name: str
+) -> bool:
     """Whether the most recent real deployment carried this site.
 
     Check-mode runs are skipped: they proved the play parses, not that any edge
@@ -63,6 +85,9 @@ def site_is_deployed(deployments: DeploymentStore, site_name: str) -> bool:
             continue
         if deployment.check_mode:
             continue
-        snapshot = deployments.deployment_snapshot(deployment.id)
-        return any(site.name == site_name for site in decode_snapshot(snapshot))
+        release = releases.get(deployment.release_id)
+        # The compiled sites, not a fresh derivation from today's state: the
+        # question is what that run actually carried, and re-deriving would
+        # answer it from a zone edited since.
+        return any(entry.name == site_name for entry in release.sites)
     return False

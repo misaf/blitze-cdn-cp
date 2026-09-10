@@ -16,7 +16,11 @@ from pydantic import Field
 
 from blitzecdn.api.models import AnsibleRun, HostRun, Model
 from blitzecdn.api.requests import FleetRequest, RequestModel
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments.domain import (
+    DeploymentStatus,
+    TargetPhase,
+    TargetStatus,
+)
 
 
 class Deployment(Model):
@@ -24,6 +28,10 @@ class Deployment(Model):
     status: DeploymentStatus
     operator: str
     check_mode: bool
+    #: The compiled release this run converged. The link between "what did we
+    #: deploy" and "what does that mean", which a client follows to
+    #: ``GET /v1/releases/{id}`` for the artifact digests and the explanation.
+    release_id: str
     host_limit: str | None = None
     rollback_of: str | None = None
     canonical_digest: str | None = None
@@ -31,6 +39,24 @@ class Deployment(Model):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result: AnsibleRun | None = None
+
+
+class DeploymentTarget(Model):
+    """One edge's progress through one deployment.
+
+    Published because the question it answers has no other home: an operator
+    or a dashboard looking at a failed fleet deploy needs to know which edges
+    are on the new configuration and which are still on the old, and a
+    fleet-wide result can only report the second as an absence.
+    """
+
+    edge: str
+    status: TargetStatus
+    phase: TargetPhase | None = None
+    attempts: int
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    last_error: str | None = None
 
 
 class DriftReport(Model):
@@ -57,6 +83,7 @@ class RollbackRequest(RequestModel):
 __all__ = [
     "DeployRequest",
     "Deployment",
+    "DeploymentTarget",
     "DriftReport",
     "DriftRequest",
     "RollbackRequest",

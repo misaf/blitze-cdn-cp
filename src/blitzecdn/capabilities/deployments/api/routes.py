@@ -8,6 +8,7 @@ from blitzecdn.api.dependencies import (
 from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.deployments.api.models import (
     Deployment,
+    DeploymentTarget,
     DeployRequest,
     DriftReport,
     DriftRequest,
@@ -53,6 +54,26 @@ def deployment(
     control: ControlPlaneDependency,
 ) -> Deployment:
     return as_operation(control.deployments.get_deployment(deployment_id), Deployment)
+
+
+@router.get(
+    "/v1/deployments/{deployment_id}/targets",
+    response_model=list[DeploymentTarget],
+)
+def deployment_targets(
+    deployment_id: str,
+    control: ControlPlaneDependency,
+) -> list[DeploymentTarget]:
+    """How far each edge got: the per-edge half of a partial rollout.
+
+    A client polling a queued deployment reads this to watch a fleet converge
+    edge by edge, and reads it after a failure to see which edges are on the
+    new configuration and which are still serving what they had.
+    """
+    return [
+        as_operation(target, DeploymentTarget)
+        for target in control.deployments.targets(deployment_id)
+    ]
 
 
 @router.post(

@@ -1,18 +1,25 @@
-"""Run stored snapshots through Ansible and record their outcomes.
+"""Converge a compiled release onto the fleet, and record what happened.
 
 DeploymentService owns convergence locking, workflow records, and finalization.
 Rollback policy, validation, and reporting live in their respective service
 modules. Validation uses a scratch file without taking the deployment lock.
 
-Rollback restores canonical zones, records, and rules; subsequent reads derive
-hosts from that state. See docs/decisions/0001-zone-policy-and-composition.md
-for the ownership and transaction boundaries.
+What this service does *not* do any more is decide what the fleet should serve.
+It asks the releases capability to compile the current state, records the
+identifier it gets back, and publishes that release's artifact — so the
+document Ansible reads is the one the release says it is, and stays readable
+after the run for anyone asking what a deployment actually sent.
+
+Rollback converges an older release and restores the canonical zones, records
+and rules it was compiled from, so reconciliation cannot quietly undo it. See
+docs/decisions/0007-releases-and-reconciliation.md for the ownership and
+transaction boundaries, and 0001 for why hosts are derived rather than stored.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,31 +30,34 @@ from blitzecdn.capabilities.deployments.domain import (
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
+    DeploymentTarget,
     DriftReport,
     aborted_run,
 )
-from blitzecdn.capabilities.deployments.domain.snapshots import snapshot_digest
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
-    DesiredStateRenderer,
+    DeploymentTargets,
+    EdgeAddresses,
     EventRecorder,
     LogReader,
     QueueBackgroundRunner,
+    Releases,
     RuleRestore,
-    SiteValidator,
     UnitOfWork,
     Workflows,
+    YamlWriter,
     ZoneEditor,
     ZoneStore,
 )
 from blitzecdn.capabilities.deployments.service import reporting
 from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
+from blitzecdn.capabilities.deployments.service.rollout import Rollout, RolloutOutcome
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
+from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT, Release
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
-from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.domain.validation import validate_edge_limit
 from blitzecdn.core.exceptions import DeploymentBusyError, ExecutionError
 
@@ -70,6 +80,10 @@ class DeploymentPersistence:
     """State capabilities changed together by deployment workflows."""
 
     deployments: DeploymentStore
+    #: Per-edge rollout progress. Beside the deployment store rather than
+    #: inside it because a target is written by the rollout and read by
+    #: reporting, and neither is the deployment history's business.
+    targets: DeploymentTargets
     zones: ZoneStore
     #: Only a rollback writes here, and only wholesale.
     rules: RuleRestore
@@ -79,21 +93,25 @@ class DeploymentPersistence:
 
 @dataclass(frozen=True)
 class DeploymentExecution:
-    """Collaborators that render, launch, and observe deployment work."""
+    """Collaborators that publish, launch, and observe deployment work."""
 
     runner: DeploymentRunner
     background: QueueBackgroundRunner
     read_log: LogReader
-    renderer: DesiredStateRenderer
-    #: What the installed plugins know about a site that should stop a deploy.
-    #: A collaborator rather than policy: which plugins are installed is a
-    #: composition decision, and this service asks the question without knowing
-    #: who answers it.
-    validator: SiteValidator
+    #: How the release's artifact reaches disk. Atomic, because Ansible reads
+    #: the file moments after this writes it and an edge converged from half a
+    #: document is worse than one that did not converge at all.
+    write_yaml: YamlWriter
+    #: The per-edge state machine. It owns the ordering, the fence and what a
+    #: failure means; this service owns the lock, the transaction and the
+    #: deployment record around it.
+    rollout: Rollout
+    #: Which edges a run reaches, and where each answers from outside.
+    addresses: EdgeAddresses
 
 
 class DeploymentService:
-    """Runs Ansible against a recorded snapshot and owns the deployment lock.
+    """Runs Ansible against a recorded release and owns the deployment lock.
 
     The capability's public face: the API, the CLI, the scheduler and the Dramatiq
     worker all reach convergence through here and through nothing else, which
@@ -108,12 +126,15 @@ class DeploymentService:
         execution: DeploymentExecution,
         events: EventRecorder,
         dns: ZoneEditor,
+        releases: Releases,
         workflows: Workflows,
     ) -> None:
         self.policy = policy
         self.persistence = persistence
         self.execution = execution
         self.events = events
+        #: The whole of what this service knows about configuration.
+        self.releases = releases
         #: Canonical DNS validation, also passed to DeploymentValidation.
         self.dns = dns
         self.workflows = workflows
@@ -124,10 +145,9 @@ class DeploymentService:
         self._validation = DeploymentValidation(
             runtime_errors=policy.runtime_errors,
             dns=dns,
-            deployments=persistence.deployments,
-            validator=execution.validator,
+            releases=releases,
             runner=execution.runner,
-            renderer=execution.renderer,
+            write_yaml=execution.write_yaml,
             read_log=execution.read_log,
             run_dir=policy.run_dir,
             output_limit_bytes=policy.output_limit_bytes,
@@ -166,7 +186,7 @@ class DeploymentService:
 
     # -- Validation ----------------------------------------------------
 
-    def validate(self) -> list[str]:
+    def validate(self, *, host_limit: str | None = None) -> list[str]:
         """Answer whether desired state is coherent and the play parses.
 
         The answer is ``service.validation``'s, and deliberately not reached
@@ -175,7 +195,7 @@ class DeploymentService:
         state, and taking the lock to ask it would make ``blitzecdn validate``
         block behind a fleet convergence that has nothing to do with it.
         """
-        return self._validation.errors()
+        return self._validation.errors(host_limit=host_limit)
 
     # -- Deploying -----------------------------------------------------
 
@@ -186,7 +206,7 @@ class DeploymentService:
 
         ``host_limit`` narrows the run to some of them — a canary. It is
         recorded on the deployment because it changes what success means: the
-        snapshot became reality on the named edges only, and the rest are
+        release became reality on the named edges only, and the rest are
         still serving whatever they had.
         """
 
@@ -246,7 +266,7 @@ class DeploymentService:
     def rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:
-        """Converge a prior snapshot and adopt it as canonical desired state.
+        """Converge a prior release and adopt it as canonical desired state.
 
         Deliberately takes no host limit. On success this rewrites the
         canonical records, so a rollback that reached only some edges would
@@ -324,7 +344,9 @@ class DeploymentService:
 
     def drift_report(self, deployment_id: str) -> DriftReport:
         """Read a recorded check-mode run as a drift report."""
-        return reporting.drift_report(self.persistence.deployments, deployment_id)
+        return reporting.drift_report(
+            self.persistence.deployments, self.persistence.targets, deployment_id
+        )
 
     # -- History -------------------------------------------------------
 
@@ -336,9 +358,21 @@ class DeploymentService:
         """Recent deployments, newest first."""
         return self.persistence.deployments.list_deployments(limit)
 
+    def targets(self, deployment_id: str) -> Sequence[DeploymentTarget]:
+        """How far each edge got in this deployment.
+
+        The answer to "which edges are on the new configuration and which are
+        still on the old", which a fleet-wide run could only report as an
+        absence: an edge missing from a result might have succeeded silently,
+        failed unreported, or never been contacted.
+        """
+        return tuple(self.persistence.targets.targets(deployment_id))
+
     def site_is_deployed(self, site_name: str) -> bool:
         """Whether the most recent real deployment carried this site."""
-        return reporting.site_is_deployed(self.persistence.deployments, site_name)
+        return reporting.site_is_deployed(
+            self.persistence.deployments, self.releases, site_name
+        )
 
     # -- Internals -----------------------------------------------------
 
@@ -347,22 +381,34 @@ class DeploymentService:
         operator: str,
         *,
         check: bool,
-        snapshot: str | None = None,
+        release_id: str | None = None,
         rollback_of: str | None = None,
         host_limit: str | None = None,
         canonical_digest: str | None = None,
     ) -> Deployment:
-        """Record a QUEUED deployment. Callers must hold the deployment lock."""
+        """Record a QUEUED deployment. Callers must hold the deployment lock.
+
+        ``release_id`` is supplied only by a rollback, which is converging a
+        release that already exists. A forward deploy compiles the current
+        state here — under the lock, so the release a deployment names is the
+        state as it stood when the run was admitted rather than whatever it had
+        become by the time a worker picked the row up.
+        """
         # Normalised before it is stored, so the record shows what actually ran
         # rather than what was typed, and a malformed limit is refused before a
         # deployment row exists to explain.
         limit = validate_edge_limit(host_limit)
+        release = (
+            self.releases.get(release_id)
+            if release_id is not None
+            else self.releases.prepare(host_limit=limit)
+        )
         with self.persistence.uow.transaction():
             deployment = self.persistence.deployments.create_deployment(
                 operator,
                 check_mode=check,
                 rollback_of=rollback_of,
-                snapshot=snapshot,
+                release_id=release.id,
                 host_limit=limit,
                 canonical_digest=canonical_digest,
             )
@@ -381,6 +427,7 @@ class DeploymentService:
                         "check_mode": check,
                         "rollback_of": rollback_of,
                         "host_limit": limit,
+                        "release_id": release.id,
                     },
                 )
             )
@@ -390,19 +437,19 @@ class DeploymentService:
         self, operator: str, deployment_id: str | None, *, check: bool
     ) -> Deployment:
         target = rollback_policy.select_target(
-            self.persistence.deployments, deployment_id
+            self.persistence.deployments, self.releases, deployment_id
         )
         return self._queue(
             operator,
             check=check,
-            snapshot=self.persistence.deployments.deployment_snapshot(target.id),
+            release_id=self.persistence.deployments.deployment_release(target.id),
             rollback_of=target.id,
             # What canonical state looks like right now. Adoption compares
             # against this and refuses if a record was written while the
             # rollback was converging — the deployment lock does not exclude
             # record writes, and restoring wholesale over one would delete it
             # with no conflict and nothing left to say it existed.
-            canonical_digest=snapshot_digest(self.persistence.deployments.snapshot()),
+            canonical_digest=self.releases.inputs().digest,
         )
 
     def _submit(
@@ -437,7 +484,14 @@ class DeploymentService:
         return deployment
 
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
-        """Run Ansible for a queued deployment. Callers must hold the lock."""
+        """Roll this deployment's release out edge by edge. Callers hold the lock.
+
+        The lock is still fleet-wide — one deployment at a time — and the
+        rollout inside it is per edge. Both are needed and they answer
+        different questions: the lock stops two deployments overlapping, and
+        the rollout's fence stops a worker that was paused past its lease from
+        recording an outcome for a rollout that has since been taken over.
+        """
         check = deployment.check_mode
         deployment = self.persistence.deployments.transition(
             deployment.id,
@@ -446,13 +500,15 @@ class DeploymentService:
             started_at=datetime.now(UTC),
         )
         try:
-            snapshot = self.persistence.deployments.deployment_snapshot(deployment.id)
-            self.write_desired_state(snapshot, self.policy.generated_vars_path)
-            run = self.execution.runner.run(
-                check=check, host_limit=deployment.host_limit
+            release = self.releases.get(deployment.release_id)
+            outcome = self.execution.rollout.converge(
+                deployment.id,
+                release,
+                edges=self.execution.addresses.selected(deployment.host_limit),
+                check=check,
             )
-            deployment = self._complete_run(
-                deployment, run, snapshot, operator, check=check
+            deployment = self._complete_rollout(
+                deployment, outcome, release, operator, check=check
             )
         except BaseException as exc:
             deployment, interrupted = self._fail_convergence(deployment, operator, exc)
@@ -463,17 +519,51 @@ class DeploymentService:
             return deployment
         return deployment
 
-    def _complete_run(
+    def _complete_rollout(
         self,
         deployment: Deployment,
-        run: AnsibleRun,
-        snapshot: str,
+        outcome: RolloutOutcome,
+        release: Release,
         operator: str,
         *,
         check: bool,
     ) -> Deployment:
-        """Commit a runner result and atomically adopt a successful rollback."""
-        target_status = DeploymentStatus.of(run)
+        """Commit a rollout's result and atomically adopt a successful rollback.
+
+        The deployment's status comes from the rollout rather than from any one
+        Ansible result. A run that succeeded on every task it reached is not a
+        successful deployment if an edge after it was never attempted, and the
+        per-edge rows are what make that difference expressible.
+        """
+        # A rollout that produced no Ansible result at all has one of two
+        # stories, and they must not be told the same way. Either it failed
+        # before running anything — the error says which edge and which phase —
+        # or the fleet is empty, and there was genuinely nothing to converge.
+        # The second is a success with an explanation rather than a silent one:
+        # the fleet-wide run this replaced answered "skipping: no hosts
+        # matched" with a zero return code and told nobody.
+        run = outcome.run or aborted_run(
+            RuntimeError(
+                outcome.error
+                or "no edges are registered, so nothing was converged; add one "
+                "with 'blitzecdn edge add'"
+            ),
+            interrupted=False,
+        )
+        if outcome.succeeded:
+            target_status = DeploymentStatus.SUCCEEDED
+        elif outcome.run is not None:
+            # The run's own reading of how it ended, so a timeout is recorded
+            # as a timeout rather than flattened into a failure. `DeploymentStatus.of`
+            # can still answer SUCCEEDED for a run that reported no failure —
+            # a rollout stops for reasons a single run does not know about, an
+            # edge that would not answer being the standing one — so a
+            # successful-looking run inside a stopped rollout is a failure.
+            target_status = DeploymentStatus.of(outcome.run)
+            if target_status is DeploymentStatus.SUCCEEDED:
+                target_status = DeploymentStatus.FAILED
+        else:
+            target_status = DeploymentStatus.FAILED
         adopts_rollback = bool(
             deployment.rollback_of
             and target_status is DeploymentStatus.SUCCEEDED
@@ -481,11 +571,11 @@ class DeploymentService:
         )
         with self.persistence.uow.transaction():
             if adopts_rollback:
-                rollback_policy.require_unchanged_canonical(
-                    self.persistence.deployments, deployment
-                )
-                rollback_policy.adopt_snapshot(
-                    self.persistence.zones, self.persistence.rules, snapshot
+                rollback_policy.require_unchanged_canonical(self.releases, deployment)
+                rollback_policy.adopt_inputs(
+                    self.persistence.zones,
+                    self.persistence.rules,
+                    self.releases.inputs_for(release.id),
                 )
             deployment = self.persistence.deployments.transition(
                 deployment.id,
@@ -506,8 +596,10 @@ class DeploymentService:
                     deployment.id,
                     {
                         "return_code": run.return_code,
-                        "changed": [host.host for host in run.changed_hosts],
-                        "failed": [host.host for host in run.failed_hosts],
+                        "release_id": release.id,
+                        "converged": list(outcome.converged),
+                        "unattempted": list(outcome.unattempted),
+                        "error": outcome.error,
                     },
                 )
             )
@@ -548,11 +640,15 @@ class DeploymentService:
             )
         return deployment, interrupted
 
-    def write_desired_state(self, snapshot: str, path: Path) -> None:
-        """Render a snapshot as the document Ansible reads with ``--extra-vars``.
+    def publish_artifact(self, release: Release, path: Path) -> None:
+        """Put a release's desired-state artifact where Ansible will read it.
 
-        The destination is a parameter because two callers want different ones:
-        a deploy publishes to ``generated_vars_path`` under the lock, while
-        ``validate`` renders to a scratch path it then throws away.
+        No rendering happens here and none can: the document is already in the
+        release, digested, and this writes exactly those bytes. That is the
+        difference the releases capability bought — "what did that deployment
+        send" is answered by the release rather than by re-deriving it from
+        state that has since moved on.
         """
-        self.execution.renderer.render(snapshot, path)
+        self.execution.write_yaml(
+            path, release.artifact(DESIRED_STATE_ARTIFACT).document
+        )

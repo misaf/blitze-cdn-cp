@@ -142,16 +142,26 @@ class Deployment(BaseModel):
     status: DeploymentStatus
     operator: Operator
     check_mode: bool
+    #: The compiled release this run converges, by its short digest.
+    #:
+    #: A reference rather than a copy. Every deployment used to carry its own
+    #: serialised desired state, so an hourly drift check wrote a full copy of
+    #: every zone and record whether or not anything had changed, and two runs
+    #: of identical state were two documents nothing said were the same. A
+    #: release is content-addressed, so the same state is the same id — and
+    #: "did anything change since the last deploy" is a string comparison.
+    release_id: str
     #: Host pattern this run was narrowed to, or ``None`` for every edge.
     #:
     #: Recorded rather than derived because it changes what a green result
     #: means. A canary that succeeded against one edge is not evidence the
-    #: fleet converged, and a rollback targeting it would restore a snapshot
+    #: fleet converged, and a rollback targeting it would restore a release
     #: most edges never received — which is why ``successful_rollback_target``
     #: skips limited runs.
     host_limit: str | None = None
     rollback_of: str | None = None
-    #: For a rollback: the canonical desired state it started from, as a digest.
+    #: For a rollback: the canonical desired state it started from, as the
+    #: digest of those release inputs.
     #: Adoption refuses if canonical state no longer matches, because restoring
     #: wholesale over a concurrent record write would delete it silently.
     canonical_digest: str | None = None
@@ -209,13 +219,26 @@ class DriftReport(BaseModel):
     unattempted: tuple[str, ...] = ()
 
     @classmethod
-    def of(cls, deployment: Deployment) -> DriftReport:
+    def of(
+        cls, deployment: Deployment, unattempted: tuple[str, ...] = ()
+    ) -> DriftReport:
+        """Read a recorded check-mode deployment as a drift report.
+
+        ``unattempted`` is supplied by the caller rather than taken from the
+        run, because the run no longer knows. A rollout walks the fleet edge by
+        edge and stops at the first failure, so "which edges did this check
+        never reach" is a set of rows rather than an inference from one
+        result's host list — and a caller reading a stored deployment back has
+        those rows to hand. What the run still carries is the *last* run's own
+        view, which is kept as a floor: a check that stopped inside one edge's
+        batch is still a check with edges left unanswered.
+        """
         return cls(
             deployment_id=deployment.id,
             checked_at=deployment.finished_at or deployment.created_at,
             host_limit=deployment.host_limit,
             hosts=deployment.hosts,
-            unattempted=deployment.unattempted,
+            unattempted=tuple(dict.fromkeys((*deployment.unattempted, *unattempted))),
         )
 
     @property

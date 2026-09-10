@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
+from datetime import datetime
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -10,18 +11,21 @@ from blitzecdn.capabilities.deployments.domain import (
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
+    DeploymentTarget,
+    TargetPhase,
+    TargetStatus,
 )
 from blitzecdn.capabilities.dns.domain import CdnSite, Rule
 from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
+from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
 from blitzecdn.core.domain.runs import AnsibleRun
-from blitzecdn.core.plugins import StateValue, ValidationResult
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
 
 
 class RuleRestore(Protocol):
-    """Putting the rules back, for a rollback that adopts an older snapshot.
+    """Putting the rules back, for a rollback that adopts an older release.
 
     One method, not the rule editor: a rollback replaces the table wholesale
     and never edits a rule, so the port it holds should not be able to.
@@ -53,17 +57,15 @@ class DeploymentRequirements(Protocol):
 
 
 class DeploymentStore(Protocol):
-    """Deployment history and the snapshots it converges."""
-
-    def snapshot(self) -> str: ...
+    """Deployment history, and which release each run converged."""
 
     def create_deployment(
         self,
         operator: str,
         *,
+        release_id: str,
         check_mode: bool,
         rollback_of: str | None = None,
-        snapshot: str | None = None,
         host_limit: str | None = None,
         canonical_digest: str | None = None,
     ) -> Deployment: ...
@@ -78,7 +80,7 @@ class DeploymentStore(Protocol):
 
     def get_deployment(self, deployment_id: str) -> Deployment: ...
 
-    def deployment_snapshot(self, deployment_id: str) -> str: ...
+    def deployment_release(self, deployment_id: str) -> str: ...
 
     def list_deployments(self, limit: int = 20) -> list[Deployment]: ...
 
@@ -88,7 +90,7 @@ class DeploymentStore(Protocol):
 
     def prune_history(self, keep: int) -> int: ...
 
-    def successful_rollback_target(self, current_snapshot: str) -> Deployment: ...
+    def successful_rollback_target(self, current_release: str) -> Deployment: ...
 
 
 class DeploymentGateway(Protocol):
@@ -143,7 +145,16 @@ class DeploymentRunner(DeploymentLocker, Protocol):
     #: over the desired-state file a concurrent deploy is converging.
     def validate(self, variables: Path) -> AnsibleRun: ...
 
-    def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun: ...
+    #: ``tags`` is what makes staging separable from activating. An empty
+    #: selection runs the whole play; ``("stage",)`` runs the preparation the
+    #: edge play tags that way and nothing that changes what the edge serves.
+    def run(
+        self,
+        *,
+        check: bool,
+        host_limit: str | None = None,
+        tags: tuple[str, ...] = (),
+    ) -> AnsibleRun: ...
 
 
 class LogReader(Protocol):
@@ -176,34 +187,29 @@ class YamlWriter(Protocol):
     def __call__(self, path: Path, document: dict[str, object], /) -> None: ...
 
 
-class DesiredStateRenderer(Protocol):
-    def render(self, snapshot: str, path: Path) -> None: ...
+class Releases(Protocol):
+    """Compiling desired state, and reading back what was compiled.
 
+    The whole of what a deployment knows about configuration. It does not
+    derive a virtual host, merge a rule, ask a plugin for a variable or render
+    a document — it asks for a release and converges the artifact in it, which
+    is what keeps "what should the fleet serve" answerable in one place and
+    answerable after the fact.
 
-class StateContributors(Protocol):
-    """Every plugin's share of a desired-state document, already merged.
-
-    Declared here rather than imported from the plugin registry for the
-    ordinary reason a port is declared by its consumer: the renderer needs two
-    mappings, not a plugin manager. It also keeps this capability testable with a
-    hand-built pair of dictionaries and no plugins registered anywhere.
+    ``compile`` records nothing and ``prepare`` records the result; the
+    distinction matters because validating is something an operator does
+    repeatedly while fixing a fleet, and it should not write history.
     """
 
-    def site_variables(self, site: CdnSite) -> Mapping[str, StateValue]: ...
+    def inputs(self) -> ReleaseInputs: ...
 
-    def fleet_variables(
-        self, sites: tuple[CdnSite, ...]
-    ) -> Mapping[str, StateValue]: ...
+    def compile(self, *, host_limit: str | None = None) -> Release: ...
 
+    def prepare(self, *, host_limit: str | None = None) -> Release: ...
 
-class SiteValidator(Protocol):
-    """What the installed plugins know that should stop a deployment.
+    def get(self, release_id: str) -> Release: ...
 
-    Asked once per site before anything is rendered, so refusing costs nothing:
-    no desired-state file is written and no playbook starts.
-    """
-
-    def validate_site(self, site: CdnSite) -> ValidationResult: ...
+    def inputs_for(self, release_id: str) -> ReleaseInputs: ...
 
 
 class WorkflowProgress(Protocol):
@@ -260,13 +266,14 @@ __all__ = [
     "DeploymentRequirements",
     "DeploymentRunner",
     "DeploymentStore",
-    "DesiredStateRenderer",
+    "DeploymentTargets",
+    "EdgeAddresses",
     "EventRecorder",
     "LogReader",
     "QueueBackgroundRunner",
+    "Releases",
     "RuleRestore",
-    "SiteValidator",
-    "StateContributors",
+    "ServingVerifier",
     "UnitOfWork",
     "WorkflowProgress",
     "WorkflowRun",
@@ -275,3 +282,74 @@ __all__ = [
     "ZoneEditor",
     "ZoneStore",
 ]
+
+
+class DeploymentTargets(Protocol):
+    """Per-edge rollout progress, and the fence every write to it names.
+
+    ``claim_generation`` is the whole of the concurrency story. Taking a
+    deployment over increments it; every subsequent write names the value the
+    claim returned, so a worker that was paused past its lease updates zero
+    rows and is told so rather than recording an outcome for an edge somebody
+    else has since converged.
+    """
+
+    def claim_generation(self, deployment_id: str) -> int: ...
+
+    def plan(self, deployment_id: str, edges: Sequence[str], *, fence: int) -> None: ...
+
+    def targets(self, deployment_id: str) -> Sequence[DeploymentTarget]: ...
+
+    def begin(
+        self, deployment_id: str, edge: str, *, fence: int, now: datetime
+    ) -> bool: ...
+
+    def record_phase(
+        self, deployment_id: str, edge: str, phase: TargetPhase, *, fence: int
+    ) -> bool: ...
+
+    def finish(
+        self,
+        deployment_id: str,
+        edge: str,
+        *,
+        fence: int,
+        status: TargetStatus,
+        now: datetime,
+        error: str | None = None,
+    ) -> bool: ...
+
+    def skip_remaining(
+        self, deployment_id: str, *, fence: int, now: datetime, reason: str
+    ) -> int: ...
+
+
+class EdgeAddresses(Protocol):
+    """Which edges a run reaches, and where each answers from outside.
+
+    Two questions with one answer behind them, which is why they are one port.
+    ``selected`` expands a host limit into the edges a rollout will walk, using
+    the same matcher the Ansible runner uses to build its ``--limit`` — so
+    "which edges does this deployment aim at" cannot have two answers.
+
+    ``public_address`` is the address a *visitor* arrives on, not the one the
+    controller connects to over SSH. They differ on any NAT'd or multi-homed
+    edge, and verification is a question about the side the world sees.
+    """
+
+    def selected(self, host_limit: str | None) -> Sequence[str]: ...
+
+    def public_address(self, edge: str) -> str | None: ...
+
+
+class ServingVerifier(Protocol):
+    """Whether an edge actually answers for what it was told to serve.
+
+    Declared as a port so the rollout can be tested without a network, and
+    narrow so it can never become a general HTTP client living inside a
+    deployment service.
+    """
+
+    def verify(
+        self, *, edge: str, address: str, sites: Sequence[CdnSite]
+    ) -> Sequence[Any]: ...
