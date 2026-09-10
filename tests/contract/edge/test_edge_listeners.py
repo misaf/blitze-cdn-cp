@@ -189,7 +189,7 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
             certificate_key_path="/etc/ssl/private/edge.key",
         )
     output = tmp_path / "http3.yml"
-    control.deployments.write_desired_state(repository.snapshot(), output)
+    control.deployments.publish_artifact(control.releases.compile(), output)
     document = yaml.safe_load(output.read_text(encoding="utf-8"))
 
     assert isinstance(document["blitzecdn_edge_http3_enabled"], bool)

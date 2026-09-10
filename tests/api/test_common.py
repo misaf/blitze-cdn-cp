@@ -30,16 +30,22 @@ def test_health_is_public_and_controls_require_auth(settings):
         )
 
 
-def test_health_reports_redis_unavailable(settings, monkeypatch):
+def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
+    """A distinct check from the database, even on one file.
+
+    A schema that has not been migrated has a database and no `jobs` table, and
+    a controller in that state accepts deployments it can never run. The two
+    fail differently and are fixed differently.
+    """
     monkeypatch.setattr(
-        "blitzecdn.composition.control_plane.redis_ready", lambda _url: False
+        "blitzecdn.composition.control_plane._queue_reachable", lambda _queue: False
     )
     with TestClient(control_plane_app(settings)) as client:
         response = client.get("/health")
     assert response.status_code == 503
     assert response.json() == {
         "status": "unavailable",
-        "check": "broker",
+        "check": "queue",
         "detail": "ConnectionError",
     }
 

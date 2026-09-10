@@ -159,8 +159,8 @@ PUBLISHED_OPERATION_SHAPES = {
     ),
     "Deployment": (
         "canonical_digest check_mode created_at finished_at host_limit id "
-        "operator result rollback_of started_at status",
-        "check_mode created_at id operator status",
+        "operator release_id result rollback_of started_at status",
+        "check_mode created_at id operator release_id status",
     ),
     "DriftReport": (
         "checked_at deployment_id host_limit hosts unattempted",

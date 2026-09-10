@@ -3,12 +3,8 @@
 from hypothesis import given
 from hypothesis import strategies as st
 
-from blitzecdn.capabilities.deployments.domain.snapshots import (
-    decode_snapshot,
-    decode_snapshot_state,
-    encode_snapshot,
-)
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, derive_hosts
+from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.core.domain.validation import hostname
 
 _LABEL = st.text(
@@ -25,32 +21,37 @@ def test_hostname_normalization_is_idempotent(name: str) -> None:
 
 
 @given(label=_LABEL, address=st.ip_addresses(v=4))
-def test_zone_snapshot_round_trip(label: str, address: object) -> None:
+def test_release_inputs_round_trip(label: str, address: object) -> None:
     domains = [Domain(name=f"{label}.example.com")]
     records = [
         DnsRecord(domain=domains[0].name, name=f"cdn-{label}", value=str(address))
     ]
 
-    restored_domains, restored_records, restored_rules = decode_snapshot_state(
-        encode_snapshot(domains, records, [])
-    )
+    inputs = ReleaseInputs.of(domains, records, [])
+    restored = ReleaseInputs.decode(inputs.encode())
 
-    assert restored_domains == domains
-    assert restored_records == records
-    assert restored_rules == []
+    assert list(restored.domains) == domains
+    assert list(restored.records) == records
+    assert restored.rules == ()
+    # Equal state must produce an equal digest, or a release is not
+    # content-addressed and every comparison built on one is a coin toss.
+    assert restored.digest == inputs.digest
 
 
 @given(label=_LABEL, address=st.ip_addresses(v=4))
-def test_a_snapshot_derives_the_hosts_it_does_not_carry(
+def test_release_inputs_derive_the_hosts_they_do_not_carry(
     label: str, address: object
 ) -> None:
-    """What an edge is asked to serve is a function of what the snapshot holds."""
+    """What an edge is asked to serve is a function of what the inputs hold."""
     domains = [Domain(name=f"{label}.example.com")]
     records = [
         DnsRecord(domain=domains[0].name, name=f"cdn-{label}", value=str(address))
     ]
 
-    (host,) = decode_snapshot(encode_snapshot(domains, records, []))
+    restored = ReleaseInputs.decode(ReleaseInputs.of(domains, records, []).encode())
+    (host,) = derive_hosts(
+        list(restored.domains), list(restored.rules), list(restored.records)
+    )
 
     assert host.server_names == (f"cdn-{label}.{domains[0].name}",)
     assert host.origin_host == str(address)

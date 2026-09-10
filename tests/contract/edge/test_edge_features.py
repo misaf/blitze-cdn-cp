@@ -53,6 +53,14 @@ REQUIRES_CAPABILITIES = {
 
 
 def test_websocket_upgrade_is_forwarded_and_never_cached():
+    """The handshake is forwarded, and neither stored nor served from cache.
+
+    The two cache directives name `$http_upgrade` first and `$http_authorization`
+    after it — a shared cache must not store a response to an authorized
+    request either, and nginx applies no such rule of its own. Asserted as a
+    prefix rather than as the whole line so this stays a test about WebSocket
+    upgrades; `blitzecdn-cache`'s own suite holds the complete exclusion list.
+    """
     site = CdnSite.model_validate(
         {
             "name": "socket",
@@ -66,8 +74,8 @@ def test_websocket_upgrade_is_forwarded_and_never_cached():
     assert "map $http_upgrade $blitzecdn_connection_upgrade" in http_template
     assert "proxy_set_header Upgrade $http_upgrade;" in rendered
     assert "proxy_set_header Connection $blitzecdn_connection_upgrade;" in rendered
-    assert "proxy_cache_bypass $http_upgrade;" in rendered
-    assert "proxy_no_cache $http_upgrade;" in rendered
+    assert "proxy_cache_bypass $http_upgrade" in rendered
+    assert "proxy_no_cache $http_upgrade" in rendered
 
 
 @pytest.mark.parametrize(

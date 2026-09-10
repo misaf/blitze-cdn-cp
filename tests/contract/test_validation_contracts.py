@@ -493,8 +493,8 @@ def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
             overrides={"cache_enabled": False},
         )
     )
-    control.deployments.write_desired_state(
-        repository.snapshot(), settings.generated_vars_path
+    control.deployments.publish_artifact(
+        control.releases.compile(), settings.generated_vars_path
     )
     published = yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))
 

@@ -8,6 +8,7 @@ blitzecdn	route	GET /v1/audit-events
 blitzecdn	route	GET /v1/deployments
 blitzecdn	route	GET /v1/deployments/{deployment_id}
 blitzecdn	route	GET /v1/deployments/{deployment_id}/drift
+blitzecdn	route	GET /v1/deployments/{deployment_id}/targets
 blitzecdn	route	GET /v1/dns/export
 blitzecdn	route	GET /v1/domains
 blitzecdn	route	GET /v1/domains/{domain}
@@ -19,6 +20,10 @@ blitzecdn	route	GET /v1/edges
 blitzecdn	route	GET /v1/edges/{name}
 blitzecdn	route	GET /v1/hosts
 blitzecdn	route	GET /v1/hosts/{name}
+blitzecdn	route	GET /v1/releases
+blitzecdn	route	GET /v1/releases/current
+blitzecdn	route	GET /v1/releases/{release_id}
+blitzecdn	route	GET /v1/releases/{release_id}/artifacts/{name}
 blitzecdn	route	GET /v1/workflows
 blitzecdn	route	GET /v1/workflows/{workflow_id}
 blitzecdn	route	PATCH /v1/domains/{domain}
@@ -42,6 +47,8 @@ blitzecdn	schema	AnsibleRun.return_code	integer|null optional
 blitzecdn	schema	AnsibleRun.started_at	string required
 blitzecdn	schema	AnsibleRun.status	RunStatus required
 blitzecdn	schema	AnsibleRun.targeted	array[string] optional
+blitzecdn	schema	ArtifactDigest.digest	string required
+blitzecdn	schema	ArtifactDigest.name	string required
 blitzecdn	schema	AuditEvent.action	string required
 blitzecdn	schema	AuditEvent.created_at	string required
 blitzecdn	schema	AuditEvent.details	object optional
@@ -81,10 +88,18 @@ blitzecdn	schema	Deployment.finished_at	string|null optional
 blitzecdn	schema	Deployment.host_limit	string|null optional
 blitzecdn	schema	Deployment.id	string required
 blitzecdn	schema	Deployment.operator	string required
+blitzecdn	schema	Deployment.release_id	string required
 blitzecdn	schema	Deployment.result	AnsibleRun|null optional
 blitzecdn	schema	Deployment.rollback_of	string|null optional
 blitzecdn	schema	Deployment.started_at	string|null optional
 blitzecdn	schema	Deployment.status	DeploymentStatus required
+blitzecdn	schema	DeploymentTarget.attempts	integer required
+blitzecdn	schema	DeploymentTarget.edge	string required
+blitzecdn	schema	DeploymentTarget.finished_at	string|null optional
+blitzecdn	schema	DeploymentTarget.last_error	string|null optional
+blitzecdn	schema	DeploymentTarget.phase	TargetPhase|null optional
+blitzecdn	schema	DeploymentTarget.started_at	string|null optional
+blitzecdn	schema	DeploymentTarget.status	TargetStatus required
 blitzecdn	schema	DnsRecord.domain	string required
 blitzecdn	schema	DnsRecord.name	string required
 blitzecdn	schema	DnsRecord.proxied	boolean optional
@@ -138,6 +153,7 @@ blitzecdn	schema	DriftReport.host_limit	string|null optional
 blitzecdn	schema	DriftReport.hosts	array[HostRun] optional
 blitzecdn	schema	DriftReport.unattempted	array[string] optional
 blitzecdn	schema	DriftRequest.host_limit	string|null optional
+blitzecdn	schema	Edge.capabilities	array[string]|null optional
 blitzecdn	schema	Edge.host	string required
 blitzecdn	schema	Edge.name	string required
 blitzecdn	schema	Edge.port	integer optional
@@ -145,6 +161,7 @@ blitzecdn	schema	Edge.private_key_file	string|null optional
 blitzecdn	schema	Edge.public_addresses	array[string] optional
 blitzecdn	schema	Edge.ssh_sources	array[string] optional
 blitzecdn	schema	Edge.user	string optional
+blitzecdn	schema	EdgePatch.capabilities	array[string]|null optional
 blitzecdn	schema	EdgePatch.host	string|null optional
 blitzecdn	schema	EdgePatch.port	integer|null optional
 blitzecdn	schema	EdgePatch.private_key_file	string|null optional
@@ -155,6 +172,12 @@ blitzecdn	schema	EdgeRemoval.decommissioned	boolean required
 blitzecdn	schema	EdgeRemoval.hosts	array[HostRun] optional
 blitzecdn	schema	EdgeRemoval.name	string required
 blitzecdn	schema	HTTPValidationError.detail	array[ValidationError] optional
+blitzecdn	schema	HostExplanation.host	string required
+blitzecdn	schema	HostExplanation.origin_host	string required
+blitzecdn	schema	HostExplanation.rule	string|null optional
+blitzecdn	schema	HostExplanation.server_names	array[string] optional
+blitzecdn	schema	HostExplanation.settings	array[SettingSource] optional
+blitzecdn	schema	HostExplanation.zone	string required
 blitzecdn	schema	HostRun.changed	integer optional
 blitzecdn	schema	HostRun.changes	array[TaskResult] optional
 blitzecdn	schema	HostRun.failed	integer optional
@@ -169,6 +192,26 @@ blitzecdn	schema	HostRun.unreachable	integer optional
 blitzecdn	schema	RecordPatch.proxied	boolean|null optional
 blitzecdn	schema	RecordPatch.ttl	integer|null optional
 blitzecdn	schema	RecordPatch.value	string|null optional
+blitzecdn	schema	Release.artifacts	array[ArtifactDigest] optional
+blitzecdn	schema	Release.capabilities	array[string] optional
+blitzecdn	schema	Release.compiler_version	integer required
+blitzecdn	schema	Release.digest	string required
+blitzecdn	schema	Release.findings	array[ReleaseFinding] optional
+blitzecdn	schema	Release.id	string required
+blitzecdn	schema	Release.inputs_digest	string required
+blitzecdn	schema	Release.servable	boolean required
+blitzecdn	schema	ReleaseDetail.artifacts	array[ArtifactDigest] optional
+blitzecdn	schema	ReleaseDetail.capabilities	array[string] optional
+blitzecdn	schema	ReleaseDetail.compiler_version	integer required
+blitzecdn	schema	ReleaseDetail.digest	string required
+blitzecdn	schema	ReleaseDetail.explanations	array[HostExplanation] optional
+blitzecdn	schema	ReleaseDetail.findings	array[ReleaseFinding] optional
+blitzecdn	schema	ReleaseDetail.id	string required
+blitzecdn	schema	ReleaseDetail.inputs_digest	string required
+blitzecdn	schema	ReleaseDetail.servable	boolean required
+blitzecdn	schema	ReleaseFinding.host	string|null optional
+blitzecdn	schema	ReleaseFinding.message	string required
+blitzecdn	schema	ReleaseFinding.source	string required
 blitzecdn	schema	ResolvedPolicy.fqdn	string required
 blitzecdn	schema	ResolvedPolicy.policy	Domain required
 blitzecdn	schema	ResolvedPolicy.rule	string|null optional
@@ -189,6 +232,10 @@ blitzecdn	schema	RulePatch.enabled	boolean|null optional
 blitzecdn	schema	RulePatch.match	string|null optional
 blitzecdn	schema	RulePatch.overrides	DomainPatch|null optional
 blitzecdn	schema	RulePatch.priority	integer|null optional
+blitzecdn	schema	SettingSource.origin	SettingOrigin required
+blitzecdn	schema	SettingSource.rule	string|null optional
+blitzecdn	schema	SettingSource.setting	string required
+blitzecdn	schema	SettingSource.value	any required
 blitzecdn	schema	TaskResult.action	string optional
 blitzecdn	schema	TaskResult.message	string|null optional
 blitzecdn	schema	TaskResult.outcome	TaskOutcome required

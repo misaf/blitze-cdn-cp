@@ -352,8 +352,8 @@ def desired_state(settings: Settings, tmp_path: Path) -> dict[str, Any]:
             },
         },
     )
-    control.deployments.write_desired_state(
-        repository.snapshot(), settings.generated_vars_path
+    control.deployments.publish_artifact(
+        control.releases.compile(), settings.generated_vars_path
     )
     return _yaml_mapping(settings.generated_vars_path)
 

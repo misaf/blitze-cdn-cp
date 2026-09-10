@@ -39,6 +39,7 @@ blitzecdn	sdk	blitzecdn.core.domain.runs.TaskResult	class(BaseModel)
 blitzecdn	sdk	blitzecdn.core.domain.validation.OmittedWhenEmpty	class(BaseModel)
 blitzecdn	sdk	blitzecdn.core.domain.validation.RESERVED_ANSIBLE_SETTINGS	frozenset
 blitzecdn	sdk	blitzecdn.core.domain.validation.hostname	def(value: str, wildcard: bool = False) -> str
+blitzecdn	sdk	blitzecdn.core.domain.validation.matches_edge_limit	def(name: str, host_limit: str) -> bool
 blitzecdn	sdk	blitzecdn.core.domain.validation.unique	def(values: tuple[str, ...], label: str) -> tuple[str, ...]
 blitzecdn	sdk	blitzecdn.core.domain.validation.validate_edge_limit	def(value: str | None) -> str | None
 blitzecdn	sdk	blitzecdn.core.domain.validation.validate_setting_name	def(value: str) -> str

@@ -108,10 +108,61 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "version pins. It describes the installed control plane rather than "
         "any state it holds, which is the same reason `plugins` is here.",
     ),
+    # -- Durable work ------------------------------------------------------
+    (
+        "blitzecdn",
+        "job list",
+        None,
+        "what background work is queued, running or failed. Deliberately not a "
+        "route: a job is control-plane machinery rather than a resource a "
+        "client manages, and the two things a client actually wants — did my "
+        "deployment run, did my certificate renew — are already answered by "
+        "`GET /v1/deployments/{deployment_id}` and `GET /v1/workflows`. "
+        "Publishing the queue would be publishing an implementation.",
+    ),
+    ("blitzecdn", "job show", None, "one job, and the error that ended it; see above."),
+    (
+        "blitzecdn",
+        "job schedules",
+        None,
+        "when each recurring job is next due. Same reasoning: the schedule is "
+        "how the control plane paces itself, not a resource, and a client that "
+        "wants a certificate renewed now asks for that rather than waiting on "
+        "a timer.",
+    ),
+    # -- Releases ----------------------------------------------------------
+    ("blitzecdn", "release list", "GET /v1/releases", ""),
+    ("blitzecdn", "release show", "GET /v1/releases/{release_id}", ""),
+    ("blitzecdn", "release show", "GET /v1/releases/current", ""),
+    (
+        "blitzecdn",
+        "release artifact",
+        "GET /v1/releases/{release_id}/artifacts/{name}",
+        "",
+    ),
+    (
+        "blitzecdn",
+        "release explain",
+        None,
+        "where each effective setting came from. The route answers it too — an "
+        "explanation is part of every release document — so a client asking "
+        "`GET /v1/releases/{release_id}` already has it and needs no endpoint "
+        "of its own. The command exists because a terminal wants one host's "
+        "settings rather than the fleet's.",
+    ),
     # -- Deployments -------------------------------------------------------
     ("blitzecdn", "deploy", "POST /v1/deployments", ""),
     ("blitzecdn", "status", "GET /v1/deployments", ""),
     ("blitzecdn", "status", "GET /v1/deployments/{deployment_id}", ""),
+    (
+        "blitzecdn",
+        "status",
+        "GET /v1/deployments/{deployment_id}/targets",
+        "how far each edge got. `blitzecdn status <id>` prints it beneath the "
+        "deployment, because an operator asking about a run wants the per-edge "
+        "answer in the same breath; a client polling a rollout wants to fetch "
+        "just the progress without re-reading the deployment each time.",
+    ),
     ("blitzecdn", "rollback", "POST /v1/rollbacks", ""),
     ("blitzecdn", "drift", "POST /v1/drift", ""),
     (

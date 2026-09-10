@@ -5,17 +5,15 @@ from __future__ import annotations
 import pytest
 from control_plane_fixtures import FakeRunner, seed_record
 
-from blitzecdn.capabilities.deployments.domain.snapshots import (
-    decode_snapshot,
-    decode_snapshot_state,
-)
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
     RecordPatch,
     RecordType,
     Rule,
+    derive_hosts,
 )
+from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
@@ -210,7 +208,7 @@ def test_deleting_a_zone_takes_its_records_and_its_hosts(settings):
     assert control.sites.list_sites() == []
 
 
-def test_snapshot_round_trips_zones_records_and_rules(settings):
+def test_release_inputs_round_trip_zones_records_and_rules(settings):
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
     _zone(control)
@@ -224,13 +222,12 @@ def test_snapshot_round_trips_zones_records_and_rules(settings):
         ),
         "alice",
     )
-    snapshot = repository.snapshot()
+    inputs = ReleaseInputs.decode(repository.release_inputs().encode())
 
-    domains, records, rules = decode_snapshot_state(snapshot)
-
-    assert [domain.name for domain in domains] == ["example.com"]
-    assert [record.fqdn for record in records] == ["cdn.example.com"]
-    assert [rule.name for rule in rules] == ["api"]
-    # The hosts are not in the document: they are derived from it on the way
-    # out, which is why a rule matching nothing contributes none.
-    assert [host.name for host in decode_snapshot(snapshot)] == ["example-com"]
+    assert [domain.name for domain in inputs.domains] == ["example.com"]
+    assert [record.fqdn for record in inputs.records] == ["cdn.example.com"]
+    assert [rule.name for rule in inputs.rules] == ["api"]
+    # The hosts are not in the document: they are derived from it by the
+    # compiler, which is why a rule matching nothing contributes none.
+    hosts = derive_hosts(list(inputs.domains), list(inputs.rules), list(inputs.records))
+    assert [host.name for host in hosts] == ["example-com"]

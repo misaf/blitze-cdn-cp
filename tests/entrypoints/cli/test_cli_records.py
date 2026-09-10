@@ -81,8 +81,9 @@ def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatc
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
     exported = json.loads(runner.invoke(cli.app, ["dns", "export", "--json"]).stdout)
-    assert exported[0]["proxied"] is True
-    assert "value" not in exported[0]
+    assert exported["records"][0]["proxied"] is True
+    assert "value" not in exported["records"][0]
+    assert exported["publication"]["publishes"] is False
 
 
 def test_domain_remove_keeps_the_zone_when_the_operator_declines(settings, monkeypatch):
