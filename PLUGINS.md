@@ -696,7 +696,7 @@ has nowhere of its own to assert it. A contract capability is exempt: `cache`,
 `tests/contract/`.
 
 What the rule refuses is a capability's own decisions asserted somewhere that
-is about something else. `MaintenanceService` was tested in the Dramatiq suite,
+is about something else. `MaintenanceService` was tested in the queue suite,
 which the service does not touch; `WorkflowCoordinator` and `check_resolver`
 had no direct test at all. Cross-cutting suites stay where they are —
 `tests/platform/`, `tests/api/` and `tests/entrypoints/` test the assembled
