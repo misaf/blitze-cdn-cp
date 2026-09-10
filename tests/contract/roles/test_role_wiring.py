@@ -74,3 +74,38 @@ def test_docker_daemon_configuration_uses_only_supported_directives():
     assert configure["ansible.builtin.template"]["validate"] == (
         "/usr/bin/dockerd --validate --config-file %s"
     )
+
+
+def test_only_the_plays_preparation_carries_the_stage_tag():
+    """Staging must never be able to change what an edge is serving.
+
+    `--tags stage` is what a rollout's STAGE phase runs: install the container
+    engine, create the persistent directories, pull and digest-pin the runtime
+    image, and prove that image's Nginx can serve. Every one of those must be
+    true before a configuration is rendered, and not one of them touches the
+    configuration — which is what lets a fleet be staged ahead of a window and
+    activated inside it.
+
+    A role task that acquired the tag would quietly make staging an activation,
+    and the phase would go on reporting itself as the harmless one. The rule is
+    positional and checkable: the tag belongs to the edge play's pre-tasks and
+    to nothing else in the tree.
+    """
+    play = yaml.safe_load(
+        (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
+    )[0]
+
+    assert all("stage" in task.get("tags", []) for task in play["pre_tasks"]), (
+        "every pre-task is preparation and must run when staging"
+    )
+    assert not [role for role in play["roles"] if "stage" in role.get("tags", [])], (
+        "a role that ran during staging would make the phase a lie"
+    )
+
+    offenders = [
+        f"{path.relative_to(CORE_ANSIBLE)}: {task.get('name', '<unnamed>')}"
+        for path in sorted((CORE_ANSIBLE / "roles").rglob("tasks/*.yml"))
+        for task in (yaml.safe_load(path.read_text(encoding="utf-8")) or [])
+        if isinstance(task, dict) and "stage" in (task.get("tags") or [])
+    ]
+    assert offenders == []

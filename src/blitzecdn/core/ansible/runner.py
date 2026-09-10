@@ -89,7 +89,13 @@ class AnsibleRunner:
             )
         )
 
-    def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun:
+    def run(
+        self,
+        *,
+        check: bool,
+        host_limit: str | None = None,
+        tags: tuple[str, ...] = (),
+    ) -> AnsibleRun:
         self._validate_paths()
         limit = self._limit(host_limit)
         return self._executor.execute(
@@ -100,6 +106,7 @@ class AnsibleRunner:
                 timeout=self._settings.deployment_timeout_seconds,
                 check=check,
                 targeted=targeted_hosts(self._fleet, limit),
+                tags=tags,
             )
         )
 
