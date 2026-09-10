@@ -29,6 +29,21 @@
     - "10%"
     - "25%"
     - "100%"
+  # `stage` on every pre-task and on no role, which is what makes staging a
+  # separable phase rather than a name for part of a deploy.
+  #
+  # A `--tags stage` run executes exactly this preparation: assert the host,
+  # establish the runtime contract, install the container engine, create the
+  # persistent directories, pull and digest-pin the runtime image, and prove
+  # that image's Nginx can actually serve. Every one of those is a thing that
+  # must be true *before* a configuration is rendered, and not one of them
+  # changes what the edge is currently serving — so a fleet can be staged
+  # ahead of a window and activated inside it.
+  #
+  # These tasks also carry `always`, so they still run as preconditions under
+  # every other selection. `tests/contract/roles` refuses a role task that
+  # carries `stage`, because a staged edge that had started serving new
+  # configuration would make the phase a lie.
   pre_tasks:
     - name: Validate supported operating system
       ansible.builtin.assert:
@@ -36,7 +51,7 @@
           - ansible_facts.distribution == 'Ubuntu'
           - ansible_facts.distribution_version == '26.04'
         fail_msg: BlitzeCDN edges for this release require Ubuntu 26.04 LTS.
-      tags: [always]
+      tags: [always, stage]
     # Establishes and validates the shared edge runtime contract: the host
     # paths, the public listener sets, the status endpoint, the runtime image
     # and the capability data directory that blitzecdn_nginx,
@@ -51,7 +66,7 @@
     - name: Establish the shared edge runtime contract
       ansible.builtin.import_role:
         name: blitzecdn_edge
-      tags: [always, firewall, nginx, edge_stack]
+      tags: [always, stage, firewall, nginx, edge_stack]
     # The container engine, and then everything the edge runtime needs to exist
     # before a configuration is rendered: the persistent directories, the
     # runtime image and the Compose project.
@@ -63,12 +78,12 @@
     - name: Install and verify the host container engine
       ansible.builtin.import_role:
         name: blitzecdn_docker
-      tags: [always, docker]
+      tags: [always, stage, docker]
     - name: Prepare the persistent edge state and runtime image
       ansible.builtin.import_role:
         name: blitzecdn_edge_stack
         tasks_from: prepare.yml
-      tags: [always, docker, edge_stack]
+      tags: [always, stage, docker, edge_stack]
     - name: Verify the edge runtime image before firewall changes
       ansible.builtin.import_role:
         name: blitzecdn_nginx
@@ -79,7 +94,7 @@
         blitzecdn_nginx_config_test_image: >-
           {{ blitzecdn_edge_stack_resolved_image
              | default(blitzecdn_edge_runtime.image) }}
-      tags: [always, nginx]
+      tags: [always, stage, nginx]
   roles:
     - role: blitzecdn_base
       tags: [base]

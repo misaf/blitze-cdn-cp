@@ -58,6 +58,15 @@ class PlaybookRun:
     #: The hosts `limit` expands to, recorded on the result so a partial
     #: rollout says which edges it reached.
     targeted: tuple[str, ...] = ()
+    #: `--tags`: which slices of the play to run. Empty runs all of it.
+    #:
+    #: This is what makes staging separable from activating. Tasks tagged
+    #: `always` run under any selection, and the play's preparation — the
+    #: container engine, the persistent directories, pulling and digest-pinning
+    #: the runtime image, and proving that image can serve — is exactly the set
+    #: tagged that way. A selection naming a tag no role declares therefore runs
+    #: precisely the preparation and nothing that changes what the edge serves.
+    tags: tuple[str, ...] = ()
 
 
 #: Exit code recorded for a run killed at its timeout, matching the shell
@@ -196,6 +205,8 @@ class PlaybookExecutor:
                 }
             ),
         ]
+        if request.tags:
+            options.extend(("--tags", ",".join(request.tags)))
         if request.syntax_check:
             options.append("--syntax-check")
         elif request.check:

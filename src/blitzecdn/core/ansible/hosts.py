@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from fnmatch import fnmatch
-
-from blitzecdn.core.domain.validation import validate_edge_limit
+from blitzecdn.core.domain.validation import matches_edge_limit, validate_edge_limit
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.ports.fleet import FleetRoster
 
@@ -31,11 +29,7 @@ def resolve_limit(fleet: FleetRoster, host_limit: str | None) -> str:
     if validated is None:
         return fleet.group
     known = list(fleet.host_names())
-    matched = [
-        name
-        for name in known
-        if any(fnmatch(name, pattern) for pattern in validated.split(","))
-    ]
+    matched = [name for name in known if matches_edge_limit(name, validated)]
     if not matched:
         raise ConfigurationError(
             f"host limit {validated!r} matches none of the configured edges: "
