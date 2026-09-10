@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
 from importlib.util import find_spec
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
-import dramatiq
 import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
-from dramatiq.brokers.stub import StubBroker
 from fastapi import FastAPI
 from pydantic import SecretStr
 
@@ -48,29 +47,27 @@ from blitzecdn.core.domain.runs import (
     TaskResult,
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
-from blitzecdn.worker import run_deployment, run_scheduled_job
 
 
 @pytest.fixture(autouse=True)
-def dramatiq_stub_broker(monkeypatch: pytest.MonkeyPatch) -> Iterator[StubBroker]:
-    """Keep unit and API tests independent of an external Redis process."""
-    broker = StubBroker()
+def serving_probe_opens_no_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep every test that deploys off the network.
+
+    A deployment's last phase asks the edge, over HTTP, whether it is actually
+    serving — which is the whole point of the phase and exactly what a test of
+    anything else must not do. Left alone, every `deploy()` in this suite would
+    open a connection to an address in TEST-NET-1 and wait out the timeout.
+
+    This replaces the *default*, so a control plane built without an opinion
+    gets an answer instead of a socket. A test about verification passes its
+    own `serving_probe=` and is unaffected, and
+    `tests/capabilities/deployments/test_serving_probe.py` exercises the real
+    one against a server it starts itself.
+    """
     monkeypatch.setattr(
-        "blitzecdn.composition.control_plane.redis_ready", lambda _url: True
+        "blitzecdn.composition.control_plane.ServingProbe",
+        lambda *args, **kwargs: FakeServingProbe(),
     )
-    previous_broker = dramatiq.get_broker()
-    actors: tuple[dramatiq.Actor[Any, Any], ...] = (run_deployment, run_scheduled_job)
-    previous_actor_brokers = [actor.broker for actor in actors]
-    dramatiq.set_broker(broker)
-    for actor in actors:
-        actor.broker = broker
-        broker.declare_actor(actor)
-    try:
-        yield broker
-    finally:
-        dramatiq.set_broker(previous_broker)
-        for actor, previous in zip(actors, previous_actor_brokers, strict=True):
-            actor.broker = previous
 
 
 @pytest.fixture(autouse=True)
@@ -110,6 +107,36 @@ def skip_tests_a_detached_capability_cannot_answer(
 #: separate host, because `derive_hosts` groups by which rule won rather than
 #: by whether the resolved policies differ.
 _IDENTITY_ONLY = {"enabled": True}
+
+#: How to switch off a setting whose implementation is not installed here.
+#:
+#: A seeded site exists to give a test "a hostname on an edge", and in a
+#: workspace missing the compression wheel a site that demands compression is
+#: not that: compiling refuses it, and every deployment test built on the
+#: fixture fails for a reason that has nothing to do with what it is testing.
+#: `just test-core-only` is exactly that workspace, and it is the run that
+#: proves core stands alone — so the fixture has to seed something core alone
+#: can serve.
+#:
+#: Applied only where the distribution is absent, so the full workspace seeds
+#: byte-identical desired state and the frozen edge fixtures are untouched. A
+#: test that is *about* one of these settings passes it explicitly and keeps
+#: whatever it asked for; this only fills in what the caller left to defaults.
+_WITHOUT_DISTRIBUTION: dict[str, dict[str, object]] = {
+    "cache": {"cache_enabled": False},
+    "compression": {"compression": "off"},
+}
+
+
+def _servable_here(policy: dict[str, object]) -> dict[str, object]:
+    """The caller's policy, with absent capabilities' settings turned off."""
+    filled = dict(policy)
+    for capability, defaults in _WITHOUT_DISTRIBUTION.items():
+        if find_spec(f"blitzecdn_{capability}") is not None:
+            continue
+        for setting, value in defaults.items():
+            filled.setdefault(setting, value)
+    return filled
 
 
 def _issuer_owned_mode(policy: Mapping[str, object]) -> CertificateMode | None:
@@ -190,6 +217,7 @@ def seed_site(
     it was fabricating a state no deployment can reach in one step, so the
     sequence is the more faithful fixture regardless.
     """
+    policy = _servable_here(policy)
     issuer_mode = _issuer_owned_mode(policy)
     if issuer_mode is not None:
         # Held back and replayed below in the order the system reaches them.
@@ -256,6 +284,64 @@ def seed_site(
 _DEFAULT_ORIGINS = {RecordType.A: "198.51.100.10", RecordType.AAAA: "2001:db8::10"}
 
 
+def seed_edge(
+    control: ControlPlane,
+    *,
+    name: str = "edge-a",
+    host: str = "192.0.2.10",
+    public_address: str | None = None,
+    capabilities: tuple[str, ...] | None = None,
+) -> Edge:
+    """Register one edge, which is what makes a deployment have somewhere to go.
+
+    A rollout walks the registered fleet, so a test that deploys and then reads
+    what the runner was asked to do needs an edge for the rollout to walk. The
+    addresses default to TEST-NET-1, which is unroutable by design — the
+    serving probe is a double in these tests and nothing here opens a socket.
+    """
+    return control.edges.add_edge(
+        Edge(
+            name=name,
+            host=host,
+            ssh_sources=("198.51.100.0/24",),
+            public_addresses=(public_address,) if public_address else (),
+            capabilities=capabilities,
+        ),
+        "tester",
+    )
+
+
+class FakeServingProbe:
+    """A serving verifier that answers without a network.
+
+    The real one makes an HTTP request to an edge, which is the whole point of
+    the phase — and exactly what a unit test of anything else must not do. This
+    records what it was asked and answers as told, so a test about a deployment
+    can decide whether the fleet came up without waiting out a connect timeout
+    to an address nobody is listening on.
+    """
+
+    def __init__(self, *, served: bool = True) -> None:
+        self.served = served
+        #: Every call, as `(edge, address, hostnames)`.
+        self.asked: list[tuple[str, str, tuple[str, ...]]] = []
+
+    def verify(
+        self, *, edge: str, address: str, sites: Sequence[CdnSite]
+    ) -> tuple[Any, ...]:
+        hostnames = tuple(site.server_names[0] for site in sites if site.server_names)
+        self.asked.append((edge, address, hostnames))
+        return tuple(
+            SimpleNamespace(
+                edge=edge,
+                hostname=hostname,
+                served=self.served,
+                detail="HTTP 200" if self.served else "connection refused",
+            )
+            for hostname in hostnames
+        )
+
+
 def seed_record(
     control: ControlPlane,
     *,
@@ -274,7 +360,9 @@ def seed_record(
     :func:`seed_site` for a zone with settings on it.
     """
     with suppress(ConflictError):
-        control.dns.create_domain(Domain(name=domain), operator)
+        control.dns.create_domain(
+            Domain.model_validate({"name": domain, **_servable_here({})}), operator
+        )
     return control.dns.create_record(
         DnsRecord.model_validate(
             {
@@ -406,6 +494,9 @@ class FakeRunner:
         #: method per play some package might contribute.
         self.playbooks: list[tuple[str, Path, dict[str, object], str | None]] = []
         self.decommissions: list[str] = []
+        #: The `--tags` selection each run was made with. `("stage",)` is the
+        #: staging phase; empty is a full converge.
+        self.tag_selections: list[tuple[str, ...]] = []
 
     def lock(self) -> nullcontext[None]:
         return nullcontext()
@@ -414,10 +505,24 @@ class FakeRunner:
         self.validated.append(variables)
         return self.results[0]
 
-    def run(self, *, check: bool, host_limit: str | None = None) -> AnsibleRun:
+    def run(
+        self,
+        *,
+        check: bool,
+        host_limit: str | None = None,
+        tags: tuple[str, ...] = (),
+    ) -> AnsibleRun:
         self.check_modes.append(check)
         self.host_limits.append(host_limit)
-        return self.results.pop(0)
+        self.tag_selections.append(tags)
+        # Repeats the last result once the list is spent rather than raising.
+        # A rollout makes several runs per edge — validate, stage, activate —
+        # so a test that supplies one result is saying "every run answers this",
+        # which is what it always meant. A test about a *sequence* of outcomes
+        # supplies the sequence and gets it, in order, until it runs out.
+        if len(self.results) > 1:
+            return self.results.pop(0)
+        return self.results[0]
 
     def run_playbook(
         self,

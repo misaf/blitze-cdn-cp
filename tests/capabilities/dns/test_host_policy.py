@@ -13,16 +13,13 @@ from blitzecdn.capabilities.deployments.domain import (
     is_terminal,
     require_transition,
 )
-from blitzecdn.capabilities.deployments.domain.snapshots import (
-    decode_snapshot,
-    encode_snapshot,
-)
 from blitzecdn.capabilities.dns.domain import (
     CdnSite,
     DnsRecord,
     Domain,
     DomainPatch,
     SitePolicy,
+    derive_hosts,
 )
 from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import (
@@ -31,6 +28,7 @@ from blitzecdn.capabilities.http.policy import (
     HTTPS_PROXY_PORTS,
     HttpScheme,
 )
+from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
@@ -62,24 +60,30 @@ def test_a_disabled_site_requires_no_optional_implementation(site_payload):
 
 
 @pytest.mark.parametrize(
-    "snapshot",
+    "document",
     [
         "{}",
         '{"domains": [], "records": [], "sites": []}',
         '{"schema_version": 1, "domains": [], "records": [], "sites": [], "x": []}',
         '{"schema_version": 1, "domains": {}, "records": [], "sites": []}',
-        '{"schema_version": 1, "domains": [], "records": []}',
     ],
 )
-def test_snapshots_fail_closed_on_incomplete_or_unknown_shapes(snapshot):
-    with pytest.raises(ValueError, match="deployment snapshot"):
-        decode_snapshot(snapshot)
+def test_release_inputs_fail_closed_on_incomplete_or_unknown_shapes(document):
+    """A stored document that is not this shape is refused, never guessed at.
+
+    ``sites`` is the one worth naming: an input document that carried virtual
+    hosts would be a second, older answer beside the state they are derived
+    from, and a rollback restoring both would restore a document free to
+    disagree with itself.
+    """
+    with pytest.raises(ValueError):
+        ReleaseInputs.decode(document)
 
 
-def test_snapshots_fail_closed_on_unknown_schema_versions():
-    snapshot = '{"schema_version":999,"domains":[],"records":[],"rules":[]}'
-    with pytest.raises(ValueError, match="unsupported deployment snapshot"):
-        decode_snapshot(snapshot)
+def test_release_inputs_fail_closed_on_unknown_schema_versions():
+    document = '{"schema_version":999,"domains":[],"records":[],"rules":[]}'
+    with pytest.raises(ValueError, match="unsupported release inputs schema version"):
+        ReleaseInputs.decode(document)
 
 
 @pytest.mark.parametrize(
@@ -668,36 +672,41 @@ def test_a_patch_replaces_the_whole_visitor_header_block():
     assert updated.visitor_headers.ip_country is False
 
 
-def _snapshot_of(**policy: object) -> str:
-    """A snapshot of one zone with one proxied hostname in it.
+def _inputs_of(**policy: object) -> ReleaseInputs:
+    """Release inputs holding one zone with one proxied hostname in it.
 
-    Sites are not in a snapshot any more — they are derived from it — so a
-    round trip has to go through the zone and the record that produce one. The
-    policy lives on the zone and the origin on the record; what survives JSON
-    on the way to a run and back from a rollback is, between them, the site.
+    Sites are not in the inputs — they are derived from them — so a round trip
+    has to go through the zone and the record that produce one. The policy
+    lives on the zone and the origin on the record; what survives JSON on the
+    way to a run and back from a rollback is, between them, the site.
     """
     zone = Domain.model_validate({"name": "example.com", **policy})
     record = DnsRecord(
         domain="example.com", name="cdn", value="198.51.100.10", proxied=True
     )
-    return encode_snapshot([zone], [record], [])
+    return ReleaseInputs.of([zone], [record], [])
 
 
-def test_visitor_headers_survive_a_snapshot_round_trip():
-    snapshot = _snapshot_of(
-        visitor_headers={"connecting_ip": False, "ip_country": True}
+def _derived(inputs: ReleaseInputs) -> list[CdnSite]:
+    restored = ReleaseInputs.decode(inputs.encode())
+    return derive_hosts(
+        list(restored.domains), list(restored.rules), list(restored.records)
     )
 
-    (site,) = decode_snapshot(snapshot)
+
+def test_visitor_headers_survive_an_inputs_round_trip():
+    (site,) = _derived(
+        _inputs_of(visitor_headers={"connecting_ip": False, "ip_country": True})
+    )
 
     assert site.visitor_headers.connecting_ip is False
     assert site.visitor_headers.ip_country is True
     assert site.requires_geoip is True
 
 
-def test_http3_survives_a_snapshot_round_trip():
-    (site,) = decode_snapshot(
-        _snapshot_of(
+def test_http3_survives_an_inputs_round_trip():
+    (site,) = _derived(
+        _inputs_of(
             ssl_mode="flexible",
             http3_enabled=True,
             certificate_mode="existing",
@@ -708,16 +717,16 @@ def test_http3_survives_a_snapshot_round_trip():
     assert site.http3_enabled is True
 
 
-def test_http3_changes_snapshot_identity_only_when_the_value_changes():
+def test_http3_changes_input_identity_only_when_the_value_changes():
     tls = {
         "ssl_mode": "flexible",
         "certificate_mode": "existing",
         "certificate_path": "/etc/ssl/certs/edge.pem",
         "certificate_key_path": "/etc/ssl/private/edge.key",
     }
-    baseline = _snapshot_of(**tls, http3_enabled=False)
-    assert _snapshot_of(**tls, http3_enabled=False) == baseline
-    assert _snapshot_of(**tls, http3_enabled=True) != baseline
+    baseline = _inputs_of(**tls, http3_enabled=False).digest
+    assert _inputs_of(**tls, http3_enabled=False).digest == baseline
+    assert _inputs_of(**tls, http3_enabled=True).digest != baseline
 
 
 def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():

@@ -214,13 +214,16 @@ def test_dns_export_omits_addresses_for_proxied_records(
             },
             headers=headers,
         )
-        exported = {
-            row["fqdn"]: row
-            for row in client.get("/v1/dns/export", headers=headers).json()
-        }
+        document = client.get("/v1/dns/export", headers=headers).json()
+        exported = {row["fqdn"]: row for row in document["records"]}
         assert "value" not in exported["cdn.example.com"]
         assert exported["cdn.example.com"]["proxied"] is True
+        assert exported["cdn.example.com"]["answer"] == "an edge address"
         assert exported["db.example.com"]["value"] == "198.51.100.10"
+        # And the client is told, in the same response, that nothing here is
+        # going to publish any of it.
+        assert document["publication"]["publishes"] is False
+        assert "does not publish DNS" in document["publication"]["detail"]
 
 
 def test_deploy_returns_202_immediately_and_stays_durable_until_a_worker_runs(

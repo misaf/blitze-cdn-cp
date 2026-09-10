@@ -1,6 +1,6 @@
 import sqlite3
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import replace
 from datetime import UTC, datetime
 
@@ -10,10 +10,11 @@ from control_plane_fixtures import (
     RecordingBackgroundQueue,
     ansible_run,
     host_run,
+    seed_edge,
     seed_site,
 )
 
-from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.deployments.domain import DeploymentStatus, TargetStatus
 from blitzecdn.capabilities.dns.domain import (
     CdnSite,
     DnsRecord,
@@ -27,6 +28,7 @@ from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
+    ConflictError,
     DeploymentBusyError,
 )
 
@@ -164,9 +166,9 @@ def test_external_deployment_run_never_holds_a_database_transaction(settings):
     repository = Repository(settings.database_path)
 
     class TransactionAwareRunner(FakeRunner):
-        def run(self, *, check: bool, host_limit: str | None = None):
+        def run(self, *, check: bool, host_limit: str | None = None, tags=()):
             assert getattr(repository.database._local, "connection", None) is None
-            return super().run(check=check, host_limit=host_limit)
+            return super().run(check=check, host_limit=host_limit, tags=tags)
 
     control = ControlPlane(
         settings=settings, repository=repository, runner=TransactionAwareRunner()
@@ -178,6 +180,7 @@ def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    seed_edge(control)
     site = seed_site(control, name="example-com", record="cdn")
     control.dns.update_domain(
         "example.com", DomainPatch(cache_enabled=False, compression="off"), "alice"
@@ -213,13 +216,14 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
 
 def test_interrupted_deployment_is_recorded_as_abandoned(settings):
     class InterruptedRunner(FakeRunner):
-        def run(self, *, check: bool, host_limit: str | None = None):
+        def run(self, *, check: bool, host_limit: str | None = None, tags=()):
             raise KeyboardInterrupt
 
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=InterruptedRunner()
     )
+    seed_edge(control)
 
     with pytest.raises(KeyboardInterrupt):
         control.deployments.deploy("alice")
@@ -409,12 +413,16 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
         ]
     )
     control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    seed_edge(control)
     assert control.deployments.deploy("alice").status is DeploymentStatus.FAILED
     assert (
         control.deployments.deploy("alice", check=True).status
         is DeploymentStatus.TIMED_OUT
     )
-    assert runner.check_modes == [False, True]
+    # The failing deploy stopped at its VALIDATE phase, which is a check-mode
+    # run; the timed-out one is a check-mode deployment whose own validate
+    # timed out. Both are the first run of their rollout, so both are `True`.
+    assert runner.check_modes == [True, True]
 
 
 def test_rollback_updates_canonical_state_only_after_success(settings):
@@ -424,7 +432,10 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )
-    original = seed_site(control, name="example-com", record="cdn")
+    # `cache_enabled` is named so the change below is a real one in every
+    # workspace: the seed fills in an "off" where the cache wheel is detached,
+    # and a patch setting a value to what it already holds moves nothing.
+    original = seed_site(control, name="example-com", record="cdn", cache_enabled=True)
     successful = control.deployments.deploy("alice")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
     result = control.deployments.rollback("alice", successful.id)
@@ -445,7 +456,7 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )
-    original = _seed_proxied_record(control)
+    original = seed_site(control, cache_enabled=True)
     successful = control.deployments.deploy("alice")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
     current = control.sites.get_site(original.name)
@@ -516,51 +527,74 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
 
 
 def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
-    """`serial` plus `any_errors_fatal` leaves the rest of the fleet untouched.
+    """A rollout stops at the first edge that failed, and says so per edge.
 
-    The play stops at the batch that failed, so later batches are never
-    contacted: they do not fail, they simply never appear in the result, and a
-    reader sees a smaller fleet rather than a split one. Half the edges are now
-    on the new configuration and half on the old, which is the fact an operator
-    most needs and the one `hosts` cannot carry.
+    Half the fleet on the new configuration and half on the old is the fact an
+    operator most needs, and it used to be an inference: an edge missing from a
+    fleet-wide result might have succeeded quietly, failed unreported, or never
+    been contacted. Now each of those is a status on a row, and the edges after
+    the failure are SKIPPED — still serving what they had, with nothing known
+    to be wrong with them.
     """
     repository = Repository(settings.database_path)
     stopped = ansible_run(
-        host_run("edge-a", changed=3),
         host_run("edge-b", failed=1, failure="nginx -t refused it"),
         status=RunStatus.FAILED,
         return_code=2,
-        targeted=("edge-a", "edge-b", "edge-c", "edge-d"),
     )
     control = ControlPlane(
         settings=settings, repository=repository, runner=FakeRunner([stopped])
     )
+    for name in ("edge-a", "edge-b", "edge-c"):
+        seed_edge(control, name=name, host=f"192.0.2.{ord(name[-1])}")
     seed_site(control)
 
     deployment = control.deployments.deploy("alice")
 
     assert deployment.status is DeploymentStatus.FAILED
-    assert deployment.unattempted == ("edge-c", "edge-d")
-    # And it reaches the operator, rather than only being available to ask for.
-    assert "edge-c, edge-d" in (deployment.detail or "")
-    assert "never attempted" in (deployment.detail or "")
+    progress = {
+        target.edge: target.status
+        for target in control.deployments.targets(deployment.id)
+    }
+    assert progress["edge-a"] is TargetStatus.FAILED
+    assert progress["edge-b"] is TargetStatus.SKIPPED
+    assert progress["edge-c"] is TargetStatus.SKIPPED
+    (failed,) = [
+        target
+        for target in control.deployments.targets(deployment.id)
+        if target.status is TargetStatus.FAILED
+    ]
+    assert "nginx -t refused it" in (failed.last_error or "")
 
 
 def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
-    """An edge the check never got to is one we have no answer for."""
+    """An edge the check never got to is one we have no answer for.
+
+    Reporting in sync on the strength of the edges that did answer would be
+    answering a narrower question than the one asked.
+    """
     repository = Repository(settings.database_path)
-    partial = ansible_run(
-        host_run("edge-a", changed=0),
-        targeted=("edge-a", "edge-b"),
-    )
     control = ControlPlane(
-        settings=settings, repository=repository, runner=FakeRunner([partial])
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(
+            [
+                ansible_run(host_run("edge-a", changed=0)),
+                ansible_run(
+                    host_run("edge-b", failed=1, failure="unreachable"),
+                    status=RunStatus.FAILED,
+                    return_code=2,
+                ),
+            ]
+        ),
     )
+    for name in ("edge-a", "edge-b", "edge-c"):
+        seed_edge(control, name=name, host=f"192.0.2.{ord(name[-1])}")
     seed_site(control)
 
     report = control.deployments.check_drift("alice")
 
-    assert report.unattempted == ("edge-b",)
+    assert "edge-c" in report.unattempted
     assert report.in_sync is False
 
 
@@ -575,7 +609,9 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
         background=queue,
     )
     with repository.transaction():
-        stranded = repository.deployments.create_deployment("alice", check_mode=False)
+        stranded = repository.deployments.create_deployment(
+            "alice", release_id=control.releases.prepare().id, check_mode=False
+        )
         repository.deployments.transition(
             stranded.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
         )
@@ -610,7 +646,9 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
     control = ControlPlane(
         settings=settings, repository=repository, runner=BusyRunner()
     )
-    live = repository.deployments.create_deployment("alice", check_mode=False)
+    live = repository.deployments.create_deployment(
+        "alice", release_id=control.releases.prepare().id, check_mode=False
+    )
     workflow = repository.workflows.create(
         "live", "certificate", "alice", "example-com"
     )
@@ -638,6 +676,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )
+    seed_edge(control)
     _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
 
@@ -646,16 +685,24 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     )
 
     class WritingRunner(FakeRunner):
-        def run(self, *, check, host_limit=None):
-            # Mid-run: the fleet is converging the old snapshot while an
-            # operator adds a record the rollback has never heard of.
-            control.dns.create_record(concurrent, "bob")
-            return super().run(check=check, host_limit=host_limit)
+        def run(self, *, check, host_limit=None, tags=()):
+            # Mid-run: the fleet is converging the old release while an
+            # operator adds a record the rollback has never heard of. A rollout
+            # makes several runs per edge, so this writes once and lets the
+            # rest pass — the window is open for the whole rollout, not for one
+            # call inside it.
+            with suppress(ConflictError):
+                control.dns.create_record(concurrent, "bob")
+            return super().run(check=check, host_limit=host_limit, tags=tags)
 
     control._runner = WritingRunner([ansible_run(host_run("edge-a"))])
     control.deployments.execution = replace(
         control.deployments.execution, runner=control._runner
     )
+    # The rollout holds its own reference to the runner, because it is the
+    # thing that actually calls it. Swapping only the service's would leave the
+    # per-edge phases running against the original.
+    control.deployments.execution.rollout.runner = control._runner
 
     rolled_back = control.deployments.rollback("alice", successful.id)
 

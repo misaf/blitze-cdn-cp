@@ -461,17 +461,14 @@ def test_deleting_a_zone_takes_its_rules_with_it(settings):
     assert repository.rules.list_rules() == []
 
 
-def test_a_rollback_restores_the_rules_it_snapshotted(settings):
+def test_a_rollback_restores_the_rules_the_release_was_compiled_from(settings):
     """The sharp edge of putting rules in a zone: they cascade with it.
 
-    ``adopt_snapshot`` deletes the zone rows and writes them again, and a rule
-    is keyed to its zone with ON DELETE CASCADE. A snapshot that did not carry
+    ``adopt_inputs`` deletes the zone rows and writes them again, and a rule is
+    keyed to its zone with ON DELETE CASCADE. Release inputs that did not carry
     rules would not merely fail to restore them — the adoption would delete
     every rule in the installation on its way past.
     """
-    from blitzecdn.capabilities.deployments.domain.snapshots import (
-        decode_snapshot_state,
-    )
     from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 
     repository = Repository(settings.database_path)
@@ -481,15 +478,15 @@ def test_a_rollback_restores_the_rules_it_snapshotted(settings):
         Rule(domain="example.com", name="api", overrides={"cache_enabled": False}),
         "tester",
     )
-    snapshot = repository.snapshot()
-    assert [rule.name for rule in decode_snapshot_state(snapshot)[2]] == ["api"]
+    inputs = repository.release_inputs()
+    assert [rule.name for rule in inputs.rules] == ["api"]
 
-    # Something changes, and then the older snapshot is adopted back.
+    # Something changes, and then the older state is adopted back.
     control.rules.delete_rule("example.com", "api", "tester")
     assert repository.rules.list_rules() == []
 
     with repository.transaction():
-        rollback_policy.adopt_snapshot(repository.zones, repository.rules, snapshot)
+        rollback_policy.adopt_inputs(repository.zones, repository.rules, inputs)
 
     assert [rule.name for rule in repository.rules.list_rules()] == ["api"]
 
@@ -594,7 +591,10 @@ def test_the_zone_and_rule_stores_refuse_a_write_built_on_a_stale_read(settings)
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
-    seed_site(control, name="rule-host", record="api")
+    # `cache_enabled` is named so the update below is a real change: the seed
+    # fills in an "off" for a capability the core-only workspace does not have,
+    # and a patch that sets a value to what it already holds moves nothing.
+    seed_site(control, name="rule-host", record="api", cache_enabled=True)
 
     stale_zone = control.dns.get_domain("example.com")
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "bob")

@@ -17,7 +17,7 @@ from install_support import (
     _section,
 )
 
-from blitzecdn.capabilities.deployments.adapters import desired_state
+from blitzecdn.capabilities.releases.service import compiler
 
 
 # --- structural guarantees no unprivileged run can reach ---------------------
@@ -194,16 +194,16 @@ def test_standalone_guards_existing_sites_from_empty_desired_state():
     """The installer's flag and the variable it ends up as, in one assertion.
 
     The module is located by importing it rather than by a path written here.
-    A path went stale the moment `desired_state.py` moved into `adapters/`,
-    and the failure said only that a file was missing — not that the two halves
-    of this contract had stopped meeting.
+    A path went stale the moment the renderer moved into `adapters/`, and again
+    when it became the release compiler — and the failure said only that a file
+    was missing, not that the two halves of this contract had stopped meeting.
     """
     standalone = _section("standalone")
     assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
-    assert desired_state.__file__ is not None
-    assert "blitzecdn_nginx_allow_empty_sites" in Path(
-        desired_state.__file__
-    ).read_text(encoding="utf-8")
+    assert compiler.__file__ is not None
+    assert "blitzecdn_nginx_allow_empty_sites" in Path(compiler.__file__).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():

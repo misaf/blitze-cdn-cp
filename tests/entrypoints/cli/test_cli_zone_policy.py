@@ -186,7 +186,16 @@ def test_site_max_upload_size_command(settings, monkeypatch):
 
 def test_site_compression_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="example-com", record="cdn", operator="cli")
+    # Named rather than left to the seed's default: the fixture fills in an
+    # "off" for a capability this workspace does not have, and in the core-only
+    # run that would be the value under test.
+    seed_site(
+        control,
+        name="example-com",
+        record="cdn",
+        operator="cli",
+        compression="brotli",
+    )
     assert control.sites.get_site("example-com").compression == "brotli"
 
     result = runner.invoke(
@@ -209,7 +218,15 @@ def test_site_compression_command(settings, monkeypatch):
 
 def test_site_cache_command_sets_the_switch_and_both_durations(settings, monkeypatch):
     control = _control(settings, monkeypatch)
-    seed_site(control, name="example-com", record="cdn", operator="cli")
+    # See the compression command above: the switch this asserts on is one the
+    # seed would otherwise fill in for a capability that is not installed.
+    seed_site(
+        control,
+        name="example-com",
+        record="cdn",
+        operator="cli",
+        cache_enabled=True,
+    )
 
     result = runner.invoke(
         cli.app,

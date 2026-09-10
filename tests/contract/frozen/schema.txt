@@ -1,3 +1,5 @@
+blitzecdn	check	deployment_targets.deployment_targets_phase_check	phase IS NULL OR phase IN ('prepare', 'validate', 'stage', 'activate', 'verify')
+blitzecdn	check	deployment_targets.deployment_targets_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'skipped')
 blitzecdn	check	deployments.deployments_no_self_rollback_check	rollback_of IS NULL OR rollback_of != id
 blitzecdn	check	deployments.deployments_status_check	status IN ('queued', 'running', 'succeeded', 'failed', 'timed_out', 'abandoned')
 blitzecdn	check	dns_records.dns_records_name_nonempty_check	length(name) > 0
@@ -9,6 +11,11 @@ blitzecdn	check	edges.edges_host_nonempty_check	length(host) > 0
 blitzecdn	check	edges.edges_name_nonempty_check	length(name) > 0
 blitzecdn	check	edges.edges_port_check	port BETWEEN 1 AND 65535
 blitzecdn	check	edges.edges_user_nonempty_check	length(user) > 0
+blitzecdn	check	job_schedules.job_schedules_interval_check	interval_seconds >= 1
+blitzecdn	check	job_schedules.job_schedules_lease_check	lease_seconds >= 1
+blitzecdn	check	jobs.jobs_attempts_check	attempts >= 0
+blitzecdn	check	jobs.jobs_max_attempts_check	max_attempts >= 1
+blitzecdn	check	jobs.jobs_status_check	status IN ('pending', 'running', 'succeeded', 'failed')
 blitzecdn	check	workflows.workflows_kind_check	kind <> '' AND length(kind) <= 64 AND kind = lower(kind)
 blitzecdn	check	workflows.workflows_status_check	status IN ('pending', 'running', 'succeeded', 'failed', 'needs_review')
 blitzecdn	check	zone_rules.zone_rules_match_nonempty_check	length(match) > 0
@@ -26,16 +33,26 @@ blitzecdn	column	audit_events.resource_id	type=VARCHAR null
 blitzecdn	column	audit_events.resource_type	type=VARCHAR not-null
 blitzecdn	column	deployment_requirements.kind	type=VARCHAR not-null pk
 blitzecdn	column	deployment_requirements.requested_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	deployment_targets.attempts	type=INTEGER not-null
+blitzecdn	column	deployment_targets.deployment_id	type=VARCHAR not-null pk fk=deployments.id ondelete=CASCADE
+blitzecdn	column	deployment_targets.edge	type=VARCHAR not-null pk
+blitzecdn	column	deployment_targets.fence	type=INTEGER not-null
+blitzecdn	column	deployment_targets.finished_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	deployment_targets.last_error	type=VARCHAR null
+blitzecdn	column	deployment_targets.phase	type=VARCHAR null
+blitzecdn	column	deployment_targets.started_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	deployment_targets.status	type=VARCHAR not-null
 blitzecdn	column	deployments.canonical_digest	type=VARCHAR null
 blitzecdn	column	deployments.check_mode	type=BOOLEAN not-null
 blitzecdn	column	deployments.created_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	deployments.finished_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	deployments.generation	type=INTEGER not-null
 blitzecdn	column	deployments.host_limit	type=VARCHAR null
 blitzecdn	column	deployments.id	type=VARCHAR not-null pk
 blitzecdn	column	deployments.operator	type=VARCHAR not-null
+blitzecdn	column	deployments.release_id	type=VARCHAR not-null fk=releases.id
 blitzecdn	column	deployments.result	type=JSON null
 blitzecdn	column	deployments.rollback_of	type=VARCHAR null fk=deployments.id
-blitzecdn	column	deployments.snapshot	type=VARCHAR not-null
 blitzecdn	column	deployments.started_at	type=UtcDateTime(VARCHAR) null
 blitzecdn	column	deployments.status	type=VARCHAR not-null
 blitzecdn	column	dns_records.domain	type=VARCHAR not-null pk fk=domains.name ondelete=CASCADE
@@ -48,6 +65,7 @@ blitzecdn	column	dns_records.value	type=VARCHAR not-null
 blitzecdn	column	domains.name	type=VARCHAR not-null pk
 blitzecdn	column	domains.policy	type=JSON not-null
 blitzecdn	column	domains.updated_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	edges.capabilities	type=JSON null
 blitzecdn	column	edges.host	type=VARCHAR not-null
 blitzecdn	column	edges.name	type=VARCHAR not-null pk
 blitzecdn	column	edges.port	type=INTEGER not-null
@@ -56,6 +74,35 @@ blitzecdn	column	edges.public_addresses	type=JSON not-null
 blitzecdn	column	edges.ssh_sources	type=JSON not-null
 blitzecdn	column	edges.updated_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	edges.user	type=VARCHAR not-null
+blitzecdn	column	job_schedules.interval_seconds	type=INTEGER not-null
+blitzecdn	column	job_schedules.jitter_seconds	type=INTEGER not-null
+blitzecdn	column	job_schedules.last_run_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	job_schedules.lease_seconds	type=INTEGER not-null
+blitzecdn	column	job_schedules.name	type=VARCHAR not-null pk
+blitzecdn	column	job_schedules.next_run_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	jobs.attempts	type=INTEGER not-null
+blitzecdn	column	jobs.available_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	jobs.created_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	jobs.dedupe_key	type=VARCHAR null
+blitzecdn	column	jobs.fence	type=INTEGER not-null
+blitzecdn	column	jobs.finished_at	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	jobs.id	type=VARCHAR not-null pk
+blitzecdn	column	jobs.kind	type=VARCHAR not-null
+blitzecdn	column	jobs.last_error	type=VARCHAR null
+blitzecdn	column	jobs.leased_by	type=VARCHAR null
+blitzecdn	column	jobs.leased_until	type=UtcDateTime(VARCHAR) null
+blitzecdn	column	jobs.max_attempts	type=INTEGER not-null
+blitzecdn	column	jobs.payload	type=JSON not-null
+blitzecdn	column	jobs.status	type=VARCHAR not-null
+blitzecdn	column	release_inputs.created_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	release_inputs.digest	type=VARCHAR not-null pk
+blitzecdn	column	release_inputs.document	type=VARCHAR not-null
+blitzecdn	column	releases.compiler_version	type=INTEGER not-null
+blitzecdn	column	releases.created_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	releases.digest	type=VARCHAR not-null pk
+blitzecdn	column	releases.document	type=JSON not-null
+blitzecdn	column	releases.id	type=VARCHAR not-null
+blitzecdn	column	releases.inputs_digest	type=VARCHAR not-null fk=release_inputs.digest
 blitzecdn	column	workflows.created_at	type=UtcDateTime(VARCHAR) not-null
 blitzecdn	column	workflows.error	type=VARCHAR null
 blitzecdn	column	workflows.id	type=VARCHAR not-null pk
@@ -72,9 +119,18 @@ blitzecdn	column	zone_rules.name	type=VARCHAR not-null pk
 blitzecdn	column	zone_rules.overrides	type=JSON not-null
 blitzecdn	column	zone_rules.priority	type=INTEGER not-null
 blitzecdn	column	zone_rules.updated_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	index	deployment_targets.ix_deployment_targets_deployment_id	(deployment_id)
 blitzecdn	index	deployments.ix_deployments_created_at	(created_at)
+blitzecdn	index	deployments.ix_deployments_release_id	(release_id)
 blitzecdn	index	deployments.ix_deployments_rollback_of	(rollback_of)
 blitzecdn	index	deployments.ix_deployments_status_created_at	(status,created_at)
+blitzecdn	index	job_schedules.ix_job_schedules_next_run_at	(next_run_at)
+blitzecdn	index	jobs.ix_jobs_created_at	(created_at)
+blitzecdn	index	jobs.ix_jobs_dedupe_key_unfinished	(dedupe_key) unique
+blitzecdn	index	jobs.ix_jobs_leased_until	(leased_until)
+blitzecdn	index	jobs.ix_jobs_status_available_at	(status,available_at)
+blitzecdn	index	releases.ix_releases_created_at	(created_at)
+blitzecdn	index	releases.ix_releases_id	(id) unique
 blitzecdn	index	workflows.ix_workflows_created_at	(created_at)
 blitzecdn	index	workflows.workflows_status_idx	(status,created_at)
 blitzecdn	revision	0001

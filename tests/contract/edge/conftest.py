@@ -71,7 +71,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
             },
         },
     )
-    control.deployments.write_desired_state(
-        repository.snapshot(), settings.generated_vars_path
+    control.deployments.publish_artifact(
+        control.releases.compile(), settings.generated_vars_path
     )
     return yaml.safe_load(settings.generated_vars_path.read_text(encoding="utf-8"))

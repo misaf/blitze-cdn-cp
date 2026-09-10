@@ -8,7 +8,6 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.deployments.domain.snapshots import decode_snapshot
 from blitzecdn.capabilities.dns.domain import (
     CdnSite,
     DnsRecord,
@@ -17,6 +16,7 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
 )
 from blitzecdn.capabilities.edges.domain import Edge
+from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -148,8 +148,48 @@ def test_an_audit_log_under_its_retention_loses_nothing(settings):
     assert len(repository.audit_log.list_audit_events()) == 25
 
 
+def _release(repository):
+    """Compile and record a release from whatever these rows currently say.
+
+    Store-level, like the rest of this module: the compiler is a pure function
+    and takes its plugin contributions as an argument, so a release can be made
+    here without wiring a control plane. What is being exercised is the foreign
+    key — a deployment names a release, and the release has to exist first.
+    """
+    inputs = repository.release_inputs()
+    # Whatever these rows happen to ask for. A store-level test is not about
+    # which wheels are installed, and pinning a list here would make it fail
+    # the day a policy default started requesting a different one.
+    release = compile_release(
+        inputs,
+        capabilities={
+            token for host in _hosts(repository) for token in host.required_capabilities
+        },
+        targets=(),
+        contributors=_NoContributions(),
+        site_checks=lambda site: (),
+        allow_empty_sites=False,
+    )
+    with repository.transaction():
+        return repository.releases.save(release, inputs)
+
+
+class _NoContributions:
+    """An installation whose capabilities contribute nothing to the document.
+
+    Enough to compile: the artifact is then the frame alone, which is all these
+    tests read it for.
+    """
+
+    def site_variables(self, site):
+        return {"blitzecdn_site_name": site.name}
+
+    def fleet_variables(self, sites):
+        return {}
+
+
 def _seed(repository, domain_payload, record_payload, site_payload, **policy):
-    """Zone and record — the two rows a snapshot is made of.
+    """Zone and record — the two rows release inputs are made of.
 
     Store-level, so it deliberately goes through the stores rather than the
     services: the point of these tests is what survives a round trip through
@@ -170,14 +210,14 @@ def _hosts(repository):
     )
 
 
-def test_visitor_headers_survive_persistence_and_the_snapshot(
+def test_visitor_headers_survive_persistence_and_compilation(
     settings, domain_payload, record_payload, site_payload
 ):
     """The block lives in the `policy` JSON column, not in a column of its own.
 
     Nothing queries inside it, so the only way it can be lost is a round trip
     that drops what it does not recognise. This is that round trip: site in,
-    site out, and the snapshot the deployment actually converges.
+    site out, and the release the deployment actually converges.
     """
     repository = Repository(settings.database_path)
     _seed(
@@ -192,9 +232,9 @@ def test_visitor_headers_survive_persistence_and_the_snapshot(
     assert stored.visitor_headers.connecting_ip is False
     assert stored.visitor_headers.ip_country is True
 
-    (site,) = decode_snapshot(repository.snapshot())
-    assert site.visitor_headers == stored.visitor_headers
-    assert site.requires_geoip is True
+    (compiled,) = _release(repository).sites
+    assert compiled.site.visitor_headers == stored.visitor_headers
+    assert compiled.site.requires_geoip is True
 
 
 def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
@@ -205,7 +245,7 @@ def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
     assert _hosts(repository)[0].under_attack_mode is True
-    assert decode_snapshot(repository.snapshot())[0].under_attack_mode is True
+    assert _release(repository).sites[0].site.under_attack_mode is True
 
     connection = sqlite3.connect(settings.database_path)
     try:
@@ -218,18 +258,17 @@ def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
     assert _hosts(repository)[0].under_attack_mode is False
 
 
-def test_deployment_transitions_snapshots_and_recovery(
+def test_deployment_transitions_releases_and_recovery(
     settings, domain_payload, record_payload, site_payload
 ):
     repository = Repository(settings.database_path)
     _seed(repository, domain_payload, record_payload, site_payload)
-    deployment = repository.deployments.create_deployment("alice", check_mode=False)
-    assert (
-        decode_snapshot(repository.deployments.deployment_snapshot(deployment.id))[
-            0
-        ].name
-        == "example-com"
+    release = _release(repository)
+    deployment = repository.deployments.create_deployment(
+        "alice", release_id=release.id, check_mode=False
     )
+    assert repository.deployments.deployment_release(deployment.id) == release.id
+    assert [entry.name for entry in release.sites] == ["example-com"]
     running = repository.deployments.transition(
         deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
     )
@@ -257,8 +296,10 @@ def test_rollback_target_requires_different_success(
 ):
     repository = Repository(settings.database_path)
     _seed(repository, domain_payload, record_payload, site_payload)
-    current = repository.snapshot()
-    deployment = repository.deployments.create_deployment("alice", check_mode=False)
+    current = _release(repository)
+    deployment = repository.deployments.create_deployment(
+        "alice", release_id=current.id, check_mode=False
+    )
     repository.deployments.transition(
         deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
     )
@@ -266,10 +307,10 @@ def test_rollback_target_requires_different_success(
         deployment.id, DeploymentStatus.RUNNING, DeploymentStatus.SUCCEEDED
     )
     with pytest.raises(NotFoundError):
-        repository.deployments.successful_rollback_target(current)
+        repository.deployments.successful_rollback_target(current.id)
 
 
-def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
+def test_release_inputs_read_every_table_in_one_transaction(settings, monkeypatch):
     repository = Repository(settings.database_path)
     connections: list[int] = []
 
@@ -289,7 +330,7 @@ def test_snapshot_reads_every_table_in_one_transaction(settings, monkeypatch):
         repository.zones, "list_records", observe(repository.zones.list_records)
     )
 
-    repository.snapshot()
+    repository.release_inputs()
 
     assert len(connections) == 2
     assert len(set(connections)) == 1
@@ -456,21 +497,24 @@ def test_the_store_refuses_a_setting_name_the_fleet_should_not_carry(
 
 
 def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(settings):
-    """The table grows by a full desired state every hour otherwise.
+    """The drift timer writes a row an hour whether or not anything changed.
 
-    Each row carries a complete copy of every zone and record, and the drift
-    timer writes one hourly whether or not anything changed. Only check-mode
-    rows are prunable: a real deployment is what `successful_rollback_target`
-    chooses from, so removing one could take away the snapshot the fleet needs
-    to go back to.
+    Only check-mode rows are prunable: a real deployment is what
+    `successful_rollback_target` chooses from, so removing one could take away
+    the last thing naming the release the fleet needs to go back to.
     """
     repository = Repository(settings.database_path)
+    release = _release(repository)
     real = [
-        repository.deployments.create_deployment("alice", check_mode=False)
+        repository.deployments.create_deployment(
+            "alice", release_id=release.id, check_mode=False
+        )
         for _ in range(3)
     ]
     for _ in range(10):
-        repository.deployments.create_deployment("scheduler", check_mode=True)
+        repository.deployments.create_deployment(
+            "scheduler", release_id=release.id, check_mode=True
+        )
 
     assert repository.deployments.prune_history(4) == 6
 

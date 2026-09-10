@@ -10,6 +10,7 @@ from control_plane_fixtures import (
     FakeRunner,
     ansible_run,
     host_run,
+    seed_edge,
     seed_site,
 )
 
@@ -17,6 +18,20 @@ from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus
+
+
+def _fleet(settings, monkeypatch, runner_double=None):
+    """A CLI-wired control plane with one edge in it.
+
+    A rollout walks the registered fleet, so every command here that converges
+    needs somewhere to converge to. Seeded per test rather than in the shared
+    helper, because the tests about the edge roster itself assert on an empty
+    one and a fixture that planted an edge would be answering their question
+    for them.
+    """
+    control = _control(settings, monkeypatch, runner_double)
+    seed_edge(control)
+    return control
 
 
 def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
@@ -29,6 +44,7 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
         ]
     )
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    seed_edge(control)
     seed_site(control)
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
@@ -58,6 +74,7 @@ def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch
         ]
     )
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    seed_edge(control)
     # Nothing optional: this is about the interactive flow, and a site left on
     # its defaults asks for `cache` and `compression`, which the core-only
     # workspace does not have and would refuse the deploy over.
@@ -84,7 +101,7 @@ def _drifted():
 
 
 def test_drift_exits_zero_when_the_fleet_matches(settings, monkeypatch):
-    _control(settings, monkeypatch, FakeRunner([_in_sync()]))
+    _fleet(settings, monkeypatch, FakeRunner([_in_sync()]))
     result = runner.invoke(cli.app, ["drift"])
     assert result.exit_code == 0
     assert "All 1 edges match desired state." in result.output
@@ -92,14 +109,14 @@ def test_drift_exits_zero_when_the_fleet_matches(settings, monkeypatch):
 
 def test_drift_exits_six_when_an_edge_has_moved(settings, monkeypatch):
     """A dedicated code so a scheduled check can tell drift from a broken check."""
-    _control(settings, monkeypatch, FakeRunner([_drifted()]))
+    _fleet(settings, monkeypatch, FakeRunner([_drifted()]))
     result = runner.invoke(cli.app, ["drift"])
     assert result.exit_code == cli.ExitCode.DRIFT_DETECTED
     assert "edge-a would change 2 task(s)" in result.output
 
 
 def test_drift_json_output_is_machine_readable(settings, monkeypatch):
-    _control(settings, monkeypatch, FakeRunner([_drifted()]))
+    _fleet(settings, monkeypatch, FakeRunner([_drifted()]))
     result = runner.invoke(cli.app, ["drift", "--json"])
     payload = json.loads(result.output)
     assert payload["in_sync"] is False
@@ -108,7 +125,7 @@ def test_drift_json_output_is_machine_readable(settings, monkeypatch):
 
 def test_deploy_with_a_limit_says_the_rollout_is_unfinished(settings, monkeypatch):
     """Leaving a canary half-applied silently is the failure worth preventing."""
-    control = _control(
+    control = _fleet(
         settings,
         monkeypatch,
         FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
@@ -154,6 +171,7 @@ def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
             ]
         ),
     )
+    seed_edge(control)
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     assert runner.invoke(cli.app, ["plan"]).exit_code == cli.ExitCode.DEPLOYMENT_FAILED
@@ -181,14 +199,18 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")
 
     assert result.exit_code == 1
-    # The preview ran in check mode; the apply never did.
+    # The preview's rollout ran the one edge's VALIDATE phase in check mode and
+    # stopped there; declining meant no apply, so nothing ever ran with
+    # `check=False` and nothing was ever staged.
     assert fake.check_modes == [True]
+    assert fake.tag_selections == [()]
 
 
 def test_rollback_changes_nothing_when_the_operator_declines(settings, monkeypatch):
@@ -206,7 +228,7 @@ def test_rollback_changes_nothing_when_the_operator_declines(settings, monkeypat
 
 def test_drift_says_so_when_no_edge_answered(settings, monkeypatch):
     """An empty recap is silence, not agreement, so it must not read as in-sync."""
-    _control(settings, monkeypatch, FakeRunner([ansible_run()]))
+    _fleet(settings, monkeypatch, FakeRunner([ansible_run()]))
 
     result = runner.invoke(cli.app, ["drift"])
 
@@ -233,6 +255,7 @@ def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkey
     control = ControlPlane(
         settings=settings, repository=Repository(settings.database_path), runner=fake
     )
+    seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "control_plane", lambda: control)
 

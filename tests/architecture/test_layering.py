@@ -44,8 +44,6 @@ _IO_IMPORTS = (
     "certbot",
     "cryptography",
     "yaml",
-    "redis",
-    "dramatiq",
     "sqlalchemy",
     "sqlmodel",
 )
@@ -251,7 +249,9 @@ def test_legacy_layer_first_packages_have_no_source_modules():
         "dns",
         "edges",
         "http",
+        "jobs",
         "maintenance",
+        "releases",
         "security",
         "tls",
         "workflows",
@@ -608,6 +608,19 @@ def test_core_domain_and_ports_are_framework_and_io_independent():
 
 
 def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
+    """The worker imports the composition root; nothing imports the worker.
+
+    The second half is the one that matters. A capability that reached for
+    `blitzecdn.worker` would make the process that *consumes* durable work a
+    dependency of the code that *produces* it, and the composition root — which
+    the worker builds itself from — would then be importing its own consumer.
+
+    The queue itself is checked the same way. It is a capability now rather
+    than a module under `core.runtime`, so the rule is the ordinary capability
+    rule: it may not reach the composition root or an entry layer, and
+    `test_capability_services_depend_on_contracts_not_concrete_adapters`
+    already refuses the first. What is left here is the worker.
+    """
     assert "blitzecdn.composition" in _imports(_SOURCE / "worker.py")
     offenders = [
         str(path.relative_to(_SOURCE))
@@ -616,11 +629,6 @@ def test_worker_remains_an_entry_point_and_queue_direction_is_one_way():
         and any(name.startswith("blitzecdn.worker") for name in _imports(path))
     ]
     assert offenders == []
-    broker_imports = _imports(_SOURCE / "core/runtime/broker.py")
-    assert not any(
-        name.startswith(("blitzecdn.worker", "blitzecdn.composition"))
-        for name in broker_imports
-    )
 
 
 #: Where a process is actually started from, other than a Python import: the
@@ -815,7 +823,15 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     # edge is an import of `workflows.domain` for `WorkflowKind` and nothing
     # more: the coordinator itself arrives as `deployments.ports.Workflows`,
     # which is why this is not an edge onto another capability's service.
-    "deployments": {"dns", "workflows"},
+    # `releases` is what a deployment converges: the service holds the
+    # `Releases` port and reads `DESIRED_STATE_ARTIFACT` and `Release` out of
+    # that capability's domain. It does not derive a host, merge a rule or ask
+    # a plugin for a variable — all of which it used to do — so the arrow is
+    # narrower than the code it replaced even though it is a new one.
+    # `edges` is the fleet a rollout walks: which edges a limit selects, and
+    # where each answers from outside so verification has somewhere to knock.
+    # It is the store's port and the domain model, never the edge service.
+    "deployments": {"dns", "edges", "releases", "workflows"},
     "diagnostics": set(),
     "dns": set(),
     # The whole of this arrow is `CdnSite` out of `dns.domain`, named in
@@ -827,7 +843,17 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     # through a port on the zone capability; that left with `dns`.
     "edges": {"dns"},
     "http": {"dns"},
+    # The queue knows what a job *is* and nothing about what any job does. The
+    # handler table that maps a kind to a service is built in its composition
+    # module, which is the one file allowed to know both — so this capability
+    # depends on no other, and adding a third kind of work does not widen it.
+    "jobs": set(),
     "maintenance": {"deployments"},
+    # The compiler reads canonical state and the fleet it is aimed at, and
+    # both arrive as values: `dns.domain` for the zones, rules, records and the
+    # derivation over them, and `edges.ports` for the roster the composition
+    # module narrows into `EdgeCapabilities`. Nothing here reaches a service.
+    "releases": {"dns", "edges"},
     "security": set(),
     "tls": set(),
     # Depends on nothing. A workflow records that *something* reached a
@@ -851,7 +877,10 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 ALLOWED_POLICY_DEPENDENCIES = {
     "cache": set(),
     "compression": set(),
-    "deployments": set(),
+    # The serving probe reads `http.policy` for the scheme a site is served
+    # over and that scheme's default port — which is what decides whether
+    # verification knocks on 80 or on 443. A contract, not an implementation.
+    "deployments": {"http"},
     "diagnostics": set(),
     # A zone carries the policy every hostname in it is served by, and the
     # virtual host it resolves to composes the same contracts. Both live here
@@ -974,6 +1003,12 @@ _PLATFORM_SERVICES = {
     "deployments": "deployments",
     "dns": "dns",
     "edges": "edges",
+    # Two attributes, one owner, for the same reason as `tls` above: the queue
+    # and the scheduler are both parts of the `jobs` capability, so a plugin
+    # reading either is depending on it.
+    "job_queue": "jobs",
+    "job_runner": "jobs",
+    "job_scheduler": "jobs",
     "maintenance": "maintenance",
 }
 
@@ -988,7 +1023,6 @@ _PLATFORM_SERVICES = {
 #: Protocol of its own. Reading one is not knowing whose service satisfies it.
 _PLATFORM_COMMON = {
     "audit",
-    "broker_ready",
     "close",
     "events",
     # The two contracts an installed distribution builds itself from. Both are
@@ -1002,6 +1036,10 @@ _PLATFORM_COMMON = {
     "jobs",
     "plugins",
     "process",
+    # Whether the durable job table can be read. A port-shaped question like
+    # `fleet` and `sites`: a plugin asking it is not depending on the `jobs`
+    # capability, it is asking the platform whether background work can run.
+    "queue_ready",
     "settings",
     "sites",
     "start",
@@ -1308,5 +1346,76 @@ def test_the_plugin_infrastructure_depends_on_no_capability():
         for path in (_SOURCE / "core/plugins").rglob("*.py")
         for imported in sorted(_runtime_imports(path))
         if imported.startswith(("blitzecdn.capabilities", _COMPOSITION_ROOT))
+    ]
+    assert offenders == []
+
+
+#: Modules whose whole value is that they are functions of their arguments.
+#:
+#: A pure module can be run twice and compared, run in a test with nothing
+#: installed, and reasoned about without knowing what else has happened. Each
+#: of those properties is lost silently — a `datetime.now()` deep in a helper
+#: does not fail anything, it just makes the output stop being reproducible —
+#: so the property is asserted rather than left to review.
+_PURE_MODULES = ("capabilities/releases/service/compiler.py",)
+
+#: What a pure module may not reach for. Beyond the I/O imports every domain
+#: module is already held to: a clock, a random source, the environment, and
+#: the filesystem.
+_IMPURE_SOURCES = (
+    "datetime",
+    "time",
+    "random",
+    "secrets",
+    "os",
+    "pathlib",
+    "socket",
+    "urllib",
+    "httpx",
+    "requests",
+)
+
+
+def test_the_compiler_is_a_function_of_its_arguments():
+    """Compiling a release reads no clock, no environment and no disk.
+
+    This is what makes a release content-addressed rather than merely hashed:
+    two compilations of the same canonical state, on installations with the
+    same capabilities, aimed at the same edges, produce the same digest. A
+    single `datetime.now()` anywhere under here would break that without
+    breaking anything that fails loudly — every release would simply become a
+    new release, and every "has anything changed" comparison would answer yes.
+    """
+    offenders = [
+        f"{name} imports {imported}"
+        for name in _PURE_MODULES
+        for imported in sorted(_imports(_SOURCE / name))
+        if _banned(imported, (*_IO_IMPORTS, *_IMPURE_SOURCES))
+    ]
+    assert offenders == []
+
+
+def test_a_capability_reads_and_writes_only_its_own_tables():
+    """A table belongs to the capability whose store reads it.
+
+    Cross-module table access is the thing that makes a modular monolith stop
+    being modular: it is invisible at the seam, it survives every refactor of
+    the port between the two, and it turns another capability's schema into
+    something you cannot change without breaking a caller you did not know you
+    had. Release pruning is the standing temptation — it has to know which
+    releases a deployment still names — and it asks through
+    `releases.ports.ReleaseReferences` instead, which the composition root
+    binds to the deployments store.
+
+    `core.persistence.tables` is exempt: it holds the declarative base and the
+    two tables that belong to no capability, and every table module imports it.
+    """
+    offenders = [
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in _capability_files()
+        for imported in sorted(_imports(path))
+        if imported.endswith(".tables")
+        and imported.startswith("blitzecdn.capabilities.")
+        and not imported.startswith(f"blitzecdn.capabilities.{_capability_name(path)}.")
     ]
     assert offenders == []
