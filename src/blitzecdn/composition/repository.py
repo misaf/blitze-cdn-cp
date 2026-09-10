@@ -13,9 +13,11 @@ capability builds *on* — the engine, the write lock, the Unit of Work, the
 schema — and what core itself keeps there: the audit log and the workflow
 journal. The directory is what says which of the two any module is.
 
-``snapshot`` is the one thing that cannot belong to a single store, because the
-desired state a deployment converges spans the zones, their rules, and the
-records in them.
+``release_inputs`` is the one thing that cannot belong to a single store,
+because the desired state a release is compiled from spans the zones, their
+rules, and the records in them. It is read inside one transaction for the same
+reason: three separate reads would let a record be written between the second
+and the third, and the release would then describe a state that never existed.
 """
 
 from __future__ import annotations
@@ -26,11 +28,14 @@ from pathlib import Path
 from blitzecdn.capabilities.deployments.adapters.persistence import (
     DeploymentRequirementStore,
     DeploymentStore,
+    DeploymentTargetStore,
 )
-from blitzecdn.capabilities.deployments.domain.snapshots import encode_snapshot
 from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
 from blitzecdn.capabilities.dns.adapters.rules import RuleStore
 from blitzecdn.capabilities.edges.adapters.persistence import EdgeStore
+from blitzecdn.capabilities.jobs.adapters.persistence import JobStore, ScheduleStore
+from blitzecdn.capabilities.releases.adapters.persistence import ReleaseStore
+from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import AnsibleSettingStore
@@ -41,6 +46,7 @@ __all__ = [
     "Database",
     "DeploymentStore",
     "EdgeStore",
+    "ReleaseStore",
     "Repository",
     "RuleStore",
     "ZoneStore",
@@ -48,7 +54,7 @@ __all__ = [
 
 
 class Repository:
-    """SQLite persistence with explicit transactions and immutable snapshots.
+    """SQLite persistence with explicit transactions and immutable releases.
 
     A composition of the capability stores, and nothing more. Reach through it
     for the store you want —
@@ -68,9 +74,18 @@ class Repository:
         self.zones = ZoneStore(self.database)
         self.rules = RuleStore(self.database)
         self.edges = EdgeStore(self.database)
+        self.jobs = JobStore(self.database)
+        self.schedules = ScheduleStore(self.database)
         self.ansible_settings = AnsibleSettingStore(self.database)
-        self.deployments = DeploymentStore(self.database, self.snapshot)
+        self.deployments = DeploymentStore(self.database)
         self.deployment_requirements = DeploymentRequirementStore(self.database)
+        self.deployment_targets = DeploymentTargetStore(self.database)
+        # Pruning must not remove a release some deployment can still be
+        # rolled back to, and the deployments store is what knows which those
+        # are. Introduced here rather than reached for: the release store
+        # declared the question as a port and never learns whose table answers
+        # it.
+        self.releases = ReleaseStore(self.database, self.deployments)
         # The one store handed a policy value here rather than at its call
         # site. A deployment prunes its history from the service that just
         # converged one, and a workflow journal from the coordinator that just
@@ -84,24 +99,23 @@ class Repository:
         )
         self.workflows = WorkflowStore(self.database)
 
-    def snapshot(self) -> str:
-        """Serialise the desired state a deployment converges and can roll back to.
+    def release_inputs(self) -> ReleaseInputs:
+        """The canonical desired state a release is compiled from.
 
         Spans three tables, so it belongs to the bundle rather than to any one
-        store. ``DeploymentStore`` is handed this bound method at construction:
-        it records a snapshot with every deployment without knowing what a
-        snapshot contains.
+        store, and it is read inside a single transaction so that what comes
+        back is one consistent instant rather than three.
 
         Sites are not read here and are not in the document. They are derived
-        from these three on the way *in* to a render or a rollback, so writing
-        them down would put a second, older answer beside the state they come
-        from.
+        from these three by the compiler, so writing them down would put a
+        second, older answer beside the state they come from.
         """
         with self.transaction():
-            domains = self.zones.list_domains()
-            records = self.zones.list_records()
-            rules = self.rules.list_rules()
-            return encode_snapshot(domains, records, rules)
+            return ReleaseInputs.of(
+                self.zones.list_domains(),
+                self.zones.list_records(),
+                self.rules.list_rules(),
+            )
 
     def transaction(self) -> AbstractContextManager[None]:
         """Open the Unit of Work shared by this repository's stores."""

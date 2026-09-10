@@ -8,7 +8,10 @@
     path: "{{ blitzecdn_uninstall_compose_file }}"
   register: blitzecdn_uninstall_compose
 
-- name: Remove the control-plane containers and persistent Redis volume
+# `--volumes` is kept even though the project declares none. It removes
+# anonymous volumes a container acquired, and it is what would take away a
+# named one if a future service brought its own back.
+- name: Remove the control-plane containers and any volumes they hold
   ansible.builtin.command:
     argv:
       - docker

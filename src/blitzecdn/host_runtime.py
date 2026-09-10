@@ -62,7 +62,6 @@ class ServiceDefinitions:
             "container_name",
             "command",
             "restart",
-            "depends_on",
             "healthcheck",
             "profiles",
             "entrypoint",
@@ -168,18 +167,6 @@ class HostRuntime:
                     )
                 time.sleep(1)
 
-    def ensure_dependencies(self) -> None:
-        for service in self.definitions.services["blitzecdn-cli"].get("depends_on", {}):
-            existing = self.containers(service, all_states=True)
-            if not existing:
-                existing = [
-                    self.client.containers.create(**self.definitions.options(service))
-                ]
-            for container in existing:
-                if container.status != "running":
-                    container.start()
-            self.wait_healthy(existing)
-
     def recover(self, running: list[Container]) -> None:
         failures = []
         recovered = []
@@ -221,7 +208,10 @@ class HostRuntime:
                 )
                 self.stage_configuration(stage, options)
             if not restore:
-                self.ensure_dependencies()
+                # Nothing to start first. A disposable CLI container used to
+                # have to bring up the message broker its command would talk
+                # to; durable work lives in the state volume now, which this
+                # container already mounts.
                 return self.run_command(arguments, options)
             # Complete discovery before stopping anything. A failed stop is still
             # inside the recovery boundary, so every prior writer is recovered.

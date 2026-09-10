@@ -11,7 +11,7 @@ from ipaddress import ip_network
 from pathlib import Path
 from typing import Self
 
-from pydantic import Field, RedisDsn, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
@@ -166,7 +166,7 @@ class Settings(BaseSettings):
     #: carrying a *complete* copy of every zone and record, so without a bound
     #: this table grows by a full desired state every hour whether or not
     #: anything changed. Real deployments are never pruned: they are the
-    #: snapshots a rollback chooses from.
+    #: releases a rollback chooses from.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
     #: How many audit events to keep.
     #:
@@ -180,7 +180,15 @@ class Settings(BaseSettings):
     #: raising this.
     audit_retention: int = Field(default=100_000, ge=1_000, le=10_000_000)
     drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
-    redis_url: RedisDsn = RedisDsn("redis://127.0.0.1:6379/0")
+    #: How often the worker looks for durable work when it found none last time.
+    #:
+    #: A poll rather than a push, and the interval is what that trade costs: an
+    #: idle tick is one indexed SELECT against a local SQLite file, and a queued
+    #: deployment waits at most this long before a worker picks it up. The push
+    #: alternative was a Redis broker — a second network service to run,
+    #: supervise, back up and firewall for a workload of one convergence at a
+    #: time. See docs/decisions/0008-durable-work-on-the-primary-database.md.
+    worker_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
     #: How many route handlers may occupy the API's offload pool at once.
     #:
     #: Their own pool, not the server's. Some operations block for minutes —

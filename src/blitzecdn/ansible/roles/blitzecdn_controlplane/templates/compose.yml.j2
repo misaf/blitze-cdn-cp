@@ -1,5 +1,12 @@
 # Managed by BlitzeCDN. Compose installs services; the host SDK runner recovers
-# them after restores. Do not start Uvicorn or Dramatiq manually in containers.
+# them after restores. Do not start Uvicorn or the worker manually in containers.
+#
+# Three services and no message broker. Durable work is rows in the control
+# plane's own database, so the worker and the API share the state volume rather
+# than a queue server — see
+# docs/decisions/0008-durable-work-on-the-primary-database.md. What used to be
+# here was a fourth service, its own volume, its own healthcheck and a
+# `depends_on` from every other service to it.
 name: {{ blitzecdn_controlplane_compose_project | to_json }}
 
 x-blitzecdn-runtime: &blitzecdn-runtime
@@ -20,28 +27,11 @@ x-blitzecdn-runtime: &blitzecdn-runtime
     - no-new-privileges:true
 
 services:
-  redis:
-    image: {{ blitzecdn_controlplane_redis_image | to_json }}
-    container_name: blitzecdn-redis
-    network_mode: host
-    command: ["redis-server", "--bind", "127.0.0.1", "--port", "6379", "--appendonly", "yes"]
-    restart: unless-stopped
-    volumes:
-      - blitzecdn-redis:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 12
-
   blitzecdn-api:
     <<: *blitzecdn-runtime
     container_name: blitzecdn-api
     command: ["python", "-m", "blitzecdn.api"]
     restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
       interval: 10s
@@ -52,13 +42,14 @@ services:
   blitzecdn-worker:
     <<: *blitzecdn-runtime
     container_name: blitzecdn-worker
-    command: ["dramatiq", "blitzecdn.worker", "--queues", "deployments", "scheduled", "--processes", "1", "--threads", "2"]
+    command: ["python", "-m", "blitzecdn.worker"]
     restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
+    # The worker holds no listener, so liveness is "is the process the image
+    # was told to run still the process running". A queue-depth check was
+    # considered and rejected: an empty queue is the normal state, and a worker
+    # that is merely idle must not be restarted for it.
     healthcheck:
-      test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'dramatiq' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
+      test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'blitzecdn.worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
       interval: 10s
       timeout: 3s
       retries: 6
@@ -67,15 +58,8 @@ services:
     <<: *blitzecdn-runtime
     profiles: ["cli"]
     restart: "no"
-    depends_on:
-      redis:
-        condition: service_healthy
     volumes:
       - {{ (blitzecdn_controlplane_state_dir ~ ':/opt/blitzecdn/.state') | to_json }}
       - {{ (blitzecdn_controlplane_install_dir ~ '/blitzecdn.toml:/opt/blitzecdn/blitzecdn.toml:ro') | to_json }}
       - {{ (blitzecdn_controlplane_backup_dir ~ ':/var/backups/blitzecdn') | to_json }}
     entrypoint: ["blitzecdn"]
-
-volumes:
-  blitzecdn-redis:
-    name: blitzecdn-redis

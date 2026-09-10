@@ -62,11 +62,11 @@ def blitzecdn_health_checks(platform: ControlPlane) -> Sequence[HealthCheck]:
     def database() -> None:
         platform.workflow_history.list_workflows(1)
 
-    def broker() -> None:
-        if not platform.broker_ready():
-            raise ConnectionError("Redis did not answer PING")
+    def queue() -> None:
+        if not platform.queue_ready():
+            raise ConnectionError("the durable job table could not be read")
 
     return (
         HealthCheck(plugin="diagnostics", name="database", check=database),
-        HealthCheck(plugin="diagnostics", name="broker", check=broker),
+        HealthCheck(plugin="diagnostics", name="queue", check=queue),
     )

@@ -8,21 +8,27 @@ Capability-local builders assemble services from explicitly injected ports.
 Entry layers call these services directly; the concrete repository is not
 published. Optional packages use the published services and ports.
 
-Queue access goes through ``core.runtime.broker``. The worker is an entry
-point and must not be imported here. Architecture tests enforce this boundary.
-See docs/decisions/0001-zone-policy-and-composition.md for the design rationale."""
+Durable work goes through the ``jobs`` capability, which is rows in this
+control plane's own database rather than a broker. The worker is an entry point
+and must not be imported here. Architecture tests enforce this boundary.
+See docs/decisions/0001-zone-policy-and-composition.md for the design rationale,
+and 0008 for why background work lives on the primary database."""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from typing import Protocol
 
+from sqlalchemy.exc import SQLAlchemyError
+
+from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.deployments.composition import build_deployment_service
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
     DeploymentRunner,
     QueueBackgroundRunner,
+    ServingVerifier,
 )
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
 from blitzecdn.capabilities.dns import DnsService
@@ -40,8 +46,16 @@ from blitzecdn.capabilities.edges.composition import build_edge_operations_servi
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
+from blitzecdn.capabilities.jobs.composition import (
+    build_handlers,
+    build_job_queue,
+    build_job_scheduler,
+)
+from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner, JobScheduler
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
+from blitzecdn.capabilities.releases.composition import build_release_service
+from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
@@ -65,7 +79,6 @@ from blitzecdn.core.plugins import (
 from blitzecdn.core.plugins.types import ENTRY_POINT_GROUP
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
-from blitzecdn.core.runtime.broker import DramatiqBackgroundRunner, redis_ready
 
 #: Built-in plugins in stable registration and presentation order.
 #: The roster belongs to composition; core discovery accepts arbitrary plugins.
@@ -76,6 +89,8 @@ BUILTIN_PLUGINS: tuple[str, ...] = (
     "blitzecdn.capabilities.http.plugin",
     "blitzecdn.capabilities.dns.plugin",
     "blitzecdn.capabilities.edges.plugin",
+    "blitzecdn.capabilities.jobs.plugin",
+    "blitzecdn.capabilities.releases.plugin",
     "blitzecdn.capabilities.workflows.plugin",
     "blitzecdn.capabilities.deployments.plugin",
     "blitzecdn.capabilities.tls.plugin",
@@ -135,9 +150,10 @@ class ControlPlane:
         repository: Repository | None = None,
         runner: FleetRunner | None = None,
         origin_probe: OriginProbePort | None = None,
+        serving_probe: ServingVerifier | None = None,
         edges_store: EdgeStorePort | None = None,
         background: QueueBackgroundRunner | None = None,
-        broker_ready: Callable[[str], bool] | None = None,
+        queue_ready: Callable[[], bool] | None = None,
         pool_connections: bool = False,
         plugins: PluginRegistry | None = None,
         process: ProcessKind = ProcessKind.CLI,
@@ -165,11 +181,13 @@ class ControlPlane:
             store=store,
             runner=runner,
             origin_probe=origin_probe,
+            serving_probe=serving_probe,
             edges_store=edges_store,
             background=background,
-            broker_ready=broker_ready,
+            queue_ready=queue_ready,
         )
         self._jobs: dict[str, ScheduledJob] | None = None
+        self._job_runner: JobRunner | None = None
         self._wire_services(store)
 
     def _wire_adapters(
@@ -178,9 +196,10 @@ class ControlPlane:
         store: Repository,
         runner: FleetRunner | None,
         origin_probe: OriginProbePort | None,
+        serving_probe: ServingVerifier | None,
         edges_store: EdgeStorePort | None,
         background: QueueBackgroundRunner | None,
-        broker_ready: Callable[[str], bool] | None,
+        queue_ready: Callable[[], bool] | None,
     ) -> None:
         """Choose concrete outside-world capabilities and their test overrides."""
         # The fleet, and the rows the `blitzecdn` Ansible inventory plugin reads
@@ -238,13 +257,28 @@ class ControlPlane:
         )
         self._origin_probe = origin_probe or OriginProbe(self.settings)
         self.origin_probe: OriginProbePort = self._origin_probe
+        # What a deployment's final phase asks the fleet. Injectable for the
+        # same reason the origin probe is: it opens a socket to somewhere the
+        # operator named, and a test of anything else must be able to say what
+        # that socket answers without one being opened.
+        self._serving_probe: ServingVerifier = serving_probe or ServingProbe()
         self.deployment_lock: DeploymentLocker = self._runner
-        self._background = background or DramatiqBackgroundRunner(
-            str(self.settings.redis_url)
+        # The durable queue, on the same database as everything else. Built
+        # here rather than in `_wire_services` because `deployments` is handed
+        # it as a collaborator, and because the API process needs it to publish
+        # without ever consuming — which is why the handler table is empty
+        # unless this is the worker.
+        self.job_queue: JobQueue = build_job_queue(
+            self,
+            jobs=store.jobs,
+            handlers=build_handlers(self) if self.process is ProcessKind.WORKER else {},
         )
-        readiness_probe = broker_ready or redis_ready
-        self._broker_ready: Callable[[], bool] = lambda: readiness_probe(
-            str(self.settings.redis_url)
+        self.job_scheduler: JobScheduler = build_job_scheduler(
+            self, schedules=store.schedules, queue=self.job_queue
+        )
+        self._background = background or _QueuePublisher(self.job_queue)
+        self._queue_ready: Callable[[], bool] = queue_ready or (
+            lambda: _queue_reachable(self.job_queue)
         )
 
     def _wire_services(self, store: Repository) -> None:
@@ -290,6 +324,12 @@ class ControlPlane:
         self.rules: RuleService = build_rule_service(
             self, rules=store.rules, zones=store.zones
         )
+        # Built before the capabilities that consume it, and after `dns`: a
+        # release is compiled from canonical state, and every plugin that
+        # contributes a variable to one has by now been registered.
+        self.releases: ReleaseService = build_release_service(
+            self, state=store, releases=store.releases, edges=self._edges_store
+        )
         self._wire_capability_services(store)
 
     def _wire_capability_services(self, store: Repository) -> None:
@@ -307,6 +347,10 @@ class ControlPlane:
             zones=store.zones,
             rules=store.rules,
             requirements=store.deployment_requirements,
+            releases=self.releases,
+            targets=store.deployment_targets,
+            edges=self._edges_store,
+            verifier=self._serving_probe,
             runner=self._runner,
             background=self._background,
         )
@@ -316,6 +360,23 @@ class ControlPlane:
         self.maintenance: MaintenanceService = build_maintenance_service(
             self, requirements=store.deployment_requirements
         )
+
+    @property
+    def job_runner(self) -> JobRunner:
+        """The loop the worker process runs, built on first use.
+
+        On first use and not in the constructor, for the same reason ``jobs``
+        is: it closes over the handler table, which reaches two services this
+        object is still in the middle of building. Kept once it is built, so
+        two calls do not hand out two loops over one queue.
+        """
+        if self._job_runner is None:
+            self._job_runner = JobRunner(
+                queue=self.job_queue,
+                scheduler=self.job_scheduler,
+                poll_seconds=self.settings.worker_poll_seconds,
+            )
+        return self._job_runner
 
     @property
     def jobs(self) -> dict[str, ScheduledJob]:
@@ -348,9 +409,16 @@ class ControlPlane:
             RuntimeContext(process=self.process, settings=self.settings), self
         )
 
-    def broker_ready(self) -> bool:
-        """Whether the durable work broker is currently reachable."""
-        return self._broker_ready()
+    def queue_ready(self) -> bool:
+        """Whether the durable work queue can be read right now.
+
+        A separate question from "is the database up" even though both answers
+        come from the same file: a schema that has not been migrated has a
+        database and no ``jobs`` table, and a controller in that state accepts
+        deployments it can never run. The two health checks fail differently
+        and are fixed differently, which is why there are two of them.
+        """
+        return self._queue_ready()
 
     def close(self) -> None:
         """Release adapters created by this composition root.
@@ -378,3 +446,40 @@ def build_control_plane(
         process=process,
         plugins=plugins,
     )
+
+
+class _QueuePublisher:
+    """The deployment capability's ``QueueBackgroundRunner``, over the job queue.
+
+    A two-line adapter and a deliberate one. ``deployments`` declared a port
+    with a single ``enqueue`` on it and knows nothing about jobs, leases or
+    fences; binding that port to this installation's queue is a composition
+    decision, and putting it here is what keeps the deployment service unable
+    to reach the rest of the queue's surface.
+    """
+
+    def __init__(self, queue: JobQueue) -> None:
+        self._queue = queue
+
+    def enqueue(self, deployment_id: str) -> None:
+        self._queue.enqueue_deployment(deployment_id)
+
+
+def _queue_reachable(queue: JobQueue) -> bool:
+    """Whether the job table answers, without changing anything in it.
+
+    A bounded read rather than a write: a health check that enqueued would put
+    a row in the table every time a load balancer asked whether this node was
+    alive.
+
+    The two failures worth reporting as "not ready" are named rather than
+    caught wholesale. A missing table or a locked file is a node that cannot
+    run background work and should be taken out of rotation; a `TypeError` in
+    this function is a bug in the control plane, and a health check that
+    swallowed it would report a healthy node forever.
+    """
+    try:
+        queue.list_jobs(limit=1)
+    except (SQLAlchemyError, OSError):
+        return False
+    return True

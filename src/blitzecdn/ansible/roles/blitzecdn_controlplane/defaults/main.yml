@@ -17,7 +17,6 @@ blitzecdn_controlplane_sudoers_file: /etc/sudoers.d/blitzecdn-deploy
 blitzecdn_controlplane_compose_file: /etc/blitzecdn/control-plane.compose.yml
 blitzecdn_controlplane_compose_project: blitzecdn-control-plane
 blitzecdn_controlplane_image: blitzecdn-control-plane:local
-blitzecdn_controlplane_redis_image: redis:8.2-alpine
 # Where the control plane's own Dockerfile sits, relative to the installation
 # directory that is the build context. It ships inside the wheel, beside the
 # Ansible this role is part of, and `blitzecdn.docker.CONTROL_PLANE_DOCKERFILE`

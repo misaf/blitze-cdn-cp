@@ -142,7 +142,6 @@ in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep 
   in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-api' || true
   fail "API not running"
 }
-in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-redis | grep -qx healthy' || fail "Redis not running"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-worker | grep -qx healthy' || fail "worker not running"
 for service in blitzecdn-api blitzecdn-worker; do
   in_container "docker inspect -f '{{.Config.User}}' ${service} | grep -qx nobody:nogroup" ||
@@ -714,9 +713,7 @@ in_container 'getent passwd blitzecdn >/dev/null' && fail "unexpected blitzecdn 
 in_container 'getent group blitzecdn >/dev/null' && fail "unexpected blitzecdn group appeared"
 in_container 'getent passwd deploy >/dev/null' && fail "deploy account survived"
 in_container 'ls /etc/systemd/system | grep -q blitzecdn' && fail "unit files survived"
-in_container 'docker ps --all --format "{{.Names}}" | grep -q "^blitzecdn-\(api\|worker\|redis\)$"' &&
+in_container 'docker ps --all --format "{{.Names}}" | grep -q "^blitzecdn-\(api\|worker\)$"' &&
   fail "control-plane containers survived"
-in_container 'docker volume inspect blitzecdn-redis >/dev/null 2>&1' &&
-  fail "control-plane Redis volume survived"
 
 printf '\nPASS: %s completed install, re-install, and uninstall\n' "${IMAGE}"

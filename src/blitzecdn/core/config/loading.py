@@ -61,7 +61,7 @@ _VALUE_SETTINGS: tuple[tuple[str, str, str], ...] = (
         "BLITZE_DRIFT_CHECK_INTERVAL_SECONDS",
         "drift_check_interval_seconds",
     ),
-    ("redis_url", "BLITZE_REDIS_URL", "redis_url"),
+    ("worker_poll_seconds", "BLITZE_WORKER_POLL_SECONDS", "worker_poll_seconds"),
     ("api_worker_threads", "BLITZE_API_WORKER_THREADS", "api_worker_threads"),
     ("allowed_ips", "BLITZE_ALLOWED_IPS", "allowed_ips"),
 )
@@ -74,17 +74,14 @@ _PROJECT_KEYS = {
 
 # Disaster recovery moves portable policy and non-regenerable identity onto a
 # compatible fresh install, but it must not replace the new host's filesystem
-# layout or local Redis endpoint with values from the failed machine.
-MACHINE_SPECIFIC_CONFIG_KEYS = frozenset(
-    {"database_path", "environment_path", "redis_url"}
-)
+# layout with values from the failed machine.
+MACHINE_SPECIFIC_CONFIG_KEYS = frozenset({"database_path", "environment_path"})
 MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
     {
         "BLITZE_PROJECT_DIR",
         "BLITZE_CONFIG",
         "BLITZE_DATABASE_PATH",
         "BLITZE_ENVIRONMENT_PATH",
-        "BLITZE_REDIS_URL",
     }
 )
 #: Every `BLITZE_*` name core reads for itself. A name here can never be claimed
