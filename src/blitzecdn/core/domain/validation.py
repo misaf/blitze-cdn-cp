@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+from fnmatch import fnmatch
 
 from pydantic import BaseModel, ConfigDict
 
@@ -124,6 +125,22 @@ def validate_edge_limit(value: str | None) -> str | None:
             "deploy, never widen it."
         )
     return candidate
+
+
+def matches_edge_limit(name: str, host_limit: str) -> bool:
+    """Whether one edge name is inside a validated host limit.
+
+    The matcher itself, as a value question over two strings, so that "which
+    edges will this run reach" has one answer whoever asks. Two callers do:
+    ``core.ansible.hosts`` expands a limit into the explicit names it hands
+    Ansible, and the release compiler validates a site's requested capabilities
+    against exactly the edges the run will touch. Two implementations of a glob
+    would be two definitions of what a canary is.
+
+    Comma-separated terms are a union, matched with :mod:`fnmatch` — the same
+    globbing ``EDGE_LIMIT`` admits and nothing more.
+    """
+    return any(fnmatch(name, pattern) for pattern in host_limit.split(","))
 
 
 #: Variables the fleet-wide settings table may never set.

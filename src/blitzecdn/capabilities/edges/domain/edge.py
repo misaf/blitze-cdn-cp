@@ -69,6 +69,21 @@ class Edge(BaseModel):
     #: edge because that is where an operator naturally supplies it, and
     #: published as the union across every edge — see ``firewall_sources``.
     ssh_sources: tuple[str, ...] = Field(default=(), max_length=100)
+    #: What this edge's runtime is declared to provide, as capability tokens.
+    #:
+    #: ``None`` — the default, and what every edge registered before this field
+    #: existed reads as — means "whatever the controller has installed". That
+    #: is exactly the assumption the control plane made when it had no way to
+    #: ask, so leaving it unset changes nothing about how a fleet converges;
+    #: declaring a set is how an operator opts in to the stricter check, and
+    #: what makes a compilation refuse a site whose Brotli settings would reach
+    #: an nginx that never loaded the module.
+    #:
+    #: Declared, not observed. The edge role probes the running binary at
+    #: converge time and is the authority on what is actually there; this is
+    #: the operator's statement of what they built, checked *before* a run
+    #: starts rather than in the middle of one.
+    capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
 
     @field_validator("name")
     @classmethod
@@ -198,6 +213,7 @@ class EdgePatch(BaseModel):
     private_key_file: str | None = None
     public_addresses: tuple[str, ...] | None = None
     ssh_sources: tuple[str, ...] | None = None
+    capabilities: tuple[str, ...] | None = Field(default=None, max_length=50)
 
 
 def firewall_sources(edges: list[Edge]) -> list[str]:
