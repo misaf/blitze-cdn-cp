@@ -1,89 +1,66 @@
-"""The worker entry point: the Dramatiq actors, and nothing else.
+"""The worker entry point: a loop over the durable job table.
 
-This module is what ``dramatiq blitzecdn.worker`` imports. It is an entry point
-in exactly the sense the CLI and the API are: it builds a control plane and
-calls a service on it, and it is allowed to know both halves because nothing
-imports it back.
+This module is what ``blitzecdn worker`` and the container's worker service
+run. It is an entry point in exactly the sense the CLI and the API are: it
+builds a control plane and calls a service on it, and it is allowed to know
+both halves because nothing imports it back.
 
-There are two actors and there will not be more. One converges a queued
-deployment; the other runs a scheduled job *by name*, resolving that name
-against the plugin registry in this process. That indirection is what lets a
-separately installed plugin contribute recurring work: ``blitzecdn-waf`` can
-add a "refresh rule set" job without an actor being declared for it here, which
-is the whole point of the registration mechanism.
+There are no actors here and no broker to connect to. Work is rows in the
+control plane's own database, so the process that enqueues and the process that
+consumes share a table rather than a message bus — see
+``docs/decisions/0008-durable-work-on-the-primary-database.md`` for why that
+turned out to be the smaller thing rather than the cruder one.
 
-The broker itself — connecting to Redis, publishing a message, the
-single-flight key that keeps one scheduled job in flight — lives in
-:mod:`blitzecdn.core.runtime.broker`, which is where the composition root reaches for
-it. A publisher never imports this module.
+What is left in this file is the process lifecycle: build, register the
+schedules this installation's plugins contribute, install signal handlers so a
+container stop finishes the job in hand, and loop.
 """
 
 from __future__ import annotations
 
 import logging
 
-import dramatiq
-
 from blitzecdn.core.config import Settings
-from blitzecdn.core.exceptions import DeploymentBusyError
 from blitzecdn.core.plugins import ProcessKind
-from blitzecdn.core.runtime.broker import (
-    DEPLOYMENT_QUEUE,
-    SCHEDULED_QUEUE,
-    configure_broker,
-    release_schedule_key,
-)
 
 _LOGGER = logging.getLogger(__name__)
-_DEPLOYMENT_LOCK_RETRIES = 260
+
+__all__ = ["main", "run_worker"]
 
 
-# The worker imports this module before accepting messages. Resolve through the
-# same settings pipeline as the API so a Redis URL in blitzecdn.toml is honored;
-# environment overrides still win through Settings.from_environment(). Actors
-# capture the current broker when decorated, so this has to run first.
-configure_broker(str(Settings.from_environment().redis_url))
+def run_worker(settings: Settings | None = None) -> None:
+    """Run the worker until it is asked to stop.
 
-
-def _retry_locked_deployment(retries: int, exception: BaseException) -> bool:
-    """Retry only the publish-to-worker lock handoff race."""
-    return retries < _DEPLOYMENT_LOCK_RETRIES and isinstance(
-        exception, DeploymentBusyError
-    )
-
-
-@dramatiq.actor(
-    queue_name=DEPLOYMENT_QUEUE,
-    retry_when=_retry_locked_deployment,
-    min_backoff=1_000,
-    max_backoff=30_000,
-)
-def run_deployment(deployment_id: str) -> None:
-    """Converge one already-recorded queued deployment."""
+    Registering the schedules this installation contributes is the `jobs`
+    plugin's startup contribution rather than a line here, for the reason every
+    other startup contribution is one: what a process owes when it starts is
+    the plugin's business, and ``RuntimeContext.process`` is how it knows this
+    is the worker.
+    """
     from blitzecdn.composition import build_control_plane
 
-    settings = Settings.from_environment()
-    control = build_control_plane(settings, process=ProcessKind.WORKER)
+    resolved = settings or Settings.from_environment()
+    control = build_control_plane(resolved, process=ProcessKind.WORKER)
     try:
-        control.deployments.run_queued(deployment_id)
-    except Exception:
-        _LOGGER.exception("deployment %s failed", deployment_id)
-        raise
-    finally:
-        control.close()
-
-
-@dramatiq.actor(max_retries=0, queue_name=SCHEDULED_QUEUE)
-def run_scheduled_job(job: str, token: str) -> None:
-    """Run one plugin-contributed scheduled job in the worker process."""
-    from blitzecdn.composition import build_control_plane
-
-    settings = Settings.from_environment()
-    control = build_control_plane(settings, process=ProcessKind.WORKER)
-    try:
-        control.maintenance.run(job)
+        control.start()
+        _LOGGER.info(
+            "worker ready: %d scheduled job(s) registered",
+            len(control.job_scheduler.schedules.list_schedules()),
+        )
+        runner = control.job_runner
+        runner.install_signal_handlers()
+        runner.run_forever()
     finally:
         try:
-            control.close()
+            control.stop()
         finally:
-            release_schedule_key(str(settings.redis_url), job, token)
+            control.close()
+
+
+def main() -> None:  # pragma: no cover - the process entry point
+    logging.basicConfig(level=logging.INFO)
+    run_worker()
+
+
+if __name__ == "__main__":  # pragma: no cover - module execution
+    main()

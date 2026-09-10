@@ -1,7 +1,7 @@
 """Where the control plane is put together, and the only place that decides.
 
-Three modules, one job: choosing which concrete thing satisfies a port, and
-which parts make one running control plane.
+Two modules, one job: choosing which concrete thing satisfies a port, and which
+parts make one running control plane.
 
 * :mod:`~blitzecdn.composition.control_plane` — the composition root proper.
   It builds the adapters, injects them into the capability services, loads the
@@ -10,10 +10,8 @@ which parts make one running control plane.
   SQLite database. A bundle, not a layer: each store already satisfies its
   capability's port, so no service is handed more of persistence than it asked
   for.
-* :mod:`~blitzecdn.composition.scheduler` — which of the contributed jobs get
-  triggers, and how often. It runs inside the API process; it is not one.
 
-All three were loose modules at the package root, beside `worker.py` and
+Both were loose modules at the package root, beside `worker.py` and
 `install_handoff.py`, which meant the root answered two unrelated questions at
 once and answered neither: "how is a control plane assembled" and "which
 processes exist". The root is the processes now — `api/`, `cli/`, `worker.py`,
@@ -41,7 +39,6 @@ from blitzecdn.composition.control_plane import (
     load_control_plane_plugins,
 )
 from blitzecdn.composition.repository import Repository
-from blitzecdn.composition.scheduler import build_scheduler
 
 __all__ = [
     "BUILTIN_PLUGINS",
@@ -49,6 +46,5 @@ __all__ = [
     "FleetRunner",
     "Repository",
     "build_control_plane",
-    "build_scheduler",
     "load_control_plane_plugins",
 ]

@@ -12,7 +12,6 @@ from blitzecdn import __version__
 from blitzecdn.api.access import AllowedIPsMiddleware
 from blitzecdn.composition import (
     build_control_plane,
-    build_scheduler,
     load_control_plane_plugins,
 )
 from blitzecdn.core.config import Settings
@@ -53,14 +52,9 @@ def create_app(
         # now, not a line here: what a process owes at startup is the plugin's
         # business, and `RuntimeContext.process` is how it knows this is the API.
         control.start()
-        scheduler = build_scheduler(resolved, control.jobs)
-        if scheduler is not None:
-            scheduler.start()
         try:
             yield
         finally:
-            if scheduler is not None:
-                scheduler.shutdown(wait=True)
             worker_pool.shutdown(wait=True)
             control.stop()
             control.close()

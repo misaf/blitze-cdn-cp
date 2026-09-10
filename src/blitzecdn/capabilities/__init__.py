@@ -8,7 +8,7 @@ map is worth having in one place:
 
 | capability | implemented by | absent without the wheel |
 | --- | --- | --- |
-| `dns` `edges` | itself | nothing: this is the control plane |
+| `dns` `edges` `releases` `jobs` | itself | nothing: this is the control plane |
 | `deployments` `diagnostics` `maintenance` | itself | nothing, likewise |
 | `workflows` | itself | nothing, likewise |
 | `cache` | `blitzecdn-cache` | purge, cache statistics |

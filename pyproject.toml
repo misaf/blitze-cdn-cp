@@ -39,9 +39,7 @@ dependencies = [
   # The extension mechanism. Capabilities register through it; business calls never
   # go through it. See src/blitzecdn/core/plugins/__init__.py.
   "pluggy>=1.6,<2",
-  "apscheduler>=3.11,<4",
   "sqlmodel>=0.0.31,<0.1",
-  "dramatiq[redis]>=2.2.0,<3",
   "ansible-runner>=2.4,<3",
 ]
 
@@ -127,6 +125,11 @@ blitzecdn-resolver = { workspace = true }
 
 [project.scripts]
 blitzecdn = "blitzecdn.cli.main:run"
+# The worker is its own console script as well as `python -m blitzecdn.worker`.
+# It used to be started by the `dramatiq` CLI, which meant the process the
+# control plane ran was one this project did not define and could not give a
+# signal handler to.
+blitzecdn-worker = "blitzecdn.worker:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/blitzecdn"]

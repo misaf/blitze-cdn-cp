@@ -11,7 +11,6 @@ import jinja2
 import yaml
 from paths import CORE_ANSIBLE, REPO_ROOT
 
-from blitzecdn.core.runtime import broker
 from blitzecdn.docker import (
     CONTROL_PLANE_DOCKERFILE,
     CONTROL_PLANE_DOCKERIGNORE,
@@ -46,7 +45,6 @@ def _compose() -> dict[str, Any]:
         blitzecdn_controlplane_config_dir="/etc/blitzecdn",
         blitzecdn_controlplane_state_dir="/var/lib/blitzecdn",
         blitzecdn_controlplane_backup_dir="/var/backups/blitzecdn",
-        blitzecdn_controlplane_redis_image="redis:test",
         blitzecdn_controlplane_dockerfile=_role_defaults()[
             "blitzecdn_controlplane_dockerfile"
         ],
@@ -58,34 +56,42 @@ def test_control_plane_uses_a_project_name_distinct_from_the_edge_stack():
     assert _compose()["name"] == "blitzecdn-control-plane"
 
 
-def test_api_worker_and_redis_are_dedicated_persistent_services():
+def test_the_api_and_the_worker_are_the_only_persistent_services():
+    """No broker service, and nothing depending on one.
+
+    Durable work is rows in the control plane's own database, so the two
+    processes share the state volume rather than a queue server. The service
+    that used to be here brought its own volume, its own healthcheck and a
+    `depends_on` from all three of the others.
+    """
     services = _compose()["services"]
     assert set(services) == {
-        "redis",
         "blitzecdn-api",
         "blitzecdn-worker",
         "blitzecdn-cli",
     }
     assert services["blitzecdn-api"]["command"] == ["python", "-m", "blitzecdn.api"]
-    assert services["blitzecdn-worker"]["command"][0] == "dramatiq"
+    assert services["blitzecdn-worker"]["command"] == [
+        "python",
+        "-m",
+        "blitzecdn.worker",
+    ]
     assert services["blitzecdn-api"]["restart"] == "unless-stopped"
     assert services["blitzecdn-worker"]["restart"] == "unless-stopped"
     assert "healthcheck" in services["blitzecdn-api"]
     assert "healthcheck" in services["blitzecdn-worker"]
+    for service in services.values():
+        assert "depends_on" not in service
 
 
-def test_the_worker_consumes_every_queue_the_broker_publishes_to():
-    """The third copy of the queue names, held against the first.
+def test_no_volume_is_declared_for_a_broker_that_is_not_there():
+    """A stale named volume outlives the service that used it.
 
-    ``infrastructure/broker.py`` names the queues, ``worker.py`` declares actors
-    on them, and this Compose command tells Dramatiq which ones to consume. A
-    queue missing from the command is not an error anywhere — the messages just
-    sit in Redis unread — so the list is checked rather than trusted.
+    `install.sh uninstall` removes what this file declares; a volume left in
+    the document would be one the uninstaller kept removing forever, and one an
+    operator would find on a host and wonder about.
     """
-    command = _compose()["services"]["blitzecdn-worker"]["command"]
-    queues = command[command.index("--queues") + 1 : command.index("--processes")]
-
-    assert set(queues) >= {broker.DEPLOYMENT_QUEUE, broker.SCHEDULED_QUEUE}
+    assert "volumes" not in _compose()
 
 
 def test_cli_is_ephemeral_and_not_a_persistent_daemon():
@@ -187,7 +193,7 @@ def test_upgrade_recreates_containers_and_uninstall_removes_the_project():
         task
         for task in uninstall_tasks
         if task.get("name")
-        == "Remove the control-plane containers and persistent Redis volume"
+        == "Remove the control-plane containers and any volumes they hold"
     )
     assert down["ansible.builtin.command"]["argv"][-3:] == [
         "down",

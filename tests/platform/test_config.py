@@ -157,13 +157,14 @@ def test_the_controllers_own_names_are_not_handed_to_a_capability(tmp_path):
         {
             "BLITZE_API_KEY": "k" * 40,
             "BLITZE_RUN_LOG_RETENTION": "42",
-            "BLITZE_REDIS_URL": "redis://127.0.0.1:6379/1",
+            "BLITZE_WORKER_POLL_SECONDS": "2.5",
         },
         project_dir=tmp_path,
     )
 
     assert settings.capability_environment == {}
     assert settings.run_log_retention == 42
+    assert settings.worker_poll_seconds == 2.5
 
 
 def test_runtime_validation_requires_generated_vars_beneath_state(settings):

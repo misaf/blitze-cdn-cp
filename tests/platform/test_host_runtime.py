@@ -196,17 +196,20 @@ def test_unknown_service_settings_fail_before_docker_mutations(runtime):
     runtime.client.containers.create.assert_not_called()
 
 
-def test_normal_command_starts_dependencies_and_forwards_environment(
+def test_a_normal_command_starts_nothing_and_forwards_the_environment(
     runtime, monkeypatch
 ):
-    redis = container("redis")
-    redis.status = "exited"
-    runtime.client.containers.list.return_value = [redis]
+    """No service has to be brought up before a disposable CLI container runs.
+
+    One did: the broker its command would have talked to. Durable work is rows
+    in the state volume this container already mounts, so the whole
+    dependency-starting path went with it.
+    """
     monkeypatch.setenv("BLITZE_ALLOW_EMPTY_SITES", "1")
     command = MagicMock(return_value=17)
     monkeypatch.setattr(runtime, "run_command", command)
     assert runtime.execute(["doctor"]) == 17
-    redis.start.assert_called_once()
+    runtime.client.containers.create.assert_not_called()
     assert command.call_args.args[1]["environment"]["BLITZE_ALLOW_EMPTY_SITES"] == "1"
     assert "COMPOSE_RESTORE_OFFLINE" not in command.call_args.args[1]["environment"]
 
