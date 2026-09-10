@@ -174,11 +174,29 @@ def status(
     limit: Annotated[int, typer.Option(min=1, max=100)] = 20,
     json_output: common.JsonOutput = False,
 ) -> None:
-    """Show one deployment or recent deployment history."""
+    """Show one deployment or recent deployment history.
+
+    Naming a deployment also prints how far each edge got. That is the half a
+    fleet-wide result could never carry: an edge missing from one might have
+    succeeded quietly, failed unreported, or never been contacted, and after a
+    stopped rollout the difference is the difference between a fleet that is
+    fine and one running two configurations.
+    """
     deployments = common.control_plane().deployments
-    value = (
-        deployments.get_deployment(deployment_id)
-        if deployment_id
-        else deployments.list_deployments(limit)
-    )
-    common.emit(value, json_output=json_output)
+    if not deployment_id:
+        common.emit(deployments.list_deployments(limit), json_output=json_output)
+        return
+    deployment = deployments.get_deployment(deployment_id)
+    common.emit(deployment, json_output=json_output)
+    targets = [
+        {
+            "edge": target.edge,
+            "status": target.status.value,
+            "phase": target.phase.value if target.phase else None,
+            "attempts": target.attempts,
+            "last_error": target.last_error,
+        }
+        for target in deployments.targets(deployment.id)
+    ]
+    if targets:
+        common.emit(targets, json_output=json_output)

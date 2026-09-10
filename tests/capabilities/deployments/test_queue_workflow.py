@@ -6,12 +6,14 @@ from control_plane_fixtures import (
     RefusingBackgroundQueue,
     ansible_run,
     host_run,
+    seed_edge,
     seed_site,
 )
 
 from blitzecdn.capabilities.deployments.domain import (
     DEPLOYMENT_WORKFLOW,
     DeploymentStatus,
+    TargetStatus,
 )
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
@@ -94,6 +96,7 @@ def test_durable_queue_delivery_is_idempotent(settings):
         runner=runner,
         background=Queue(),
     )
+    seed_edge(control, name="edge-a")
     seed_site(control)
     queued = control.deployments.submit_deployment("alice")
 
@@ -102,7 +105,11 @@ def test_durable_queue_delivery_is_idempotent(settings):
 
     assert first.status is DeploymentStatus.SUCCEEDED
     assert duplicate.status is DeploymentStatus.SUCCEEDED
-    assert runner.check_modes == [False]
+    # One rollout, not two: the second delivery finds the deployment is no
+    # longer QUEUED and converges nothing. The three runs are the one edge's
+    # validate, stage and activate phases.
+    assert runner.check_modes == [True, False, False]
+    assert runner.tag_selections == [(), ("stage",), ()]
 
 
 def test_a_queued_deployment_leaves_a_workflow_record(settings):
@@ -152,6 +159,7 @@ def test_a_failed_queued_deployment_fails_its_workflow(settings):
         ),
         background=queue,
     )
+    seed_edge(control, name="edge-a")
     seed_site(control)
 
     queued = control.deployments.submit_deployment("alice")
@@ -240,6 +248,9 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     # The deployment is recorded as failed rather than left QUEUED forever.
     recorded = repository.deployments.list_deployments(1)[0]
     assert recorded.status is DeploymentStatus.FAILED
+    # And no edge was planned, because no rollout ever started: publication
+    # failed before the deployment reached a worker.
+    assert repository.deployment_targets.targets(recorded.id) == []
     assert recorded.result is not None
     assert recorded.result.status is RunStatus.UNSTARTED
 
@@ -253,13 +264,14 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
 
 def test_runner_errors_are_recorded_and_reraised(settings):
     class ExplodingRunner(FakeRunner):
-        def run(self, *, check, host_limit=None):
+        def run(self, *, check, host_limit=None, tags=()):
             raise ExecutionError("unable to execute Ansible")
 
     repository = Repository(settings.database_path)
     control = ControlPlane(
         settings=settings, repository=repository, runner=ExplodingRunner()
     )
+    seed_edge(control, name="edge-a")
     seed_site(control)
 
     with pytest.raises(ExecutionError):
@@ -267,6 +279,11 @@ def test_runner_errors_are_recorded_and_reraised(settings):
 
     recorded = repository.deployments.list_deployments(1)[0]
     assert recorded.status is DeploymentStatus.FAILED
+    # The edge's own row says which phase it died in, so an operator does not
+    # have to read a fleet-wide result to learn that nothing was converged.
+    (target,) = repository.deployment_targets.targets(recorded.id)
+    assert target.status is TargetStatus.FAILED
+    assert "validate failed" in (target.last_error or "")
     # The runner raised before Ansible reported anything, so the deployment
     # carries a synthesised result rather than none: every reader looks in the
     # same place for why a deployment ended.
@@ -285,7 +302,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
     calls: list[int] = []
 
     class ExplodingOnceRunner(FakeRunner):
-        def run(self, *, check, host_limit=None):
+        def run(self, *, check, host_limit=None, tags=()):
             calls.append(1)
             if len(calls) == 1:
                 raise ExecutionError("boom")
@@ -305,6 +322,7 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
         runner=ExplodingOnceRunner(),
         background=queue,
     )
+    seed_edge(control, name="edge-a")
     seed_site(control)
 
     first = control.deployments.submit_deployment("alice")
