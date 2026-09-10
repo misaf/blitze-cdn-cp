@@ -14,9 +14,9 @@ under `packages/`, each its own wheel with its own `tests/` beside it.
 ```
 src/blitzecdn/
   core/          ports, domain, persistence, config, plugin machinery, the Ansible substrate
-  capabilities/  the built-in slices: dns, edges, tls, http, security, cache, deployments, …
-  composition/   the composition root: ControlPlane, Repository, the scheduler
-  api/  cli/     delivery
+  capabilities/  the built-in slices: dns, edges, releases, jobs, deployments, tls, http, …
+  composition/   the composition root: ControlPlane and Repository
+  api/  cli/  worker.py   delivery
   ansible/       roles, playbooks, the inventory plugin — see "Ansible" below
   migrations/    one revision, deliberately
 packages/blitzecdn-*/  optional capabilities, same internal shape
@@ -61,7 +61,7 @@ These are executable, in `tests/architecture/`, and reading them beats guessing.
   implementation. This is what lets `dns` compose every capability's contract into one
   `CdnSite` without the graph becoming a cycle.
 - **Domain and contracts import no I/O.** Not fastapi, typer, sqlalchemy, subprocess,
-  ansible, cryptography, dnspython, yaml, redis or dramatiq — those live in `adapters/`.
+  ansible, cryptography, dnspython or yaml — those live in `adapters/`.
 - **No new top-level capability for a strategy.** `http3`, `certificates`, `geoip`,
   `under_attack` and a dozen more are named in `_STRATEGIES_OWNED_BY_A_CAPABILITY` and
   mapped to the capability that owns them. A protocol version, a mode, or an
@@ -128,6 +128,26 @@ literals once and both had silently drifted.
 
 - **Sites are derived, not stored.** Zones and rules own policy; `CdnSite` is composed by
   `derive_hosts` and has no table. Do not add one.
+- **A release is what the fleet is asked to serve, and it is a value.**
+  `capabilities/releases` compiles canonical state into an immutable,
+  content-addressed `Release` — compiler version, input digest, artifact digests,
+  and a per-setting explanation. `compile_release` is a pure function and an
+  architecture test holds it that way: no clock, no database, no network. A
+  deployment names a release; it stores no desired state of its own. See
+  [0007](docs/decisions/0007-releases-and-reconciliation.md).
+- **Background work is rows, not a broker.** `capabilities/jobs` is a durable queue on
+  the same SQLite file, with leases, fences and a durable schedule. There is no Redis,
+  no Dramatiq and no APScheduler; `blitzecdn.worker` is a poll loop this project
+  defines. See [0008](docs/decisions/0008-durable-work-on-the-primary-database.md).
+- **A rollout is per edge and its progress is durable.** `deployment_targets` records
+  prepare/validate/stage/activate/verify per edge, under a fence, so a partial failure
+  is a set of rows rather than an inference and an interrupted rollout resumes. The
+  last phase asks the edge over HTTP whether it is actually serving: a successful
+  reload is never taken as evidence of that. See
+  [0009](docs/decisions/0009-per-edge-reconciliation.md).
+- **BlitzeCDN does not publish DNS.** It records zones and records; something else has
+  to answer for them. `blitzecdn dns export` and `blitzecdn doctor` say so, and no
+  command may claim a record it wrote is being answered.
 - **A rule is a match plus overrides, first match wins** — the winning rule contributes
   everything and no other rule does.
 - **No backward compatibility yet.** Nothing is installed anywhere, so schema changes edit

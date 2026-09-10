@@ -51,6 +51,24 @@ address DNS should answer with instead:
 blitzecdn record unproxy example.com cdn --value 203.0.113.9
 ```
 
+### BlitzeCDN does not publish DNS
+
+It records zones and records; it operates no authoritative nameserver and talks
+to no DNS provider. A record written here is desired state, and a change reaches
+no visitor until whatever is authoritative for the zone is told about it — so
+`blitzecdn record add`, `record proxy` and `record unproxy` each do one half of
+the job and say which half.
+
+Export the other half for whatever does publish:
+
+```bash
+blitzecdn dns export
+```
+
+Each record says what DNS should answer with: a proxied hostname needs an edge
+address, which the fleet supplies, and an unproxied one needs the record's own
+value. `blitzecdn doctor` reports the same limitation as `dns_publication`.
+
 The API listens on loopback. Reach it without opening a public port:
 
 ```bash
