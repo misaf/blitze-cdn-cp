@@ -29,7 +29,7 @@ blitzecdn_base_timezone: Asia/Tehran
 # container are then all provably the same bytes.
 blitzecdn_edge_image_registry: ghcr.io
 blitzecdn_edge_image_repository: misaf/blitzecdn-edge
-blitzecdn_edge_image_tag: "4.1.0"
+blitzecdn_edge_image_tag: "5.0.0"
 blitzecdn_edge_image_digest: ""
 # Composed here and consumed as blitzecdn_edge_runtime.image, so the role that
 # validates a configuration against the image and the role that serves from it
