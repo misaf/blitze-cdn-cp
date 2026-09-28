@@ -15,7 +15,9 @@
 {% set secure = visitor_scheme == 'https' %}
 {% set origin_tls = secure and (ssl_mode in ['full', 'full_strict'] or (ssl_mode == 'flexible' and listener_port != 443)) %}
 {% set origin_scheme = 'https' if origin_tls else 'http' %}
-{% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ listener_port %}
+{# Flexible HTTPS/443 terminates at the edge and reaches the HTTP origin on 80. #}
+{% set origin_port = 80 if secure and ssl_mode == 'flexible' and listener_port == 443 else listener_port %}
+{% set upstream = origin_scheme ~ '://' ~ origin_host ~ ':' ~ origin_port %}
 {% if blitzecdn_nginx_resolvers %}
         set $blitzecdn_upstream {{ upstream }};
         proxy_pass $blitzecdn_upstream$request_uri;

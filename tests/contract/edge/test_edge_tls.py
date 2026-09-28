@@ -91,8 +91,8 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
 #: (mode, serves_tls, origin scheme on an HTTP listener, origin scheme on the
 #: canonical HTTPS listener :443, origin scheme on an alternate HTTPS listener).
 #:
-#: The origin *port* is not in here on purpose: it is always the listener's own,
-#: for every mode and every one of the thirteen public proxy ports. The scheme
+#: The origin *port* is the listener's own except for Flexible HTTPS on 443,
+#: which reaches the origin on HTTP port 80. The scheme
 #: varies with the visitor — Full and Full (strict) mirror the visitor rather
 #: than forcing HTTPS, so an HTTP request under Full still reaches an HTTP
 #: origin — and, for Flexible alone, with the listener port: Flexible is
@@ -104,6 +104,12 @@ _MODE_SCHEMES = [
     (SslMode.FULL, True, "http", "https", "https"),
     (SslMode.FULL_STRICT, True, "http", "https", "https"),
 ]
+
+
+def _origin_port_for(mode: SslMode, visitor_scheme: HttpScheme, port: int) -> int:
+    if mode is SslMode.FLEXIBLE and visitor_scheme is HttpScheme.HTTPS and port == 443:
+        return 80
+    return port
 
 
 def _expected_upstreams(
@@ -122,7 +128,8 @@ def _expected_upstreams(
     if serves_tls:
         for port in runtime["listeners"]["https"]:
             scheme = canonical_origin if port == 443 else alternate_origin
-            expected.add(f"{scheme}://{host}:{port}")
+            origin_port = 80 if port == 443 and scheme == "http" else port
+            expected.add(f"{scheme}://{host}:{origin_port}")
     return expected
 
 
@@ -133,7 +140,7 @@ def _expected_upstreams(
 def test_every_ssl_mode_renders_its_transport(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """Every listener proxies to its own port, over the mode's scheme for it."""
+    """Every listener uses its own port except Flexible HTTPS on 443."""
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
@@ -158,7 +165,7 @@ def test_every_ssl_mode_renders_its_transport(
 def test_the_visitor_port_is_preserved_toward_the_origin(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """The whole capability, stated once: origin port == listener port.
+    """Alternate origin ports match their listener ports.
 
     A request to :8080 must reach the origin's 8080, not its 80 — the bug this
     replaces sent every alternate port to the scheme's default.
@@ -170,6 +177,8 @@ def test_the_visitor_port_is_preserved_toward_the_origin(
     listeners = set(runtime["listeners"]["http"])
     if serves_tls:
         listeners |= set(runtime["listeners"]["https"])
+    if mode is SslMode.FLEXIBLE:
+        listeners.discard(443)
     assert ports == listeners
 
 
@@ -181,7 +190,7 @@ _PORT_UPSTREAMS = [
     (SslMode.OFF, False, 2052, "http://origin.example.com:2052"),
     (SslMode.FLEXIBLE, True, 8080, "http://origin.example.com:8080"),
     # Flexible is Flexible on 443 and Full-like on every other HTTPS port.
-    (SslMode.FLEXIBLE, True, 443, "http://origin.example.com:443"),
+    (SslMode.FLEXIBLE, True, 443, "http://origin.example.com:80"),
     (SslMode.FLEXIBLE, True, 2053, "https://origin.example.com:2053"),
     (SslMode.FLEXIBLE, True, 2083, "https://origin.example.com:2083"),
     (SslMode.FLEXIBLE, True, 2087, "https://origin.example.com:2087"),
@@ -214,10 +223,16 @@ def test_flexible_443_is_plaintext_and_flexible_8443_is_not():
     """
     upstreams = _upstreams(_render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True))))
 
-    assert "http://origin.example.com:443" in upstreams
+    assert "http://origin.example.com:80" in upstreams
     assert "https://origin.example.com:443" not in upstreams
     assert "https://origin.example.com:8443" in upstreams
     assert "http://origin.example.com:8443" not in upstreams
+    block = _https_block(
+        _render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True))),
+        _role_defaults(),
+        443,
+    )
+    assert "http://origin.example.com:80" in block
 
 
 def _https_block(rendered: str, defaults: dict[str, Any], port: int) -> str:
@@ -300,7 +315,7 @@ def test_the_template_agrees_with_the_domains_scheme_rule(
         ]
     assert _upstreams(rendered) == {
         f"{mode.origin_scheme_for(visitor_scheme, port).value}"
-        f"://origin.example.com:{port}"
+        f"://origin.example.com:{_origin_port_for(mode, visitor_scheme, port)}"
         for visitor_scheme, port in listeners
     }
 
