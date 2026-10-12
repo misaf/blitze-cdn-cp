@@ -51,14 +51,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
       # Which modules this image carries is not written in the build context:
       # each capability declares its own, and the control plane composes them.
       # The workspace is synced with every package installed, deliberately —
       # the published image is the superset an edge mounts its own narrower
       # `load_module` list over, so it has to be built by a controller that has
       # every published capability attached.
-      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           version: "0.12.3"
           enable-cache: true
@@ -94,7 +94,7 @@ jobs:
             type=sha,format=long,prefix=
       - name: Build and publish the edge runtime
         id: build
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: src/blitzecdn/docker/edge
           # amd64 and arm64, because an edge fleet is rarely one architecture
