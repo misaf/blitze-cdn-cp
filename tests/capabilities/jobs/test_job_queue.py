@@ -9,9 +9,11 @@ tests and disagree with the database.
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy import event
 
 from blitzecdn.capabilities.jobs.domain import JobStatus, backoff_for
 from blitzecdn.capabilities.jobs.service import JobQueue
@@ -400,3 +402,56 @@ def test_pruning_removes_finished_jobs_and_never_pending_ones(repository):
 
     assert removed == 2
     assert queue.get(waiting.id).status is JobStatus.PENDING
+
+
+# -- Two processes on one file ---------------------------------------------
+
+
+def test_an_enqueue_landing_mid_claim_waits_instead_of_failing_the_claim(settings):
+    """The API and the worker are two processes writing one SQLite file.
+
+    A claim reads its row and then writes it. In a deferred transaction an
+    enqueue the API commits between the two turns the worker's write into a
+    snapshot-busy error that no `busy_timeout` waits out: the fence kept that
+    safe, but the claim failed and the worker lost a poll. Under BEGIN
+    IMMEDIATE the claim holds the writer from its first read, and the enqueue
+    waits its turn.
+
+    Two repositories stand in for the two processes — two engines, two
+    connections — and the enqueue is fired from the worker's own UPDATE, which
+    is the one moment it can do harm.
+    """
+    worker_side = Repository(settings.database_path)
+    api_side = Repository(settings.database_path)
+    queue = queue_for(worker_side, handlers={})
+    queue.jobs.enqueue(kind="work", payload={}, available_at=_START)
+    racing: list[threading.Thread] = []
+
+    def enqueue_from_the_api():
+        api_side.jobs.enqueue(kind="work", payload={}, available_at=_START)
+
+    def between_read_and_write(_conn, _cursor, statement, *_args):
+        if racing or not statement.lstrip().upper().startswith("UPDATE JOBS"):
+            return
+        racing.append(threading.Thread(target=enqueue_from_the_api))
+        racing[0].start()
+        # Long enough for an unobstructed enqueue to commit, which is what it
+        # did before; under BEGIN IMMEDIATE it is still waiting when this ends.
+        racing[0].join(timeout=1.0)
+
+    event.listen(
+        worker_side.database.engine, "before_cursor_execute", between_read_and_write
+    )
+    try:
+        claim = queue.claim()
+    finally:
+        event.remove(
+            worker_side.database.engine,
+            "before_cursor_execute",
+            between_read_and_write,
+        )
+    racing[0].join(timeout=10)
+
+    assert claim is not None
+    assert not racing[0].is_alive()
+    assert len(worker_side.jobs.list_jobs()) == 2
