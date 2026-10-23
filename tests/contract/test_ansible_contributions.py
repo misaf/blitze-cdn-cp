@@ -25,6 +25,7 @@ from pathlib import Path
 
 import pytest
 from control_plane_fixtures import FakeEdgeStore, settings  # noqa: F401
+from pydantic import SecretStr
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible
@@ -201,6 +202,47 @@ def test_a_runner_nobody_gave_a_path_still_finds_the_control_plane_s_roles(
         ansible.AnsibleRunner(settings, EdgeRoster(FakeEdgeStore())).run(check=False)
 
     assert captured["ANSIBLE_ROLES_PATH"] == str(settings.ansible_dir / "roles")
+
+
+def test_a_play_is_given_only_the_blitze_names_it_is_owed(
+    settings,  # noqa: F811
+    monkeypatch,
+):
+    """The controller's own credentials stay in the controller.
+
+    The container's environment is the managed `.env`, operator API keys
+    included, and the run used to inherit all of it. A play now receives the
+    database path and the secrets an installed package declared — and every
+    other variable of the controller's, which Ansible itself may need.
+    """
+    captured: dict[str, str] = {}
+
+    def fake_run(**kwargs):
+        captured.update(kwargs["envvars"])
+        raise AssertionError("stop after the environment is built")
+
+    monkeypatch.setattr(ansible_execution.ansible_runner, "run", fake_run)
+    monkeypatch.setenv("BLITZE_API_KEYS", "operator:" + "k" * 40)
+    monkeypatch.setenv("BLITZE_API_KEY", "k" * 40)
+    monkeypatch.setenv("BLITZE_SOMETHING_UNCLAIMED", "1")
+    monkeypatch.setenv("SSH_AUTH_SOCK", "/run/user/1000/agent.sock")
+    runner = ansible.AnsibleRunner(
+        settings,
+        EdgeRoster(FakeEdgeStore()),
+        EdgeContributions.of(
+            roles_path=(settings.ansible_dir / "roles",),
+            environment={"BLITZE_MAXMIND_LICENSE_KEY": SecretStr("licence")},
+        ),
+    )
+    with pytest.raises(AssertionError):
+        runner.run(check=True)
+
+    assert sorted(name for name in captured if name.startswith("BLITZE_")) == [
+        "BLITZE_DATABASE_PATH",
+        "BLITZE_MAXMIND_LICENSE_KEY",
+    ]
+    assert captured["BLITZE_MAXMIND_LICENSE_KEY"] == "licence"
+    assert captured["SSH_AUTH_SOCK"] == "/run/user/1000/agent.sock"
 
 
 # --- the capability slots ---------------------------------------------------
