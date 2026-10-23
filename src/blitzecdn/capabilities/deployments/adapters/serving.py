@@ -31,10 +31,13 @@ correct answer and is accepted as one.
 from __future__ import annotations
 
 import http.client
+import ipaddress
 import socket
 import ssl
 from collections.abc import Sequence
 from typing import Any
+
+from cryptography import x509
 
 from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
@@ -143,11 +146,22 @@ class _SniConnection(http.client.HTTPSConnection):
     this edge — at the moment a deployment finishes it usually does not — so
     resolving the hostname would test the DNS transition rather than the edge.
 
-    The certificate is not verified. An edge may be serving one this controller
-    has no chain for; an uploaded certificate from a private CA is a supported
-    mode, and verifying here would fail a correct deployment for a trust store
-    this machine happens to lack. A certificate that does not match the SNI
-    still fails the handshake, which is the part worth catching.
+    The chain is not verified. An edge may be serving a certificate this
+    controller has no chain for; an uploaded certificate from a private CA is a
+    supported mode, and verifying here would fail a correct deployment for a
+    trust store this machine happens to lack.
+
+    The *name* is verified, and by this class rather than by ``ssl``. This
+    docstring used to say a certificate that does not match the SNI "still
+    fails the handshake"; with ``CERT_NONE`` nothing in the handshake looks at
+    the certificate at all, so an edge presenting another site's certificate —
+    a swapped path, a stale file — passed as serving. ``check_hostname`` cannot
+    be had without chain verification, so the names are read out of the
+    certificate the edge sent and matched here, after the handshake.
+
+    Expiry is not checked. Whether a deployment should fail for a certificate
+    that is correctly installed but out of date is a policy question, and
+    renewal is where it is answered.
     """
 
     def __init__(self, address: str, *, sni: str, **arguments: Any) -> None:
@@ -167,3 +181,44 @@ class _SniConnection(http.client.HTTPSConnection):
         # reason this subclass exists: this is where the server name announced
         # in SNI is decided, and it is not the host being connected to.
         self.sock = self._ssl_context.wrap_socket(raw, server_hostname=self._sni)
+        presented = self.sock.getpeercert(binary_form=True)
+        if presented is None or not _certificate_covers(presented, self._sni):
+            self.sock.close()
+            raise ssl.SSLCertVerificationError(
+                f"the edge presented a certificate that does not name {self._sni}"
+            )
+
+
+def _certificate_covers(der: bytes, hostname: str) -> bool:
+    """Whether a DER certificate's subject alternative names cover ``hostname``.
+
+    The SAN extension only, as every current client reads it: a certificate
+    naming its host only in the subject CN is one a browser rejects, so it is
+    not one this may accept. A wildcard covers exactly one leftmost label —
+    ``*.example.com`` names ``cdn.example.com``, not ``example.com`` and not
+    ``a.b.example.com`` — and a probe that asks for a wildcard ``server_name``
+    itself is answered by that same wildcard in the certificate.
+    """
+    try:
+        certificate = x509.load_der_x509_certificate(der)
+        names = certificate.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        ).value
+    except (ValueError, x509.ExtensionNotFound):
+        return False
+    try:
+        address = ipaddress.ip_address(hostname)
+    except ValueError:
+        pass
+    else:
+        return address in names.get_values_for_type(x509.IPAddress)
+    wanted = hostname.lower().rstrip(".")
+    for name in names.get_values_for_type(x509.DNSName):
+        candidate = name.lower().rstrip(".")
+        if candidate == wanted:
+            return True
+        if candidate.startswith("*."):
+            label, _, rest = wanted.partition(".")
+            if label and label != "*" and rest == candidate[2:]:
+                return True
+    return False
