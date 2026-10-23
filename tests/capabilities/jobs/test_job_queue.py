@@ -481,3 +481,26 @@ def test_a_handler_can_say_a_retry_would_meet_the_same_answer(repository):
     assert attempts == [1]
     assert failed.status is JobStatus.FAILED
     assert failed.last_error == "deployment dep-1 was abandoned"
+
+
+def test_a_refused_duplicate_inside_a_transaction_leaves_it_usable(repository):
+    """The dedupe refusal undoes only itself.
+
+    A deployment is now submitted with its job in one transaction, so the
+    insert this index refuses can be one statement in somebody else's unit of
+    work. Caught without a savepoint, the failed flush poisoned the session and
+    the caller's commit failed with it.
+    """
+    with repository.transaction():
+        first = repository.jobs.enqueue(
+            kind="work", payload={}, available_at=_START, dedupe_key="only-one"
+        )
+        refused = repository.jobs.enqueue(
+            kind="work", payload={}, available_at=_START, dedupe_key="only-one"
+        )
+        other = repository.jobs.enqueue(kind="other", payload={}, available_at=_START)
+
+    assert first is not None
+    assert refused is None
+    assert other is not None
+    assert {job.kind for job in repository.jobs.list_jobs()} == {"work", "other"}
