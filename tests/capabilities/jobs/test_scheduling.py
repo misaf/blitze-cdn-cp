@@ -13,7 +13,14 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from blitzecdn.capabilities.jobs.composition import schedule_specs
-from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler, ScheduleSpec
+from blitzecdn.capabilities.jobs.service import (
+    DEPLOYMENT_JOB,
+    SCHEDULED_JOB,
+    JobQueue,
+    JobRunner,
+    JobScheduler,
+    ScheduleSpec,
+)
 from blitzecdn.composition import Repository
 from blitzecdn.core.plugins import ScheduledJob
 
@@ -208,3 +215,49 @@ def test_the_lease_a_schedule_declares_is_what_is_stored(repository):
     scheduler.register([HOURLY])
 
     assert scheduler.leases() == {"renew-certificates": 7200}
+
+
+def test_a_scheduled_job_runs_under_the_lease_its_schedule_declares(repository):
+    """Stored, and now read: the claim is held for the schedule's two hours.
+
+    A claim's lease is fixed before anybody knows which job it returns, so a
+    scheduled job used to run under the queue's 900-second default whatever its
+    schedule said — and a worker that died an hour into a two-hour renewal
+    sweep would have had the sweep taken over while it might still be running.
+    """
+    clock = Clock()
+    leases: list[datetime | None] = []
+
+    def observe(_payload):
+        (job,) = repository.jobs.list_jobs()
+        leases.append(job.leased_until)
+
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers={SCHEDULED_JOB: observe}
+    )
+    scheduler.register([HOURLY])
+    clock.advance(3600)
+
+    assert JobRunner(queue=queue, scheduler=scheduler, clock=clock).tick() is True
+
+    assert leases == [clock() + timedelta(seconds=7200)]
+
+
+def test_a_deployment_keeps_the_queue_s_own_lease(repository):
+    """Only a scheduled job has a schedule to ask."""
+    clock = Clock()
+    leases: list[datetime | None] = []
+
+    def observe(_payload):
+        (job,) = repository.jobs.list_jobs()
+        leases.append(job.leased_until)
+
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers={DEPLOYMENT_JOB: observe}
+    )
+    scheduler.register([HOURLY])
+    queue.enqueue_deployment("dep-1")
+
+    JobRunner(queue=queue, scheduler=scheduler, clock=clock).tick()
+
+    assert leases == [clock() + timedelta(seconds=queue.lease_seconds)]
