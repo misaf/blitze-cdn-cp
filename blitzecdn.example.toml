@@ -68,18 +68,6 @@ run_log_retention = 500
 history_retention = 1000
 
 # |--------------------------------------------------------------------------
-# | Services and Optional Integrations
-# |--------------------------------------------------------------------------
-#
-# Configure services used by the control plane and its background workers.
-# Secrets should be supplied through environment variables instead of TOML.
-#
-
-# Redis broker used by background workers. Keep credentials out of TOML; set
-# BLITZE_REDIS_URL in .env when the production URL contains a password.
-redis_url = "redis://127.0.0.1:6379/0"
-
-# |--------------------------------------------------------------------------
 # | API Access
 # |--------------------------------------------------------------------------
 #

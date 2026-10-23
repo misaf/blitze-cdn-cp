@@ -1,10 +1,13 @@
+import shutil
 from pathlib import Path
 
 import pytest
-from paths import CORE_ANSIBLE
+from paths import CORE_ANSIBLE, REPO_ROOT
 
+from blitzecdn.composition import load_control_plane_plugins
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.plugins.resolution import resolve_capability_environment
 
 
 def test_unconfigured_values_use_model_defaults(tmp_path, monkeypatch):
@@ -165,6 +168,39 @@ def test_the_controllers_own_names_are_not_handed_to_a_capability(tmp_path):
     assert settings.capability_environment == {}
     assert settings.run_log_retention == 42
     assert settings.worker_poll_seconds == 2.5
+
+
+def test_the_shipped_example_configuration_is_accepted_as_written(tmp_path):
+    """`blitzecdn.example.toml`, copied unedited, must start a control plane.
+
+    It is the file an operator copies, so a key in it that nothing claims is a
+    refusal every new installation meets first. It shipped `redis_url` for a
+    release after the broker was removed, and every command then failed with
+    `unknown capability configuration: BLITZE_REDIS_URL`.
+
+    Resolved against the plugins actually installed rather than against a list
+    here, because the file documents optional capabilities' settings too —
+    which is also why a core-only environment cannot answer the question and
+    skips rather than reporting those settings as unclaimed.
+    """
+    workspace = sorted(
+        path.name.removeprefix("blitzecdn-")
+        for path in (REPO_ROOT / "packages").iterdir()
+        if (path / "pyproject.toml").is_file()
+    )
+    plugins = load_control_plane_plugins()
+    if absent := plugins.missing(workspace):
+        pytest.skip(f"needs every workspace capability; absent: {', '.join(absent)}")
+    shutil.copy(REPO_ROOT / "blitzecdn.example.toml", tmp_path / "blitzecdn.toml")
+
+    settings = Settings.from_environment({}, project_dir=tmp_path)
+
+    resolve_capability_environment(
+        plugins.configuration_contributions(),
+        settings.capability_environment,
+        settings.capability_config_file,
+        settings.state_dir,
+    )
 
 
 def test_runtime_validation_requires_generated_vars_beneath_state(settings):

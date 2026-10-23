@@ -114,11 +114,15 @@ killed mid-convergence and waiting out a lease.
 running and when recurring work is next due — none of which was answerable from
 outside Redis before.
 
-`BLITZE_REDIS_URL` and the `redis_url` setting are gone. An installation that
-sets either is not broken by it: unknown keys in `blitzecdn.toml` and unknown
-`BLITZE_*` names were already ignored rather than refused. Operators should
-remove them, and a Redis container left behind by an older installation can be
-stopped and deleted — nothing reads it.
+`BLITZE_REDIS_URL` and the `redis_url` setting are gone, and an installation
+that still sets either will not start until it removes them. A `blitzecdn.toml`
+key or `BLITZE_*` name core does not read is staged as capability configuration,
+and one that no installed capability claims is refused by name — the rule in
+[0002](0002-capability-configuration-ownership.md) that catches a typo catches a
+retired setting the same way. A refusal that names the key is the better
+failure: ignoring it would leave an operator believing a broker was still in
+the path. A Redis container left behind by an older installation can be stopped
+and deleted — nothing reads it.
 
 Three dependencies left the lockfile: `redis`, `dramatiq` and `apscheduler`.
 
