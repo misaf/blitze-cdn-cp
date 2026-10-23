@@ -619,6 +619,7 @@ class DeploymentService:
                 target_status,
                 finished_at=datetime.now(UTC),
                 result=run,
+                error=outcome.error,
             )
             if target_status is DeploymentStatus.SUCCEEDED and not check:
                 self.persistence.requirements.clear(

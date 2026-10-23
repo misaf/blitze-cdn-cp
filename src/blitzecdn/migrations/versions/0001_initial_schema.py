@@ -200,6 +200,7 @@ def upgrade() -> None:
         ),
         sa.Column("result", sqlite.JSON(), nullable=True),
         sa.Column("release_id", sa.String(), nullable=False),
+        sa.Column("error", sa.String(), nullable=True),
         sa.Column("canonical_digest", sa.String(), nullable=True),
         sa.Column("generation", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(

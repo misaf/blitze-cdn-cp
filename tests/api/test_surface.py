@@ -158,7 +158,7 @@ PUBLISHED_OPERATION_SHAPES = {
         "action created_at id operator resource_type",
     ),
     "Deployment": (
-        "canonical_digest check_mode created_at finished_at host_limit id "
+        "canonical_digest check_mode created_at error finished_at host_limit id "
         "operator release_id result rollback_of started_at status",
         "check_mode created_at id operator release_id status",
     ),

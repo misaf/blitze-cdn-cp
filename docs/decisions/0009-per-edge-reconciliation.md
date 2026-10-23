@@ -180,3 +180,11 @@ existing target rows in the same transaction. The previous worker loses its
 write authority immediately, even if the new worker stops before planning.
 Planning checks the current generation under a write transaction and refuses a
 stale owner rather than allowing it to stamp older tokens back onto the rows.
+
+## A rollout failure is separate from the execution tool's result
+
+Deployments persist their own optional error. A successful Ansible run can be
+followed by a failed serving probe; the deployment records that verification
+reason while preserving Ansible's successful result. Operator summaries prefer
+the deployment error, and the API exposes it directly. A failed rollout must
+never be explained solely as "ansible-playbook exited 0".

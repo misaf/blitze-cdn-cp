@@ -45,6 +45,7 @@ blitzecdn	column	deployment_targets.status	type=VARCHAR not-null
 blitzecdn	column	deployments.canonical_digest	type=VARCHAR null
 blitzecdn	column	deployments.check_mode	type=BOOLEAN not-null
 blitzecdn	column	deployments.created_at	type=UtcDateTime(VARCHAR) not-null
+blitzecdn	column	deployments.error	type=VARCHAR null
 blitzecdn	column	deployments.finished_at	type=UtcDateTime(VARCHAR) null
 blitzecdn	column	deployments.generation	type=INTEGER not-null
 blitzecdn	column	deployments.host_limit	type=VARCHAR null
