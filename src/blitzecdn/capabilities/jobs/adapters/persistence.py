@@ -20,7 +20,7 @@ from uuid import uuid4
 
 from sqlalchemy import CursorResult, Result, delete, or_, select, update
 from sqlalchemy.exc import IntegrityError
-from sqlmodel import col
+from sqlmodel import Session, col
 
 from blitzecdn.capabilities.jobs.adapters.tables import JobRow, ScheduleRow
 from blitzecdn.capabilities.jobs.domain import Job, JobClaim, JobStatus, Schedule
@@ -75,26 +75,42 @@ class JobStore:
         self, *, worker: str, now: datetime, lease_seconds: int
     ) -> JobClaim | None:
         with self._db.session() as session:
-            row = session.scalars(
-                select(JobRow)
-                .where(
-                    or_(
-                        (col(JobRow.status) == JobStatus.PENDING.value)
-                        & (col(JobRow.available_at) <= now),
-                        # Crash recovery, and not a separate sweep: a running
-                        # job whose lease has expired is a job whose worker
-                        # stopped renewing, whether it died, hung or was
-                        # killed. Nothing has to observe the death.
-                        (col(JobRow.status) == JobStatus.RUNNING.value)
-                        & (col(JobRow.leased_until).is_not(None))
-                        & (col(JobRow.leased_until) <= now),
+            while True:
+                row = session.scalars(
+                    select(JobRow)
+                    .where(
+                        or_(
+                            (col(JobRow.status) == JobStatus.PENDING.value)
+                            & (col(JobRow.available_at) <= now),
+                            # Crash recovery, and not a separate sweep: a
+                            # running job whose lease has expired is a job
+                            # whose worker stopped renewing, whether it died,
+                            # hung or was killed. Nothing has to observe the
+                            # death.
+                            (col(JobRow.status) == JobStatus.RUNNING.value)
+                            & (col(JobRow.leased_until).is_not(None))
+                            & (col(JobRow.leased_until) <= now),
+                        )
                     )
-                )
-                .order_by(col(JobRow.available_at), col(JobRow.created_at))
-                .limit(1)
-            ).first()
-            if row is None:
-                return None
+                    .order_by(col(JobRow.available_at), col(JobRow.created_at))
+                    .limit(1)
+                ).first()
+                if row is None:
+                    return None
+                if (
+                    row.status == JobStatus.RUNNING.value
+                    and row.attempts >= row.max_attempts
+                ):
+                    # Retired here, and then the next candidate is looked
+                    # for, rather than claimed. `max_attempts` is otherwise
+                    # enforced only when a handler raises, so a job that
+                    # takes its worker down with it — the OOM killer, a
+                    # SIGKILL after the stop grace period — never reached the
+                    # check: every expired lease handed it out again and it
+                    # stayed `running` for ever, reported nowhere.
+                    self._abandon(session, row, now=now)
+                    continue
+                break
             fence = row.fence + 1
             taken = _rows_affected(
                 session.execute(
@@ -121,6 +137,43 @@ class JobStore:
             if claimed is None:  # pragma: no cover - the row was just updated
                 return None
             return JobClaim(job=_job(claimed), fence=fence)
+
+    @staticmethod
+    def _abandon(session: Session, row: JobRow, *, now: datetime) -> None:
+        """Fail a job whose every attempt ended with its worker gone.
+
+        Under the fence it was read at, like a claim, and with the fence moved
+        on: a worker that was only paused and comes back holding the last claim
+        must find it no longer matches, rather than completing a job this has
+        already reported failed. A row another process changed in between
+        matches nothing, and the caller's next select sees what it became.
+
+        An error an earlier attempt raised is kept after the abandonment
+        rather than replaced by it: the attempts that raised and the ones that
+        died may share a cause, and the traceback is the only trace of it.
+        """
+        error = (
+            f"abandoned after {row.attempts} attempt(s): each worker that claimed "
+            "it stopped renewing its lease without recording an outcome"
+        )
+        if row.last_error:
+            error += f"; an earlier attempt failed with {row.last_error}"
+        session.execute(
+            update(JobRow)
+            .where(
+                col(JobRow.id) == row.id,
+                col(JobRow.fence) == row.fence,
+            )
+            .values(
+                status=JobStatus.FAILED.value,
+                fence=row.fence + 1,
+                finished_at=now,
+                leased_until=None,
+                leased_by=None,
+                dedupe_key=None,
+                last_error=error,
+            )
+        )
 
     def complete(self, job_id: str, fence: int, *, now: datetime) -> bool:
         with self._db.session() as session:

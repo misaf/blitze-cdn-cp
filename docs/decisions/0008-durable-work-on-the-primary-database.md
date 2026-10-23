@@ -50,7 +50,11 @@ after a failure, and nothing else.
 `leased_until` is a claim's expiry. A worker that dies stops renewing and the
 lease runs out; nothing has to observe the death for the work to become
 claimable, and crash recovery is therefore not a sweep or a startup pass but the
-same query that finds any other runnable job.
+same query that finds any other runnable job. That query is also where a job
+whose attempts are spent is failed: one that takes its worker down with it
+never raises, so `max_attempts` would otherwise be checked only for the jobs
+that fail politely, and a job that crashed every worker would be handed out
+again on every expiry for ever.
 
 `fence` increments on every claim, and finishing a job requires the token the
 claim returned. A worker paused past its lease — a long stop-the-world pause, a
