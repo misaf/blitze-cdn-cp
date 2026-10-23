@@ -2,8 +2,8 @@
 
 One deployment at a time, fleet-wide, enforced by an advisory lock on a file
 under the state directory rather than by anything in-process: the API, a CLI
-``blitzecdn deploy`` and a Dramatiq worker are three processes over one state
-directory, so a mutex would serialise nothing.
+``blitzecdn deploy`` and ``blitzecdn.worker`` are three processes over one
+state directory, so a mutex would serialise nothing.
 """
 
 from __future__ import annotations

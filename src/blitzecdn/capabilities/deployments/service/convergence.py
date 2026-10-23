@@ -113,7 +113,7 @@ class DeploymentExecution:
 class DeploymentService:
     """Runs Ansible against a recorded release and owns the deployment lock.
 
-    The capability's public face: the API, the CLI, the scheduler and the Dramatiq
+    The capability's public face: the API, the CLI, the scheduler and the
     worker all reach convergence through here and through nothing else, which
     is what makes "who may start a deployment" a question with one answer.
     """
@@ -252,7 +252,7 @@ class DeploymentService:
     def submit_deployment(
         self, operator: str, *, check: bool = False, host_limit: str | None = None
     ) -> Deployment:
-        """Queue a convergence for a Dramatiq worker and return the queued record.
+        """Queue a convergence for the worker and return the queued record.
 
         A full run can take as long as ``deployment_timeout_seconds``, far
         longer than any HTTP client will wait, so callers poll
@@ -289,7 +289,7 @@ class DeploymentService:
     def submit_rollback(
         self, operator: str, deployment_id: str | None = None, *, check: bool = False
     ) -> Deployment:
-        """Queue a rollback for a Dramatiq worker and return the queued record."""
+        """Queue a rollback for the worker and return the queued record."""
         return self._submit(
             lambda: self._queue_rollback(operator, deployment_id, check=check),
             operator,
