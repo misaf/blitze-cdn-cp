@@ -21,8 +21,8 @@ from collections.abc import Callable
 from types import FrameType
 from typing import Any
 
-from blitzecdn.capabilities.jobs.domain import utcnow
-from blitzecdn.capabilities.jobs.service.queue import JobQueue
+from blitzecdn.capabilities.jobs.domain import JobClaim, utcnow
+from blitzecdn.capabilities.jobs.service.queue import SCHEDULED_JOB, JobQueue
 from blitzecdn.capabilities.jobs.service.scheduling import JobScheduler
 
 __all__ = ["JobRunner"]
@@ -76,8 +76,30 @@ class JobRunner:
         to be doing.
         """
         fired = self.scheduler.tick(now=self.clock())
-        ran = self.queue.run_one()
-        return bool(fired) or ran is not None
+        claim = self.queue.claim()
+        if claim is None:
+            return bool(fired)
+        self._hold_for_declared_lease(claim)
+        self.queue.run(claim)
+        return True
+
+    def _hold_for_declared_lease(self, claim: JobClaim) -> None:
+        """Extend a scheduled job's claim to the lease its schedule declares.
+
+        A claim's lease is set before anybody knows which job it will return,
+        so every job used to run under the queue's default — and the lease a
+        schedule stores (`renew-certificates` declares two hours, twice the
+        default) was read by nothing. Renewed straight after the claim, under
+        its fence, rather than threaded into the claim query: only this loop
+        knows a scheduled job's name maps to a schedule, and the window between
+        the two writes is one the default lease already covers.
+        """
+        job = claim.job
+        if job.kind != SCHEDULED_JOB:
+            return
+        declared = self.scheduler.leases().get(str(job.payload.get("job", "")))
+        if declared:
+            self.queue.renew(claim, seconds=declared)
 
     def run_forever(self) -> None:
         """Tick until asked to stop, sleeping only when there was nothing to do.
