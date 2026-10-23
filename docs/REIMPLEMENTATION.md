@@ -39,3 +39,9 @@ associated decisions describe the implementation that actually exists.
   Formatting and strict types pass; 124 certificate tests and two executable
   Ansible material-integrity tests pass. Historical material is retained
   conservatively; reference-aware garbage collection remains a later operation.
+
+- Step 4 admission complete: queued deployments expose their persisted target
+  rows immediately; later fleet additions cannot expand execution, and missing
+  admitted edges fail before a run starts. Formatting, strict types, and 133
+  deployment, release, and durable-job tests pass. Recovery and verification
+  semantics continue in step 5.

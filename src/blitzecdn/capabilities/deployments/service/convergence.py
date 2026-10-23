@@ -60,7 +60,11 @@ from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT, Relea
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.validation import validate_edge_limit
-from blitzecdn.core.exceptions import DeploymentBusyError, ExecutionError
+from blitzecdn.core.exceptions import (
+    ConfigurationError,
+    DeploymentBusyError,
+    ExecutionError,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -434,6 +438,15 @@ class DeploymentService:
                 host_limit=limit,
                 canonical_digest=canonical_digest,
             )
+            # Admission fixes the target set before the queue item is visible.
+            # A later fleet registration belongs to another deployment, and
+            # removing an admitted edge must fail rather than silently shrink it.
+            planned_edges = (
+                self.execution.addresses.selected(None)
+                if rollback_of is not None
+                else [target.name for target in release.targets]
+            )
+            self.persistence.targets.plan(deployment.id, planned_edges, fence=0)
             # Applied by whatever already writes, for the same reason run-log
             # retention lives in the runner: a policy enforced by a timer of
             # its own is one that silently stops being enforced when the unit
@@ -518,10 +531,20 @@ class DeploymentService:
         )
         try:
             release = self.releases.get(deployment.release_id)
+            planned_edges = [
+                target.edge
+                for target in self.persistence.targets.targets(deployment.id)
+            ]
+            missing = set(planned_edges) - set(self.execution.addresses.selected(None))
+            if missing:
+                raise ConfigurationError(
+                    "deployment targets were removed after admission: "
+                    + ", ".join(sorted(missing))
+                )
             outcome = self.execution.rollout.converge(
                 deployment.id,
                 release,
-                edges=self.execution.addresses.selected(deployment.host_limit),
+                edges=planned_edges,
                 check=check,
             )
             deployment = self._complete_rollout(
