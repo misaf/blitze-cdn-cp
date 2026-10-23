@@ -156,12 +156,27 @@ class Rollout:
 
         last_run: AnsibleRun | None = None
         for target in self.targets.targets(deployment_id):
+            outcome: str | None = None
             if target.status is TargetStatus.SUCCEEDED:
-                # Resuming an interrupted rollout: this edge is already there.
-                continue
-            outcome, last_run = self._converge_edge(
-                deployment_id, target, release, phases, fence=fence, check=check
-            )
+                if check:
+                    continue
+                try:
+                    self._verify(target.edge, release)
+                except Exception as exc:
+                    _LOGGER.exception("recovery verification failed on %s", target.edge)
+                    outcome = self._fail(
+                        deployment_id,
+                        target.edge,
+                        fence,
+                        TargetPhase.VERIFY,
+                        f"recovery observation failed: {exc}",
+                    )
+                else:
+                    continue
+            else:
+                outcome, last_run = self._converge_edge(
+                    deployment_id, target, release, phases, fence=fence, check=check
+                )
             if outcome is not None:
                 self.targets.skip_remaining(
                     deployment_id,

@@ -94,27 +94,19 @@ They are still serving whatever they had and nothing is known to be wrong with
 them; reporting them as failures would send an operator to look at hosts that
 are fine.
 
-**An interrupted deployment is abandoned, and its rows say how far it got.** It
-is not resumed: an operator starts a new deployment, which converges every edge
-again — every phase is idempotent, so an edge that already had the release costs
-time and changes nothing. What the rows buy is the answer to "which edges have
-the new configuration" after a controller died, which used to be a guess.
+**An interrupted RUNNING deployment resumes under the deployment lock.**
+Startup republishes its durable identifier without discarding target progress.
+Worker redelivery takes a new generation, re-observes completed edges through the
+release endpoint, and resumes incomplete edges after their last recorded phase.
+An operation interrupted before its completion was recorded is run again; phases
+must therefore be idempotent. A completed edge whose observed digest moved fails
+recovery instead of being assumed current.
 
-Whoever finds the deployment ends it. The API's startup recovery abandons any
-deployment left `RUNNING` when it starts with the lock free, and a worker whose
-redelivered job finds its deployment `RUNNING` abandons it then — it holds the
-deployment lock, the lock is the only way into a convergence, and the kernel
-released it when the previous holder died, so nothing else can be converging
-that deployment. Without the second, a worker that crashed and restarted under
-a running API left its deployment `RUNNING` indefinitely. Either way the
-deployment's job fails permanently with the reason rather than recording a
-success for a rollout nobody finished.
-
-`Rollout.converge` does skip edges already `SUCCEEDED` when called again for the
-same deployment, and its tests hold that, but no command or route calls it a
-second time. Resuming was considered and declined: a resumed rollback would have
-to make adopting the rolled-back state safe to repeat, for a recovery an operator
-can get by deploying again.
+A resumed rollback uses the same canonical-state comparison and transaction as
+a fresh rollback. Adoption and final status commit together, so a crash cannot
+commit adoption while leaving the deployment eligible to adopt again. A graceful
+interruption explicitly recorded as ABANDONED remains terminal; this recovery
+path is for workers that die without finalizing their RUNNING record.
 
 ## Alternatives rejected
 
@@ -127,12 +119,6 @@ fence, because there is no per-edge write to fence.
 its own status endpoint, and that endpoint is bound to loopback — it answers
 whether nginx is up, which the reload already said. The question worth asking is
 the visitor's, and only something outside the edge can ask it.
-
-*Fail the rollout when an edge declares no public address.* That would make
-declaring one mandatory, which is a product decision this phase does not get to
-make on its own. `Edge.public_addresses` documents an empty list as "the same
-address the controller connects to", so verification falls back to that and only
-skips when there is nothing at all to knock on — logging when it does.
 
 ## Consequences
 
@@ -163,9 +149,9 @@ in sync.
 - [Fenced writes](../../src/blitzecdn/capabilities/deployments/adapters/persistence.py)
 - [The serving probe](../../src/blitzecdn/capabilities/deployments/adapters/serving.py)
 - [The edge play's stage tag](../../src/blitzecdn/ansible/playbooks/edge.yml)
-- [Abandoning a deployment its worker died in](../../src/blitzecdn/capabilities/deployments/service/convergence.py)
+- [Resuming interrupted deployments](../../src/blitzecdn/capabilities/deployments/service/convergence.py)
 - [Rollout tests](../../tests/capabilities/deployments/test_rollout.py)
-- [A worker's redelivery abandoning it](../../tests/capabilities/deployments/test_queue_workflow.py)
+- [Worker redelivery and checkpoint recovery](../../tests/capabilities/deployments/test_queue_workflow.py)
 - [The probe against a real socket](../../tests/capabilities/deployments/test_serving_probe.py)
 - [The stage tag's contract](../../tests/contract/roles/test_role_wiring.py)
 

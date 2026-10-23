@@ -598,7 +598,7 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
     assert report.in_sync is False
 
 
-def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
+def test_startup_recovery_requeues_what_a_dead_process_left_behind(settings):
     """The case startup recovery exists for: nobody is deploying."""
     repository = Repository(settings.database_path)
     queue = RecordingBackgroundQueue()
@@ -623,9 +623,11 @@ def test_startup_recovery_abandons_what_a_dead_process_left_behind(settings):
     assert control.deployments.initialize() == 1
     assert (
         repository.deployments.get_deployment(stranded.id).status
-        is DeploymentStatus.ABANDONED
+        is DeploymentStatus.RUNNING
     )
     assert repository.workflows.get(workflow.id).status is WorkflowStatus.NEEDS_REVIEW
+
+    assert queue.ids == [stranded.id]
 
 
 def test_startup_recovery_leaves_a_live_deployment_alone(settings):

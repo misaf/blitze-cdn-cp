@@ -32,7 +32,6 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
     DeploymentTarget,
     DriftReport,
-    abandoned_run,
     aborted_run,
 )
 from blitzecdn.capabilities.deployments.ports import (
@@ -161,23 +160,14 @@ class DeploymentService:
     def initialize(self) -> int:
         """Recover durable work a previous controller process left in flight.
 
-        Only ever under the deployment lock, and this is not a formality. The
-        rows this abandons are identified by status alone, so a controller that
-        abandoned unconditionally could not tell "left behind by a process that
-        died" from "being converged right now by another process" — and the
-        second is ordinary here: the API restarts while a CLI ``blitzecdn
-        deploy`` is minutes into a run, which is exactly what an upgrade does.
-        Abandoning that run rewrites the record of a deployment still changing
-        edges, and its own final transition then fails against the status this
-        put there, so a run that succeeded ends up recorded as neither.
-
-        A held lock therefore means "someone is deploying", which is the one
-        case where there is nothing to recover, so declining is the whole fix.
-        The next start with an idle lock does the cleanup.
+        A held lock means another process is still converging and no recovery
+        is permitted. With an idle lock, unfinished deployments are republished
+        without changing their status or per-edge checkpoints. Queue delivery
+        deduplicates active jobs; expired claims resume through `run_queued`.
         """
         try:
             with self.execution.runner.lock():
-                recovered = self.persistence.deployments.abandon_running()
+                interrupted = self.persistence.deployments.running_deployments()
                 self.workflows.reconcile_interrupted()
                 # Not for a crash between a deployment's commit and its job's:
                 # those are one commit now. For a QUEUED deployment whose job
@@ -186,9 +176,12 @@ class DeploymentService:
                 # and the row is QUEUED with nothing left to deliver it. The
                 # enqueue is deduplicated, so one whose job is still pending
                 # costs nothing.
-                for deployment in self.persistence.deployments.queued_deployments():
+                for deployment in [
+                    *interrupted,
+                    *self.persistence.deployments.queued_deployments(),
+                ]:
                     self.execution.background.enqueue(deployment.id)
-                return recovered
+                return len(interrupted)
         except DeploymentBusyError:
             _LOGGER.info(
                 "another process holds the deployment lock; leaving in-flight "
@@ -306,27 +299,29 @@ class DeploymentService:
         )
 
     def run_queued(self, deployment_id: str) -> Deployment:
-        """Run one durable queue item, ignoring duplicate delivery safely.
+        """Resume durable progress under the exclusive deployment lock.
 
-        A deployment found RUNNING here is one its worker died in. The lock is
-        held, and the lock is the only way into a convergence; the kernel
-        released it when that worker's process ended. So nothing else can be
-        converging it, and it is abandoned now rather than left RUNNING until
-        the API next happens to restart — startup recovery is the API's, and a
-        worker that crashed and came back under a running API used to leave
-        its deployment RUNNING indefinitely, while the redelivered job reported
-        success for a rollout nobody finished.
-
-        Abandoned, not resumed: an interrupted deployment is ended and an
-        operator starts a new one, as startup recovery has always done. The
-        per-edge rows it leaves behind say which edges already had the release.
+        A RUNNING row with an available lock belongs to a worker that stopped.
+        Its completed phases remain valid checkpoints; the rollout re-observes
+        completed edges and resumes the remaining ones under a new generation.
         """
         with self.execution.runner.lock():
             deployment = self.persistence.deployments.get_deployment(deployment_id)
-            if deployment.status is DeploymentStatus.RUNNING:
-                return self._abandon_orphan(deployment)
-            if deployment.status is not DeploymentStatus.QUEUED:
+            if deployment.status not in (
+                DeploymentStatus.QUEUED,
+                DeploymentStatus.RUNNING,
+            ):
                 return deployment
+            if deployment.status is DeploymentStatus.RUNNING:
+                self.workflows.reconcile_interrupted(resource_id=deployment.id)
+                self.events.record(
+                    domain_event(
+                        deployment.operator,
+                        "deployment.resumed",
+                        "deployment",
+                        deployment.id,
+                    )
+                )
             kind = ROLLBACK_WORKFLOW if deployment.rollback_of else DEPLOYMENT_WORKFLOW
             checkpoint = (
                 "converged_and_adopted" if deployment.rollback_of else "converged"
@@ -523,12 +518,13 @@ class DeploymentService:
         recording an outcome for a rollout that has since been taken over.
         """
         check = deployment.check_mode
-        deployment = self.persistence.deployments.transition(
-            deployment.id,
-            DeploymentStatus.QUEUED,
-            DeploymentStatus.RUNNING,
-            started_at=datetime.now(UTC),
-        )
+        if deployment.status is DeploymentStatus.QUEUED:
+            deployment = self.persistence.deployments.transition(
+                deployment.id,
+                DeploymentStatus.QUEUED,
+                DeploymentStatus.RUNNING,
+                started_at=datetime.now(UTC),
+            )
         try:
             release = self.releases.get(deployment.release_id)
             planned_edges = [
@@ -653,43 +649,6 @@ class DeploymentService:
                         {"target": deployment.rollback_of},
                     )
                 )
-        return deployment
-
-    def _abandon_orphan(self, deployment: Deployment) -> Deployment:
-        """End a deployment whose worker died mid-rollout. Callers hold the lock.
-
-        The same terminal state, event and journal outcome startup recovery
-        gives one, so an abandoned deployment reads the same whichever process
-        found it. Only this deployment's journal entry is closed: the worker
-        cannot know what else is in flight in the API.
-        """
-        now = datetime.now(UTC)
-        with self.persistence.uow.transaction():
-            deployment = self.persistence.deployments.transition(
-                deployment.id,
-                DeploymentStatus.RUNNING,
-                DeploymentStatus.ABANDONED,
-                finished_at=now,
-                result=abandoned_run(
-                    "the worker converging this deployment stopped before it "
-                    "completed; its per-edge progress records which edges "
-                    "already have the release"
-                ),
-            )
-            self.events.record(
-                domain_event(
-                    deployment.operator,
-                    "deployment.abandoned",
-                    "deployment",
-                    deployment.id,
-                    {"error_type": "WorkerLost"},
-                )
-            )
-        self.workflows.reconcile_interrupted(resource_id=deployment.id)
-        _LOGGER.warning(
-            "deployment %s was left running by a worker that stopped; abandoned",
-            deployment.id,
-        )
         return deployment
 
     def _fail_convergence(

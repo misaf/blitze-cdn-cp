@@ -187,7 +187,7 @@ def blitzecdn_startup(context: RuntimeContext, platform: ControlPlane) -> None:
     """Do the work this plugin owes the process that is starting.
 
     ``context.process`` says which one, because the answer differs: only the
-    API republishes queued deployments and marks orphaned runs abandoned, and
+    API republishes queued and interrupted deployments for recovery, and
     doing it from every CLI invocation would take the fleet-wide deployment
     lock on every command an operator typed.
     """

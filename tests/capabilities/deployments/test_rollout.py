@@ -304,10 +304,8 @@ def test_an_interrupted_rollout_resumes_from_the_edges_it_had_not_reached(
 ):
     """Run again for the same deployment, the rollout skips converged edges.
 
-    A property of the rollout rather than a recovery path: an interrupted
-    deployment is abandoned, not resumed (ADR 0009), and nothing in the product
-    calls this twice. What durable progress buys an operator is the record of
-    which edges were already serving the new configuration.
+    Production worker recovery uses this same state machine, re-observing a
+    completed edge before trusting its durable success checkpoint.
     """
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)

@@ -165,6 +165,15 @@ class DeploymentStore:
             ).all()
             return [self._deployment(row) for row in rows]
 
+    def running_deployments(self) -> list[Deployment]:
+        with self._db.session() as session:
+            rows = session.scalars(
+                select(DeploymentRow)
+                .where(col(DeploymentRow.status) == DeploymentStatus.RUNNING.value)
+                .order_by(col(DeploymentRow.created_at))
+            ).all()
+            return [self._deployment(row) for row in rows]
+
     def abandon_running(self) -> int:
         """Close out deployments the last controller process left in flight.
 

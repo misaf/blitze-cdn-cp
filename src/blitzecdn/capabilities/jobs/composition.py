@@ -104,11 +104,8 @@ def build_handlers(platform: ControlPlane) -> dict[str, JobHandler]:
     """
 
     def deployment(payload: Mapping[str, Any]) -> None:
-        # An abandoned deployment is one this job's work never happened for —
-        # whether this delivery abandoned it, finding its worker had died, or
-        # the API's startup recovery had already. Reporting the job succeeded
-        # put a green row in `blitzecdn job list` over a rollout nobody
-        # finished, and retrying would only find it abandoned again.
+        # Explicitly abandoned work is terminal. A process killed before it
+        # finalized RUNNING instead resumes through the deployment service.
         result = platform.deployments.run_queued(str(payload["deployment_id"]))
         if result.abandoned:
             raise PermanentJobError(
