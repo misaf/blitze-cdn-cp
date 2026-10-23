@@ -17,6 +17,7 @@ from blitzecdn.capabilities.dns.domain import (
 )
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.service import compile_release
+from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -161,14 +162,18 @@ def _release(repository):
     # which wheels are installed, and pinning a list here would make it fail
     # the day a policy default started requesting a different one.
     release = compile_release(
-        inputs,
-        capabilities={
-            token for host in _hosts(repository) for token in host.required_capabilities
-        },
-        targets=(),
-        contributors=_NoContributions(),
-        site_checks=lambda site: (),
-        allow_empty_sites=False,
+        prepare_compilation(
+            inputs,
+            capabilities={
+                token
+                for host in _hosts(repository)
+                for token in host.required_capabilities
+            },
+            targets=(),
+            contributors=_NoContributions(),
+            site_checks=lambda site: (),
+            allow_empty_sites=False,
+        )
     )
     with repository.transaction():
         return repository.releases.save(release, inputs)

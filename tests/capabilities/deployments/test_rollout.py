@@ -23,6 +23,7 @@ from blitzecdn.capabilities.deployments.service.rollout import Rollout
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.releases.service import compile_release
+from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError
@@ -96,12 +97,14 @@ def a_release(*, serving: bool = False):
     """
     inputs = release_inputs(serving=serving)
     return compile_release(
-        inputs,
-        capabilities=("cache", "compression"),
-        targets=(),
-        contributors=NoContributions(),
-        site_checks=lambda site: (),
-        allow_empty_sites=True,
+        prepare_compilation(
+            inputs,
+            capabilities=("cache", "compression"),
+            targets=(),
+            contributors=NoContributions(),
+            site_checks=lambda site: (),
+            allow_empty_sites=True,
+        )
     )
 
 

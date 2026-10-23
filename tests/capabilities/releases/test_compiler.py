@@ -18,7 +18,9 @@ from blitzecdn.capabilities.releases.domain import (
     ReleaseInputs,
     SettingOrigin,
 )
+from blitzecdn.capabilities.releases.domain.compilation import Compilation
 from blitzecdn.capabilities.releases.service import compile_release
+from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 
 
 class StubContributors:
@@ -76,7 +78,7 @@ def compile_for(inputs: ReleaseInputs, **overrides: object):
         "allow_empty_sites": False,
     }
     arguments.update(overrides)
-    return compile_release(inputs, **arguments)  # type: ignore[arg-type]
+    return compile_release(prepare_compilation(inputs, **arguments))  # type: ignore[arg-type]
 
 
 # -- Reproducibility ------------------------------------------------------
@@ -85,6 +87,45 @@ def compile_for(inputs: ReleaseInputs, **overrides: object):
 def test_the_same_inputs_compile_to_the_same_digest():
     inputs = inputs_for()
     assert compile_for(inputs).digest == compile_for(inputs).digest
+
+
+def test_captured_compilation_replays_without_live_contributors():
+    contributors = StubContributors({"captured": ["original"]})
+    prepared = prepare_compilation(
+        inputs_for(),
+        capabilities=("cache", "compression"),
+        targets=(),
+        contributors=contributors,
+        site_checks=no_checks,
+        allow_empty_sites=False,
+    )
+    expected = compile_release(prepared)
+    contributors.fleet["captured"].append("changed")
+
+    # A worker may load the captured document in another process with no
+    # contributor objects or certificate services available at all.
+    replayed = Compilation.model_validate_json(prepared.model_dump_json())
+    actual = compile_release(replayed)
+
+    assert actual == expected
+    assert actual.artifact(DESIRED_STATE_ARTIFACT).document["captured"] == ["original"]
+
+
+def test_captured_canonical_state_cannot_be_changed_through_a_rule_mapping():
+    rule = Rule(domain="example.com", name="api", overrides={"cache_enabled": False})
+    prepared = prepare_compilation(
+        inputs_for(rules=(rule,)),
+        capabilities=("cache", "compression"),
+        targets=(),
+        contributors=StubContributors(),
+        site_checks=no_checks,
+        allow_empty_sites=False,
+    )
+    before = compile_release(prepared)
+    rule.overrides["cache_enabled"] = True
+    prepared.inputs.rules[0].overrides["cache_enabled"] = True
+
+    assert compile_release(prepared) == before
 
 
 def test_equal_state_built_separately_compiles_to_the_same_digest():

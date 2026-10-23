@@ -28,3 +28,8 @@ associated decisions describe the implementation that actually exists.
   matching and stored digest verification. Formatting, strict types, shell and
   Ansible checks passed. Broad suite: 1,821 passed, 12 skipped; its sole failure
   was the intended SDK additions, whose reviewed baseline and focused retest pass.
+
+- Step 2 complete: value-only compilation over a serializable preparation
+  snapshot. Canonical state and edge declarations are captured together; plugin
+  checks and resource lookup occur before compilation. Replay and mutation
+  regressions pass; formatting, strict types, and 137 affected tests pass.

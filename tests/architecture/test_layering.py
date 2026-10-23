@@ -1419,3 +1419,14 @@ def test_a_capability_reads_and_writes_only_its_own_tables():
         and not imported.startswith(f"blitzecdn.capabilities.{_capability_name(path)}.")
     ]
     assert offenders == []
+
+
+def test_the_compiler_accepts_only_captured_values():
+    """Import rules alone cannot catch I/O hidden behind injected callbacks."""
+    import inspect
+
+    from blitzecdn.capabilities.releases.service.compiler import compile_release
+
+    parameters = inspect.signature(compile_release).parameters
+    assert tuple(parameters) == ("compilation",)
+    assert parameters["compilation"].annotation == "Compilation"
