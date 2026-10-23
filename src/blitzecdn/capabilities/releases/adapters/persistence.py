@@ -22,7 +22,7 @@ from blitzecdn.capabilities.releases.adapters.tables import (
 )
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.releases.ports import ReleaseReferences
-from blitzecdn.core.exceptions import NotFoundError
+from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
 __all__ = ["ReleaseStore"]
@@ -52,6 +52,8 @@ class ReleaseStore:
         ``validate`` — and a check followed by an insert would make one of them
         fail on a row that says exactly what it was about to write.
         """
+        if release.inputs_digest != inputs.digest:
+            raise ConfigurationError("release inputs do not match the compiled digest")
         with self._db.session() as session:
             session.execute(
                 sqlite_insert(ReleaseInputsRow)
@@ -94,7 +96,12 @@ class ReleaseStore:
                     f"release {release_id!r} names inputs {row.inputs_digest!r}, "
                     "which are not on record"
                 )
-            return ReleaseInputs.decode(inputs.document)
+            decoded = ReleaseInputs.decode(inputs.document)
+            if decoded.digest != row.inputs_digest:
+                raise ConfigurationError(
+                    f"release {release_id!r} inputs failed integrity verification"
+                )
+            return decoded
 
     def list_releases(self, limit: int = 20) -> list[Release]:
         with self._db.session() as session:
@@ -152,4 +159,13 @@ class ReleaseStore:
 
     @staticmethod
     def _release(row: ReleaseRow) -> Release:
-        return Release.model_validate(row.document)
+        release = Release.model_validate(row.document)
+        if (
+            release.digest != row.digest
+            or release.id != row.id
+            or release.inputs_digest != row.inputs_digest
+        ):
+            raise ConfigurationError(
+                f"release {row.id!r} failed integrity verification"
+            )
+        return release
