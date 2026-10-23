@@ -92,9 +92,12 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     assert "certificate_source_path" in desired
     assert "PRIVATE KEY" not in desired
     document = yaml.safe_load(desired)["blitzecdn_nginx_sites"][0]
-    fingerprint = requested.fingerprint_sha256
-    assert document["certificate_path"].endswith(f"/fullchain-{fingerprint}.pem")
-    assert document["certificate_key_path"].endswith(f"/privkey-{fingerprint}.pem")
+    assert document["certificate_path"].endswith(
+        f"/fullchain-{requested.certificate_digest}.pem"
+    )
+    assert document["certificate_key_path"].endswith(
+        f"/privkey-{requested.private_key_digest}.pem"
+    )
 
 
 def test_new_certificate_material_owes_the_fleet_a_deployment(

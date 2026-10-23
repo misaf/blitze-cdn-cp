@@ -69,6 +69,41 @@ def test_store_commits_a_certificate_pair_only_after_both_files_exist(
     assert old_sources[1].read_bytes() == old_key
 
 
+def test_replacement_retains_every_file_an_older_release_can_reference(
+    settings, site_payload, certificate_pair
+):
+    site = CdnSite.model_validate(site_payload)
+    store = CertificateStore(settings)
+    old_certificate, old_key = certificate_pair(days=40)
+    store.install(site, old_certificate, old_key, source=CertificateSource.UPLOADED)
+    old_sources = store.sources(site.name)
+    certificate, key = certificate_pair(days=80)
+
+    store.install(site, certificate, key, source=CertificateSource.UPLOADED)
+
+    assert store.sources(site.name) != old_sources
+    assert old_sources[0].read_bytes() == old_certificate
+    assert old_sources[1].read_bytes() == old_key
+
+
+def test_material_is_content_addressed_and_corruption_is_refused(
+    settings, site_payload, certificate_pair
+):
+    site = CdnSite.model_validate(site_payload)
+    store = CertificateStore(settings)
+    certificate, key = certificate_pair()
+    info = store.install(site, certificate, key, source=CertificateSource.UPLOADED)
+    chain_path, key_path = store.sources(site.name)
+    assert chain_path.name == f"fullchain-{info.certificate_digest}.pem"
+    assert key_path.name == f"privkey-{info.private_key_digest}.pem"
+    chain_path.write_bytes(b"damaged")
+
+    with pytest.raises(ConfigurationError, match="integrity"):
+        store.sources(site.name)
+    with pytest.raises(ConfigurationError, match="integrity"):
+        store.install(site, certificate, key, source=CertificateSource.UPLOADED)
+
+
 def test_store_rejects_invalid_mismatched_expired_and_wrong_domain(
     settings, site_payload, certificate_pair, rsa_keys
 ):

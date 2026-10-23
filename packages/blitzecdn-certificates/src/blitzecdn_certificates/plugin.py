@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Sequence
 from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
@@ -124,6 +125,12 @@ def blitzecdn_site_desired_state(
         variables={
             "certificate_source_path": str(certificate),
             "certificate_key_source_path": str(private_key),
+            "certificate_source_sha256": hashlib.sha256(
+                certificate.read_bytes()
+            ).hexdigest(),
+            "certificate_key_source_sha256": hashlib.sha256(
+                private_key.read_bytes()
+            ).hexdigest(),
             "certificate_path": str(destination / certificate.name),
             "certificate_key_path": str(destination / private_key.name),
         },

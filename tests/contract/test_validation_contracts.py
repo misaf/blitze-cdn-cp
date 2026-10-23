@@ -1,3 +1,4 @@
+import hashlib
 import os
 import shutil
 import subprocess
@@ -38,7 +39,13 @@ NGINX_PROBE_INVARIANT_TASKS = ROLE_DIR / "tasks/probe-invariant.yml"
 CONVERGE_TASKS = ROLE_DIR / "tasks/main.yml"
 
 
-def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: Any):
+def _run_validation(
+    sites: list[dict[str, Any]],
+    tmp_path: Path,
+    *,
+    tasks_file: Path = VALIDATE_TASKS,
+    **overrides: Any,
+):
     """Execute the role's validation tasks against localhost."""
     ansible = shutil.which("ansible-playbook") or str(
         PROJECT_DIR / ".venv/bin/ansible-playbook"
@@ -65,7 +72,7 @@ def _run_validation(sites: list[dict[str, Any]], tmp_path: Path, **overrides: An
                     "hosts": "localhost",
                     "gather_facts": False,
                     "vars": variables,
-                    "tasks": [{"import_tasks": str(VALIDATE_TASKS)}],
+                    "tasks": [{"import_tasks": str(tasks_file)}],
                 }
             ]
         ),
@@ -522,3 +529,26 @@ def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):
     )
     result = _run_validation(published["blitzecdn_nginx_sites"], tmp_path)
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
+
+
+@pytest.mark.parametrize("damage", [False, True])
+def test_deployment_checks_the_captured_material_bytes(tmp_path, damage):
+    chain = tmp_path / "chain.pem"
+    key = tmp_path / "key.pem"
+    chain.write_bytes(b"captured chain")
+    key.write_bytes(b"captured key")
+    material = {
+        "certificate_source_path": str(chain),
+        "certificate_key_source_path": str(key),
+        "certificate_source_sha256": hashlib.sha256(chain.read_bytes()).hexdigest(),
+        "certificate_key_source_sha256": hashlib.sha256(key.read_bytes()).hexdigest(),
+    }
+    if damage:
+        key.write_bytes(b"substituted key")
+    result = _run_validation(
+        [],
+        tmp_path,
+        tasks_file=ROLE_DIR / "tasks/verify-material.yml",
+        blitzecdn_material_site=material,
+    )
+    assert (result.returncode == 0) is (not damage), result.stdout + result.stderr

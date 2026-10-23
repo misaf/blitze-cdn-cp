@@ -45,6 +45,8 @@ argument_specs:
           certificate_key_path: {type: path}
           certificate_source_path: {type: path}
           certificate_key_source_path: {type: path}
+          certificate_source_sha256: {type: str}
+          certificate_key_source_sha256: {type: str}
           cache_enabled: {type: bool, default: true}
           cache_query_string_mode: {type: str, choices: [include, ignore], default: include}
           cache_valid_success: {type: str, default: 10m}

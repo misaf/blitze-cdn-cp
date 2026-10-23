@@ -41,6 +41,8 @@ class CertificateInfo(BaseModel):
     not_before: datetime
     not_after: datetime
     fingerprint_sha256: str
+    certificate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    private_key_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     email: str | None = None
 
 

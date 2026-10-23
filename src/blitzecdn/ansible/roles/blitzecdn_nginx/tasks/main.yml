@@ -2,6 +2,14 @@
 - name: Validate the desired state before changing anything
   ansible.builtin.import_tasks: validate.yml
 
+- name: Verify pinned controller certificate material
+  ansible.builtin.include_tasks: verify-material.yml
+  loop: "{{ blitzecdn_nginx_sites }}"
+  loop_control:
+    loop_var: blitzecdn_material_site
+    label: "{{ blitzecdn_material_site.name }}"
+  when: blitzecdn_material_site.certificate_mode | default('disabled') in ['uploaded', 'requested']
+
 - name: Verify the edge runtime
   ansible.builtin.import_tasks: verify-runtime.yml
   when: not (blitzecdn_nginx_stack_ready | default(false) | bool)

@@ -1,0 +1,23 @@
+---
+- name: Read pinned certificate material digests on the controller
+  ansible.builtin.stat:
+    path: "{{ item.path }}"
+    checksum_algorithm: sha256
+  delegate_to: localhost
+  become: false
+  loop:
+    - path: "{{ blitzecdn_material_site.certificate_source_path }}"
+      digest: "{{ blitzecdn_material_site.certificate_source_sha256 }}"
+    - path: "{{ blitzecdn_material_site.certificate_key_source_path }}"
+      digest: "{{ blitzecdn_material_site.certificate_key_source_sha256 }}"
+  register: blitzecdn_material_checks
+  no_log: true
+
+- name: Require the exact material captured by the release
+  ansible.builtin.assert:
+    that:
+      - item.stat.isreg | default(false)
+      - item.stat.checksum | default('') == item.item.digest
+    fail_msg: "Pinned certificate material is missing or changed; refusing deployment."
+  loop: "{{ blitzecdn_material_checks.results }}"
+  no_log: true
