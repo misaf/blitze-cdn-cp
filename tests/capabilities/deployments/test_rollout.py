@@ -26,7 +26,7 @@ from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
-from blitzecdn.core.exceptions import ExecutionError
+from blitzecdn.core.exceptions import ConflictError, ExecutionError
 
 _NOW = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 
@@ -373,6 +373,10 @@ def test_a_worker_whose_rollout_was_taken_over_cannot_advance_an_edge(repository
     # stamps every row with it, which is what the first worker's writes will
     # now fail to match.
     fresh = targets.claim_generation(deployment)
+    # Takeover is effective before the new worker plans or executes anything.
+    assert targets.begin(deployment, "edge-a", fence=stale, now=_NOW) is False
+    with pytest.raises(ConflictError, match="stale generation"):
+        targets.plan(deployment, ["edge-a"], fence=stale)
     targets.plan(deployment, ["edge-a"], fence=fresh)
     assert fresh > stale
 

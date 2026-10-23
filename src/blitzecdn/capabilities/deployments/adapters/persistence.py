@@ -334,12 +334,22 @@ class DeploymentTargetStore:
         reason: read-then-increment would hand both workers the same number.
         """
         with self._db.session() as session:
-            row = session.get(DeploymentRow, deployment_id)
-            if row is None:
+            generation = session.execute(
+                update(DeploymentRow)
+                .where(col(DeploymentRow.id) == deployment_id)
+                .values(generation=DeploymentRow.generation + 1)
+                .returning(col(DeploymentRow.generation))
+            ).scalar_one_or_none()
+            if generation is None:
                 raise NotFoundError(f"deployment {deployment_id!r} does not exist")
-            row.generation += 1
-            session.flush()
-            return row.generation
+            # Claim and invalidate every older target token in one commit.
+            # A second `plan` call must not be needed to make takeover real.
+            session.execute(
+                update(DeploymentTargetRow)
+                .where(col(DeploymentTargetRow.deployment_id) == deployment_id)
+                .values(fence=generation)
+            )
+            return int(generation)
 
     def generation(self, deployment_id: str) -> int:
         with self._db.session() as session:
@@ -364,7 +374,12 @@ class DeploymentTargetStore:
         Written when the rollout starts rather than when each edge is reached,
         because "three edges were never attempted" has to be a fact on a row.
         """
-        with self._db.session() as session:
+        with self._db.transaction(), self._db.session() as session:
+            deployment = session.get(DeploymentRow, deployment_id)
+            if deployment is None:
+                raise NotFoundError(f"deployment {deployment_id!r} does not exist")
+            if deployment.generation != fence:
+                raise ConflictError("deployment plan belongs to a stale generation")
             existing = {
                 row.edge
                 for row in session.scalars(
