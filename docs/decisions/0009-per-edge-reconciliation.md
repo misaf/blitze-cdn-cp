@@ -69,10 +69,13 @@ says it should. This is the phase the record exists for.
 edge's public address, sends the customer's hostname in `Host` and — over TLS —
 in SNI, and requires an HTTP response. The name is not resolved: DNS usually
 does not answer with this edge at the moment a deployment finishes, so resolving
-would test the DNS transition rather than the edge. The certificate is not
-verified either, because an uploaded certificate from a private CA is a
-supported mode and this controller may hold no chain for it; a certificate that
-does not match the SNI still fails the handshake.
+would test the DNS transition rather than the edge. The certificate's
+chain is not verified, because an uploaded certificate from a private CA is a
+supported mode and this controller may hold no chain for it. Its *names* are: the
+probe reads the certificate the edge presented and refuses an edge whose subject
+alternative names do not cover the hostname. With the chain unverified nothing in
+the handshake looks at the certificate, so without that check an edge serving
+another site's certificate would pass.
 
 A response is the pass condition, and a 502 passes. That is deliberate: a 502 is
 the edge working correctly and saying the origin is not, and an origin that was
