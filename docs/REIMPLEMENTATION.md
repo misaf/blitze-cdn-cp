@@ -83,3 +83,27 @@ associated decisions describe the implementation that actually exists.
   independently of the installation-specific release digest; publication tests
   assert the exact digest against the stored release. The workspace environment
   was restored after the run.
+
+## Verified checkpoint
+
+- Strict typing and formatting pass; shell checks and the Ansible production
+  lint profile pass.
+- Full workspace fast suite: 1,837 passed, 13 skipped.
+- Core-only suite: 1,268 passed, 35 skipped; workspace packages restored.
+- All eleven distributions build as wheels and source archives. The root wheel
+  contains the new serving owner and runtime tasks and excludes the retired
+  DNS host module.
+- Live Ubuntu edge convergence has not been executed.
+
+## Remaining implementation slices
+
+- Stage a complete candidate configuration tree and activate it atomically,
+  with explicit reversion on activation or serving-verification failure.
+- Replace flat policy inheritance with nested composition and introduce shared
+  application commands for API and CLI mutations.
+- Bind resource versions to canonical desired state and add reference-aware
+  material garbage collection.
+- Consolidate independently packaged capabilities into one application with
+  focused runtime providers.
+- Simplify installation, separate schema migration from ordinary repository
+  construction, and verify complete recovery on a real edge.
