@@ -1,12 +1,12 @@
 from __future__ import annotations
 
+import hashlib
 import ipaddress
 import os
 import shlex
 import shutil
 import subprocess
 import sys
-from contextlib import suppress
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
@@ -79,6 +79,8 @@ class CertificateStore:
             not_before=leaf.not_valid_before_utc,
             not_after=leaf.not_valid_after_utc,
             fingerprint_sha256=fingerprint,
+            certificate_digest=hashlib.sha256(certificate_pem).hexdigest(),
+            private_key_digest=hashlib.sha256(private_key_pem).hexdigest(),
             email=email,
         )
         # The chain and key are one logical value. Fixed filenames made two
@@ -86,13 +88,16 @@ class CertificateStore:
         # a new chain beside the old key. Immutable fingerprinted files plus a
         # metadata commit written last give readers either the complete old
         # pair or the complete new pair.
-        atomic_write_bytes(directory / f"fullchain-{fingerprint}.pem", certificate_pem)
-        atomic_write_bytes(directory / f"privkey-{fingerprint}.pem", private_key_pem)
+        self._write_version(
+            directory / f"fullchain-{info.certificate_digest}.pem", certificate_pem
+        )
+        self._write_version(
+            directory / f"privkey-{info.private_key_digest}.pem", private_key_pem
+        )
         atomic_write_bytes(
             directory / "metadata.json",
             info.model_dump_json(indent=2).encode("utf-8") + b"\n",
         )
-        self._discard_superseded_files(directory, fingerprint)
         return info
 
     def get(self, site_name: str) -> CertificateInfo:
@@ -127,28 +132,36 @@ class CertificateStore:
     def sources(self, site_name: str) -> tuple[Path, Path]:
         directory = self._directory(site_name)
         info = self.get(site_name)
-        certificate = directory / f"fullchain-{info.fingerprint_sha256}.pem"
-        private_key = directory / f"privkey-{info.fingerprint_sha256}.pem"
+        certificate = directory / f"fullchain-{info.certificate_digest}.pem"
+        private_key = directory / f"privkey-{info.private_key_digest}.pem"
         if not certificate.is_file() or not private_key.is_file():
             raise ConfigurationError(
                 f"managed certificate files for {site_name!r} are missing"
             )
+        for path, expected in (
+            (certificate, info.certificate_digest),
+            (private_key, info.private_key_digest),
+        ):
+            if hashlib.sha256(path.read_bytes()).hexdigest() != expected:
+                raise ConfigurationError(
+                    f"certificate material failed integrity: {path.name}"
+                )
         return certificate, private_key
 
     @staticmethod
-    def _discard_superseded_files(directory: Path, fingerprint: str) -> None:
-        current = {
-            f"fullchain-{fingerprint}.pem",
-            f"privkey-{fingerprint}.pem",
-        }
-        for pattern in ("fullchain-*.pem", "privkey-*.pem"):
-            for path in directory.glob(pattern):
-                if path.name not in current:
-                    # Cleanup is not part of the commit. Reporting a failed
-                    # install after metadata switched to the new complete pair
-                    # would invite an unnecessary and misleading retry.
-                    with suppress(OSError):
-                        path.unlink(missing_ok=True)
+    def _write_version(path: Path, payload: bytes) -> None:
+        """Never overwrite content already addressed by a release.
+
+        Retain superseded versions: an older release can still refer to them.
+        Current metadata is only the pointer used for the *next* compilation.
+        """
+        if path.exists():
+            if path.read_bytes() != payload:
+                raise ConfigurationError(
+                    f"certificate material failed integrity: {path.name}"
+                )
+            return
+        atomic_write_bytes(path, payload)
 
     def _directory(self, site_name: str) -> Path:
         return self._settings.certificate_dir / site_name

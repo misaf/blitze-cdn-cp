@@ -17,6 +17,8 @@ def _info(days: int, source: CertificateSource) -> CertificateInfo:
         not_before=now - timedelta(days=1),
         not_after=now + timedelta(days=days),
         fingerprint_sha256="ab" * 32,
+        certificate_digest="cd" * 32,
+        private_key_digest="ef" * 32,
     )
 
 

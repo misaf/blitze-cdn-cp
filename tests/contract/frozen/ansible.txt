@@ -137,9 +137,11 @@ blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.cache_valid_not_found	t
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.cache_valid_success	type=str default='10m'
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_key_path	type=path
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_key_source_path	type=path
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_key_source_sha256	type=str
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_mode	type=str choices=[disabled,existing,uploaded,requested] default='disabled'
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_path	type=path
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_source_path	type=path
+blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.certificate_source_sha256	type=str
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.compression	type=str choices=[off,gzip,brotli] default='brotli'
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.enabled	type=bool default=True
 blitzecdn	variable	blitzecdn_nginx.blitzecdn_nginx_sites.firewall	type=dict

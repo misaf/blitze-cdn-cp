@@ -303,11 +303,13 @@ blitzecdn_certificates	route	POST /v1/hosts/{name}/certificate/upload
 blitzecdn_certificates	route	POST /v1/ssl/automatic/reconcile
 blitzecdn_certificates	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.certificate	string required
 blitzecdn_certificates	schema	Body_upload_certificate_v1_hosts__name__certificate_upload_post.private_key	string required
+blitzecdn_certificates	schema	CertificateInfo.certificate_digest	string required
 blitzecdn_certificates	schema	CertificateInfo.domains	array[string] required
 blitzecdn_certificates	schema	CertificateInfo.email	string|null optional
 blitzecdn_certificates	schema	CertificateInfo.fingerprint_sha256	string required
 blitzecdn_certificates	schema	CertificateInfo.not_after	string required
 blitzecdn_certificates	schema	CertificateInfo.not_before	string required
+blitzecdn_certificates	schema	CertificateInfo.private_key_digest	string required
 blitzecdn_certificates	schema	CertificateInfo.site	string required
 blitzecdn_certificates	schema	CertificateInfo.source	CertificateSource required
 blitzecdn_certificates	schema	CertificateRequest.email	string|null optional

@@ -33,3 +33,9 @@ associated decisions describe the implementation that actually exists.
   snapshot. Canonical state and edge declarations are captured together; plugin
   checks and resource lookup occur before compilation. Replay and mutation
   regressions pass; formatting, strict types, and 137 affected tests pass.
+
+- Step 3 complete: certificate chains and keys use immutable content identities;
+  replacement retains old versions, and deployments verify captured digests.
+  Formatting and strict types pass; 124 certificate tests and two executable
+  Ansible material-integrity tests pass. Historical material is retained
+  conservatively; reference-aware garbage collection remains a later operation.

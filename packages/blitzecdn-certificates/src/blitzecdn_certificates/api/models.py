@@ -24,6 +24,8 @@ class CertificateInfo(Model):
     not_before: datetime
     not_after: datetime
     fingerprint_sha256: str
+    certificate_digest: str
+    private_key_digest: str
     email: str | None = None
 
 
