@@ -19,10 +19,9 @@ rejected. Rationale local to one function stays in that function's docstring.
 | [0008](0008-durable-work-on-the-primary-database.md) | Durable background work on the primary database |
 | [0009](0009-per-edge-reconciliation.md) | Per-edge reconciliation, fencing, and verified serving |
 | [0010](0010-release-integrity.md) | Immutable canonical release documents and verified persistence |
+| [0011](0011-serving-policy-ownership.md) | Shared serving policy and effective virtual-host ownership |
 
 Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes
 with it — a record describing an arrangement the code no longer has is worse
 than no record.
-
-- [0011: Shared serving values](0011-serving-policy-ownership.md)

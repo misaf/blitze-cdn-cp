@@ -10,6 +10,7 @@ carries rather than re-deriving one from state that has moved on.
 from __future__ import annotations
 
 import pytest
+import yaml
 from control_plane_fixtures import FakeRunner, seed_record, seed_site
 
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch, RecordType
@@ -126,6 +127,9 @@ def test_a_deployment_converges_the_document_its_release_carries(control, settin
     release = plane.releases.get(deployment.release_id)
 
     published = settings.generated_vars_path.read_text(encoding="utf-8")
+    envelope = yaml.safe_load(published)
+    assert envelope.pop("blitzecdn_release_digest") == release.digest
+    assert envelope == release.artifact(DESIRED_STATE_ARTIFACT).document
     for site in release.artifact(DESIRED_STATE_ARTIFACT).document[
         "blitzecdn_nginx_sites"
     ]:
