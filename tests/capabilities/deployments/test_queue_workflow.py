@@ -459,3 +459,40 @@ def test_a_deployment_and_its_job_commit_together_or_not_at_all(settings, monkey
     queued = control.deployments.submit_deployment("alice")
     (job,) = control.job_queue.list_jobs()
     assert job.payload == {"deployment_id": queued.id}
+
+
+def test_admission_records_targets_before_worker_delivery(settings):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner()
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+
+    queued = control.deployments.submit_deployment("alice")
+    assert [target.edge for target in control.deployments.targets(queued.id)] == [
+        "edge-a"
+    ]
+    seed_edge(control, name="edge-b", host="192.0.2.11")
+    result = control.deployments.run_queued(queued.id)
+
+    assert result.status is DeploymentStatus.SUCCEEDED
+    assert set(runner.host_limits) == {"edge-a"}
+    assert [target.edge for target in control.deployments.targets(queued.id)] == [
+        "edge-a"
+    ]
+
+
+def test_removing_an_admitted_target_refuses_execution(settings):
+    repository = Repository(settings.database_path)
+    runner = FakeRunner()
+    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    repository.edges.delete_edge("edge-a")
+
+    result = control.deployments.run_queued(queued.id)
+
+    assert result.status is DeploymentStatus.FAILED
+    assert "removed after admission" in result.detail
+    assert runner.host_limits == []

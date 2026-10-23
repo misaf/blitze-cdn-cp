@@ -168,3 +168,11 @@ in sync.
 - [A worker's redelivery abandoning it](../../tests/capabilities/deployments/test_queue_workflow.py)
 - [The probe against a real socket](../../tests/capabilities/deployments/test_serving_probe.py)
 - [The stage tag's contract](../../tests/contract/roles/test_role_wiring.py)
+
+## Admission fixes the target set
+
+The deployment command creates pending per-edge rows in the same transaction as
+the deployment and queued job. Execution reads that persisted plan rather than
+matching the current roster again. New edges wait for another deployment; a
+removed admitted edge fails the run before execution. Rollback selects the
+current full fleet when admitted and fixes that set in the same way.
