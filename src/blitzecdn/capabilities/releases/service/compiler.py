@@ -124,10 +124,10 @@ def compile_release(
         )
 
     compiled = tuple(
-        CompiledSite(site=site, variables=dict(contributors.site_variables(site)))
+        CompiledSite.from_variables(site, contributors.site_variables(site))
         for site in sites
     )
-    artifact = Artifact(
+    artifact = Artifact.from_document(
         name=DESIRED_STATE_ARTIFACT,
         document={
             **contributors.fleet_variables(sites),

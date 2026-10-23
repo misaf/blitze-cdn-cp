@@ -26,12 +26,13 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.releases.domain.explanation import HostExplanation
+from blitzecdn.core.domain.documents import canonical_document, read_document
 from blitzecdn.core.exceptions import ConfigurationError
 
 __all__ = [
@@ -125,7 +126,21 @@ class CompiledSite(BaseModel):
     #: beside the site rather than folded into it: the site is the stable
     #: schema every wheel binds to, and these are one installation's rendering
     #: of it.
-    variables: dict[str, Any] = Field(default_factory=dict)
+    variables_json: str = "{}"
+
+    @classmethod
+    def from_variables(cls, site: CdnSite, variables: Mapping[str, object]) -> Self:
+        return cls(site=site, variables_json=canonical_document(dict(variables)))
+
+    @field_validator("variables_json", mode="before")
+    @classmethod
+    def canonicalize_variables(cls, value: object) -> str:
+        return canonical_document(value)
+
+    @property
+    def variables(self) -> dict[str, Any]:
+        """A working copy; the canonical document remains unchanged."""
+        return read_document(self.variables_json)
 
     @property
     def name(self) -> str:
@@ -145,12 +160,26 @@ class Artifact(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
-    document: dict[str, Any]
+    content: str
+
+    @classmethod
+    def from_document(cls, name: str, document: Mapping[str, object]) -> Self:
+        return cls(name=name, content=canonical_document(dict(document)))
+
+    @field_validator("content", mode="before")
+    @classmethod
+    def canonicalize_content(cls, value: object) -> str:
+        return canonical_document(value)
+
+    @property
+    def document(self) -> dict[str, Any]:
+        """Decode a fresh view instead of exposing mutable identity data."""
+        return read_document(self.content)
 
     @property
     def digest(self) -> str:
         """The digest of this document's canonical bytes."""
-        return _digest(json.dumps(self.document, sort_keys=True, default=str))
+        return _digest(self.content)
 
 
 class Release(BaseModel):
