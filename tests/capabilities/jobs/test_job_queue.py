@@ -246,6 +246,96 @@ def test_a_job_a_dead_worker_was_holding_becomes_claimable_again(repository):
     assert record == ["work:1"]
 
 
+def test_a_job_that_keeps_killing_its_worker_fails_once_its_attempts_are_spent(
+    repository,
+):
+    """`max_attempts` holds when no handler ever gets to raise.
+
+    A job that takes its worker down — the OOM killer, a SIGKILL after the stop
+    grace period — records nothing, so the only evidence is its leases expiring.
+    That used to hand it out again on every expiry, `attempts` climbing past
+    `max_attempts`, and it stayed `running` without ever being reported.
+    """
+    clock = Clock()
+    queue = queue_for(repository, clock=clock, handlers={})
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=2
+    )
+    for _ in range(2):
+        assert queue.claim(lease_seconds=30) is not None
+        clock.advance(31)
+
+    assert queue.claim(lease_seconds=30) is None
+
+    abandoned = queue.get(job.id)
+    assert abandoned.status is JobStatus.FAILED
+    assert abandoned.attempts == 2
+    assert abandoned.finished_at == clock()
+    assert "abandoned after 2 attempt(s)" in (abandoned.last_error or "")
+
+
+def test_abandoning_an_exhausted_job_does_not_hold_up_the_next(repository):
+    """Retiring one is not a turn of the loop: the claim goes on to real work."""
+    clock = Clock()
+    record: list[str] = []
+    queue = queue_for(repository, clock=clock, handlers={"work": ran(record, "work")})
+    stuck = queue.jobs.enqueue(
+        kind="work", payload={"id": "stuck"}, available_at=_START, max_attempts=1
+    )
+    assert queue.claim(lease_seconds=30) is not None
+    queue.jobs.enqueue(kind="work", payload={"id": "next"}, available_at=_START)
+    clock.advance(31)
+
+    queue.run_one()
+
+    assert record == ["work:next"]
+    assert queue.get(stuck.id).status is JobStatus.FAILED
+
+
+def test_a_paused_worker_cannot_complete_a_job_that_was_abandoned(repository):
+    """Abandonment moves the fence, as a claim does.
+
+    The last worker may only have been paused, not killed. Coming back, it must
+    not mark as succeeded a job the queue has already reported as failed.
+    """
+    clock = Clock()
+    queue = queue_for(repository, clock=clock, handlers={})
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=1
+    )
+    paused = queue.claim(lease_seconds=30)
+    assert paused is not None
+    clock.advance(31)
+    assert queue.claim() is None
+
+    assert queue.jobs.complete(job.id, paused.fence, now=clock()) is False
+    assert queue.get(job.id).status is JobStatus.FAILED
+
+
+def test_an_abandoned_job_keeps_the_error_an_earlier_attempt_raised(repository):
+    clock = Clock()
+    attempts: list[int] = []
+
+    def explode_then_vanish(_payload):
+        attempts.append(1)
+        raise RuntimeError("edge unreachable")
+
+    queue = queue_for(repository, clock=clock, handlers={"work": explode_then_vanish})
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=2
+    )
+    queue.run_one()
+    clock.advance(backoff_for(1).total_seconds())
+    assert queue.claim(lease_seconds=30) is not None  # ... and the worker dies
+    clock.advance(31)
+
+    assert queue.claim() is None
+
+    error = queue.get(job.id).last_error or ""
+    assert "abandoned after 2 attempt(s)" in error
+    assert "RuntimeError: edge unreachable" in error
+
+
 # -- Failure and retry -----------------------------------------------------
 
 
