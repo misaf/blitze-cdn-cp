@@ -45,3 +45,9 @@ associated decisions describe the implementation that actually exists.
   admitted edges fail before a run starts. Formatting, strict types, and 133
   deployment, release, and durable-job tests pass. Recovery and verification
   semantics continue in step 5.
+
+- Step 5 verification complete: virtual hosts expose their full release digest;
+  the controller refuses stale configuration and missing verification addresses.
+  Execution envelopes carry identity outside the artifact hash. Formatting and
+  strict types pass; 121 release, rollout, live HTTP/TLS, and rendered-template
+  tests pass. Atomic staged activation remains to be implemented.

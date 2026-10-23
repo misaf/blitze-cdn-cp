@@ -176,3 +176,13 @@ the deployment and queued job. Execution reads that persisted plan rather than
 matching the current roster again. New edges wait for another deployment; a
 removed admitted edge fails the run before execution. Rollback selects the
 current full fleet when admitted and fixes that set in the same way.
+
+## Verification observes release identity
+
+The execution document adds `blitzecdn_release_digest` to the immutable artifact.
+Every managed virtual host serves it at `/.blitzecdn/release`, an exact location
+that does not contact an origin or enter the browser challenge. The controller
+requires HTTP 200 and the expected full digest; a healthy response from an older
+configuration fails verification. The default HTTP server exposes the same
+marker for an empty release. Missing verification addresses fail the phase
+instead of being recorded as a successful check.

@@ -336,22 +336,16 @@ class Rollout:
         of view an edge that does not answer is indistinguishable from a phase
         that could not run: both mean this edge did not reach the release.
 
-        An edge with no public address is verified vacuously and says so in the
-        log. That is not a silent pass — the address is where a probe would
-        connect, and an edge that has not declared one is an edge nobody has
-        told us how to reach from outside. Failing the rollout for it would
-        make declaring a public address mandatory, which is a product decision
-        this phase has no business making on its own.
+        An edge with no verification address is unverified and fails this phase.
+        The caller must supply an address instead of silently recording success.
         """
         address = self.addresses.public_address(edge)
         if address is None:
-            _LOGGER.info(
-                "edge %s declares no public address; skipping serving verification",
-                edge,
-            )
-            return
+            raise RuntimeError(f"edge {edge} has no address for release verification")
         sites = tuple(entry.site for entry in release.sites)
-        results = self.verifier.verify(edge=edge, address=address, sites=sites)
+        results = self.verifier.verify(
+            edge=edge, address=address, sites=sites, release_digest=release.digest
+        )
         unserved = [result for result in results if not result.served]
         if unserved:
             detail = "; ".join(

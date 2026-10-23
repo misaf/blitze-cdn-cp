@@ -56,7 +56,7 @@ from blitzecdn.capabilities.deployments.service import reporting
 from blitzecdn.capabilities.deployments.service import rollback as rollback_policy
 from blitzecdn.capabilities.deployments.service.rollout import Rollout, RolloutOutcome
 from blitzecdn.capabilities.deployments.service.validation import DeploymentValidation
-from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT, Release
+from blitzecdn.capabilities.releases.domain import Release
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.validation import validate_edge_limit
@@ -720,12 +720,9 @@ class DeploymentService:
     def publish_artifact(self, release: Release, path: Path) -> None:
         """Put a release's desired-state artifact where Ansible will read it.
 
-        No rendering happens here and none can: the document is already in the
-        release, digested, and this writes exactly those bytes. That is the
-        difference the releases capability bought — "what did that deployment
-        send" is answered by the release rather than by re-deriving it from
-        state that has since moved on.
+        The execution envelope adds the release digest to its immutable
+        artifact. Identity stays outside the artifact itself to avoid a hash
+        that would have to contain its own value. No current policy or live
+        plugin output is consulted while publishing an older release.
         """
-        self.execution.write_yaml(
-            path, release.artifact(DESIRED_STATE_ARTIFACT).document
-        )
+        self.execution.write_yaml(path, release.execution_document())

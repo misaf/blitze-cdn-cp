@@ -327,7 +327,7 @@ class FakeServingProbe:
         self.asked: list[tuple[str, str, tuple[str, ...]]] = []
 
     def verify(
-        self, *, edge: str, address: str, sites: Sequence[CdnSite]
+        self, *, edge: str, address: str, sites: Sequence[CdnSite], release_digest: str
     ) -> tuple[Any, ...]:
         hostnames = tuple(site.server_names[0] for site in sites if site.server_names)
         self.asked.append((edge, address, hostnames))

@@ -35,7 +35,7 @@ from blitzecdn.capabilities.deployments.ports import (
     YamlWriter,
     ZoneEditor,
 )
-from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT, Release
+from blitzecdn.capabilities.releases.domain import Release
 
 __all__ = ["DeploymentValidation"]
 
@@ -105,7 +105,7 @@ class DeploymentValidation:
         self._run_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         path = self._run_dir / f"validate-{uuid4().hex}.yml"
         try:
-            self._write_yaml(path, release.artifact(DESIRED_STATE_ARTIFACT).document)
+            self._write_yaml(path, release.execution_document())
             yield path
         finally:
             path.unlink(missing_ok=True)
