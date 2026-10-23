@@ -125,7 +125,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     switches are off.
     """
     from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-    from blitzecdn.capabilities.dns.domain import CdnSite
+    from blitzecdn.capabilities.serving.domain import CdnSite
     from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
     source = (SOURCE / "capabilities/dns/adapters/ansible.py").read_text(

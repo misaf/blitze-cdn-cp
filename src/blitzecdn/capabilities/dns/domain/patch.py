@@ -16,9 +16,9 @@ from pydantic import BaseModel, ConfigDict
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain.zone import Domain
-from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.serving.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,

@@ -67,3 +67,13 @@ associated decisions describe the implementation that actually exists.
   persist their own verification error independently of a successful Ansible
   result. The initial schema and HTTP contract intentionally add that field;
   97 affected journey, deployment, API, and persistence tests pass.
+
+- Foundation checkpoint: the complete workspace fast suite passed (1,836 passed,
+  12 skipped); all eleven wheels and source distributions built successfully.
+- Step 6 ownership: serving policy, visitor/origin contracts, and effective
+  virtual hosts move into `capabilities/serving`; DNS retains authoring and host
+  derivation. Consumers import the new owners directly, without compatibility
+  facades. Nested policy composition and shared application commands are next.
+  Ownership validation: strict types and formatting pass; 511 architecture,
+  package-boundary, policy, DNS, release, and public-contract checks pass with
+  13 environment-dependent skips.

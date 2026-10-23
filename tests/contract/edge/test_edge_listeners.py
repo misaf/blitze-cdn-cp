@@ -24,14 +24,12 @@ from edge_render_support import (
 )
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-    Domain,
-)
+from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.http.policy import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
 )
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )

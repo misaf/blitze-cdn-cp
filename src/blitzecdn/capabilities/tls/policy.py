@@ -159,7 +159,7 @@ class TlsPolicy(CapabilityPolicy):
         On the contract that declares the two fields, so that every model
         carrying them inherits one rule. It was written out twice — on
         ``CdnSite`` and again on ``Domain`` — which is the arrangement
-        ``dns.domain.host`` describes itself as not having: a rule about one
+        ``serving.domain.host`` describes itself as not having: a rule about one
         capability's own fields belongs to that capability, and the composition
         keeps only what reads across two of them. Two copies of a security
         check are also two things that can be tightened separately, and the

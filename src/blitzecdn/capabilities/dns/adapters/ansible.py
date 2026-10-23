@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.validation import OmittedWhenEmpty
 
 __all__ = ["site_to_ansible"]

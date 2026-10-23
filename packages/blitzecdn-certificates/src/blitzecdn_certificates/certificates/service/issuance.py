@@ -17,7 +17,7 @@ from time import monotonic
 from typing import Literal
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import (

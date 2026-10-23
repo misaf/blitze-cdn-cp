@@ -24,3 +24,5 @@ Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes
 with it — a record describing an arrangement the code no longer has is worse
 than no record.
+
+- [0011: Shared serving values](0011-serving-policy-ownership.md)

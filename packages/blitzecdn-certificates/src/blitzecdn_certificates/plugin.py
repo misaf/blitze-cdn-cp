@@ -33,7 +33,7 @@ from blitzecdn_certificates.composition import (
 from blitzecdn_certificates.config import SETTINGS
 
 if TYPE_CHECKING:
-    from blitzecdn.capabilities.dns.domain import CdnSite
+    from blitzecdn.capabilities.serving.domain import CdnSite
     from blitzecdn.composition import ControlPlane
 
 #: Names no public CA will issue for (RFC 6761/2606).

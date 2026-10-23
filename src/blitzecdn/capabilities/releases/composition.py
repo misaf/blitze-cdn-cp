@@ -18,11 +18,11 @@ import logging
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.capabilities.releases.domain import EdgeCapabilities, ReleaseFinding
 from blitzecdn.capabilities.releases.ports import CanonicalState, ReleaseStore
 from blitzecdn.capabilities.releases.service import ReleaseService
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.validation import matches_edge_limit
 from blitzecdn.core.plugins import PluginRegistry, Severity
 

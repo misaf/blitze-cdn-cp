@@ -14,7 +14,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
 
-from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 
 

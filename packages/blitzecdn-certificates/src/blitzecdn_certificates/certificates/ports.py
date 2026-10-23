@@ -9,8 +9,9 @@ from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
     DeploymentRequirements,
 )
-from blitzecdn.capabilities.dns.domain import CdnSite, DnsRecord
+from blitzecdn.capabilities.dns.domain import DnsRecord
 from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.ports import UnitOfWork

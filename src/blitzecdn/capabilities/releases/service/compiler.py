@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from blitzecdn.capabilities.dns.domain import CdnSite, unservable_hosts
+from blitzecdn.capabilities.dns.domain import unservable_hosts
 
 # `host_source` is reached through its own module rather than the package
 # façade. It inverts the derived-host naming rule, which is a question only
@@ -45,6 +45,7 @@ from blitzecdn.capabilities.releases.domain import (
     explain,
 )
 from blitzecdn.capabilities.releases.domain.compilation import Compilation
+from blitzecdn.capabilities.serving.domain import CdnSite
 
 __all__ = ["compile_release"]
 

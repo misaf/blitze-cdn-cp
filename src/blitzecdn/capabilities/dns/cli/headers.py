@@ -1,6 +1,6 @@
 """What the edge tells the origin about the visitor.
 
-Edits the block declared by :mod:`blitzecdn.capabilities.dns.policy.headers`,
+Edits the block declared by :mod:`blitzecdn.capabilities.serving.policy.headers`,
 which this capability owns for the reason given there: writing the trusted
 `BZ-*` headers is something a managed edge does with nothing installed beside
 the control plane, so there is no distribution to reunite it with.
@@ -14,7 +14,7 @@ import typer
 
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.serving.policy import SiteVisitorHeaders
 from blitzecdn.cli import common
 
 

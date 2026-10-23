@@ -27,13 +27,9 @@ from contract_support import (
 )
 from paths import CORE_ANSIBLE
 
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-    DnsRecord,
-    Domain,
-    Rule,
-)
+from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )

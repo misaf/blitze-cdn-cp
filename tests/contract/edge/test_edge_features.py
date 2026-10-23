@@ -26,14 +26,12 @@ import blitzecdn
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-)
 from blitzecdn.capabilities.http.policy import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     MaxUploadSize,
 )
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
 )
