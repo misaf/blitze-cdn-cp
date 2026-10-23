@@ -51,3 +51,9 @@ associated decisions describe the implementation that actually exists.
   Execution envelopes carry identity outside the artifact hash. Formatting and
   strict types pass; 121 release, rollout, live HTTP/TLS, and rendered-template
   tests pass. Atomic staged activation remains to be implemented.
+
+- Step 4 recovery complete: startup republishes interrupted RUNNING work;
+  redelivery resumes durable phases under a new generation and re-observes
+  completed edges before trusting them. Explicit graceful abandonment remains
+  terminal. Formatting, strict types, and 111 recovery, deployment, entry-point,
+  and durable-job tests pass.
