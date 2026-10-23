@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Sequence
 
-from blitzecdn.capabilities.dns.domain import CdnSite, derive_hosts, unservable_hosts
+from blitzecdn.capabilities.dns.domain import CdnSite, unservable_hosts
 
 # `host_source` is reached through its own module rather than the package
 # façade. It inverts the derived-host naming rule, which is a question only
@@ -37,7 +37,6 @@ from blitzecdn.capabilities.releases.domain import (
     COMPILER_VERSION,
     DESIRED_STATE_ARTIFACT,
     Artifact,
-    CompiledSite,
     EdgeCapabilities,
     HostExplanation,
     Release,
@@ -45,75 +44,22 @@ from blitzecdn.capabilities.releases.domain import (
     ReleaseInputs,
     explain,
 )
-from blitzecdn.capabilities.releases.ports import SiteChecks, StateContributors
+from blitzecdn.capabilities.releases.domain.compilation import Compilation
 
 __all__ = ["compile_release"]
 
 
-def compile_release(
-    inputs: ReleaseInputs,
-    *,
-    capabilities: Iterable[str],
-    targets: Sequence[EdgeCapabilities],
-    contributors: StateContributors,
-    site_checks: SiteChecks,
-    allow_empty_sites: bool,
-) -> Release:
-    """Derive, validate, render and explain — in that order, once.
-
-    ``capabilities`` is what this installation has installed;  ``targets`` is
-    what the edges the run is aimed at are declared to provide. Both are inputs
-    to the digest, because both change the answer: a site's Brotli settings
-    contribute nothing to the artifact with the compression wheel detached, and
-    the same state is servable by one edge's runtime and not another's.
-
-    ``site_checks`` is how installed capabilities object to a site for reasons
-    the compiler cannot know — a WAF rule set that will not parse, an origin
-    that resolves nowhere. It is a function rather than the plugin registry so
-    this stays a function of its arguments; the composition root binds the
-    registry to it.
-    """
-    installed = tuple(sorted(set(capabilities)))
-    ordered_targets = tuple(sorted(targets, key=lambda target: target.name))
-
+def compile_release(compilation: Compilation) -> Release:
+    """Compile captured values without invoking plugins or other live code."""
+    inputs = compilation.inputs
+    installed = compilation.capabilities
+    ordered_targets = compilation.targets
+    sites = tuple(entry.site for entry in compilation.sites)
     findings = list(_derivation_findings(inputs))
-    # Only what an edge is actually asked to serve is compiled. A site with no
-    # proxied hostnames is desired state — a rollback must bring it back — but
-    # it is not yet an instruction to any edge, and rendering one would emit a
-    # `server` block with an empty `server_name`, which nginx reads as the
-    # default server for the listener.
-    sites = tuple(
-        site
-        for site in derive_hosts(
-            list(inputs.domains), list(inputs.rules), list(inputs.records)
-        )
-        if site.serves_traffic
-    )
-
-    # Two kinds of finding, and only one of them stops the artifact being
-    # rendered. See `_objections` below.
-    objections: list[ReleaseFinding] = []
     for site in sites:
         findings.extend(_capability_findings(site, installed, ordered_targets))
-        objections.extend(site_checks(site))
-    findings.extend(objections)
-
-    # An installed capability that has *objected to a site* must not then be
-    # asked to render it. That is not squeamishness: a capability contributes
-    # its variables by being asked, and the objection is usually the reason
-    # asking would fail. `blitzecdn-certificates` is the standing case — it
-    # objects to a site in a controller-managed TLS mode whose material was
-    # never issued, and asking it for that site's certificate paths raises a
-    # `NotFoundError` about exactly the material it just objected about. The
-    # operator would meet the exception instead of the objection.
-    #
-    # A *missing* capability is the other kind and does not stop rendering: the
-    # wheel is not there to be asked, so it contributes nothing and the
-    # document is simply the document without it. The release is still
-    # unservable and nothing will converge it — but `blitzecdn release
-    # artifact` can still show what this installation would send, which is the
-    # question an operator asks while deciding what to install.
-    if objections:
+    findings.extend(compilation.objections)
+    if compilation.objections:
         return Release(
             compiler_version=COMPILER_VERSION,
             inputs_digest=inputs.digest,
@@ -122,16 +68,12 @@ def compile_release(
             explanations=_explanations(inputs, sites),
             findings=tuple(findings),
         )
-
-    compiled = tuple(
-        CompiledSite.from_variables(site, contributors.site_variables(site))
-        for site in sites
-    )
+    compiled = compilation.sites
     artifact = Artifact.from_document(
         name=DESIRED_STATE_ARTIFACT,
         document={
-            **contributors.fleet_variables(sites),
-            "blitzecdn_nginx_allow_empty_sites": allow_empty_sites,
+            **compilation.fleet_variables.document,
+            "blitzecdn_nginx_allow_empty_sites": compilation.allow_empty_sites,
             "blitzecdn_nginx_sites": [entry.variables for entry in compiled],
         },
     )

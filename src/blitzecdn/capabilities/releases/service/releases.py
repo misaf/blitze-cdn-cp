@@ -22,6 +22,7 @@ from blitzecdn.capabilities.releases.domain import (
     ReleaseFinding,
     ReleaseInputs,
 )
+from blitzecdn.capabilities.releases.domain.compilation import Compilation
 from blitzecdn.capabilities.releases.ports import (
     CanonicalState,
     ReleaseStore,
@@ -30,6 +31,7 @@ from blitzecdn.capabilities.releases.ports import (
     TargetReader,
 )
 from blitzecdn.capabilities.releases.service.compiler import compile_release
+from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.core.ports import UnitOfWork
 
 __all__ = ["ReleaseService"]
@@ -77,10 +79,21 @@ class ReleaseService:
         check a fix without adding a row to the history of what the fleet was
         asked to serve.
         """
-        return compile_release(
-            self.inputs(),
+        return compile_release(self.capture(host_limit=host_limit))
+
+    def capture(self, *, host_limit: str | None = None) -> Compilation:
+        """Snapshot database facts together, then resolve external resources.
+
+        Plugin I/O is outside this transaction unless an admitting command
+        already owns one. Compilation itself receives only the captured value.
+        """
+        with self.uow.transaction():
+            inputs = self.inputs()
+            targets = self.targets.targets(host_limit=host_limit)
+        return prepare_compilation(
+            inputs,
             capabilities=self.capabilities,
-            targets=self.targets.targets(host_limit=host_limit),
+            targets=targets,
             contributors=self.contributors,
             site_checks=self.site_checks,
             allow_empty_sites=self.allow_empty_sites,
@@ -94,15 +107,9 @@ class ReleaseService:
         and the same identifier — and a deployment that names that identifier
         is naming a document nothing can subsequently edit.
         """
-        inputs = self.inputs()
-        release = compile_release(
-            inputs,
-            capabilities=self.capabilities,
-            targets=self.targets.targets(host_limit=host_limit),
-            contributors=self.contributors,
-            site_checks=self.site_checks,
-            allow_empty_sites=self.allow_empty_sites,
-        )
+        captured = self.capture(host_limit=host_limit)
+        inputs = captured.inputs
+        release = compile_release(captured)
         with self.uow.transaction():
             stored = self.releases.save(release, inputs)
             self.releases.prune(self.retention)

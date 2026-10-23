@@ -48,8 +48,9 @@ operator told only "rule `api` applied" goes and edits the rule.
 ## Decision
 
 **A release is a value, and its identity is the digest of its own contents.**
-`compile_release` is a pure function: canonical state in, plus the capabilities
-installed and the edges the run is aimed at, and a `Release` out. It touches no
+`prepare_compilation` captures canonical state, selected targets, plugin variables
+and resource preflight findings into a serializable `Compilation`.
+`compile_release` accepts that value alone and produces a `Release`. It touches no
 database, opens no socket, writes no file and reads no clock. Compiling twice
 over equal inputs produces an equal digest, which is what makes "has anything
 changed since the last deploy" a string comparison rather than a fleet-wide
@@ -164,3 +165,15 @@ An installation whose edges declare no capabilities behaves exactly as it did.
 - [Compiler tests](../../tests/capabilities/releases/test_compiler.py)
 - [Release service tests](../../tests/capabilities/releases/test_release_service.py)
 - [Capability graph](../../tests/architecture/test_layering.py)
+
+## Preparation boundary
+
+Compilation never receives a plugin registry, contributor, or callback.
+`ReleaseService.capture` reads canonical state and target declarations in one
+transaction, then resolves external contributions. Captured input text and
+canonical contribution documents can be serialized and replayed without the
+services that originally supplied them. Resource checks occur during preparation,
+not inside the deterministic compiler.
+
+- [Preparation](../../src/blitzecdn/capabilities/releases/service/preparation.py)
+- [Captured values](../../src/blitzecdn/capabilities/releases/domain/compilation.py)
