@@ -80,8 +80,9 @@ def test_durable_queue_receives_only_the_deployment_id(settings):
         repository.deployments.get_deployment(queued.id).status
         is DeploymentStatus.QUEUED
     )
-    # Redis publish and the SQLite commit cannot be atomic. Startup republishes
-    # queued identifiers so a crash between them cannot strand the record.
+    # Startup republishes queued identifiers. Not for a crash between commit
+    # and publish — those are one commit now — but for a QUEUED deployment
+    # whose job ran out of attempts finding the lock busy.
     assert control.deployments.initialize() == 0
     assert queue.ids == [queued.id, queued.id]
 
@@ -233,8 +234,10 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     issuance failed with DeploymentBusyError until someone restarted the
     process.
 
-    Driven through the durable queue port rather than by monkeypatching
-    Dramatiq: publication failure is part of that adapter's contract.
+    Driven through the durable queue port: a refused enqueue is part of that
+    adapter's contract. Since the deployment and its job commit together, the
+    refusal rolls the deployment back with it — there is no QUEUED row nothing
+    will deliver, and no FAILED row to explain one.
     """
     repository = Repository(settings.database_path)
     refusing = RefusingBackgroundQueue()
@@ -249,14 +252,9 @@ def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     with pytest.raises(RuntimeError):
         control.deployments.submit_deployment("alice")
 
-    # The deployment is recorded as failed rather than left QUEUED forever.
-    recorded = repository.deployments.list_deployments(1)[0]
-    assert recorded.status is DeploymentStatus.FAILED
-    # And no edge was planned, because no rollout ever started: publication
-    # failed before the deployment reached a worker.
-    assert repository.deployment_targets.targets(recorded.id) == []
-    assert recorded.result is not None
-    assert recorded.result.status is RunStatus.UNSTARTED
+    # Nothing was recorded: the deployment row went with the job it could not
+    # be given, rather than surviving as QUEUED forever or FAILED after the fact.
+    assert repository.deployments.list_deployments(10) == []
 
     # And the lock came back, so the control plane still works.
     refusing.refuse = False
@@ -426,3 +424,38 @@ def test_a_job_for_a_deployment_startup_recovery_abandoned_fails_too(settings):
     control.job_runner.tick()
 
     assert control.job_queue.get(claim.job.id).status is JobStatus.FAILED
+
+
+def test_a_deployment_and_its_job_commit_together_or_not_at_all(settings, monkeypatch):
+    """The real job queue, failing after its own row was written.
+
+    The Redis-era shape committed the deployment and then published its job,
+    so a crash between the two stranded a QUEUED row. With the job a row in the
+    same database the pair is one commit, and this holds it at the worst
+    moment: the job is in the session when the failure comes.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),
+        process=ProcessKind.WORKER,
+    )
+    seed_site(control)
+    queue_job = control.job_queue.enqueue_deployment
+
+    def enqueue_then_fail(deployment_id):
+        queue_job(deployment_id)
+        raise RuntimeError("the process died here")
+
+    monkeypatch.setattr(control.job_queue, "enqueue_deployment", enqueue_then_fail)
+    with pytest.raises(RuntimeError):
+        control.deployments.submit_deployment("alice")
+
+    assert repository.deployments.list_deployments(10) == []
+    assert control.job_queue.list_jobs() == []
+
+    monkeypatch.undo()
+    queued = control.deployments.submit_deployment("alice")
+    (job,) = control.job_queue.list_jobs()
+    assert job.payload == {"deployment_id": queued.id}
