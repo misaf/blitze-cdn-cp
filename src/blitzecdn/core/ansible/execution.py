@@ -248,7 +248,20 @@ class PlaybookExecutor:
             log_path.touch(mode=0o600, exist_ok=True)
 
     def _environment(self) -> dict[str, str]:
-        environment = os.environ.copy()
+        # The controller's environment minus every `BLITZE_*` name in it. In
+        # the container that environment is the managed `.env`, so a plain copy
+        # handed every play — and every role an optional wheel ships — the
+        # operators' `BLITZE_API_KEYS`, one `lookup('env')` away, and wrote it
+        # into Runner's artifact tree for the length of the run. What a play
+        # is owed is added back by name below: the database path, and the
+        # secrets an installed package declared. Nothing else on the Ansible
+        # side reads a `BLITZE_*` name, and nothing should start to by
+        # inheriting it.
+        environment = {
+            name: value
+            for name, value in os.environ.items()
+            if not name.startswith("BLITZE_")
+        }
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
         # Overrides `roles_path` in ansible.cfg, which can only name directories
         # relative to itself and therefore cannot reach a role that lives inside
