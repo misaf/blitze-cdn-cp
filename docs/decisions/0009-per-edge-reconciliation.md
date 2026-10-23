@@ -172,3 +172,11 @@ requires HTTP 200 and the expected full digest; a healthy response from an older
 configuration fails verification. The default HTTP server exposes the same
 marker for an empty release. Missing verification addresses fail the phase
 instead of being recorded as a successful check.
+
+## Takeover is one database commit
+
+Claiming a generation increments the deployment generation and stamps all its
+existing target rows in the same transaction. The previous worker loses its
+write authority immediately, even if the new worker stops before planning.
+Planning checks the current generation under a write transaction and refuses a
+stale owner rather than allowing it to stamp older tokens back onto the rows.

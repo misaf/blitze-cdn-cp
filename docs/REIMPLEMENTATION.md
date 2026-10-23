@@ -57,3 +57,7 @@ associated decisions describe the implementation that actually exists.
   completed edges before trusting them. Explicit graceful abandonment remains
   terminal. Formatting, strict types, and 111 recovery, deployment, entry-point,
   and durable-job tests pass.
+
+- Recovery hardening: rollout takeover now atomically invalidates old target
+  tokens, and stale planning cannot restore them. The executable material check
+  also passes the Ansible production lint profile with role-scoped variables.
