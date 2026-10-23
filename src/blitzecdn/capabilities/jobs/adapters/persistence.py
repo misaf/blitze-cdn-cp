@@ -59,17 +59,23 @@ class JobStore:
             fence=0,
             created_at=self._db.now(),
         )
-        try:
-            with self._db.session() as session:
-                session.add(row)
-                session.flush()
-                return _job(row)
-        except IntegrityError:
-            # The partial unique index refused it: a job with this dedupe key
-            # is still pending or running. Caught rather than checked for,
-            # because a check followed by an insert is a race with exactly the
-            # window this index exists to close.
-            return None
+        with self._db.session() as session:
+            try:
+                # A savepoint, because the session may be a caller's: a
+                # deployment is submitted with its job in one transaction, and
+                # a refused insert must undo only itself. Caught at the
+                # session's level instead, the failed flush would leave the
+                # caller's whole transaction unusable.
+                with session.begin_nested():
+                    session.add(row)
+                    session.flush()
+            except IntegrityError:
+                # The partial unique index refused it: a job with this dedupe
+                # key is still pending or running. Caught rather than checked
+                # for, because a check followed by an insert is a race with
+                # exactly the window this index exists to close.
+                return None
+            return _job(row)
 
     def claim(
         self, *, worker: str, now: datetime, lease_seconds: int
