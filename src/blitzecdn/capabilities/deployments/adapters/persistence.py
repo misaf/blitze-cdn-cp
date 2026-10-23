@@ -107,7 +107,7 @@ class DeploymentStore:
         # The status guard below then owns the race: a lawful step against a
         # stale expected state is a ConflictError, not a ValueError.
         require_transition(expected, target)
-        allowed = {"started_at", "finished_at", "result"}
+        allowed = {"started_at", "finished_at", "result", "error"}
         if set(values) - allowed:
             raise ValueError("unsupported deployment transition fields")
         result = values.get("result")
@@ -127,6 +127,8 @@ class DeploymentStore:
                     setattr(row, field, supplied)
             if result is not None:
                 row.result = result.model_dump(mode="json")
+            if "error" in values:
+                row.error = values["error"]
             # Inside the transaction, for the same reason as above: a caller
             # that just moved a deployment to RUNNING must be handed the
             # deployment it moved, not the state of the row a moment later.
@@ -274,6 +276,7 @@ class DeploymentStore:
                 "started_at": row.started_at,
                 "finished_at": row.finished_at,
                 "result": row.result,
+                "error": row.error,
             }
         )
 

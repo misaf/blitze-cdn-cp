@@ -84,6 +84,7 @@ blitzecdn	schema	DeployRequest.host_limit	string|null optional
 blitzecdn	schema	Deployment.canonical_digest	string|null optional
 blitzecdn	schema	Deployment.check_mode	boolean required
 blitzecdn	schema	Deployment.created_at	string required
+blitzecdn	schema	Deployment.error	string|null optional
 blitzecdn	schema	Deployment.finished_at	string|null optional
 blitzecdn	schema	Deployment.host_limit	string|null optional
 blitzecdn	schema	Deployment.id	string required

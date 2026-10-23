@@ -65,3 +65,4 @@ blitzecdn_nginx_sites:
     server_names:
       - static.example.com
     origin_host: 192.0.2.10
+blitzecdn_release_digest: 6a806fe63986bf2d5bf254ead16b368cb28922b9a0441bdc5a97fd2ef34587cd

@@ -61,3 +61,9 @@ associated decisions describe the implementation that actually exists.
 - Recovery hardening: rollout takeover now atomically invalidates old target
   tokens, and stale planning cannot restore them. The executable material check
   also passes the Ansible production lint profile with role-scoped variables.
+
+- Journey verification: the real HTTP probe now observes activation, rollback,
+  and a simulated stale edge through the full control-plane path. Deployments
+  persist their own verification error independently of a successful Ansible
+  result. The initial schema and HTTP contract intentionally add that field;
+  97 affected journey, deployment, API, and persistence tests pass.

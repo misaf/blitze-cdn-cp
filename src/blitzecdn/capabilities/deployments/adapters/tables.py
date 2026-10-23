@@ -75,6 +75,7 @@ class DeploymentRow(Base, table=True):
     started_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
+    error: str | None = None
     #: The compiled release this deployment converged, by its short digest.
     #: A foreign key rather than an embedded document: the release is immutable
     #: and content-addressed, so two deployments of unchanged state name one

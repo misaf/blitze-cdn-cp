@@ -39,6 +39,7 @@ class Deployment(Model):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result: AnsibleRun | None = None
+    error: str | None = None
 
 
 class DeploymentTarget(Model):

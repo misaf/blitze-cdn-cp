@@ -28,6 +28,7 @@ import threading
 from collections.abc import Iterator
 
 import pytest
+import yaml
 from control_plane_fixtures import (
     FakeRunner,
     ansible_run,
@@ -48,20 +49,22 @@ from blitzecdn.capabilities.tls.policy import SslMode
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus
 
+_SERVERS: dict[int, http.server.HTTPServer] = {}
+
 
 class _Edge(http.server.BaseHTTPRequestHandler):
     """Something that answers on a socket, standing in for a running edge.
 
-    Not an nginx. What the verification phase asks is "does this address answer
-    for this hostname", and that question has the same shape whatever is behind
-    it — which is exactly why the phase is worth having: the control plane
-    cannot tell what is listening, and should not pretend to.
+    It reports the release activated by the simulated runner, independently
+    of the real serving probe. Merely accepting HTTP proves no release identity.
     """
 
     def do_GET(self) -> None:
+        payload = (self.server.release_digest + "\n").encode("ascii")
         self.send_response(200)
-        self.send_header("Content-Length", "0")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
+        self.wfile.write(payload)
 
     def log_message(self, *args: object) -> None:
         """Silence the default stderr access log."""
@@ -80,10 +83,14 @@ class _EdgeProcess:
     def __init__(self) -> None:
         self._server = http.server.HTTPServer(("127.0.0.1", 0), _Edge)
         self.port = self._server.server_address[1]
+        self._server.release_digest = "untracked"
+        self._server.freeze_release = False
+        _SERVERS[self.port] = self._server
         self._thread = threading.Thread(target=self._server.serve_forever, daemon=True)
         self._thread.start()
 
     def stop(self) -> None:
+        _SERVERS.pop(self.port, None)
         if self._thread.is_alive():
             self._server.shutdown()
             self._server.server_close()
@@ -119,6 +126,19 @@ def probe_on(port: int) -> ServingProbe:
 
 
 def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
+    # Simulate the runner's activation effect, separately from the real probe.
+    # Merely publishing or validating a release must not update the listener.
+    original_run = runner.run
+    server = _SERVERS[port]
+
+    def run(*, check, host_limit=None, tags=()):
+        result = original_run(check=check, host_limit=host_limit, tags=tags)
+        if result.succeeded and not check and not tags and not server.freeze_release:
+            document = yaml.safe_load(settings.generated_vars_path.read_text())
+            server.release_digest = document["blitzecdn_release_digest"]
+        return result
+
+    runner.run = run
     return ControlPlane(
         settings=settings,
         repository=Repository(settings.database_path),
@@ -249,10 +269,9 @@ def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
 ):
     """A rollout that stopped mid-fleet: what the edges already have is on record.
 
-    The second half calls the rollout directly, because no product path runs a
-    deployment twice — an interrupted one is abandoned and a new one is started
-    (ADR 0009). What it holds is the property that makes re-running safe: the
-    rollout skips the edges already recorded as converged.
+    This scenario retries the rollout primitive after a reported failure.
+    Worker crash recovery exercises the same checkpoints through run_queued in
+    the deployment workflow suite.
     """
 
     class OneBadEdge(FakeRunner):
@@ -286,8 +305,8 @@ def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
     assert progress["edge-a"] is TargetStatus.SUCCEEDED
     assert progress["edge-b"] is TargetStatus.FAILED
 
-    # The rollout run again for the same deployment, as nothing in the product
-    # does: the edge that already converged is not touched again.
+    # Retry the failed rollout primitive: the successful edge is re-observed
+    # and only the remaining edge runs Ansible again.
     control.deployments.execution.rollout.runner = FakeRunner()
     control.deployments.execution.rollout.converge(
         stopped.id,
@@ -301,3 +320,26 @@ def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
         "edge-b",
         "edge-b",
     ]
+
+
+def test_a_healthy_edge_that_did_not_activate_the_new_release_fails_verification(
+    settings, edge
+):
+    runner = FakeRunner()
+    control = control_plane(settings, edge.port, runner)
+    seed_edge(control, name="edge-a", public_address="127.0.0.1")
+    seed_site(control, ssl_mode=SslMode.OFF)
+    good = control.deployments.deploy("alice")
+    assert good.status is DeploymentStatus.SUCCEEDED
+    edge._server.freeze_release = True
+    control.dns.update_domain(
+        "example.com", DomainPatch(cache_valid_success="1h"), "alice"
+    )
+
+    stale = control.deployments.deploy("alice")
+
+    assert stale.status is DeploymentStatus.FAILED
+    assert stale.result.succeeded  # preserve what the execution tool actually reported
+    assert "expected release" in stale.error
+    assert "expected release" in stale.detail
+    assert edge._server.release_digest == control.releases.get(good.release_id).digest

@@ -190,6 +190,8 @@ class Deployment(BaseModel):
     #: whole of what the deployment knows about the fleet; the raw output it
     #: names in ``result.log_path`` is for an operator to read, not for code.
     result: AnsibleRun | None = None
+    #: A rollout or verification failure independent of Ansible's exit code.
+    error: str | None = None
 
     @property
     def hosts(self) -> tuple[HostRun, ...]:
@@ -209,7 +211,7 @@ class Deployment(BaseModel):
     @property
     def detail(self) -> str | None:
         """Why this deployment ended the way it did, in one line."""
-        return self.result.summary() if self.result else None
+        return self.error or (self.result.summary() if self.result else None)
 
     @property
     def abandoned(self) -> bool:
