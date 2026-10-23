@@ -6,11 +6,11 @@
   delegate_to: localhost
   become: false
   loop:
-    - path: "{{ blitzecdn_material_site.certificate_source_path }}"
-      digest: "{{ blitzecdn_material_site.certificate_source_sha256 }}"
-    - path: "{{ blitzecdn_material_site.certificate_key_source_path }}"
-      digest: "{{ blitzecdn_material_site.certificate_key_source_sha256 }}"
-  register: blitzecdn_material_checks
+    - path: "{{ blitzecdn_nginx_material_site.certificate_source_path }}"
+      digest: "{{ blitzecdn_nginx_material_site.certificate_source_sha256 }}"
+    - path: "{{ blitzecdn_nginx_material_site.certificate_key_source_path }}"
+      digest: "{{ blitzecdn_nginx_material_site.certificate_key_source_sha256 }}"
+  register: blitzecdn_nginx_material_checks
   no_log: true
 
 - name: Require the exact material captured by the release
@@ -19,5 +19,5 @@
       - item.stat.isreg | default(false)
       - item.stat.checksum | default('') == item.item.digest
     fail_msg: "Pinned certificate material is missing or changed; refusing deployment."
-  loop: "{{ blitzecdn_material_checks.results }}"
+  loop: "{{ blitzecdn_nginx_material_checks.results }}"
   no_log: true

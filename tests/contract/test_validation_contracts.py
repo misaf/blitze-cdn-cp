@@ -549,6 +549,6 @@ def test_deployment_checks_the_captured_material_bytes(tmp_path, damage):
         [],
         tmp_path,
         tasks_file=ROLE_DIR / "tasks/verify-material.yml",
-        blitzecdn_material_site=material,
+        blitzecdn_nginx_material_site=material,
     )
     assert (result.returncode == 0) is (not damage), result.stdout + result.stderr
