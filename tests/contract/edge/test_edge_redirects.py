@@ -328,3 +328,14 @@ def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     rendered = _render(site)
     assert "return 301 https://$host$request_uri;" not in rendered
     assert rendered.count("proxy_pass") >= 2
+
+
+def test_every_virtual_host_exposes_its_release_identity_without_an_origin():
+    digest = "a" * 64
+    rendered = _render(
+        site_to_ansible(_mode_site("flexible", True)), blitzecdn_release_digest=digest
+    )
+    http, https = _server_blocks(rendered, _role_defaults())
+    for block in (*http, *https):
+        assert "location = /.blitzecdn/release" in block
+        assert f'return 200 "{digest}\\n";' in block

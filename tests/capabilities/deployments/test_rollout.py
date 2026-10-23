@@ -51,7 +51,7 @@ class StubVerifier:
         self.served = served
         self.asked: list[str] = []
 
-    def verify(self, *, edge: str, address: str, sites):
+    def verify(self, *, edge: str, address: str, sites, release_digest: str):
         self.asked.append(edge)
         return [
             type(
@@ -183,7 +183,7 @@ def test_staging_is_the_only_phase_that_selects_a_tag(repository):
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
-    rollout = rollout_for(repository, edges={"edge-a": None}, runner=runner)
+    rollout = rollout_for(repository, edges={"edge-a": "192.0.2.10"}, runner=runner)
 
     rollout.converge(deployment, release, edges=["edge-a"], check=False)
 
@@ -214,7 +214,7 @@ def test_the_first_failing_edge_stops_the_rollout_and_the_rest_are_skipped(
     )
     rollout = rollout_for(
         repository,
-        edges={"edge-a": None, "edge-b": None, "edge-c": None},
+        edges={"edge-a": "192.0.2.10", "edge-b": "192.0.2.11", "edge-c": "192.0.2.12"},
         runner=runner,
     )
 
@@ -258,12 +258,8 @@ def test_an_edge_that_accepted_the_configuration_but_serves_nothing_fails(
     assert "verify failed" in (target.last_error or "")
 
 
-def test_an_edge_with_no_public_address_is_not_probed(repository):
-    """An edge nobody has told us how to reach from outside.
-
-    Failing the rollout for it would make declaring a public address
-    mandatory, which is a product decision this phase does not get to make.
-    """
+def test_an_edge_with_no_public_address_cannot_be_verified(repository):
+    """Unperformed verification must never be recorded as success."""
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
     verifier = StubVerifier()
@@ -271,7 +267,7 @@ def test_an_edge_with_no_public_address_is_not_probed(repository):
 
     outcome = rollout.converge(deployment, release, edges=["edge-a"], check=False)
 
-    assert outcome.succeeded
+    assert not outcome.succeeded
     assert verifier.asked == []
 
 
@@ -285,7 +281,9 @@ def test_a_controller_that_cannot_run_ansible_at_all_stops_the_rollout(repositor
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
     rollout = rollout_for(
-        repository, edges={"edge-a": None, "edge-b": None}, runner=Broken()
+        repository,
+        edges={"edge-a": "192.0.2.10", "edge-b": "192.0.2.11"},
+        runner=Broken(),
     )
 
     with pytest.raises(ExecutionError):
@@ -322,7 +320,7 @@ def test_an_interrupted_rollout_resumes_from_the_edges_it_had_not_reached(
             )
         ]
     )
-    edges = {"edge-a": None, "edge-b": None}
+    edges = {"edge-a": "192.0.2.10", "edge-b": "192.0.2.11"}
 
     # First attempt: edge-a converges, edge-b fails.
     first = rollout_for(repository, edges=edges, runner=FakeRunner())
@@ -344,13 +342,13 @@ def test_an_interrupted_rollout_resumes_from_the_edges_it_had_not_reached(
 def test_an_edge_added_since_the_rollout_started_is_picked_up_on_resume(repository):
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
-    rollout_for(repository, edges={"edge-a": None}).converge(
+    rollout_for(repository, edges={"edge-a": "192.0.2.10"}).converge(
         deployment, release, edges=["edge-a"], check=False
     )
 
-    rollout_for(repository, edges={"edge-a": None, "edge-b": None}).converge(
-        deployment, release, edges=["edge-a", "edge-b"], check=False
-    )
+    rollout_for(
+        repository, edges={"edge-a": "192.0.2.10", "edge-b": "192.0.2.11"}
+    ).converge(deployment, release, edges=["edge-a", "edge-b"], check=False)
 
     assert {
         target.edge for target in repository.deployment_targets.targets(deployment)
@@ -419,7 +417,9 @@ def test_a_rollout_that_lost_its_claim_stops_rather_than_reporting(repository):
             )
             return super().run(check=check, host_limit=host_limit, tags=tags)
 
-    rollout = rollout_for(repository, edges={"edge-a": None}, runner=TakenOverRunner())
+    rollout = rollout_for(
+        repository, edges={"edge-a": "192.0.2.10"}, runner=TakenOverRunner()
+    )
 
     outcome = rollout.converge(deployment, release, edges=["edge-a"], check=False)
 

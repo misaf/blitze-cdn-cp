@@ -353,5 +353,5 @@ class ServingVerifier(Protocol):
     """
 
     def verify(
-        self, *, edge: str, address: str, sites: Sequence[CdnSite]
+        self, *, edge: str, address: str, sites: Sequence[CdnSite], release_digest: str
     ) -> Sequence[Any]: ...

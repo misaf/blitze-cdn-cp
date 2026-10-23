@@ -283,6 +283,13 @@ class Release(BaseModel):
         available = ", ".join(sorted(item.name for item in self.artifacts)) or "none"
         raise KeyError(f"release {self.id} has no {name!r} artifact; has: {available}")
 
+    def execution_document(self) -> dict[str, Any]:
+        """The artifact plus its identity, avoiding a self-referential hash."""
+        return {
+            **self.artifact(DESIRED_STATE_ARTIFACT).document,
+            "blitzecdn_release_digest": self.digest,
+        }
+
     def digests(self) -> Mapping[str, str]:
         """Every artifact digest, for a report or a comparison."""
         return {artifact.name: artifact.digest for artifact in self.artifacts}

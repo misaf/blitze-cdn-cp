@@ -1,31 +1,10 @@
-"""Asking an edge, over the network, whether it is actually serving.
+"""Observe the expected release through the edge's public listener.
 
-This is the whole of the difference between "the deploy succeeded" and "the
-fleet is serving". Every other signal a deployment has is something a tool said
-about itself: Ansible reported ok, ``nginx -t`` parsed the tree, ``nginx -s
-reload`` returned zero. All three can be true of an edge that answers nothing —
-a reload nginx accepts still leaves an upstream unreachable, a listener
-unclaimed, a certificate the worker cannot read, or a firewall closed in front
-of the lot.
-
-So verification is a request. The controller connects to the edge's own public
-address, asks for a hostname the release says that edge should now be serving,
-and requires an HTTP response.
-
-What a response proves, and what it does not
---------------------------------------------
-A response proves the edge is listening on the public port, that its
-configuration claimed this hostname rather than falling through to the
-catch-all, and — for a TLS site — that it presented a certificate for that name.
-It does not prove the origin is healthy: a 502 is the edge working correctly and
-saying the origin is not. That distinction is deliberate. Verification is about
-whether *this deployment* put the edge into service, and an origin that was
-already down was not this deployment's doing; failing the rollout for it would
-roll back a configuration that is fine and leave the origin exactly as broken.
-
-The request carries no body, asks for ``/`` and follows no redirect. An
-always-use-HTTPS site answers the plaintext probe with a 301, which is the
-correct answer and is accepted as one.
+A successful reload or an HTTP response can come from the previous release.
+The reserved endpoint returns the digest embedded in the generated virtual
+host, independently of origin health. A stale configuration therefore fails
+verification even while serving otherwise healthy traffic. TLS still checks
+that the certificate names the requested hostname.
 """
 
 from __future__ import annotations
@@ -44,10 +23,8 @@ from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
 
 __all__ = ["ServingProbe", "ServingResult"]
 
-#: The path asked for. Root rather than the status endpoint, because the status
-#: endpoint is bound to loopback on the edge and answers whether *nginx* is up
-#: — which the reload already told us. This asks the question a visitor asks.
-_PATH = "/"
+#: Reserved by the edge configuration, never forwarded to a customer's origin.
+_PATH = "/.blitzecdn/release"
 
 #: A response at all is the pass condition, so this is a bound on waiting
 #: rather than a service-level objective. An edge slower than this during a
@@ -80,7 +57,7 @@ class ServingProbe:
         self.timeout = timeout
 
     def verify(
-        self, *, edge: str, address: str, sites: Sequence[CdnSite]
+        self, *, edge: str, address: str, sites: Sequence[CdnSite], release_digest: str
     ) -> tuple[ServingResult, ...]:
         """Ask this edge for one hostname per site it should be serving.
 
@@ -94,11 +71,18 @@ class ServingProbe:
         rather than probed for a name that does not exist.
         """
         results: list[ServingResult] = []
-        for site in sites:
+        probes = sites or (
+            CdnSite(
+                name="default",
+                server_names=("blitzecdn.invalid",),
+                origin_host="127.0.0.1",
+            ),
+        )
+        for site in probes:
             if not site.server_names:
                 continue
             hostname = site.server_names[0]
-            served, detail = self._request(address, hostname, site)
+            served, detail = self._request(address, hostname, site, release_digest)
             results.append(
                 ServingResult(
                     edge=edge, hostname=hostname, served=served, detail=detail
@@ -106,7 +90,9 @@ class ServingProbe:
             )
         return tuple(results)
 
-    def _request(self, address: str, hostname: str, site: CdnSite) -> tuple[bool, str]:
+    def _request(
+        self, address: str, hostname: str, site: CdnSite, release_digest: str
+    ) -> tuple[bool, str]:
         """One HTTP request to ``address``, addressed to ``hostname``.
 
         Connects to the edge's address and sends the hostname in the ``Host``
@@ -122,11 +108,17 @@ class ServingProbe:
             try:
                 connection.request("GET", _PATH, headers={"Host": hostname})
                 response = connection.getresponse()
-                response.read(0)
+                observed = response.read(128).decode("ascii", errors="replace").strip()
             finally:
                 connection.close()
         except (OSError, ssl.SSLError, http.client.HTTPException) as exc:
             return False, f"{type(exc).__name__}: {exc}"
+        if response.status != 200 or observed != release_digest:
+            return (
+                False,
+                f"expected release {release_digest}, observed {observed!r} "
+                f"(HTTP {response.status})",
+            )
         return True, f"HTTP {response.status}"
 
     def _connection(

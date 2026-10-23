@@ -47,6 +47,12 @@
 {% endif %}
 {% endmacro %}
 {% macro reserved_locations() %}
+    location = /.blitzecdn/release {
+        access_log off;
+        default_type text/plain;
+        add_header Cache-Control "no-store" always;
+        return 200 "{{ blitzecdn_release_digest | default('untracked') }}\n";
+    }
     location = /.blitzecdn {
         add_header Cache-Control "no-store" always;
         return 404;

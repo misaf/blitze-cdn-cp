@@ -35,12 +35,15 @@ class _Recorder(http.server.BaseHTTPRequestHandler):
     """Answers 200 and remembers the Host header it was asked for."""
 
     seen: ClassVar[list[str]] = []
+    release: ClassVar[str] = "a" * 64
 
     def do_GET(self) -> None:
         type(self).seen.append(self.headers.get("Host", ""))
         self.send_response(200)
-        self.send_header("Content-Length", "0")
+        payload = (type(self).release + "\n").encode("ascii")
+        self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
+        self.wfile.write(payload)
 
     def log_message(self, *args: object) -> None:
         """Silence the default stderr access log."""
@@ -49,6 +52,7 @@ class _Recorder(http.server.BaseHTTPRequestHandler):
 @pytest.fixture
 def edge_server() -> Iterator[int]:
     _Recorder.seen = []
+    _Recorder.release = "a" * 64
     server = http.server.HTTPServer(("127.0.0.1", 0), _Recorder)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -88,7 +92,7 @@ def probe_on(port: int) -> ServingProbe:
 
 def test_an_edge_that_answers_is_reported_as_serving(edge_server):
     (result,) = probe_on(edge_server).verify(
-        edge="edge-a", address="127.0.0.1", sites=[site()]
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
     )
 
     assert result.served is True
@@ -102,7 +106,9 @@ def test_the_request_is_addressed_to_the_hostname_not_to_the_edge(edge_server):
     Resolving the hostname would test the DNS transition rather than the edge,
     so the connection goes to the address and the name travels in the header.
     """
-    probe_on(edge_server).verify(edge="edge-a", address="127.0.0.1", sites=[site()])
+    probe_on(edge_server).verify(
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
+    )
 
     assert _Recorder.seen == ["cdn.example.com"]
 
@@ -122,7 +128,7 @@ def test_an_edge_that_is_not_listening_is_reported_as_not_serving():
             return super()._connection(scheme, address, 9, hostname)
 
     (result,) = ClosedPortProbe(timeout=2.0).verify(
-        edge="edge-a", address="127.0.0.1", sites=[site()]
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
     )
 
     assert result.served is False
@@ -133,7 +139,10 @@ def test_a_site_with_no_hostname_is_not_probed(edge_server):
     """It contributes no server block, so there is no name to ask for."""
     assert (
         probe_on(edge_server).verify(
-            edge="edge-a", address="127.0.0.1", sites=[site(server_names=[])]
+            edge="edge-a",
+            address="127.0.0.1",
+            release_digest="a" * 64,
+            sites=[site(server_names=[])],
         )
         == ()
     )
@@ -148,6 +157,7 @@ def test_one_request_per_site_rather_than_one_per_hostname(edge_server):
     probe_on(edge_server).verify(
         edge="edge-a",
         address="127.0.0.1",
+        release_digest="a" * 64,
         sites=[site(server_names=["cdn.example.com", "www.example.com"])],
     )
 
@@ -231,6 +241,7 @@ def tls_edge(tmp_path) -> Iterator[Callable[..., int]]:
         return server.server_address[1]
 
     _Recorder.seen = []
+    _Recorder.release = "a" * 64
     try:
         yield start
     finally:
@@ -253,7 +264,7 @@ def test_an_edge_presenting_the_sites_certificate_is_serving(tls_edge):
     port = tls_edge("cdn.example.com")
 
     (result,) = probe_on(port).verify(
-        edge="edge-a", address="127.0.0.1", sites=[tls_site()]
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[tls_site()]
     )
 
     assert result.served is True
@@ -270,7 +281,7 @@ def test_an_edge_presenting_another_sites_certificate_is_not_serving(tls_edge):
     port = tls_edge("other.example.net")
 
     (result,) = probe_on(port).verify(
-        edge="edge-a", address="127.0.0.1", sites=[tls_site()]
+        edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[tls_site()]
     )
 
     assert result.served is False
@@ -300,3 +311,12 @@ def test_a_name_only_in_the_subject_is_not_one_the_certificate_covers():
     every visitor's browser refuses."""
     der = _der("cdn.example.com", san=False)
     assert _certificate_covers(der, "cdn.example.com") is False
+
+
+def test_a_reachable_edge_serving_an_older_release_is_refused(edge_server):
+    _Recorder.release = "b" * 64
+    (result,) = probe_on(edge_server).verify(
+        edge="edge-a", address="127.0.0.1", sites=[site()], release_digest="a" * 64
+    )
+    assert result.served is False
+    assert "expected release" in result.detail
