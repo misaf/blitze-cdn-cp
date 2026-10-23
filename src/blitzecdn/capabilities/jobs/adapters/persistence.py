@@ -74,7 +74,16 @@ class JobStore:
     def claim(
         self, *, worker: str, now: datetime, lease_seconds: int
     ) -> JobClaim | None:
-        with self._db.session() as session:
+        # Under `transaction()`, so BEGIN IMMEDIATE: a claim reads a row and
+        # then writes it, and in a deferred transaction an API enqueue
+        # committing between the two turns the write into a snapshot-busy
+        # error no `busy_timeout` waits out — the hazard
+        # `Database.require_transaction` documents. The fence kept that
+        # *safe*; it still surfaced as a worker-loop failure and a lost poll.
+        # Reserving the writer first makes a colliding enqueue wait instead.
+        # The price is an idle poll taking that reservation too, for an empty
+        # transaction measured in microseconds.
+        with self._db.transaction(), self._db.session() as session:
             while True:
                 row = session.scalars(
                     select(JobRow)
