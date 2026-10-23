@@ -144,8 +144,18 @@ def test_committed_fixture_matches_generated_desired_state(desired_state):
             encoding="utf-8",
         )
     committed = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))
-    assert committed == desired_state, (
+    expected = dict(committed)
+    actual = dict(desired_state)
+    # The fixture is an Ansible example, not a release compiled for every
+    # installation. Capability availability is part of release identity, so
+    # core-only and full installations have different envelope digests even
+    # when the rendered document is equal. The production publication test
+    # verifies the exact link between an envelope and its recorded release.
+    for document in (expected, actual):
+        assert re.fullmatch(r"[0-9a-f]{64}", document.pop("blitzecdn_release_digest"))
+    assert expected == actual, (
         f"{FIXTURE} is stale. Regenerate it with:\n"
-        "  BLITZECDN_UPDATE_FIXTURE=1 .venv/bin/python -m pytest "
-        "tests/test_contract.py"
+        "  BLITZECDN_UPDATE_FIXTURE=1 just test-one "
+        "tests/contract/edge/test_edge_wiring.py::"
+        "test_committed_fixture_matches_generated_desired_state"
     )

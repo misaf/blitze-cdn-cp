@@ -77,3 +77,9 @@ associated decisions describe the implementation that actually exists.
   Ownership validation: strict types and formatting pass; 511 architecture,
   package-boundary, policy, DNS, release, and public-contract checks pass with
   13 environment-dependent skips.
+
+- Core-only verification passes: 1,268 passed and 35 skipped with all ten optional
+  distributions removed. The static Ansible example compares artifact content
+  independently of the installation-specific release digest; publication tests
+  assert the exact digest against the stored release. The workspace environment
+  was restored after the run.
