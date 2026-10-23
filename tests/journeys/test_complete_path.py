@@ -247,7 +247,13 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
 def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
     settings, edge_port
 ):
-    """The controller died mid-fleet. What the edges already have is on record."""
+    """A rollout that stopped mid-fleet: what the edges already have is on record.
+
+    The second half calls the rollout directly, because no product path runs a
+    deployment twice — an interrupted one is abandoned and a new one is started
+    (ADR 0009). What it holds is the property that makes re-running safe: the
+    rollout skips the edges already recorded as converged.
+    """
 
     class OneBadEdge(FakeRunner):
         """Every edge converges except `edge-b`, which cannot be reached.
@@ -280,8 +286,8 @@ def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
     assert progress["edge-a"] is TargetStatus.SUCCEEDED
     assert progress["edge-b"] is TargetStatus.FAILED
 
-    # The operator fixes the edge and the same deployment is resumed. The edge
-    # that already converged is not touched again.
+    # The rollout run again for the same deployment, as nothing in the product
+    # does: the edge that already converged is not touched again.
     control.deployments.execution.rollout.runner = FakeRunner()
     control.deployments.execution.rollout.converge(
         stopped.id,

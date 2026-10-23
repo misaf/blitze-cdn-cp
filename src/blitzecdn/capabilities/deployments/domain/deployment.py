@@ -115,6 +115,24 @@ def aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
     )
 
 
+def abandoned_run(reason: str) -> AnsibleRun:
+    """A result for a deployment ended because whoever was running it is gone.
+
+    The shape :func:`aborted_run` gives, for the case with no exception to
+    name: the process that would have raised is the one that died.
+    """
+    now = datetime.now(UTC)
+    return AnsibleRun(
+        id=uuid4().hex,
+        playbook="",
+        status=RunStatus.UNSTARTED,
+        return_code=None,
+        started_at=now,
+        finished_at=now,
+        error=reason,
+    )
+
+
 def is_terminal(status: DeploymentStatus) -> bool:
     """Whether ``status`` is a finished state no transition leaves."""
     return status in TERMINAL_STATUSES
@@ -192,6 +210,17 @@ class Deployment(BaseModel):
     def detail(self) -> str | None:
         """Why this deployment ended the way it did, in one line."""
         return self.result.summary() if self.result else None
+
+    @property
+    def abandoned(self) -> bool:
+        """Whether this ended because whoever was converging it went away.
+
+        A question the job queue's deployment handler has to ask, as a
+        property rather than a comparison with :class:`DeploymentStatus` so
+        that asking it does not make `jobs` import this capability: the queue
+        depends on none, and only its composition module knows what a job does.
+        """
+        return self.status is DeploymentStatus.ABANDONED
 
 
 class DriftReport(BaseModel):

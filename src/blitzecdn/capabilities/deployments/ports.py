@@ -257,7 +257,9 @@ class Workflows(Protocol):
         self, kind: WorkflowKind, operator: str, resource_id: str | None = None
     ) -> WorkflowRun: ...
 
-    def reconcile_interrupted(self) -> Sequence[Workflow]: ...
+    def reconcile_interrupted(
+        self, *, resource_id: str | None = None
+    ) -> Sequence[Workflow]: ...
 
 
 __all__ = [

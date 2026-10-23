@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from application_support import _await_terminal, _await_workflow
 from control_plane_fixtures import (
@@ -15,10 +17,12 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
     TargetStatus,
 )
+from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ExecutionError, NotFoundError
+from blitzecdn.core.plugins import ProcessKind
 
 
 def test_submit_deployment_queues_and_converges_on_a_worker(settings):
@@ -337,3 +341,88 @@ def test_worker_survives_a_runner_error_and_releases_the_lock(settings):
     assert repository.deployments.get_deployment(second.id).status is (
         DeploymentStatus.SUCCEEDED
     )
+
+
+def test_a_deployment_its_worker_died_in_is_abandoned_on_redelivery(settings):
+    """A SIGKILL runs no handler, so a dead worker leaves two things behind.
+
+    The deployment RUNNING, and its job leased until the lease runs out. The
+    API's startup recovery is the only thing that used to abandon such a
+    deployment, so a worker that crashed and came back under a running API left
+    it RUNNING indefinitely — and the redelivered job found it not QUEUED, did
+    nothing, and was recorded as succeeded.
+
+    Now the redelivery, holding the lock nobody else can be holding, abandons
+    the deployment, closes its journal entry and only its, and fails the job
+    permanently with the reason.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),
+        process=ProcessKind.WORKER,
+    )
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+
+    # Worker A claims the job and gets as far as converge's first writes —
+    # the journal entry, then RUNNING — and is killed.
+    claim = control.job_queue.claim(lease_seconds=1)
+    assert claim is not None
+    with repository.transaction():
+        repository.workflows.create("died-in", DEPLOYMENT_WORKFLOW, "alice", queued.id)
+        repository.workflows.advance("died-in", WorkflowStatus.RUNNING)
+        repository.workflows.create("in-the-api", "certificate", "bob", "example-com")
+        repository.workflows.advance("in-the-api", WorkflowStatus.RUNNING)
+        repository.deployments.transition(
+            queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        )
+    later = datetime.now(UTC) + timedelta(seconds=5)
+    control.job_queue.clock = lambda: later
+
+    # Worker B, the restarted container, takes the expired job.
+    assert control.job_runner.tick() is True
+
+    deployment = repository.deployments.get_deployment(queued.id)
+    assert deployment.status is DeploymentStatus.ABANDONED
+    assert "worker converging this deployment stopped" in (deployment.detail or "")
+    job = control.job_queue.get(claim.job.id)
+    assert job.status is JobStatus.FAILED
+    assert job.attempts == 2  # failed at once, not retried into a no-op
+    assert f"deployment {queued.id} was abandoned" in (job.last_error or "")
+    assert repository.workflows.get("died-in").status is WorkflowStatus.NEEDS_REVIEW
+    assert repository.workflows.get("in-the-api").status is WorkflowStatus.RUNNING
+    assert any(
+        event.action == "deployment.abandoned" and event.resource_id == queued.id
+        for event in repository.audit_log.list_audit_events(10)
+    )
+
+
+def test_a_job_for_a_deployment_startup_recovery_abandoned_fails_too(settings):
+    """The API restarted first, abandoned it, and then the job came round.
+
+    Not a duplicate delivery of finished work: the work was never done, and
+    the job says so rather than recording a success.
+    """
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings,
+        repository=repository,
+        runner=FakeRunner(),
+        process=ProcessKind.WORKER,
+    )
+    seed_site(control)
+    queued = control.deployments.submit_deployment("alice")
+    claim = control.job_queue.claim(lease_seconds=1)
+    assert claim is not None
+    repository.deployments.transition(
+        queued.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+    )
+    assert control.deployments.initialize() == 1
+    later = datetime.now(UTC) + timedelta(seconds=5)
+    control.job_queue.clock = lambda: later
+
+    control.job_runner.tick()
+
+    assert control.job_queue.get(claim.job.id).status is JobStatus.FAILED

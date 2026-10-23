@@ -106,8 +106,17 @@ class WorkflowCoordinator:
                 )
                 self.journal.prune_finished(self.retention)
 
-    def reconcile_interrupted(self) -> list[Workflow]:
-        """Turn work interrupted by a restart into operator-visible state."""
+    def reconcile_interrupted(
+        self, *, resource_id: str | None = None
+    ) -> list[Workflow]:
+        """Turn work interrupted by a restart into operator-visible state.
+
+        Every unfinished workflow by default, which is right only at startup,
+        under the deployment lock, when nothing else can be mid-run. Given a
+        ``resource_id``, only that resource's: the worker abandoning one
+        deployment its predecessor died in must close that deployment's entry
+        without touching a certificate workflow the API is running right now.
+        """
         with self.uow.transaction():
             recovered = [
                 self.journal.advance(
@@ -119,5 +128,6 @@ class WorkflowCoordinator:
                     ),
                 )
                 for workflow in self.journal.unfinished()
+                if resource_id is None or workflow.resource_id == resource_id
             ]
         return recovered

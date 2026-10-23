@@ -33,6 +33,7 @@ from blitzecdn.capabilities.jobs.domain import (
     Job,
     JobClaim,
     JobStatus,
+    PermanentJobError,
     backoff_for,
     utcnow,
 )
@@ -143,7 +144,9 @@ class JobQueue:
         too, and a permanent one — retrying it would produce the same missing
         handler at each attempt. That happens when a plugin is uninstalled
         while one of its jobs is still queued, which is why the message names
-        the kind rather than only reporting a lookup error.
+        the kind rather than only reporting a lookup error. A handler that
+        raises :class:`PermanentJobError` is the other permanent case: it is
+        saying a retry would meet the same answer.
         """
         job = claim.job
         handler = self.handlers.get(job.kind)
@@ -157,6 +160,12 @@ class JobQueue:
             return
         try:
             handler(job.payload)
+        except PermanentJobError as exc:
+            # Logged without a traceback: the handler raised this to report an
+            # outcome it understood, not because something went wrong in it.
+            _LOGGER.warning("job %s (%s) failed permanently: %s", job.id, job.kind, exc)
+            self._fail(claim, str(exc), permanent=True)
+            return
         except Exception as exc:
             _LOGGER.exception("job %s (%s) failed", job.id, job.kind)
             self._fail(claim, f"{type(exc).__name__}: {exc}", permanent=False)

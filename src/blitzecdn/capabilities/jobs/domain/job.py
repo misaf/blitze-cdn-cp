@@ -46,6 +46,7 @@ __all__ = [
     "Job",
     "JobClaim",
     "JobStatus",
+    "PermanentJobError",
     "backoff_for",
     "is_terminal",
 ]
@@ -171,6 +172,17 @@ class JobClaim(BaseModel):
     @classmethod
     def of(cls, job: Job) -> Self:
         return cls(job=job, fence=job.fence)
+
+
+class PermanentJobError(Exception):
+    """A handler's way of saying a retry would find the same answer.
+
+    The queue retries what a handler raises, with backoff, because the failures
+    it expects are transient. Some are not, and the handler is the only party
+    that can tell: a deployment its worker died in the middle of has been
+    abandoned, and running the job again would find it abandoned again. Raising
+    this fails the job at once and records the message as its error.
+    """
 
 
 def utcnow() -> datetime:
