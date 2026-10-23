@@ -71,7 +71,7 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     if len(candidate) > 253 or not candidate:
         raise ValueError("hostname length must be between 1 and 253 characters")
     try:
-        ipaddress.ip_address(candidate)
+        address = ipaddress.ip_address(candidate)
     except ValueError as ip_error:
         if all(DNS_LABEL.fullmatch(label) for label in candidate.split(".")):
             return prefix + candidate
@@ -85,6 +85,16 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
     # capability's assigned-country-code check exists to prevent.
     if prefix:
         raise ValueError("wildcards cannot be used with IP addresses")
+    # An IPv6 zone index is the one part of an address `ip_address` does not
+    # constrain: everything after the `%` is accepted, `;`, `{` and `$`
+    # included. Every caller here is a name that is rendered into nginx
+    # unquoted — `server_name`, `proxy_pass`, the origin `Host` header and SNI —
+    # so `fe80::1%x;return 200 x` validated as an origin and became a directive
+    # on every edge. Refused outright rather than its characters vetted: a zone
+    # names an interface on the machine doing the connecting, which is never
+    # this one, so no value of it is meaningful in anything validated here.
+    if isinstance(address, ipaddress.IPv6Address) and address.scope_id is not None:
+        raise ValueError(f"IPv6 zone indexes are not accepted: {value!r}")
     return candidate
 
 
