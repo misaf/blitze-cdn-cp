@@ -13,14 +13,11 @@ from edge_render_support import (
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.dns.domain import (
-    SitePolicy,
-)
-from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import (
     MaxUploadSize,
 )
 from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,

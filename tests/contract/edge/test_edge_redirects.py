@@ -23,9 +23,7 @@ from edge_render_support import (
 from paths import REPO_ROOT
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-)
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )

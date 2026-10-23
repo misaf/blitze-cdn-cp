@@ -217,7 +217,7 @@ def _policy_files() -> list[Path]:
     """Every capability contract module, wherever the capability keeps it.
 
     Both shapes count: `tls/policy.py`, one file because the contract is one
-    cohesive set of TLS values, and `dns/policy/`, a package because what the
+    cohesive set of TLS values, and `serving/policy/`, a package because what the
     zone owns itself splits cleanly into headers and origin.
     """
     return sorted(
@@ -778,7 +778,8 @@ def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
     """
     from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
     from blitzecdn.capabilities.dns.adapters.rules import RuleStore
-    from blitzecdn.capabilities.dns.domain import CdnSite, DomainPatch
+    from blitzecdn.capabilities.dns.domain import DomainPatch
+    from blitzecdn.capabilities.serving.domain import CdnSite
 
     writers = {name for name in vars(ZoneStore) if not name.startswith("_")} | {
         name for name in vars(RuleStore) if not name.startswith("_")
@@ -795,101 +796,39 @@ def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
 #: actually has, and enforced both ways: an undeclared edge fails, and so does
 #: a declared edge nothing uses any more.
 #:
-#: Implementation edges only — see `ALLOWED_POLICY_DEPENDENCIES` for the
-#: contract layer. The direction is the point. `dns` composes the capability
-#: contracts and knows no other implementation: it owns the zones and the rules
-#: that override their policy, and derives the virtual hosts from the two.
-#: Everything downstream consumes that derived model — `CdnSite` out of
-#: `dns.domain` — without reaching into DNS persistence or adapters.
-#: Diagnostics reports on the capabilities above it.
-#:
-#: `dns` itself depends on nothing, and that is the collapse rather than an
-#: accident. While a site was authored there were two capabilities and an arrow
-#: between them: `sites` composed the contracts, and `dns` reached for a site to
-#: point a record at and to write a hostname projection back to. Deriving the
-#: host from the zone left one capability holding both ends, so the arrow has no
-#: endpoints left to connect and the set below is empty rather than shrunken.
-#:
-#: Shared foundations under `core` are deliberately outside this graph: `core`
-#: is what a capability is allowed to build on without that counting as knowing
-#: another capability.
+# DNS owns zones, records, rules, and their projection. Shared serving values
+# belong to serving; execution modules consume those values directly.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
-    # Contract only in this distribution: purge and statistics ship in
-    # `blitzecdn-cache`, and that wheel is where an edge from `cache` to
-    # `dns` would be recorded if this graph covered installed packages.
     "cache": set(),
     "compression": set(),
-    # `workflows` is the journal a convergence writes its checkpoints to. The
-    # edge is an import of `workflows.domain` for `WorkflowKind` and nothing
-    # more: the coordinator itself arrives as `deployments.ports.Workflows`,
-    # which is why this is not an edge onto another capability's service.
-    # `releases` is what a deployment converges: the service holds the
-    # `Releases` port and reads `DESIRED_STATE_ARTIFACT` and `Release` out of
-    # that capability's domain. It does not derive a host, merge a rule or ask
-    # a plugin for a variable — all of which it used to do — so the arrow is
-    # narrower than the code it replaced even though it is a new one.
-    # `edges` is the fleet a rollout walks: which edges a limit selects, and
-    # where each answers from outside so verification has somewhere to knock.
-    # It is the store's port and the domain model, never the edge service.
-    "deployments": {"dns", "edges", "releases", "workflows"},
+    "deployments": {"dns", "edges", "releases", "serving", "workflows"},
     "diagnostics": set(),
-    "dns": set(),
-    # The whole of this arrow is `CdnSite` out of `dns.domain`, named in
-    # `edges.ports` and in the origin probe. It is the derived model and not a
-    # store: the roster adds, updates and removes an edge without reading a
-    # zone, and `blitzecdn-origins` reaches `platform.sites` — the `SiteReader`
-    # port — for itself rather than through this capability. What used to make
-    # the arrow wider was `check_origins`, which needed the site list and got it
-    # through a port on the zone capability; that left with `dns`.
-    "edges": {"dns"},
-    "http": {"dns"},
-    # The queue knows what a job *is* and nothing about what any job does. The
-    # handler table that maps a kind to a service is built in its composition
-    # module, which is the one file allowed to know both — so this capability
-    # depends on no other, and adding a third kind of work does not widen it.
+    "dns": {"serving"},
+    "edges": {"serving"},
+    "http": {"serving"},
     "jobs": set(),
     "maintenance": {"deployments"},
-    # The compiler reads canonical state and the fleet it is aimed at, and
-    # both arrive as values: `dns.domain` for the zones, rules, records and the
-    # derivation over them, and `edges.ports` for the roster the composition
-    # module narrows into `EdgeCapabilities`. Nothing here reaches a service.
-    "releases": {"dns", "edges"},
+    "releases": {"dns", "edges", "serving"},
     "security": set(),
+    "serving": set(),
     "tls": set(),
-    # Depends on nothing. A workflow records that *something* reached a
-    # checkpoint and never asks what: `WorkflowKind` is the closest it comes to
-    # knowing, and that is three strings in an enum the database also checks.
     "workflows": set(),
 }
 
-#: Which capability's *contract* another may compose. Separate from the graph
-#: above, and pointing the other way, which is the whole reason it is separate:
-#: `dns` composes the cache, compression, HTTP, security and TLS contracts,
-#: while the implementations of those capabilities consume the `CdnSite` that
-#: composition produces. Most of those implementations ship as wheels and are
-#: outside both graphs, so `http` is the one reversal visible here — `dns`
-#: composes its contract, and `http` names `CdnSite`.
-#:
-#: That is why `http` is the one capability with an edge in each. Its contract
-#: depends on nothing; its `plugin.py` annotates a hook with `CdnSite`, which is
-#: knowledge of `dns` even under `TYPE_CHECKING` and is declared rather than
-#: excused.
+# Policy composition is independent of implementation dependencies. Serving
+# composes the individual contracts; DNS consumes it and validates flat patches
+# with the individual field types until the nested policy step replaces them.
 ALLOWED_POLICY_DEPENDENCIES = {
     "cache": set(),
     "compression": set(),
-    # The serving probe reads `http.policy` for the scheme a site is served
-    # over and that scheme's default port — which is what decides whether
-    # verification knocks on 80 or on 443. A contract, not an implementation.
     "deployments": {"http"},
     "diagnostics": set(),
-    # A zone carries the policy every hostname in it is served by, and the
-    # virtual host it resolves to composes the same contracts. Both live here
-    # now, so this is the set `sites` declared before the two collapsed.
-    "dns": {"cache", "compression", "http", "security", "tls"},
+    "dns": {"cache", "compression", "http", "security", "serving", "tls"},
     "edges": {"http", "tls"},
     "http": set(),
     "maintenance": set(),
     "security": set(),
+    "serving": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},
     "workflows": set(),
 }
@@ -913,49 +852,20 @@ def test_a_capability_contract_never_imports_an_implementation():
     assert offenders == []
 
 
-def test_dns_composes_the_capability_contracts_and_owns_no_other_capability():
-    """The zone carries every capability's policy and defines none of it.
-
-    It was: compression, HTTP, security and TLS policy all lived under
-    `sites/policy/` while the behaviour they describe lived in capabilities
-    that imported `sites` to reach it. Reuniting each contract with its
-    capability is what this asserts, from both directions — the composition
-    imports the five, and defines none of them.
-
-    `cache` was the last one out, and the one whose argument for staying was
-    the most plausible: the `cache` *implementation* consumes `CdnSite`, so
-    moving the contract under it looks like a cycle. It is not one, because a
-    contract imports nothing but `core` — which is the property the two graphs
-    exist to keep separate, and the reason this test can name `cache` in the
-    contract graph and `test_the_capability_dependency_graph_is_acyclic` never
-    sees the edge at all.
-
-    What changed with the collapse is only which package does the composing.
-    `sites` did it while a site was authored; `dns` does it now that the zone
-    holds the policy and the virtual host is derived from it.
-    """
-    assert "sites" not in _capability_graph()
-    assert _policy_graph()["dns"] == {
+def test_serving_owns_shared_policy_and_dns_owns_its_projection():
+    """A certificate or deployment need not depend on DNS to name a host."""
+    assert _policy_graph()["serving"] == {
         "cache",
         "compression",
         "http",
         "security",
         "tls",
     }
-
-    # The whole package, not one file: `host.py` composes the contracts,
-    # `patch.py` mirrors them, and reading only the module somebody named here
-    # would let a contract be imported by another without this seeing it.
-    domain_imports = set().union(
-        *(_imports(path) for path in (_CAPABILITIES / "dns/domain").glob("*.py"))
-    )
-    for capability in ("cache", "compression", "http", "security", "tls"):
-        assert f"blitzecdn.capabilities.{capability}.policy" in domain_imports
-
-    # What is left is what no distribution could carry away: the trusted `BZ-*`
-    # headers the edge writes, and the `Host`/SNI it identifies itself with.
-    owned = {path.stem for path in (_CAPABILITIES / "dns/policy").glob("*.py")}
-    assert owned == {"__init__", "headers", "origin"}
+    assert _capability_graph()["serving"] == set()
+    assert not (_CAPABILITIES / "dns/domain/host.py").exists()
+    assert not (_CAPABILITIES / "dns/policy/__init__.py").exists()
+    owned = {path.stem for path in (_CAPABILITIES / "serving/policy").glob("*.py")}
+    assert owned == {"__init__", "headers", "origin", "site"}
 
 
 def test_no_strategy_mode_or_option_becomes_a_top_level_capability():
@@ -1220,7 +1130,9 @@ def test_every_capability_registers_itself_through_a_plugin_module():
         for name in sorted(capabilities - registered)
         for path in sorted((_CAPABILITIES / name).rglob("*.py"))
         if path.name != "__init__.py"
-        and "policy" not in {part.removesuffix(".py") for part in path.parts}
+        and not {"policy", "domain"}.intersection(
+            part.removesuffix(".py") for part in path.parts
+        )
     ]
     assert offenders == []
 

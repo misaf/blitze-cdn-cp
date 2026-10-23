@@ -19,7 +19,6 @@ from pydantic import SecretStr
 from blitzecdn.api import create_app
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
 from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
     DnsRecord,
     Domain,
     DomainPatch,
@@ -30,6 +29,7 @@ from blitzecdn.capabilities.dns.domain import (
 from blitzecdn.capabilities.dns.domain.hosts import host_name as host_name_for
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import (

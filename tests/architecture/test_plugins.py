@@ -21,7 +21,7 @@ from fastapi import APIRouter
 from paths import PACKAGES, REPO_ROOT, SOURCE
 from typer import Typer
 
-from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (

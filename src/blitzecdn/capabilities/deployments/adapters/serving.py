@@ -18,8 +18,8 @@ from typing import Any
 
 from cryptography import x509
 
-from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
+from blitzecdn.capabilities.serving.domain import CdnSite
 
 __all__ = ["ServingProbe", "ServingResult"]
 

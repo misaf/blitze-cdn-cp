@@ -11,12 +11,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-    Domain,
-    Rule,
-    derive_hosts,
-)
+from blitzecdn.capabilities.dns.domain import Domain, Rule, derive_hosts
 from blitzecdn.capabilities.dns.domain.hosts import host_source
 from blitzecdn.capabilities.dns.ports import (
     EventRecorder,
@@ -24,6 +19,7 @@ from blitzecdn.capabilities.dns.ports import (
     UnitOfWork,
     ZoneStore,
 )
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     SslAutomaticMode,

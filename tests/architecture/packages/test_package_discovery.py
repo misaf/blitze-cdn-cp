@@ -153,6 +153,16 @@ def test_a_capability_registers_unless_a_wheel_already_claims_its_name():
     }
     for capability in _built_in_capabilities():
         registers = (capability / "plugin.py").is_file()
+        if (
+            (capability / "domain").is_dir()
+            and not registers
+            and not any(
+                (capability / layer).exists()
+                for layer in ("service", "adapters", "api", "cli")
+            )
+        ):
+            # Shared values have no runtime surface that needs registration.
+            continue
         assert registers != (capability.name in claimed), (
             f"{capability.name} "
             f"{'registers' if registers else 'does not register'} and a wheel "

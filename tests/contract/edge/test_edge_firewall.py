@@ -10,9 +10,7 @@ from edge_render_support import (
 )
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
-)
+from blitzecdn.capabilities.serving.domain import CdnSite
 
 REQUIRES_CAPABILITIES = {
     "test_firewall_rules_reach_the_generated_configuration": ("security",),

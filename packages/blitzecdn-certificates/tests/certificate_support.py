@@ -51,7 +51,7 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
 from blitzecdn.composition import ControlPlane, FleetRunner, Repository
 from blitzecdn.core.config import Settings

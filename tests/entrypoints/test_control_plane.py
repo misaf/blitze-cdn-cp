@@ -16,7 +16,6 @@ from control_plane_fixtures import (
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus, TargetStatus
 from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
     DnsRecord,
     Domain,
     DomainPatch,
@@ -24,6 +23,7 @@ from blitzecdn.capabilities.dns.domain import (
     RecordType,
     Rule,
 )
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.domain.runs import RunStatus

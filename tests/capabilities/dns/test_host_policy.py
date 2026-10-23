@@ -14,14 +14,11 @@ from blitzecdn.capabilities.deployments.domain import (
     require_transition,
 )
 from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
     DnsRecord,
     Domain,
     DomainPatch,
-    SitePolicy,
     derive_hosts,
 )
-from blitzecdn.capabilities.dns.policy import SiteVisitorHeaders
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
@@ -30,6 +27,8 @@ from blitzecdn.capabilities.http.policy import (
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
 from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
     SslAutomaticMode,

@@ -9,7 +9,6 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
 )
 from blitzecdn.capabilities.dns.domain import (
-    CdnSite,
     DnsRecord,
     Domain,
     RecordType,
@@ -18,6 +17,7 @@ from blitzecdn.capabilities.dns.domain import (
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,

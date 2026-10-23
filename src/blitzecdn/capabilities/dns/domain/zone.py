@@ -6,7 +6,7 @@ zone policy.
 
 The zone holds no origin: each record carries its own address, which is the
 origin the edge fetches from while the record is proxied. ``SitePolicy`` is
-shared with derived virtual hosts through ``dns.domain.host``.
+shared with derived virtual hosts through ``serving.domain.host``.
 ``_assert_patch_covers_zone`` checks that partial updates cover the zone fields."""
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Self
 
 from pydantic import ConfigDict, field_validator, model_validator
 
-from blitzecdn.capabilities.dns.domain.host import SitePolicy
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.core.domain.validation import hostname
 

@@ -16,7 +16,7 @@ from blitzecdn import __version__
 from blitzecdn.capabilities.dns import cli
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.api import routes
-from blitzecdn.capabilities.dns.domain import CdnSite
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.plugins import (
     CliCommandGroup,
     PluginMetadata,

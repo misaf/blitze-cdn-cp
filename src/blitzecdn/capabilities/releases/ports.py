@@ -13,13 +13,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Protocol
 
-from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.releases.domain import (
     EdgeCapabilities,
     Release,
     ReleaseFinding,
     ReleaseInputs,
 )
+from blitzecdn.capabilities.serving.domain import CdnSite
 
 __all__ = [
     "CanonicalState",

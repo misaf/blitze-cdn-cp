@@ -99,8 +99,8 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     that shape depend on what is installed, and a stored site asking for HTTP/3
     would stop loading on a controller that had detached it.
     """
-    from blitzecdn.capabilities.dns.domain import CdnSite
     from blitzecdn.capabilities.http.policy import ProtocolPolicy
+    from blitzecdn.capabilities.serving.domain import CdnSite
 
     assert "http3_enabled" in ProtocolPolicy.model_fields
     assert "http3_enabled" in CdnSite.model_fields
@@ -149,15 +149,15 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
     installed, and a stored site asking for a country would stop loading on a
     controller that had detached it.
     """
-    from blitzecdn.capabilities.dns.domain import CdnSite
-    from blitzecdn.capabilities.dns.policy.headers import SiteVisitorHeaders
     from blitzecdn.capabilities.security.policy import SiteFirewall
+    from blitzecdn.capabilities.serving.domain import CdnSite
+    from blitzecdn.capabilities.serving.policy.headers import SiteVisitorHeaders
 
     assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
     assert "ip_country" in SiteVisitorHeaders.model_fields
     assert {"firewall", "visitor_headers"} <= set(CdnSite.model_fields)
     assert SiteFirewall.__module__.startswith("blitzecdn.capabilities.security")
-    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.dns")
+    assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.serving")
 
 
 #: The two contracts allowed to name the `geoip` token, because they are the
@@ -170,7 +170,7 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
 #: registered, and neither contract said anywhere that it needed a lookup.
 _GEOIP_AWARE_CONTRACTS = {
     "capabilities/security/policy.py",
-    "capabilities/dns/policy/headers.py",
+    "capabilities/serving/policy/headers.py",
 }
 
 

@@ -28,11 +28,11 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.dns.domain.host import CdnSite
 from blitzecdn.capabilities.dns.domain.record import DnsRecord
 from blitzecdn.capabilities.dns.domain.resolution import resolve_policy
 from blitzecdn.capabilities.dns.domain.rule import Rule
 from blitzecdn.capabilities.dns.domain.zone import Domain
+from blitzecdn.capabilities.serving.domain import CdnSite
 
 __all__ = [
     "UnservableHost",

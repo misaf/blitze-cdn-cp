@@ -70,7 +70,7 @@ answer to the question above, not a description of the code.
 | Capability | Classification | Why |
 | --- | --- | --- |
 | plugin infrastructure, persistence, runtime, config, Ansible execution | **core** | the control plane *is* these; there is nothing left without them |
-| sites | **built-in required** | `CdnSite` is what every other capability composes into and every edge role renders from |
+| serving | **shared domain values** | `CdnSite` is what every other capability composes into and every edge role renders from |
 | DNS, edges, deployments, diagnostics, maintenance | **built-in required** | a CDN with no zones, no fleet, no way to converge it and no way to see whether it worked is not a degraded CDN |
 | HTTP/1.1 and HTTP/2 | **built-in required** | baseline. An edge that speaks neither serves nothing, and there is no `blitzecdn-http1` to attach |
 | cache, compression, HTTP, security, TLS *contracts* | **built-in required** | all five policies — `CachePolicy`, `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy`, `TlsPolicy` — are inherited into the flat `CdnSite` that the published schemas, the persisted policy JSON and the deployment snapshots consume; a field that travelled with a wheel would make a stored row unreadable on detachment. Each lives in its own capability's `policy.py`, which is the whole of what that capability is when its wheel is absent |
@@ -339,7 +339,7 @@ Each capability splits in two:
 
 * **`policy.py` — the contract.** Pure values describing how the capability is
   configured. It imports `core` and other capabilities' contracts, and nothing
-  else. `sites` composes every contract into the one flat `CdnSite`.
+  else. `serving` composes every contract into the one flat `CdnSite`.
 * **everything else — the implementation.** Services, adapters, routers,
   commands. These consume `CdnSite`, so they sit *above* the contract layer.
 
@@ -449,7 +449,7 @@ Deployment rendering is contributed, not centralised. `DesiredStateRenderer`
 knows how a document is framed — site documents under one key, fleet variables
 beside them — and nothing about what goes in one:
 
-* `sites` contributes the base site document, projected from `CdnSite`
+* `dns` contributes the derived base site document, projected from `CdnSite`
 * `blitzecdn-certificates` contributes managed certificate source/destination
   paths, and **overrides** the two the model projected, because only the
   certificate store knows the fingerprinted filenames
@@ -629,7 +629,7 @@ from blitzecdn.core.runtime.resources import (  # where its files landed, and it
 )
 from blitzecdn.api.models import Model, as_operation  # to build a router
 from blitzecdn.cli.common import ExitCode  # to build a command
-from blitzecdn.capabilities.sites import CdnSite  # a public capability contract
+from blitzecdn.capabilities.serving.domain import CdnSite  # a public capability contract
 ```
 
 and never:

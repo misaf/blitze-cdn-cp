@@ -16,10 +16,10 @@ import pytest
 from pydantic import ValidationError
 
 import blitzecdn.capabilities.edges.adapters.probe as origins_module
-from blitzecdn.capabilities.dns.domain import CdnSite
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck
 from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import SslMode
 
 

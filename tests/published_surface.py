@@ -71,6 +71,8 @@ _PUBLIC_CAPABILITY_MODULES = (
     "blitzecdn.capabilities.cache.policy",
     "blitzecdn.capabilities.http.policy",
     "blitzecdn.capabilities.dns.domain",
+    "blitzecdn.capabilities.serving.domain",
+    "blitzecdn.capabilities.serving.policy",
     "blitzecdn.capabilities.dns.ports",
     "blitzecdn.capabilities.deployments.api.models",
     "blitzecdn.capabilities.deployments.domain",

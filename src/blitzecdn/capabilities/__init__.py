@@ -11,6 +11,7 @@ map is worth having in one place:
 | `dns` `edges` `releases` `jobs` | itself | nothing: this is the control plane |
 | `deployments` `diagnostics` `maintenance` | itself | nothing, likewise |
 | `workflows` | itself | nothing, likewise |
+| `serving` | shared values | policy composition and effective virtual hosts |
 | `cache` | `blitzecdn-cache` | purge, cache statistics |
 | `compression` | `blitzecdn-compression` | gzip and Brotli on the edge |
 | `security` | `blitzecdn-security` | firewall rules, Under Attack Mode |
@@ -26,7 +27,7 @@ carries, so none has a contract here to be the other half of.
 
 A capability reaches the control plane by being named in
 `composition.control_plane.BUILTIN_PLUGINS`, which imports its `plugin.py` and
-hands the hookimpls to Pluggy. Eight of these eleven directories hold one, and
+hands the hookimpls to Pluggy. Runtime modules hold one, and
 the split is not the one the table above describes: `http` and `tls` are
 contract capabilities that register anyway, while `cache`, `compression` and
 `security` do not register at all.
@@ -45,9 +46,10 @@ claiming them is worth something: a name no plugin holds cannot be resolved to
 a version, a summary, or an answer to "is it installed?". `tls` registers
 metadata and nothing else for that reason alone.
 
-So an absent `plugin.py` is not an omission to correct. It says this directory
-is a policy class and nothing more — imported by `dns`, which composes it onto
-the zone, and composition is an import rather than a hook.
+An absent `plugin.py` is valid for pure contracts and shared domain values.
+`serving` composes the capability contracts into policy and effective hosts;
+DNS owns their projection from zones, rules, and records. Values register no
+commands or runtime services and need no plugin lifecycle.
 
 The contract stays behind when the wheel goes because a stored zone has to read
 back either way: a controller with `blitzecdn-cache` detached must still load a

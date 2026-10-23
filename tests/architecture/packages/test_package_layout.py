@@ -241,7 +241,8 @@ _CONTRACT_MODULES = {"__init__.py", "policy.py", "plugin.py"}
 
 def _implemented_here(capability: Path) -> bool:
     return any(
-        path.name not in _CONTRACT_MODULES and "policy" not in path.parts
+        path.name not in _CONTRACT_MODULES
+        and not {"policy", "domain"}.intersection(path.parts)
         for path in capability.rglob("*.py")
         if "__pycache__" not in path.parts
     )
@@ -293,11 +294,24 @@ def test_the_capability_map_says_what_the_tree_does():
     assert sorted(pairs) == sorted(set(pairs)), "a row is repeated"
 
     said_itself = {name for names, by in rows if by == "itself" for name in names}
-    said_wheel = {name for names, by in rows if by != "itself" for name in names}
+    said_values = {
+        name for names, by in rows if by == "shared values" for name in names
+    }
+    said_wheel = {
+        name
+        for names, by in rows
+        if by not in {"itself", "shared values"}
+        for name in names
+    }
     assert said_itself == {
         path.name for path in _built_in_capabilities() if _implemented_here(path)
     }
-    assert said_wheel == directories - said_itself
+    assert said_values == {
+        path.name
+        for path in _built_in_capabilities()
+        if (path / "domain").is_dir() and not _implemented_here(path)
+    }
+    assert said_wheel == directories - said_itself - said_values
 
     named = {
         wheel

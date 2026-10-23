@@ -58,7 +58,7 @@ These are executable, in `tests/architecture/`, and reading them beats guessing.
 - **Two graphs.** A capability's `policy` is its *contract*: pure values, importing only
   `core` and other contracts. Everything else is its *implementation*. The layer rule is
   `core < contracts < implementations`, and a contract may never import an
-  implementation. This is what lets `dns` compose every capability's contract into one
+  implementation. This is what lets `serving` compose every capability's contract into one
   `CdnSite` without the graph becoming a cycle.
 - **Domain and contracts import no I/O.** Not fastapi, typer, sqlalchemy, subprocess,
   ansible, cryptography, dnspython or yaml — those live in `adapters/`.

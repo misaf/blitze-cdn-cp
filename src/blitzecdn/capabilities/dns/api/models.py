@@ -14,7 +14,6 @@ from pydantic import Field, model_validator
 from blitzecdn.api.models import Model
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.dns.domain import CdnSite as DomainCdnSite
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
 from blitzecdn.capabilities.dns.domain import DomainPatch as DomainDomainPatch
@@ -24,6 +23,7 @@ from blitzecdn.capabilities.dns.domain import ResolvedPolicy as DomainResolvedPo
 from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
 from blitzecdn.capabilities.http.policy import MaxUploadSize
+from blitzecdn.capabilities.serving.domain import CdnSite as DomainCdnSite
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
