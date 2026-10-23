@@ -175,6 +175,13 @@ class DeploymentService:
             with self.execution.runner.lock():
                 recovered = self.persistence.deployments.abandon_running()
                 self.workflows.reconcile_interrupted()
+                # Not for a crash between a deployment's commit and its job's:
+                # those are one commit now. For a QUEUED deployment whose job
+                # failed without running it — a worker that found the lock
+                # held by a CLI deploy spends its three attempts in seconds,
+                # and the row is QUEUED with nothing left to deliver it. The
+                # enqueue is deduplicated, so one whose job is still pending
+                # costs nothing.
                 for deployment in self.persistence.deployments.queued_deployments():
                     self.execution.background.enqueue(deployment.id)
                 return recovered
@@ -260,8 +267,7 @@ class DeploymentService:
         ``GET /v1/deployments/{id}`` for the outcome.
         """
         return self._submit(
-            lambda: self._queue(operator, check=check, host_limit=host_limit),
-            operator,
+            lambda: self._queue(operator, check=check, host_limit=host_limit)
         )
 
     def rollback(
@@ -292,8 +298,7 @@ class DeploymentService:
     ) -> Deployment:
         """Queue a rollback for the worker and return the queued record."""
         return self._submit(
-            lambda: self._queue_rollback(operator, deployment_id, check=check),
-            operator,
+            lambda: self._queue_rollback(operator, deployment_id, check=check)
         )
 
     def run_queued(self, deployment_id: str) -> Deployment:
@@ -469,35 +474,30 @@ class DeploymentService:
             canonical_digest=self.releases.inputs().digest,
         )
 
-    def _submit(
-        self,
-        queue: Callable[[], Deployment],
-        operator: str,
-    ) -> Deployment:
-        """Record durable intent, publish its ID, and return the queued record."""
-        with self.execution.runner.lock():
+    def _submit(self, queue: Callable[[], Deployment]) -> Deployment:
+        """Record a queued deployment and its job as one commit.
+
+        One transaction, so a deployment never exists without the job that will
+        run it. This used to be two steps — commit the row, then publish its
+        ID — because the queue was a Redis broker and the two could not be
+        atomic: a crash between them left a QUEUED row nothing would deliver,
+        and a refused publish had to go back and mark the row FAILED. Since the
+        queue became rows in this database (ADR 0008) there is no between: a
+        refused enqueue rolls the deployment back with it, and the caller's
+        error is the whole outcome.
+
+        The release a forward deploy compiles is prepared inside the same
+        transaction, so it holds the SQLite writer for that long. It is an
+        operator's action that already holds the fleet-wide deployment lock,
+        and a concurrent writer waits under ``busy_timeout`` rather than
+        failing.
+        """
+        with (
+            self.execution.runner.lock(),
+            self.persistence.uow.transaction(),
+        ):
             deployment = queue()
-            try:
-                self.execution.background.enqueue(deployment.id)
-            except BaseException as exc:
-                with self.persistence.uow.transaction():
-                    self.persistence.deployments.transition(
-                        deployment.id,
-                        DeploymentStatus.QUEUED,
-                        DeploymentStatus.FAILED,
-                        finished_at=datetime.now(UTC),
-                        result=aborted_run(exc, interrupted=False),
-                    )
-                    self.events.record(
-                        domain_event(
-                            operator,
-                            "deployment.failed",
-                            "deployment",
-                            deployment.id,
-                            {"error_type": type(exc).__name__},
-                        )
-                    )
-                raise
+            self.execution.background.enqueue(deployment.id)
         return deployment
 
     def converge(self, deployment: Deployment, operator: str) -> Deployment:
