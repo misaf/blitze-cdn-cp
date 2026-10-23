@@ -15,7 +15,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import event
 
-from blitzecdn.capabilities.jobs.domain import JobStatus, backoff_for
+from blitzecdn.capabilities.jobs.domain import JobStatus, PermanentJobError, backoff_for
 from blitzecdn.capabilities.jobs.service import JobQueue
 from blitzecdn.composition import Repository
 
@@ -455,3 +455,29 @@ def test_an_enqueue_landing_mid_claim_waits_instead_of_failing_the_claim(setting
     assert claim is not None
     assert not racing[0].is_alive()
     assert len(worker_side.jobs.list_jobs()) == 2
+
+
+def test_a_handler_can_say_a_retry_would_meet_the_same_answer(repository):
+    """`PermanentJobError` fails at once, attempts left or not.
+
+    The other permanent case beside a missing handler, and the one a handler
+    decides for itself: a deployment that was abandoned is abandoned on every
+    attempt, so backing off and asking again would only repeat the answer.
+    """
+    attempts: list[int] = []
+
+    def abandoned(_payload):
+        attempts.append(1)
+        raise PermanentJobError("deployment dep-1 was abandoned")
+
+    queue = queue_for(repository, handlers={"work": abandoned})
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=3
+    )
+
+    queue.run_one()
+
+    failed = queue.get(job.id)
+    assert attempts == [1]
+    assert failed.status is JobStatus.FAILED
+    assert failed.last_error == "deployment dep-1 was abandoned"

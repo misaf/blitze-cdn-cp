@@ -94,18 +94,33 @@ They are still serving whatever they had and nothing is known to be wrong with
 them; reporting them as failures would send an operator to look at hosts that
 are fine.
 
-**Resuming re-runs the phase that was interrupted.** A target records the last
-phase it *completed*, and every phase is idempotent — re-publishing an artifact,
-re-checking a play, re-converging an edge that is already converged all cost
-time and change nothing. That is cheaper than reasoning about how far into a
-phase a dead process had got, and it is the only version of the rule that cannot
-be subtly wrong.
+**An interrupted deployment is abandoned, and its rows say how far it got.** It
+is not resumed: an operator starts a new deployment, which converges every edge
+again — every phase is idempotent, so an edge that already had the release costs
+time and changes nothing. What the rows buy is the answer to "which edges have
+the new configuration" after a controller died, which used to be a guess.
+
+Whoever finds the deployment ends it. The API's startup recovery abandons any
+deployment left `RUNNING` when it starts with the lock free, and a worker whose
+redelivered job finds its deployment `RUNNING` abandons it then — it holds the
+deployment lock, the lock is the only way into a convergence, and the kernel
+released it when the previous holder died, so nothing else can be converging
+that deployment. Without the second, a worker that crashed and restarted under
+a running API left its deployment `RUNNING` indefinitely. Either way the
+deployment's job fails permanently with the reason rather than recording a
+success for a rollout nobody finished.
+
+`Rollout.converge` does skip edges already `SUCCEEDED` when called again for the
+same deployment, and its tests hold that, but no command or route calls it a
+second time. Resuming was considered and declined: a resumed rollback would have
+to make adopting the rolled-back state safe to repeat, for a recovery an operator
+can get by deploying again.
 
 ## Alternatives rejected
 
 *Keep the fleet-wide run and record per-edge rows from its result.* It gives a
-better report and nothing else: no resumption, because the run is over before
-the rows exist; no per-phase progress, because the run has no phases; and no
+better report and nothing else: no record of an interrupted rollout, because the
+run is over before the rows exist; no per-phase progress, because the run has no phases; and no
 fence, because there is no per-edge write to fence.
 
 *Verify from the edge instead of from the controller.* The edge already probes
@@ -123,7 +138,8 @@ skips when there is nothing at all to knock on — logging when it does.
 
 A full converge is now four runs per edge rather than one across the fleet:
 validate, stage, activate, and a request. That is more Ansible than before and
-it buys resumability, per-phase progress, and a deployment that cannot be green
+it buys per-phase progress, a durable record of how far an interrupted rollout
+got, and a deployment that cannot be green
 while the fleet serves nothing. `blitzecdn deploy` from the CLI adds one more
 check pass, because the operator's preview is a separate thing they asked for;
 `--skip-preflight` gives it up.
@@ -147,6 +163,8 @@ in sync.
 - [Fenced writes](../../src/blitzecdn/capabilities/deployments/adapters/persistence.py)
 - [The serving probe](../../src/blitzecdn/capabilities/deployments/adapters/serving.py)
 - [The edge play's stage tag](../../src/blitzecdn/ansible/playbooks/edge.yml)
+- [Abandoning a deployment its worker died in](../../src/blitzecdn/capabilities/deployments/service/convergence.py)
 - [Rollout tests](../../tests/capabilities/deployments/test_rollout.py)
+- [A worker's redelivery abandoning it](../../tests/capabilities/deployments/test_queue_workflow.py)
 - [The probe against a real socket](../../tests/capabilities/deployments/test_serving_probe.py)
 - [The stage tag's contract](../../tests/contract/roles/test_role_wiring.py)

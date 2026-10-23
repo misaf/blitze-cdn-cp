@@ -301,11 +301,12 @@ def test_a_controller_that_cannot_run_ansible_at_all_stops_the_rollout(repositor
 def test_an_interrupted_rollout_resumes_from_the_edges_it_had_not_reached(
     repository,
 ):
-    """Recovery is resumption, and this is what durable progress buys.
+    """Run again for the same deployment, the rollout skips converged edges.
 
-    A controller that died mid-rollout used to come back knowing a deployment
-    had been abandoned and nothing about which edges were already serving the
-    new configuration.
+    A property of the rollout rather than a recovery path: an interrupted
+    deployment is abandoned, not resumed (ADR 0009), and nothing in the product
+    calls this twice. What durable progress buys an operator is the record of
+    which edges were already serving the new configuration.
     """
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)

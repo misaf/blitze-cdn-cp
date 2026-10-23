@@ -279,3 +279,22 @@ def test_recovery_reviews_in_one_transaction(coordinator, journal, uow):
     coordinator.reconcile_interrupted()
 
     assert uow.opened == 1
+
+
+def test_recovery_for_one_resource_leaves_everything_else_running(coordinator, journal):
+    """What a worker may do, as opposed to what startup may.
+
+    A worker abandoning one deployment its predecessor died in runs while the
+    API is up, and the API may be in the middle of a certificate workflow of
+    its own. Reviewing every unfinished entry from there would mark live work
+    as needing review.
+    """
+    journal.create("died-in", "deployment", "alice", "dep-1")
+    journal.advance("died-in", WorkflowStatus.RUNNING)
+    journal.create("in-the-api", "certificate", "bob", "example-com")
+    journal.advance("in-the-api", WorkflowStatus.RUNNING)
+
+    recovered = coordinator.reconcile_interrupted(resource_id="dep-1")
+
+    assert [workflow.id for workflow in recovered] == ["died-in"]
+    assert journal.workflows["in-the-api"].status is WorkflowStatus.RUNNING

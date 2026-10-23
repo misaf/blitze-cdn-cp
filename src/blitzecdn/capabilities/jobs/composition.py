@@ -19,6 +19,7 @@ import socket
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from blitzecdn.capabilities.jobs.domain import PermanentJobError
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore, ScheduleStore
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
@@ -103,7 +104,17 @@ def build_handlers(platform: ControlPlane) -> dict[str, JobHandler]:
     """
 
     def deployment(payload: Mapping[str, Any]) -> None:
-        platform.deployments.run_queued(str(payload["deployment_id"]))
+        # An abandoned deployment is one this job's work never happened for —
+        # whether this delivery abandoned it, finding its worker had died, or
+        # the API's startup recovery had already. Reporting the job succeeded
+        # put a green row in `blitzecdn job list` over a rollout nobody
+        # finished, and retrying would only find it abandoned again.
+        result = platform.deployments.run_queued(str(payload["deployment_id"]))
+        if result.abandoned:
+            raise PermanentJobError(
+                f"deployment {result.id} was abandoned: "
+                f"{result.detail or 'its worker stopped before it completed'}"
+            )
 
     def scheduled(payload: Mapping[str, Any]) -> None:
         platform.maintenance.run(str(payload["job"]))
