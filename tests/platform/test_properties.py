@@ -1,5 +1,6 @@
 """Generated checks for domain invariants with broad input spaces."""
 
+import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
@@ -18,6 +19,35 @@ def test_hostname_normalization_is_idempotent(name: str) -> None:
     normalized = hostname(f"  {name.upper()}.  ")
     assert normalized == name
     assert hostname(normalized) == normalized
+
+
+#: Everything `ipaddress` accepts after the `%`: any character but `%` itself.
+#: Whitespace is left out only because `hostname` strips the ends first, which
+#: would change the input rather than the answer.
+_ZONE = st.text(
+    alphabet=st.characters(
+        min_codepoint=0x21, max_codepoint=0x7E, exclude_characters="%"
+    ),
+    min_size=1,
+    max_size=30,
+)
+
+
+@given(address=st.ip_addresses(v=6), zone=_ZONE)
+def test_an_ipv6_zone_index_is_refused_whatever_it_contains(
+    address: object, zone: str
+) -> None:
+    """The one suffix `ip_address` does not constrain, so it is never let in.
+
+    `fe80::1%x;return 200 x` parsed as an address and came back unchanged, and
+    every caller of `hostname` renders into nginx unquoted.
+
+    Refusal is the property, not which message gives it: `ipaddress` turns a
+    few zones away itself (`::%/`), and those fail as not-a-hostname instead.
+    """
+    assert hostname(str(address)) == str(address)
+    with pytest.raises(ValueError):
+        hostname(f"{address}%{zone}")
 
 
 @given(label=_LABEL, address=st.ip_addresses(v=4))

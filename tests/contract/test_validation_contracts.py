@@ -294,6 +294,23 @@ def test_role_rejects_a_wildcard_on_an_ip_address(desired_state, tmp_path):
     assert "Invalid CDN site" in result.stdout
 
 
+@pytest.mark.parametrize("field", ["origin_host", "origin_request_host", "origin_sni"])
+def test_role_rejects_an_ipv6_zone_index_on_the_origin(desired_state, tmp_path, field):
+    """The role's half of the zone-index refusal in `hostname`.
+
+    The controller accepted `fe80::1%x;return 200 x` as an origin until it was
+    taught not to; this role is what kept it out of `proxy_pass`, by refusing
+    `%` in its character class. Held here so that remains true on its own.
+    """
+    sites = [dict(site) for site in desired_state["blitzecdn_nginx_sites"]]
+    sites[0] = sites[0] | {field: "fe80::1%x;return 200 x"}
+
+    result = _run_validation(sites, tmp_path)
+
+    assert result.returncode != 0
+    assert "Invalid CDN site" in result.stdout
+
+
 # Three suites that used to be here are not any more, and their absence is the
 # point rather than a gap:
 #
