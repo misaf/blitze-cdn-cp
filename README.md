@@ -275,6 +275,10 @@ rule, or the records behind it.
 
 ## Essential operations
 
+Start with the [short operating and recovery guide](docs/OPERATING_GUIDE.md) for
+routine checks, interrupted work, rollback and restoring a controller. It states
+which procedures were demonstrated and which real-edge checks remain deferred.
+
 ```bash
 blitzecdn doctor
 blitzecdn status

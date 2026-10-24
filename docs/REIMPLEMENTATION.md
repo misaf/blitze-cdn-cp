@@ -187,14 +187,17 @@ Each step requires separate confirmation and its own commit.
    now preserves queued/running deployments and their target rows; the worker
    applies the existing finished-job limit after executing a claim. Remote
    validation passed 293 focused cases, format, lint and strict types; see below.
-5. Pending confirmation: write the short operating guide from verified results.
+5. Complete: the [short operating guide](OPERATING_GUIDE.md) covers routine
+   inspection, backups, applying/undoing changes, interrupted jobs and rebuilding
+   a controller. It distinguishes demonstrated controller behavior from deferred
+   real-edge procedures. Remote CLI/restore checks passed; see below.
 
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
 confirmation before beginning any further implementation. The user deferred
-Ubuntu edge verification. Step 4 was confirmed; the operating guide in step 5
-requires its own confirmation.
+Ubuntu edge verification. Step 5 was confirmed; any further implementation or
+real-edge verification requires its own confirmation.
 
 ## Step 4 validation
 
@@ -240,3 +243,29 @@ The two Ansible fixture checks were then run with the environment on `PATH`:
 ```bash
 pytest --no-cov tests/contract/test_ansible.py -k real_ansible_runner
 ```
+
+## Step 5 validation
+
+This step changes documentation only. A private temporary source checkout on
+the user-provided Ubuntu 24.04.5/Python 3.12.3 server used step 3's dependency
+environment with the current source explicitly selected for every CLI process.
+The loaded module path was checked; no tests ran on the workstation.
+
+- **36 CLI invocations passed**, including `--help` for 15 command paths in the
+  guide. Actual controller commands exercised readiness/history/audit reporting,
+  persisted job owner/deadline inspection and lookup of its deployment.
+- A full backup of disposable database, TLS and configuration components was
+  inspected and restored through the CLI into an empty directory, without setup
+  there. Inventory, the original deployment/release identity, API credential bytes
+  and generated certificate/private-key bytes survived; the archive and restored
+  private key had mode 0600. Temporary controller state was removed afterwards.
+- Documentation links and the README lifecycle anchor were checked remotely.
+  Deployment/rollback syntax was help-checked here; their controller behavior
+  remains supported by the existing journey/CLI tests and step 4's verification.
+  No runtime changes required another application-suite run or new tests.
+- Real Ansible edge execution, SSH access to an edge, Nginx/HTTPS service, Compose
+  restart, host firewall reconciliation and ACME issuance were not performed.
+  The guide labels that boundary rather than claiming a production rehearsal.
+
+All five confirmed operating/recovery steps are complete. The separately deferred
+real Ubuntu edge verification remains open and requires fresh authorization.
