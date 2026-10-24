@@ -32,31 +32,11 @@ CORE_ANSIBLE = SOURCE / "ansible"
 #: two agree.
 CORE_DOCKER = SOURCE / "docker"
 
-#: The workspace's optional distributions. Each directory here is one wheel
-#: that can be installed beside the control plane or left out of it.
-PACKAGES = REPO_ROOT / "packages"
-
-
-def optional_packages() -> list[Path]:
-    """Every optional distribution in the workspace, by directory.
-
-    Discovered rather than listed. A test that named the packages would have to
-    be edited to add one, which is precisely the "no manual registration"
-    property the whole boundary exists to provide — including for the tests
-    that enforce it.
-    """
-    return sorted(
-        path for path in PACKAGES.iterdir() if (path / "pyproject.toml").is_file()
-    )
-
-
 __all__ = [
     "CORE_ANSIBLE",
     "CORE_DOCKER",
     "FIXTURES",
-    "PACKAGES",
     "REPO_ROOT",
     "SOURCE",
     "TESTS_DIR",
-    "optional_packages",
 ]

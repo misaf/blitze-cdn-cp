@@ -122,5 +122,5 @@ Core carries no capability's name.
 - [Resolver and refusals](../../src/blitzecdn/core/plugins/resolution/configuration.py)
 - [Staging from environment and TOML](../../src/blitzecdn/core/config/loading.py)
 - [Settings](../../src/blitzecdn/core/config/settings.py)
-- [A capability's own config](../../packages/blitzecdn-certificates/src/blitzecdn_certificates/config.py)
+- [A capability's own config](../../src/blitzecdn/capabilities/tls/config.py)
 - [Plugin resolution tests](../../tests/architecture/packages/test_package_capability_contracts.py)

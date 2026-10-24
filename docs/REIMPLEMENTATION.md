@@ -116,30 +116,36 @@ associated decisions describe the implementation that actually exists.
   policy, all retained releases and metadata roots under issuance/write locks.
   Remote edge material remains conservatively retained. See decision 0015.
 
+- Single application distribution implemented: capability code and resources now
+  ship in `blitzecdn`; HTTP/3, GeoIP, hardening and resolver are focused runtime
+  providers. Composition owns a mandatory roster. Independent extras, workspace
+  members, attach/detach modes and package-presence fixture behavior are removed.
+  Behavioral and resource contracts remain; isolated installation verifies the
+  actual wheel outside the checkout. See decision 0016.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full workspace fast suite after canonical certificate versions: 1,893 passed,
-  13 skipped.
-- Core-only suite after canonical certificate versions: 1,307 passed, 35 skipped;
-  workspace restored.
-- All eleven distributions build as wheels and source archives. The root and
-  certificate wheels contain the exact sixteen changed runtime sources, verified
-  against the workspace files in the built archives. The
-  configuration transaction helper and tasks remain included.
+- Full application suite: 1,751 passed with 91.22% coverage, including actual
+  single-wheel installation outside the checkout with locked runtime dependencies.
+- Retired core-only/attach/detach checks are replaced by single-distribution,
+  mandatory assembly, provider scope and installed-resource contracts. Capability
+  and provider behavioral tests run together without package-presence skips.
+- One application wheel and source archive build. Package contents are verified
+  against every tracked application source and runtime resource.
+- CLI, HTTP and Ansible snapshot details are identical after removing ownership
+  columns; ownership is now `blitzecdn`. ABI, SDK and database snapshots are unchanged.
 - Live Ubuntu edge convergence has not been executed.
 
 ## Remaining implementation slices
 
-- Consolidate independently packaged capabilities into one application with
-  focused runtime providers.
 - Simplify installation, separate schema migration from ordinary repository
   construction, and verify complete recovery on a real edge.
 
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
-confirmation before beginning the next. Following canonical certificate versions
-and controller material collection, the next proposed step is consolidating the
-packaged capabilities into one application with focused runtime providers.
+confirmation before beginning the next. Following the application consolidation,
+the next proposed step is explicit schema migration and simpler installation/startup.
+Complete recovery on a real edge remains a subsequent, separately authorized step.

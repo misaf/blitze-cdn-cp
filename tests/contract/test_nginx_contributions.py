@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
+import blitzecdn
 from blitzecdn.composition import load_control_plane_plugins
 from blitzecdn.core.exceptions import ConfigurationError, PluginError
 from blitzecdn.core.plugins import (
@@ -88,13 +89,14 @@ def test_installed_packages_supply_only_package_owned_templates():
     and every fragment that exists ships inside the distribution that owns it.
     """
     plugins = load_control_plane_plugins()
-    optional = {plugin.name for plugin in plugins.plugins if not plugin.required}
+    owners = {plugin.name for plugin in plugins.plugins}
     resources = resolve_nginx_resources(plugins.nginx_contributions())
     flattened = [resource for context in resources.values() for resource in context]
 
-    assert {resource.plugin for resource in flattened} <= optional
+    assert {resource.plugin for resource in flattened} <= owners
     assert all(
-        "/packages/blitzecdn-" in str(resource.template) for resource in flattened
+        resource.template.is_relative_to(Path(blitzecdn.__file__).parent)
+        for resource in flattened
     )
 
 

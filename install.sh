@@ -15,29 +15,13 @@ readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
 readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
-# The optional distributions a controller is attached to when nothing says
-# otherwise. Spelled once: it drives both the `uv sync --extra` flags and the
-# capability list the control-plane role is given, and those two disagreeing
-# would write one capability's configuration onto a controller that does not
-# have it — which the control plane refuses to start on, by design. The
-# control-plane image builds its virtualenv from a copy of this list, and a
-# contract test fails if that copy drifts from this one.
+# Initial configuration sections emitted by the managed control-plane role.
+# Every implementation ships in the application; this list installs no extras.
 readonly DEFAULT_CAPABILITIES="backup cache certificates hardening origins resolver"
 
-# The capabilities this controller installs, and the two shapes they are needed
-# in. One reader, two projections: the list was expanded by hand in both places
-# before, which is exactly the disagreement the comment above warns about.
+# Configuration sections rendered for a managed installation.
 capabilities() {
   printf '%s\n' "${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}"
-}
-
-# One `--extra NAME` pair per capability, one per line for the caller to read
-# into an array.
-capability_extras() {
-  local capability
-  for capability in $(capabilities); do
-    printf -- '--extra\n%s\n' "${capability}"
-  done
 }
 
 # The same list as a JSON array body, for --extra-vars.
@@ -661,38 +645,14 @@ if sys.version_info[:2] < (3, 12):
   #
   # BLITZECDN_CAPABILITIES lists the optional capabilities this controller
   # installs, as extras on the root project. They are separate distributions
-  # under packages/ that the control plane discovers through entry points, so
-  # dropping one from this list produces a working controller without that
-  # capability and nothing else changes. `backup` is in the default because
-  # `update` takes a database backup before it changes anything; a controller
-  # installed without it cannot be updated in place. `certificates` is in it
-  # because the installer requires `--email` and that address is nothing but
-  # this distribution's ACME account: a controller without it is one that
-  # demands an address it will then never read, and cannot issue a certificate
-  # for any site it serves. `hardening` is in it because an edge's SSH policy
-  # and Fail2Ban jail ship in that distribution: leaving it out is how a fleet
-  # whose host access belongs to a golden image or a bastion declines
-  # BlitzeCDN's, and leaving it out by accident means no edge is hardened at
-  # all. `origins` is in it because `blitzecdn origin
-  # check` used to be a core command and an operator upgrading should not
-  # discover it missing; it is also what the Automatic SSL/TLS scan probes
-  # with, so `certificates` pulls it in regardless. `resolver` is in it for the
-  # same upgrade reason and costs nothing to carry: its role is off until
-  # `blitzecdn_resolver_enabled` is set, so attaching it manages no host that
-  # had not already asked, while leaving it out would silently stop managing
-  # the hosts that had.
+  # Every application capability ships in the one distribution.
   local -a sync_flags=(--frozen --python "${python_command}")
-  local -a capability_flags=()
-  local flag
-  while IFS= read -r flag; do
-    capability_flags+=("${flag}")
-  done < <(capability_extras)
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
-    "${uv}" sync "${sync_flags[@]}" --all-packages
+    "${uv}" sync "${sync_flags[@]}"
   elif [[ ${mode} == ansible-only ]]; then
     "${uv}" sync "${sync_flags[@]}" --no-dev --no-install-project
   else
-    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable "${capability_flags[@]}"
+    "${uv}" sync "${sync_flags[@]}" --no-dev --no-editable
   fi
 
   [[ -x .venv/bin/python && -x .venv/bin/ansible-playbook ]] ||

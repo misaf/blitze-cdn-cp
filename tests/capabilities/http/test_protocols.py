@@ -1,7 +1,7 @@
 """The baseline HTTP capability: its policy contract and its listener stance.
 
 HTTP/3's *derivation* is not here. It moved out with the capability that owns
-it — `packages/blitzecdn-http3/tests` — and what stays is the half core keeps
+it — `tests/providers/http3` — and what stays is the half core keeps
 whether or not that distribution is installed: the scheme, the port sets, the
 `http3_enabled` switch the stored site contract carries, and the baseline this
 plugin writes into the fleet document.
@@ -23,7 +23,6 @@ from blitzecdn.capabilities.http.policy import (
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
-from blitzecdn.composition import load_control_plane_plugins
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
@@ -97,7 +96,7 @@ def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
     }
 
 
-def test_core_alone_refuses_a_site_that_asks_for_http3():
+def test_a_registry_without_http3_refuses_a_site_that_requests_it():
     """The one intended semantic change, asserted against the built-in set.
 
     `load_control_plane_plugins(entry_point_group=None)` is a control plane with no
@@ -105,7 +104,13 @@ def test_core_alone_refuses_a_site_that_asks_for_http3():
     distribution installed at all, which is what an operator who never attached
     `blitzecdn-http3` is running.
     """
-    builtins = load_control_plane_plugins(entry_point_group=None)
+    from blitzecdn.composition import BUILTIN_PLUGINS
+    from blitzecdn.core.plugins import load_plugins
+
+    builtins = load_plugins(
+        tuple(path for path in BUILTIN_PLUGINS if path.endswith(".plugin")),
+        entry_point_group=None,
+    )
 
     assert "http3" not in builtins.capabilities
     assert "http3" not in _site("alpha", http3=False).policy.required_capabilities

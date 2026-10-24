@@ -43,24 +43,6 @@ dependencies = [
   "ansible-runner>=2.4,<3",
 ]
 
-# Optional capabilities are independent distributions under packages/.
-# `pip install blitzecdn` installs core; `pip install 'blitzecdn[all]'`
-# includes every extra listed below. Installation makes a capability available;
-# configuration determines its use. See PLUGINS.md for the contribution model.
-[project.optional-dependencies]
-backup = ["blitzecdn-backup"]
-cache = ["blitzecdn-cache"]
-compression = ["blitzecdn-compression"]
-certificates = ["blitzecdn-certificates"]
-security = ["blitzecdn-security"]
-http3 = ["blitzecdn-http3"]
-geoip = ["blitzecdn-geoip"]
-hardening = ["blitzecdn-hardening"]
-origins = ["blitzecdn-origins"]
-resolver = ["blitzecdn-resolver"]
-all = ["blitzecdn-backup", "blitzecdn-cache", "blitzecdn-compression", "blitzecdn-certificates", "blitzecdn-security", "blitzecdn-http3", "blitzecdn-geoip", "blitzecdn-hardening", "blitzecdn-origins", "blitzecdn-resolver"]
-
-
 # PEP 735. Not an extra: these are never part of an install of this package,
 # only of a checkout of it, and `uv sync` installs them by default while
 # `uv sync --no-dev` — what a server runs — leaves them out entirely.
@@ -99,30 +81,6 @@ dev = [
   "yamllint>=1.37,<2",
 ]
 
-# One repository, several distributions. The root project is `blitzecdn`; every
-# optional capability under `packages/` is a workspace member resolved from the
-# same `uv.lock`, so a checkout develops and tests all of them together while
-# each still builds and installs as an independent wheel.
-[tool.uv.workspace]
-members = ["packages/*"]
-
-# Inside this checkout the extras above resolve to the local members rather than
-# to a registry. A published wheel carries optional-package requirements only
-# through `[project.optional-dependencies]`; this
-# table is checkout-local and never travels in package metadata.
-[tool.uv.sources]
-blitzecdn-backup = { workspace = true }
-blitzecdn-cache = { workspace = true }
-blitzecdn-compression = { workspace = true }
-blitzecdn-certificates = { workspace = true }
-blitzecdn-security = { workspace = true }
-blitzecdn-http3 = { workspace = true }
-blitzecdn-geoip = { workspace = true }
-blitzecdn-hardening = { workspace = true }
-blitzecdn-origins = { workspace = true }
-blitzecdn-resolver = { workspace = true }
-
-
 [project.scripts]
 blitzecdn = "blitzecdn.cli.main:run"
 # The worker is its own console script as well as `python -m blitzecdn.worker`.
@@ -143,19 +101,18 @@ markers = [
 ]
 addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --cov-fail-under=85"
 filterwarnings = ["error"]
-# Discover tests using the packages/* workspace layout.
-testpaths = ["tests", "packages/*/tests"]
-# Shared helpers are imported by name from core and package test directories.
-pythonpath = ["tests", "packages/blitzecdn-cache/tests", "packages/blitzecdn-certificates/tests"]
+# All capability and provider tests live in the application suite.
+testpaths = ["tests"]
+# Shared helpers are imported by name from their owning test directories.
+pythonpath = ["tests", "tests/capabilities/cache", "tests/capabilities/certificates"]
 
 [tool.coverage.run]
 branch = true
-source = ["src", "packages"]
-omit = ["packages/*/tests/*"]
+source = ["src"]
 
 [tool.coverage.report]
 include_namespace_packages = true
-include = ["src/*", "packages/*/src/*"]
+include = ["src/*"]
 
 [tool.ruff]
 target-version = "py312"
@@ -173,14 +130,13 @@ max-statements = 60
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]
-"packages/*/tests/**" = ["S101"]
 # The packaging lifecycle suite exists to run `uv` and the installed
 # `blitzecdn` console script: it builds wheels, makes virtualenvs, installs and
 # uninstalls into them, and asks the result what it can do. Every call is a
 # fixed argument array with no shell, and the paths come from `tmp_path` and
 # the repository — there is no untrusted input for S603 to be about, and
 # asserting on a real install is the whole point of the file.
-"tests/architecture/lifecycle/*" = ["S101", "S603"]
+"tests/architecture/test_application_installation.py" = ["S101", "S603"]
 # The Ansible contract suites run `ansible-playbook` for the same reason: a
 # role's assertions are only ever *evaluated* by executing them, and every
 # argument is a fixed array over `tmp_path` and paths inside this workspace.
@@ -207,8 +163,8 @@ max-statements = 60
 [tool.mypy]
 python_version = "3.12"
 strict = true
-# Check all workspace source trees and shared test helpers.
-files = ["src", "packages/*/src", "tests/*.py", "packages/*/tests/*_support.py"]
+# Check application source and shared test helpers.
+files = ["src", "tests/*.py", "tests/capabilities/cache/cache_support.py", "tests/capabilities/certificates/certificate_support.py"]
 
 # The dynamic inventory plugin is Ansible's code, not the control plane's. It
 # ships inside the package because Ansible loads inventory plugins by directory

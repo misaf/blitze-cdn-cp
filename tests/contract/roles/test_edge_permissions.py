@@ -51,7 +51,7 @@ def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
         "blitzecdn_edge_stack": STACK_ROLE_DIR / "tasks/prepare.yml",
         "blitzecdn_cache_config": (
             PROJECT_DIR
-            / "packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles"
+            / "src/blitzecdn/capabilities/cache/ansible/roles"
             / "blitzecdn_cache_config/tasks/main.yml"
         ),
     }
@@ -121,7 +121,7 @@ def test_the_edge_can_read_the_acme_challenge_it_is_asked_to_serve():
         "blitzecdn_nginx": ROLE_DIR / "tasks/main.yml",
         "acme-challenge": (
             PROJECT_DIR
-            / "packages/blitzecdn-certificates/src/blitzecdn_certificates"
+            / "src/blitzecdn/capabilities/tls"
             / "ansible/playbooks/acme-challenge.yml"
         ),
     }

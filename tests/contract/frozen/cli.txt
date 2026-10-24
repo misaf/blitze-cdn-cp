@@ -1,6 +1,17 @@
 blitzecdn	command	blitzecdn ansible roles-path
 blitzecdn	command	blitzecdn ansible slots
 blitzecdn	command	blitzecdn audit	--limit type=int range default=100 --json type=boolean default=False
+blitzecdn	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
+blitzecdn	command	blitzecdn backup inspect	<archive> type=path required
+blitzecdn	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
+blitzecdn	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
+blitzecdn	command	blitzecdn cert collect	--json type=boolean default=False
+blitzecdn	command	blitzecdn cert list	--expiring-in type=int --json type=boolean default=False
+blitzecdn	command	blitzecdn cert preflight	<name> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn cert reconcile	--json type=boolean default=False
+blitzecdn	command	blitzecdn cert renew	--expiring-in type=int default=30 --force type=boolean default=False --site type=str --deploy type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn cert request	<name> type=str required --email type=str --skip-preflight type=boolean default=False --json type=boolean default=False
+blitzecdn	command	blitzecdn cert upload	<name> type=str required --certificate type=path required --private-key type=path required --json type=boolean default=False
 blitzecdn	command	blitzecdn config list	--json type=boolean default=False
 blitzecdn	command	blitzecdn config set	<name> type=str required <value> type=str required
 blitzecdn	command	blitzecdn config unset	<name> type=str required
@@ -36,6 +47,7 @@ blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn job list	--status type=choice[pending,running,succeeded,failed] --limit type=int range default=50 --json type=boolean default=False
 blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
 blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn plugins	--json type=boolean default=False
 blitzecdn	command	blitzecdn record add	<domain> type=str required <name> type=str required --value type=str required --proxy/--no-proxy type=boolean default=True --type type=choice[A,AAAA] default=<RecordType.A: 'A'> --ttl type=int default=300 --json type=boolean default=False
@@ -55,19 +67,7 @@ blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str 
 blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
 blitzecdn	command	blitzecdn setup	--schema-only type=boolean default=False
+blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
+blitzecdn	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False
 blitzecdn	command	blitzecdn validate	--json type=boolean default=False
-blitzecdn_backup	command	blitzecdn backup create	--only type=choice[database,tls,acme,config] --output/-o type=path
-blitzecdn_backup	command	blitzecdn backup inspect	<archive> type=path required
-blitzecdn_backup	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
-blitzecdn_cache	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
-blitzecdn_cache	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert collect	--json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert list	--expiring-in type=int --json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert preflight	<name> type=str required --json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert reconcile	--json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert renew	--expiring-in type=int default=30 --force type=boolean default=False --site type=str --deploy type=boolean default=False --json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert request	<name> type=str required --email type=str --skip-preflight type=boolean default=False --json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn cert upload	<name> type=str required --certificate type=path required --private-key type=path required --json type=boolean default=False
-blitzecdn_certificates	command	blitzecdn ssl reconcile	--json type=boolean default=False
-blitzecdn_origins	command	blitzecdn origin check	--limit type=str --json type=boolean default=False

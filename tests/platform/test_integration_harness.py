@@ -496,10 +496,7 @@ def test_the_harness_serves_an_http01_challenge_through_the_shipped_playbook():
     """
     commands = _commands(HTTP3_HARNESS)
 
-    playbook = (
-        "packages/blitzecdn-certificates/src/blitzecdn_certificates"
-        "/ansible/playbooks/acme-challenge.yml"
-    )
+    playbook = "src/blitzecdn/capabilities/tls/ansible/playbooks/acme-challenge.yml"
     assert (REPO_ROOT / playbook).is_file(), "the challenge playbook moved"
     assert playbook in commands, (
         "the harness no longer runs the shipped challenge playbook, so it "

@@ -4,7 +4,7 @@ The one job here is making the control plane's shared fixtures reachable from
 every distribution's tests. `tests/control_plane_fixtures.py` holds them —
 `settings`, the fake runner, the fake stores — and this registers it as a
 plugin for the whole run, which is what lets
-`packages/blitzecdn-cache/tests/` use `settings` without either copying the
+`tests/capabilities/cache/` use `settings` without either copying the
 fixture or reaching up into a directory it does not own.
 
 It is a plugin rather than a `tests/conftest.py` because a `conftest.py` is
