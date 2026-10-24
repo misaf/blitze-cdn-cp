@@ -1,15 +1,9 @@
 """How durable background work is wired to this installation.
 
-Three decisions live here and nowhere else: which handler runs which kind of
-job, what a scheduled job's cadence and lease actually come out as, and who the
-worker calls itself. All three are facts about *this* control plane rather than
-about queueing, which is why the queue itself knows none of them.
-
-The handler table is the interesting one. The queue resolves a claimed job's
-kind through it and learns nothing more, so a convergence and a
-plugin-contributed maintenance run share one loop, one lease and one fencing
-rule — and adding a third kind is an entry here rather than a change to the
-loop.
+Two decisions live here: what a scheduled job's cadence and lease come out as,
+and who the worker calls itself. Which handler runs which kind of job binds
+other capabilities' services to this one, so the application composition root
+supplies that table.
 """
 
 from __future__ import annotations
@@ -17,21 +11,14 @@ from __future__ import annotations
 import os
 import socket
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
 
-from blitzecdn.capabilities.jobs.domain import PermanentJobError
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore, ScheduleStore
 from blitzecdn.capabilities.jobs.service import (
-    DEPLOYMENT_JOB,
-    SCHEDULED_JOB,
     JobQueue,
     JobScheduler,
     ScheduleSpec,
 )
 from blitzecdn.core.plugins import ScheduledJob
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.composition import ControlPlane
 
 __all__ = [
     "build_job_queue",
@@ -74,53 +61,25 @@ def schedule_specs(jobs: Mapping[str, ScheduledJob]) -> tuple[ScheduleSpec, ...]
 
 
 def build_job_queue(
-    platform: ControlPlane,
     *,
     jobs: JobStore,
+    retention: int,
     handlers: Mapping[str, JobHandler] | None = None,
 ) -> JobQueue:
-    """Wire the queue to this control plane's two kinds of work.
+    """Wire the queue to this installation's job table.
 
-    ``handlers`` is an argument so a process that should not run one of them
-    can say so: the API enqueues and never consumes, and handing it a table it
-    would never use only invites something to call it.
+    ``handlers`` is empty for a process that only publishes. The API enqueues
+    and never consumes, and handing it a table it would never use only invites
+    something to call it.
     """
     return JobQueue(
         jobs=jobs,
         handlers=handlers if handlers is not None else {},
         worker_id=worker_identity(),
-        retention=platform.settings.history_retention,
+        retention=retention,
     )
 
 
-def build_handlers(platform: ControlPlane) -> dict[str, JobHandler]:
-    """What each kind of job actually does, in this process.
-
-    Both handlers are one call into a service that was already built for
-    duplicate delivery: ``run_queued`` returns the deployment untouched unless
-    it is still QUEUED, and a maintenance run is idempotent by construction.
-    That is what makes the queue's at-least-once delivery safe to rely on, and
-    it is why neither of these does any de-duplication of its own.
-    """
-
-    def deployment(payload: Mapping[str, Any]) -> None:
-        # Explicitly abandoned work is terminal. A process killed before it
-        # finalized RUNNING instead resumes through the deployment service.
-        result = platform.deployments.run_queued(str(payload["deployment_id"]))
-        if result.abandoned:
-            raise PermanentJobError(
-                f"deployment {result.id} was abandoned: "
-                f"{result.detail or 'its worker stopped before it completed'}"
-            )
-
-    def scheduled(payload: Mapping[str, Any]) -> None:
-        platform.maintenance.run(str(payload["job"]))
-
-    return {DEPLOYMENT_JOB: deployment, SCHEDULED_JOB: scheduled}
-
-
-def build_job_scheduler(
-    platform: ControlPlane, *, schedules: ScheduleStore, queue: JobQueue
-) -> JobScheduler:
+def build_job_scheduler(*, schedules: ScheduleStore, queue: JobQueue) -> JobScheduler:
     """Wire the scheduler to the schedule table and the queue it publishes to."""
     return JobScheduler(schedules=schedules, queue=queue)

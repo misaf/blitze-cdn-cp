@@ -192,6 +192,32 @@ Each step requires separate confirmation and its own commit.
    a controller. It distinguishes demonstrated controller behavior from deferred
    real-edge procedures. Remote CLI/restore checks passed; see below.
 
+## Integrity refactoring
+
+Each step is committed separately and needs its own confirmation.
+
+1. Complete: no capability builder receives the composition root. Every
+   `composition.py` takes named collaborators; the architecture test now allows
+   only registration modules to name `ControlPlane`. Cache and origin services
+   are built once by the root rather than per request. The worker's handler
+   table moves to the root, which binds it once to the publishing queue; the
+   deployment rollout's late-bound `publish`, the lazy `jobs`/`job_runner`
+   properties and maintenance's deferred job table are gone. The hidden
+   `tls` → `releases` dependency is now declared. Plugin hook signatures, the
+   frozen ABI and the HTTP/CLI surfaces are unchanged.
+   Local macOS/Python 3.14: format, lint, strict types (341 files) and the fast
+   suite (1,771 passed) pass. Remote Ubuntu 26.04/Python 3.14.4, in an
+   isolated temporary checkout with the lockfile's dependencies installed
+   hash-verified through the host's PyPI mirror: format, lint and strict types
+   pass; the fast suite had 1,764 passed and 7 failed. The same 7 fail on the
+   unmodified baseline there, for environmental reasons: no Node.js, no `.git`
+   in the copy, running as root beside a real `/opt/blitzecdn`, and two tests
+   that read an untracked `packages/` directory.
+2. Pending: built-in features register through one typed interface instead of
+   `plugin.py`/`provider.py` hooks; hooks stop receiving `ControlPlane`.
+3. Pending: render final Nginx configuration on the controller and ship it in
+   the content-addressed release.
+
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's

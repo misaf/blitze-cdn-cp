@@ -18,9 +18,6 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.capabilities.origins.composition import (
-    build_origin_check_service,
-)
 from blitzecdn.composition import ControlPlane, Repository
 
 
@@ -57,9 +54,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control)
 
-    report = build_origin_check_service(control).check_origins(
-        "alice", host_limit="edge-*"
-    )
+    report = control.origins.check_origins("alice", host_limit="edge-*")
 
     sent, limit = origin_checks(fake)[0]
     assert limit == "edge-*"
@@ -87,7 +82,7 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
     )
     seed_site(control)
 
-    report = build_origin_check_service(control).check_origins("alice")
+    report = control.origins.check_origins("alice")
 
     assert report.healthy is False
     assert report.failing_sites == {"example-com": ("edge-b",)}
@@ -104,7 +99,7 @@ def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
     )
     seed_site(control)
 
-    report = build_origin_check_service(control).check_origins("alice")
+    report = control.origins.check_origins("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert report.silent[0].error == "the edge published no report"
@@ -117,7 +112,7 @@ def test_a_disabled_site_is_not_probed(settings, site_payload):
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control, enabled=False)
 
-    build_origin_check_service(control).check_origins("alice")
+    control.origins.check_origins("alice")
 
     sent, _limit = origin_checks(fake)[0]
     assert sent == []
@@ -134,7 +129,7 @@ def test_the_check_takes_no_deployment_lock(settings, site_payload):
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
     seed_site(control)
 
-    build_origin_check_service(control).check_origins("alice")
+    control.origins.check_origins("alice")
 
     assert fake.validated == []
     assert fake.check_modes == []

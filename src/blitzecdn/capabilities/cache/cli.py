@@ -7,7 +7,6 @@ from urllib.parse import urlsplit
 
 import typer
 
-from blitzecdn.capabilities.cache.composition import build_cache_service
 from blitzecdn.capabilities.cache.domain import CacheStatsReport, PurgeEntry
 from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.cli import common
@@ -70,7 +69,7 @@ def cache_purge(
     ):
         raise typer.Abort()
     entries = [_purge_entry(value) for value in url or []]
-    result = build_cache_service(common.control_plane()).purge_cache(
+    result = common.control_plane().cache.purge_cache(
         "cli", entries=entries, purge_all=everything, host_limit=limit
     )
     common.emit(result, json_output=json_output)
@@ -120,9 +119,7 @@ def stats(
     errors nginx served itself, and sites with caching disabled are excluded
     rather than scored as misses.
     """
-    report = build_cache_service(common.control_plane()).cache_stats(
-        "cli", host_limit=limit
-    )
+    report = common.control_plane().cache.cache_stats("cli", host_limit=limit)
     if json_output:
         common.emit(_stats_document(report, by_site=by_site), json_output=True)
         return

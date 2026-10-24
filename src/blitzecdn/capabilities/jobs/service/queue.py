@@ -77,6 +77,17 @@ class JobQueue:
         #: there is one clock and a test cannot half-freeze it.
         self.clock = clock
 
+    def consume_with(self, handlers: Mapping[str, JobHandler]) -> None:
+        """Give a publishing queue the handlers it consumes with, exactly once.
+
+        Publishing and consuming are one queue, but a handler calls services
+        that are themselves handed this queue to publish through. The
+        composition root breaks that cycle here, after those services exist.
+        """
+        if self.handlers:
+            raise RuntimeError("this queue already has its handlers")
+        self.handlers = dict(handlers)
+
     # -- Publishing ----------------------------------------------------
 
     def enqueue_deployment(self, deployment_id: str) -> Job | None:

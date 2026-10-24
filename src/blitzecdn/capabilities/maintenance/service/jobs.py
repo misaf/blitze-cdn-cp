@@ -36,7 +36,7 @@ class MaintenanceService:
         than a `KeyError`, because the operator reading the worker log is the
         person who uninstalled it.
         """
-        table = self._jobs()
+        table = self._jobs
         if job not in table:
             known = ", ".join(sorted(table)) or "none"
             raise NotFoundError(

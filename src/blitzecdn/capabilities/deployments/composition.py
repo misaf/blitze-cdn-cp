@@ -13,17 +13,19 @@ here means editing that file.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentRequirements,
     DeploymentRunner,
     DeploymentStore,
     DeploymentTargets,
+    EventRecorder,
     QueueBackgroundRunner,
     Releases,
     RuleRestore,
     ServingVerifier,
+    UnitOfWork,
+    Workflows,
+    ZoneEditor,
 )
 from blitzecdn.capabilities.deployments.service.convergence import (
     DeploymentExecution,
@@ -34,11 +36,9 @@ from blitzecdn.capabilities.deployments.service.convergence import (
 from blitzecdn.capabilities.deployments.service.rollout import Rollout
 from blitzecdn.capabilities.dns.ports import ZoneStore
 from blitzecdn.capabilities.edges.ports import EdgeStore
+from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.validation import matches_edge_limit
 from blitzecdn.core.runtime.filesystem import atomic_write_yaml, read_log_tail
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.composition import ControlPlane
 
 __all__ = ["RegisteredEdgeAddresses", "build_deployment_service"]
 
@@ -82,8 +82,8 @@ class RegisteredEdgeAddresses:
 
 
 def build_deployment_service(
-    platform: ControlPlane,
     *,
+    settings: Settings,
     deployments: DeploymentStore,
     zones: ZoneStore,
     rules: RuleRestore,
@@ -94,13 +94,16 @@ def build_deployment_service(
     verifier: ServingVerifier,
     runner: DeploymentRunner,
     background: QueueBackgroundRunner,
+    dns: ZoneEditor,
+    workflows: Workflows,
+    events: EventRecorder,
+    uow: UnitOfWork,
 ) -> DeploymentService:
     """Assemble the capability from its policy, its state, and its runners.
 
-    ``runner``, ``background`` and ``releases`` arrive as arguments because
-    choosing the Ansible adapter, the queue adapter and the release service is
-    the composition root's decision and stays there. Everything else is put
-    together here.
+    Every collaborator arrives as an argument: choosing concrete adapters and
+    services is the composition root's decision. How they form the policy,
+    persistence and execution parts is decided here.
 
     Nothing here renders a desired-state document any more. Deriving the hosts,
     merging every plugin's contribution and validating the result belong to the
@@ -108,20 +111,20 @@ def build_deployment_service(
     writer, which is the whole of its contact with configuration.
     """
     addresses = RegisteredEdgeAddresses(edges)
-    service = DeploymentService(
+    return DeploymentService(
         policy=DeploymentPolicy(
-            run_dir=platform.settings.run_dir,
-            generated_vars_path=platform.settings.generated_vars_path,
-            output_limit_bytes=platform.settings.output_limit_bytes,
-            history_retention=platform.settings.history_retention,
-            runtime_errors=platform.settings.validate_runtime,
+            run_dir=settings.run_dir,
+            generated_vars_path=settings.generated_vars_path,
+            output_limit_bytes=settings.output_limit_bytes,
+            history_retention=settings.history_retention,
+            runtime_errors=settings.validate_runtime,
         ),
         persistence=DeploymentPersistence(
             deployments=deployments,
             targets=targets,
             zones=zones,
             rules=rules,
-            uow=platform.transactions,
+            uow=uow,
             requirements=requirements,
         ),
         execution=DeploymentExecution(
@@ -134,25 +137,16 @@ def build_deployment_service(
                 runner=runner,
                 addresses=addresses,
                 verifier=verifier,
-                # Bound after the service exists, below: the rollout publishes
-                # the artifact through the service that owns the path it goes
-                # to, and neither can be built before the other without one of
-                # them learning the other's job.
-                publish=lambda _release: None,
+                # The PREPARE phase writes the release's execution document to
+                # the one path Ansible reads desired state from.
+                publish=lambda release: atomic_write_yaml(
+                    settings.generated_vars_path, release.execution_document()
+                ),
             ),
             addresses=addresses,
         ),
-        events=platform.events,
-        dns=platform.dns,
+        events=events,
+        dns=dns,
         releases=releases,
-        workflows=platform.workflows,
+        workflows=workflows,
     )
-    # The one late binding in this file, and it is a knot rather than an
-    # afterthought: the rollout's PREPARE phase writes the release's artifact
-    # to `generated_vars_path`, and the object that knows that path is the
-    # service the rollout is a collaborator of. Passing the path down instead
-    # would give the rollout a second opinion about where desired state lives.
-    service.execution.rollout.publish = lambda release: service.publish_artifact(
-        release, platform.settings.generated_vars_path
-    )
-    return service

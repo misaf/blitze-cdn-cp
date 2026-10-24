@@ -16,11 +16,13 @@ and 0008 for why background work lives on the primary database."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import Protocol
+from collections.abc import Callable, Mapping
+from typing import Any, Protocol, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from blitzecdn.capabilities.cache.composition import build_cache_service
+from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.deployments.composition import build_deployment_service
 from blitzecdn.capabilities.deployments.ports import (
@@ -47,17 +49,29 @@ from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
 from blitzecdn.capabilities.jobs.composition import (
-    build_handlers,
     build_job_queue,
     build_job_scheduler,
 )
-from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner, JobScheduler
+from blitzecdn.capabilities.jobs.domain import PermanentJobError
+from blitzecdn.capabilities.jobs.ports import JobHandler
+from blitzecdn.capabilities.jobs.service import (
+    DEPLOYMENT_JOB,
+    SCHEDULED_JOB,
+    JobQueue,
+    JobRunner,
+    JobScheduler,
+)
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
+from blitzecdn.capabilities.origins.composition import build_origin_check_service
+from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.composition import build_release_service
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.tls.certificates.ports import (
+    WorkflowCoordinator as CertificateWorkflows,
+)
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.composition import (
     build_automatic_ssl_service,
@@ -203,9 +217,8 @@ class ControlPlane:
                 background=background,
                 queue_ready=queue_ready,
             )
-            self._jobs: dict[str, ScheduledJob] | None = None
-            self._job_runner: JobRunner | None = None
             self._wire_services(store)
+            self._wire_background_work(store)
         except BaseException:
             self.close()
             raise
@@ -282,18 +295,14 @@ class ControlPlane:
         # that socket answers without one being opened.
         self._serving_probe: ServingVerifier = serving_probe or ServingProbe()
         self.deployment_lock: DeploymentLocker = self._runner
-        # The durable queue, on the same database as everything else. Built
-        # here rather than in `_wire_services` because `deployments` is handed
-        # it as a collaborator, and because the API process needs it to publish
-        # without ever consuming — which is why the handler table is empty
-        # unless this is the worker.
+        # The durable queue, on the same database as everything else.
+        # `deployments` publishes through it; a worker's handlers are given to
+        # it in `_wire_background_work`, once the services they call exist.
         self.job_queue: JobQueue = build_job_queue(
-            self,
-            jobs=store.jobs,
-            handlers=build_handlers(self) if self.process is ProcessKind.WORKER else {},
+            jobs=store.jobs, retention=self.settings.history_retention
         )
         self.job_scheduler: JobScheduler = build_job_scheduler(
-            self, schedules=store.schedules, queue=self.job_queue
+            schedules=store.schedules, queue=self.job_queue
         )
         self._background = background or _QueuePublisher(self.job_queue)
         self._queue_ready: Callable[[], bool] = queue_ready or (
@@ -332,37 +341,45 @@ class ControlPlane:
         # handed the slice of persistence it declared and no more.
         # DNS owns canonical zones, rules, records, and their host projection.
         self.dns: DnsService = build_dns_service(
-            self, zones=store.zones, rules=store.rules
+            zones=store.zones, rules=store.rules, events=self.events, uow=store
         )
         self.site_editor: HostService = build_host_service(
-            self, zones=store.zones, rules=store.rules
+            zones=store.zones, rules=store.rules, events=self.events, uow=store
         )
         self.sites = self.site_editor
         # The overrides on a zone's policy, and the resolver over the two. The
         # zone store arrives through `ZoneReader`, which is one read: a rule
         # may consult the policy it overrides and may never write one.
         self.rules: RuleService = build_rule_service(
-            self, rules=store.rules, zones=store.zones
+            rules=store.rules, zones=store.zones, events=self.events, uow=store
         )
         # Built before the capabilities that consume it, and after `dns`: a
         # release is compiled from canonical state, and every plugin that
         # contributes a variable to one has by now been registered.
         self.releases: ReleaseService = build_release_service(
-            self, state=store, releases=store.releases, edges=self._edges_store
+            state=store,
+            releases=store.releases,
+            edges=self._edges_store,
+            # The extension ABI hands plugin hooks this control plane. That is
+            # the hook contract's seam, bound here and nowhere in `releases`.
+            contributors=self.plugins.contributions_for(self),
+            objections=lambda site: self.plugins.site_objections(site, self),
+            capabilities=tuple(self.plugins.capabilities),
+            allow_empty_sites=self.settings.allow_empty_sites,
+            retention=self.settings.history_retention,
+            uow=store,
         )
         self._wire_capability_services(store)
 
     def _wire_capability_services(self, store: Repository) -> None:
-        """Hand each remaining capability the slice of persistence it declared.
+        """Hand each remaining capability exactly the collaborators it declared.
 
-        One call per capability, and each one names only what this root had to
-        decide: which store, which runner. How a capability puts those together
-        is its own `composition.py`, beside the service it builds — so a
-        collaborator added to `DeploymentService` is a change to `deployments`
-        and not to the file that wires the whole control plane.
+        One call per capability, every argument named. How a capability puts
+        those together is its own `composition.py`, beside the service it
+        builds, and no builder is handed this object.
         """
         self.deployments: DeploymentService = build_deployment_service(
-            self,
+            settings=self.settings,
             deployments=store.deployments,
             zones=store.zones,
             rules=store.rules,
@@ -373,12 +390,22 @@ class ControlPlane:
             verifier=self._serving_probe,
             runner=self._runner,
             background=self._background,
+            dns=self.dns,
+            workflows=self.workflows,
+            events=self.events,
+            uow=store,
         )
         self.edges: EdgeOperationsService = build_edge_operations_service(
-            self, edges=self._edges_store, runner=self._runner
+            edges=self._edges_store, runner=self._runner, events=self.events, uow=store
         )
-        self.maintenance: MaintenanceService = build_maintenance_service(
-            self, requirements=store.deployment_requirements
+        self.cache: CacheService = build_cache_service(
+            sites=self.sites, events=self.events, fleet=self.fleet
+        )
+        self.origins: OriginCheckService = build_origin_check_service(
+            sites=self.sites,
+            events=self.events,
+            fleet=self.fleet,
+            origin_probe=self._origin_probe,
         )
 
         # One application owns these services. No module-global caches retain
@@ -386,40 +413,54 @@ class ControlPlane:
         self.certificate_config = CertificateConfig.from_capability_config(
             self.capability_config.for_plugin("certificates")
         )
-        self.certificates: CertificateService = build_certificate_service(self)
-        self.automatic_ssl: AutomaticSslService = build_automatic_ssl_service(self)
+        self.certificates: CertificateService = build_certificate_service(
+            settings=self.settings,
+            config=self.certificate_config,
+            releases=self.releases,
+            sites=self.sites,
+            edges=self._edges_store,
+            origin_probe=self._origin_probe,
+            requirements=store.deployment_requirements,
+            lock=self.deployment_lock,
+            events=self.events,
+            dns=self.dns,
+            site_editor=self.site_editor,
+            deployments=self.deployments,
+            # ``@contextmanager`` exposes its concrete private context-manager
+            # type to mypy. The behavior is the narrow protocol TLS declares.
+            workflows=cast(CertificateWorkflows, self.workflows),
+            uow=store,
+        )
+        self.automatic_ssl: AutomaticSslService = build_automatic_ssl_service(
+            sites=self.sites,
+            origin_checks=self.origin_checks,
+            origin_probe=self._origin_probe,
+            site_editor=self.site_editor,
+            deployments=self.deployments,
+        )
 
-    @property
-    def job_runner(self) -> JobRunner:
-        """The loop the worker process runs, built on first use.
+    def _wire_background_work(self, store: Repository) -> None:
+        """Resolve scheduled jobs and the worker loop, after every service.
 
-        On first use and not in the constructor, for the same reason ``jobs``
-        is: it closes over the handler table, which reaches two services this
-        object is still in the middle of building. Kept once it is built, so
-        two calls do not hand out two loops over one queue.
+        Contributed jobs close over services, so they are resolved once here
+        rather than on first use. Only the worker consumes; every other process
+        gets a loop whose handler table is empty.
         """
-        if self._job_runner is None:
-            self._job_runner = JobRunner(
-                queue=self.job_queue,
-                scheduler=self.job_scheduler,
-                poll_seconds=self.settings.worker_poll_seconds,
+        self.jobs: Mapping[str, ScheduledJob] = self.plugins.scheduled_jobs(self)
+        self.maintenance: MaintenanceService = build_maintenance_service(
+            jobs=self.jobs,
+            deployments=self.deployments,
+            requirements=store.deployment_requirements,
+        )
+        if self.process is ProcessKind.WORKER:
+            self.job_queue.consume_with(
+                _job_handlers(self.deployments, self.maintenance)
             )
-        return self._job_runner
-
-    @property
-    def jobs(self) -> dict[str, ScheduledJob]:
-        """Every scheduled job the installed plugins contribute, by name.
-
-        Resolved on first use rather than in the constructor, because a plugin
-        contributing a job is handed this object to build it from — and one of
-        those plugins contributes a job that reaches two services this object is
-        still in the middle of building. Resolved once and kept: a job's
-        callable closes over services, so re-resolving would quietly hand out
-        two closures over the same thing.
-        """
-        if self._jobs is None:
-            self._jobs = self.plugins.scheduled_jobs(self)
-        return self._jobs
+        self.job_runner: JobRunner = JobRunner(
+            queue=self.job_queue,
+            scheduler=self.job_scheduler,
+            poll_seconds=self.settings.worker_poll_seconds,
+        )
 
     def health_checks(self) -> tuple[HealthCheck, ...]:
         """Every reason the installed plugins have to call this node unhealthy."""
@@ -474,6 +515,33 @@ def build_control_plane(
         process=process,
         plugins=plugins,
     )
+
+
+def _job_handlers(
+    deployments: DeploymentService, maintenance: MaintenanceService
+) -> dict[str, JobHandler]:
+    """What each kind of job does in the worker.
+
+    Both handlers call a service already built for duplicate delivery:
+    ``run_queued`` returns the deployment untouched unless it is still QUEUED,
+    and a maintenance run is idempotent. That makes the queue's at-least-once
+    delivery safe, so neither handler de-duplicates.
+    """
+
+    def deployment(payload: Mapping[str, Any]) -> None:
+        # Explicitly abandoned work is terminal. A process killed before it
+        # finalized RUNNING instead resumes through the deployment service.
+        result = deployments.run_queued(str(payload["deployment_id"]))
+        if result.abandoned:
+            raise PermanentJobError(
+                f"deployment {result.id} was abandoned: "
+                f"{result.detail or 'its worker stopped before it completed'}"
+            )
+
+    def scheduled(payload: Mapping[str, Any]) -> None:
+        maintenance.run(str(payload["job"]))
+
+    return {DEPLOYMENT_JOB: deployment, SCHEDULED_JOB: scheduled}
 
 
 class _QueuePublisher:
