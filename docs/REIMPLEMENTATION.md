@@ -267,5 +267,7 @@ The loaded module path was checked; no tests ran on the workstation.
   restart, host firewall reconciliation and ACME issuance were not performed.
   The guide labels that boundary rather than claiming a production rehearsal.
 
-All five confirmed operating/recovery steps are complete. The separately deferred
-real Ubuntu edge verification remains open and requires fresh authorization.
+All five confirmed operating/recovery steps are complete. The user subsequently
+authorized the separate real Ubuntu edge rehearsal; its
+[preparation record](REAL_EDGE_REHEARSAL.md) documents the current evidence and
+remaining acceptance work. Further steps still require individual confirmation.

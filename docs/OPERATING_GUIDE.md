@@ -7,8 +7,10 @@ archive into an empty directory.
 
 Controller state, backup/restore, worker interruption and rollback have been
 exercised with simulated edges. Real Ubuntu installation, Nginx activation,
-Compose recovery and ACME remain **deferred**. The edge-changing commands below
-describe the controller-tested flow, not a completed real-edge rehearsal.
+Compose recovery and ACME remain unverified. The separately authorized
+[real-edge rehearsal](REAL_EDGE_REHEARSAL.md) is in preparation. The edge-changing
+commands below describe the controller-tested flow, not a completed real-edge
+rehearsal.
 
 ## Check what happened
 
