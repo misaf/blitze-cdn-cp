@@ -1,15 +1,8 @@
 """Looking at the durable work queue from an operator's terminal.
 
-Read-only, plus one deliberate exception. Nothing here enqueues: work is
-created by the thing that needs it — a deploy, a schedule coming due — and a
-command that put a job in the table by hand would be a second way to start a
-convergence with none of the checks the first one does.
-
-The exception is ``job retry``, which exists because the alternative is worse.
-A job that exhausted its attempts is a row an operator has read, understood and
-fixed the cause of; without this their only recourse is to redo whatever
-created it, which for a failed deployment means a second deployment record for
-one intended change.
+These commands inspect jobs and schedules without creating or retrying work.
+A recorded lease identifies the previous owner and its deadline, not proof that
+its process is alive. Recovery remains the worker's responsibility.
 """
 
 from __future__ import annotations
@@ -66,6 +59,8 @@ def job_list(
 
     ``leased_by`` names the host and process holding a running job, which is
     what an operator needs in order to go and look at a run that is stuck.
+    After a worker stops, takeover waits for leased_until; restarting does not
+    clear the lease. Use job show JOB_ID --json for the recorded deadline.
     """
     common.emit(
         [
@@ -83,7 +78,17 @@ def job_show(
     job_id: Annotated[str, typer.Argument(help="The job's identifier.")],
     json_output: common.JsonOutput = False,
 ) -> None:
-    """One job, including the error that ended it."""
+    """One job, including its lease owner, deadline and last error.
+
+    leased_by records the worker host/process; it does not prove liveness.
+    If that worker stopped, a fresh worker must wait until leased_until before
+    reclaiming the job. Deployment leases default to 900 seconds; scheduled
+    jobs can differ. Inspect the recorded deadline rather than timing restart.
+
+    After expiry, check worker health/logs and last_error if no progress occurs.
+    Expiry permits a claim; it does not guarantee immediate or successful work.
+    Do not edit queue rows or submit duplicate work to bypass the wait.
+    """
     common.emit(
         _row(common.control_plane().job_queue.get(job_id)), json_output=json_output
     )

@@ -90,7 +90,7 @@ RECOVERY: original controller removed -> CLI restore in empty directory; state, 
 RECOVERY: rebuilt controller deployed a change -> explicit rollback; canonical and observed release restored
 ```
 
-## Findings for the next confirmed step
+## Findings carried into step 3
 
 1. **The README's first site example uses retired syntax.** Running
    `domain add example.com --origin origin.example.com` exits 2 with
@@ -98,12 +98,59 @@ RECOVERY: rebuilt controller deployed a change -> explicit rollback; canonical a
    an address exits 2 with `Missing option '--value'`. Both were reproduced
    in a separate disposable directory. This practice instead registered the
    zone first and supplied the origin address through `record add --value`.
-   Correct the operator examples in step 3, not the working CLI to fit stale prose.
+   Step 3 corrects the operator examples while preserving the CLI contract.
 2. **Restart does not mean immediate job takeover.** Reclaim waits for the old
    job lease to expire. Explain the production default and the `leased_until`
    field visible through job inspection so an operator can distinguish waiting
    from lost work. Do not shorten production leases merely to match this test.
 
-No application defect was reproduced by these scenarios. Step 3 remains pending
-confirmation; this step records the findings without changing operator behavior
-or rewriting the quick-start instructions.
+No application defect was reproduced by these recovery scenarios. Step 3 was
+subsequently authorized to address the two operator-facing findings above.
+
+## Step 3: operator instructions
+
+The README now registers the zone separately and places the origin address on
+`record add --value`. The policy example starts with HTTP/TLS Off and explains
+that Full (strict) needs active certificate material.
+
+The README and `job show --help` explain the lease owner and deadline, the default
+900-second deployment lease, and the difference between eligibility for takeover
+and successful recovery. They show job/deployment inspection commands and the
+checks to make when no progress follows expiry. The stale module description
+claiming that `job retry` exists is removed; no retry command is introduced.
+
+Queue timing, job states, JSON fields and command signatures are unchanged.
+Validation for this step runs on the user-provided remote test host in an
+isolated temporary project, rather than on the local workstation. Ubuntu edge
+provisioning remains deferred.
+
+Remote validation on 2026-10-24 used Ubuntu 24.04.5 and Python 3.12.3:
+
+- **125 tests passed**, covering CLI behavior, jobs, frozen contracts, delivery
+  parity and both recovery journey files. This was a focused run without
+  coverage measurement; it does not replace the earlier full-suite checkpoint.
+- Format, lint and strict types passed (341 source/helper files checked by mypy).
+- Both corrected README authoring blocks ran through the real CLI in separate
+  disposable controller directories. Validation/plan/deploy against real edges
+  were not run; the second block also exercised HTTP policy and cache edits.
+- `job show --help` exposed the lease guidance. A persisted job claim was then
+  inspected through `job show --json`, and its deployment was read through
+  `status --json`, confirming the documented field names and lookup path.
+- Public frozen snapshots are unchanged. No queue timing or retry behavior
+  changed, and no tests were run on the local workstation for step 3.
+
+The focused remote command, with the project's test dependencies installed, was:
+
+```bash
+pytest --no-cov -n auto --dist=worksteal \
+  tests/entrypoints/cli tests/capabilities/jobs \
+  tests/contract/test_frozen.py tests/contract/test_delivery_parity.py \
+  tests/journeys
+```
+
+Dependency wheels for Linux/Python 3.12 were transferred after verifying the
+116 locked dependency wheel hashes against `uv.lock`, because direct package
+downloads on the server timed out. Installation, caches and checks stayed in a
+private temporary workspace; no system packages or service configuration changed.
+Ubuntu 24.04 application tests do not establish the deferred Ubuntu 26.04 edge
+installation and Nginx recovery acceptance criteria.

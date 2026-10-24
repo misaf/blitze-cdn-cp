@@ -177,7 +177,11 @@ Each step requires separate confirmation and its own commit.
    instrumented worker with SIGKILL, resumed its checkpoint in a fresh process,
    restored a removed controller through the CLI and verified explicit rollback.
    Edge activation remains simulated; Ubuntu verification is still deferred.
-3. Pending confirmation: fix confusing behavior found during that practice.
+3. Complete: correct README authoring syntax and clarify lease owner, deadline
+   and takeover guidance in the README and job help. Queue behavior is unchanged.
+   Remote Ubuntu 24.04/Python 3.12 validation passed 125 focused tests, format,
+   lint, strict types and direct CLI example/inspection checks; see the
+   [practice results](LOCAL_RECOVERY_PRACTICE.md).
 4. Pending confirmation: document retention rules and address demonstrated gaps.
 5. Pending confirmation: write the short operating guide from verified results.
 
@@ -185,5 +189,5 @@ Each step requires separate confirmation and its own commit.
 
 After each step is tested and independently committed, ask for the user's
 confirmation before beginning any further implementation. The user deferred
-Ubuntu verification. Local recovery practice is complete; do not begin the
-operator-facing fixes until the user confirms step 3.
+Ubuntu verification. Step 3 addresses the operator-facing findings; retention
+work in step 4 requires its own confirmation.
