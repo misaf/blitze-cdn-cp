@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
-from weakref import WeakKeyDictionary
 
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import (
@@ -20,7 +19,6 @@ from blitzecdn.capabilities.tls.certificates.service import (
     CertificatePolicy,
     CertificateService,
 )
-from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.core.runtime.resources import distribution_version
 
 if TYPE_CHECKING:
@@ -31,32 +29,6 @@ if TYPE_CHECKING:
 #: what ``blitzecdn plugins`` shows an operator, so the one number that
 #: must not drift from ``pyproject.toml`` is not copied out of it.
 __version__ = distribution_version(__name__)
-
-_configs: WeakKeyDictionary[object, CertificateConfig] = WeakKeyDictionary()
-_certificate_services: WeakKeyDictionary[object, CertificateService] = (
-    WeakKeyDictionary()
-)
-_automatic_ssl_services: WeakKeyDictionary[object, AutomaticSslService] = (
-    WeakKeyDictionary()
-)
-
-
-def certificate_config(platform: ControlPlane) -> CertificateConfig:
-    """This capability's own configuration, resolved once per control plane.
-
-    Cached like the services are, and for the same reason: it is read by the
-    scheduled jobs, by the renewal route and by two adapters, and re-deriving
-    it would mean the CA-identity refusal fired in whichever of them happened
-    to run first rather than at composition.
-    """
-    existing = _configs.get(platform)
-    if existing is not None:
-        return existing
-    config = CertificateConfig.from_capability_config(
-        platform.capability_config.for_plugin("certificates")
-    )
-    _configs[platform] = config
-    return config
 
 
 class CertificateMaterialReferences:
@@ -91,11 +63,8 @@ class CertificateMaterialReferences:
 
 
 def build_certificate_service(platform: ControlPlane) -> CertificateService:
-    existing = _certificate_services.get(platform)
-    if existing is not None:
-        return existing
-    config = certificate_config(platform)
-    service = CertificateService(
+    config = platform.certificate_config
+    return CertificateService(
         material_references=CertificateMaterialReferences(platform),
         policy=CertificatePolicy(default_email=config.default_email),
         persistence=CertificatePersistence(
@@ -122,26 +91,14 @@ def build_certificate_service(platform: ControlPlane) -> CertificateService:
         # to mypy. The public behavior is the narrow protocol the service uses.
         workflows=cast(WorkflowCoordinator, platform.workflows),
     )
-    _certificate_services[platform] = service
-    return service
 
 
 def build_automatic_ssl_service(platform: ControlPlane) -> AutomaticSslService:
-    existing = _automatic_ssl_services.get(platform)
-    if existing is not None:
-        return existing
-    service = AutomaticSslService(
+    return AutomaticSslService(
         sites=platform.sites,
-        # The one declared optional-to-optional edge in the workspace. The
-        # scan's question — "can every edge reach this origin, and would it
-        # still under Full (strict)?" — is `blitzecdn-origins`' play, and core
-        # carries no method for it. Declared in this distribution's
-        # dependencies rather than imported opportunistically, so pip installs
-        # both and detaching that package cannot leave this import dangling.
+        # The application root supplies the origins adapter through its port.
         runner=platform.origin_checks,
         origin_probe=platform.origin_probe,
         site_editor=platform.site_editor,
         deployments=platform.deployments,
     )
-    _automatic_ssl_services[platform] = service
-    return service

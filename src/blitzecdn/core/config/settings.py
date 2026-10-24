@@ -68,12 +68,8 @@ class Settings(BaseSettings):
     #: Environment/secrets file. Installed controllers keep this under /etc;
     #: checkouts use the project-local `.env`.
     environment_path: Path
-    #: The plays core itself owns. A capability's play is not here: it ships
-    #: inside that capability's wheel and reaches ``run_playbook`` as a path
-    #: the package resolved for itself, so detaching the package takes the play
-    #: with it and leaves no setting behind pointing at nothing.
-    #: Decommissioning is here because removing an edge has to work on an
-    #: installation with no capability attached at all.
+    #: Platform teardown play. Capability-specific plays resolve from their
+    #: owning modules; this setting belongs to the platform edge lifecycle.
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
@@ -93,20 +89,8 @@ class Settings(BaseSettings):
     preflight_dns_servers: tuple[str, ...] = ()
     #: Capabilities this installation's configuration depends on, by token.
     #:
-    #: The deliberate answer to "an optional package was uninstalled while
-    #: something still needed it". Optional capabilities are real distributions
-    #: that can be attached and detached, so their absence is normal and must
-    #: not be an error by itself — but an installation that has *decided* it
-    #: needs one says so here, and the control plane then refuses to start
-    #: without it rather than coming up and behaving as though the capability
-    #: had simply been configured off.
-    #:
-    #: Generic on purpose. These are tokens matched against what the installed
-    #: plugins declare in `PluginMetadata.provides`; core resolves them without
-    #: knowing which distribution supplies any of them, so a capability nothing
-    #: in this repository has heard of is checked exactly like `backup`.
-    #:
-    #: Empty by default: a fresh install requires no optional capability.
+    #: Additional capability tokens an operator requires, including external
+    #: extensions. Missing requirements fail during application construction.
     required_capabilities: tuple[str, ...] = ()
     #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:

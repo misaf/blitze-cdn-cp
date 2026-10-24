@@ -88,21 +88,6 @@ def serving_probe_opens_no_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
 #: by whether the resolved policies differ.
 _IDENTITY_ONLY = {"enabled": True}
 
-#: How to switch off a setting whose implementation is not installed here.
-#:
-#: A seeded site exists to give a test "a hostname on an edge", and in a
-#: workspace missing the compression wheel a site that demands compression is
-#: not that: compiling refuses it, and every deployment test built on the
-#: fixture fails for a reason that has nothing to do with what it is testing.
-#: `just test-core-only` is exactly that workspace, and it is the run that
-#: proves core stands alone — so the fixture has to seed something core alone
-#: can serve.
-#:
-#: Applied only where the distribution is absent, so the full workspace seeds
-#: byte-identical desired state and the frozen edge fixtures are untouched. A
-#: test that is *about* one of these settings passes it explicitly and keeps
-#: whatever it asked for; this only fills in what the caller left to defaults.
-
 
 def _issuer_owned_mode(policy: Mapping[str, object]) -> CertificateMode | None:
     """The controller-managed mode a caller asked for, if it asked for one."""

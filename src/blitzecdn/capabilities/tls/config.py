@@ -1,28 +1,10 @@
-"""This capability's own configuration, read from what the controller was given.
+"""TLS controller settings, scoped to their owning capability.
 
-Seven names: ``certbot``, ``acme_default_email``, ``acme_ca_domain``, three
-intervals and a renewal budget. None is a secret — a renewal interval is
-exactly the sort of non-secret default that belongs in ``blitzecdn.toml`` — so
-each is declared as a :class:`~blitzecdn.core.plugins.CapabilitySetting` rather
-than as an ``EnvironmentKey``.
-
-As fields on core's ``Settings`` they would be the largest single instance of
-what the rule against that describes: a core distribution carrying the
-configuration of a wheel that may not be installed, and an operator of a
-controller with no ``blitzecdn-certificates`` attached still being offered
-somewhere to set an ACME email.
-
-The module is shaped like ``blitzecdn_security``'s deliberately: names as
-module constants so the declaration and the read cannot drift, one frozen
-dataclass, and one ``from_capability_config`` that turns the scoped
-``CapabilityConfig`` core hands back into it.
-
-``certificate_dir`` is not here. Two distributions read it — this one writes
-the chains and ``blitzecdn-backup`` archives them — so it is genuinely shared
-state rather than this capability's setting, and claiming it here would break
-backup. Settling that ownership is the backup-component question, not this
-one.
-"""
+Certbot, ACME identity, reconciliation/renewal intervals and execution budgets
+are declared as CapabilitySetting values and resolved from CapabilityConfig.
+The application root constructs one immutable CertificateConfig for its services.
+Shared certificate storage paths remain in core Settings because both TLS and
+backup use them."""
 
 from __future__ import annotations
 

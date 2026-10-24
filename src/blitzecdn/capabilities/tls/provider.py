@@ -11,12 +11,7 @@ from blitzecdn.capabilities.tls.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn.capabilities.tls.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn.capabilities.tls.certificates import cli as certificates_cli
 from blitzecdn.capabilities.tls.certificates.api import routes as certificates_routes
-from blitzecdn.capabilities.tls.composition import (
-    __version__,
-    build_automatic_ssl_service,
-    build_certificate_service,
-    certificate_config,
-)
+from blitzecdn.capabilities.tls.composition import __version__
 from blitzecdn.capabilities.tls.config import SETTINGS
 from blitzecdn.capabilities.tls.policy import CertificateMode, CertificateVersion
 from blitzecdn.core.plugins import (
@@ -117,9 +112,7 @@ def blitzecdn_site_desired_state(
 ) -> SiteStateContribution | None:
     if not site.policy.tls.certificate_mode.issuer_owned:
         return None
-    certificate, private_key = build_certificate_service(platform).installed_sources(
-        site
-    )
+    certificate, private_key = platform.certificates.installed_sources(site)
     version = CertificateVersion.from_paths(
         site.name,
         site.policy.tls.certificate_path or "",
@@ -138,9 +131,9 @@ def blitzecdn_site_desired_state(
 
 @hookimpl
 def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
-    certificates = build_certificate_service(platform)
-    automatic_ssl = build_automatic_ssl_service(platform)
-    config = certificate_config(platform)
+    certificates = platform.certificates
+    automatic_ssl = platform.automatic_ssl
+    config = platform.certificate_config
     renewal_interval = config.renewal_interval_seconds
     budget = config.renewal_budget_seconds
     scan_interval = config.scan_interval_seconds

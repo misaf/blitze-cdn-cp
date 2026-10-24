@@ -13,24 +13,15 @@ edited in the same commit — a deliberate change and an accidental one looked
 identical, and neither was visible in review. These files are the difference:
 a change to a public name now arrives as a diff somebody has to approve.
 
-`4.0.0` is the first release they exist for, and the major is not incidental.
-A host follows tags inside its major line on every update, so a renamed
-Ansible variable shipped as a minor would land on a running fleet unasked.
-See COMPATIBILITY.md for what each surface promises and what changing it
-costs.
+See COMPATIBILITY.md for current interface and persistence policy.
 
 **When one of these fails, read the diff before regenerating it.** The question
 it asks is not "is the new surface correct" but "may this change, given who is
 already depending on the old one". `just refreeze` exists for when the answer is
 yes; it is not a way to make a test go away.
 
-Two configurations, one golden file. `just test` runs with every optional
-distribution installed and `just test-core-only` with none, so each line names
-the distribution that promises it and the comparison is filtered to whatever is
-installed. `frozen_surfaces.installed` asks the import system rather than
-trusting the current surface — filtering by what was *found* would let a whole
-wheel's routes vanish without a failure, which is the deletion this is most
-meant to catch.
+One application, one complete golden file per surface. No package-presence
+filter may hide a missing built-in interface.
 """
 
 from __future__ import annotations
@@ -40,16 +31,9 @@ import re
 
 import frozen_surfaces as surfaces
 import pytest
-from frozen_surfaces import FROZEN, installed
+from frozen_surfaces import FROZEN
 from paths import REPO_ROOT
 from published_surface import _PUBLIC_SDK_PREFIXES, facade_private_modules
-
-
-def _for_this_environment(golden: str) -> str:
-    """The golden, minus the distributions this environment does not have."""
-    return "".join(
-        f"{line}\n" for line in golden.splitlines() if installed(line.split("\t", 1)[0])
-    )
 
 
 def _compare(name: str, current: str) -> None:
@@ -59,7 +43,7 @@ def _compare(name: str, current: str) -> None:
             f"{path} does not exist. Run `just refreeze` to create it, then "
             "read what it contains before committing: this file is a promise."
         )
-    expected = _for_this_environment(path.read_text(encoding="utf-8"))
+    expected = path.read_text(encoding="utf-8")
     if expected == current:
         return
     diff = "\n".join(
@@ -203,10 +187,7 @@ def test_the_compatibility_policy_cites_things_that_exist():
     assert cited, "the enforcement table cites no tests; the format moved"
     defined = {
         name
-        for path in (
-            *REPO_ROOT.glob("tests/**/*.py"),
-            *REPO_ROOT.glob("packages/*/tests/*.py"),
-        )
+        for path in REPO_ROOT.glob("tests/**/*.py")
         for name in re.findall(
             r"^def (test_\w+)", path.read_text(encoding="utf-8"), re.M
         )

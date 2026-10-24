@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 
 from blitzecdn.capabilities.tls import provider as plugin
+from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.core.plugins import CapabilityConfig
 
 
@@ -12,7 +13,7 @@ def test_metadata_provides_required_certificates_capability() -> None:
     assert metadata.required
 
 
-def test_jobs_are_owned_by_the_certificate_package(monkeypatch) -> None:
+def test_jobs_are_owned_by_the_certificate_capability() -> None:
     calls: list[str] = []
     issued: list[str] = []
     certificates = SimpleNamespace(
@@ -27,18 +28,7 @@ def test_jobs_are_owned_by_the_certificate_package(monkeypatch) -> None:
     automatic_ssl = SimpleNamespace(
         reconcile=lambda operator: calls.append(f"scan {operator}")
     )
-    monkeypatch.setattr(plugin, "build_certificate_service", lambda _p: certificates)
-    monkeypatch.setattr(plugin, "build_automatic_ssl_service", lambda _p: automatic_ssl)
-
-    class Platform:
-        """Weak-referenceable, which `SimpleNamespace` is not.
-
-        `certificate_config` caches per control plane in a `WeakKeyDictionary`
-        for the same reason the services do, so the double has to be a kind of
-        object a weak reference can be taken to.
-        """
-
-    platform = Platform()
+    platform = SimpleNamespace(certificates=certificates, automatic_ssl=automatic_ssl)
     platform.settings = SimpleNamespace(deployment_timeout_seconds=900)
     platform.capability_config = SimpleNamespace(
         for_plugin=lambda _name: CapabilityConfig(
@@ -54,6 +44,10 @@ def test_jobs_are_owned_by_the_certificate_package(monkeypatch) -> None:
                 "BLITZE_SSL_AUTOMATIC_SCAN_INTERVAL_SECONDS": 86_400,
             },
         )
+    )
+
+    platform.certificate_config = CertificateConfig.from_capability_config(
+        platform.capability_config.for_plugin("certificates")
     )
 
     jobs = {job.name: job for job in plugin.blitzecdn_scheduled_jobs(platform)}

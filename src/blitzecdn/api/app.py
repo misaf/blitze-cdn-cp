@@ -2,7 +2,7 @@
 
 from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from contextlib import ExitStack, asynccontextmanager
 
 from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse
@@ -31,33 +31,27 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        control = build_control_plane(
-            resolved,
-            pool_connections=True,
-            process=ProcessKind.API,
-            plugins=registry,
-        )
-        # Where a route puts work that would otherwise block the event loop
-        # for minutes. Core's, and generic: an installed capability's route
-        # asks for it through `WorkerPoolDependency` rather than creating one,
-        # because a plugin has no way to own an application-scoped resource
-        # from a registration hook.
-        worker_pool = ThreadPoolExecutor(
-            max_workers=resolved.api_worker_threads,
-            thread_name_prefix="blitzecdn-worker",
-        )
-        application.state.control_plane = control
-        application.state.worker_pool = worker_pool
-        # Republishing queued deployments is a plugin's startup contribution
-        # now, not a line here: what a process owes at startup is the plugin's
-        # business, and `RuntimeContext.process` is how it knows this is the API.
-        control.start()
-        try:
+        with ExitStack() as resources:
+            control = build_control_plane(
+                resolved,
+                pool_connections=True,
+                process=ProcessKind.API,
+                plugins=registry,
+            )
+            resources.callback(control.close)
+            worker_pool = ThreadPoolExecutor(
+                max_workers=resolved.api_worker_threads,
+                thread_name_prefix="blitzecdn-worker",
+            )
+            # Drain in-flight work before shutting down plugins and stores.
+            # Every acquired resource is released even if startup or another
+            # cleanup callback raises.
+            resources.callback(control.stop)
+            resources.callback(worker_pool.shutdown, wait=True)
+            application.state.control_plane = control
+            application.state.worker_pool = worker_pool
+            control.start()
             yield
-        finally:
-            worker_pool.shutdown(wait=True)
-            control.stop()
-            control.close()
 
     application = FastAPI(
         title="BlitzeCDN control plane",

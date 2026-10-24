@@ -743,3 +743,48 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
 
     assert rolled_back.status is DeploymentStatus.SUCCEEDED
     assert control.sites.get_site(original.name) == original
+
+
+@pytest.mark.parametrize("injected", [False, True])
+def test_failed_composition_closes_only_owned_persistence(
+    settings, monkeypatch, injected
+):
+    closed = []
+    original_close = Repository.close
+
+    def close(repository):
+        closed.append(repository)
+        original_close(repository)
+
+    repository = Repository(settings.database_path) if injected else None
+    monkeypatch.setattr(Repository, "close", close)
+    invalid = settings.model_copy(
+        update={"required_capabilities": ("absent-provider",)}
+    )
+    from blitzecdn.core.exceptions import PluginError
+
+    with pytest.raises(PluginError, match="absent-provider"):
+        ControlPlane(settings=invalid, repository=repository)
+    assert len(closed) == (0 if injected else 1)
+    if repository is not None:
+        assert repository.zones.list_domains() == []
+        repository.close()
+
+
+def test_tls_services_share_application_ownership_and_are_garbage_collectable(settings):
+    import gc
+    import weakref
+
+    from blitzecdn.core.plugins import ProcessKind
+
+    control = ControlPlane(settings=settings, process=ProcessKind.WORKER)
+    assert control.certificates is control.certificates
+    assert control.automatic_ssl is control.automatic_ssl
+    # Scheduled closures and certificate material references point back into
+    # this graph. None may be retained by a module-global service cache.
+    assert control.jobs
+    reference = weakref.ref(control)
+    control.close()
+    del control
+    gc.collect()
+    assert reference() is None

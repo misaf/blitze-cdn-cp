@@ -1,16 +1,5 @@
-"""The HTTP representations this capability publishes, and the bodies it takes.
-
-They live here rather than in ``blitzecdn.api.models`` for the reason the
-whole extraction exists: a detachable package's resource shapes are the
-package's, and core cannot carry a ``PurgeResult`` for a capability that may
-not be installed. What core still owns is the frame — ``Model``, the
-``as_operation`` projection and ``HostRun`` — which every capability's
-operational representation is built from, this one included.
-
-Defined once for the same reason the operational models in core are: the
-published shape *is* the schema, and a second class for the same resource
-would only rename it.
-"""
+"""HTTP representations owned by cache operations. Shared response behavior
+comes from the API model toolkit; cache report shapes remain beside cache."""
 
 from __future__ import annotations
 

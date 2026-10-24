@@ -52,8 +52,7 @@ def blitzecdn_fleet_desired_state(
 
     Constant, and deliberately so. Deriving anything from `sites` here would
     put HTTP/3 behavior in a capability that does not own it, and would produce
-    a fleet document that disagreed with itself the moment ``blitzecdn-http3``
-    was detached from a controller whose sites still asked for it.
+    a second source of truth for the focused HTTP/3 provider's listener state.
     """
     return FleetStateContribution(
         plugin="http",
