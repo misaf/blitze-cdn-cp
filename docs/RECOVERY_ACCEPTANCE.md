@@ -107,8 +107,11 @@ persisted intervals; it does not wait for real CA renewal.
    explicitly. Its CLI and disposable restore checks ran remotely; see
    [the validation record](REIMPLEMENTATION.md#step-5-validation).
 
-Ubuntu installation, real Nginx activation/rollback, Compose service recovery
-and ACME integration remain **deferred by the user**. The repository has an
+The user subsequently authorized the real-edge rehearsal. Its
+[preparation record](REAL_EDGE_REHEARSAL.md) covers isolation, image preparation
+and the remaining network limitations. Ubuntu installation, real Nginx
+activation/rollback, Compose service recovery and ACME integration are not yet
+verified. The repository has an
 [Ubuntu installer integration harness](../tests/container-install.sh), but the
 existence of that harness is not evidence that it was run for this checkpoint.
 Local demonstrations cannot close those environment-specific gaps.
@@ -151,4 +154,4 @@ Step 3 subsequently corrected the operator instructions. Step 4 documents
 retention rules and verifies cleanup against the preserved recovery paths;
 its validation record is in [REIMPLEMENTATION.md](REIMPLEMENTATION.md).
 Step 5 subsequently completed the short operating guide. All five milestone
-steps are complete; the deferred real-edge rehearsal remains separate work.
+steps are complete; the real-edge rehearsal remains separate, incomplete work.
