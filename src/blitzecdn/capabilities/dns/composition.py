@@ -1,13 +1,10 @@
 """How the DNS capability is built.
 
-Every capability builder here follows the same
-rule: what a package could have comes from ``platform``, what only a built-in
-may have is an explicit argument.
+Every collaborator is an explicit argument. A builder never receives the
+composition root, so what a service depends on is its signature.
 """
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
 
 from blitzecdn.capabilities.dns.ports import (
     RuleOverrides,
@@ -17,15 +14,14 @@ from blitzecdn.capabilities.dns.ports import (
     ZoneStore,
 )
 from blitzecdn.capabilities.dns.service import DnsService, HostService, RuleService
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.composition import ControlPlane
+from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.operations import EventRecorder
 
 __all__ = ["build_dns_service", "build_host_service", "build_rule_service"]
 
 
 def build_dns_service(
-    platform: ControlPlane, *, zones: ZoneStore, rules: RuleReader
+    *, zones: ZoneStore, rules: RuleReader, events: EventRecorder, uow: UnitOfWork
 ) -> DnsService:
     """Wire canonical zone and record editing and validation.
 
@@ -33,26 +29,26 @@ def build_dns_service(
     state means resolving hostnames through the overrides exactly as a
     deployment will, and the zone editor writes none of them.
     """
-    return DnsService(
-        zones=zones, rules=rules, events=platform.events, uow=platform.transactions
-    )
+    return DnsService(zones=zones, rules=rules, events=events, uow=uow)
 
 
 def build_host_service(
-    platform: ControlPlane, *, zones: ZoneStore, rules: RuleOverrides
+    *,
+    zones: ZoneStore,
+    rules: RuleOverrides,
+    events: EventRecorder,
+    uow: UnitOfWork,
 ) -> HostService:
     """Wire derived-host reads and source-policy writeback.
 
     RuleOverrides permits updating an existing rule without giving this service
     ownership of rule creation or deletion.
     """
-    return HostService(
-        zones=zones, rules=rules, events=platform.events, uow=platform.transactions
-    )
+    return HostService(zones=zones, rules=rules, events=events, uow=uow)
 
 
 def build_rule_service(
-    platform: ControlPlane, *, rules: RuleStore, zones: ZoneReader
+    *, rules: RuleStore, zones: ZoneReader, events: EventRecorder, uow: UnitOfWork
 ) -> RuleService:
     """Wire the editor for a zone's per-hostname overrides.
 
@@ -63,6 +59,6 @@ def build_rule_service(
     return RuleService(
         rules=rules,
         zones=zones,
-        events=platform.events,
-        uow=platform.transactions,
+        events=events,
+        uow=uow,
     )

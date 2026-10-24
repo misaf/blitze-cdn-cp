@@ -12,7 +12,6 @@ from blitzecdn.capabilities.cache.api.models import (
     PurgeResult,
     StatsRequest,
 )
-from blitzecdn.capabilities.cache.composition import build_cache_service
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -38,7 +37,7 @@ def purge_cache(
     response: Response,
 ) -> PurgeResult:
     """Remove cached responses from the edges and report partial failure."""
-    result = build_cache_service(control).purge_cache(
+    result = control.cache.purge_cache(
         operator,
         entries=[entry.to_domain() for entry in request.entries],
         purge_all=request.purge_all,
@@ -57,8 +56,6 @@ def cache_stats(
 ) -> CacheStatsReport:
     """Collect cache effectiveness from the edges."""
     return as_operation(
-        build_cache_service(control).cache_stats(
-            operator, host_limit=request.host_limit
-        ),
+        control.cache.cache_stats(operator, host_limit=request.host_limit),
         CacheStatsReport,
     )

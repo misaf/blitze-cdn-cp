@@ -12,8 +12,9 @@ Business capabilities live under `capabilities/`. A capability uses `domain/`
 for pure values, `service/` for application decisions, `adapters/` for I/O,
 `ports.py` for consumer-owned protocols, and `api/` and `cli.py` or `cli/` for
 delivery. Its policy contract may be `policy.py` or a `policy/` package.
-`composition.py` wires its collaborators and `provider.py` registers delivery
-or runtime contributions. Existing platform capabilities use `plugin.py` for
+`composition.py` builds its services from collaborators passed as named
+arguments; it never receives the control plane. `provider.py` registers
+delivery or runtime contributions. Existing platform capabilities use `plugin.py` for
 the same registration seam.
 
 Cache operations belong to `cache`; issuing and automatic SSL belong to `tls`;

@@ -817,7 +817,17 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "releases": {"dns", "edges", "serving"},
     "security": {"serving"},
     "serving": set(),
-    "tls": {"deployments", "dns", "edges", "origins", "serving", "workflows"},
+    # `releases` because certificate collection keeps every version a retained
+    # release still names.
+    "tls": {
+        "deployments",
+        "dns",
+        "edges",
+        "origins",
+        "releases",
+        "serving",
+        "workflows",
+    },
     "workflows": set(),
 }
 
@@ -918,6 +928,7 @@ _PLATFORM_SERVICES = {
     # Two attributes, one owner. `certificates` and `automatic_ssl` are parts
     # of the TLS capability, so a plugin reading either is depending on `tls`.
     "automatic_ssl": "tls",
+    "cache": "cache",
     "certificates": "tls",
     "certificate_config": "tls",
     "deployments": "deployments",
@@ -930,6 +941,7 @@ _PLATFORM_SERVICES = {
     "job_runner": "jobs",
     "job_scheduler": "jobs",
     "maintenance": "maintenance",
+    "origins": "origins",
 }
 
 #: What every plugin may read off the platform without that being a dependency
@@ -1169,21 +1181,18 @@ def test_every_capability_registers_itself_through_a_plugin_module():
     assert offenders == []
 
 
-#: The two modules in a capability that may name the platform, and why each
-#: may. `plugin.py` is handed the built control plane so it can say which
-#: service a scheduled job calls and which one a health check probes.
-#: `composition.py` is handed it to build the capability's own service out of
-#: what core publishes — the same file, doing the same job, that every optional
-#: distribution already carries.
+#: The modules in a capability that may name the platform. A registration
+#: module (`plugin.py` or `provider.py`) implements hooks whose published ABI
+#: hands them the built control plane.
 #:
-#: Both are the *seam*, which is what makes the allowance safe: neither is
-#: imported by anything inside the capability, so the platform never reaches a
-#: service, a domain module or an adapter.
-_PLATFORM_AWARE_MODULES = {"plugin.py", "provider.py", "composition.py"}
+#: `composition.py` is deliberately absent. A builder receives each
+#: collaborator as a named argument, so what a service depends on is its
+#: signature rather than whatever it reads off the composition root.
+_PLATFORM_AWARE_MODULES = {"plugin.py", "provider.py"}
 
 
 def test_only_the_seam_modules_may_name_the_composition_root():
-    """Registration and composition may know the platform. Nothing else may.
+    """Registration may know the platform. Nothing else may.
 
     That is the whole of the allowance: a service, a domain module or an
     adapter that reached for it would be resolving its collaborators at call
@@ -1210,9 +1219,9 @@ def test_a_seam_module_names_the_composition_root_only_for_typing():
     """And even there, never at runtime.
 
     A capability importing the composition root for real would point the arrow
-    back at the thing that builds it. Both seam modules need the *type* — one
-    to annotate its hooks, the other its builder — and `TYPE_CHECKING` gives it
-    to them without an import ever executing.
+    back at the thing that builds it. A registration module needs the *type* to
+    annotate its hooks, and `TYPE_CHECKING` gives it without an import ever
+    executing.
     """
     seams = sorted(
         path

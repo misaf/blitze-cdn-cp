@@ -12,6 +12,7 @@ from blitzecdn.capabilities.deployments.ports import (
 )
 from blitzecdn.capabilities.dns.domain import DnsRecord
 from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
@@ -130,6 +131,7 @@ __all__ = [
     "MaterialReferences",
     "Preflight",
     "RecordReader",
+    "ReleaseHistory",
     "SiteEditor",
     "SiteReader",
     "UnitOfWork",
@@ -142,3 +144,17 @@ class MaterialReferences(Protocol):
     """Canonical and retained release roots, read under the unit of work."""
 
     def __call__(self) -> Sequence[str]: ...
+
+
+class ReleaseHistory(Protocol):
+    """Current canonical state and the state each retained release was built from.
+
+    Certificate collection must keep every certificate version that current
+    policy or a retained rollback target still names.
+    """
+
+    def inputs(self) -> ReleaseInputs: ...
+
+    def inputs_for(self, release_id: str) -> ReleaseInputs: ...
+
+    def list_releases(self, limit: int | None = 20) -> Sequence[Release]: ...

@@ -29,7 +29,7 @@ def test_a_maintenance_run_converges_what_it_left_owing():
     """
     calls: list[str] = []
     service = MaintenanceService(
-        jobs=lambda: {
+        jobs={
             "renew-certificates": ScheduledJob(
                 plugin="certificates",
                 name="renew-certificates",
@@ -59,7 +59,7 @@ def test_a_run_that_left_nothing_owing_does_not_deploy():
     """
     calls: list[str] = []
     service = MaintenanceService(
-        jobs=lambda: {
+        jobs={
             "check-drift": ScheduledJob(
                 plugin="deployments",
                 name="check-drift",
@@ -81,7 +81,7 @@ def test_a_run_that_left_nothing_owing_does_not_deploy():
 def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
     """A message can outlive the plugin that published it."""
     service = MaintenanceService(
-        jobs=lambda: {},
+        jobs={},
         deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
         requirements=SimpleNamespace(pending=lambda _kind: False),
     )
@@ -98,7 +98,7 @@ def test_the_refusal_names_what_is_installed():
     carries the old name.
     """
     service = MaintenanceService(
-        jobs=lambda: {
+        jobs={
             "check-drift": ScheduledJob(
                 plugin="deployments",
                 name="check-drift",
@@ -118,34 +118,3 @@ def test_the_refusal_names_what_is_installed():
 
     with pytest.raises(NotFoundError, match="check-drift, renew-certificates"):
         service.run("renew-certs")
-
-
-def test_the_job_table_is_resolved_per_run_not_at_construction():
-    """The reason the port is a callable and not a mapping.
-
-    The service is built by the composition root, and so are the plugins that
-    contribute jobs. A table captured at construction would be whatever had
-    registered by the time this object was made, and a job contributed after it
-    would be unreachable — which is the ordering the composition root actually
-    has, because this service is one of the things it builds.
-    """
-    table: dict[str, ScheduledJob] = {}
-    ran: list[str] = []
-    service = MaintenanceService(
-        jobs=lambda: table,
-        deployments=SimpleNamespace(submit_deployment=lambda _operator: None),
-        requirements=SimpleNamespace(pending=lambda _kind: False),
-    )
-
-    with pytest.raises(NotFoundError):
-        service.run("check-drift")
-
-    table["check-drift"] = ScheduledJob(
-        plugin="deployments",
-        name="check-drift",
-        interval_seconds=900,
-        run=lambda operator: ran.append(operator),
-    )
-    service.run("check-drift")
-
-    assert ran == ["scheduler"]

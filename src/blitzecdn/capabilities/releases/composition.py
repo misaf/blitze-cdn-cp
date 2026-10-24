@@ -15,19 +15,20 @@ to fake around.
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
-from typing import TYPE_CHECKING
+from collections.abc import Callable, Sequence
 
 from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.capabilities.releases.domain import EdgeCapabilities, ReleaseFinding
-from blitzecdn.capabilities.releases.ports import CanonicalState, ReleaseStore
+from blitzecdn.capabilities.releases.ports import (
+    CanonicalState,
+    ReleaseStore,
+    StateContributors,
+)
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.validation import matches_edge_limit
-from blitzecdn.core.plugins import PluginRegistry, Severity
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.composition import ControlPlane
+from blitzecdn.core.plugins import Severity, ValidationIssue
+from blitzecdn.core.ports import UnitOfWork
 
 __all__ = ["PluginSiteChecks", "StoredEdgeTargets", "build_release_service"]
 
@@ -55,13 +56,14 @@ class PluginSiteChecks:
     which one is objecting.
     """
 
-    def __init__(self, plugins: PluginRegistry, platform: ControlPlane) -> None:
-        self._plugins = plugins
-        self._platform = platform
+    def __init__(
+        self, objections: Callable[[CdnSite], Sequence[ValidationIssue]]
+    ) -> None:
+        self._objections = objections
 
     def __call__(self, site: CdnSite) -> Sequence[ReleaseFinding]:
         findings: list[ReleaseFinding] = []
-        for issue in self._plugins.site_objections(site, self._platform):
+        for issue in self._objections(site):
             message = f"{issue.plugin}: {issue.site}: {issue.message}"
             if issue.severity is Severity.BLOCKING:
                 findings.append(
@@ -93,25 +95,31 @@ class StoredEdgeTargets:
 
 
 def build_release_service(
-    platform: ControlPlane,
     *,
     state: CanonicalState,
     releases: ReleaseStore,
     edges: EdgeStore,
+    contributors: StateContributors,
+    objections: Callable[[CdnSite], Sequence[ValidationIssue]],
+    capabilities: Sequence[str],
+    allow_empty_sites: bool,
+    retention: int,
+    uow: UnitOfWork,
 ) -> ReleaseService:
-    """Wire the compiler's inputs to the installation they come from."""
+    """Wire the compiler's inputs to the installation they come from.
+
+    ``retention`` is the deployment history bound. Releases are what that
+    history points at: keeping fewer would strand rollback targets, and keeping
+    more would accumulate documents nothing can reach.
+    """
     return ReleaseService(
         state=state,
         targets=StoredEdgeTargets(edges),
         releases=releases,
-        contributors=platform.plugins.contributions_for(platform),
-        site_checks=PluginSiteChecks(platform.plugins, platform),
-        capabilities=sorted(platform.plugins.capabilities),
-        allow_empty_sites=platform.settings.allow_empty_sites,
-        uow=platform.transactions,
-        # Releases are pruned on the same bound as deployment history, because
-        # they are the thing that history points *at*: keeping fewer would
-        # strand rollback targets, and keeping more would accumulate documents
-        # nothing can reach.
-        retention=platform.settings.history_retention,
+        contributors=contributors,
+        site_checks=PluginSiteChecks(objections),
+        capabilities=sorted(capabilities),
+        allow_empty_sites=allow_empty_sites,
+        uow=uow,
+        retention=retention,
     )

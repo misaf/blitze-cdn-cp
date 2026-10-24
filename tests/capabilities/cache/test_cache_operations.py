@@ -4,7 +4,6 @@ import pytest
 from cache_support import purges
 from control_plane_fixtures import FakeRunner, ansible_run, host_run, seed_site
 
-from blitzecdn.capabilities.cache.composition import build_cache_service
 from blitzecdn.capabilities.cache.domain import PurgeEntry
 from blitzecdn.capabilities.http.policy import HttpScheme
 from blitzecdn.composition import ControlPlane, Repository
@@ -36,7 +35,7 @@ def test_a_purge_reaches_the_edges_with_the_entries_it_was_given(settings):
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control)
 
-    result = build_cache_service(control).purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -59,7 +58,7 @@ def test_a_purge_for_a_hostname_no_site_serves_is_refused(settings):
     _site(control)
 
     with pytest.raises(NotFoundError, match=re.escape("other.example.com")):
-        build_cache_service(control).purge_cache(
+        control.cache.purge_cache(
             "alice", entries=[PurgeEntry(host="other.example.com", uri="/x")]
         )
     assert purges(fake) == []
@@ -72,7 +71,7 @@ def test_a_purge_under_a_wildcard_site_is_allowed(settings):
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control, name="*", domain="assets.example.com")
 
-    result = build_cache_service(control).purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(
@@ -89,7 +88,7 @@ def test_a_purge_drops_the_query_when_the_site_ignores_it(settings):
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
     _site(control, cache_query_string_mode="ignore")
 
-    result = build_cache_service(control).purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(
@@ -118,7 +117,7 @@ def test_a_purge_for_a_scheme_the_site_never_serves_is_refused(settings):
     _site(control)
 
     with pytest.raises(ConflictError, match="scheme"):
-        build_cache_service(control).purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(
@@ -144,7 +143,7 @@ def test_a_purge_over_http_against_a_tls_site_is_refused(settings):
     )
 
     with pytest.raises(ConflictError, match="scheme"):
-        build_cache_service(control).purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(
@@ -162,7 +161,7 @@ def test_a_purge_for_a_disabled_site_is_refused(settings):
     _site(control, name="off", enabled=False)
 
     with pytest.raises(NotFoundError):
-        build_cache_service(control).purge_cache(
+        control.cache.purge_cache(
             "alice", entries=[PurgeEntry(host="off.example.com", uri="/x")]
         )
 
@@ -175,7 +174,7 @@ def test_purging_everything_and_named_entries_at_once_is_refused(settings):
     _site(control)
 
     with pytest.raises(ConflictError):
-        build_cache_service(control).purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
@@ -191,7 +190,7 @@ def test_a_purge_with_nothing_to_do_is_refused(settings):
         runner=FakeRunner(),
     )
     with pytest.raises(ConflictError):
-        build_cache_service(control).purge_cache("alice")
+        control.cache.purge_cache("alice")
 
 
 def test_purging_everything_needs_no_site_to_exist(settings):
@@ -201,7 +200,7 @@ def test_purging_everything_needs_no_site_to_exist(settings):
         settings=settings, repository=Repository(settings.database_path), runner=fake
     )
 
-    result = build_cache_service(control).purge_cache("alice", purge_all=True)
+    result = control.cache.purge_cache("alice", purge_all=True)
 
     assert result.complete is True
     assert purges(fake)[0][1] is True
@@ -218,7 +217,7 @@ def test_a_partial_purge_is_reported_as_incomplete(settings):
     )
     _site(control)
 
-    result = build_cache_service(control).purge_cache(
+    result = control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)
@@ -240,7 +239,7 @@ def test_a_purge_no_edge_answered_is_an_error(settings):
     _site(control)
 
     with pytest.raises(ExecutionError, match="no edge reported"):
-        build_cache_service(control).purge_cache(
+        control.cache.purge_cache(
             "alice",
             entries=[
                 PurgeEntry(host="cdn.example.com", uri="/x", scheme=HttpScheme.HTTP)
@@ -255,7 +254,7 @@ def test_a_purge_is_recorded_in_the_audit_trail(settings):
     )
     _site(control)
 
-    build_cache_service(control).purge_cache(
+    control.cache.purge_cache(
         "alice",
         entries=[
             PurgeEntry(host="cdn.example.com", uri="/app.js", scheme=HttpScheme.HTTP)

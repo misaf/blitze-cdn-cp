@@ -6,14 +6,11 @@ values do not discover installed packages or construct the control plane.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from blitzecdn.capabilities.cache.adapters import CachePlaybooks
 from blitzecdn.capabilities.cache.service import CacheService
+from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 from blitzecdn.core.runtime.resources import distribution_version
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.composition import ControlPlane
 
 #: This distribution's version, asked of the environment rather than
 #: written down here: it is what ``PluginMetadata.version`` reports and
@@ -22,15 +19,17 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 __version__ = distribution_version(__name__)
 
 
-def build_cache_service(platform: ControlPlane) -> CacheService:
-    """Wire the cache capability from what the control plane publishes."""
+def build_cache_service(
+    *, sites: SiteReader, events: EventRecorder, fleet: PlaybookRunner
+) -> CacheService:
+    """Wire the cache capability to the fleet and the derived hosts."""
     return CacheService(
         # Read to decide which hostnames may be purged, and never written:
         # purging is not a change to desired state and must not be able to
         # become one.
-        sites=platform.sites,
-        events=platform.events,
-        runner=CachePlaybooks(platform.fleet),
+        sites=sites,
+        events=events,
+        runner=CachePlaybooks(fleet),
     )
 
 

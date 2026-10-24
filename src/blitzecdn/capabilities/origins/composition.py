@@ -6,24 +6,27 @@ values do not discover installed packages or construct the control plane.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
+from blitzecdn.capabilities.origins.ports import OriginProbe, SiteReader
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
-
-if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
-    from blitzecdn.composition import ControlPlane
+from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 
 
-def build_origin_check_service(platform: ControlPlane) -> OriginCheckService:
-    """Wire the origin-check capability from what the control plane publishes."""
+def build_origin_check_service(
+    *,
+    sites: SiteReader,
+    events: EventRecorder,
+    fleet: PlaybookRunner,
+    origin_probe: OriginProbe,
+) -> OriginCheckService:
+    """Wire the origin-check capability to the fleet and the derived hosts."""
     return OriginCheckService(
         # Read to decide which origins to probe, and never written: a check is
         # not a change to desired state and must not be able to become one.
-        sites=platform.sites,
-        events=platform.events,
-        runner=OriginCheckPlaybook(platform.fleet),
-        origin_probe=platform.origin_probe,
+        sites=sites,
+        events=events,
+        runner=OriginCheckPlaybook(fleet),
+        origin_probe=origin_probe,
     )
 
 

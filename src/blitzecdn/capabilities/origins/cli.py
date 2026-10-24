@@ -6,9 +6,6 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.origins.composition import (
-    build_origin_check_service,
-)
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 
@@ -34,9 +31,7 @@ def origin_check(
     not reach it — an origin no edge can reach is down, while one only some can
     reach is a routing or allow-list problem.
     """
-    report = build_origin_check_service(common.control_plane()).check_origins(
-        "cli", host_limit=limit
-    )
+    report = common.control_plane().origins.check_origins("cli", host_limit=limit)
     common.emit(report, json_output=json_output)
     if json_output:
         if report.failing_sites:

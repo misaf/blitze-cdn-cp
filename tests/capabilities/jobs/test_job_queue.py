@@ -504,3 +504,16 @@ def test_a_refused_duplicate_inside_a_transaction_leaves_it_usable(repository):
     assert refused is None
     assert other is not None
     assert {job.kind for job in repository.jobs.list_jobs()} == {"work", "other"}
+
+
+def test_a_publishing_queue_is_given_its_handlers_once(repository):
+    queue = queue_for(repository, handlers={})
+    record = []
+    queue.consume_with({"work": ran(record, "work")})
+    queue.jobs.enqueue(kind="work", payload={"id": "a"}, available_at=_START)
+
+    queue.run_one()
+
+    assert record == ["work:a"]
+    with pytest.raises(RuntimeError, match="already has its handlers"):
+        queue.consume_with({})

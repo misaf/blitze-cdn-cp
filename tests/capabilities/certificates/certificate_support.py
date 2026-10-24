@@ -7,10 +7,10 @@ handed a fake store, issuer or preflight. Its own docstring called it legacy,
 and it was: production core never constructs these services, and every test
 that relied on it was a certificates test living in ``tests/``.
 
-Here the wiring is the real one. ``build_certificate_service`` is the same
-function the plugin's registration calls, and the seams a test needs — the
-store, the issuer, the preflight — are substituted by rebuilding the two
-dataclasses around it rather than by intercepting a constructor.
+Here the wiring is the real one. ``control.certificates`` is the service the
+composition root built, and the seams a test needs — the store, the issuer, the
+preflight — are substituted by rebuilding the two dataclasses around it rather
+than by intercepting a constructor.
 
 `just types` checks this module, which is what makes the seams above claims
 rather than hopes. ``FakePreflight`` and ``_RecordingIssuer`` are handed
@@ -47,10 +47,6 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     Preflight,
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.composition import (
-    build_automatic_ssl_service,
-    build_certificate_service,
-)
 from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
 from blitzecdn.composition import ControlPlane, FleetRunner, Repository
 from blitzecdn.core.config import Settings
@@ -107,7 +103,6 @@ def _with_seams(
 def _attach(control: ControlPlane, service: CertificateService) -> ControlPlane:
     """Replace the application-owned service with the named test seams."""
     control.certificates = service
-    control.automatic_ssl = build_automatic_ssl_service(control)
     return control
 
 
@@ -136,7 +131,7 @@ def certificate_control_plane(
     return _attach(
         control,
         _with_seams(
-            build_certificate_service(control),
+            control.certificates,
             certificate_store=certificate_store,
             issuer=issuer,
             preflight=preflight,
@@ -160,7 +155,7 @@ def certificate_cli_control_plane(
     control = cli_control_plane(settings, monkeypatch, runner_double)
     return _attach(
         control,
-        _with_seams(build_certificate_service(control), preflight=preflight),
+        _with_seams(control.certificates, preflight=preflight),
     )
 
 
@@ -282,9 +277,7 @@ def _proxied_site_with_certificate(
 ) -> CertificateInfo:
     site = seed_site(control)
     certificate, key = certificate_pair((site.server_names[0],), days=days)
-    return build_certificate_service(control).upload_certificate(
-        site.name, certificate, key, "alice"
-    )
+    return control.certificates.upload_certificate(site.name, certificate, key, "alice")
 
 
 if TYPE_CHECKING:

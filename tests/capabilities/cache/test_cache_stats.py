@@ -1,6 +1,5 @@
 from control_plane_fixtures import FakeRunner, ansible_run, host_run
 
-from blitzecdn.capabilities.cache.composition import build_cache_service
 from blitzecdn.composition import ControlPlane, Repository
 
 # ----------------------------------------------------------------------
@@ -50,7 +49,7 @@ def test_statistics_are_aggregated_across_the_fleet(settings):
         ),
     )
 
-    report = build_cache_service(control).cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert report.hit_ratio == 0.85
     assert {edge.host for edge in report.reporting} == {"edge-a", "edge-b"}
@@ -70,7 +69,7 @@ def test_an_edge_that_published_nothing_is_silent_rather_than_missing(settings):
         host_run("edge-b", ok=5),
     )
 
-    report = build_cache_service(control).cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert [edge.host for edge in report.reporting] == ["edge-a"]
@@ -83,7 +82,7 @@ def test_an_unreachable_edge_is_reported_as_unreachable(settings):
         host_run("edge-b", ok=0, unreachable=1),
     )
 
-    report = build_cache_service(control).cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert [(e.host, e.error) for e in report.silent] == [("edge-b", "unreachable")]
 
@@ -96,7 +95,7 @@ def test_an_edge_whose_stats_role_failed_is_not_counted(settings):
         host_run("edge-b", failure="collect-cache-stats.sh returned 1"),
     )
 
-    report = build_cache_service(control).cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert [edge.host for edge in report.silent] == ["edge-b"]
     assert report.requests == 1
@@ -123,7 +122,7 @@ def test_a_malformed_edge_report_degrades_instead_of_raising(settings):
         ),
     )
 
-    report = build_cache_service(control).cache_stats("alice")
+    report = control.cache.cache_stats("alice")
 
     assert report.requests == 1
     edge_b = next(edge for edge in report.edges if edge.host == "edge-b")
@@ -140,7 +139,7 @@ def test_statistics_are_recorded_in_the_audit_trail(settings):
         _reporting("edge-b", [{"site": "a", "outcome": "MISS", "requests": 1}]),
     )
 
-    build_cache_service(control).cache_stats("alice")
+    control.cache.cache_stats("alice")
     event = Repository(settings.database_path).audit_log.list_audit_events()[0]
 
     assert event.action == "cache.stats_collected"
@@ -170,8 +169,8 @@ def test_a_collection_reads_only_its_own_run(settings):
     )
     control = ControlPlane(settings=settings, repository=repository, runner=fake)
 
-    first = build_cache_service(control).cache_stats("alice")
-    second = build_cache_service(control).cache_stats("alice")
+    first = control.cache.cache_stats("alice")
+    second = control.cache.cache_stats("alice")
 
     assert first.requests == 1
     assert [edge.host for edge in first.reporting] == ["edge-a"]
