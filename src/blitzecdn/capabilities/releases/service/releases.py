@@ -107,10 +107,12 @@ class ReleaseService:
         and the same identifier — and a deployment that names that identifier
         is naming a document nothing can subsequently edit.
         """
-        captured = self.capture(host_limit=host_limit)
-        inputs = captured.inputs
-        release = compile_release(captured)
+        # Admission and material collection share the write boundary. A
+        # captured resource must become retained before collection can run.
         with self.uow.transaction():
+            captured = self.capture(host_limit=host_limit)
+            inputs = captured.inputs
+            release = compile_release(captured)
             stored = self.releases.save(release, inputs)
             self.releases.prune(self.retention)
         return stored
@@ -122,7 +124,7 @@ class ReleaseService:
         """The canonical state a stored release was compiled from."""
         return self.releases.inputs_for(release_id)
 
-    def list_releases(self, limit: int = 20) -> Sequence[Release]:
+    def list_releases(self, limit: int | None = 20) -> Sequence[Release]:
         return self.releases.list_releases(limit)
 
     def findings(self, *, host_limit: str | None = None) -> tuple[ReleaseFinding, ...]:

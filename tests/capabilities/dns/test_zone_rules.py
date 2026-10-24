@@ -6,6 +6,7 @@ from contextlib import contextmanager
 
 import pytest
 from control_plane_fixtures import FakeRunner, seed_site
+from policy_support import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import (
@@ -596,7 +597,7 @@ def test_an_operator_editing_a_rule_cannot_revert_the_issuers_certificate(settin
         uow=_competing_writer(
             control,
             lambda: control.site_editor.activate_managed_certificate(
-                site, CertificateMode.REQUESTED
+                site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
             ),
         ),
     )

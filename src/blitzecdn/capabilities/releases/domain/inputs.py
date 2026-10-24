@@ -37,7 +37,7 @@ __all__ = ["INPUTS_SCHEMA_VERSION", "ReleaseInputs"]
 #: long as it is in the history table — so a document arriving from storage
 #: says which shape it is. There is exactly one, and a document that is not it
 #: is refused rather than guessed at.
-INPUTS_SCHEMA_VERSION = 2
+INPUTS_SCHEMA_VERSION = 3
 
 
 class ReleaseInputs(BaseModel):

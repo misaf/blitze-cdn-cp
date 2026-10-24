@@ -65,8 +65,12 @@ DETACHABLE_SITE_PACKAGES = (
             "ssl_mode": "full",
             "ssl_automatic_mode": "custom",
             "certificate_mode": "requested",
-            "certificate_path": "/etc/blitzecdn/tls/example-com/fullchain.pem",
-            "certificate_key_path": "/etc/blitzecdn/tls/example-com/privkey.pem",
+            "certificate_path": (
+                f"/etc/blitzecdn/tls/example-com/fullchain-{'a' * 64}.pem"
+            ),
+            "certificate_key_path": (
+                f"/etc/blitzecdn/tls/example-com/privkey-{'b' * 64}.pem"
+            ),
         },
     ),
     (

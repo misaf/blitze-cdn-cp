@@ -254,6 +254,12 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn_cache", "cache purge", "POST /v1/cache/purge", ""),
     ("blitzecdn_cache", "stats", "POST /v1/cache/stats", ""),
     ("blitzecdn_origins", "origin check", "POST /v1/origins/check", ""),
+    (
+        "blitzecdn_certificates",
+        "cert collect",
+        None,
+        "Controller-local material maintenance; no remote operation is needed.",
+    ),
     ("blitzecdn_certificates", "cert list", "GET /v1/certificates", ""),
     (
         "blitzecdn_certificates",

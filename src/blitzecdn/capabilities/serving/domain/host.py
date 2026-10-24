@@ -15,7 +15,7 @@ from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import (
     MANAGED_TLS_ROOT,
     CertificateMode,
-    managed_certificate_paths,
+    CertificateVersion,
 )
 from blitzecdn.core.domain.validation import HOST_NAME, hostname
 
@@ -87,16 +87,21 @@ class CdnSite(BaseModel):
             raise ValueError("TLS certificate modes require both certificate paths")
         if self.policy.tls.certificate_mode is CertificateMode.DISABLED and supplied:
             raise ValueError("certificate paths require certificate_mode='existing'")
-        if self.policy.tls.certificate_mode.issuer_owned and (
-            self.policy.tls.certificate_path,
-            self.policy.tls.certificate_key_path,
-        ) != managed_certificate_paths(self.name):
-            raise ValueError(
-                f"certificate_mode={self.policy.tls.certificate_mode.value!r} "
-                "is set by the "
-                "certificate upload and request endpoints, which own the paths "
-                f"under {MANAGED_TLS_ROOT}/<site>/"
-            )
+        if self.policy.tls.certificate_mode.issuer_owned:
+            try:
+                CertificateVersion.from_paths(
+                    self.name,
+                    self.policy.tls.certificate_path or "",
+                    self.policy.tls.certificate_key_path or "",
+                )
+            except ValueError as error:
+                raise ValueError(
+                    f"certificate_mode={self.policy.tls.certificate_mode.value!r} "
+                    "is set by the "
+                    "certificate upload and request endpoints, which own the paths "
+                    "for exact versions "
+                    f"under {MANAGED_TLS_ROOT}/<site>/"
+                ) from error
         if (
             self.policy.tls.ssl_mode.serves_tls
             and self.policy.tls.certificate_mode is CertificateMode.DISABLED

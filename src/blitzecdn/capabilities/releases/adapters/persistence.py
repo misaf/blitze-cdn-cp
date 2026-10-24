@@ -103,7 +103,7 @@ class ReleaseStore:
                 )
             return decoded
 
-    def list_releases(self, limit: int = 20) -> list[Release]:
+    def list_releases(self, limit: int | None = 20) -> list[Release]:
         with self._db.session() as session:
             rows = session.scalars(
                 select(ReleaseRow)

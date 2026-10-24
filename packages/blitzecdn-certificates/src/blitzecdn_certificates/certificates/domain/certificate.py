@@ -16,6 +16,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from blitzecdn.capabilities.deployments.domain import Deployment
+from blitzecdn.capabilities.tls.policy import CertificateVersion
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.validation import hostname
 
@@ -44,6 +45,13 @@ class CertificateInfo(BaseModel):
     certificate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     private_key_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
     email: str | None = None
+
+    @property
+    def version(self) -> CertificateVersion:
+        return CertificateVersion(
+            certificate_digest=self.certificate_digest,
+            private_key_digest=self.private_key_digest,
+        )
 
 
 #: Renew an ACME certificate once it has this many days left.

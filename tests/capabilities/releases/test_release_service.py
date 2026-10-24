@@ -62,6 +62,38 @@ def test_preparing_the_same_state_twice_records_one_release(control):
     assert [item.id for item in plane.releases.list_releases()] == [first.id]
 
 
+def test_admission_keeps_resource_resolution_and_retention_in_one_write_boundary(
+    control, monkeypatch
+):
+    plane, repository = control
+    seed_site(plane)
+    observed = []
+    contributions = plane.releases.contributors
+    save = repository.releases.save
+
+    def resolve(site):
+        session = repository.database.current_session()
+        assert session is not None
+        observed.append(session)
+        return contributions.site_variables(site)
+
+    class ObservedContributions:
+        def site_variables(self, site):
+            return resolve(site)
+
+        def fleet_variables(self, sites):
+            return contributions.fleet_variables(sites)
+
+    def retain(release, inputs):
+        assert repository.database.current_session() is observed[0]
+        return save(release, inputs)
+
+    monkeypatch.setattr(plane.releases, "contributors", ObservedContributions())
+    monkeypatch.setattr(repository.releases, "save", retain)
+    plane.releases.prepare()
+    assert observed
+
+
 def test_a_changed_setting_records_a_second_release(control):
     plane, _ = control
     seed_record(plane)

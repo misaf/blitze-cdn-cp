@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import re
 import shlex
 import shutil
 import subprocess
 import sys
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
@@ -17,6 +19,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.types import PublicKeyTypes
 
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.policy import (
+    MANAGED_TLS_ROOT,
+    CertificateVersion,
+    managed_certificate_paths,
+)
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
@@ -129,9 +136,11 @@ class CertificateStore:
                 continue
         return sorted(found, key=lambda info: info.not_after)
 
-    def sources(self, site_name: str) -> tuple[Path, Path]:
+    def sources(
+        self, site_name: str, *, version: CertificateVersion | None = None
+    ) -> tuple[Path, Path]:
         directory = self._directory(site_name)
-        info = self.get(site_name)
+        info = version if version is not None else self.get(site_name).version
         certificate = directory / f"fullchain-{info.certificate_digest}.pem"
         private_key = directory / f"privkey-{info.private_key_digest}.pem"
         if not certificate.is_file() or not private_key.is_file():
@@ -148,12 +157,55 @@ class CertificateStore:
                 )
         return certificate, private_key
 
+    def collect(self, referenced_paths: Sequence[str]) -> tuple[str, ...]:
+        """Delete only recognizable immutable files absent from every root.
+
+        The caller owns the deployment lock and canonical write transaction.
+        Metadata is another root, including material installed before a failed
+        writeback. Validate every metadata root before deleting any candidate.
+        Symlinked directories/files and unknown files are never traversed.
+        """
+        root = self._settings.certificate_dir
+        if not root.is_dir() or root.is_symlink():
+            return ()
+        retained = set(referenced_paths)
+        candidates: list[Path] = []
+        for directory in sorted(root.iterdir()):
+            if not directory.is_dir() or directory.is_symlink():
+                continue
+            metadata = directory / "metadata.json"
+            if metadata.is_symlink():
+                raise ConfigurationError("certificate metadata must not be a symlink")
+            if metadata.exists():
+                info = self.get(directory.name)
+                if info.site != directory.name:
+                    raise ConfigurationError(
+                        "certificate metadata site does not match its directory"
+                    )
+                retained.update(managed_certificate_paths(info.site, info.version))
+            for path in sorted(directory.iterdir()):
+                if (
+                    path.is_file()
+                    and not path.is_symlink()
+                    and re.fullmatch(
+                        r"(?:fullchain|privkey)-[0-9a-f]{64}\.pem", path.name
+                    )
+                ):
+                    edge_path = f"{MANAGED_TLS_ROOT}/{directory.name}/{path.name}"
+                    if edge_path not in retained:
+                        candidates.append(path)
+        removed = []
+        for path in candidates:
+            path.unlink()
+            removed.append(path.relative_to(root).as_posix())
+        return tuple(removed)
+
     @staticmethod
     def _write_version(path: Path, payload: bytes) -> None:
         """Never overwrite content already addressed by a release.
 
         Retain superseded versions: an older release can still refer to them.
-        Current metadata is only the pointer used for the *next* compilation.
+        Metadata is inventory; canonical policy selects a compilation's version.
         """
         if path.exists():
             if path.read_bytes() != payload:

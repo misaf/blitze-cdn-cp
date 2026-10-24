@@ -11,6 +11,7 @@ from typing import Any
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
+from blitzecdn.capabilities.tls.policy import CertificateVersion
 
 
 def _document(values: Mapping[str, Any]) -> dict[str, Any]:
@@ -32,3 +33,11 @@ def site_from_settings(values: Mapping[str, Any]) -> CdnSite:
 
 def domain_from_settings(values: Mapping[str, Any]) -> Domain:
     return Domain.model_validate(_document(values))
+
+
+# Synthetic material identity for tests that exercise canonical policy without
+# installing real certificates. Certificate integration tests use real digests.
+
+TEST_CERTIFICATE_VERSION = CertificateVersion(
+    certificate_digest="a" * 64, private_key_digest="b" * 64
+)

@@ -4,6 +4,7 @@ from contextlib import contextmanager
 
 import pytest
 from control_plane_fixtures import FakeRunner, seed_record, seed_site
+from policy_support import TEST_CERTIFICATE_VERSION
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy, Rule
@@ -48,10 +49,12 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
         seed_site(control, name="rule-host", record="api") if rule_owned else original
     )
     updated = control.site_editor.activate_managed_certificate(
-        target, CertificateMode.REQUESTED
+        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
     )
     assert updated.policy.tls.certificate_mode is CertificateMode.REQUESTED
-    assert updated.policy.tls.certificate_path.endswith(f"/{target.name}/fullchain.pem")
+    assert updated.policy.tls.certificate_path.endswith(
+        f"/{target.name}/fullchain-{TEST_CERTIFICATE_VERSION.certificate_digest}.pem"
+    )
     if rule_owned:
         assert control.sites.get_site(original.name) == original
         assert (
@@ -68,7 +71,9 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
 def test_automatic_ssl_writeback_is_rule_scoped_and_monotonic(control):
     original = seed_site(control)
     target = seed_site(control, name="rule-host", record="api")
-    control.site_editor.activate_managed_certificate(target, CertificateMode.REQUESTED)
+    control.site_editor.activate_managed_certificate(
+        target, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+    )
     updated = control.site_editor.apply_automatic_ssl_upgrade(
         target.name, SslMode.FULL, "scheduler"
     )
@@ -212,7 +217,9 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
     same lock as the write.
     """
     site = seed_site(control)
-    control.site_editor.activate_managed_certificate(site, CertificateMode.REQUESTED)
+    control.site_editor.activate_managed_certificate(
+        site, CertificateMode.REQUESTED, TEST_CERTIFICATE_VERSION
+    )
     site = control.sites.get_site(site.name)
     assert site.policy.tls.ssl_automatic_mode is not SslAutomaticMode.CUSTOM
 

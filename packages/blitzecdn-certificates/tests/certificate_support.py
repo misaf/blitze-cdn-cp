@@ -80,6 +80,7 @@ def _with_seams(
     if certificate_store is None and issuer is None and preflight is None:
         return service
     return CertificateService(
+        material_references=service.material_references,
         policy=service.policy,
         persistence=replace(
             service.persistence,

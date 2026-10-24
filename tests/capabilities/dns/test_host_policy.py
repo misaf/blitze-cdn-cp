@@ -3,7 +3,11 @@ import re
 
 import pytest
 from paths import SOURCE
-from policy_support import domain_from_settings, site_from_settings
+from policy_support import (
+    TEST_CERTIFICATE_VERSION,
+    domain_from_settings,
+    site_from_settings,
+)
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
@@ -35,6 +39,7 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
     TlsPolicy,
+    managed_certificate_paths,
 )
 
 
@@ -437,8 +442,12 @@ def test_managed_certificate_modes_reject_operator_chosen_paths(site_payload):
 
 def test_managed_certificate_modes_accept_their_own_paths(site_payload):
     site_payload["certificate_mode"] = "uploaded"
-    site_payload["certificate_path"] = "/etc/blitzecdn/tls/example-com/fullchain.pem"
-    site_payload["certificate_key_path"] = "/etc/blitzecdn/tls/example-com/privkey.pem"
+    site_payload["certificate_path"] = managed_certificate_paths(
+        "example-com", TEST_CERTIFICATE_VERSION
+    )[0]
+    site_payload["certificate_key_path"] = managed_certificate_paths(
+        "example-com", TEST_CERTIFICATE_VERSION
+    )[1]
     assert site_from_settings(site_payload).policy.tls.certificate_mode == "uploaded"
 
 
@@ -448,8 +457,12 @@ def _managed_site(**overrides: object) -> dict[str, object]:
         "server_names": ["cdn.example.com"],
         "origin_host": "198.51.100.10",
         "certificate_mode": "uploaded",
-        "certificate_path": "/etc/blitzecdn/tls/example-com/fullchain.pem",
-        "certificate_key_path": "/etc/blitzecdn/tls/example-com/privkey.pem",
+        "certificate_path": managed_certificate_paths(
+            "example-com", TEST_CERTIFICATE_VERSION
+        )[0],
+        "certificate_key_path": managed_certificate_paths(
+            "example-com", TEST_CERTIFICATE_VERSION
+        )[1],
         **overrides,
     }
 

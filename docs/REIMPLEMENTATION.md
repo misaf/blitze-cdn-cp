@@ -109,23 +109,29 @@ associated decisions describe the implementation that actually exists.
   other operations. Python callers now submit explicit commands; delivery and
   storage shapes are unchanged. See decision 0014.
 
+- Canonical managed certificate versions and controller material collection
+  implemented: issuer writeback records exact SHA-256 paths in authored policy;
+  compilation and rollback resolve those selected bytes independently of latest
+  metadata. Input/compiler versions are 3. `cert collect` preserves current
+  policy, all retained releases and metadata roots under issuance/write locks.
+  Remote edge material remains conservatively retained. See decision 0015.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full workspace fast suite after shared policy commands: 1,874 passed, 13 skipped.
-- Core-only suite after shared policy commands: 1,305 passed, 35 skipped;
+- Full workspace fast suite after canonical certificate versions: 1,893 passed,
+  13 skipped.
+- Core-only suite after canonical certificate versions: 1,307 passed, 35 skipped;
   workspace restored.
-- All eleven distributions build as wheels and source archives. The root wheel
-  contains the exact shared command, application handler and updated API/CLI
-  sources, verified against the workspace files in the built archive. The
+- All eleven distributions build as wheels and source archives. The root and
+  certificate wheels contain the exact sixteen changed runtime sources, verified
+  against the workspace files in the built archives. The
   configuration transaction helper and tasks remain included.
 - Live Ubuntu edge convergence has not been executed.
 
 ## Remaining implementation slices
 
-- Bind resource versions to canonical desired state and add reference-aware
-  material garbage collection.
 - Consolidate independently packaged capabilities into one application with
   focused runtime providers.
 - Simplify installation, separate schema migration from ordinary repository
@@ -134,6 +140,6 @@ associated decisions describe the implementation that actually exists.
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
-confirmation before beginning the next. Following shared policy commands,
-the next proposed step is binding resource versions to canonical desired state
-and adding reference-aware material garbage collection.
+confirmation before beginning the next. Following canonical certificate versions
+and controller material collection, the next proposed step is consolidating the
+packaged capabilities into one application with focused runtime providers.

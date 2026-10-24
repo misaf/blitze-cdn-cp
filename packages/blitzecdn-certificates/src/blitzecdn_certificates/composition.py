@@ -56,12 +56,44 @@ def certificate_config(platform: ControlPlane) -> CertificateConfig:
     return config
 
 
+class CertificateMaterialReferences:
+    """All authored TLS paths and every retained release's canonical inputs."""
+
+    def __init__(self, platform: ControlPlane) -> None:
+        self.platform = platform
+
+    def __call__(self) -> tuple[str, ...]:
+        inputs = [self.platform.releases.inputs()]
+        inputs.extend(
+            self.platform.releases.inputs_for(release.id)
+            for release in self.platform.releases.list_releases(limit=None)
+        )
+        paths: set[str] = set()
+        for state in inputs:
+            for zone in state.domains:
+                paths.update(
+                    path
+                    for path in (
+                        zone.policy.tls.certificate_path,
+                        zone.policy.tls.certificate_key_path,
+                    )
+                    if path is not None
+                )
+            for rule in state.rules:
+                for name in ("certificate_path", "certificate_key_path"):
+                    path = rule.overrides.get(name)
+                    if isinstance(path, str):
+                        paths.add(path)
+        return tuple(sorted(paths))
+
+
 def build_certificate_service(platform: ControlPlane) -> CertificateService:
     existing = _certificate_services.get(platform)
     if existing is not None:
         return existing
     config = certificate_config(platform)
     service = CertificateService(
+        material_references=CertificateMaterialReferences(platform),
         policy=CertificatePolicy(default_email=config.default_email),
         persistence=CertificatePersistence(
             sites=platform.sites,
