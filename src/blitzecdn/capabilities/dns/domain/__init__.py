@@ -5,6 +5,12 @@ values live in the serving module, so compilation and execution can consume
 those contracts without importing DNS lifecycle concerns.
 """
 
+from blitzecdn.capabilities.dns.domain.commands import (
+    EditFirewall,
+    EditVisitorHeaders,
+    PatchPolicy,
+    PolicyCommand,
+)
 from blitzecdn.capabilities.dns.domain.hosts import (
     UnservableHost,
     derive_hosts,
@@ -37,6 +43,10 @@ __all__ = [
     "DnsRecord",
     "Domain",
     "DomainPatch",
+    "EditFirewall",
+    "EditVisitorHeaders",
+    "PatchPolicy",
+    "PolicyCommand",
     "PublicationMode",
     "RecordPatch",
     "RecordType",

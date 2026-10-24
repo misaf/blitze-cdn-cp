@@ -827,6 +827,8 @@ def test_every_patchable_field_can_be_reached_from_the_command_line():
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.keyword) and node.arg:
                 named.add(node.arg)
+            elif isinstance(node, ast.Attribute):
+                named.add(node.attr)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
                 named.add(node.value)
 

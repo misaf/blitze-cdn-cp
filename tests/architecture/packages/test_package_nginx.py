@@ -83,6 +83,8 @@ def test_core_knows_no_kind_of_firewall_rule():
 #:   commands for that one contract — it was the whole 572-line `sites/cli.py`,
 #:   which meant every unrelated command shared an exemption written for two of
 #:   them;
+#: * `dns/domain/commands.py` names the editable lists to express selective
+#:   firewall intent. Validation vocabulary stays in the security contract;
 #: `sites/domain.py` used to be a fourth entry, permitted to name the two
 #: *country* settings so it could derive the `geoip` token. It derives nothing
 #: now — `SecurityPolicy` declares the token beside the rule that needs it — so
@@ -92,6 +94,7 @@ _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/policy.py": None,
     "capabilities/dns/api/models.py": None,
     "capabilities/dns/cli/security.py": None,
+    "capabilities/dns/domain/commands.py": _firewall_rule_kinds(),
 }
 
 

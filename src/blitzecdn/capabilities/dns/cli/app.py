@@ -10,7 +10,7 @@ from __future__ import annotations
 import typer
 
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
-from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
+from blitzecdn.capabilities.dns.domain import Domain, DomainPatch, PatchPolicy
 from blitzecdn.cli import common
 
 domain_app = typer.Typer(
@@ -31,7 +31,9 @@ __all__ = ["dns_app", "domain_app", "record_app", "rule_app"]
 
 
 def _update(name: str, patch: DomainPatch) -> Domain:
-    return common.control_plane().dns.update_domain(name, patch, "cli")
+    return common.control_plane().dns.update_domain(
+        name, PatchPolicy.from_patch(patch), "cli"
+    )
 
 
 def _report(zone: Domain, message: str, *, json_output: bool) -> None:

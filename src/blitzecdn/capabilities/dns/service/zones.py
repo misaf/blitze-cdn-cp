@@ -11,7 +11,7 @@ from blitzecdn.capabilities.dns.domain import (
     DnsPublication,
     DnsRecord,
     Domain,
-    DomainPatch,
+    PolicyCommand,
     RecordPatch,
     RecordType,
     reject_issuer_owned_certificate,
@@ -63,10 +63,11 @@ class DnsService:
             )
         return created
 
-    def update_domain(self, name: str, patch: DomainPatch, operator: str) -> Domain:
+    def update_domain(self, name: str, command: PolicyCommand, operator: str) -> Domain:
         """Change the policy every hostname in the zone is served by.
 
-        Merged against the stored zone rather than validated alone: the rules
+        Resolve replacement or selective-edit intent against the stored zone
+        inside the transaction. Validate the complete result: the rules
         that read across two settings — HTTP/3 needing edge TLS, a certificate
         mode agreeing with its two paths — cannot be checked on a patch that
         mentions one of them, and rejecting the merged zone is what stops a
@@ -75,8 +76,6 @@ class DnsService:
         Nothing is resynced afterwards. This changes how hostnames are served,
         not which ones exist, and ``server_names`` is a projection of records.
         """
-        changes = patch.model_dump(exclude_unset=True)
-        reject_issuer_owned_certificate(changes)
         with self.uow.transaction():
             # Read inside the boundary, and write against what was read. A
             # patch is merged onto the whole stored document, so the write
@@ -85,6 +84,8 @@ class DnsService:
             # merged with but overwritten by a document assembled from a
             # version that no longer exists.
             current = self.zones.get_domain(name)
+            changes = command.changes(current.policy)
+            reject_issuer_owned_certificate(changes)
             updated = Domain(name=current.name, policy=current.policy.applying(changes))
             saved = self.zones.replace_domain(updated, expected=current)
             self.events.record(
