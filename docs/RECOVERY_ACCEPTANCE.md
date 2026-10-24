@@ -93,14 +93,14 @@ persisted intervals; it does not wait for real CA renewal.
    [practice record](LOCAL_RECOVERY_PRACTICE.md) demonstrates one SIGKILL/resume
    checkpoint, CLI restoration after controller-directory removal and explicit
    rollback from a rebuilt controller. Edge activation is still simulated.
-2. **Check the operator's next action.** For each practiced failure, record
-   what changed, what remains usable, and which command or manual check comes
-   next. Existing status assertions do not prove that an operator can understand
-   or follow the recovery path.
-3. **Explain retention.** Existing tests protect referenced certificate material,
-   but this does not define a complete backup storage budget or retention policy.
-   Document which releases, backups and keys must be kept for the intended
-   recovery window before changing cleanup behavior.
+2. **Operator instructions corrected in step 3.** The README authoring commands
+   and job inspection help were exercised remotely; the
+   [practice record](LOCAL_RECOVERY_PRACTICE.md) records the results and limits.
+3. **Retention rules documented in step 4.** See
+   [retention and recovery copies](RETENTION.md) for exact cleanup counts,
+   preservation of releases/keys, full versus partial archives, and storage
+   budgeting. The milestone retains all full archives and real deployment
+   history; a production recovery window still needs an operator's decision.
 4. **Write the short operating guide from observed results.** Include only
    verified procedures, their limitations, and any manual intervention needed.
 
@@ -144,4 +144,7 @@ just test-one \
 
 Step 2 subsequently completed the fresh-process local recovery practice, with
 its results and limitations in [LOCAL_RECOVERY_PRACTICE.md](LOCAL_RECOVERY_PRACTICE.md).
-Operator-facing fixes in step 3 require separate confirmation.
+Step 3 subsequently corrected the operator instructions. Step 4 documents
+retention rules and verifies cleanup against the preserved recovery paths;
+its validation record is in [REIMPLEMENTATION.md](REIMPLEMENTATION.md).
+The short operating guide in step 5 still requires separate confirmation.

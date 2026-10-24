@@ -508,7 +508,18 @@ def test_the_store_refuses_a_setting_name_the_fleet_should_not_carry(
     assert repository.ansible_settings.list_settings() == {}
 
 
-def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(settings):
+@pytest.mark.parametrize(
+    "finished_status",
+    [
+        DeploymentStatus.SUCCEEDED,
+        DeploymentStatus.FAILED,
+        DeploymentStatus.TIMED_OUT,
+        DeploymentStatus.ABANDONED,
+    ],
+)
+def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
+    settings, finished_status
+):
     """The drift timer writes a row an hour whether or not anything changed.
 
     Only check-mode rows are prunable: a real deployment is what
@@ -524,8 +535,14 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(settings)
         for _ in range(3)
     ]
     for _ in range(10):
-        repository.deployments.create_deployment(
+        deployment = repository.deployments.create_deployment(
             "scheduler", release_id=release.id, check_mode=True
+        )
+        repository.deployments.transition(
+            deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        )
+        repository.deployments.transition(
+            deployment.id, DeploymentStatus.RUNNING, finished_status
         )
 
     assert repository.deployments.prune_history(4) == 6
@@ -536,6 +553,37 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(settings)
 
     # Nothing left to do on a second pass.
     assert repository.deployments.prune_history(4) == 0
+
+
+@pytest.mark.parametrize("running", [False, True])
+def test_history_retention_preserves_unfinished_drift_progress(settings, running):
+    repository = Repository(settings.database_path)
+    release = _release(repository)
+    unfinished = repository.deployments.create_deployment(
+        "scheduler", release_id=release.id, check_mode=True
+    )
+    repository.deployment_targets.plan(unfinished.id, ["edge-a"], fence=0)
+    if running:
+        unfinished = repository.deployments.transition(
+            unfinished.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        )
+    for _ in range(3):
+        completed = repository.deployments.create_deployment(
+            "scheduler", release_id=release.id, check_mode=True
+        )
+        repository.deployments.transition(
+            completed.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        )
+        repository.deployments.transition(
+            completed.id, DeploymentStatus.RUNNING, DeploymentStatus.SUCCEEDED
+        )
+
+    assert repository.deployments.prune_history(1) == 2
+    assert repository.deployments.get_deployment(unfinished.id) == unfinished
+    assert [
+        target.edge for target in repository.deployment_targets.targets(unfinished.id)
+    ] == ["edge-a"]
+    assert repository.deployments.prune_history(1) == 0
 
 
 def test_workflow_retention_never_drops_an_unfinished_one(settings):

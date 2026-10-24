@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from blitzecdn.capabilities.jobs.composition import schedule_specs
+from blitzecdn.capabilities.jobs.domain import JobStatus
 from blitzecdn.capabilities.jobs.service import (
     DEPLOYMENT_JOB,
     SCHEDULED_JOB,
@@ -261,3 +262,33 @@ def test_a_deployment_keeps_the_queue_s_own_lease(repository):
     JobRunner(queue=queue, scheduler=scheduler, clock=clock).tick()
 
     assert leases == [clock() + timedelta(seconds=queue.lease_seconds)]
+
+
+@pytest.mark.parametrize("succeeds", [False, True])
+def test_worker_bounds_finished_job_history_and_preserves_live_work(
+    repository, succeeds
+):
+    clock = Clock()
+    scheduler, queue = scheduler_for(
+        repository, clock, handlers={"work": lambda _payload: None} if succeeds else {}
+    )
+    queue.retention = 1
+    running = repository.jobs.enqueue(kind="work", payload={}, available_at=clock())
+    assert queue.claim() is not None
+    pending = repository.jobs.enqueue(
+        kind="work", payload={}, available_at=clock() + timedelta(hours=1)
+    )
+    for _ in range(3):
+        repository.jobs.enqueue(kind="work", payload={}, available_at=clock())
+        clock.advance(1)
+    runner = JobRunner(queue=queue, scheduler=scheduler, clock=clock)
+
+    for _ in range(3):
+        assert runner.tick() is True
+
+    remaining = repository.jobs.list_jobs()
+    assert len(remaining) == 3
+    assert queue.get(running.id).status is JobStatus.RUNNING
+    assert queue.get(pending.id).status is JobStatus.PENDING
+    terminal = JobStatus.SUCCEEDED if succeeds else JobStatus.FAILED
+    assert len([job for job in remaining if job.status is terminal]) == 1

@@ -81,6 +81,10 @@ class JobRunner:
             return bool(fired)
         self._hold_for_declared_lease(claim)
         self.queue.run(claim)
+        # Apply the count while processing work, rather than relying on an
+        # optional timer. The store excludes pending/running jobs, including
+        # retries and claims another worker still owns.
+        self.queue.prune()
         return True
 
     def _hold_for_declared_lease(self, claim: JobClaim) -> None:

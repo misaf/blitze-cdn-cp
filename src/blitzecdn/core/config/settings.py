@@ -144,13 +144,12 @@ class Settings(BaseSettings):
     #: The newest are kept; a deployment whose log has aged out still has its
     #: structured result, which is what the control plane reasons from.
     run_log_retention: int = Field(default=500, ge=10, le=100_000)
-    #: How many check-mode deployments and finished workflows to keep.
+    #: How many finished check-mode deployments, jobs and workflows to keep,
+    #: and the baseline number of releases (referenced releases survive too).
     #:
     #: The drift timer fires hourly and each firing writes a deployment row
-    #: carrying a *complete* copy of every zone and record, so without a bound
-    #: this table grows by a full desired state every hour whether or not
-    #: anything changed. Real deployments are never pruned: they are the
-    #: releases a rollback chooses from.
+    #: naming its immutable release. Unfinished deployments are never pruned;
+    #: real deployments are also retained as rollback history.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
     #: How many audit events to keep.
     #:

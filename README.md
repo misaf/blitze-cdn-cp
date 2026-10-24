@@ -287,6 +287,10 @@ blitzecdn backup restore /path/to/backup.tar.gz
 Backups contain credentials and private keys. Copy them off the server and
 protect them as secrets.
 
+See [retention and recovery copies](docs/RETENTION.md) for what cleanup keeps,
+which keys rollback needs, and how to budget space for full backups. Archives
+and real deployment history are retained until an operator decides otherwise.
+
 ### When a restarted worker still shows a running job
 
 Inspect the job before submitting the same work again:
