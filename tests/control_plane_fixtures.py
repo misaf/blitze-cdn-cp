@@ -23,6 +23,7 @@ from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
     DomainPatch,
+    PatchPolicy,
     RecordType,
     Rule,
     RulePatch,
@@ -163,7 +164,9 @@ def _set_policy(
     where every other hostname would pick them up.
     """
     if rule is None:
-        control.dns.update_domain(domain, DomainPatch.model_validate(policy), operator)
+        control.dns.update_domain(
+            domain, PatchPolicy.from_patch(DomainPatch.model_validate(policy)), operator
+        )
         return
     control.rules.update_rule(
         domain,
@@ -248,7 +251,7 @@ def seed_site(
     if policy:
         control.dns.update_domain(
             domain,
-            DomainPatch.model_validate(policy),
+            PatchPolicy.from_patch(DomainPatch.model_validate(policy)),
             operator,
         )
     if routed:

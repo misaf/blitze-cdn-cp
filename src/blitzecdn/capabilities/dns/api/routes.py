@@ -19,6 +19,7 @@ from blitzecdn.capabilities.dns.api.models import (
     RuleCreate,
     RulePatch,
 )
+from blitzecdn.capabilities.dns.domain import PatchPolicy
 from blitzecdn.core.exceptions import ConflictError
 
 router = APIRouter(dependencies=[Depends(require_operator)])
@@ -49,7 +50,9 @@ def update_domain(
     control: ControlPlaneDependency,
 ) -> Domain:
     return Domain.from_domain(
-        control.dns.update_domain(domain, patch.to_domain(), operator)
+        control.dns.update_domain(
+            domain, PatchPolicy.from_patch(patch.to_domain()), operator
+        )
     )
 
 

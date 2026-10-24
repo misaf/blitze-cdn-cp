@@ -19,7 +19,7 @@ from pydantic import SecretStr
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import ControlPlane, Repository
 
@@ -44,7 +44,9 @@ def _control_serving(settings, runner_stub, **patch):
     )
     seed_site(control, name="example-com", record="cdn")
     if patch:
-        control.dns.update_domain("example.com", DomainPatch(**patch), "alice")
+        control.dns.update_domain(
+            "example.com", PatchPolicy.from_patch(DomainPatch(**patch)), "alice"
+        )
     return control
 
 

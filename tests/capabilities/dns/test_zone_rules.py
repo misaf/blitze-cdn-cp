@@ -11,6 +11,7 @@ from blitzecdn.capabilities.compression.policy import CompressionMode
 from blitzecdn.capabilities.dns.domain import (
     Domain,
     DomainPatch,
+    PatchPolicy,
     Rule,
     RulePatch,
     resolve_policy,
@@ -86,7 +87,9 @@ def test_a_zone_patch_merges_rather_than_replaces(settings):
     )
 
     updated = control.dns.update_domain(
-        "example.com", DomainPatch(cache_enabled=False), "tester"
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(cache_enabled=False)),
+        "tester",
     )
 
     assert not updated.policy.cache.cache_enabled
@@ -100,7 +103,9 @@ def test_a_zone_patch_that_would_break_a_pair_is_refused(settings):
 
     with pytest.raises(ValueError, match="http3_enabled=True requires ssl_mode"):
         control.dns.update_domain(
-            "example.com", DomainPatch(http3_enabled=True), "tester"
+            "example.com",
+            PatchPolicy.from_patch(DomainPatch(http3_enabled=True)),
+            "tester",
         )
 
 
@@ -124,11 +129,13 @@ def test_a_zone_patch_cannot_claim_a_controller_managed_certificate(settings):
     with pytest.raises(ValueError, match="set by the certificate upload"):
         control.dns.update_domain(
             "example.com",
-            DomainPatch(
-                ssl_mode=SslMode.FULL,
-                certificate_mode=CertificateMode.REQUESTED,
-                certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
-                certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+            PatchPolicy.from_patch(
+                DomainPatch(
+                    ssl_mode=SslMode.FULL,
+                    certificate_mode=CertificateMode.REQUESTED,
+                    certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
+                    certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+                )
             ),
             "tester",
         )
@@ -147,11 +154,13 @@ def test_an_operator_may_still_point_a_zone_at_material_of_their_own(settings):
 
     zone = control.dns.update_domain(
         "example.com",
-        DomainPatch(
-            ssl_mode=SslMode.FULL,
-            certificate_mode=CertificateMode.EXISTING,
-            certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
-            certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+        PatchPolicy.from_patch(
+            DomainPatch(
+                ssl_mode=SslMode.FULL,
+                certificate_mode=CertificateMode.EXISTING,
+                certificate_path="/etc/blitzecdn/tls/example.com/fullchain.pem",
+                certificate_key_path="/etc/blitzecdn/tls/example.com/privkey.pem",
+            )
         ),
         "tester",
     )
@@ -549,12 +558,16 @@ def test_two_operators_patching_one_zone_do_not_lose_a_setting(settings):
         uow=_competing_writer(
             control,
             lambda: control.dns.update_domain(
-                "example.com", DomainPatch(cache_enabled=False), "bob"
+                "example.com",
+                PatchPolicy.from_patch(DomainPatch(cache_enabled=False)),
+                "bob",
             ),
         ),
     )
     editor.update_domain(
-        "example.com", DomainPatch(compression=CompressionMode.GZIP), "alice"
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(compression=CompressionMode.GZIP)),
+        "alice",
     )
 
     zone = control.dns.get_domain("example.com")
@@ -611,7 +624,9 @@ def test_the_zone_and_rule_stores_refuse_a_write_built_on_a_stale_read(settings)
     seed_site(control, name="rule-host", record="api", cache_enabled=True)
 
     stale_zone = control.dns.get_domain("example.com")
-    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "bob")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "bob"
+    )
     with (
         repository.transaction(),
         pytest.raises(ConflictError, match="changed while it was being edited"),

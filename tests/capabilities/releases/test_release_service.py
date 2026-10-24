@@ -13,7 +13,12 @@ import pytest
 import yaml
 from control_plane_fixtures import FakeRunner, seed_record, seed_site
 
-from blitzecdn.capabilities.dns.domain import Domain, DomainPatch, RecordType
+from blitzecdn.capabilities.dns.domain import (
+    Domain,
+    DomainPatch,
+    PatchPolicy,
+    RecordType,
+)
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.domain import (
     DESIRED_STATE_ARTIFACT,
@@ -64,7 +69,11 @@ def test_a_changed_setting_records_a_second_release(control):
 
     # A setting no fixture fills in for an absent capability, so this is a real
     # change in every workspace.
-    plane.dns.update_domain("example.com", DomainPatch(always_use_https=True), "alice")
+    plane.dns.update_domain(
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(always_use_https=True)),
+        "alice",
+    )
     after = plane.releases.prepare()
 
     assert after.id != before.id

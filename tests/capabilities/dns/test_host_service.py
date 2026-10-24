@@ -6,7 +6,7 @@ import pytest
 from control_plane_fixtures import FakeRunner, seed_record, seed_site
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.dns.domain import DomainPatch, Rule
+from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy, Rule
 from blitzecdn.capabilities.dns.service import HostService
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
@@ -31,7 +31,9 @@ def test_host_reads_follow_canonical_edits(control):
     assert control.sites is control.site_editor
     assert not hasattr(control.dns, "list_sites")
     site = seed_site(control)
-    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "alice"
+    )
     assert control.sites.get_site(site.name).policy.cache.cache_enabled is False
     control.dns.delete_domain("example.com", "alice")
     assert control.sites.list_sites() == []

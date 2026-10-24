@@ -13,7 +13,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns.domain import DomainPatch, EditFirewall
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.cli import common
 
@@ -120,13 +120,9 @@ def domain_firewall(
         raise typer.BadParameter(
             "give at least one rule option, or --clear to remove every rule"
         )
-    if clear:
-        firewall = SiteFirewall()
-    else:
-        firewall = control.dns.get_domain(name).policy.security.firewall.replacing(
-            named
-        )
-    zone = _update(name, DomainPatch(firewall=firewall))
+    zone = control.dns.update_domain(
+        name, EditFirewall.model_validate(named | {"clear": clear}), "cli"
+    )
     rules = sum(
         len(getattr(zone.policy.security.firewall, f))
         for f in SiteFirewall.model_fields

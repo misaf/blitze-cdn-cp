@@ -102,21 +102,28 @@ associated decisions describe the implementation that actually exists.
   patch/rule semantics and omission rules. All frozen surfaces are unchanged.
   See decision 0013.
 
+- Shared application policy commands implemented: immutable replacement patches,
+  selected firewall lists and visitor-header switches reach one transactional
+  handler. Selective CLI edits no longer read and merge state before the write
+  boundary. Existing shared CRUD services remain the mutation handlers for
+  other operations. Python callers now submit explicit commands; delivery and
+  storage shapes are unchanged. See decision 0014.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full workspace fast suite after nested composition: 1,859 passed, 13 skipped.
-- Core-only suite after nested composition: 1,290 passed, 35 skipped; workspace restored.
+- Full workspace fast suite after shared policy commands: 1,874 passed, 13 skipped.
+- Core-only suite after shared policy commands: 1,305 passed, 35 skipped;
+  workspace restored.
 - All eleven distributions build as wheels and source archives. The root wheel
-  contains the exact nested policy, zone/host aggregate and delivery-projection
+  contains the exact shared command, application handler and updated API/CLI
   sources, verified against the workspace files in the built archive. The
   configuration transaction helper and tasks remain included.
 - Live Ubuntu edge convergence has not been executed.
 
 ## Remaining implementation slices
 
-- Introduce shared application commands for API and CLI mutations.
 - Bind resource versions to canonical desired state and add reference-aware
   material garbage collection.
 - Consolidate independently packaged capabilities into one application with
@@ -127,5 +134,6 @@ associated decisions describe the implementation that actually exists.
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
-confirmation before beginning the next. Following nested policy composition,
-the next proposed step is shared application commands for API and CLI mutations.
+confirmation before beginning the next. Following shared policy commands,
+the next proposed step is binding resource versions to canonical desired state
+and adding reference-aware material garbage collection.

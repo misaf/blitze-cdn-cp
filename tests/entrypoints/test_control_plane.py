@@ -19,6 +19,7 @@ from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
     DomainPatch,
+    PatchPolicy,
     RecordPatch,
     RecordType,
     Rule,
@@ -183,7 +184,9 @@ def test_crud_validate_and_successful_deploy(settings):
     seed_edge(control)
     site = seed_site(control, name="example-com", record="cdn")
     control.dns.update_domain(
-        "example.com", DomainPatch(cache_enabled=False, compression="off"), "alice"
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(cache_enabled=False, compression="off")),
+        "alice",
     )
     assert control.sites.get_site(site.name).policy.cache.cache_enabled is False
     assert control.deployments.validate() == []
@@ -437,7 +440,9 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
     # and a patch setting a value to what it already holds moves nothing.
     original = seed_site(control, name="example-com", record="cdn", cache_enabled=True)
     successful = control.deployments.deploy("alice")
-    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "alice"
+    )
     result = control.deployments.rollback("alice", successful.id)
     assert result.status is DeploymentStatus.SUCCEEDED
     # Rollback restores the zone the snapshot carried, so the host it derives
@@ -458,7 +463,9 @@ def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settin
     )
     original = seed_site(control, cache_enabled=True)
     successful = control.deployments.deploy("alice")
-    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "alice"
+    )
     current = control.sites.get_site(original.name)
 
     def fail_restore(_domains, _records):
@@ -513,7 +520,9 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
     # snapshot's zones over it, and must do so while still holding the lock —
     # swapping them after releasing it would drop whatever landed in between
     # without the guard ever seeing it.
-    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "bob")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "bob"
+    )
 
     control.deployments.rollback("alice", successful.id)
 
@@ -726,7 +735,9 @@ def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     )
     original = _seed_proxied_record(control)
     successful = control.deployments.deploy("alice")
-    control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "alice"
+    )
 
     rolled_back = control.deployments.rollback("alice", successful.id)
 

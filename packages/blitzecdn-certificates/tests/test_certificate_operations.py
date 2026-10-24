@@ -41,7 +41,7 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,
     DeploymentStatus,
 )
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import NotFoundError
@@ -78,7 +78,9 @@ def test_upload_and_request_certificate_preserve_ssl_mode(settings, certificate_
     )
     assert control.sites.get_site("example-com").policy.tls.ssl_mode == "off"
 
-    control.dns.update_domain("example.com", DomainPatch(ssl_mode="full"), "alice")
+    control.dns.update_domain(
+        "example.com", PatchPolicy.from_patch(DomainPatch(ssl_mode="full")), "alice"
+    )
 
     requested = control.certificates.request_certificate(
         "example-com", "alice", "owner@example.com"

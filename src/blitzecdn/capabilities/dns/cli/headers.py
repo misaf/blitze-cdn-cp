@@ -12,9 +12,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
-from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.capabilities.serving.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.dns.cli.app import _report, domain_app
+from blitzecdn.capabilities.dns.domain import EditVisitorHeaders
 from blitzecdn.cli import common
 
 
@@ -65,9 +64,9 @@ def domain_visitor_headers(
             "give at least one of --connecting-ip/--no-connecting-ip or "
             "--ip-country/--no-ip-country"
         )
-    current = control.dns.get_domain(name).policy.headers.visitor_headers
-    headers = SiteVisitorHeaders.model_validate(current.model_dump() | named)
-    zone = _update(name, DomainPatch(visitor_headers=headers))
+    zone = control.dns.update_domain(
+        name, EditVisitorHeaders.model_validate(named), "cli"
+    )
     sent = [
         header
         for header, on in (

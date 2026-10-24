@@ -43,7 +43,7 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
 )
-from blitzecdn.capabilities.dns.domain import DomainPatch
+from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
 from blitzecdn.capabilities.tls.policy import SslMode
 from blitzecdn.composition import ControlPlane, Repository
@@ -223,7 +223,9 @@ def test_an_edge_that_stops_serving_fails_the_deployment_that_touched_it(
     # none of that; it already said every task was fine.
     edge.stop()
     control.dns.update_domain(
-        "example.com", DomainPatch(cache_valid_success="1h"), "alice"
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(cache_valid_success="1h")),
+        "alice",
     )
     broken = control.deployments.deploy("alice")
 
@@ -253,7 +255,9 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
 
     # A change that turns out to be wrong, deployed.
     control.dns.update_domain(
-        "example.com", DomainPatch(always_use_https=True), "alice"
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(always_use_https=True)),
+        "alice",
     )
     bad = control.deployments.deploy("alice")
     assert bad.release_id != good.release_id
@@ -339,7 +343,9 @@ def test_a_healthy_edge_that_did_not_activate_the_new_release_fails_verification
     assert good.status is DeploymentStatus.SUCCEEDED
     edge._server.freeze_release = True
     control.dns.update_domain(
-        "example.com", DomainPatch(cache_valid_success="1h"), "alice"
+        "example.com",
+        PatchPolicy.from_patch(DomainPatch(cache_valid_success="1h")),
+        "alice",
     )
 
     stale = control.deployments.deploy("alice")
