@@ -107,6 +107,6 @@ assertion to grow an exemption set, and this decision is not that.
 - [The zone entry point](../../src/blitzecdn/capabilities/dns/service/zones.py)
 - [The rule entry points](../../src/blitzecdn/capabilities/dns/service/rules.py)
 - [The issuer's own write](../../src/blitzecdn/capabilities/dns/service/hosts.py)
-- [The two new commands](../../packages/blitzecdn-certificates/src/blitzecdn_certificates/certificates/cli.py)
+- [The two new commands](../../src/blitzecdn/capabilities/tls/certificates/cli.py)
 - [The delivery map](../../tests/contract/test_delivery_parity.py)
 - [Guard and regression tests](../../tests/capabilities/dns/test_zone_rules.py)

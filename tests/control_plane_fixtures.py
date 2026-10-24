@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import nullcontext, suppress
 from datetime import UTC, datetime, timedelta
-from importlib.util import find_spec
 from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
@@ -76,32 +75,6 @@ def serving_probe_opens_no_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
-@pytest.fixture(autouse=True)
-def skip_tests_a_detached_capability_cannot_answer(
-    request: pytest.FixtureRequest,
-) -> None:
-    """Run a root test that reads a capability's own output only while it is attached.
-
-    The rendered edge configuration is composed: core frames the server block
-    and each installed capability contributes the fragments that fill it. A
-    test asserting on one of those fragments is a cross-package contract, so it
-    belongs here rather than in either distribution — no package's own test
-    environment has the other packages installed — but it cannot hold in the
-    core-only workspace, where the fragment is not there to render.
-
-    Named per test rather than per module, because most of the tests beside
-    them assert core's half and must keep failing when it breaks.
-    """
-    required = getattr(request.module, "REQUIRES_CAPABILITIES", {})
-    detached = sorted(
-        capability
-        for capability in required.get(request.function.__name__, ())
-        if find_spec(f"blitzecdn_{capability}") is None
-    )
-    if detached:
-        pytest.skip(f"detached: {', '.join(detached)}")
-
-
 #: What a rule overrides when the caller asked for a distinct site and named no
 #: policy — several sites in one zone, each holding its own certificate, which
 #: is what the certificate and backup suites need.
@@ -128,21 +101,6 @@ _IDENTITY_ONLY = {"enabled": True}
 #: byte-identical desired state and the frozen edge fixtures are untouched. A
 #: test that is *about* one of these settings passes it explicitly and keeps
 #: whatever it asked for; this only fills in what the caller left to defaults.
-_WITHOUT_DISTRIBUTION: dict[str, dict[str, object]] = {
-    "cache": {"cache_enabled": False},
-    "compression": {"compression": "off"},
-}
-
-
-def _servable_here(policy: dict[str, object]) -> dict[str, object]:
-    """The caller's policy, with absent capabilities' settings turned off."""
-    filled = dict(policy)
-    for capability, defaults in _WITHOUT_DISTRIBUTION.items():
-        if find_spec(f"blitzecdn_{capability}") is not None:
-            continue
-        for setting, value in defaults.items():
-            filled.setdefault(setting, value)
-    return filled
 
 
 def _issuer_owned_mode(policy: Mapping[str, object]) -> CertificateMode | None:
@@ -225,7 +183,7 @@ def seed_site(
     it was fabricating a state no deployment can reach in one step, so the
     sequence is the more faithful fixture regardless.
     """
-    policy = _servable_here(policy)
+    policy = dict(policy)
     issuer_mode = _issuer_owned_mode(policy)
     if issuer_mode is not None:
         # Held back and replayed below in the order the system reaches them.
@@ -370,9 +328,7 @@ def seed_record(
     :func:`seed_site` for a zone with settings on it.
     """
     with suppress(ConflictError):
-        control.dns.create_domain(
-            domain_from_settings({"name": domain, **_servable_here({})}), operator
-        )
+        control.dns.create_domain(domain_from_settings({"name": domain}), operator)
     return control.dns.create_record(
         DnsRecord.model_validate(
             {

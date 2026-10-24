@@ -415,27 +415,14 @@ def test_every_command_uses_the_shared_option_parser():
         )
 
 
-def test_both_capability_renderings_come_from_one_list():
-    """The uv extras and the Ansible list must name the same capabilities.
-
-    They are consumed by different things — one builds the virtualenv, the
-    other tells the role which capability configuration to write — and a
-    controller given configuration for a capability it does not have refuses to
-    start. Each was expanded by hand before, so drift was a live possibility.
-    """
+def test_configuration_sections_follow_the_installer_list():
     for override in ("", "backup cache"):
         prelude = f'export BLITZECDN_CAPABILITIES="{override}"\n' if override else ""
-        extras = _query(f"{prelude}capability_extras").split()
+        names = _query(f"{prelude}capabilities").split()
         rendered = _query(f"{prelude}capability_json")
-
-        # "--extra name --extra name ..." -> the names alone.
-        assert extras[::2] == ["--extra"] * (len(extras) // 2)
-        from_extras = extras[1::2]
-        from_json = [name.strip('"') for name in rendered.split(",")]
-
-        assert from_extras == from_json
+        assert [name.strip('"') for name in rendered.split(",")] == names
         if override:
-            assert from_extras == override.split()
+            assert names == override.split()
 
 
 def test_the_installer_never_demands_a_value_no_capability_will_read():
@@ -455,47 +442,24 @@ def test_the_installer_never_demands_a_value_no_capability_will_read():
     assert "certificates" in _query("capabilities").split()
 
 
-def test_the_control_plane_image_carries_the_capabilities_it_is_installed_with():
-    """The image's extras and install.sh's list are one decision, spelled twice.
-
-    They are read by different things — the extras build the virtualenv the
-    control plane actually runs in, the list decides which capability
-    configuration the managed blitzecdn.toml carries — and each direction of
-    drift fails silently in its own way. Configuration for a capability the
-    image lacks is a control plane that refuses to start at all; a capability
-    in the image the list omits is one nothing ever configures, which is how
-    the image came to install certbot for a distribution it did not have.
-
-    Read from the instruction rather than the file: a comment naming a
-    capability is not an `--extra` for it.
-    """
+def test_the_control_plane_image_installs_the_single_application():
     dockerfile = (
         REPO_ROOT / "src/blitzecdn/docker/control-plane/Dockerfile"
-    ).read_text(encoding="utf-8")
+    ).read_text()
     code = "\n".join(
         line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")
     )
-    sync = re.search(r"RUN uv sync .*?(?=\n[A-Z])", code, re.DOTALL)
-    assert sync, "the image no longer builds its virtualenv with `uv sync`"
-    extras = re.findall(r"--extra\s+(\S+)", sync.group())
-
-    assert sorted(extras) == sorted(_query("capabilities").split())
+    assert "uv sync --frozen --no-dev --no-editable" in code
+    assert "--extra" not in code
+    assert "--all-packages" not in code
 
 
-def test_the_development_recipe_installs_what_a_server_actually_gets():
-    """`just install-prod` says it installs what a server gets; it must.
-
-    It is the only local configuration that stands in for a real controller, so
-    a capability missing from it is one nothing is ever tested against — the
-    recipe would quietly narrow what "production" means for everyone reading
-    its output.
-    """
-    justfile = (REPO_ROOT / "justfile").read_text(encoding="utf-8")
+def test_the_production_recipe_installs_the_single_application():
+    justfile = (REPO_ROOT / "justfile").read_text()
     recipe = re.search(r"\ninstall-prod:\n(.*?)(?=\n\S)", justfile, re.DOTALL)
-    assert recipe, "install-prod is no longer a recipe"
-
-    extras = re.findall(r"--extra\s+(\S+)", recipe.group(1))
-    assert sorted(extras) == sorted(_query("capabilities").split())
+    assert recipe
+    assert "uv sync --frozen --no-dev" in recipe.group(1)
+    assert "--extra" not in recipe.group(1)
 
 
 def test_the_control_plane_role_defaults_to_the_list_the_installer_passes():

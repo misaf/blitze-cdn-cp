@@ -46,7 +46,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import pytest
-from paths import PACKAGES, SOURCE
+from paths import SOURCE
 
 #: A Sphinx cross-reference role and the target inside it. The leading ``~`` is
 #: display sugar — it shortens the rendered label to the last component and says
@@ -62,13 +62,8 @@ _MINIMUM_PARTS = 2
 
 
 def _source_roots() -> list[Path]:
-    """This distribution's source, and every optional wheel's.
-
-    A packaged capability's docstrings drift for exactly the reason core's do,
-    and ``blitzecdn-backup`` had a stale one. Discovered rather than listed, for
-    the reason :func:`~paths.optional_packages` is.
-    """
-    return [SOURCE, *sorted(PACKAGES.glob("*/src"))]
+    """Every runtime module ships in the application source tree."""
+    return [SOURCE]
 
 
 def _import_root(root: Path) -> str:

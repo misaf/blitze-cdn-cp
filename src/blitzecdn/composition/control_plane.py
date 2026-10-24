@@ -54,6 +54,7 @@ from blitzecdn.capabilities.jobs.composition import (
 from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner, JobScheduler
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.maintenance.composition import build_maintenance_service
+from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
 from blitzecdn.capabilities.releases.composition import build_release_service
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
@@ -96,6 +97,16 @@ BUILTIN_PLUGINS: tuple[str, ...] = (
     "blitzecdn.capabilities.tls.plugin",
     "blitzecdn.capabilities.maintenance.plugin",
     "blitzecdn.capabilities.diagnostics.plugin",
+    "blitzecdn.capabilities.backup.provider",
+    "blitzecdn.capabilities.cache.provider",
+    "blitzecdn.capabilities.tls.provider",
+    "blitzecdn.capabilities.compression.provider",
+    "blitzecdn.capabilities.security.provider",
+    "blitzecdn.capabilities.origins.provider",
+    "blitzecdn.providers.geoip.provider",
+    "blitzecdn.providers.hardening.provider",
+    "blitzecdn.providers.http3.provider",
+    "blitzecdn.providers.resolver.provider",
 )
 
 
@@ -133,7 +144,7 @@ class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
     capability's port but core's own, published as ``ControlPlane.fleet``, and it
     is what an *installed* capability is handed: the generic "run this play"
     and nothing capability-shaped. A detachable package declares its own narrow
-    port over it — ``blitzecdn_cache.ports.CacheRunner`` — which is why no
+    port over it — ``blitzecdn.capabilities.cache.ports.CacheRunner`` — which is why no
     ``CacheRunner`` appears in this list. That is the difference between a
     built-in, whose port core may name, and a distribution core has never heard
     of.
@@ -292,6 +303,7 @@ class ControlPlane:
         # PlaybookRunner. DNS supplies the host projection after it is built.
         self.sites: SiteReader
         self.fleet: PlaybookRunner = self._runner
+        self.origin_checks = OriginCheckPlaybook(self.fleet)
         self.transactions: UnitOfWork = store
         self.deployment_requirements: DeploymentRequirements = (
             store.deployment_requirements

@@ -1,0 +1,64 @@
+"""Compose the application's backup services from their declared collaborators.
+
+Configuration, ports and concrete adapters meet here. Services and domain
+values do not discover installed packages or construct the control plane.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+
+from blitzecdn.capabilities.backup.adapters import (
+    AcmeComponent,
+    ComposeRestoreGuard,
+    ConfigComponent,
+    DatabaseComponent,
+    TarArchive,
+    TemporaryWorkspace,
+    TlsComponent,
+)
+from blitzecdn.capabilities.backup.config import BackupConfig
+from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
+from blitzecdn.core.config import Settings
+from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.plugins import ConfigurationContribution
+from blitzecdn.core.runtime.resources import distribution_version
+
+#: This distribution's version, asked of the environment rather than
+#: written down here: it is what ``PluginMetadata.version`` reports and
+#: what ``blitzecdn plugins`` shows an operator, so the one number that
+#: must not drift from ``pyproject.toml`` is not copied out of it.
+__version__ = distribution_version(__name__)
+
+
+def build_backup_service(
+    settings: Settings, *, configuration: Sequence[ConfigurationContribution]
+) -> BackupService:
+    """Wire backup and restore, which need no repository and open none."""
+    machine_specific = frozenset(
+        setting.name.removeprefix("BLITZE_").lower()
+        for contribution in configuration
+        for setting in contribution.settings
+        if not setting.portable
+    )
+    return BackupService(
+        policy=BackupPolicy(
+            backup_dir=BackupConfig.from_settings(settings).backup_dir,
+            version=__version__,
+        ),
+        components=(
+            DatabaseComponent(settings),
+            TlsComponent(settings),
+            AcmeComponent(settings),
+            ConfigComponent(settings, machine_specific),
+        ),
+        archive=TarArchive(),
+        schema=DatabaseSchema(settings),
+        services=ComposeRestoreGuard(),
+        # Staged under the state directory rather than /tmp: a staged backup is
+        # a complete copy of the database and every private key.
+        workspace=TemporaryWorkspace(settings.state_dir / "backup-work"),
+    )
+
+
+__all__ = ["__version__", "build_backup_service"]

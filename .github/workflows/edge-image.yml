@@ -20,7 +20,7 @@ name: Edge image
       # A capability declares the dynamic modules it needs in its plugin
       # module, and the image is built from that declaration — so a package
       # that adds one changes this image without touching the build context.
-      - packages/*/src/*/plugin.py
+      - src/blitzecdn/**/provider.py
       - .github/workflows/edge-image.yml
   push:
     # Every release line still under development. A line missing from here
@@ -31,7 +31,7 @@ name: Edge image
     branches: [3.x, 4.x, 5.x]
     paths:
       - src/blitzecdn/docker/edge/**
-      - packages/*/src/*/plugin.py
+      - src/blitzecdn/**/provider.py
       - .github/workflows/edge-image.yml
     tags: ['v*.*.*']
   workflow_dispatch:
@@ -67,7 +67,7 @@ jobs:
       - name: Resolve the modules the installed capabilities declare
         id: modules
         run: |
-          uv sync --frozen --all-packages
+          uv sync --frozen
           uv run blitzecdn edge image spec | tee /tmp/edge-image-spec
           {
             echo 'build-args<<SPEC'

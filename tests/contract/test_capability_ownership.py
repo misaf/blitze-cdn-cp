@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from paths import CORE_ANSIBLE, REPO_ROOT
+from paths import CORE_ANSIBLE, SOURCE
 
 from blitzecdn.capabilities.cache.policy import CachePolicy
 from blitzecdn.capabilities.compression.policy import CompressionPolicy
@@ -43,8 +43,7 @@ _ROLE_TEXT = "".join(
     if path.is_file()
 )
 _PACKAGE_NGINX_TEXT = "".join(
-    path.read_text(encoding="utf-8")
-    for path in sorted((REPO_ROOT / "packages").glob("*/src/*/nginx/*.j2"))
+    path.read_text(encoding="utf-8") for path in sorted(SOURCE.rglob("nginx/*.j2"))
 )
 _NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 

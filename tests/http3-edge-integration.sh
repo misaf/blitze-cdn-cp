@@ -55,7 +55,7 @@ in_edge() { docker exec "${edge}" bash -lc "$1"; }
 # at run time, so this harness resolves `blitzecdn_geoip` and
 # `blitzecdn_security` the same way a deployment does rather than from a
 # directory in the checkout.
-readonly ROLES_PATH='/workspace/src/blitzecdn/ansible/roles:/workspace/packages/blitzecdn-cache/src/blitzecdn_cache/ansible/roles:/workspace/packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles:/workspace/packages/blitzecdn-geoip/src/blitzecdn_geoip/ansible/roles:/workspace/packages/blitzecdn-hardening/src/blitzecdn_hardening/ansible/roles:/workspace/packages/blitzecdn-http3/src/blitzecdn_http3/ansible/roles:/workspace/packages/blitzecdn-resolver/src/blitzecdn_resolver/ansible/roles:/workspace/packages/blitzecdn-security/src/blitzecdn_security/ansible/roles'
+readonly ROLES_PATH='/workspace/src/blitzecdn/ansible/roles:/workspace/src/blitzecdn/capabilities/cache/ansible/roles:/workspace/src/blitzecdn/capabilities/compression/ansible/roles:/workspace/src/blitzecdn/providers/geoip/ansible/roles:/workspace/src/blitzecdn/providers/hardening/ansible/roles:/workspace/src/blitzecdn/providers/http3/ansible/roles:/workspace/src/blitzecdn/providers/resolver/ansible/roles:/workspace/src/blitzecdn/capabilities/security/ansible/roles'
 converge() {
   in_edge "cd /workspace && ANSIBLE_ROLES_PATH=${ROLES_PATH} ansible-playbook -i localhost, tests/integration/http3-edge.yml $*"
 }
@@ -73,7 +73,7 @@ converge() {
 say "Resolving the modules the installed capabilities declare"
 command -v uv >/dev/null 2>&1 ||
   fail "uv is not on PATH, and the edge image's module set is resolved with it"
-uv sync --frozen --all-packages --project "${project_dir}" >/dev/null
+uv sync --frozen --project "${project_dir}" >/dev/null
 module_args=()
 while IFS= read -r argument; do
   if [[ -n ${argument} ]]; then
@@ -288,7 +288,7 @@ grep -qi 'content-encoding: br' <<<"${brotli}"
 say "Serving an HTTP-01 challenge the way ACME asks for one"
 readonly ACME_TOKEN=blitzecdn-integration-token
 readonly ACME_VALIDATION=blitzecdn-integration-token.EhSCDKFbQfBRXBcJ2Vd0
-readonly ACME_PLAYBOOK=packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml
+readonly ACME_PLAYBOOK=src/blitzecdn/capabilities/tls/ansible/playbooks/acme-challenge.yml
 readonly ACME_URL="http://site-one.test/.well-known/acme-challenge/${ACME_TOKEN}"
 # Port 80 and no -f: the code is the assertion, and a redirect to HTTPS is a
 # failure worth seeing rather than following. A CA does not follow one either.

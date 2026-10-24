@@ -49,9 +49,8 @@ jobs:
       # the justfile is a gate this workflow picks up without a second edit,
       # and a contributor running `just check` locally runs this pipeline.
       #
-      # Every BlitzeCDN role is checked out with this repository — core's in
-      # ansible/roles/ and each optional capability's inside its own package —
-      # so only third-party collections are installed here.
+      # All application and provider roles ship together; only third-party
+      # collections need a separate install.
       - name: Install project and collection dependencies
         run: just install
       - name: Lockfile is current
@@ -66,12 +65,7 @@ jobs:
         run: just shell-lint
       - name: Tests and coverage
         run: just test --cov-report=xml
-      # The other half of the packaging boundary, and not something the run
-      # above can prove: it has every optional distribution installed, so a
-      # core test that imported one would pass there. This syncs them away,
-      # runs the control plane's own suite, and syncs them back.
-      - name: The control plane with no optional package installed
-        run: just test-core-only
+      # The test gate includes the isolated single-wheel installation contract.
       # The report was produced and then thrown away with the runner. Kept as
       # an artifact so a coverage question about a specific run can be answered
       # after the fact rather than by re-running the suite locally and hoping
@@ -115,16 +109,9 @@ jobs:
       - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
       - name: Install Python
         run: uv python install ${{ matrix.python-version }}
-      # `--all-packages` is the workspace form: a plain sync installs the
-      # control plane alone and leaves every optional distribution's tests
-      # unable to import.
-      #
-      # Spelled out rather than `just install` because the interpreter under
-      # test has to be named, which is also why the collections are a separate
-      # recipe: the role-contract tests run a real ansible-playbook, and a role
-      # that uses `community.docker` fails to parse without them.
+      # Install the same application under each supported interpreter.
       - name: Install the workspace
-        run: uv sync --frozen --all-packages --python ${{ matrix.python-version }}
+        run: uv sync --frozen --python ${{ matrix.python-version }}
       - name: Install collection dependencies
         run: just collections
       - name: Run tests

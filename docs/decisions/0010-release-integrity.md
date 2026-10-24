@@ -37,6 +37,6 @@ when deploying an older release. Missing or modified material refuses the run.
 - [Verified persistence](../../src/blitzecdn/capabilities/releases/adapters/persistence.py)
 - [Integrity regressions](../../tests/capabilities/releases/test_integrity.py)
 
-- [Versioned certificate storage](../../packages/blitzecdn-certificates/src/blitzecdn_certificates/certificates/adapters/store.py)
+- [Versioned certificate storage](../../src/blitzecdn/capabilities/tls/certificates/adapters/store.py)
 - [Material verification](../../src/blitzecdn/ansible/roles/blitzecdn_nginx/tasks/verify-material.yml)
 - [Executable material contracts](../../tests/contract/test_validation_contracts.py)

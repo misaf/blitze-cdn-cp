@@ -15,7 +15,7 @@ from edge_render_support import (
     ROLES_DIR,
     _role_spec,
 )
-from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, optional_packages
+from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT, SOURCE
 
 PROJECT_DIR = REPO_ROOT
 
@@ -53,9 +53,8 @@ def _plays_and_their_roles() -> list[tuple[Path, tuple[Path, ...]]]:
         (playbook, (ROLES_DIR,))
         for playbook in sorted((CORE_ANSIBLE / "playbooks").glob("*.yml"))
     ]
-    for package in optional_packages():
-        tree = next(package.glob("src/*/ansible"), None)
-        if tree is None:
+    for tree in sorted(SOURCE.rglob("ansible")):
+        if tree == CORE_ANSIBLE:
             continue
         search = (ROLES_DIR, tree / "roles") if (tree / "roles").is_dir() else ()
         found.extend(
@@ -109,7 +108,7 @@ def test_no_reference_to_the_retired_edge_collection_remains():
 
 
 # The two assertions that were here — the drop-in's directives and the role's
-# defaults — moved to `packages/blitzecdn-hardening/tests/` with the roles
+# defaults — moved to `tests/providers/hardening/` with the roles
 # themselves. This half of the SSH contract stays, because `ansible.cfg` is the
 # control plane's own file and holds whether or not that package is attached.
 def test_controller_refuses_password_authentication():

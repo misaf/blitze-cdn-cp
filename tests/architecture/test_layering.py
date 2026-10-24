@@ -387,7 +387,13 @@ def test_cross_capability_imports_use_contract_modules():
             parts = imported.removeprefix(prefix).split(".")
             if parts[0] == owner or len(parts) == 1:
                 continue
-            if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES:
+            # HTTP representation reuse belongs to delivery. Concrete
+            # runtime implementations are wired only in the composition root.
+            published_response = parts[1:] == ["api", "models"] and _is_entry(path)
+            if (
+                parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES
+                and not published_response
+            ):
                 offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
     assert offenders == []
 
@@ -799,7 +805,9 @@ def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
 # DNS owns zones, records, rules, and their projection. Shared serving values
 # belong to serving; execution modules consume those values directly.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
-    "cache": set(),
+    "backup": set(),
+    "origins": {"edges", "serving"},
+    "cache": {"dns", "serving"},
     "compression": set(),
     "deployments": {"dns", "edges", "releases", "serving", "workflows"},
     "diagnostics": set(),
@@ -809,9 +817,9 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
     "jobs": set(),
     "maintenance": {"deployments"},
     "releases": {"dns", "edges", "serving"},
-    "security": set(),
+    "security": {"serving"},
     "serving": set(),
-    "tls": set(),
+    "tls": {"deployments", "dns", "edges", "origins", "serving", "workflows"},
     "workflows": set(),
 }
 
@@ -819,7 +827,9 @@ ALLOWED_CAPABILITY_DEPENDENCIES = {
 # composes the individual contracts; DNS consumes it and validates flat patches
 # with the individual field types until the nested policy step replaces them.
 ALLOWED_POLICY_DEPENDENCIES = {
-    "cache": set(),
+    "backup": set(),
+    "origins": {"http", "tls"},
+    "cache": {"http"},
     "compression": set(),
     "deployments": {"http"},
     "diagnostics": set(),
@@ -1078,9 +1088,9 @@ def test_no_capability_port_declares_another_capability_s_playbook():
     # optional capability's operation. `None` says exactly that: no capability
     # may declare it, not even the one it used to live beside.
     owners: dict[str, str | None] = {
-        "run_cache_purge": None,
-        "run_stats": None,
-        "run_origin_check": None,
+        "run_cache_purge": "cache",
+        "run_stats": "cache",
+        "run_origin_check": "origins",
         "run_decommission": "edges",
     }
     offenders = [
@@ -1117,9 +1127,20 @@ def test_every_capability_registers_itself_through_a_plugin_module():
         for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
-    registered = {path.parent.name for path in _CAPABILITIES.glob("*/plugin.py")}
+    modules = [
+        *(path for path in _CAPABILITIES.rglob("plugin.py")),
+        *(_CAPABILITIES.rglob("provider.py")),
+        *((_SOURCE / "providers").rglob("provider.py")),
+    ]
     assert set(BUILTIN_PLUGINS) == {
-        f"blitzecdn.capabilities.{name}.plugin" for name in registered
+        "blitzecdn."
+        + path.relative_to(_SOURCE).with_suffix("").as_posix().replace("/", ".")
+        for path in modules
+    }
+    registered = {
+        path.relative_to(_CAPABILITIES).parts[0]
+        for path in modules
+        if path.is_relative_to(_CAPABILITIES)
     }
     # Anything beyond `__init__.py` and the contract is something that would
     # have had to be registered to run. These have no `plugin.py` by
@@ -1148,7 +1169,7 @@ def test_every_capability_registers_itself_through_a_plugin_module():
 #: Both are the *seam*, which is what makes the allowance safe: neither is
 #: imported by anything inside the capability, so the platform never reaches a
 #: service, a domain module or an adapter.
-_PLATFORM_AWARE_MODULES = {"plugin.py", "composition.py"}
+_PLATFORM_AWARE_MODULES = {"plugin.py", "provider.py", "composition.py"}
 
 
 def test_only_the_seam_modules_may_name_the_composition_root():

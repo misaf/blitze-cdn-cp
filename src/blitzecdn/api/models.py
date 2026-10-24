@@ -18,7 +18,7 @@ the contracts that decide their fields, so adding a site setting meant editing
 ``capabilities/sites/policy/`` and then remembering this file — a shared pile
 no capability owned but every capability had to change. A representation now
 lives beside the routes that return it, which is where the optional packages
-have always kept theirs: `blitzecdn_cache.api.models` is the shape of this
+have always kept theirs: `blitzecdn.capabilities.cache.api.models` is the shape of this
 rule, not an exception to it.
 
 What survives the split is what more than one capability answers with.

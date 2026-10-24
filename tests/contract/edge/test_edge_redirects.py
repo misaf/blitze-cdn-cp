@@ -73,7 +73,7 @@ def test_always_use_https_uses_a_permanent_redirect():
     template = (ROLE_DIR / "templates/site.conf.j2").read_text(encoding="utf-8")
     security_template = (
         REPO_ROOT
-        / "packages/blitzecdn-security/src/blitzecdn_security/nginx"
+        / "src/blitzecdn/capabilities/security/nginx"
         / "security-server.conf.j2"
     ).read_text(encoding="utf-8")
     implementation = template + security_template

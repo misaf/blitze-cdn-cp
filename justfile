@@ -31,20 +31,9 @@ collections := ".state/collections"
 default:
     @just --list
 
-# Install the whole workspace — the control plane and every optional
-# capability under `packages/` — plus the development group, from the lockfile.
-#
-# `--all-packages` is the workspace form of `uv sync`: without it, syncing the
-# root project installs `blitzecdn` alone and every optional distribution's
-# tests fail to import. Development wants all of them; a server does not have
-# to have any.
-#
-# The collections come after, as their own recipe: a job that syncs a specific
-# interpreter rather than the default one still needs them, because the
-# role-contract tests run a real ansible-playbook against roles that use
-# `community.docker`.
+# Install the application and development tools, then pinned Ansible collections.
 install: && collections
-    uv sync --frozen --all-packages
+    uv sync --frozen
 
 # The third-party collections the roles are converged with, pinned exactly by
 # `requirements.yml`.
@@ -56,25 +45,9 @@ install: && collections
 collections:
     uv run ansible-galaxy collection install -r src/blitzecdn/ansible/requirements.yml -p {{collections}}
 
-# Install exactly what a server gets: the control plane, the optional
-# capabilities a BlitzeCDN installation ships with, and no development group.
-#
-# The extras are the attach point. `install.sh` and the container image name
-# the same set — a contract test fails if this recipe stops matching them,
-# because a recipe that claims to install what a server gets and then installs
-# something else is worse than no recipe. Dropping one is the supported way to
-# build a controller without that capability, and `uv sync --frozen --no-dev`
-# with no extras at all is a working control plane with none of them.
+# The complete application without development tools.
 install-prod:
-    uv sync --frozen --no-dev --extra backup --extra cache --extra certificates \
-        --extra hardening --extra origins --extra resolver
-
-# The control plane on its own: no optional distribution installed at all.
-#
-# What `test-core-only` runs against, and the configuration the acceptance
-# criteria call "BlitzeCDN root package works alone".
-install-core-only:
-    uv sync --frozen
+    uv sync --frozen --no-dev
 
 # Re-resolve dependencies and update uv.lock.
 lock:
@@ -105,30 +78,8 @@ uv-pin version:
     rm -f install.sh.bak
     echo "Pinned uv {{version}}; run 'just shell-lint' and the container install tests."
 
-# Move this distribution to a new version, and everything pinned to it.
-
-#
-# One number lives in twenty-three places. COMPATIBILITY.md says core and the
-# ten optional wheels "share a version and release together", and
-# `.github/workflows/edge-image.yml` tags what it publishes with
-# `type=semver,pattern={{{{version}}}}` — so the published edge image tag *is*
-# the version in pyproject.toml. None of that is enforced by anything that runs
-# before a release; it was held together by memory, and memory lost it. The edge
-# pin sat at 2.7.0 for four releases after the runtime moved to Alpine, and an
-# operator met the mismatch as a chown failure inside a container.
-#
-# The dependency bounds move only when the major does. A wheel declares
-# `blitzecdn>=MAJOR.0.0,<MAJOR+1`: the lower bound is the release the frozen
-# surfaces began at, the upper is the next major, and neither is a function of
-# the minor or the patch. So 4.1.0 -> 4.2.0 leaves every bound alone, and
-# 4.1.0 -> 5.0.0 rewrites all eleven — which is the release where forgetting
-# would mean `pip` refusing to install a wheel against the core it ships with.
-#
-# The tag itself is still cut by hand, and deliberately: publishing an image is
-# a release decision, not a side effect of editing a version string.
-#
-# Bump the version everywhere it is pinned: core, the ten wheels, their
-# dependency bounds, both edge image pins and the lockfile.
+# Move the application version and both edge image pins together.
+# Publishing the corresponding image remains an explicit release action.
 release-version version:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -148,24 +99,8 @@ release-version version:
         return re.sub(r'(?m)^version = ".*"$', 'version = "%s"' % version, text, count=1)
 
 
-    def rebound(text):
-        # Every sibling bound too: blitzecdn-certificates depends on
-        # blitzecdn-origins on the same terms it depends on core.
-        return re.sub(
-            r"(blitzecdn(?:-[a-z0-9]+)?)>=\d+\.\d+\.\d+,<\d+",
-            lambda match: "%s>=%s.0.0,<%s" % (match.group(1), major, following),
-            text,
-        )
-
-
     core = pathlib.Path("pyproject.toml")
     core.write_text(reversion(core.read_text()))
-
-    wheels = sorted(pathlib.Path("packages").glob("*/pyproject.toml"))
-    if len(wheels) != 10:
-        sys.exit("error: expected 10 optional wheels, found %d" % len(wheels))
-    for wheel in wheels:
-        wheel.write_text(rebound(reversion(wheel.read_text())))
 
     pins = {
         "src/blitzecdn/ansible/roles/blitzecdn_edge/defaults/main.yml": (
@@ -191,42 +126,15 @@ release-version version:
 
 # Format and lint every distribution in the workspace.
 lint:
-    uv run ruff format --check src tests packages
-    uv run ruff check src tests packages
+    uv run ruff format --check src tests
+    uv run ruff check src tests
 
 # Rewrite what `lint` would complain about.
 fmt:
-    uv run ruff format src tests packages
-    uv run ruff check --fix src tests packages
+    uv run ruff format src tests
+    uv run ruff check --fix src tests
 
-# Strict type checking, using the file globs in pyproject.toml.
-#
-# Each distribution's `src` tree, plus the suite's shared helper modules. The
-# test *cases* are still unannotated and out of scope; `src` and the two helper
-# globs are what draws that line, where `packages` as a bare path would have
-# swept every package's test cases in.
-#
-# The packages are checked against the core in *this* environment rather than
-# against a published release, which is the point of the workspace: a change to
-# a contract an optional capability depends on fails here rather than after a
-# release.
-#
-# The helpers are here because that is where the test doubles live, and a
-# double is a claim about a Protocol somebody else declared. `FakeRunner`,
-# `FakeEdgeStore` and the background queues stand in for core's ports;
-# `FakePreflight` and `_RecordingIssuer` stand in for the certificates
-# package's. Nothing checked that any of them still satisfied the thing it
-# replaced — the call sites had grown `# type: ignore[arg-type]` instead, which
-# suppressed nothing at all, because the files they were written in were not
-# checked. Each helper module now states its conformance in an
-# `if TYPE_CHECKING:` block, and this line is what holds those.
-#
-# Globs rather than a list, for the reason `ansible-check` uses them: which
-# helper modules exist is a property of the checkout. `tests/*.py` is exactly
-# the control plane's shared helpers, since its test cases live in
-# subdirectories; a package's helpers sit beside its cases and are named for
-# it. A helper added tomorrow is checked because it is there, not because
-# somebody remembered to add a line here.
+# Strict source and shared-helper typing. Test cases remain unannotated.
 types:
     uv run mypy
 
@@ -268,31 +176,6 @@ test *args:
 # throwaway virtualenvs and costs minutes. `just test` — the gate — runs it.
 test-fast *args:
     uv run pytest --no-cov -n auto --dist=worksteal -m "not packaging" {{args}}
-
-# One optional distribution's own tests, against the workspace core.
-#
-#     just test-package blitzecdn-cache
-test-package package *args:
-    uv run --package {{package}} pytest --no-cov packages/{{package}}/tests {{args}}
-
-# The control plane with no optional distribution installed.
-#
-# The other half of the boundary, and not something the normal suite can prove:
-# a core test that imported an optional package would pass here only because
-# the developer happened to have it installed. This syncs it away first, so the
-# run really is core-only, and puts the workspace back afterwards.
-#
-# `tests/architecture/packages/` and `tests/architecture/lifecycle/` are about the
-# packages and are deselected — the lifecycle suite builds its own core-only
-# environment and asserts the same property from the outside.
-test-core-only *args:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    trap 'uv sync --frozen --all-packages >/dev/null' EXIT
-    uv sync --frozen
-    uv run pytest --no-cov -n auto --dist=worksteal tests \
-        --ignore=tests/architecture/packages/ \
-        --ignore=tests/architecture/lifecycle/ {{args}}
 
 # One file, or one case. Without coverage, because a subset would otherwise
 # fail on the global coverage floor rather than on the test.
@@ -362,7 +245,7 @@ ansible-check:
         --extra-vars "$slots"
     uv run ansible-playbook \
         -i tests/fixtures/blitzecdn.yml \
-        packages/blitzecdn-certificates/src/blitzecdn_certificates/ansible/playbooks/acme-challenge.yml \
+        src/blitzecdn/capabilities/tls/ansible/playbooks/acme-challenge.yml \
         --syntax-check
     for play in \
         tests/integration/*.yml \
@@ -378,8 +261,8 @@ ansible-check:
     # transitively; naming them by glob makes that explicit and costs nothing.
     ANSIBLE_INVENTORY=tests/fixtures/blitzecdn.yml uv run ansible-lint \
         src/blitzecdn/ansible/playbooks/*.yml \
-        packages/*/src/*/ansible/playbooks/*.yml \
-        packages/*/src/*/ansible/roles/*/ \
+        src/blitzecdn/capabilities \
+        src/blitzecdn/providers \
         tests/integration/*.yml
 
 # Lint the two Dockerfiles this distribution ships.
@@ -413,24 +296,18 @@ docker-lint version="v2.15.1":
 
 # Static security analysis and a dependency vulnerability audit.
 audit:
-    uv run bandit -c pyproject.toml -r src packages
+    uv run bandit -c pyproject.toml -r src
     uv run pip-audit
 
-# Build every distribution in the workspace: the control plane and each
-# optional capability, as independently installable wheels and sdists.
+# Build the application wheel and source archive.
 build:
-    uv build --all-packages
+    uv build
 
 # The inner-loop gate: about a minute, and it catches everything that is
 # cheap to catch. Formatting, types, the shell scripts, every YAML and role,
 # and the whole suite across cores with coverage off.
 #
-# What it deliberately leaves to `check` is only the expensive half, and each
-# one is expensive for the same reason — it builds or installs something:
-# `test`'s coverage pass and packaging lifecycle, `test-core-only`'s two
-# workspace syncs, `audit`'s dependency fetch, and `build`. None of them is
-# likely to break on an edit that this recipe passes, which is what makes
-# running it instead a fair trade.
+# The full gate adds coverage, installed-wheel verification, audit and builds.
 #
 # Not a substitute for `check` before pushing. It is not what CI runs.
 #
@@ -441,7 +318,7 @@ build:
 check-quick: lint types shell-lint ansible-check test-fast
 
 # Everything CI runs. Run this before pushing.
-check: lock-check lint types shell-lint test test-core-only ansible-check docker-lint audit build
+check: lock-check lint types shell-lint test ansible-check docker-lint audit build
 
 # --- published surfaces --------------------------------------------------
 
@@ -459,10 +336,9 @@ check: lock-check lint types shell-lint test test-core-only ansible-check docker
 # from whoever is trying to turn a red suite green, and the point of these files
 # is that touching them is its own act, visible in its own diff.
 #
-# Run with everything installed, or the optional distributions' lines are
-# dropped from the goldens rather than kept for a core-only run to skip.
+# Every shipped surface has one owner, the application distribution.
 refreeze:
-    uv sync --frozen --all-packages
+    uv sync --frozen
     uv run python tests/refreeze.py
     @git diff --stat -- tests/contract/frozen || true
 
@@ -481,4 +357,8 @@ serve port="8000":
 # Remove build output, caches, and coverage data. Leaves .state and .venv.
 clean:
     rm -rf dist build .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov
-    find src tests packages ansible -name __pycache__ -type d -prune -exec rm -rf {} +
+    find src tests ansible -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# Build and install the single wheel in a fresh environment outside the checkout.
+test-installation *args:
+    uv run pytest --no-cov tests/architecture/test_application_installation.py {{args}}

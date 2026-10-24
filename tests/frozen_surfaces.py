@@ -43,7 +43,7 @@ from typing import Any, cast
 
 import click
 import yaml
-from paths import CORE_ANSIBLE, PACKAGES, SOURCE, optional_packages
+from paths import SOURCE
 from sqlalchemy import CheckConstraint
 
 #: The root distribution's import package. Everything else is a wheel.
@@ -734,18 +734,7 @@ def _shape(declared: Any) -> str:
 
 def _role_roots() -> list[tuple[Path, str]]:
     """Every `roles/` directory in the workspace, with the wheel that ships it."""
-    roots = [(CORE_ANSIBLE / "roles", ROOT)]
-    for package in optional_packages():
-        source = package / "src"
-        for import_root in sorted(source.iterdir()) if source.is_dir() else []:
-            roles = import_root / "ansible" / "roles"
-            # Read from the checkout, but reported only when the wheel is
-            # installed: this is the one surface whose files are on disk in
-            # every clone whether or not the distribution is part of this
-            # control plane, and a core-only run would otherwise see roles that
-            # `resolve_role_search_path` would never put on the search path.
-            if roles.is_dir() and installed(import_root.name):
-                roots.append((roles, import_root.name))
+    roots = [(roles, ROOT) for roles in sorted(SOURCE.rglob("ansible/roles"))]
     return roots
 
 
@@ -868,7 +857,6 @@ def _alembic_head() -> str:
 
 __all__ = [
     "FROZEN",
-    "PACKAGES",
     "ROOT",
     "SURFACES",
     "ansible_surface",

@@ -286,8 +286,14 @@ def test_ansible_roles_path_is_what_a_deployment_would_resolve():
     assert all(Path(entry).is_dir() for entry in entries)
     # Ordered by plugin name after core's, which is what makes two controllers
     # with the same packages installed resolve every role identically.
-    contributed = [Path(entry).parents[2].name for entry in entries[1:]]
-    assert contributed == sorted(contributed)
+    from blitzecdn.composition import load_control_plane_plugins
+
+    contributions = load_control_plane_plugins().ansible_contributions()
+    expected = [
+        str(item.roles_path)
+        for item in sorted(contributions, key=lambda item: item.plugin)
+    ]
+    assert entries[1:] == list(dict.fromkeys(expected))
 
 
 def test_ansible_slots_answers_for_all_three_of_cores_plays():

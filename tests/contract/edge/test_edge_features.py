@@ -175,7 +175,7 @@ def test_compression_never_lists_text_html():
     """
     compression_role = (
         REPO_ROOT
-        / "packages/blitzecdn-compression/src/blitzecdn_compression/ansible/roles"
+        / "src/blitzecdn/capabilities/compression/ansible/roles"
         / "blitzecdn_compression"
     )
     types = _defaults_of(compression_role)["blitzecdn_compression_types"]

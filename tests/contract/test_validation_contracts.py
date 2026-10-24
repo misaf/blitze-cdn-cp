@@ -323,11 +323,11 @@ def test_role_rejects_an_ipv6_zone_index_on_the_origin(desired_state, tmp_path, 
 #
 #   * that the role refuses country rules and the BZ-IPCountry header without
 #     GeoIP, and that a MaxMind key never reaches an Nginx configuration —
-#     both now in `packages/blitzecdn-geoip/tests/`, executed against that
+#     both now in `tests/providers/geoip/`, executed against that
 #     distribution's own role;
 #   * that the role refuses Under Attack Mode without the challenge capability,
 #     and that the signed njs module is written 0640 under `no_log` — now in
-#     `packages/blitzecdn-security/tests/`.
+#     `tests/capabilities/security/`.
 #
 # They moved with the implementation. A capability's refusal is asserted by the
 # capability that makes it, so uninstalling the distribution takes the rule,

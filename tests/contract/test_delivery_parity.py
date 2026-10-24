@@ -251,54 +251,54 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "config set", None, "see `config list`."),
     ("blitzecdn", "config unset", None, "see `config list`."),
     # -- Optional wheels ---------------------------------------------------
-    ("blitzecdn_cache", "cache purge", "POST /v1/cache/purge", ""),
-    ("blitzecdn_cache", "stats", "POST /v1/cache/stats", ""),
-    ("blitzecdn_origins", "origin check", "POST /v1/origins/check", ""),
+    ("blitzecdn", "cache purge", "POST /v1/cache/purge", ""),
+    ("blitzecdn", "stats", "POST /v1/cache/stats", ""),
+    ("blitzecdn", "origin check", "POST /v1/origins/check", ""),
     (
-        "blitzecdn_certificates",
+        "blitzecdn",
         "cert collect",
         None,
         "Controller-local material maintenance; no remote operation is needed.",
     ),
-    ("blitzecdn_certificates", "cert list", "GET /v1/certificates", ""),
+    ("blitzecdn", "cert list", "GET /v1/certificates", ""),
     (
-        "blitzecdn_certificates",
+        "blitzecdn",
         "cert preflight",
         "GET /v1/hosts/{name}/certificate/preflight",
         "",
     ),
-    ("blitzecdn_certificates", "cert renew", "POST /v1/certificates/renew", ""),
-    ("blitzecdn_certificates", "cert reconcile", "POST /v1/certificates/reconcile", ""),
+    ("blitzecdn", "cert renew", "POST /v1/certificates/renew", ""),
+    ("blitzecdn", "cert reconcile", "POST /v1/certificates/reconcile", ""),
     (
-        "blitzecdn_certificates",
+        "blitzecdn",
         "cert upload",
         "POST /v1/hosts/{name}/certificate/upload",
         "",
     ),
     (
-        "blitzecdn_certificates",
+        "blitzecdn",
         "cert request",
         "POST /v1/hosts/{name}/certificate/request",
         "",
     ),
-    ("blitzecdn_certificates", "ssl reconcile", "POST /v1/ssl/automatic/reconcile", ""),
+    ("blitzecdn", "ssl reconcile", "POST /v1/ssl/automatic/reconcile", ""),
     (
-        "blitzecdn_certificates",
+        "blitzecdn",
         None,
         "GET /v1/hosts/{name}/certificate",
         "one host's certificate. `cert list` prints the fleet's, sorted by "
         "expiry, which is the form a human wants; see GET /v1/hosts/{name}.",
     ),
     (
-        "blitzecdn_backup",
+        "blitzecdn",
         "backup create",
         None,
         "reads and writes archives on the control-plane host, including the "
         "ACME account key. Over HTTP it would be an endpoint that hands the "
         "caller every private key the control plane holds.",
     ),
-    ("blitzecdn_backup", "backup inspect", None, "see `backup create`."),
-    ("blitzecdn_backup", "backup restore", None, "see `backup create`."),
+    ("blitzecdn", "backup inspect", None, "see `backup create`."),
+    ("blitzecdn", "backup restore", None, "see `backup create`."),
 )
 
 

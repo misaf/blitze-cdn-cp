@@ -18,12 +18,12 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import APIRouter
-from paths import PACKAGES, REPO_ROOT, SOURCE
+from paths import REPO_ROOT, SOURCE
 from policy_support import site_from_settings
 from typer import Typer
 
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_PLUGINS
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     ENTRY_POINT_GROUP,
@@ -61,14 +61,17 @@ def entry_point(name: str, module: str) -> EntryPoint:
 
 
 @pytest.fixture
-def builtins() -> PluginRegistry:
+def baseline() -> PluginRegistry:
     """The capabilities this distribution ships, and nothing an environment added.
 
     `entry_point_group=None` on purpose: a test asserting on the built-in
     capability set must not change its answer because a developer happens to have
     an unrelated BlitzeCDN plugin installed in the same virtualenv.
     """
-    return load_control_plane_plugins(entry_point_group=None)
+    return load_plugins(
+        tuple(path for path in BUILTIN_PLUGINS if path.endswith(".plugin")),
+        entry_point_group=None,
+    )
 
 
 def _capability_config(**values: object) -> SimpleNamespace:
@@ -152,16 +155,17 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
 # --- built-in discovery -----------------------------------------------------
 
 
-def test_every_built_in_capability_registers_and_declares_itself_required(builtins):
-    assert {plugin.name for plugin in builtins.plugins} == {
+def test_every_built_in_capability_registers_and_declares_itself_required(baseline):
+    assert {plugin.name for plugin in baseline.plugins} == {
         path.removeprefix("blitzecdn.capabilities.").removesuffix(".plugin")
         for path in BUILTIN_PLUGINS
+        if path.endswith(".plugin")
     }
-    assert all(plugin.required for plugin in builtins.plugins)
-    assert builtins.rejected == ()
+    assert all(plugin.required for plugin in baseline.plugins)
+    assert baseline.rejected == ()
 
 
-def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
+def test_a_strategy_or_mode_never_registers_as_a_plugin(baseline):
     """The capability registers; the option inside it does not.
 
     `http3` was a plugin once. So were `certificates` and `automatic_ssl`,
@@ -170,11 +174,11 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
     inside one that already exists.
     """
     for capability in ("http", "tls", "dns"):
-        assert capability in builtins
+        assert capability in baseline
         assert f"blitzecdn.capabilities.{capability}.plugin" in BUILTIN_PLUGINS
 
     for capability in ("compression", "security"):
-        assert capability not in builtins
+        assert capability not in baseline
         assert f"blitzecdn.capabilities.{capability}.plugin" not in BUILTIN_PLUGINS
 
     for option in (
@@ -186,7 +190,7 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(builtins):
         "automatic_ssl",
         "geoip",
     ):
-        assert option not in builtins
+        assert option not in baseline
         assert f"blitzecdn.capabilities.{option}.plugin" not in BUILTIN_PLUGINS
 
 
@@ -204,14 +208,19 @@ def test_a_built_in_that_declares_itself_optional_is_refused():
         )
 
 
-def test_the_built_in_registration_order_does_not_change_desired_state(builtins):
+def test_the_built_in_registration_order_does_not_change_desired_state(baseline):
     """Reordering `BUILTIN_PLUGINS` is a presentation change and nothing more."""
     reversed_order = load_plugins(
-        builtins=tuple(reversed(BUILTIN_PLUGINS)), entry_point_group=None
+        builtins=tuple(
+            reversed(
+                tuple(path for path in BUILTIN_PLUGINS if path.endswith(".plugin"))
+            )
+        ),
+        entry_point_group=None,
     )
     platform = SimpleNamespace(certificates=None)
     subject = site()
-    assert reversed_order.site_variables(subject, platform) == builtins.site_variables(
+    assert reversed_order.site_variables(subject, platform) == baseline.site_variables(
         subject, platform
     )
 
@@ -219,52 +228,52 @@ def test_the_built_in_registration_order_does_not_change_desired_state(builtins)
 # --- external discovery through entry points --------------------------------
 
 
-def test_an_external_plugin_is_discovered_through_its_entry_point(builtins):
+def test_an_external_plugin_is_discovered_through_its_entry_point(baseline):
     found = register_external(
-        builtins._manager, points=[entry_point("waf", "external")]
+        baseline._manager, points=[entry_point("waf", "external")]
     )
 
     assert [plugin.name for plugin in found.plugins] == ["waf"]
     assert found.rejected == ()
     assert "/v1/waf/status" in {
-        route.path for router in builtins.api_routers() for route in router.routes
+        route.path for router in baseline.api_routers() for route in router.routes
     }
-    assert "waf" in {group.name for group in builtins.cli_commands()}
+    assert "waf" in {group.name for group in baseline.cli_commands()}
 
 
 def test_an_external_plugin_contributes_jobs_health_checks_and_state(
-    builtins, platform
+    baseline, platform
 ):
-    register_external(builtins._manager, points=[entry_point("waf", "external")])
+    register_external(baseline._manager, points=[entry_point("waf", "external")])
 
-    assert "waf-rule-refresh" in builtins.scheduled_jobs(platform)
-    assert "waf-rules" in {check.name for check in builtins.health_checks(platform)}
-    assert builtins.site_variables(site(), platform)["waf_mode"] == "enforce"
-    assert builtins.fleet_variables((site(),), platform)["blitzecdn_edge_waf_enabled"]
+    assert "waf-rule-refresh" in baseline.scheduled_jobs(platform)
+    assert "waf-rules" in {check.name for check in baseline.health_checks(platform)}
+    assert baseline.site_variables(site(), platform)["waf_mode"] == "enforce"
+    assert baseline.fleet_variables((site(),), platform)["blitzecdn_edge_waf_enabled"]
 
 
-def test_an_installed_plugin_contributes_its_ansible_roles(builtins):
+def test_an_installed_plugin_contributes_its_ansible_roles(baseline):
     """The deployment half of a capability, discovered the same way as the rest.
 
     Nothing in core names this plugin, and nothing in core copies its files
     anywhere. It reports the directory its wheel put them in and the control
     plane composes that into Ansible's search path.
     """
-    register_external(builtins._manager, points=[entry_point("waf", "external")])
-    contributions = builtins.ansible_contributions()
+    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    contributions = baseline.ansible_contributions()
 
     assert [item.plugin for item in contributions] == ["waf"]
     assert (contributions[0].roles_path / "blitzecdn_waf/tasks/main.yml").is_file()
 
 
-def test_a_plugin_that_ships_no_roles_contributes_no_directory(builtins):
+def test_a_plugin_that_ships_no_roles_contributes_no_directory(baseline):
     """Most plugins have no Ansible of their own, and say nothing rather than
     an empty path that core would then have to interpret."""
-    assert builtins.ansible_contributions() == ()
+    assert baseline.ansible_contributions() == ()
 
 
 def test_the_roles_of_an_absent_plugin_are_absent_from_the_search_path(
-    builtins, tmp_path
+    baseline, tmp_path
 ):
     """Detach, in the terms Ansible sees. The mirror of the test above.
 
@@ -276,16 +285,16 @@ def test_the_roles_of_an_absent_plugin_are_absent_from_the_search_path(
     core = tmp_path / "roles"
     (core / "blitzecdn_nginx").mkdir(parents=True)
 
-    assert resolve_role_search_path(core, builtins.ansible_contributions()) == (core,)
+    assert resolve_role_search_path(core, baseline.ansible_contributions()) == (core,)
 
-    register_external(builtins._manager, points=[entry_point("waf", "external")])
-    attached = resolve_role_search_path(core, builtins.ansible_contributions())
+    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    attached = resolve_role_search_path(core, baseline.ansible_contributions())
 
     assert len(attached) == 2
     assert (attached[1] / "blitzecdn_waf").is_dir()
 
 
-def test_core_needs_no_change_for_an_external_capability(builtins):
+def test_core_needs_no_change_for_an_external_capability(baseline):
     """The acceptance criterion, stated as a diff that is not required.
 
     Everything the WAF plugin adds — a route, a command, a job, a check, its
@@ -293,10 +302,10 @@ def test_core_needs_no_change_for_an_external_capability(builtins):
     `api/app.py`, `cli/main.py`, `scheduler.py` or the renderer knowing it
     exists.
     """
-    before = len(builtins.api_routers())
-    register_external(builtins._manager, points=[entry_point("waf", "external")])
+    before = len(baseline.api_routers())
+    register_external(baseline._manager, points=[entry_point("waf", "external")])
 
-    assert len(builtins.api_routers()) == before + 1
+    assert len(baseline.api_routers()) == before + 1
     assert f"{_FIXTURES}.external" not in BUILTIN_PLUGINS
 
 
@@ -304,12 +313,12 @@ def test_core_needs_no_change_for_an_external_capability(builtins):
 
 
 def test_an_external_plugin_that_raises_on_import_is_skipped_with_its_reason(
-    builtins, caplog
+    baseline, caplog
 ):
     """Skipped, never silent: the reason is logged *and* kept for an operator."""
     with caplog.at_level("WARNING"):
         found = register_external(
-            builtins._manager, points=[entry_point("waf", "broken")]
+            baseline._manager, points=[entry_point("waf", "broken")]
         )
 
     assert found.plugins == ()
@@ -320,15 +329,15 @@ def test_an_external_plugin_that_raises_on_import_is_skipped_with_its_reason(
     assert "this plugin is broken" in caplog.text
 
 
-def test_a_plugin_that_will_not_say_who_it_is_contributes_nothing(builtins):
+def test_a_plugin_that_will_not_say_who_it_is_contributes_nothing(baseline):
     """Anonymous contributions cannot be attributed, so they are not accepted."""
     found = register_external(
-        builtins._manager, points=[entry_point("anonymous", "anonymous")]
+        baseline._manager, points=[entry_point("anonymous", "anonymous")]
     )
 
     assert "no blitzecdn_plugin_metadata hook" in str(found.rejected[0])
     assert "anonymous" not in {
-        check.name for check in builtins.health_checks(SimpleNamespace())
+        check.name for check in baseline.health_checks(SimpleNamespace())
     }
 
 
@@ -352,9 +361,7 @@ def test_a_plugin_states_the_hook_contract_it_was_written_against():
     is now a `TypeError` at construction rather than a silent agreement.
     """
     offenders = []
-    for path in sorted((SOURCE / "capabilities").rglob("plugin.py")) + sorted(
-        PACKAGES.glob("*/src/*/plugin.py")
-    ):
+    for path in sorted(SOURCE.rglob("plugin.py")) + sorted(SOURCE.rglob("provider.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not (
@@ -396,16 +403,16 @@ def test_the_supported_contract_set_is_how_a_bump_gets_a_deprecation_window():
     assert HOOK_API_VERSION in SUPPORTED_HOOK_API_VERSIONS
 
 
-def test_a_plugin_from_a_later_hook_contract_is_refused_by_version(builtins):
+def test_a_plugin_from_a_later_hook_contract_is_refused_by_version(baseline):
     found = register_external(
-        builtins._manager, points=[entry_point("future", "from_the_future")]
+        baseline._manager, points=[entry_point("future", "from_the_future")]
     )
 
     assert found.plugins == ()
     assert "targets hook API v99" in str(found.rejected[0])
 
 
-def test_two_plugins_cannot_claim_one_name(builtins, platform):
+def test_two_plugins_cannot_claim_one_name(baseline, platform):
     """A duplicate makes every later diagnostic ambiguous, so it is refused.
 
     Built-ins register first, so the impostor collides with `dns` rather than
@@ -413,15 +420,15 @@ def test_two_plugins_cannot_claim_one_name(builtins, platform):
     capability's identity and quietly answer for it.
     """
     found = register_external(
-        builtins._manager, points=[entry_point("impostor", "impostor")]
+        baseline._manager, points=[entry_point("impostor", "impostor")]
     )
 
     assert found.plugins == ()
     assert "already registered" in str(found.rejected[0])
-    assert "dns" in builtins
+    assert "dns" in baseline
 
 
-def test_two_installed_packages_cannot_claim_one_name(builtins):
+def test_two_installed_packages_cannot_claim_one_name(baseline):
     """The same rule between two *optional* distributions, neither built in.
 
     Worth its own case because the collision an operator actually hits is this
@@ -432,10 +439,10 @@ def test_two_installed_packages_cannot_claim_one_name(builtins):
     the first keeps the name and keeps working.
     """
     first = register_external(
-        builtins._manager, points=[entry_point("waf", "external")]
+        baseline._manager, points=[entry_point("waf", "external")]
     )
     second = register_external(
-        builtins._manager, points=[entry_point("waf-again", "external")]
+        baseline._manager, points=[entry_point("waf-again", "external")]
     )
 
     assert [plugin.name for plugin in first.plugins] == ["waf"]
@@ -444,7 +451,7 @@ def test_two_installed_packages_cannot_claim_one_name(builtins):
     assert "waf-again" in str(second.rejected[0])
 
 
-def test_a_capability_token_says_what_a_configuration_may_depend_on(builtins):
+def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
     """`provides` is separate from `name`, and defaults to it.
 
     A plugin identifies itself with `name`; a *configuration* depends on a
@@ -453,10 +460,10 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(builtins):
     differ, which is what lets a replacement implementation answer for a token
     another package used to supply, under its own name.
     """
-    assert "dns" in builtins.capabilities
-    assert builtins.missing(["dns", "waf"]) == ("waf",)
+    assert "dns" in baseline.capabilities
+    assert baseline.missing(["dns", "waf"]) == ("waf",)
 
-    register_external(builtins._manager, points=[entry_point("waf", "external")])
+    register_external(baseline._manager, points=[entry_point("waf", "external")])
     metadata = PluginMetadata(
         name="acme-waf",
         version="1.0",
@@ -466,17 +473,17 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(builtins):
     assert metadata.capabilities == {"acme-waf", "waf", "ratelimit"}
 
 
-def test_requiring_a_capability_nothing_provides_names_it(builtins):
+def test_requiring_a_capability_nothing_provides_names_it(baseline):
     """The message an operator reads when a package they need is not installed.
 
     It has to name the missing token *and* what is installed: "backup is not
     available" without the second half leaves an operator unable to tell a
     typo from an uninstalled package.
     """
-    builtins.require(["dns"], subject="a test")
+    baseline.require(["dns"], subject="a test")
 
     with pytest.raises(PluginError) as failure:
-        builtins.require(["dns", "waf"], subject="this installation")
+        baseline.require(["dns", "waf"], subject="this installation")
 
     message = str(failure.value)
     assert "waf" in message
@@ -485,9 +492,9 @@ def test_requiring_a_capability_nothing_provides_names_it(builtins):
     assert "compression" not in message.split("Installed capabilities:")[0]
 
 
-def test_one_broken_plugin_does_not_stop_the_others(builtins):
+def test_one_broken_plugin_does_not_stop_the_others(baseline):
     found = register_external(
-        builtins._manager,
+        baseline._manager,
         points=[entry_point("broken", "broken"), entry_point("waf", "external")],
     )
 
@@ -495,7 +502,7 @@ def test_one_broken_plugin_does_not_stop_the_others(builtins):
     assert len(found.rejected) == 1
 
 
-def test_a_plugin_returning_the_wrong_shape_is_named_rather_than_crashing(builtins):
+def test_a_plugin_returning_the_wrong_shape_is_named_rather_than_crashing(baseline):
     class Careless:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
@@ -505,20 +512,20 @@ def test_a_plugin_returning_the_wrong_shape_is_named_rather_than_crashing(builti
         def blitzecdn_api_routers(self) -> object:
             return ["not a router"]
 
-    builtins._manager.register(Careless(), name="careless")
+    baseline._manager.register(Careless(), name="careless")
 
     with pytest.raises(PluginError, match="blitzecdn_api_routers returned a str"):
-        builtins.api_routers()
+        baseline.api_routers()
 
 
 # --- ordering ---------------------------------------------------------------
 
 
-def test_contributions_come_back_in_registration_order(builtins):
+def test_contributions_come_back_in_registration_order(baseline):
     """Pluggy calls implementations last-registered-first; operators read the
     other way round, and the published route list should not depend on that."""
-    register_external(builtins._manager, points=[entry_point("waf", "external")])
-    names = [group.name for group in builtins.cli_commands()]
+    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    names = [group.name for group in baseline.cli_commands()]
 
     assert names.index("domain") < names.index("edge") < names.index("waf")
 
@@ -590,7 +597,7 @@ def test_fleet_variables_merge_under_the_same_rule():
 # --- deployment checks ------------------------------------------------------
 
 
-def test_deployment_checks_are_collected_from_every_plugin(builtins):
+def test_deployment_checks_are_collected_from_every_plugin(baseline):
     class Objector:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
@@ -610,20 +617,20 @@ def test_deployment_checks_are_collected_from_every_plugin(builtins):
                 ),
             ]
 
-    builtins._manager.register(Objector(), name="objector")
-    result = builtins.validate_site(site(), SimpleNamespace())
+    baseline._manager.register(Objector(), name="objector")
+    result = baseline.validate_site(site(), SimpleNamespace())
 
     assert not result.ok
     assert [issue.message for issue in result.blocking] == ["no rule set loaded"]
     assert len(result.issues) == 2
 
 
-def test_a_site_no_plugin_objects_to_is_deployable(builtins):
-    assert builtins.validate_site(site(), SimpleNamespace()).ok
+def test_a_site_no_plugin_objects_to_is_deployable(baseline):
+    assert baseline.validate_site(site(), SimpleNamespace()).ok
 
 
 def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting(
-    builtins,
+    baseline,
 ):
     """The message an operator reads before any playbook runs.
 
@@ -638,7 +645,7 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting(
         firewall={"denied_countries": ["RU"]},
     )
 
-    result = builtins.validate_site(requested, SimpleNamespace())
+    result = baseline.validate_site(requested, SimpleNamespace())
 
     assert not result.ok
     messages = {issue.message for issue in result.blocking}
@@ -651,9 +658,9 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting(
     assert any("'security'" in message for message in messages)
 
 
-def test_a_capability_requested_by_one_setting_reads_in_the_singular(builtins):
+def test_a_capability_requested_by_one_setting_reads_in_the_singular(baseline):
     """One asker, one verb. The plural form is for a site that asked twice."""
-    (issue,) = builtins.validate_site(
+    (issue,) = baseline.validate_site(
         site(visitor_headers={"ip_country": True}), SimpleNamespace()
     ).blocking
 
@@ -693,7 +700,7 @@ def test_startup_and_shutdown_reach_every_plugin_with_the_process_kind():
 # --- scheduled jobs ---------------------------------------------------------
 
 
-def test_two_plugins_cannot_contribute_one_job_name(builtins, platform):
+def test_two_plugins_cannot_contribute_one_job_name(baseline, platform):
     class Clasher:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
@@ -710,10 +717,10 @@ def test_two_plugins_cannot_contribute_one_job_name(builtins, platform):
                 )
             ]
 
-    builtins._manager.register(Clasher(), name="clasher")
+    baseline._manager.register(Clasher(), name="clasher")
 
     with pytest.raises(PluginError, match="'deployments' and 'clasher'"):
-        builtins.scheduled_jobs(platform)
+        baseline.scheduled_jobs(platform)
 
 
 # --- plugin metadata --------------------------------------------------------
@@ -724,14 +731,14 @@ def test_a_plugin_name_has_to_be_usable_as_an_identifier():
         PluginMetadata(name="not a name!", version="1.0", api_version=1)
 
 
-def test_a_registry_reports_what_is_installed_and_what_was_refused(builtins):
+def test_a_registry_reports_what_is_installed_and_what_was_refused(baseline):
     found = register_external(
-        builtins._manager,
+        baseline._manager,
         points=[entry_point("waf", "external"), entry_point("broken", "broken")],
     )
     registry = PluginRegistry(
-        builtins._manager,
-        plugins=(*builtins.plugins, *found.plugins),
+        baseline._manager,
+        plugins=(*baseline.plugins, *found.plugins),
         rejected=found.rejected,
     )
 
@@ -743,16 +750,16 @@ def test_a_registry_reports_what_is_installed_and_what_was_refused(builtins):
 # --- the contributions a plugin makes are values, not calls ------------------
 
 
-def test_a_contributed_group_may_carry_root_level_verbs(builtins):
+def test_a_contributed_group_may_carry_root_level_verbs(baseline):
     """`deploy` is a verb an operator types, not a noun to nest it under."""
-    rootless = [group for group in builtins.cli_commands() if group.name is None]
+    rootless = [group for group in baseline.cli_commands() if group.name is None]
 
     assert rootless
     assert all(isinstance(group.app, Typer) for group in rootless)
 
 
-def test_routers_are_real_routers(builtins):
-    assert all(isinstance(router, APIRouter) for router in builtins.api_routers())
+def test_routers_are_real_routers(baseline):
+    assert all(isinstance(router, APIRouter) for router in baseline.api_routers())
 
 
 def test_a_health_check_fails_by_raising():
@@ -771,7 +778,7 @@ def test_a_command_group_names_the_subcommand_it_appears_under():
     assert group.name == "waf"
 
 
-def test_every_built_in_job_calls_the_service_that_owns_its_work(builtins):
+def test_every_built_in_job_calls_the_service_that_owns_its_work(baseline):
     """A job is one object — its interval and its work — so both are checkable.
 
     The failure this replaces was structural: an interval in `scheduler.py` and
@@ -783,7 +790,7 @@ def test_every_built_in_job_calls_the_service_that_owns_its_work(builtins):
         settings=SimpleNamespace(drift_check_interval_seconds=900),
         deployments=SimpleNamespace(check_drift=lambda _o: calls.append("drift")),
     )
-    jobs = builtins.scheduled_jobs(platform)
+    jobs = baseline.scheduled_jobs(platform)
 
     assert set(jobs) == {"check-drift"}
     for name in sorted(jobs):
@@ -793,7 +800,7 @@ def test_every_built_in_job_calls_the_service_that_owns_its_work(builtins):
     assert jobs["check-drift"].interval_seconds == 900
 
 
-def test_a_disabled_interval_is_how_a_job_is_turned_off(builtins):
+def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
     platform = SimpleNamespace(
         settings=SimpleNamespace(
             drift_check_interval_seconds=0,
@@ -808,11 +815,11 @@ def test_a_disabled_interval_is_how_a_job_is_turned_off(builtins):
     )
 
     assert all(
-        job.interval_seconds == 0 for job in builtins.scheduled_jobs(platform).values()
+        job.interval_seconds == 0 for job in baseline.scheduled_jobs(platform).values()
     )
 
 
-def test_a_desired_state_hook_returning_the_wrong_shape_is_named(builtins, platform):
+def test_a_desired_state_hook_returning_the_wrong_shape_is_named(baseline, platform):
     class Careless:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
@@ -822,13 +829,13 @@ def test_a_desired_state_hook_returning_the_wrong_shape_is_named(builtins, platf
         def blitzecdn_site_desired_state(self, site: CdnSite) -> object:
             return {"waf_enabled": True}
 
-    builtins._manager.register(Careless(), name="careless")
+    baseline._manager.register(Careless(), name="careless")
 
     with pytest.raises(PluginError, match="must return a SiteStateContribution"):
-        builtins.site_variables(site(), platform)
+        baseline.site_variables(site(), platform)
 
 
-def test_a_plugin_whose_metadata_is_not_metadata_is_refused(builtins):
+def test_a_plugin_whose_metadata_is_not_metadata_is_refused(baseline):
     """Answering the identity hook with something that is not an identity."""
 
     class Careless:
@@ -837,7 +844,7 @@ def test_a_plugin_whose_metadata_is_not_metadata_is_refused(builtins):
             return "waf 1.0"
 
     with pytest.raises(PluginError, match="must return a PluginMetadata, not str"):
-        register(builtins._manager, Careless(), "careless")
+        register(baseline._manager, Careless(), "careless")
 
 
 def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
@@ -881,7 +888,7 @@ def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
     assert missing == []
 
 
-def test_two_plugins_cannot_answer_to_one_health_check_name(builtins, platform):
+def test_two_plugins_cannot_answer_to_one_health_check_name(baseline, platform):
     """`/health` reports a check by name, so the name has to be one plugin's."""
 
     class Clasher:
@@ -893,7 +900,7 @@ def test_two_plugins_cannot_answer_to_one_health_check_name(builtins, platform):
         def blitzecdn_health_checks(self, platform: object) -> list[HealthCheck]:
             return [HealthCheck(plugin="clasher", name="database", check=lambda: None)]
 
-    builtins._manager.register(Clasher(), name="clasher")
+    baseline._manager.register(Clasher(), name="clasher")
 
     with pytest.raises(PluginError, match="'diagnostics' and 'clasher'"):
-        builtins.health_checks(platform)
+        baseline.health_checks(platform)
