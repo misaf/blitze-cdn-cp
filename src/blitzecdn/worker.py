@@ -31,11 +31,10 @@ __all__ = ["main", "run_worker"]
 def run_worker(settings: Settings | None = None) -> None:
     """Run the worker until it is asked to stop.
 
-    Registering the schedules this installation contributes is the `jobs`
-    plugin's startup contribution rather than a line here, for the reason every
-    other startup contribution is one: what a process owes when it starts is
-    the plugin's business, and ``RuntimeContext.process`` is how it knows this
-    is the worker.
+    What the worker owes when it starts — every feature's startup, then this
+    installation's schedules — is
+    :meth:`~blitzecdn.composition.ControlPlane.start`'s business, which
+    knows the process it was built for.
     """
     from blitzecdn.composition import build_control_plane
 

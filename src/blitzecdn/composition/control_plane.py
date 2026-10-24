@@ -32,7 +32,9 @@ from blitzecdn.capabilities.deployments.ports import (
     QueueBackgroundRunner,
     ServingVerifier,
 )
+from blitzecdn.capabilities.deployments.runtime import deployments_operations
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
+from blitzecdn.capabilities.diagnostics.runtime import diagnostics_operations
 from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.composition import (
     build_dns_service,
@@ -40,6 +42,7 @@ from blitzecdn.capabilities.dns.composition import (
     build_rule_service,
 )
 from blitzecdn.capabilities.dns.ports import SiteReader
+from blitzecdn.capabilities.dns.runtime import RENDERING as DNS_RENDERING
 from blitzecdn.capabilities.dns.service import HostService, RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe
@@ -48,9 +51,11 @@ from blitzecdn.capabilities.edges.composition import build_edge_operations_servi
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
+from blitzecdn.capabilities.http.runtime import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.jobs.composition import (
     build_job_queue,
     build_job_scheduler,
+    schedule_specs,
 )
 from blitzecdn.capabilities.jobs.domain import PermanentJobError
 from blitzecdn.capabilities.jobs.ports import JobHandler
@@ -68,7 +73,10 @@ from blitzecdn.capabilities.origins.composition import build_origin_check_servic
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.composition import build_release_service
 from blitzecdn.capabilities.releases.service import ReleaseService
+from blitzecdn.capabilities.security.config import SecurityConfig
+from blitzecdn.capabilities.security.runtime import security_rendering
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator as CertificateWorkflows,
 )
@@ -78,16 +86,22 @@ from blitzecdn.capabilities.tls.composition import (
     build_certificate_service,
 )
 from blitzecdn.capabilities.tls.config import CertificateConfig
+from blitzecdn.capabilities.tls.runtime import (
+    certificates_operations,
+    certificates_rendering,
+)
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
 from blitzecdn.core.config import Settings
 from blitzecdn.core.plugins import (
+    ExtensionContext,
     HealthCheck,
+    Operations,
     PluginRegistry,
     ProcessKind,
-    RuntimeContext,
+    Rendering,
     ScheduledJob,
     load_plugins,
     resolve_capability_environment,
@@ -101,33 +115,33 @@ from blitzecdn.core.plugins import (
 from blitzecdn.core.plugins.types import ENTRY_POINT_GROUP
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import AuditTrail, PlaybookRunner
+from blitzecdn.providers.http3.runtime import RENDERING as HTTP3_RENDERING
 
-#: Built-in plugins in stable registration and presentation order.
-#: The roster belongs to composition; core discovery accepts arbitrary plugins.
-#: Desired-state merging is order-independent.
-BUILTIN_PLUGINS: tuple[str, ...] = (
+#: Built-in feature modules in stable registration and presentation order.
+#: Each exports ``FEATURES``. The roster belongs to composition; core accepts
+#: whatever modules it is given. Desired-state merging is order-independent.
+BUILTIN_FEATURES: tuple[str, ...] = (
     # The capability contracts first: nothing they contribute depends on
     # another capability being registered, and `dns` composes their policy.
-    "blitzecdn.capabilities.http.plugin",
-    "blitzecdn.capabilities.dns.plugin",
-    "blitzecdn.capabilities.edges.plugin",
-    "blitzecdn.capabilities.jobs.plugin",
-    "blitzecdn.capabilities.releases.plugin",
-    "blitzecdn.capabilities.workflows.plugin",
-    "blitzecdn.capabilities.deployments.plugin",
-    "blitzecdn.capabilities.tls.plugin",
-    "blitzecdn.capabilities.maintenance.plugin",
-    "blitzecdn.capabilities.diagnostics.plugin",
-    "blitzecdn.capabilities.backup.provider",
-    "blitzecdn.capabilities.cache.provider",
-    "blitzecdn.capabilities.tls.provider",
-    "blitzecdn.capabilities.compression.provider",
-    "blitzecdn.capabilities.security.provider",
-    "blitzecdn.capabilities.origins.provider",
-    "blitzecdn.providers.geoip.provider",
-    "blitzecdn.providers.hardening.provider",
-    "blitzecdn.providers.http3.provider",
-    "blitzecdn.providers.resolver.provider",
+    "blitzecdn.capabilities.http.feature",
+    "blitzecdn.capabilities.dns.feature",
+    "blitzecdn.capabilities.edges.feature",
+    "blitzecdn.capabilities.jobs.feature",
+    "blitzecdn.capabilities.releases.feature",
+    "blitzecdn.capabilities.workflows.feature",
+    "blitzecdn.capabilities.deployments.feature",
+    "blitzecdn.capabilities.tls.feature",
+    "blitzecdn.capabilities.maintenance.feature",
+    "blitzecdn.capabilities.diagnostics.feature",
+    "blitzecdn.capabilities.backup.feature",
+    "blitzecdn.capabilities.cache.feature",
+    "blitzecdn.capabilities.compression.feature",
+    "blitzecdn.capabilities.security.feature",
+    "blitzecdn.capabilities.origins.feature",
+    "blitzecdn.providers.geoip.feature",
+    "blitzecdn.providers.hardening.feature",
+    "blitzecdn.providers.http3.feature",
+    "blitzecdn.providers.resolver.feature",
 )
 
 
@@ -137,7 +151,7 @@ def load_control_plane_plugins(
 ) -> PluginRegistry:
     """The roster above, loaded by core's mechanism. The call everyone wants.
 
-    `core.plugins.load_plugins` registers whatever module paths it is given and
+    `core.plugins.load_plugins` loads whatever feature modules it is given and
     knows no capability by name. This pairs it with what this distribution
     actually ships, so a caller asking "what is installed here" — the API
     building its routers, the CLI building its command tree, `blitzecdn ansible
@@ -148,7 +162,7 @@ def load_control_plane_plugins(
     developer happens to have an unrelated BlitzeCDN plugin in the same
     virtualenv.
     """
-    return load_plugins(BUILTIN_PLUGINS, entry_point_group=entry_point_group)
+    return load_plugins(BUILTIN_FEATURES, entry_point_group=entry_point_group)
 
 
 class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
@@ -353,17 +367,44 @@ class ControlPlane:
         self.rules: RuleService = build_rule_service(
             rules=store.rules, zones=store.zones, events=self.events, uow=store
         )
+        # What external plugins' hooks may use: ports and configuration, never
+        # this object or a service.
+        self.extension_context = ExtensionContext(
+            process=self.process,
+            settings=self.settings,
+            capability_config=self.capability_config,
+            sites=self.sites,
+            fleet=self.fleet,
+            events=self.events,
+            queue_ready=self.queue_ready,
+        )
+        # One certificate store, shared by rendering and the certificate
+        # service, so both read the same verified material.
+        self.certificate_store = CertificateStore(self.settings)
+        # What every feature renders into a release. Bound from configuration
+        # and adapters only, before the compiler that consumes it.
+        self.rendering: Rendering = self.plugins.bind_rendering(
+            (
+                DNS_RENDERING,
+                HTTP_RENDERING,
+                HTTP3_RENDERING,
+                security_rendering(
+                    config=SecurityConfig.from_capability_config(
+                        self.capability_config.for_plugin("security")
+                    )
+                ),
+                certificates_rendering(store=self.certificate_store),
+            ),
+            self.extension_context,
+        )
         # Built before the capabilities that consume it, and after `dns`: a
-        # release is compiled from canonical state, and every plugin that
-        # contributes a variable to one has by now been registered.
+        # release is compiled from canonical state.
         self.releases: ReleaseService = build_release_service(
             state=store,
             releases=store.releases,
             edges=self._edges_store,
-            # The extension ABI hands plugin hooks this control plane. That is
-            # the hook contract's seam, bound here and nowhere in `releases`.
-            contributors=self.plugins.contributions_for(self),
-            objections=lambda site: self.plugins.site_objections(site, self),
+            contributors=self.rendering,
+            objections=self.rendering.site_objections,
             capabilities=tuple(self.plugins.capabilities),
             allow_empty_sites=self.settings.allow_empty_sites,
             retention=self.settings.history_retention,
@@ -416,6 +457,7 @@ class ControlPlane:
         self.certificates: CertificateService = build_certificate_service(
             settings=self.settings,
             config=self.certificate_config,
+            store=self.certificate_store,
             releases=self.releases,
             sites=self.sites,
             edges=self._edges_store,
@@ -440,13 +482,36 @@ class ControlPlane:
         )
 
     def _wire_background_work(self, store: Repository) -> None:
-        """Resolve scheduled jobs and the worker loop, after every service.
+        """Bind every feature's operations, then the worker loop.
 
-        Contributed jobs close over services, so they are resolved once here
-        rather than on first use. Only the worker consumes; every other process
-        gets a loop whose handler table is empty.
+        Contributed jobs close over services, so they are resolved once here,
+        after every service exists. Only the worker consumes; every other
+        process gets a loop whose handler table is empty.
         """
-        self.jobs: Mapping[str, ScheduledJob] = self.plugins.scheduled_jobs(self)
+        self.operations: Operations = self.plugins.bind_operations(
+            (
+                deployments_operations(
+                    deployments=self.deployments,
+                    drift_check_interval_seconds=(
+                        self.settings.drift_check_interval_seconds
+                    ),
+                ),
+                diagnostics_operations(
+                    read_database=lambda: self.workflow_history.list_workflows(1),
+                    queue_ready=self.queue_ready,
+                ),
+                certificates_operations(
+                    certificates=self.certificates,
+                    automatic_ssl=self.automatic_ssl,
+                    config=self.certificate_config,
+                    deployment_timeout_seconds=(
+                        self.settings.deployment_timeout_seconds
+                    ),
+                ),
+            ),
+            self.extension_context,
+        )
+        self.jobs: Mapping[str, ScheduledJob] = self.operations.scheduled_jobs
         self.maintenance: MaintenanceService = build_maintenance_service(
             jobs=self.jobs,
             deployments=self.deployments,
@@ -464,19 +529,25 @@ class ControlPlane:
 
     def health_checks(self) -> tuple[HealthCheck, ...]:
         """Every reason the installed plugins have to call this node unhealthy."""
-        return self.plugins.health_checks(self)
+        return self.operations.health_checks
 
     def start(self) -> None:
-        """Let every plugin do what it owes the process that is starting."""
-        self.plugins.startup(
-            RuntimeContext(process=self.process, settings=self.settings), self
-        )
+        """Run every feature's startup, then publish this installation's schedules.
+
+        The long-lived processes only register schedules. A CLI invocation is
+        over in a second and has no business rewriting the fleet's schedule.
+        Both of them, though: the worker consumes a due schedule, but an API
+        that came up first should already have the table an operator reads.
+        Registration is idempotent, never moves an existing schedule's next
+        firing, and drops a schedule nothing contributes any more.
+        """
+        self.operations.startup()
+        if self.process in (ProcessKind.API, ProcessKind.WORKER):
+            self.job_scheduler.register(schedule_specs(self.jobs))
 
     def stop(self) -> None:
         """The mirror of :meth:`start`, before adapters are released."""
-        self.plugins.shutdown(
-            RuntimeContext(process=self.process, settings=self.settings), self
-        )
+        self.operations.shutdown()
 
     def queue_ready(self) -> bool:
         """Whether the durable work queue can be read right now.

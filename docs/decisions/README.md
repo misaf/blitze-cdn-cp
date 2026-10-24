@@ -22,6 +22,12 @@ rejected. Rationale local to one function stays in that function's docstring.
 | [0011](0011-serving-policy-ownership.md) | Shared serving policy and effective virtual-host ownership |
 | [0012](0012-atomic-configuration-activation.md) | Sealed candidate configuration and recoverable atomic activation |
 | [0013](0013-nested-serving-policy.md) | Nested serving values with explicit flat delivery boundaries |
+| [0014](0014-shared-policy-commands.md) | Shared policy commands at the application boundary |
+| [0015](0015-canonical-certificate-versions-and-collection.md) | Canonical certificate versions and reference-aware collection |
+| [0016](0016-single-application-and-runtime-providers.md) | One application with focused runtime providers |
+| [0017](0017-explicit-schema-and-installation-lifecycle.md) | Explicit schema and installation lifecycle |
+| [0018](0018-application-service-ownership-and-cleanup.md) | Application service ownership and failure cleanup |
+| [0019](0019-typed-features-and-extension-context.md) | Typed features, two-stage binding, and the extension context |
 
 Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes

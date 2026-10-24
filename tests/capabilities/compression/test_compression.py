@@ -1,6 +1,8 @@
+from blitzecdn.capabilities.compression.feature import FEATURES
 from blitzecdn.capabilities.compression.policy import CompressionMode, CompressionPolicy
-from blitzecdn.capabilities.compression.provider import blitzecdn_plugin_metadata
 from blitzecdn.core.plugins import PluginMetadata
+
+(FEATURE,) = FEATURES
 
 
 def test_gzip_and_brotli_are_strategies_of_one_capability() -> None:
@@ -20,7 +22,7 @@ def test_only_enabled_compression_requires_the_implementation() -> None:
 
 
 def test_plugin_provides_compression() -> None:
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "compression"
     assert metadata.capabilities == frozenset({"compression"})

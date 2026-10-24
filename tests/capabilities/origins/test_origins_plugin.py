@@ -4,27 +4,22 @@ Ansible contribution.
 
 from __future__ import annotations
 
-from importlib import import_module
-
 from blitzecdn.capabilities.origins import __version__, ansible
-from blitzecdn.capabilities.origins.provider import (
-    blitzecdn_ansible_contributions,
-    blitzecdn_api_routers,
-    blitzecdn_cli_commands,
-    blitzecdn_plugin_metadata,
-)
-from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.capabilities.origins.feature import FEATURES
+from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
 )
 
+(FEATURE,) = FEATURES
+
 # --- registration -----------------------------------------------------------
 
 
 def test_plugin_provides_origins_as_a_required_provider() -> None:
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
 
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "origins"
@@ -35,7 +30,7 @@ def test_plugin_provides_origins_as_a_required_provider() -> None:
 
 def test_origins_is_a_built_in() -> None:
     """One registration path: the entry point in this distribution's metadata."""
-    assert any("origins" in module for module in BUILTIN_PLUGINS)
+    assert any("origins" in module for module in BUILTIN_FEATURES)
 
 
 def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
@@ -53,12 +48,10 @@ def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None
     The command tree is an interface decision, not a consequence of packaging:
     an operator upgrading past the extraction types what they typed before.
     """
-    routes = {
-        route.path for router in blitzecdn_api_routers() for route in router.routes
-    }
+    routes = {route.path for router in FEATURE.api_routers for route in router.routes}
     assert routes == {"/v1/origins/check"}
 
-    groups = blitzecdn_cli_commands()
+    groups = FEATURE.cli_commands
     assert [group.name for group in groups] == ["origin"]
     assert [command.name for command in groups[0].app.registered_commands] == ["check"]
 
@@ -73,7 +66,7 @@ def test_the_role_is_shipped_but_asked_of_neither_slot_of_the_edge_play() -> Non
     contribution that also named a slot would run a probe on every deploy —
     slower, and a deploy that failed because an origin was briefly down.
     """
-    contributions = blitzecdn_ansible_contributions()
+    contributions = FEATURE.ansible
 
     assert len(contributions) == 1
     contribution = contributions[0]
@@ -96,9 +89,5 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     Which is what makes attaching and detaching it invisible to every site: the
     document a rollback converges months from now is byte-identical either way.
     """
-    # Configuration is its own contribution now, and this capability makes
-    # none at all: not implementing the hook is how a package says so.
-    assert not hasattr(
-        import_module("blitzecdn.capabilities.origins.provider"),
-        "blitzecdn_capability_configuration",
-    )
+    # Configuration is its own contribution, and this capability makes none.
+    assert FEATURE.configuration == ()

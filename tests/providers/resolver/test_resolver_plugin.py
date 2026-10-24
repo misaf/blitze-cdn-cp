@@ -8,9 +8,7 @@ a capability that puts a file on a host must be able to take it off again
 without core knowing the path.
 """
 
-from importlib import import_module
-
-from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
@@ -18,16 +16,15 @@ from blitzecdn.core.plugins.resolution import (
     resolve_teardown_capability_roles,
 )
 from blitzecdn.providers.resolver import __version__, ansible
-from blitzecdn.providers.resolver.provider import (
-    blitzecdn_ansible_contributions,
-    blitzecdn_plugin_metadata,
-)
+from blitzecdn.providers.resolver.feature import FEATURES
+
+(FEATURE,) = FEATURES
 
 # --- registration -----------------------------------------------------------
 
 
 def test_plugin_provides_resolver_as_a_required_provider() -> None:
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
 
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "resolver"
@@ -42,7 +39,7 @@ def test_resolver_is_a_built_in() -> None:
     Registered both ways it would collide on its own name at startup, and the
     message would blame the entry point rather than the leftover line.
     """
-    assert any("resolver" in module for module in BUILTIN_PLUGINS)
+    assert any("resolver" in module for module in BUILTIN_FEATURES)
 
 
 def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
@@ -78,7 +75,7 @@ def test_converging_goes_in_the_edge_slot_and_never_the_host_one() -> None:
     configuration the runtime will look up. The host slot is on the far side of
     `nginx -t` and would be too late.
     """
-    contributions = blitzecdn_ansible_contributions()
+    contributions = FEATURE.ansible
 
     assert len(contributions) == 1
     contribution = contributions[0]
@@ -99,7 +96,7 @@ def test_withdrawing_goes_in_the_decommission_slot() -> None:
     contribution a decommissioned host would keep resolving through servers
     chosen by a control plane that has forgotten it exists.
     """
-    contributions = blitzecdn_ansible_contributions()
+    contributions = FEATURE.ansible
 
     assert contributions[0].teardown_roles == ("blitzecdn_resolver_teardown",)
     assert resolve_teardown_capability_roles(contributions) == (
@@ -115,7 +112,7 @@ def test_the_two_slots_name_different_roles() -> None:
     converge path makes — on a host that is being taken apart, where a resolver
     probe failing is not a reason to abandon a teardown half-way through.
     """
-    contribution = blitzecdn_ansible_contributions()[0]
+    contribution = FEATURE.ansible[0]
 
     assert not set(contribution.edge_roles) & set(contribution.teardown_roles)
 
@@ -132,9 +129,5 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     Which is what makes attaching and detaching it invisible to every site: the
     document a rollback converges months from now is byte-identical either way.
     """
-    # Configuration is its own contribution now, and this capability makes
-    # none at all: not implementing the hook is how a package says so.
-    assert not hasattr(
-        import_module("blitzecdn.providers.resolver.provider"),
-        "blitzecdn_capability_configuration",
-    )
+    # Configuration is its own contribution, and this capability makes none.
+    assert FEATURE.configuration == ()

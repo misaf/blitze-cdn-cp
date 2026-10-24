@@ -47,8 +47,8 @@ already has nested cleanup protecting persistence and retains that behavior.
 
 Frozen-contract comparisons now cover their entire committed application surface,
 without filtering by importable package names. Delivery parity likewise checks
-every declared operation. Dependency checks inspect both `plugin.py` and
-`provider.py` registration seams. Public interfaces and snapshot contents do not
+every declared operation. Dependency checks inspect every registration seam
+(since [0019](0019-typed-features-and-extension-context.md), `feature.py`). Public interfaces and snapshot contents do not
 change in this step.
 
 The README describes the single distribution, current development commands,

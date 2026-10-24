@@ -8,10 +8,16 @@ attaching it is the only thing that makes a country-aware site deployable.
 
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import (
+    BUILTIN_FEATURES,
+    ControlPlane,
+    load_control_plane_plugins,
+)
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.providers.geoip import __version__
-from blitzecdn.providers.geoip.provider import blitzecdn_plugin_metadata
+from blitzecdn.providers.geoip.feature import FEATURES
+
+(FEATURE,) = FEATURES
 
 
 def _site(**policy: object) -> CdnSite:
@@ -27,7 +33,7 @@ def _site(**policy: object) -> CdnSite:
 
 
 def test_plugin_provides_geoip_as_a_required_provider() -> None:
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
 
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "geoip"
@@ -46,7 +52,7 @@ def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
     """
     requested = _site(visitor_headers={"ip_country": True}).policy.required_capabilities
 
-    assert requested & blitzecdn_plugin_metadata().capabilities == frozenset({"geoip"})
+    assert requested & FEATURE.metadata.capabilities == frozenset({"geoip"})
 
 
 def test_geoip_is_a_built_in() -> None:
@@ -55,7 +61,7 @@ def test_geoip_is_a_built_in() -> None:
     Registered both ways it would collide on its own name at startup, and the
     message would blame the entry point rather than the leftover line.
     """
-    assert any("geoip" in module for module in BUILTIN_PLUGINS)
+    assert any("geoip" in module for module in BUILTIN_FEATURES)
     builtins = load_control_plane_plugins(entry_point_group=None)
     assert "geoip" in builtins.capabilities
 
@@ -102,7 +108,7 @@ def test_a_site_that_asks_for_no_country_needs_this_package_for_nothing() -> Non
     assert "geoip" not in ordinary.policy.required_capabilities
 
 
-def test_the_capability_contributes_no_desired_state() -> None:
+def test_the_capability_contributes_no_desired_state(settings) -> None:
     """Attaching converges nothing on its own.
 
     Whether an edge resolves countries is fleet Ansible policy
@@ -111,8 +117,11 @@ def test_the_capability_contributes_no_desired_state() -> None:
     distribution installed. A contribution added here later would silently
     override what an operator set in group vars.
     """
-    registry = load_control_plane_plugins()
+    control = ControlPlane(settings=settings)
     sites = (_site(visitor_headers={"ip_country": True}),)
 
-    assert "geoip" not in str(registry.fleet_variables(sites, object()))
-    assert "geoip" not in str(registry.site_variables(sites[0], object()))
+    try:
+        assert "geoip" not in str(control.rendering.fleet_variables(sites))
+        assert "geoip" not in str(control.rendering.site_variables(sites[0]))
+    finally:
+        control.close()

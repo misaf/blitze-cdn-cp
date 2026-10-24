@@ -259,30 +259,23 @@ def test_selected_missing_or_corrupt_material_never_falls_back_to_latest(
 def test_captured_checksums_cannot_follow_a_file_changed_after_verification(
     settings, certificate_pair, monkeypatch
 ):
-    from blitzecdn.capabilities.tls.provider import blitzecdn_site_desired_state
-
     control = certificate_control_plane(settings, runner=FakeRunner())
     _seed_proxied_record(control)
     info = _upload(control, certificate_pair)
     site = control.sites.get_site(info.site)
-    sources = control.certificates.installed_sources
+    sources = control.certificate_store.sources
 
-    def tampered_after_verification(site):
-        files = sources(site)
+    def tampered_after_verification(site_name, *, version=None):
+        files = sources(site_name, version=version)
         files[0].write_bytes(b"changed after verification")
         return files
 
     monkeypatch.setattr(
-        control.certificates, "installed_sources", tampered_after_verification
+        control.certificate_store, "sources", tampered_after_verification
     )
-    contribution = blitzecdn_site_desired_state(site, control)
-    assert (
-        contribution.variables["certificate_source_sha256"] == info.certificate_digest
-    )
-    assert (
-        contribution.variables["certificate_key_source_sha256"]
-        == info.private_key_digest
-    )
+    variables = control.rendering.site_variables(site)
+    assert variables["certificate_source_sha256"] == info.certificate_digest
+    assert variables["certificate_key_source_sha256"] == info.private_key_digest
 
 
 def test_deployment_history_keeps_material_and_rollback_restores_its_version(

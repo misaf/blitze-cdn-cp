@@ -1,0 +1,29 @@
+"""Declare the application's backup capability."""
+
+from __future__ import annotations
+
+from blitzecdn.capabilities.backup import cli
+from blitzecdn.capabilities.backup.composition import __version__
+from blitzecdn.capabilities.backup.config import CONFIGURATION
+from blitzecdn.core.plugins import CliCommandGroup, Feature, PluginMetadata
+
+FEATURES = (
+    Feature(
+        metadata=PluginMetadata(
+            name="backup",
+            version=__version__,
+            api_version=2,
+            required=True,
+            provides=frozenset({"backup"}),
+            summary="Archive and restore the control plane's own state.",
+        ),
+        cli_commands=(
+            CliCommandGroup(plugin="backup", name="backup", app=cli.backup_app),
+        ),
+        # Where this capability writes its archives. The same declaration the
+        # backup CLI resolves for itself when it runs with no control plane;
+        # claiming it here is what makes `BLITZE_BACKUP_DIR` a name the
+        # installation recognises rather than one the startup check rejects.
+        configuration=(CONFIGURATION,),
+    ),
+)

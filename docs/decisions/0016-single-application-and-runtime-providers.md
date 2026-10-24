@@ -34,11 +34,13 @@ Ansible/Nginx resources rather than application services. Configuration and
 site policy still decide their use; edge capability declarations and module
 verification still constrain executable releases.
 
-`BUILTIN_PLUGINS` is the explicit shipped roster. Every built-in is required
-and reports the application's version. A missing built-in fails startup.
-Third-party entry points remain an external extension seam; they no longer
-assemble the application's own features. Existing registration hooks stay as
-contribution adapters, not business calls or a command dispatcher.
+`BUILTIN_FEATURES` is the explicit shipped roster of feature modules. Every
+built-in is required and reports the application's version. A missing built-in
+fails startup. Third-party entry points remain an external extension seam; they
+do not assemble the application's own features, which are typed declarations
+(see [0019](0019-typed-features-and-extension-context.md)). Registration hooks
+stay as contribution adapters for external plugins, not business calls or a
+command dispatcher.
 
 Pure policy facades remain independent of service construction. Services consume
 public contracts and consumer-owned ports. The application composition root
@@ -81,7 +83,7 @@ unbounded version ranges on every test run.
 
 - `pyproject.toml`, `uv.lock`, installer, image and CI: one installation unit.
 - `composition/control_plane.py`: mandatory roster and concrete adapter binding.
-- Capability `provider.py` modules and `providers/`: focused contribution owners.
+- Capability and provider `feature.py` modules: focused contribution owners.
 - Backup composition/adapter boundary and public origin reporting.
 - `tests/architecture/test_application_distribution.py`: assembly and ownership.
 - `tests/architecture/test_application_installation.py`: actual installed wheel.

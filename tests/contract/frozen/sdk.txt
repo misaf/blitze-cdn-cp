@@ -65,36 +65,41 @@ blitzecdn	sdk	blitzecdn.core.plugins.Discovery	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ENTRY_POINT_GROUP	str
 blitzecdn	sdk	blitzecdn.core.plugins.EdgeModule	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.EnvironmentKey	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.ExtensionContext	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.Feature	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.FeatureOperations	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.FeatureRendering	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.FleetStateContribution	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.HOOK_API_VERSION	int
 blitzecdn	sdk	blitzecdn.core.plugins.HealthCheck	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.NginxContribution	class(object)
+blitzecdn	sdk	blitzecdn.core.plugins.Operations	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.PROJECT_NAME	str
 blitzecdn	sdk	blitzecdn.core.plugins.PluginMetadata	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.PluginRegistry	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.PluginRejection	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ProcessKind	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.plugins.Rendering	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ResolvedCapabilityEnvironment	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ResolvedEdgeModule	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ResolvedNginxResource	class(object)
-blitzecdn	sdk	blitzecdn.core.plugins.RuntimeContext	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.SUPPORTED_HOOK_API_VERSIONS	frozenset
 blitzecdn	sdk	blitzecdn.core.plugins.ScheduledJob	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.SettingValue	TypeAliasType
 blitzecdn	sdk	blitzecdn.core.plugins.Severity	class(StrEnum)
+blitzecdn	sdk	blitzecdn.core.plugins.SiteReader	class(Protocol)
 blitzecdn	sdk	blitzecdn.core.plugins.SiteStateContribution	class(object)
-blitzecdn	sdk	blitzecdn.core.plugins.StateContributions	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.StateValue	TypeAliasType
 blitzecdn	sdk	blitzecdn.core.plugins.ValidationIssue	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.ValidationResult	class(object)
 blitzecdn	sdk	blitzecdn.core.plugins.build_plugin_manager	def() -> pluggy.PluginManager
 blitzecdn	sdk	blitzecdn.core.plugins.hookimpl	callable HookimplMarker
 blitzecdn	sdk	blitzecdn.core.plugins.hooks.hookspec	callable HookspecMarker
+blitzecdn	sdk	blitzecdn.core.plugins.load_features	def(modules: Sequence[str]) -> tuple[Feature, ...]
 blitzecdn	sdk	blitzecdn.core.plugins.load_plugins	def(builtins: Sequence[str], entry_point_group: str | None = 'blitzecdn.plugins', manager: pluggy.PluginManager | None = None) -> PluginRegistry
 blitzecdn	sdk	blitzecdn.core.plugins.merge_variables	def(contributions: Sequence[SiteStateContribution] | Sequence[FleetStateContribution], subject: str) -> dict[str, StateValue]
-blitzecdn	sdk	blitzecdn.core.plugins.register	def(manager: pluggy.PluginManager, candidate: object, source: str) -> PluginMetadata
-blitzecdn	sdk	blitzecdn.core.plugins.register_builtins	def(manager: pluggy.PluginManager, modules: Sequence[str]) -> tuple[PluginMetadata, ...]
-blitzecdn	sdk	blitzecdn.core.plugins.register_external	def(manager: pluggy.PluginManager, group: str = 'blitzecdn.plugins', points: Iterable[EntryPoint] | None = None) -> Discovery
+blitzecdn	sdk	blitzecdn.core.plugins.register	def(manager: pluggy.PluginManager, candidate: object, source: str, reserved: Collection[str] = ()) -> PluginMetadata
+blitzecdn	sdk	blitzecdn.core.plugins.register_external	def(manager: pluggy.PluginManager, group: str = 'blitzecdn.plugins', points: Iterable[EntryPoint] | None = None, reserved: Collection[str] = ()) -> Discovery
 blitzecdn	sdk	blitzecdn.core.plugins.resolve_capability_environment	def(contributions: Iterable[ConfigurationContribution], configured: Mapping[str, SecretStr], from_file: Mapping[str, str], state_dir: Path) -> ResolvedCapabilityEnvironment
 blitzecdn	sdk	blitzecdn.core.plugins.resolve_edge_capability_roles	def(contributions: Iterable[AnsibleContribution]) -> tuple[str, ...]
 blitzecdn	sdk	blitzecdn.core.plugins.resolve_edge_modules	def(contributions: Iterable[AnsibleContribution]) -> tuple[ResolvedEdgeModule, ...]

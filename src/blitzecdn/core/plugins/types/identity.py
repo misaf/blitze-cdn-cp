@@ -26,23 +26,20 @@ ENTRY_POINT_GROUP = "blitzecdn.plugins"
 
 #: The hook contract this control plane speaks. Bumped only when a hookspec
 #: changes shape in a way an existing implementation cannot survive.
-HOOK_API_VERSION = 1
+HOOK_API_VERSION = 2
 
 #: Every contract version this control plane still accepts a plugin for.
 #:
-#: A set rather than a comparison against `HOOK_API_VERSION`. A `!=` gate would
-#: make bumping the contract a same-day fork of every wheel in existence: v2
-#: core, and every plugin declaring v1 refused at once, with no release in which
-#: an author could support both. Widening this to `{1, 2}` is what a deprecation
-#: window *is* — v1 plugins keep loading while their authors move, and dropping
-#: 1 later is a second, separate decision that shows up in this line.
+#: A set rather than a comparison against `HOOK_API_VERSION`, so a later bump
+#: can keep the previous contract loading while plugin authors move. Version 2
+#: replaced the composition root with `ExtensionContext` in every hook; nothing
+#: was deployed against version 1, so it is not accepted.
 #:
-#: `pip` already refuses a wheel whose `blitzecdn>=3.0.0,<4` cannot be
-#: satisfied, so this is the second lock rather than the first. It earns its
-#: place on the installs that never went through a resolver — an editable
-#: checkout, a vendored tree — where the alternative is an AttributeError
-#: inside a hook call that names no plugin.
-SUPPORTED_HOOK_API_VERSIONS = frozenset({1})
+#: `pip` already refuses a wheel whose `blitzecdn` bound cannot be satisfied,
+#: so this is the second lock rather than the first. It earns its place on
+#: installs that never went through a resolver — an editable checkout, a
+#: vendored tree — where the alternative is a TypeError inside a hook call.
+SUPPORTED_HOOK_API_VERSIONS = frozenset({2})
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,7 +63,7 @@ class PluginMetadata:
     #: into, however old the hooks it implements. A workspace where every
     #: plugin omits the field is one where the check can never fail, and the
     #: only author it could ever refuse is the one who was explicit and pinned
-    #: `1`: exactly backwards.
+    #: an older contract: exactly backwards.
     #:
     #: Write the number, not `HOOK_API_VERSION`. Importing the constant
     #: reintroduces the same defect one level up —

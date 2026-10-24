@@ -27,7 +27,7 @@ from pathlib import Path
 import pytest
 from paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
 
-from blitzecdn.composition import BUILTIN_PLUGINS
+from blitzecdn.composition import BUILTIN_FEATURES
 
 _SOURCE = SOURCE
 _COMPOSITION_ROOT = "blitzecdn.composition"
@@ -920,89 +920,6 @@ def test_the_capability_contract_graph_is_acyclic():
     _assert_acyclic(_policy_graph(), "capability contract")
 
 
-#: Which `ControlPlane` attribute belongs to which capability. A `plugin.py` that
-#: reads one is depending on that capability just as surely as an import would, so
-#: `_capability_graph` counts both — otherwise moving a call from a service into a
-#: registration hook would be a way to leave the declared graph.
-_PLATFORM_SERVICES = {
-    # Two attributes, one owner. `certificates` and `automatic_ssl` are parts
-    # of the TLS capability, so a plugin reading either is depending on `tls`.
-    "automatic_ssl": "tls",
-    "cache": "cache",
-    "certificates": "tls",
-    "certificate_config": "tls",
-    "deployments": "deployments",
-    "dns": "dns",
-    "edges": "edges",
-    # Two attributes, one owner, for the same reason as `tls` above: the queue
-    # and the scheduler are both parts of the `jobs` capability, so a plugin
-    # reading either is depending on it.
-    "job_queue": "jobs",
-    "job_runner": "jobs",
-    "job_scheduler": "jobs",
-    "maintenance": "maintenance",
-    "origins": "origins",
-}
-
-#: What every plugin may read off the platform without that being a dependency
-#: on a capability: configuration, the journals, and the registry's own
-#: accessors.
-#:
-#: `workflows` and `workflow_history` stayed on this list when the journal
-#: became a capability, for the reason `fleet` and `sites` are on it: what the
-#: platform publishes is the *port*, and every consumer — `deployments` here,
-#: `blitzecdn-certificates` out of tree — declares the coordinator as a
-#: Protocol of its own. Reading one is not knowing whose service satisfies it.
-_PLATFORM_COMMON = {
-    "capability_config",
-    "audit",
-    "close",
-    "events",
-    # The two contracts an installed distribution builds itself from. Both are
-    # ports rather than services, and neither belongs to a capability: `fleet`
-    # runs a named play and knows nothing about what any play is for, and
-    # `sites` is the read side of the model every capability already consumes.
-    # A plugin reading either is not depending on a capability, which is the whole
-    # reason they are shaped this way.
-    "fleet",
-    "health_checks",
-    "jobs",
-    "plugins",
-    "process",
-    # Whether the durable job table can be read. A port-shaped question like
-    # `fleet` and `sites`: a plugin asking it is not depending on the `jobs`
-    # capability, it is asking the platform whether background work can run.
-    "queue_ready",
-    "settings",
-    "sites",
-    "start",
-    "stop",
-    "workflow_history",
-    "workflows",
-}
-
-
-def _registration_files() -> list[Path]:
-    """Both shipped spellings of a capability's registration seam."""
-    return sorted(
-        [
-            *_CAPABILITIES.glob("*/plugin.py"),
-            *_CAPABILITIES.glob("*/provider.py"),
-        ]
-    )
-
-
-def _platform_reads(path: Path) -> set[str]:
-    """Every `platform.<name>` this module reads."""
-    return {
-        node.attr
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
-        if isinstance(node, ast.Attribute)
-        and isinstance(node.value, ast.Name)
-        and node.value.id == "platform"
-    }
-
-
 def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
     """The implementation graph and the contract graph, in that order.
 
@@ -1031,12 +948,6 @@ def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
                 continue
             target = contract if _is_policy_import(imported) else implementation
             target[owner].add(depends_on)
-    for path in _registration_files():
-        owner = _capability_name(path)
-        for attribute in _platform_reads(path):
-            depends_on = _PLATFORM_SERVICES.get(attribute)
-            if depends_on is not None and depends_on != owner:
-                implementation[owner].add(depends_on)
     return implementation, contract
 
 
@@ -1126,52 +1037,46 @@ def test_no_capability_port_declares_another_capability_s_playbook():
     assert offenders == []
 
 
-def test_every_capability_registers_itself_through_a_plugin_module():
-    """A capability the plugin manager has never heard of is a capability nothing runs.
+def _feature_modules() -> list[Path]:
+    return sorted(
+        [
+            *_CAPABILITIES.glob("*/feature.py"),
+            *(_SOURCE / "providers").glob("*/feature.py"),
+        ]
+    )
 
-    Both directions: a capability without a `plugin.py` contributes nothing, and
-    a `plugin.py` missing from `composition.BUILTIN_PLUGINS` is never imported —
-    either way the routes and commands quietly are not there, which is exactly
-    the failure a discovery mechanism is supposed to make impossible.
 
-    Which capabilities may go unregistered was the set `{"cache",
-    "compression", "security"}` written here, which made the test circular: it
-    asserted that the capabilities with a `plugin.py` are the ones not on a
-    list of the capabilities without one. A capability may skip registration
-    when it has *nothing to register* — when it is a contract and its
-    implementation ships as a wheel that registers itself — and that is a
-    question the tree answers. `test_the_capability_map_says_what_the_tree_does`
-    holds the other half: that the map in `capabilities/__init__.py` names the
-    wheel each of them is waiting for.
+def _module_name(path: Path) -> str:
+    return "blitzecdn." + path.relative_to(_SOURCE).with_suffix("").as_posix().replace(
+        "/", "."
+    )
+
+
+def test_every_capability_declares_itself_through_a_feature_module():
+    """A capability the registry has never heard of is a capability nothing runs.
+
+    Both directions: a capability without a `feature.py` contributes nothing,
+    and a `feature.py` missing from `composition.BUILTIN_FEATURES` is never
+    imported — either way the routes and commands quietly are not there.
+
+    A capability may skip declaring a feature only when it has nothing to
+    declare: when it is a contract and nothing beyond its policy and domain.
     """
     capabilities = {
         path.name
         for path in _CAPABILITIES.iterdir()
         if path.is_dir() and (path / "__init__.py").is_file()
     }
-    modules = [
-        *(path for path in _CAPABILITIES.rglob("plugin.py")),
-        *(_CAPABILITIES.rglob("provider.py")),
-        *((_SOURCE / "providers").rglob("provider.py")),
-    ]
-    assert set(BUILTIN_PLUGINS) == {
-        "blitzecdn."
-        + path.relative_to(_SOURCE).with_suffix("").as_posix().replace("/", ".")
-        for path in modules
-    }
-    registered = {
+    modules = _feature_modules()
+    assert set(BUILTIN_FEATURES) == {_module_name(path) for path in modules}
+    declared = {
         path.relative_to(_CAPABILITIES).parts[0]
         for path in modules
         if path.is_relative_to(_CAPABILITIES)
     }
-    # Anything beyond `__init__.py` and the contract is something that would
-    # have had to be registered to run. These have no `plugin.py` by
-    # construction, so this is the same question
-    # `_implemented_here` in `packages/test_package_layout.py` also allows
-    # `plugin.py`.
     offenders = [
-        f"{name} registers nothing but holds {path.relative_to(_CAPABILITIES)}"
-        for name in sorted(capabilities - registered)
+        f"{name} declares no feature but holds {path.relative_to(_CAPABILITIES)}"
+        for name in sorted(capabilities - declared)
         for path in sorted((_CAPABILITIES / name).rglob("*.py"))
         if path.name != "__init__.py"
         and not {"policy", "domain"}.intersection(
@@ -1181,85 +1086,53 @@ def test_every_capability_registers_itself_through_a_plugin_module():
     assert offenders == []
 
 
-#: The modules in a capability that may name the platform. A registration
-#: module (`plugin.py` or `provider.py`) implements hooks whose published ABI
-#: hands them the built control plane.
-#:
-#: `composition.py` is deliberately absent. A builder receives each
-#: collaborator as a named argument, so what a service depends on is its
-#: signature rather than whatever it reads off the composition root.
-_PLATFORM_AWARE_MODULES = {"plugin.py", "provider.py"}
+def test_no_capability_or_provider_names_the_composition_root():
+    """Nothing the composition root builds may reach back for it.
 
-
-def test_only_the_seam_modules_may_name_the_composition_root():
-    """Registration may know the platform. Nothing else may.
-
-    That is the whole of the allowance: a service, a domain module or an
-    adapter that reached for it would be resolving its collaborators at call
-    time instead of receiving them, which is the service-locator architecture
-    this design refuses.
+    Not a service, an adapter, a builder or a feature: each receives its
+    collaborators as named arguments, or as an `ExtensionContext` across the
+    external extension boundary. A module that reached for the root would be
+    resolving its collaborators at call time instead of receiving them, which
+    is the service-locator shape this design refuses. Not even for typing.
 
     A capability's *entry* modules are outside the rule for the same reason
     `cli/common.py` is: a command has to get a control plane from somewhere.
-    `backup/cli.py` is the pointed case — it builds a backup service directly,
-    because restore has to work on a host where the control plane cannot start.
     """
     entry = set(_entry_files())
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in _capability_files()
-        if path.name not in _PLATFORM_AWARE_MODULES and path not in entry
+        for path in [
+            *_capability_files(),
+            *sorted((_SOURCE / "providers").rglob("*.py")),
+        ]
+        if path not in entry
         for imported in sorted(_imports(path))
         if imported.startswith(_COMPOSITION_ROOT)
     ]
     assert offenders == []
 
 
-def test_a_seam_module_names_the_composition_root_only_for_typing():
-    """And even there, never at runtime.
+def test_a_runtime_module_imports_no_delivery_layer():
+    """`runtime.py` is what the composition root imports to bind behaviour.
 
-    A capability importing the composition root for real would point the arrow
-    back at the thing that builds it. A registration module needs the *type* to
-    annotate its hooks, and `TYPE_CHECKING` gives it without an import ever
-    executing.
+    Delivery modules import the composition root, so a runtime module that
+    imported one would make composing the application an import cycle. A
+    feature's routes and commands are declared in `feature.py`, which the
+    registry loads by name instead.
     """
-    seams = sorted(
-        path
-        for name in _PLATFORM_AWARE_MODULES
-        for path in _CAPABILITIES.glob(f"*/{name}")
-    )
-    offenders: list[str] = []
-    for path in seams:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        guarded = {
-            node
-            for branch in ast.walk(tree)
-            if isinstance(branch, ast.If)
-            and ast.unparse(branch.test) == "TYPE_CHECKING"
-            for node in ast.walk(branch)
-        }
-        offenders.extend(
-            f"{path.relative_to(_SOURCE)}:{node.lineno} imports the composition root"
-            for node in ast.walk(tree)
-            if isinstance(node, ast.ImportFrom)
-            and (node.module or "").startswith(_COMPOSITION_ROOT)
-            and node not in guarded
-        )
-    assert offenders == []
-
-
-def test_a_plugin_reads_only_the_platform_services_its_graph_declares():
-    """`platform.x` in a registration hook is a declared dependency or a bug."""
+    delivery = ("fastapi", "typer", "blitzecdn.api", "blitzecdn.cli")
+    runtimes = [
+        *_CAPABILITIES.glob("*/runtime.py"),
+        *(_SOURCE / "providers").glob("*/runtime.py"),
+    ]
+    assert runtimes
     offenders = [
-        f"{path.relative_to(_SOURCE)} reads platform.{attribute}"
-        for path in _registration_files()
-        for attribute in sorted(_platform_reads(path))
-        if attribute not in _PLATFORM_COMMON
-        and _PLATFORM_SERVICES.get(attribute)
-        not in {
-            _capability_name(path),
-            *ALLOWED_CAPABILITY_DEPENDENCIES[_capability_name(path)],
-        }
+        f"{path.relative_to(_SOURCE)} imports {imported}"
+        for path in sorted(runtimes)
+        for imported in sorted(_runtime_imports(path))
+        if imported.startswith(delivery)
+        or ".api" in imported
+        or imported.endswith((".cli", ".feature"))
     ]
     assert offenders == []
 

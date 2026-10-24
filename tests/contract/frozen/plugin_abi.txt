@@ -24,6 +24,28 @@ blitzecdn	contribution	EnvironmentKey.minimum_bytes: int = 0
 blitzecdn	contribution	EnvironmentKey.name: str
 blitzecdn	contribution	EnvironmentKey.required: bool = False
 blitzecdn	contribution	EnvironmentKey.summary: str = ''
+blitzecdn	contribution	ExtensionContext.capability_config: ResolvedCapabilityEnvironment
+blitzecdn	contribution	ExtensionContext.events: EventRecorder
+blitzecdn	contribution	ExtensionContext.fleet: PlaybookRunner
+blitzecdn	contribution	ExtensionContext.process: ProcessKind
+blitzecdn	contribution	ExtensionContext.queue_ready: Callable[[], bool]
+blitzecdn	contribution	ExtensionContext.settings: Settings
+blitzecdn	contribution	ExtensionContext.sites: SiteReader
+blitzecdn	contribution	Feature.ansible: tuple[AnsibleContribution, ...] = ()
+blitzecdn	contribution	Feature.api_routers: tuple[APIRouter, ...] = ()
+blitzecdn	contribution	Feature.cli_commands: tuple[CliCommandGroup, ...] = ()
+blitzecdn	contribution	Feature.configuration: tuple[ConfigurationContribution, ...] = ()
+blitzecdn	contribution	Feature.metadata: PluginMetadata
+blitzecdn	contribution	Feature.nginx: tuple[NginxContribution, ...] = ()
+blitzecdn	contribution	FeatureOperations.health_checks: tuple[HealthCheck, ...] = ()
+blitzecdn	contribution	FeatureOperations.plugin: str
+blitzecdn	contribution	FeatureOperations.scheduled_jobs: tuple[ScheduledJob, ...] = ()
+blitzecdn	contribution	FeatureOperations.shutdown: Callable[[ProcessKind], None] | None = None
+blitzecdn	contribution	FeatureOperations.startup: Callable[[ProcessKind], None] | None = None
+blitzecdn	contribution	FeatureRendering.deployment_checks: Callable[[CdnSite], Sequence[ValidationIssue]] | None = None
+blitzecdn	contribution	FeatureRendering.fleet_state: Callable[[tuple[CdnSite, ...]], FleetStateContribution | None] | None = None
+blitzecdn	contribution	FeatureRendering.plugin: str
+blitzecdn	contribution	FeatureRendering.site_state: Callable[[CdnSite], SiteStateContribution | None] | None = None
 blitzecdn	contribution	FleetStateContribution.overrides: frozenset[str] = <factory>
 blitzecdn	contribution	FleetStateContribution.plugin: str
 blitzecdn	contribution	FleetStateContribution.variables: Mapping[str, StateValue]
@@ -42,8 +64,6 @@ blitzecdn	contribution	PluginMetadata.provides: frozenset[str] = frozenset()
 blitzecdn	contribution	PluginMetadata.required: bool = False
 blitzecdn	contribution	PluginMetadata.summary: str = ''
 blitzecdn	contribution	PluginMetadata.version: str
-blitzecdn	contribution	RuntimeContext.process: ProcessKind
-blitzecdn	contribution	RuntimeContext.settings: Settings
 blitzecdn	contribution	ScheduledJob.interval_seconds: int
 blitzecdn	contribution	ScheduledJob.jitter_seconds: int = 0
 blitzecdn	contribution	ScheduledJob.lease_seconds: int = 0
@@ -73,14 +93,14 @@ blitzecdn	hook	blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution
 blitzecdn	hook	blitzecdn_api_routers() -> Sequence[APIRouter]
 blitzecdn	hook	blitzecdn_capability_configuration() -> Sequence[ConfigurationContribution]
 blitzecdn	hook	blitzecdn_cli_commands() -> Sequence[CliCommandGroup]
-blitzecdn	hook	blitzecdn_deployment_checks(site: CdnSite, platform: ControlPlane) -> Sequence[ValidationIssue]
-blitzecdn	hook	blitzecdn_fleet_desired_state(sites: tuple[CdnSite, ...], platform: ControlPlane) -> FleetStateContribution | None
-blitzecdn	hook	blitzecdn_health_checks(platform: ControlPlane) -> Sequence[HealthCheck]
+blitzecdn	hook	blitzecdn_deployment_checks(site: CdnSite, context: ExtensionContext) -> Sequence[ValidationIssue]
+blitzecdn	hook	blitzecdn_fleet_desired_state(sites: tuple[CdnSite, ...], context: ExtensionContext) -> FleetStateContribution | None
+blitzecdn	hook	blitzecdn_health_checks(context: ExtensionContext) -> Sequence[HealthCheck]
 blitzecdn	hook	blitzecdn_nginx_contributions() -> Sequence[NginxContribution]
 blitzecdn	hook	blitzecdn_plugin_metadata() -> PluginMetadata | None
-blitzecdn	hook	blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]
-blitzecdn	hook	blitzecdn_shutdown(context: RuntimeContext, platform: ControlPlane) -> None
-blitzecdn	hook	blitzecdn_site_desired_state(site: CdnSite, platform: ControlPlane) -> SiteStateContribution | None
-blitzecdn	hook	blitzecdn_startup(context: RuntimeContext, platform: ControlPlane) -> None
-blitzecdn	hook_api_version	1
-blitzecdn	supported_hook_api_versions	1
+blitzecdn	hook	blitzecdn_scheduled_jobs(context: ExtensionContext) -> Sequence[ScheduledJob]
+blitzecdn	hook	blitzecdn_shutdown(context: ExtensionContext) -> None
+blitzecdn	hook	blitzecdn_site_desired_state(site: CdnSite, context: ExtensionContext) -> SiteStateContribution | None
+blitzecdn	hook	blitzecdn_startup(context: ExtensionContext) -> None
+blitzecdn	hook_api_version	2
+blitzecdn	supported_hook_api_versions	2

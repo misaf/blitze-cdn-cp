@@ -15,13 +15,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from typer import Typer
 
-    from blitzecdn.core.config import Settings
-
 __all__ = [
     "CliCommandGroup",
     "HealthCheck",
     "ProcessKind",
-    "RuntimeContext",
     "ScheduledJob",
 ]
 
@@ -39,20 +36,6 @@ class ProcessKind(StrEnum):
     CLI = "cli"
     WORKER = "worker"
     SCHEDULER = "scheduler"
-
-
-@dataclass(frozen=True, slots=True)
-class RuntimeContext:
-    """What a lifecycle contribution is told about the process it runs in."""
-
-    process: ProcessKind
-    #: The process's resolved configuration. Annotated under `TYPE_CHECKING`,
-    #: the same way `Typer` is, and not left as `object`: `core.config` imports
-    #: nothing from `core.plugins`, in either direction, so there is no cycle
-    #: to avoid here — and an untyped member is the one place in an otherwise
-    #: fully typed ABI where mypy has nothing to say about an attribute a
-    #: startup hook reads off it, in this repository or in a wheel.
-    settings: Settings
 
 
 @dataclass(frozen=True, slots=True)

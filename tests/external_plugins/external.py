@@ -37,7 +37,7 @@ def waf_show() -> None:
 @hookimpl
 def blitzecdn_plugin_metadata() -> PluginMetadata:
     return PluginMetadata(
-        name="waf", version="1.2.0", api_version=1, summary="A pretend WAF."
+        name="waf", version="1.2.0", api_version=2, summary="A pretend WAF."
     )
 
 
@@ -68,12 +68,12 @@ def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
 
 
 @hookimpl
-def blitzecdn_health_checks(platform: object) -> Sequence[HealthCheck]:
+def blitzecdn_health_checks(context: object) -> Sequence[HealthCheck]:
     return (HealthCheck(plugin="waf", name="waf-rules", check=lambda: None),)
 
 
 @hookimpl
-def blitzecdn_scheduled_jobs(platform: object) -> Sequence[ScheduledJob]:
+def blitzecdn_scheduled_jobs(context: object) -> Sequence[ScheduledJob]:
     return (
         ScheduledJob(
             plugin="waf",

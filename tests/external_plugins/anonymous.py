@@ -8,5 +8,5 @@ from blitzecdn.core.plugins import HealthCheck, hookimpl
 
 
 @hookimpl
-def blitzecdn_health_checks(platform: object) -> Sequence[HealthCheck]:
+def blitzecdn_health_checks(context: object) -> Sequence[HealthCheck]:
     return (HealthCheck(plugin="anonymous", name="anonymous", check=lambda: None),)

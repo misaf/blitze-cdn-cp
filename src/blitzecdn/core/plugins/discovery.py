@@ -1,37 +1,24 @@
-"""Finding plugins, and what happens when one cannot be found or loaded.
+"""Finding features and plugins, and what happens when one cannot be loaded.
 
 Two sources, deliberately not one:
 
-* **Built-ins** are module paths the composition root passes in, imported by
-  name. They are not optional and not really "discovered" — the control plane
-  *is* these capabilities — so resolving them through installation metadata
-  would turn a broken editable install into a control plane that starts happily
-  and quietly serves an empty fleet. An explicit roster fails at import, names
-  the module, and can be read.
+* **Built-in features** are modules the composition root names, each exporting
+  ``FEATURES``: typed :class:`~blitzecdn.core.plugins.Feature` declarations.
+  They are not optional and not really "discovered" — the control plane *is*
+  these features — so resolving them through installation metadata would turn a
+  broken editable install into a control plane that starts happily and quietly
+  serves an empty fleet. An explicit roster fails at import, names the module,
+  and can be read. Which modules it holds is the composition root's answer.
 
-  Which capabilities that roster holds is not a fact this module knows.
-  ``blitzecdn.composition.BUILTIN_PLUGINS`` is the list, because "what does this
-  distribution ship" is a composition decision, and core naming the tree it
-  supports is the direction this package exists to refuse.
+* **External plugins** come from the ``blitzecdn.plugins`` entry-point group and
+  implement the hooks in :mod:`blitzecdn.core.plugins.hooks`. That is the whole
+  extension story for a separately installable package: ``blitzecdn-waf``
+  declares itself in the group, and nothing in this repository is edited.
 
-* **External plugins** come from the ``blitzecdn.plugins`` entry-point group.
-  That is the whole extension story for a separately installable package:
-  ``blitzecdn-waf`` declares itself in the group, and nothing in this
-  repository is edited to make it load.
-
-The failure policy is one rule with one input — ``PluginMetadata.required``:
-
-============================  ==========================  ====================
-failure                       required plugin             optional plugin
-============================  ==========================  ====================
-import raises                 ``PluginError``, startup    logged with the
-                              stops                       module path, skipped
-registration raises           ``PluginError``             logged, skipped
-no metadata hook              ``PluginError``             logged, skipped
-duplicate name                ``PluginError`` either way — two plugins claiming
-                              one name makes every later diagnostic ambiguous
-incompatible api_version      ``PluginError``             logged, skipped
-============================  ==========================  ====================
+An external plugin that fails to import, fails to register, gives no metadata,
+claims a name already taken, or targets an unsupported hook API is skipped and
+recorded with its reason. An installation that cannot run without it says so
+through ``required_capabilities``, which then refuses to start.
 
 A built-in is required by definition, so any failure there is fatal. Nothing is
 ever ignored silently: every skip is logged at ``warning`` with the plugin or
@@ -42,11 +29,10 @@ show an operator why something they installed is not running.
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from importlib import import_module
 from importlib.metadata import EntryPoint, entry_points
-from types import ModuleType
 
 import pluggy
 
@@ -55,6 +41,7 @@ from blitzecdn.core.plugins.types import (
     ENTRY_POINT_GROUP,
     HOOK_API_VERSION,
     SUPPORTED_HOOK_API_VERSIONS,
+    Feature,
     PluginMetadata,
 )
 
@@ -78,10 +65,6 @@ class PluginRejection:
         return f"{self.source}: {self.reason}"
 
 
-def _load_module(path: str) -> ModuleType:
-    return import_module(path)
-
-
 def _metadata_of(manager: pluggy.PluginManager, plugin: object) -> PluginMetadata:
     """Read one plugin's own metadata, ignoring what every other plugin said.
 
@@ -102,7 +85,11 @@ def _metadata_of(manager: pluggy.PluginManager, plugin: object) -> PluginMetadat
 
 
 def register(
-    manager: pluggy.PluginManager, candidate: object, source: str
+    manager: pluggy.PluginManager,
+    candidate: object,
+    source: str,
+    *,
+    reserved: Collection[str] = (),
 ) -> PluginMetadata:
     """Register one plugin under the name it claims, or raise ``PluginError``.
 
@@ -122,13 +109,11 @@ def register(
         metadata = _metadata_of(manager, candidate)
     finally:
         manager.unregister(candidate)
-    if metadata.api_version not in SUPPORTED_HOOK_API_VERSIONS:
-        supported = ", ".join(
-            f"v{version}" for version in sorted(SUPPORTED_HOOK_API_VERSIONS)
-        )
+    _check_api_version(metadata, source)
+    if metadata.name in reserved:
         raise PluginError(
-            f"{source} targets hook API v{metadata.api_version}; "
-            f"this control plane speaks v{HOOK_API_VERSION} and accepts {supported}"
+            f"{source} claims the name {metadata.name!r}, which a built-in "
+            "feature already uses"
         )
     try:
         manager.register(candidate, name=metadata.name)
@@ -140,6 +125,17 @@ def register(
     return metadata
 
 
+def _check_api_version(metadata: PluginMetadata, source: str) -> None:
+    if metadata.api_version not in SUPPORTED_HOOK_API_VERSIONS:
+        supported = ", ".join(
+            f"v{version}" for version in sorted(SUPPORTED_HOOK_API_VERSIONS)
+        )
+        raise PluginError(
+            f"{source} targets hook API v{metadata.api_version}; "
+            f"this control plane speaks v{HOOK_API_VERSION} and accepts {supported}"
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Discovery:
     """What one discovery pass produced."""
@@ -148,30 +144,45 @@ class Discovery:
     rejected: tuple[PluginRejection, ...]
 
 
-def register_builtins(
-    manager: pluggy.PluginManager, modules: Sequence[str]
-) -> tuple[PluginMetadata, ...]:
-    """Register the capabilities the caller ships. Any failure is fatal.
+def load_features(modules: Sequence[str]) -> tuple[Feature, ...]:
+    """Import the features the caller ships. Any failure is fatal.
 
     ``modules`` has no default. A default would be this module's own answer to
-    "which capabilities exist", which is the one question core must not hold an
-    opinion about — and a default is an opinion nothing has to pass to inherit.
+    "which features exist", which is the one question core must not hold an
+    opinion about.
     """
-    found: list[PluginMetadata] = []
+    found: list[Feature] = []
+    names: dict[str, str] = {}
     for path in modules:
         try:
-            module = _load_module(path)
+            module = import_module(path)
         except ImportError as exc:
             raise PluginError(
-                f"built-in plugin {path} could not be imported: {exc}"
+                f"built-in feature module {path} could not be imported: {exc}"
             ) from exc
-        metadata = register(manager, module, path)
-        if not metadata.required:
-            raise PluginError(
-                f"built-in plugin {metadata.name} declares itself optional; "
-                "a capability this distribution ships is part of the control plane"
-            )
-        found.append(metadata)
+        declared = getattr(module, "FEATURES", None)
+        if not isinstance(declared, tuple) or not declared:
+            raise PluginError(f"{path} must export FEATURES, a tuple of Feature")
+        for feature in declared:
+            if not isinstance(feature, Feature):
+                raise PluginError(
+                    f"{path} exports a {type(feature).__name__} in FEATURES "
+                    "where a Feature was expected"
+                )
+            _check_api_version(feature.metadata, path)
+            if not feature.metadata.required:
+                raise PluginError(
+                    f"built-in feature {feature.name} declares itself optional; "
+                    "a feature this distribution ships is part of the control "
+                    "plane"
+                )
+            if feature.name in names:
+                raise PluginError(
+                    f"{path} and {names[feature.name]} both declare a feature "
+                    f"named {feature.name!r}"
+                )
+            names[feature.name] = path
+            found.append(feature)
     return tuple(found)
 
 
@@ -186,11 +197,13 @@ def register_external(
     *,
     group: str = ENTRY_POINT_GROUP,
     points: Iterable[EntryPoint] | None = None,
+    reserved: Collection[str] = (),
 ) -> Discovery:
     """Register everything advertising itself in the entry-point group.
 
     ``points`` is injectable so a test can exercise the real loading path
     against an entry point it built, without installing a distribution.
+    ``reserved`` is the built-in feature names, which no plugin may claim.
     """
     found: list[PluginMetadata] = []
     rejected: list[PluginRejection] = []
@@ -207,7 +220,7 @@ def register_external(
             _LOGGER.warning("plugin %s could not be imported: %s", source, exc)
             continue
         try:
-            metadata = register(manager, candidate, source)
+            metadata = register(manager, candidate, source, reserved=reserved)
         except PluginError as exc:
             rejected.append(PluginRejection(source, str(exc)))
             _LOGGER.warning("plugin %s was not registered: %s", source, exc)
@@ -224,7 +237,7 @@ def register_external(
 __all__ = [
     "Discovery",
     "PluginRejection",
+    "load_features",
     "register",
-    "register_builtins",
     "register_external",
 ]
