@@ -1,8 +1,10 @@
 # Operating and recovery acceptance checklist
 
 Step 1: define what success means and check the evidence already available.
-Reviewed against application commit `ad2c1e1` on 2026-10-24. This step changes
-only documentation; it does not implement or perform the next recovery drill.
+Reviewed against application commit `ad2c1e1` on 2026-10-24. Step 1 changed
+only documentation. Subsequent fresh-process evidence is recorded in
+[LOCAL_RECOVERY_PRACTICE.md](LOCAL_RECOVERY_PRACTICE.md); its explicit limits
+apply alongside the original test inventory below.
 
 ## What we want to be able to trust
 
@@ -17,8 +19,8 @@ practiced. “Locally checked” does not mean verified on an Ubuntu edge.
 | --- | --- | --- |
 | Prepare a fresh controller | Setup creates a usable database and credentials. Repeating setup preserves existing credentials and registered edges. Ordinary commands never silently initialize a missing database. | Locally checked using the installed wheel in a fresh environment. Host installation, SSH and Compose startup remain deferred. See A. |
 | Deploy a site | The saved deployment names the compiled release, and success requires the endpoint to report that exact release. A reachable endpoint serving an old release must fail verification. | Locally checked using production persistence, compilation and HTTP verification. Ansible activation is simulated; this does not prove Nginx was configured correctly. See B. |
-| Resume interrupted deployment work | Committed work remains discoverable. Once the old worker's lease expires, another worker can resume it. Completed edges are checked again before their saved progress is trusted. | Locally checked by constructing interrupted state and advancing a test clock. These tests do not kill and restart an OS worker process. See C. |
-| Prevent a stale worker from finishing | A worker that has lost ownership cannot mark another worker's job complete or renew its old claim. Retries are bounded and exhausted work is reported as failed. | Locally checked against real SQLite stores with controlled clocks and handlers. Cross-process crash timing still needs practice. See C. |
+| Resume interrupted deployment work | Committed work remains discoverable. Once the old worker's lease expires, another worker can resume it. Completed edges are checked again before their saved progress is trusted. | Locally checked by constructing interrupted state and advancing a test clock. Those tests do not kill and restart an OS worker process. Subsequent local practice did so at one pre-activation checkpoint; see C and the practice record. |
+| Prevent a stale worker from finishing | A worker that has lost ownership cannot mark another worker's job complete or renew its old claim. Retries are bounded and exhausted work is reported as failed. | Locally checked against real SQLite stores with controlled clocks and handlers. The subsequent practice covers one SIGKILL/reclaim boundary, not all crash timing. See C. |
 | Roll back a change | An operator can select a retained deployment and return both desired configuration and the served release to it. Managed certificates use that release's exact material, rather than the newest files. | Locally checked through a simulated edge and certificate operations. This is operator-requested rollback, not a promise that every failure automatically restores the fleet. See D. |
 | Rebuild a lost controller | A full backup can be restored into a separate empty location. Restored desired state regenerates the same configuration; credentials, keys and ACME files return with it. | Locally checked using real archive and filesystem operations. The fixture includes synthetic key/account contents; it does not prove real CA account access, service restart or edge connectivity after restore. See E. |
 | Refuse an unsafe restore | Invalid archives and unsupported or mismatched schema identities are rejected before live data is modified. Selected-component restore leaves other components alone. | Locally checked with malformed archives and temporary files. Service stop/start failure tests use a recording double, not Docker Compose. See E. |
@@ -85,13 +87,12 @@ interrupted workflows from work still owned by a live deployment.
 [Schedules](../tests/capabilities/certificates/test_scheduled_jobs.py) checks
 persisted intervals; it does not wait for real CA renewal.
 
-## Gaps to address in later confirmed steps
+## Follow-up work and status
 
-1. **Practice local recovery across real process boundaries.** Stop disposable
-   work, open the saved state in a fresh process, and inspect the outcome.
-   Practice restoring a separate temporary controller and returning to a known
-   release. Use existing commands and tests where possible. Record any simulated
-   edge behavior explicitly.
+1. **Local process recovery completed in step 2.** The
+   [practice record](LOCAL_RECOVERY_PRACTICE.md) demonstrates one SIGKILL/resume
+   checkpoint, CLI restoration after controller-directory removal and explicit
+   rollback from a rebuilt controller. Edge activation is still simulated.
 2. **Check the operator's next action.** For each practiced failure, record
    what changed, what remains usable, and which command or manual check comes
    next. Existing status assertions do not prove that an operator can understand
@@ -141,5 +142,6 @@ just test-one \
   tests/entrypoints/test_control_plane.py::test_startup_recovery_leaves_a_live_deployment_alone
 ```
 
-Step 2, the fresh-process local recovery practice, has not started. It requires
-its own confirmation and will receive a separate commit.
+Step 2 subsequently completed the fresh-process local recovery practice, with
+its results and limitations in [LOCAL_RECOVERY_PRACTICE.md](LOCAL_RECOVERY_PRACTICE.md).
+Operator-facing fixes in step 3 require separate confirmation.
