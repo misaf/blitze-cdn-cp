@@ -101,8 +101,11 @@ persisted intervals; it does not wait for real CA renewal.
    preservation of releases/keys, full versus partial archives, and storage
    budgeting. The milestone retains all full archives and real deployment
    history; a production recovery window still needs an operator's decision.
-4. **Write the short operating guide from observed results.** Include only
-   verified procedures, their limitations, and any manual intervention needed.
+4. **Short operating guide completed in step 5.** The
+   [guide](OPERATING_GUIDE.md) brings together controller inspection, backups,
+   interrupted work, rollback and restore, with the real-edge boundary stated
+   explicitly. Its CLI and disposable restore checks ran remotely; see
+   [the validation record](REIMPLEMENTATION.md#step-5-validation).
 
 Ubuntu installation, real Nginx activation/rollback, Compose service recovery
 and ACME integration remain **deferred by the user**. The repository has an
@@ -147,4 +150,5 @@ its results and limitations in [LOCAL_RECOVERY_PRACTICE.md](LOCAL_RECOVERY_PRACT
 Step 3 subsequently corrected the operator instructions. Step 4 documents
 retention rules and verifies cleanup against the preserved recovery paths;
 its validation record is in [REIMPLEMENTATION.md](REIMPLEMENTATION.md).
-The short operating guide in step 5 still requires separate confirmation.
+Step 5 subsequently completed the short operating guide. All five milestone
+steps are complete; the deferred real-edge rehearsal remains separate work.
