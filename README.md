@@ -48,15 +48,18 @@ for the edge.
 Create the desired site, review the plan, and deploy it:
 
 ```bash
-blitzecdn domain add example.com --origin origin.example.com
-blitzecdn record add example.com cdn
+blitzecdn domain add example.com
+blitzecdn record add example.com cdn --value 198.51.100.10
 blitzecdn validate
 blitzecdn plan
 blitzecdn deploy
 ```
 
-The zone holds the policy; the record only says the edge serves that hostname,
-and records are proxied by default. To take one back off the edge, name the
+Replace `198.51.100.10` with the origin server's IPv4 address. It is the
+server the edge fetches from, distinct from the edge's public address. These
+examples serve HTTP; configure an active certificate before enabling visitor TLS.
+The zone holds the policy, while the record supplies the hostname and origin
+address. Records are proxied by default. To take one back off the edge, name the
 address DNS should answer with instead:
 
 ```bash
@@ -215,15 +218,17 @@ object to create: `blitzecdn domain --help` lists the settings, and each is one
 command.
 
 ```bash
-blitzecdn domain add example.com --origin origin.example.com
+blitzecdn domain add example.com
+blitzecdn record add example.com cdn --value 198.51.100.10
 blitzecdn domain show example.com
-blitzecdn domain ssl example.com --mode full_strict
+blitzecdn domain ssl example.com --mode off
 blitzecdn domain cache example.com --success 1h
 ```
 
-The origin is optional at creation. A zone is delegable long before anyone has
-decided what it proxies to, and a placeholder in that field is worse than an
-absence.
+Creating a zone does not ask for an origin. Each proxied record's `--value`
+is its origin address; the default record type is A and requires an IPv4 address.
+Use `--type AAAA` with an IPv6 origin. The HTTP example above selects TLS Off;
+Full (strict) requires active certificate material and a verified HTTPS origin.
 
 When one hostname has to differ from the rest of its zone, write a rule rather
 than a second configuration. A rule is a match and the settings it overrides,
@@ -281,6 +286,37 @@ blitzecdn backup restore /path/to/backup.tar.gz
 
 Backups contain credentials and private keys. Copy them off the server and
 protect them as secrets.
+
+### When a restarted worker still shows a running job
+
+Inspect the job before submitting the same work again:
+
+```bash
+blitzecdn job list --status running --json
+blitzecdn job show JOB_ID --json
+```
+
+Replace `JOB_ID` with the job identifier from the list. `leased_by` identifies
+its recorded worker host/process; it does not prove that process is still alive.
+`leased_until` is the ownership deadline, including its timezone. A restarted
+worker cannot reclaim a dead worker's job before that deadline. Deployment jobs
+use a 900-second (15-minute) lease by default; scheduled jobs may use other leases.
+Read the recorded deadline rather than assuming a new 15-minute wait from restart.
+
+If the recorded worker is still running, inspect that process and let its work
+finish. If it has stopped and the deadline is in the future, wait for expiry.
+Once eligible, a healthy polling worker can reclaim the job on a later poll;
+lock contention, older runnable jobs and attempt limits can also delay or prevent
+execution. An expired deadline alone does not prove successful recovery.
+
+Inspect the job again after expiry. If no progress occurs, check the worker's
+logs and health, the deployment lock and `last_error`. For deployment jobs,
+`payload.deployment_id` identifies the deployment to inspect with
+`blitzecdn status DEPLOYMENT_ID --json`. A failed job has reached a terminal
+outcome and needs investigation. Do not edit queue rows, delete lock files or
+submit a duplicate deployment merely to bypass lease waiting.
+
+### Installed command and restore lifecycle
 
 On standalone installations, the host command uses the official Docker Python
 SDK to run disposable application containers. It reads the managed service file
