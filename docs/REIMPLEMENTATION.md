@@ -139,7 +139,7 @@ associated decisions describe the implementation that actually exists.
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full application suite: 1,764 passed with 91.17% coverage, including actual
+- Full application suite: 1,766 passed with 91.20% coverage, including actual
   single-wheel installation outside the checkout with locked runtime dependencies.
 - Retired core-only/attach/detach checks are replaced by single-distribution,
   mandatory assembly, provider scope and installed-resource contracts. Capability
@@ -173,8 +173,10 @@ Each step requires separate confirmation and its own commit.
    pass (142 + 29); runtime code and tests are unchanged. Simulated worker
    interruptions and edge activation are explicitly distinguished from real
    process and Ubuntu verification.
-2. Pending confirmation: practice recovery across fresh local processes and
-   separate temporary controller directories, with observable results.
+2. Complete: [local recovery practice](LOCAL_RECOVERY_PRACTICE.md) killed an
+   instrumented worker with SIGKILL, resumed its checkpoint in a fresh process,
+   restored a removed controller through the CLI and verified explicit rollback.
+   Edge activation remains simulated; Ubuntu verification is still deferred.
 3. Pending confirmation: fix confusing behavior found during that practice.
 4. Pending confirmation: document retention rules and address demonstrated gaps.
 5. Pending confirmation: write the short operating guide from verified results.
@@ -183,5 +185,5 @@ Each step requires separate confirmation and its own commit.
 
 After each step is tested and independently committed, ask for the user's
 confirmation before beginning any further implementation. The user deferred
-Ubuntu verification. The acceptance checklist is complete; do not begin local
-recovery practice until the user confirms step 2.
+Ubuntu verification. Local recovery practice is complete; do not begin the
+operator-facing fixes until the user confirms step 3.
