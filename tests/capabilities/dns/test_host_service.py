@@ -32,7 +32,7 @@ def test_host_reads_follow_canonical_edits(control):
     assert not hasattr(control.dns, "list_sites")
     site = seed_site(control)
     control.dns.update_domain("example.com", DomainPatch(cache_enabled=False), "alice")
-    assert control.sites.get_site(site.name).cache_enabled is False
+    assert control.sites.get_site(site.name).policy.cache.cache_enabled is False
     control.dns.delete_domain("example.com", "alice")
     assert control.sites.list_sites() == []
     with pytest.raises(NotFoundError):
@@ -48,8 +48,8 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
     updated = control.site_editor.activate_managed_certificate(
         target, CertificateMode.REQUESTED
     )
-    assert updated.certificate_mode is CertificateMode.REQUESTED
-    assert updated.certificate_path.endswith(f"/{target.name}/fullchain.pem")
+    assert updated.policy.tls.certificate_mode is CertificateMode.REQUESTED
+    assert updated.policy.tls.certificate_path.endswith(f"/{target.name}/fullchain.pem")
     if rule_owned:
         assert control.sites.get_site(original.name) == original
         assert (
@@ -58,7 +58,7 @@ def test_certificate_writeback_changes_only_the_host_source(control, rule_owned)
         )
     else:
         assert (
-            control.dns.get_domain("example.com").certificate_mode
+            control.dns.get_domain("example.com").policy.tls.certificate_mode
             is CertificateMode.REQUESTED
         )
 
@@ -70,7 +70,7 @@ def test_automatic_ssl_writeback_is_rule_scoped_and_monotonic(control):
     updated = control.site_editor.apply_automatic_ssl_upgrade(
         target.name, SslMode.FULL, "scheduler"
     )
-    assert updated.ssl_mode is SslMode.FULL
+    assert updated.policy.tls.ssl_mode is SslMode.FULL
     assert control.sites.get_site(original.name) == original
     assert (
         control.site_editor.apply_automatic_ssl_upgrade(
@@ -91,7 +91,15 @@ def _bypass_the_editor(control, **changes):
     zone = control.dns.get_domain("example.com")
     # `model_copy` runs no validators, which is the point: it produces the row
     # a restore writes, not one the model would accept.
-    control.dns.zones.replace_domain(zone.model_copy(update=changes))
+    control.dns.zones.replace_domain(
+        zone.model_copy(
+            update={
+                "policy": zone.policy.model_copy(
+                    update={"tls": zone.policy.tls.model_copy(update=changes)}
+                )
+            }
+        )
+    )
 
 
 def test_a_zone_the_derivation_refuses_drops_its_host_and_not_the_fleet(control):
@@ -204,12 +212,16 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
     site = seed_site(control)
     control.site_editor.activate_managed_certificate(site, CertificateMode.REQUESTED)
     site = control.sites.get_site(site.name)
-    assert site.ssl_automatic_mode is not SslAutomaticMode.CUSTOM
+    assert site.policy.tls.ssl_automatic_mode is not SslAutomaticMode.CUSTOM
 
     def opt_out():
+        zone = control.dns.get_domain("example.com")
         control.dns.zones.replace_domain(
-            control.dns.get_domain("example.com").model_copy(
-                update={"ssl_automatic_mode": SslAutomaticMode.CUSTOM}
+            type(zone)(
+                name=zone.name,
+                policy=zone.policy.applying(
+                    {"ssl_automatic_mode": SslAutomaticMode.CUSTOM}
+                ),
             )
         )
 
@@ -220,7 +232,10 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
         uow=_InterferingUnitOfWork(control.transactions, opt_out),
     )
     assert editor.apply_automatic_ssl_upgrade(site.name, SslMode.FULL, "scan") is None
-    assert control.sites.get_site(site.name).ssl_mode is site.ssl_mode
+    assert (
+        control.sites.get_site(site.name).policy.tls.ssl_mode
+        is site.policy.tls.ssl_mode
+    )
 
 
 def test_rule_writeback_validates_what_it_stores(control):

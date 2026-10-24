@@ -101,7 +101,9 @@ class ServingProbe:
         moment a deployment finishes, so resolving the hostname would test the
         DNS transition rather than the edge.
         """
-        scheme = HttpScheme.HTTPS if site.ssl_mode.serves_tls else HttpScheme.HTTP
+        scheme = (
+            HttpScheme.HTTPS if site.policy.tls.ssl_mode.serves_tls else HttpScheme.HTTP
+        )
         port = DEFAULT_PORTS[scheme]
         try:
             connection = self._connection(scheme, address, port, hostname)

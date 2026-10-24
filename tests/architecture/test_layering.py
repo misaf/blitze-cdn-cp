@@ -827,6 +827,7 @@ ALLOWED_POLICY_DEPENDENCIES = {
     "edges": {"http", "tls"},
     "http": set(),
     "maintenance": set(),
+    "releases": {"serving"},
     "security": set(),
     "serving": {"cache", "compression", "http", "security", "tls"},
     "tls": {"http"},

@@ -21,9 +21,9 @@ from edge_render_support import (
     _upstreams,
 )
 from paths import REPO_ROOT
+from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
@@ -41,7 +41,7 @@ REQUIRES_CAPABILITIES = {
 
 
 def test_always_use_https_redirects_http_when_enabled():
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": "redirect",
             "server_names": ["redirect.example.com"],
@@ -162,7 +162,7 @@ def test_ssl_off_ignores_always_use_https_instead_of_looping():
     runtime = defaults["blitzecdn_edge_runtime"]
     http_blocks, https_blocks = _server_blocks(rendered, defaults)
 
-    assert site.always_use_https is True
+    assert site.policy.tls.always_use_https is True
     assert site.redirects_http_to_https is False
     assert not https_blocks
     assert "listen 443" not in rendered
@@ -205,7 +205,7 @@ def test_under_attack_mode_redirects_permanently_on_every_challenge_path():
 
 
 def test_always_use_https_can_be_disabled_without_disabling_tls():
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": "both-schemes",
             "server_names": ["both.example.com"],
@@ -227,7 +227,7 @@ def test_always_use_https_can_be_disabled_without_disabling_tls():
 
 def _under_attack_site(*, enabled: bool = True) -> dict[str, Any]:
     return site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "mitigated",
                 "server_names": ["mitigated.example.com"],
@@ -305,7 +305,7 @@ def test_acme_bypasses_under_attack_mode_in_every_server_block():
 def test_missing_always_use_https_preserves_pre_upgrade_behavior():
     """A running older control plane may deploy through an updated role."""
     site = site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "pre-upgrade",
                 "server_names": ["pre-upgrade.example.com"],

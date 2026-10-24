@@ -85,7 +85,7 @@ class DnsService:
             # merged with but overwritten by a document assembled from a
             # version that no longer exists.
             current = self.zones.get_domain(name)
-            updated = Domain.model_validate({**current.model_dump(), **changes})
+            updated = Domain(name=current.name, policy=current.policy.applying(changes))
             saved = self.zones.replace_domain(updated, expected=current)
             self.events.record(
                 domain_event(

@@ -146,14 +146,17 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
         server_names=("edge-doc.example.com",),
         origin_host="198.51.100.10",
     )
-    assert isinstance(site.firewall, OmittedWhenEmpty)
-    assert not isinstance(site.visitor_headers, OmittedWhenEmpty)
+    assert isinstance(site.policy.security.firewall, OmittedWhenEmpty)
+    assert not isinstance(site.policy.headers.visitor_headers, OmittedWhenEmpty)
 
     assert "firewall" not in site_to_ansible(site)
     assert "visitor_headers" in site_to_ansible(site)
 
-    configured = site.model_copy(
-        update={"firewall": type(site.firewall)(denied_methods=("DELETE",))}
+    configured = CdnSite(
+        name=site.name,
+        server_names=site.server_names,
+        origin_host=site.origin_host,
+        policy=site.policy.applying({"firewall": {"denied_methods": ("DELETE",)}}),
     )
     assert site_to_ansible(configured)["firewall"] == {
         "allow_sources": [],

@@ -123,9 +123,14 @@ def domain_firewall(
     if clear:
         firewall = SiteFirewall()
     else:
-        firewall = control.dns.get_domain(name).firewall.replacing(named)
+        firewall = control.dns.get_domain(name).policy.security.firewall.replacing(
+            named
+        )
     zone = _update(name, DomainPatch(firewall=firewall))
-    rules = sum(len(getattr(zone.firewall, f)) for f in SiteFirewall.model_fields)
+    rules = sum(
+        len(getattr(zone.policy.security.firewall, f))
+        for f in SiteFirewall.model_fields
+    )
     _report(
         zone,
         f"{zone.name} now carries {rules} firewall rule(s)."

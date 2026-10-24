@@ -257,7 +257,7 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
     )
     bad = control.deployments.deploy("alice")
     assert bad.release_id != good.release_id
-    assert control.dns.get_domain("example.com").always_use_https is True
+    assert control.dns.get_domain("example.com").policy.tls.always_use_https is True
 
     rolled_back = control.deployments.rollback("alice", good.id)
 
@@ -265,7 +265,7 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
     # The edges converged the old release *and* canonical state came back with
     # it, so compiling now produces the release that was rolled back to rather
     # than the one that was rolled back from.
-    assert control.dns.get_domain("example.com").always_use_https is False
+    assert control.dns.get_domain("example.com").policy.tls.always_use_https is False
     assert control.releases.compile().id == good.release_id
 
 

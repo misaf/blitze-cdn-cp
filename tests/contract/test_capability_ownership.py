@@ -82,8 +82,8 @@ def _owned_fields() -> dict[str, str]:
 def test_every_site_policy_field_has_exactly_one_owning_capability():
     owners = _owned_fields()
 
-    assert set(SitePolicy.model_fields) - _SITE_IDENTITY == set(owners)
-    assert set(CdnSite.model_fields) - _SITE_IDENTITY == set(owners)
+    assert set(SitePolicy.setting_fields()) - _SITE_IDENTITY == set(owners)
+    assert CdnSite.model_fields["policy"].annotation is SitePolicy
 
 
 def test_the_capability_owning_each_field_is_the_one_it_reads_like():

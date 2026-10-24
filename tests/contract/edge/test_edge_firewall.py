@@ -8,9 +8,9 @@ from __future__ import annotations
 from edge_render_support import (
     _render,
 )
+from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.serving.domain import CdnSite
 
 REQUIRES_CAPABILITIES = {
     "test_firewall_rules_reach_the_generated_configuration": ("security",),
@@ -56,7 +56,7 @@ def test_a_site_without_firewall_rules_renders_exactly_as_before(desired_state):
 def test_the_acme_challenge_path_is_never_filtered():
     """A rule that blocked renewal would surface weeks later, at expiry."""
     site = site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "locked",
                 "server_names": ["locked.example.com"],
@@ -92,7 +92,7 @@ def test_an_allow_country_list_refuses_addresses_the_database_cannot_place():
     accident.
     """
     site = site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "geo",
                 "server_names": ["geo.example.com"],

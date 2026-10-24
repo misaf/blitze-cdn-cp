@@ -22,6 +22,7 @@ from edge_render_support import (
     _role,
     _seed_site,
 )
+from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.domain import Domain
@@ -29,7 +30,6 @@ from blitzecdn.capabilities.http.policy import (
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
@@ -86,7 +86,7 @@ def test_default_server_claims_every_public_listener():
 
 def _http3_site(name: str = "quic") -> dict[str, Any]:
     return site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": name,
                 "server_names": [f"{name}.example.com"],

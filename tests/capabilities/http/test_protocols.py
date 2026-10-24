@@ -19,6 +19,7 @@ from blitzecdn.capabilities.http.policy import (
     ProtocolPolicy,
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
 from blitzecdn.composition import load_control_plane_plugins
 
@@ -29,12 +30,16 @@ def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
         name=name,
         server_names=(f"{name}.example.com",),
         origin_host="198.51.100.10",
-        enabled=enabled,
-        ssl_mode="full",
-        certificate_mode="requested",
-        certificate_path=chain,
-        certificate_key_path=key,
-        http3_enabled=http3,
+        policy=SitePolicy.from_settings(
+            {
+                "enabled": enabled,
+                "ssl_mode": "full",
+                "certificate_mode": "requested",
+                "certificate_path": chain,
+                "certificate_key_path": key,
+                "http3_enabled": http3,
+            }
+        ),
     )
 
 
@@ -101,5 +106,5 @@ def test_core_alone_refuses_a_site_that_asks_for_http3():
     builtins = load_control_plane_plugins(entry_point_group=None)
 
     assert "http3" not in builtins.capabilities
-    assert "http3" not in _site("alpha", http3=False).required_capabilities
-    assert "http3" in builtins.missing(_site("alpha").required_capabilities)
+    assert "http3" not in _site("alpha", http3=False).policy.required_capabilities
+    assert "http3" in builtins.missing(_site("alpha").policy.required_capabilities)

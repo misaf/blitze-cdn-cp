@@ -83,8 +83,8 @@ class OriginProbe:
             "name": site.name,
             "origin_host": site.origin_host,
             "origin_port": DEFAULT_PORTS[site.canonical_origin_scheme],
-            "ssl_mode": site.ssl_mode.value,
-            "origin_tls_verify": site.ssl_mode.verifies_origin,
+            "ssl_mode": site.policy.tls.ssl_mode.value,
+            "origin_tls_verify": site.policy.tls.ssl_mode.verifies_origin,
             "origin_sni": site.effective_origin_sni,
         }
 
@@ -99,7 +99,7 @@ class OriginProbe:
             site=site.name,
             origin=f"{site.origin_host}:{port}",
             scheme=scheme,
-            ssl_mode=site.ssl_mode,
+            ssl_mode=site.policy.tls.ssl_mode,
             sni=sni if scheme is HttpScheme.HTTPS else None,
         )
 
@@ -147,7 +147,7 @@ class OriginProbe:
                 connection,
                 sni,
                 timeout,
-                verify=site.ssl_mode.verifies_origin,
+                verify=site.policy.tls.ssl_mode.verifies_origin,
             )
         finally:
             with suppress(OSError):

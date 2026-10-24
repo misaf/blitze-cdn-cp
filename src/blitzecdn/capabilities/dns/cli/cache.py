@@ -70,9 +70,9 @@ def domain_cache(
     # named would clear the switch rather than leave it alone.
     zone = _update(name, DomainPatch.model_validate(named))
     state = (
-        f"caching 2xx for {zone.cache_valid_success} and 404 for "
-        f"{zone.cache_valid_not_found}"
-        if zone.cache_enabled
+        f"caching 2xx for {zone.policy.cache.cache_valid_success} and 404 for "
+        f"{zone.policy.cache.cache_valid_not_found}"
+        if zone.policy.cache.cache_enabled
         else "not caching"
     )
     _report(zone, f"{zone.name} is now {state}.", json_output=json_output)
@@ -94,6 +94,6 @@ def domain_cache_query_string(
     _report(
         zone,
         f"{zone.name} cache query-string mode is now "
-        f"{zone.cache_query_string_mode.value!r}.",
+        f"{zone.policy.cache.cache_query_string_mode.value!r}.",
         json_output=json_output,
     )

@@ -1,10 +1,8 @@
-"""Persistence for DNS zones, the policy on them, and their records.
+"""Persist zone identity and its composed policy as separate values.
 
-``_DOMAIN_COLUMNS`` names the zone fields that have columns of their own; the
-rest of the model is the ``policy`` document. Keeping the split in one frozen
-set rather than in both directions of the mapping is what stops a field being
-written to a column and read back out of the JSON, which decodes as a zone
-whose policy silently lost a setting.
+The name has its own column. The complete nested policy is one JSON document;
+no query reaches inside it, and neither direction reconstructs ownership from
+flat delivery fields.
 """
 
 from sqlalchemy import delete, select
@@ -15,8 +13,6 @@ from blitzecdn.capabilities.dns.adapters.tables import DnsRecordRow, DomainRow
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, RecordType
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
-
-_DOMAIN_COLUMNS = frozenset({"name"})
 
 
 class ZoneStore:
@@ -168,12 +164,12 @@ class ZoneStore:
         return row
 
     def _apply_domain(self, row: DomainRow, domain: Domain) -> None:
-        row.policy = domain.model_dump(mode="json", exclude=set(_DOMAIN_COLUMNS))
+        row.policy = domain.policy.model_dump(mode="json")
         row.updated_at = self._db.now()
 
     @staticmethod
     def _domain(row: DomainRow) -> Domain:
-        return Domain.model_validate({**row.policy, "name": row.name})
+        return Domain.model_validate({"policy": row.policy, "name": row.name})
 
     def _row(self, record: DnsRecord) -> DnsRecordRow:
         row = DnsRecordRow(

@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 import yaml
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
+from policy_support import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
@@ -299,7 +300,7 @@ def _seed_site(
     if name == host_name(zone, None):
         current = repository.zones.get_domain(zone)
         repository.zones.replace_domain(
-            Domain.model_validate({**current.model_dump(), **policy})
+            domain_from_settings({**current.model_dump(), **policy})
         )
     else:
         repository.rules.create_rule(

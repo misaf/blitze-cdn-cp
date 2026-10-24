@@ -74,7 +74,8 @@ associated decisions describe the implementation that actually exists.
 - Step 6 ownership: serving policy, visitor/origin contracts, and effective
   virtual hosts move into `capabilities/serving`; DNS retains authoring and host
   derivation. Consumers import the new owners directly, without compatibility
-  facades. Nested policy composition and shared application commands are next.
+  facades. The subsequent nested-policy slice completes composition; shared
+  application commands remain separate work.
   Ownership validation: strict types and formatting pass; 511 architecture,
   package-boundary, policy, DNS, release, and public-contract checks pass with
   13 environment-dependent skips.
@@ -93,21 +94,29 @@ associated decisions describe the implementation that actually exists.
   outcomes. The Ansible surface intentionally adds the configuration-release
   role; all other frozen surfaces are unchanged. See decision 0012.
 
+- Step 6 composition implemented: zones and virtual hosts contain a frozen
+  `SitePolicy` made of named capability values. Requirements are collected from
+  contained values, with duplicate setting ownership refused. Canonical policy
+  JSON is nested; release input/compiler versions are 2 and retired inputs are
+  rejected. Explicit conversions preserve API/CLI and edge document settings,
+  patch/rule semantics and omission rules. All frozen surfaces are unchanged.
+  See decision 0013.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full workspace fast suite after activation: 1,854 passed, 13 skipped.
-- Earlier core-only checkpoint: 1,268 passed, 35 skipped; not repeated for this slice.
+- Full workspace fast suite after nested composition: 1,859 passed, 13 skipped.
+- Core-only suite after nested composition: 1,290 passed, 35 skipped; workspace restored.
 - All eleven distributions build as wheels and source archives. The root wheel
-  contains the configuration transaction helper, every role task, its argument
-  spec and the candidate Nginx entrypoint, verified in the built archive.
+  contains the exact nested policy, zone/host aggregate and delivery-projection
+  sources, verified against the workspace files in the built archive. The
+  configuration transaction helper and tasks remain included.
 - Live Ubuntu edge convergence has not been executed.
 
 ## Remaining implementation slices
 
-- Replace flat policy inheritance with nested composition and introduce shared
-  application commands for API and CLI mutations.
+- Introduce shared application commands for API and CLI mutations.
 - Bind resource versions to canonical desired state and add reference-aware
   material garbage collection.
 - Consolidate independently packaged capabilities into one application with
@@ -117,7 +126,6 @@ associated decisions describe the implementation that actually exists.
 
 ## Per-step authorization
 
-After this activation step is tested and independently committed, ask for the
-user's confirmation before beginning each subsequent implementation step. The
-next proposed step is nested serving-policy composition, followed by shared
-application commands as a separate confirmed slice.
+After each step is tested and independently committed, ask for the user's
+confirmation before beginning the next. Following nested policy composition,
+the next proposed step is shared application commands for API and CLI mutations.

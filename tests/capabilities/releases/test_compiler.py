@@ -9,8 +9,9 @@ reported where it broke.
 from __future__ import annotations
 
 import pytest
+from policy_support import domain_from_settings
 
-from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
+from blitzecdn.capabilities.dns.domain import DnsRecord, Rule
 from blitzecdn.capabilities.releases.domain import (
     COMPILER_VERSION,
     DESIRED_STATE_ARTIFACT,
@@ -58,7 +59,7 @@ def inputs_for(
     records: tuple[DnsRecord, ...] | None = None,
     **policy: object,
 ) -> ReleaseInputs:
-    domain = Domain.model_validate({"name": zone, **policy})
+    domain = domain_from_settings({"name": zone, **policy})
     if records is None:
         records = (
             DnsRecord(domain=zone, name="cdn", value="198.51.100.10", proxied=True),

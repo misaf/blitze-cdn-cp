@@ -2,6 +2,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 import pytest
+from policy_support import domain_from_settings, site_from_settings
 from sqlalchemy.pool import NullPool, QueuePool
 
 from blitzecdn.capabilities.deployments.domain import (
@@ -17,7 +18,6 @@ from blitzecdn.capabilities.dns.domain import (
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.releases.service import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
@@ -98,7 +98,7 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
 
 def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_payload):
     repository = Repository(settings.database_path)
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
 
     event = repository.audit_log.audit(
         "alice", "site.updated", "site", site.name, {"safe": True}
@@ -167,7 +167,7 @@ def _release(repository):
             capabilities={
                 token
                 for host in _hosts(repository)
-                for token in host.required_capabilities
+                for token in host.policy.required_capabilities
             },
             targets=(),
             contributors=_NoContributions(),
@@ -201,7 +201,7 @@ def _seed(repository, domain_payload, record_payload, site_payload, **policy):
     SQLite, not what the services do on the way. The origin lives on the record
     now, in its ``value``; there is no site row to create.
     """
-    repository.zones.create_domain(Domain.model_validate({**domain_payload, **policy}))
+    repository.zones.create_domain(domain_from_settings({**domain_payload, **policy}))
     repository.zones.create_record(DnsRecord.model_validate(record_payload))
     return _hosts(repository)[0]
 
@@ -234,33 +234,37 @@ def test_visitor_headers_survive_persistence_and_compilation(
     )
 
     (stored,) = _hosts(repository)
-    assert stored.visitor_headers.connecting_ip is False
-    assert stored.visitor_headers.ip_country is True
+    assert stored.policy.headers.visitor_headers.connecting_ip is False
+    assert stored.policy.headers.visitor_headers.ip_country is True
 
     (compiled,) = _release(repository).sites
-    assert compiled.site.visitor_headers == stored.visitor_headers
-    assert compiled.site.requires_geoip is True
+    assert (
+        compiled.site.policy.headers.visitor_headers
+        == stored.policy.headers.visitor_headers
+    )
+    assert compiled.site.policy.requires_geoip is True
 
 
-def test_under_attack_mode_survives_policy_json_and_old_rows_default_off(
+def test_under_attack_mode_survives_nested_policy_json_and_defaults_when_absent(
     settings, domain_payload, record_payload, site_payload
 ):
     repository = Repository(settings.database_path)
     _seed(
         repository, domain_payload, record_payload, site_payload, under_attack_mode=True
     )
-    assert _hosts(repository)[0].under_attack_mode is True
-    assert _release(repository).sites[0].site.under_attack_mode is True
+    assert _hosts(repository)[0].policy.security.under_attack_mode is True
+    assert _release(repository).sites[0].site.policy.security.under_attack_mode is True
 
     connection = sqlite3.connect(settings.database_path)
     try:
         connection.execute(
-            "UPDATE domains SET policy = json_remove(policy, '$.under_attack_mode')"
+            "UPDATE domains SET policy = "
+            "json_remove(policy, '$.security.under_attack_mode')"
         )
         connection.commit()
     finally:
         connection.close()
-    assert _hosts(repository)[0].under_attack_mode is False
+    assert _hosts(repository)[0].policy.security.under_attack_mode is False
 
 
 def test_deployment_transitions_releases_and_recovery(

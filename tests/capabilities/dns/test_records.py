@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 from control_plane_fixtures import FakeRunner, seed_record
+from policy_support import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
-    Domain,
     RecordPatch,
     RecordType,
     Rule,
@@ -24,7 +24,7 @@ def _control(settings, repository):
 
 def _zone(control, **policy):
     control.dns.create_domain(
-        Domain.model_validate({"name": "example.com", **policy}),
+        domain_from_settings({"name": "example.com", **policy}),
         "alice",
     )
 

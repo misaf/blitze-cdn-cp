@@ -14,6 +14,7 @@ from typing import Annotated
 
 import typer
 
+from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.cli import common
@@ -31,7 +32,9 @@ def domain_add(
     at anything.
     """
     common.emit(
-        common.control_plane().dns.create_domain(Domain(name=name), "cli"),
+        serving_document(
+            common.control_plane().dns.create_domain(Domain(name=name), "cli")
+        ),
         json_output=json_output,
     )
 
@@ -50,7 +53,10 @@ def domain_hosts(
     This is desired state, not what the fleet is running: an edit that has not
     been deployed is already here. Use 'drift' for the fleet's view.
     """
-    common.emit(common.control_plane().sites.list_sites(), json_output=json_output)
+    common.emit(
+        [serving_document(site) for site in common.control_plane().sites.list_sites()],
+        json_output=json_output,
+    )
 
 
 @domain_app.command("show")
@@ -59,7 +65,10 @@ def domain_show(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Show a zone and the policy every hostname in it is served by."""
-    common.emit(common.control_plane().dns.get_domain(name), json_output=json_output)
+    common.emit(
+        serving_document(common.control_plane().dns.get_domain(name)),
+        json_output=json_output,
+    )
 
 
 def _cleared(no_request_host: bool, no_sni: bool) -> frozenset[str]:
@@ -140,7 +149,7 @@ def domain_origin(
     # would clear the override instead of leaving it alone. Going through the
     # dict is what keeps "not mentioned" and "explicitly cleared" distinct.
     zone = _update(name, DomainPatch.model_validate(named))
-    identity = zone.origin_request_host or "the visitor's Host header"
+    identity = zone.policy.origin.origin_request_host or "the visitor's Host header"
     _report(
         zone,
         f"{zone.name} reaches its origin as {identity}.",
@@ -173,7 +182,10 @@ def domain_enable(
 @domain_app.command("list")
 def domain_list(json_output: common.JsonOutput = False) -> None:
     """List the DNS zones delegated to BlitzeCDN."""
-    common.emit(common.control_plane().dns.list_domains(), json_output=json_output)
+    common.emit(
+        [serving_document(zone) for zone in common.control_plane().dns.list_domains()],
+        json_output=json_output,
+    )
 
 
 @domain_app.command("remove")

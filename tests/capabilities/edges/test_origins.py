@@ -13,6 +13,7 @@ import threading
 from contextlib import contextmanager
 
 import pytest
+from policy_support import site_from_settings
 from pydantic import ValidationError
 
 import blitzecdn.capabilities.edges.adapters.probe as origins_module
@@ -36,7 +37,7 @@ def _site(**overrides) -> CdnSite:
             "certificate_path": "/etc/ssl/certs/edge.pem",
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
-    return CdnSite.model_validate(payload)
+    return site_from_settings(payload)
 
 
 def test_origin_reports_require_the_current_ssl_mode():
@@ -296,6 +297,10 @@ def test_flexible_preflight_does_not_speak_for_its_alternate_port_legs(settings)
     # The legs preflight is silent about.
     for port in (2053, 2083, 2087, 2096, 8443):
         assert (
-            site.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, port) is HttpScheme.HTTPS
+            site.policy.tls.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, port)
+            is HttpScheme.HTTPS
         )
-    assert site.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, 443) is HttpScheme.HTTP
+    assert (
+        site.policy.tls.ssl_mode.origin_scheme_for(HttpScheme.HTTPS, 443)
+        is HttpScheme.HTTP
+    )

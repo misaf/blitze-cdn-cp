@@ -39,6 +39,7 @@ def domain_compression(
     zone = _update(name, DomainPatch(compression=mode))
     _report(
         zone,
-        f"{zone.name} edge compression is now {zone.compression.value!r}.",
+        f"{zone.name} edge compression is now "
+        f"{zone.policy.compression.compression.value!r}.",
         json_output=json_output,
     )

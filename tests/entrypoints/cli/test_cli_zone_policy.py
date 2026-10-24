@@ -45,7 +45,7 @@ def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypat
     )
     assert disabled.exit_code == 0
     assert "now disabled" in disabled.stdout
-    assert control.sites.get_site("example-com").always_use_https is False
+    assert control.sites.get_site("example-com").policy.tls.always_use_https is False
 
 
 def test_site_ssl_changes_the_combined_mode(settings, monkeypatch):
@@ -67,7 +67,7 @@ def test_site_ssl_changes_the_combined_mode(settings, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert control.sites.get_site("example-com").ssl_mode == "full_strict"
+    assert control.sites.get_site("example-com").policy.tls.ssl_mode == "full_strict"
     assert "Run 'blitzecdn deploy'" in result.stdout
 
 
@@ -90,7 +90,7 @@ def test_site_http3_toggles_quic_for_a_tls_site(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["http3_enabled"] is True
-    assert control.sites.get_site("example-com").http3_enabled is True
+    assert control.sites.get_site("example-com").policy.protocols.http3_enabled is True
 
 
 def test_site_under_attack_toggles_edge_mitigation(settings, monkeypatch):
@@ -103,7 +103,9 @@ def test_site_under_attack_toggles_edge_mitigation(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["under_attack_mode"] is True
-    assert control.sites.get_site("example-com").under_attack_mode is True
+    assert (
+        control.sites.get_site("example-com").policy.security.under_attack_mode is True
+    )
 
 
 def test_site_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
@@ -122,7 +124,9 @@ def test_site_ssl_automatic_can_opt_out_to_custom(settings, monkeypatch):
     )
 
     assert result.exit_code == 0
-    assert control.sites.get_site("example-com").ssl_automatic_mode == "custom"
+    assert (
+        control.sites.get_site("example-com").policy.tls.ssl_automatic_mode == "custom"
+    )
 
 
 def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch):
@@ -157,14 +161,16 @@ def test_site_minimum_tls_and_cache_query_string_commands(settings, monkeypatch)
     assert query.exit_code == 0
     assert json.loads(query.stdout)["cache_query_string_mode"] == "ignore"
     site = control.sites.get_site("example-com")
-    assert site.minimum_tls_version == "1.3"
-    assert site.cache_query_string_mode == "ignore"
+    assert site.policy.tls.minimum_tls_version == "1.3"
+    assert site.policy.cache.cache_query_string_mode == "ignore"
 
 
 def test_site_max_upload_size_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
-    assert control.sites.get_site("example-com").max_upload_size == "100m"
+    assert (
+        control.sites.get_site("example-com").policy.protocols.max_upload_size == "100m"
+    )
 
     result = runner.invoke(
         cli.app,
@@ -173,7 +179,9 @@ def test_site_max_upload_size_command(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["max_upload_size"] == "200m"
-    assert control.sites.get_site("example-com").max_upload_size == "200m"
+    assert (
+        control.sites.get_site("example-com").policy.protocols.max_upload_size == "200m"
+    )
 
     rejected = runner.invoke(
         cli.app,
@@ -181,7 +189,9 @@ def test_site_max_upload_size_command(settings, monkeypatch):
     )
 
     assert rejected.exit_code != 0
-    assert control.sites.get_site("example-com").max_upload_size == "200m"
+    assert (
+        control.sites.get_site("example-com").policy.protocols.max_upload_size == "200m"
+    )
 
 
 def test_site_compression_command(settings, monkeypatch):
@@ -196,7 +206,9 @@ def test_site_compression_command(settings, monkeypatch):
         operator="cli",
         compression="brotli",
     )
-    assert control.sites.get_site("example-com").compression == "brotli"
+    assert (
+        control.sites.get_site("example-com").policy.compression.compression == "brotli"
+    )
 
     result = runner.invoke(
         cli.app,
@@ -205,7 +217,9 @@ def test_site_compression_command(settings, monkeypatch):
 
     assert result.exit_code == 0
     assert json.loads(result.stdout)["compression"] == "gzip"
-    assert control.sites.get_site("example-com").compression == "gzip"
+    assert (
+        control.sites.get_site("example-com").policy.compression.compression == "gzip"
+    )
 
     rejected = runner.invoke(
         cli.app,
@@ -213,7 +227,9 @@ def test_site_compression_command(settings, monkeypatch):
     )
 
     assert rejected.exit_code != 0
-    assert control.sites.get_site("example-com").compression == "gzip"
+    assert (
+        control.sites.get_site("example-com").policy.compression.compression == "gzip"
+    )
 
 
 def test_site_cache_command_sets_the_switch_and_both_durations(settings, monkeypatch):
@@ -235,8 +251,13 @@ def test_site_cache_command_sets_the_switch_and_both_durations(settings, monkeyp
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
-    assert (site.cache_valid_success, site.cache_valid_not_found) == ("4h", "30s")
-    assert site.cache_enabled is True, "a duration change must not touch the switch"
+    assert (
+        site.policy.cache.cache_valid_success,
+        site.policy.cache.cache_valid_not_found,
+    ) == ("4h", "30s")
+    assert site.policy.cache.cache_enabled is True, (
+        "a duration change must not touch the switch"
+    )
 
 
 def test_site_cache_off_withdraws_the_claim_on_the_cache_capability(
@@ -250,8 +271,8 @@ def test_site_cache_off_withdraws_the_claim_on_the_cache_capability(
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
-    assert site.cache_enabled is False
-    assert "cache" not in site.capability_requirements
+    assert site.policy.cache.cache_enabled is False
+    assert "cache" not in site.policy.capability_requirements
 
 
 def test_site_cache_refuses_a_duration_it_cannot_parse(settings, monkeypatch):
@@ -263,7 +284,9 @@ def test_site_cache_refuses_a_duration_it_cannot_parse(settings, monkeypatch):
     )
 
     assert result.exit_code != 0
-    assert control.sites.get_site("example-com").cache_valid_success == "10m"
+    assert (
+        control.sites.get_site("example-com").policy.cache.cache_valid_success == "10m"
+    )
 
 
 def test_site_cache_with_no_option_says_what_to_name(settings, monkeypatch):

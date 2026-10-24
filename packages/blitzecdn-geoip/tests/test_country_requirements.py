@@ -14,6 +14,7 @@ import pytest
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.composition import load_control_plane_plugins
 
 #: Every setting on the stable site schema that asks the edge which country a
@@ -31,9 +32,9 @@ def _site(**policy: object) -> CdnSite:
         name="alpha",
         server_names=("alpha.example.com",),
         origin_host="198.51.100.10",
-        compression="off",
-        cache_enabled=False,
-        **policy,
+        policy=SitePolicy.from_settings(
+            {"compression": "off", "cache_enabled": False} | policy
+        ),
     )
 
 
@@ -43,8 +44,8 @@ def test_every_country_setting_requests_this_capability(
 ) -> None:
     site = _site(**policy)
 
-    assert "geoip" in site.required_capabilities
-    assert setting in " ".join(site.capability_requirements["geoip"])
+    assert "geoip" in site.policy.required_capabilities
+    assert setting in " ".join(site.policy.capability_requirements["geoip"])
 
 
 @pytest.mark.parametrize(("_setting", "policy"), COUNTRY_SETTINGS, ids=lambda v: str(v))
@@ -52,7 +53,7 @@ def test_every_country_setting_deploys_once_the_capability_is_installed(
     _setting: str, policy: dict[str, object]
 ) -> None:
     registry = load_control_plane_plugins()
-    assert registry.missing(_site(**policy).required_capabilities) == ()
+    assert registry.missing(_site(**policy).policy.required_capabilities) == ()
 
 
 def test_the_country_header_and_the_country_rules_are_one_capability() -> None:
@@ -66,8 +67,8 @@ def test_the_country_header_and_the_country_rules_are_one_capability() -> None:
         firewall={"denied_countries": ["RU"]},
     )
 
-    assert site.required_capabilities == frozenset({"geoip", "security"})
-    assert len(site.capability_requirements["geoip"]) == 2
+    assert site.policy.required_capabilities == frozenset({"geoip", "security"})
+    assert len(site.policy.capability_requirements["geoip"]) == 2
     assert blitzecdn_plugin_metadata().capabilities == frozenset({"geoip"})
 
 
@@ -80,7 +81,7 @@ def test_country_rules_ask_for_security_as_well_and_geoip_does_not_supply_it() -
     """
     site = _site(firewall={"allowed_countries": ["DE"]})
 
-    assert site.required_capabilities == frozenset({"geoip", "security"})
+    assert site.policy.required_capabilities == frozenset({"geoip", "security"})
     assert "security" not in blitzecdn_plugin_metadata().capabilities
 
 
@@ -88,7 +89,7 @@ def test_a_disabled_site_asks_for_nothing_whatever_it_is_configured_with() -> No
     """A disabled site converges no server block, so it needs no capability."""
     site = _site(enabled=False, visitor_headers={"ip_country": True})
 
-    assert site.required_capabilities == frozenset()
+    assert site.policy.required_capabilities == frozenset()
 
 
 def test_the_connecting_ip_header_alone_needs_no_country_lookup() -> None:
@@ -100,4 +101,4 @@ def test_the_connecting_ip_header_alone_needs_no_country_lookup() -> None:
     """
     site = _site(visitor_headers={"connecting_ip": True, "ip_country": False})
 
-    assert site.required_capabilities == frozenset()
+    assert site.policy.required_capabilities == frozenset()

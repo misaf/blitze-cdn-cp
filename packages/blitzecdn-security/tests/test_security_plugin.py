@@ -7,6 +7,7 @@ from blitzecdn_security.config import MINIMUM_SECRET_BYTES, SECRET_VARIABLE
 from pydantic import SecretStr
 
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.plugins import (
     ResolvedCapabilityEnvironment,
@@ -19,9 +20,13 @@ def _site(*, under_attack: bool, enabled: bool = True) -> CdnSite:
         name="alpha",
         server_names=("alpha.example.com",),
         origin_host="198.51.100.10",
-        compression="off",
-        enabled=enabled,
-        under_attack_mode=under_attack,
+        policy=SitePolicy.from_settings(
+            {
+                "compression": "off",
+                "enabled": enabled,
+                "under_attack_mode": under_attack,
+            }
+        ),
     )
 
 

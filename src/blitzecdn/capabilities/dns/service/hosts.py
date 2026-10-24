@@ -117,9 +117,9 @@ class HostService:
         """
         with self.uow.transaction():
             current = self.get_site(site_name)
-            if current.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
+            if current.policy.tls.ssl_automatic_mode is SslAutomaticMode.CUSTOM:
                 return None
-            if target.security_rank <= current.ssl_mode.security_rank:
+            if target.security_rank <= current.policy.tls.ssl_mode.security_rank:
                 return None
             self._apply_to_source(current, {"ssl_mode": target})
             self.events.record(
@@ -128,7 +128,7 @@ class HostService:
                     "ssl.automatic.upgraded",
                     "site",
                     site_name,
-                    {"from": current.ssl_mode.value, "to": target.value},
+                    {"from": current.policy.tls.ssl_mode.value, "to": target.value},
                 )
             )
         return self.get_site(site_name)
@@ -149,7 +149,8 @@ class HostService:
         if rule_name is None:
             zone = self.zones.get_domain(domain)
             self.zones.replace_domain(
-                Domain.model_validate({**zone.model_dump(), **changes}), expected=zone
+                Domain(name=zone.name, policy=zone.policy.applying(changes)),
+                expected=zone,
             )
             return
         rule = self.rules.get_rule(domain, rule_name)

@@ -227,15 +227,16 @@ refactors later.
 
 ### Why site-policy contracts stay in core
 
-`CompressionPolicy`, `SecurityPolicy`, and `TlsPolicy` cannot be extracted, and
-the reason is worth writing down because it will come up again. `CdnSite`
-composes `CompressionPolicy`, `ProtocolPolicy`, `SecurityPolicy` and `TlsPolicy`
-**by inheritance** into one flat, frozen model, and that model is consumed by
-the published HTTP schemas, by persisted policy JSON, by the versioned
-deployment snapshots, and by every edge role. Assembling it from whichever
-plugins happen to be installed would make the published schema and the on-disk
-snapshot depend on the installation, and would leave Ansible parsing a desired
-state whose shape it cannot predict.
+`CompressionPolicy`, `SecurityPolicy`, and `TlsPolicy` remain stable core
+contracts. A zone and a `CdnSite` each contain a `SitePolicy`, whose named fields
+hold those typed values. Canonical policy JSON and versioned release inputs are
+nested; explicit delivery adapters project flat settings for HTTP, CLI and edge
+roles. See [nested serving policy](docs/decisions/0013-nested-serving-policy.md).
+
+Assembling those value types from whichever plugins happen to be installed
+would make stored state depend on the installation and could leave a detached
+capability's policy unreadable. Runtime contributions can be optional while the
+pure vocabulary describing what was requested stays available.
 
 The contracts therefore stay. Their implementation can still leave:
 `blitzecdn-compression` supplies gzip/Brotli capability,

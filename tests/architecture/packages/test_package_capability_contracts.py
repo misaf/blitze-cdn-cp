@@ -93,9 +93,10 @@ def test_the_http_capability_contributes_the_quic_baseline_without_deriving_it()
 def test_the_site_contract_keeps_the_http3_switch_in_core():
     """The other direction: the field may not follow the implementation out.
 
-    `CdnSite` composes `ProtocolPolicy` by inheritance and the flat shape is
-    what the published schemas, the persisted policy JSON and the deployment
-    snapshots all consume. Moving `http3_enabled` into the package would make
+    `CdnSite` contains a `SitePolicy` with a typed protocol value. Persisted
+    policy JSON and release inputs are nested; delivery projects flat settings.
+    The contract stays available regardless of which runtime package is installed.
+    Moving `http3_enabled` into the package would make
     that shape depend on what is installed, and a stored site asking for HTTP/3
     would stop loading on a controller that had detached it.
     """
@@ -103,7 +104,7 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     from blitzecdn.capabilities.serving.domain import CdnSite
 
     assert "http3_enabled" in ProtocolPolicy.model_fields
-    assert "http3_enabled" in CdnSite.model_fields
+    assert "http3_enabled" in CdnSite.model_fields["policy"].annotation.setting_fields()
     assert ProtocolPolicy.__module__.startswith("blitzecdn.capabilities.http")
 
 
@@ -143,8 +144,8 @@ def test_the_geoip_capability_is_reached_only_through_its_entry_point():
 def test_the_site_contract_keeps_every_country_setting_in_core():
     """The fields may not follow the implementation out.
 
-    `CdnSite` composes them by inheritance into the flat shape the published
-    schemas, the persisted policy JSON and the deployment snapshots consume.
+    `CdnSite` contains them through named fields on `SitePolicy`. Canonical
+    storage is nested and delivery projects the flat operator settings.
     Moving one into the package would make that shape depend on what is
     installed, and a stored site asking for a country would stop loading on a
     controller that had detached it.
@@ -155,7 +156,9 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
 
     assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
     assert "ip_country" in SiteVisitorHeaders.model_fields
-    assert {"firewall", "visitor_headers"} <= set(CdnSite.model_fields)
+    assert {"firewall", "visitor_headers"} <= set(
+        CdnSite.model_fields["policy"].annotation.setting_fields()
+    )
     assert SiteFirewall.__module__.startswith("blitzecdn.capabilities.security")
     assert SiteVisitorHeaders.__module__.startswith("blitzecdn.capabilities.serving")
 

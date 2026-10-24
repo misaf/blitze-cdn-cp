@@ -91,7 +91,7 @@ def blitzecdn_deployment_checks(
     block, and a site that never asks is unaffected by the secret being absent
     — neither is blocked.
     """
-    if not site.enabled or not site.under_attack_mode:
+    if not site.policy.enabled or not site.policy.security.under_attack_mode:
         return ()
     config = SecurityConfig.from_capability_config(
         platform.capability_config.for_plugin("security")

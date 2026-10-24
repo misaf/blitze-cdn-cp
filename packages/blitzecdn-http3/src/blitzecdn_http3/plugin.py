@@ -108,7 +108,11 @@ def blitzecdn_fleet_desired_state(
     A disabled site converges no server block, so it cannot be the owner and
     cannot be the reason the listener opens.
     """
-    enabled = sorted(site.name for site in sites if site.enabled and site.http3_enabled)
+    enabled = sorted(
+        site.name
+        for site in sites
+        if site.policy.enabled and site.policy.protocols.http3_enabled
+    )
     return FleetStateContribution(
         plugin="http3",
         variables={

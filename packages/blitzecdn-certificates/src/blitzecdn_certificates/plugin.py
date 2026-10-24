@@ -51,7 +51,10 @@ def blitzecdn_deployment_checks(
     knowledge of the capability that asks one, and an installation without this
     distribution cannot reach ``certificate_mode='requested'`` at all.
     """
-    if not site.enabled or site.certificate_mode is not CertificateMode.REQUESTED:
+    if (
+        not site.policy.enabled
+        or site.policy.tls.certificate_mode is not CertificateMode.REQUESTED
+    ):
         return ()
     return tuple(
         ValidationIssue(
@@ -114,7 +117,7 @@ def blitzecdn_cli_commands() -> Sequence[CliCommandGroup]:
 def blitzecdn_site_desired_state(
     site: CdnSite, platform: ControlPlane
 ) -> SiteStateContribution | None:
-    if not site.certificate_mode.issuer_owned:
+    if not site.policy.tls.certificate_mode.issuer_owned:
         return None
     certificate, private_key = build_certificate_service(platform).installed_sources(
         site.name

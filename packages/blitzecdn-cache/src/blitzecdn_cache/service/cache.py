@@ -140,7 +140,7 @@ class CacheService:
         exact: dict[str, CdnSite] = {}
         wildcards: list[tuple[str, CdnSite]] = []
         for site in self.sites.list_sites():
-            if not site.enabled:
+            if not site.policy.enabled:
                 continue
             for name in site.server_names:
                 if name.startswith("*."):
@@ -171,7 +171,10 @@ class CacheService:
                 )
                 continue
             uri = entry.uri
-            if owner.cache_query_string_mode is CacheQueryStringMode.IGNORE:
+            if (
+                owner.policy.cache.cache_query_string_mode
+                is CacheQueryStringMode.IGNORE
+            ):
                 uri = uri.partition("?")[0]
             resolved.append(PurgeEntry(host=entry.host, uri=uri, scheme=entry.scheme))
         if unknown:

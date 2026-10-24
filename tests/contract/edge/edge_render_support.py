@@ -26,6 +26,7 @@ from contract_support import (
     ansible_bool,
 )
 from paths import CORE_ANSIBLE
+from policy_support import domain_from_settings, site_from_settings
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
@@ -145,7 +146,7 @@ def _seed_site(repository, *, name, label, origin, **policy):
     if name == host_name(zone, None):
         current = repository.zones.get_domain(zone)
         repository.zones.replace_domain(
-            Domain.model_validate({**current.model_dump(), **policy})
+            domain_from_settings({**current.model_dump(), **policy})
         )
     else:
         repository.rules.create_rule(
@@ -214,7 +215,7 @@ def _mode_site(mode: SslMode, serves_tls: bool, **extra: Any) -> CdnSite:
             "certificate_path": "/etc/ssl/certs/edge.pem",
             "certificate_key_path": "/etc/ssl/private/edge.key",
         }
-    return CdnSite.model_validate(payload | extra)
+    return site_from_settings(payload | extra)
 
 
 def _upstreams(rendered: str) -> set[str]:

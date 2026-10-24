@@ -51,6 +51,6 @@ def resolve_policy(zone: Domain, rules: Sequence[Rule], fqdn: str) -> ResolvedPo
     for rule in sorted(rules, key=lambda item: item.order):
         if not rule.matches(fqdn):
             continue
-        merged = Domain.model_validate({**zone.model_dump(), **rule.overrides})
+        merged = Domain(name=zone.name, policy=zone.policy.applying(rule.overrides))
         return ResolvedPolicy(fqdn=fqdn, policy=merged, rule=rule.name)
     return ResolvedPolicy(fqdn=fqdn, policy=zone, rule=None)

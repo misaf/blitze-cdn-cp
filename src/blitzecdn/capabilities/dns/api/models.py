@@ -14,6 +14,7 @@ from pydantic import Field, model_validator
 from blitzecdn.api.models import Model
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
 from blitzecdn.capabilities.dns.domain import DomainPatch as DomainDomainPatch
@@ -24,6 +25,7 @@ from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
 from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.serving.domain import CdnSite as DomainCdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
@@ -84,11 +86,14 @@ class Domain(ZonePolicy):
         return self
 
     def to_domain(self) -> DomainDomain:
-        return DomainDomain.model_validate(self.model_dump())
+        return DomainDomain(
+            name=self.name,
+            policy=SitePolicy.from_settings(self.model_dump(exclude={"name"})),
+        )
 
     @classmethod
     def from_domain(cls, value: DomainDomain) -> Self:
-        return cls.model_validate(value.model_dump(mode="json"))
+        return cls.model_validate(serving_document(value))
 
 
 class DomainPatch(Model):
@@ -186,7 +191,7 @@ class CdnSite(ZonePolicy):
 
     @classmethod
     def from_domain(cls, value: DomainCdnSite) -> Self:
-        return cls.model_validate(value.model_dump(mode="json"))
+        return cls.model_validate(serving_document(value))
 
 
 class RuleBody(Model):
