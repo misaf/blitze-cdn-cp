@@ -182,12 +182,61 @@ Each step requires separate confirmation and its own commit.
    Remote Ubuntu 24.04/Python 3.12 validation passed 125 focused tests, format,
    lint, strict types and direct CLI example/inspection checks; see the
    [practice results](LOCAL_RECOVERY_PRACTICE.md).
-4. Pending confirmation: document retention rules and address demonstrated gaps.
+4. Complete: [retention rules](RETENTION.md) describe cleanup counts, recovery
+   copies, exact key preservation and storage budgeting. Finished-check cleanup
+   now preserves queued/running deployments and their target rows; the worker
+   applies the existing finished-job limit after executing a claim. Remote
+   validation passed 293 focused cases, format, lint and strict types; see below.
 5. Pending confirmation: write the short operating guide from verified results.
 
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
 confirmation before beginning any further implementation. The user deferred
-Ubuntu verification. Step 3 addresses the operator-facing findings; retention
-work in step 4 requires its own confirmation.
+Ubuntu edge verification. Step 4 was confirmed; the operating guide in step 5
+requires its own confirmation.
+
+## Step 4 validation
+
+Validation ran on the user-provided Ubuntu 24.04.5/Python 3.12.3 server in an
+isolated temporary source checkout, reusing step 3's locked dependency environment
+with `PYTHONPATH` pointing at the new checkout. No tests ran on the workstation.
+
+- Four regression cases first failed against the unchanged implementation:
+  cleanup deleted unfinished queued/running checks, and worker ticks never
+  enforced the finished-job count for either successful or failed jobs.
+- With the fixes, **291 passed and 2 skipped** in the main selection. The two
+  real Ansible fixture checks skipped because the dependency environment's
+  binaries were absent from the shell `PATH`; both passed when rerun with that
+  environment on `PATH`. Thus **293 distinct focused cases passed**.
+- Format and lint passed across 486 Python files; strict types passed across
+  341 source/helper files. Local documentation links and imports from the
+  isolated source were checked remotely.
+- Release/certificate retention, rollback, backup/restore, workflow/audit/log
+  retention, durable jobs, frozen contracts and process recovery were included.
+  This focused run did not measure coverage or replace the earlier full-suite
+  checkpoint. Published snapshots and the database schema are unchanged.
+- Tests used disposable controller state. No application was deployed, no
+  existing controller data was collected, and real Ubuntu edge verification
+  remains deferred. No archive rotation, metadata expiration or edge cleanup
+  was introduced.
+
+Main selection (using the dependency environment's Python and selecting the
+isolated checkout's `src` through `PYTHONPATH`; `pytest` below names that
+environment's test runner):
+
+```bash
+pytest --no-cov -n auto --dist=worksteal \
+  tests/platform/test_repository.py \
+  tests/capabilities/jobs tests/capabilities/deployments \
+  tests/capabilities/releases/test_release_service.py \
+  tests/capabilities/workflows tests/capabilities/backup \
+  tests/capabilities/certificates/test_material_lifecycle.py \
+  tests/contract/test_ansible.py tests/contract/test_frozen.py tests/journeys
+```
+
+The two Ansible fixture checks were then run with the environment on `PATH`:
+
+```bash
+pytest --no-cov tests/contract/test_ansible.py -k real_ansible_runner
+```

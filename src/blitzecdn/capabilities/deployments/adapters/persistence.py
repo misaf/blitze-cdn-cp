@@ -15,6 +15,7 @@ from blitzecdn.capabilities.deployments.adapters.tables import (
     DeploymentTargetRow,
 )
 from blitzecdn.capabilities.deployments.domain import (
+    TERMINAL_STATUSES,
     Deployment,
     DeploymentRequirementKind,
     DeploymentStatus,
@@ -206,7 +207,7 @@ class DeploymentStore:
             )
 
     def prune_history(self, keep: int) -> int:
-        """Drop the oldest check-mode deployments beyond the newest ``keep``.
+        """Drop finished check-mode deployments beyond the newest ``keep``.
 
         Only check-mode rows. A real deployment is history an operator reads
         after an incident and, more to the point, is what
@@ -215,6 +216,10 @@ class DeploymentStore:
         back to. Check-mode runs can
         never be that: rollback selection filters them out.
 
+        Queued and running checks are recovery state, not history. Removing
+        them would also cascade-delete their target checkpoints while a job
+        can still be waiting to execute or resume them.
+
         They are also the ones that accumulate. The drift timer fires hourly
         and each firing writes a row. They are cheap now that a row names a
         release rather than embedding one — but they are still a row an hour
@@ -222,10 +227,14 @@ class DeploymentStore:
         the same reason on the same schedule; this is that policy applied to
         the rows.
         """
+        finished = tuple(status.value for status in TERMINAL_STATUSES)
         with self._db.session() as session:
             survivors = (
                 select(col(DeploymentRow.id))
-                .where(col(DeploymentRow.check_mode).is_(True))
+                .where(
+                    col(DeploymentRow.check_mode).is_(True),
+                    col(DeploymentRow.status).in_(finished),
+                )
                 .order_by(col(DeploymentRow.created_at).desc())
                 .limit(keep)
                 .scalar_subquery()
@@ -234,6 +243,7 @@ class DeploymentStore:
                 session.execute(
                     delete(DeploymentRow).where(
                         col(DeploymentRow.check_mode).is_(True),
+                        col(DeploymentRow.status).in_(finished),
                         col(DeploymentRow.id).not_in(survivors),
                     )
                 )
