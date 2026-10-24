@@ -239,7 +239,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
         "control plane to serve anything, which is what keeps all four of "
         "these off the API.",
     ),
-    ("blitzecdn", "setup", None, "creates the schema; see `init`."),
+    ("blitzecdn", "setup", None, "creates local schema and credentials; see `init`."),
+    ("blitzecdn", "migrate", None, "offline schema maintenance before services start."),
     ("blitzecdn", "serve", None, "starts the API. It cannot be one of its own routes."),
     (
         "blitzecdn",

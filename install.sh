@@ -15,25 +15,6 @@ readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
 readonly CONTROL_PLANE_SERVICES=(blitzecdn-api blitzecdn-worker)
-# Initial configuration sections emitted by the managed control-plane role.
-# Every implementation ships in the application; this list installs no extras.
-readonly DEFAULT_CAPABILITIES="backup cache certificates hardening origins resolver"
-
-# Configuration sections rendered for a managed installation.
-capabilities() {
-  printf '%s\n' "${BLITZECDN_CAPABILITIES:-${DEFAULT_CAPABILITIES}}"
-}
-
-# The same list as a JSON array body, for --extra-vars.
-capability_json() {
-  local capability separator='' rendered=''
-  for capability in $(capabilities); do
-    rendered+="${separator}\"${capability}\""
-    separator=,
-  done
-  printf '%s\n' "${rendered}"
-}
-
 # Captured before dispatch strips the subcommand so destructive modes can
 # re-exec a private copy after deleting the checkout that contained this file.
 original_args=("$@")
@@ -643,9 +624,6 @@ if sys.version_info[:2] < (3, 12):
   # ansible-only: dependencies still include ansible-core, but the BlitzeCDN
   # project and its CLI are not installed on the host.
   #
-  # BLITZECDN_CAPABILITIES lists the optional capabilities this controller
-  # installs, as extras on the root project. They are separate distributions
-  # Every application capability ships in the one distribution.
   local -a sync_flags=(--frozen --python "${python_command}")
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
     "${uv}" sync "${sync_flags[@]}"
@@ -772,23 +750,13 @@ PY
   # processes are installed into the image built by the role, never the host.
   bootstrap_runtime ansible-only
 
-  # The capability list travels with the convergence. The managed
-  # blitzecdn.toml writes a capability's configuration only when that
-  # capability is attached, because the control plane refuses to start on
-  # configuration no installed capability claims. Under-reporting is safe —
-  # an unwritten key leaves the capability's own default in force — which is
-  # why BLITZECDN_DEV, which attaches every package, still reports this list.
-  local rendered_capabilities
-  rendered_capabilities=$(capability_json)
-
   # The role writes the access list into the environment file the API and the
   # firewall convergence both read, so a first boot is already public and port
   # 8000 is already open for exactly those sources — no second pass, and no
   # window in which one half of that agreement is in force without the other.
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
-    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}" \
-    --extra-vars "{\"blitzecdn_controlplane_capabilities\": [${rendered_capabilities}]}"
+    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   local handoff_args=(standalone --admin-cidr "${parsed_admin_cidr}")
   local public_address

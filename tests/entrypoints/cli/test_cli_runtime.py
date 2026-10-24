@@ -15,18 +15,17 @@ from blitzecdn.cli import main as cli
 from blitzecdn.composition import ControlPlane, Repository
 
 
-def test_schema_only_setup_initializes_database_without_scaffolding(
-    tmp_path, monkeypatch
-):
+def test_migrate_initializes_database_without_scaffolding(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
 
-    result = runner.invoke(cli.app, ["setup", "--schema-only"])
+    result = runner.invoke(cli.app, ["migrate"])
 
     assert result.exit_code == 0
     assert cli.Settings.from_environment(
         {}, project_dir=tmp_path
     ).database_path.exists()
-    assert result.stdout == ""
+    assert result.stdout == "Database schema is current.\n"
+    assert not (tmp_path / ".env").exists()
 
 
 def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, capsys):

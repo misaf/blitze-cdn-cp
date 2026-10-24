@@ -52,6 +52,7 @@ from blitzecdn.core.domain.runs import (
     TaskResult,
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.persistence.schema import DatabaseSchema
 
 
 @pytest.fixture(autouse=True)
@@ -619,7 +620,7 @@ def settings(tmp_path: Path) -> Settings:
     playbook = ansible / "playbooks/edge.yml"
     playbook.write_text("- hosts: blitzecdn_edges\n  tasks: []\n", encoding="utf-8")
     state = tmp_path / "state"
-    return Settings(
+    configured = Settings(
         project_dir=tmp_path,
         state_dir=state,
         database_path=state / "control-plane.db",
@@ -634,6 +635,8 @@ def settings(tmp_path: Path) -> Settings:
         ansible_playbook="/usr/bin/true",
         api_keys={"tester": SecretStr("x" * 32)},
     )
+    DatabaseSchema.migrate(configured.database_path)
+    return configured
 
 
 def with_capability_settings(settings: Settings, **values: object) -> Settings:

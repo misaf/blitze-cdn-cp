@@ -8,26 +8,20 @@ changed.
 
 from __future__ import annotations
 
-import fcntl
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from alembic import command
-from alembic.config import Config
-from alembic.util.exc import CommandError
 from sqlalchemy import Engine, event
 from sqlalchemy.engine import URL
 from sqlalchemy.pool import NullPool, QueuePool
 from sqlmodel import Session, create_engine
 
-from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.persistence.schema import MIGRATIONS_PATH
+from blitzecdn.core.persistence.schema import DatabaseSchema
 
 
 def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
@@ -72,7 +66,7 @@ class Database:
     """The database file: engine, schema, sessions, and the write lock."""
 
     def __init__(self, path: Path, *, pool_connections: bool = False) -> None:
-        self._path = path
+        DatabaseSchema.validate(path)
         # Ambient state belongs to this database instance. A module-global
         # session lets repository B accidentally join repository A's
         # transaction when two control planes share one process.
@@ -87,7 +81,6 @@ class Database:
         # instead of racing to `BEGIN IMMEDIATE` and failing on a busy
         # database. Reentrant because nested use cases join their caller.
         self.lock = threading.RLock()
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         pool_options: dict[str, Any]
         if pool_connections:
             # The API is long-lived and repeatedly reads local state. A small,
@@ -106,16 +99,15 @@ class Database:
             # its lifespan handler.
             pool_options = {"poolclass": NullPool}
         self.engine = create_engine(
-            f"sqlite+pysqlite:///{path}",
+            URL.create(
+                "sqlite+pysqlite",
+                database=path.resolve().as_uri(),
+                query={"mode": "rw", "uri": "true"},
+            ),
             future=True,
             **pool_options,
         )
         _configure_sqlite(self.engine, self._immediate)
-        try:
-            self._initialize()
-        except BaseException:
-            self.engine.dispose()
-            raise
 
     def _new_session(self) -> Session:
         return Session(self.engine, expire_on_commit=False)
@@ -200,37 +192,6 @@ class Database:
         """Release engine-owned resources during application shutdown."""
         with self.lock:
             self.engine.dispose()
-
-    def _initialize(self) -> None:
-        """Create and validate the schema using Alembic as its sole owner."""
-        # The API, worker, and installer handoff can start together after a
-        # first install. The in-process RLock cannot serialize those separate
-        # processes, while Alembic's empty-schema check and first CREATE TABLE
-        # are not atomic. Keep a stable sidecar and take an advisory lock for
-        # the complete upgrade/check boundary.
-        migration_lock = self._path.with_name(f".{self._path.name}.migration.lock")
-        with self.lock, migration_lock.open("a+b") as lock_file:
-            migration_lock.chmod(0o600)
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
-            config = Config(stdout=StringIO())
-            config.set_main_option(
-                "script_location",
-                str(MIGRATIONS_PATH),
-            )
-            config.set_main_option(
-                "sqlalchemy.url",
-                URL.create(
-                    "sqlite+pysqlite", database=str(self._path)
-                ).render_as_string(hide_password=False),
-            )
-            try:
-                command.upgrade(config, "head")
-                command.check(config)
-            except (CommandError, RuntimeError) as exc:
-                raise ConfigurationError(
-                    f"{self._path} has an incompatible or damaged schema: {exc}. "
-                    "Remove it and run `blitzecdn setup` for a clean install."
-                ) from exc
 
     @staticmethod
     def now() -> datetime:

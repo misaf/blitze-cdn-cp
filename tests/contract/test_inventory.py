@@ -34,6 +34,7 @@ from blitzecdn.capabilities.edges.adapters.ansible import edge_to_inventory
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP, Edge, firewall_sources
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.validation import RESERVED_ANSIBLE_SETTINGS
+from blitzecdn.core.persistence.schema import DatabaseSchema
 
 PROJECT_DIR = REPO_ROOT
 ANSIBLE_DIR = CORE_ANSIBLE
@@ -126,6 +127,7 @@ def fleet(tmp_path: Path) -> tuple[Path, list[Edge]]:
             ssh_sources=("203.0.113.0/24",),
         ),
     ]
+    DatabaseSchema.migrate(database)
     repository = Repository(database)
     for edge in edges:
         repository.edges.create_edge(edge)
@@ -269,7 +271,7 @@ def test_an_empty_fleet_still_declares_the_group(tmp_path: Path):
     inventory itself is broken.
     """
     database = tmp_path / "control-plane.db"
-    Repository(database)
+    DatabaseSchema.migrate(database)
 
     document = _ansible_inventory(database)
 

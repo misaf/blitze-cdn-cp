@@ -218,20 +218,14 @@
       }}
   no_log: true
 
-# Only when the capability that uses one is attached. The address is
-# blitzecdn-certificates' configuration, and the template below writes it only
-# for an installation that has that distribution — so demanding one from an
-# installation that does not would be requiring a value nothing would read.
-- name: Require an ACME address for a first installation with certificates
+- name: Require an ACME address for a first installation
   ansible.builtin.assert:
     that:
       - blitzecdn_controlplane_effective_acme_email | length > 0
     fail_msg: >-
       No environment file exists yet and no ACME account address was given.
       Run the installer with --email ADDRESS.
-  when:
-    - not blitzecdn_controlplane_environment.stat.exists
-    - "'certificates' in blitzecdn_controlplane_capabilities"
+  when: not blitzecdn_controlplane_environment.stat.exists
 
 - name: Write the non-secret service configuration
   ansible.builtin.template:
@@ -335,8 +329,22 @@
       - "true"
   changed_when: false
 
+# Also applies when this role is run directly to repair an installation.
+# install.sh already takes its backup and stops services before convergence.
+- name: Stop application services before schema migration
+  ansible.builtin.command:
+    argv:
+      - docker
+      - compose
+      - --file
+      - "{{ blitzecdn_controlplane_compose_file }}"
+      - stop
+      - blitzecdn-api
+      - blitzecdn-worker
+  changed_when: true
+
 # The API and worker both open the repository during startup. Migrating before
-# Compose starts them prevents either process racing Alembic on a fresh install.
+# Compose starts them gives both processes an already validated schema.
 - name: Initialize the application schema before starting services
   ansible.builtin.command:
     argv:
@@ -348,8 +356,7 @@
       - --rm
       - --no-deps
       - blitzecdn-cli
-      - setup
-      - --schema-only
+      - migrate
   changed_when: false
 
 - name: Recreate and start the control-plane services

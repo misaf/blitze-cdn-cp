@@ -52,9 +52,15 @@ def test_controlplane_initializes_schema_before_starting_services():
     schema = _role_task("Initialize the application schema before starting services")
     services = _role_task("Recreate and start the control-plane services")
 
-    assert tasks.index(schema) < tasks.index(services)
+    stopped = _role_task("Stop application services before schema migration")
+    assert tasks.index(stopped) < tasks.index(schema) < tasks.index(services)
+    assert stopped["ansible.builtin.command"]["argv"][-3:] == [
+        "stop",
+        "blitzecdn-api",
+        "blitzecdn-worker",
+    ]
     command = schema["ansible.builtin.command"]["argv"]
-    assert command[-4:] == ["--no-deps", "blitzecdn-cli", "setup", "--schema-only"]
+    assert command[-3:] == ["--no-deps", "blitzecdn-cli", "migrate"]
 
 
 def test_standalone_bootstraps_only_what_ansible_needs():

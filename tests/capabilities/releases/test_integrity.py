@@ -10,6 +10,7 @@ from blitzecdn.capabilities.releases.adapters.tables import ReleaseInputsRow, Re
 from blitzecdn.capabilities.releases.domain import Artifact, Release, ReleaseInputs
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.persistence.schema import DatabaseSchema
 
 
 def test_artifact_detaches_both_constructor_input_and_decoded_views():
@@ -42,6 +43,7 @@ def test_artifact_identity_is_independent_of_dictionary_order():
 
 
 def test_release_store_rejects_mismatched_inputs(tmp_path):
+    DatabaseSchema.migrate(tmp_path / "state.db")
     with pytest.raises(ConfigurationError, match="inputs do not match"):
         repository = Repository(tmp_path / "state.db")
         try:
@@ -52,6 +54,7 @@ def test_release_store_rejects_mismatched_inputs(tmp_path):
 
 @pytest.mark.parametrize("damage_inputs", [False, True])
 def test_release_store_detects_modified_documents(tmp_path, damage_inputs):
+    DatabaseSchema.migrate(tmp_path / "state.db")
     repository = Repository(tmp_path / "state.db")
     try:
         inputs = ReleaseInputs()
