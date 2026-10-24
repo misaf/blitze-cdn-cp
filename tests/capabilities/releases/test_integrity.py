@@ -74,3 +74,24 @@ def test_release_store_detects_modified_documents(tmp_path, damage_inputs):
                 repository.releases.get(release.id)
     finally:
         repository.close()
+
+
+def test_release_inputs_store_composed_policy_and_refuse_retired_flat_schema():
+    import json
+
+    from blitzecdn.capabilities.dns.domain import Domain
+    from blitzecdn.capabilities.releases.domain import ReleaseInputs
+    from blitzecdn.capabilities.serving.policy import SitePolicy
+
+    inputs = ReleaseInputs.of(
+        [Domain(name="example.com", policy=SitePolicy(cache={"cache_enabled": False}))],
+        [],
+        [],
+    )
+    document = json.loads(inputs.encode())
+    assert document["domains"][0]["policy"]["cache"]["cache_enabled"] is False
+    assert "cache_enabled" not in document["domains"][0]
+    assert ReleaseInputs.decode(inputs.encode()) == inputs
+    document["schema_version"] = 1
+    with pytest.raises(ValueError, match="unsupported release inputs schema version"):
+        ReleaseInputs.decode(json.dumps(document))

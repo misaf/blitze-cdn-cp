@@ -21,6 +21,7 @@ from edge_render_support import (
     _role_spec,
 )
 from paths import REPO_ROOT
+from policy_support import site_from_settings
 
 import blitzecdn
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
@@ -31,7 +32,6 @@ from blitzecdn.capabilities.http.policy import (
     HTTPS_PROXY_PORTS,
     MaxUploadSize,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     MinimumTlsVersion,
 )
@@ -59,7 +59,7 @@ def test_websocket_upgrade_is_forwarded_and_never_cached():
     prefix rather than as the whole line so this stays a test about WebSocket
     upgrades; `blitzecdn-cache`'s own suite holds the complete exclusion list.
     """
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": "socket",
             "server_names": ["socket.example.com"],
@@ -84,7 +84,7 @@ def test_websocket_upgrade_is_forwarded_and_never_cached():
     ],
 )
 def test_minimum_tls_version_renders_per_hostname(minimum, protocols):
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": "tls-minimum",
             "server_names": ["tls.example.com"],
@@ -108,7 +108,7 @@ def test_minimum_tls_version_renders_per_hostname(minimum, protocols):
     ],
 )
 def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": "query-mode",
             "server_names": ["query.example.com"],
@@ -128,7 +128,7 @@ def test_cache_query_string_mode_selects_the_cache_key(mode, key_uri):
 
 def _compressed(mode: CompressionMode) -> dict[str, Any]:
     return site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "compressed",
                 "server_names": ["compressed.example.com"],
@@ -277,7 +277,7 @@ def test_missing_compression_preserves_pre_upgrade_behavior():
 def _uploads(size: MaxUploadSize | None) -> dict[str, Any]:
     """A TLS site, so both the plain and the encrypted server block render."""
     document = site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "uploads",
                 "server_names": ["uploads.example.com"],

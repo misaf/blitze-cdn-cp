@@ -125,7 +125,7 @@ def _capability_findings(
     could declare a set already behaves like, so the second check is opt-in and
     adding it changes no existing fleet's outcome.
     """
-    requested = site.capability_requirements
+    requested = site.policy.capability_requirements
     for token in sorted(set(requested) - set(installed)):
         settings = ", ".join(requested[token])
         yield ReleaseFinding(

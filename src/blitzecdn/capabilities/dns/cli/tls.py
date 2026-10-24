@@ -44,7 +44,7 @@ def domain_ssl(
     zone = _update(name, DomainPatch(ssl_mode=mode))
     _report(
         zone,
-        f"{zone.name} now uses SSL mode {zone.ssl_mode.value!r}.",
+        f"{zone.name} now uses SSL mode {zone.policy.tls.ssl_mode.value!r}.",
         json_output=json_output,
     )
 
@@ -68,7 +68,7 @@ def domain_ssl_automatic(
         json_output=json_output,
         note=(
             f"{zone.name} now uses SSL automatic mode "
-            f"{zone.ssl_automatic_mode.value!r}."
+            f"{zone.policy.tls.ssl_automatic_mode.value!r}."
         ),
     )
 
@@ -89,6 +89,7 @@ def domain_minimum_tls(
     zone = _update(name, DomainPatch(minimum_tls_version=version))
     _report(
         zone,
-        f"{zone.name} now requires TLS {zone.minimum_tls_version.value} or newer.",
+        f"{zone.name} now requires TLS "
+        f"{zone.policy.tls.minimum_tls_version.value} or newer.",
         json_output=json_output,
     )

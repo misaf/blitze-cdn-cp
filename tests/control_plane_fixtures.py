@@ -14,6 +14,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI
+from policy_support import domain_from_settings, site_from_settings
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
@@ -271,7 +272,7 @@ def seed_site(
         if deferred_ssl is not None:
             _set_policy(control, domain, rule, {"ssl_mode": deferred_ssl}, operator)
         return control.sites.get_site(host_name_for(domain, rule))
-    return CdnSite.model_validate(
+    return site_from_settings(
         {
             **control.dns.get_domain(domain).model_dump(),
             "name": host_name_for(domain, rule),
@@ -361,7 +362,7 @@ def seed_record(
     """
     with suppress(ConflictError):
         control.dns.create_domain(
-            Domain.model_validate({"name": domain, **_servable_here({})}), operator
+            domain_from_settings({"name": domain, **_servable_here({})}), operator
         )
     return control.dns.create_record(
         DnsRecord.model_validate(

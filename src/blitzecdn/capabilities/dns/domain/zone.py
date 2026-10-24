@@ -7,14 +7,15 @@ zone policy.
 The zone holds no origin: each record carries its own address, which is the
 origin the edge fetches from while the record is proxied. ``SitePolicy`` is
 shared with derived virtual hosts through ``serving.domain.host``.
-``_assert_patch_covers_zone`` checks that partial updates cover the zone fields."""
+``_assert_patch_covers_settings`` checks partial-update coverage of composed
+settings."""
 
 from __future__ import annotations
 
 import ipaddress
 from typing import Self
 
-from pydantic import ConfigDict, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import CertificateMode
@@ -23,7 +24,7 @@ from blitzecdn.core.domain.validation import hostname
 __all__ = ["Domain"]
 
 
-class Domain(SitePolicy):
+class Domain(BaseModel):
     """A DNS zone a customer has delegated to us, and its default policy.
 
     Holds no records itself — they are stored separately and keyed by domain,
@@ -33,6 +34,7 @@ class Domain(SitePolicy):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
+    policy: SitePolicy = Field(default_factory=SitePolicy)
 
     @field_validator("name")
     @classmethod
@@ -58,13 +60,14 @@ class Domain(SitePolicy):
         update; a patch that only sets the mode to ``disabled`` is rejected.
         """
         supplied = (
-            self.certificate_path is not None or self.certificate_key_path is not None
+            self.policy.tls.certificate_path is not None
+            or self.policy.tls.certificate_key_path is not None
         )
-        if self.certificate_mode is not CertificateMode.DISABLED and not (
-            self.certificate_path and self.certificate_key_path
+        if self.policy.tls.certificate_mode is not CertificateMode.DISABLED and not (
+            self.policy.tls.certificate_path and self.policy.tls.certificate_key_path
         ):
             raise ValueError("TLS certificate modes require both certificate paths")
-        if self.certificate_mode is CertificateMode.DISABLED and supplied:
+        if self.policy.tls.certificate_mode is CertificateMode.DISABLED and supplied:
             raise ValueError("certificate paths require certificate_mode='existing'")
         # Whether a managed path is the *right* managed path is not asked
         # here. These paths name the virtual host a certificate was issued for,
@@ -72,10 +75,11 @@ class Domain(SitePolicy):
         # cannot say which of them this is. `CdnSite` can, because its name is
         # exactly that, and it asks the same question there.
         if (
-            self.ssl_mode.serves_tls
-            and self.certificate_mode is CertificateMode.DISABLED
+            self.policy.tls.ssl_mode.serves_tls
+            and self.policy.tls.certificate_mode is CertificateMode.DISABLED
         ):
             raise ValueError(
-                f"ssl_mode={self.ssl_mode.value!r} requires an active edge certificate"
+                f"ssl_mode={self.policy.tls.ssl_mode.value!r} "
+                "requires an active edge certificate"
             )
         return self

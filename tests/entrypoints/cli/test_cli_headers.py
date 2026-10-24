@@ -17,8 +17,8 @@ def test_site_visitor_headers_command(settings, monkeypatch):
     control = _control(settings, monkeypatch)
     seed_site(control, name="example-com", record="cdn", operator="cli")
     site = control.sites.get_site("example-com")
-    assert site.visitor_headers.connecting_ip is True
-    assert site.visitor_headers.ip_country is False
+    assert site.policy.headers.visitor_headers.connecting_ip is True
+    assert site.policy.headers.visitor_headers.ip_country is False
 
     result = runner.invoke(
         cli.app,
@@ -30,7 +30,10 @@ def test_site_visitor_headers_command(settings, monkeypatch):
         "connecting_ip": True,
         "ip_country": True,
     }
-    assert control.sites.get_site("example-com").visitor_headers.ip_country is True
+    assert (
+        control.sites.get_site("example-com").policy.headers.visitor_headers.ip_country
+        is True
+    )
 
     # An option that is not named keeps its value rather than resetting it.
     narrowed = runner.invoke(
@@ -82,4 +85,9 @@ def test_site_visitor_headers_reports_what_the_origin_will_see(settings, monkeyp
         ],
     )
     assert "no BZ-* visitor headers" in off.stdout
-    assert control.sites.get_site("example-com").visitor_headers.connecting_ip is False
+    assert (
+        control.sites.get_site(
+            "example-com"
+        ).policy.headers.visitor_headers.connecting_ip
+        is False
+    )

@@ -35,8 +35,8 @@ def test_site_origin_sets_the_request_identity_without_moving_the_address(
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
-    assert site.origin_request_host == "shared.example.net"
-    assert site.origin_sni == "tls.example.net"
+    assert site.policy.origin.origin_request_host == "shared.example.net"
+    assert site.policy.origin.origin_sni == "tls.example.net"
     assert site.origin_host == before
 
 
@@ -60,7 +60,7 @@ def test_repointing_a_record_moves_the_sites_origin(settings, monkeypatch):
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
     assert site.origin_host == "203.0.113.40"
-    assert site.origin_request_host is None
+    assert site.policy.origin.origin_request_host is None
 
 
 def test_site_origin_with_no_option_says_what_to_name(settings, monkeypatch):
@@ -81,14 +81,19 @@ def test_site_origin_clears_an_override_it_can_set(settings, monkeypatch):
         cli.app,
         ["domain", "origin", "example.com", "--request-host", "shared.example.net"],
     )
-    assert control.sites.get_site("example-com").origin_request_host is not None
+    assert (
+        control.sites.get_site("example-com").policy.origin.origin_request_host
+        is not None
+    )
 
     result = runner.invoke(
         cli.app, ["domain", "origin", "example.com", "--no-request-host"]
     )
 
     assert result.exit_code == 0
-    assert control.sites.get_site("example-com").origin_request_host is None
+    assert (
+        control.sites.get_site("example-com").policy.origin.origin_request_host is None
+    )
 
 
 def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatch):
@@ -112,8 +117,8 @@ def test_site_origin_clearing_one_override_leaves_the_other(settings, monkeypatc
 
     assert result.exit_code == 0
     site = control.sites.get_site("example-com")
-    assert site.origin_sni is None
-    assert site.origin_request_host == "shared.example.net"
+    assert site.policy.origin.origin_sni is None
+    assert site.policy.origin.origin_request_host == "shared.example.net"
 
 
 def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeypatch):
@@ -133,4 +138,4 @@ def test_site_origin_refuses_a_flag_that_contradicts_its_value(settings, monkeyp
     )
 
     assert result.exit_code != 0
-    assert control.sites.get_site("example-com").origin_sni is None
+    assert control.sites.get_site("example-com").policy.origin.origin_sni is None

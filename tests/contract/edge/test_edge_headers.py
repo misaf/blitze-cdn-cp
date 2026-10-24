@@ -12,9 +12,9 @@ from edge_render_support import (
     _render,
     _role_spec,
 )
+from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SiteVisitorHeaders
 
 REQUIRES_CAPABILITIES = {
@@ -24,7 +24,7 @@ REQUIRES_CAPABILITIES = {
 
 def _with_visitor_headers(**headers: bool) -> dict[str, Any]:
     return site_to_ansible(
-        CdnSite.model_validate(
+        site_from_settings(
             {
                 "name": "visitor",
                 "server_names": ["visitor.example.com"],

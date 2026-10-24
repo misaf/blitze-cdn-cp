@@ -22,12 +22,12 @@ from edge_render_support import (
     _upstreams,
     jinja2,
 )
+from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.http.policy import (
     HttpScheme,
 )
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     SslMode,
@@ -65,7 +65,7 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
     drift, a preflight pass means nothing. A wildcard `server_name` is the case
     that used to break this: legal in nginx, unmatchable in a handshake.
     """
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": "wildcard",
             "server_names": ["*.example.com", "example.com"],

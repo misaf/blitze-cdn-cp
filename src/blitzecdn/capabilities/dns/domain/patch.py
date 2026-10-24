@@ -2,7 +2,7 @@
 
 Unset fields leave stored values unchanged. The complete zone is validated
 after merging a patch so that constraints across fields are checked together.
-``_assert_patch_covers_zone`` runs at import time to reject field or type drift
+``_assert_patch_covers_settings`` runs at import time to reject field or type drift
 between the zone and its patch model."""
 
 from __future__ import annotations
@@ -15,10 +15,9 @@ from pydantic import BaseModel, ConfigDict
 
 from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
 from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.dns.domain.zone import Domain
 from blitzecdn.capabilities.http.policy import MaxUploadSize
 from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.serving.policy import SiteVisitorHeaders
+from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
     MinimumTlsVersion,
@@ -27,11 +26,6 @@ from blitzecdn.capabilities.tls.policy import (
 )
 
 __all__ = ["DomainPatch", "reject_issuer_owned_certificate"]
-
-#: Set by adding a zone, changed by deleting one. The records and the rules
-#: hang off the name, so a patch that could set it would be a rename that
-#: silently orphaned both.
-_NOT_PATCHABLE = frozenset({"name"})
 
 
 def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
@@ -71,10 +65,10 @@ def reject_issuer_owned_certificate(changes: Mapping[str, Any]) -> None:
 class DomainPatch(BaseModel):
     """A partial update to a zone: every field optional, unset means untouched.
 
-    This cannot inherit ``Domain`` — each field has to become optional, and an
-    inherited required field would silently gain a default here. It is written
-    out instead, and ``_assert_patch_covers_zone`` below refuses to import a
-    version of this module where the two have drifted apart.
+    This is a flat editing command, distinct from the nested policy stored on
+    ``Domain``. Its fields remain explicit for static checking, and
+    ``_assert_patch_covers_settings`` refuses field or type drift against the
+    contained contracts' setting definitions.
 
     Generating these fields with ``create_model`` would remove the duplication
     outright, but the generated class is opaque to mypy — every ``DomainPatch``
@@ -103,7 +97,7 @@ class DomainPatch(BaseModel):
     cache_valid_success: str | None = None
     cache_valid_not_found: str | None = None
     compression: CompressionMode | None = None
-    # Replaces the block wholesale; see the note on SitePolicy.firewall. Send
+    # Replaces the block wholesale; see the note on SecurityPolicy.firewall. Send
     # {"firewall": {}} to clear every rule.
     firewall: SiteFirewall | None = None
     # Replaced wholesale as well. Sending {"visitor_headers": {}} restores the
@@ -130,7 +124,7 @@ def _without_none(annotation: object) -> object:
     return arms[0] if len(arms) == 1 else annotation
 
 
-def _assert_patch_covers_zone() -> None:
+def _assert_patch_covers_settings() -> None:
     """Refuse to import if a zone setting cannot be patched, or patched wrongly.
 
     Runs at import rather than only under pytest. The failures this guards
@@ -145,7 +139,7 @@ def _assert_patch_covers_zone() -> None:
     zone field widened from ``int`` to ``int | str`` and not widened here fails
     only when an operator finally sends the new form.
     """
-    patchable = set(Domain.model_fields) - _NOT_PATCHABLE
+    patchable = set(SitePolicy.setting_fields())
     missing = sorted(patchable - set(DomainPatch.model_fields))
     if missing:
         raise RuntimeError(
@@ -163,11 +157,11 @@ def _assert_patch_covers_zone() -> None:
             "'untouched'; these do not: " + ", ".join(required)
         )
     mistyped = sorted(
-        f"{name} (zone stores {Domain.model_fields[name].annotation}, patch "
+        f"{name} (zone stores {SitePolicy.setting_fields()[name].annotation}, patch "
         f"takes {DomainPatch.model_fields[name].annotation})"
         for name in patchable
         if _without_none(DomainPatch.model_fields[name].annotation)
-        != _without_none(Domain.model_fields[name].annotation)
+        != _without_none(SitePolicy.setting_fields()[name].annotation)
     )
     if mistyped:
         raise RuntimeError(
@@ -176,4 +170,4 @@ def _assert_patch_covers_zone() -> None:
         )
 
 
-_assert_patch_covers_zone()
+_assert_patch_covers_settings()

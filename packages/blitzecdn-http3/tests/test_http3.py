@@ -17,6 +17,7 @@ from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state as baseline_fleet_desired_state,
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
 from blitzecdn.composition import load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata, merge_variables
@@ -28,12 +29,16 @@ def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
         name=name,
         server_names=(f"{name}.example.com",),
         origin_host="198.51.100.10",
-        enabled=enabled,
-        ssl_mode="full",
-        certificate_mode="requested",
-        certificate_path=chain,
-        certificate_key_path=key,
-        http3_enabled=http3,
+        policy=SitePolicy.from_settings(
+            {
+                "enabled": enabled,
+                "ssl_mode": "full",
+                "certificate_mode": "requested",
+                "certificate_path": chain,
+                "certificate_key_path": key,
+                "http3_enabled": http3,
+            }
+        ),
     )
 
 
@@ -73,7 +78,7 @@ def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
     the string an installation answers with. They are in different
     distributions, so nothing but this makes them agree.
     """
-    requested = _site("alpha").required_capabilities
+    requested = _site("alpha").policy.required_capabilities
 
     assert "http3" in requested
     assert requested & blitzecdn_plugin_metadata().capabilities == frozenset({"http3"})
@@ -200,4 +205,4 @@ def test_an_installed_http3_capability_clears_the_site_validation() -> None:
     """
     registry = load_control_plane_plugins()
 
-    assert registry.missing(_site("alpha").required_capabilities) == ()
+    assert registry.missing(_site("alpha").policy.required_capabilities) == ()

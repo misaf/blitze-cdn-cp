@@ -13,15 +13,15 @@ from control_plane_fixtures import private_key_pem
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
+from policy_support import site_from_settings
 
-from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
 
 
 def test_store_validates_and_persists_managed_certificate(
     settings, site_payload, certificate_pair
 ):
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
     certificate, key = certificate_pair()
     store = CertificateStore(settings)
 
@@ -39,7 +39,7 @@ def test_store_validates_and_persists_managed_certificate(
 def test_store_commits_a_certificate_pair_only_after_both_files_exist(
     settings, site_payload, certificate_pair, monkeypatch
 ):
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
     store = CertificateStore(settings)
     old_certificate, old_key = certificate_pair(days=40)
     old_info = store.install(
@@ -72,7 +72,7 @@ def test_store_commits_a_certificate_pair_only_after_both_files_exist(
 def test_replacement_retains_every_file_an_older_release_can_reference(
     settings, site_payload, certificate_pair
 ):
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
     store = CertificateStore(settings)
     old_certificate, old_key = certificate_pair(days=40)
     store.install(site, old_certificate, old_key, source=CertificateSource.UPLOADED)
@@ -89,7 +89,7 @@ def test_replacement_retains_every_file_an_older_release_can_reference(
 def test_material_is_content_addressed_and_corruption_is_refused(
     settings, site_payload, certificate_pair
 ):
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
     store = CertificateStore(settings)
     certificate, key = certificate_pair()
     info = store.install(site, certificate, key, source=CertificateSource.UPLOADED)
@@ -107,7 +107,7 @@ def test_material_is_content_addressed_and_corruption_is_refused(
 def test_store_rejects_invalid_mismatched_expired_and_wrong_domain(
     settings, site_payload, certificate_pair, rsa_keys
 ):
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
     store = CertificateStore(settings)
     certificate, key = certificate_pair()
     # A key from the pool that this certificate was demonstrably not signed
@@ -178,7 +178,7 @@ def test_store_validates_certificate_chain(settings, site_payload, rsa_keys):
     chain = leaf.public_bytes(serialization.Encoding.PEM) + issuer.public_bytes(
         serialization.Encoding.PEM
     )
-    site = CdnSite.model_validate(site_payload)
+    site = site_from_settings(site_payload)
 
     CertificateStore(settings).install(
         site, chain, key, source=CertificateSource.UPLOADED
@@ -231,7 +231,7 @@ def test_certbot_issuer_builds_http01_command(
 
     monkeypatch.setattr(certificates_module.subprocess, "Popen", fake_popen)
     result = CertbotIssuer(settings, str(executable)).issue(
-        CdnSite.model_validate(site_payload), "owner@example.com"
+        site_from_settings(site_payload), "owner@example.com"
     )
     assert result == (certificate, key)
     assert "--manual-auth-hook" in captured
@@ -246,9 +246,7 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
 ):
     executable = settings.project_dir / "certbot"
     executable.touch()
-    wildcard = CdnSite.model_validate(
-        {**site_payload, "server_names": ["*.example.com"]}
-    )
+    wildcard = site_from_settings({**site_payload, "server_names": ["*.example.com"]})
     with pytest.raises(ConfigurationError, match="wildcard"):
         CertbotIssuer(settings, str(executable)).issue(wildcard, "owner@example.com")
 
@@ -266,7 +264,7 @@ def test_certbot_issuer_rejects_wildcards_and_reports_failure(
     )
     with pytest.raises(ExecutionError, match="failed"):
         CertbotIssuer(settings, str(executable)).issue(
-            CdnSite.model_validate(site_payload), "owner@example.com"
+            site_from_settings(site_payload), "owner@example.com"
         )
 
 
@@ -301,14 +299,14 @@ def test_certbot_timeout_terminates_process_group(settings, site_payload, monkey
 
     with pytest.raises(ExecutionError, match="timed out"):
         CertbotIssuer(settings, str(executable)).issue(
-            CdnSite.model_validate(site_payload), "owner@example.com"
+            site_from_settings(site_payload), "owner@example.com"
         )
 
     assert signals == [signal.SIGTERM]
 
 
 def _install(store, settings, certificate_pair, name, *, days, source):
-    site = CdnSite.model_validate(
+    site = site_from_settings(
         {
             "name": name,
             "server_names": [f"{name}.example.com"],

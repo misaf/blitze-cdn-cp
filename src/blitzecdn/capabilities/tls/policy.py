@@ -139,7 +139,7 @@ class CertificateMode(StrEnum):
 
 
 class TlsPolicy(CapabilityPolicy):
-    """TLS settings persisted as part of a site's flat policy."""
+    """TLS settings contained in the composed serving policy."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -157,7 +157,7 @@ class TlsPolicy(CapabilityPolicy):
         """Bound where an edge certificate path may point, and what it may say.
 
         On the contract that declares the two fields, so that every model
-        carrying them inherits one rule. It was written out twice — on
+        containing this value uses one rule. It was written out twice — on
         ``CdnSite`` and again on ``Domain`` — which is the arrangement
         ``serving.domain.host`` describes itself as not having: a rule about one
         capability's own fields belongs to that capability, and the composition

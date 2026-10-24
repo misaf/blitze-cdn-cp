@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 
 from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel
-from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.serving.policy import SitePolicy
 
 
 def test_the_api_carries_every_zone_field_the_zone_has():
@@ -19,12 +19,10 @@ def test_the_api_carries_every_zone_field_the_zone_has():
     the duplication safe: a field added to the zone is expected on both bodies.
     """
     published = set(DomainModel.model_fields)
-    missing = set(Domain.model_fields) - published
+    missing = (set(SitePolicy.setting_fields()) | {"name"}) - published
     assert not missing, f"the API does not expose {sorted(missing)}"
 
-    unpatchable = (
-        set(Domain.model_fields) - {"name"} - set(DomainPatchModel.model_fields)
-    )
+    unpatchable = set(SitePolicy.setting_fields()) - set(DomainPatchModel.model_fields)
     assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 

@@ -365,7 +365,7 @@ class PluginRegistry:
         )
 
     def _missing_capability_issues(self, site: CdnSite) -> tuple[ValidationIssue, ...]:
-        requested = site.capability_requirements
+        requested = site.policy.capability_requirements
         return tuple(
             ValidationIssue(
                 plugin="capabilities",

@@ -19,6 +19,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi import APIRouter
 from paths import PACKAGES, REPO_ROOT, SOURCE
+from policy_support import site_from_settings
 from typer import Typer
 
 from blitzecdn.capabilities.serving.domain import CdnSite
@@ -107,7 +108,7 @@ def platform() -> SimpleNamespace:
 
 
 def site(**overrides: object) -> CdnSite:
-    return CdnSite.model_validate(
+    return site_from_settings(
         {
             "name": "example-com",
             "server_names": ["cdn.example.com"],

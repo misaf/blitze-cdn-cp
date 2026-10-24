@@ -21,6 +21,7 @@ rejected. Rationale local to one function stays in that function's docstring.
 | [0010](0010-release-integrity.md) | Immutable canonical release documents and verified persistence |
 | [0011](0011-serving-policy-ownership.md) | Shared serving policy and effective virtual-host ownership |
 | [0012](0012-atomic-configuration-activation.md) | Sealed candidate configuration and recoverable atomic activation |
+| [0013](0013-nested-serving-policy.md) | Nested serving values with explicit flat delivery boundaries |
 
 Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes

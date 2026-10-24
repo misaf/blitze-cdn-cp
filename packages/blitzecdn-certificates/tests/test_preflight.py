@@ -38,7 +38,7 @@ class FakeOriginProbe:
             site=site.name,
             origin=f"{site.origin_host}:443",
             scheme=site.canonical_origin_scheme,
-            ssl_mode=site.ssl_mode,
+            ssl_mode=site.policy.tls.ssl_mode,
             reachable=self.ok,
             detail=None if self.ok else "no answer within 5s",
         )

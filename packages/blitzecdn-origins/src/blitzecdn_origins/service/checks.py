@@ -60,7 +60,7 @@ class OriginCheckService:
         Disabled sites are skipped: the edge will not proxy to them, so their
         origins being down is not a fact about anything.
         """
-        sites = [site for site in self.sites.list_sites() if site.enabled]
+        sites = [site for site in self.sites.list_sites() if site.policy.enabled]
         run = self.runner.run_origin_check(
             sites=[self.origin_probe.to_probe(site) for site in sites],
             host_limit=host_limit,

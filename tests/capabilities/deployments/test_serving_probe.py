@@ -23,6 +23,7 @@ from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
+from policy_support import site_from_settings
 
 from blitzecdn.capabilities.deployments.adapters.serving import (
     ServingProbe,
@@ -65,7 +66,7 @@ def edge_server() -> Iterator[int]:
 
 
 def site(**policy: object) -> CdnSite:
-    return CdnSite.model_validate(
+    return site_from_settings(
         {
             "name": "example-com",
             "server_names": ["cdn.example.com"],

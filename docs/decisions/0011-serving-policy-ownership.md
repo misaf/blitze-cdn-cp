@@ -18,9 +18,10 @@ routes, jobs, or execution contributions; it is not required merely because a
 module defines a value another module consumes. Architecture checks distinguish
 pure domain/policy modules from executable delivery and application modules.
 
-This step changes ownership and imports. The flat policy representation is still
-present; nested composition is a subsequent implementation step. No compatibility
-facades preserve imports from the old owner, because nothing has been deployed.
+The initial step changed ownership and imports. Its flat representation has now
+been replaced by [nested composition](0013-nested-serving-policy.md); zones and
+hosts contain the composed value. No compatibility facades preserve imports from
+the old owner, because nothing has been deployed.
 
 ## Code and verification
 

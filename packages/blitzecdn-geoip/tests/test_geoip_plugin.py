@@ -10,6 +10,7 @@ from blitzecdn_geoip import __version__
 from blitzecdn_geoip.plugin import blitzecdn_plugin_metadata
 
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata
 
@@ -19,8 +20,7 @@ def _site(**policy: object) -> CdnSite:
         name="alpha",
         server_names=("alpha.example.com",),
         origin_host="198.51.100.10",
-        compression="off",
-        **policy,
+        policy=SitePolicy.from_settings({"compression": "off"} | policy),
     )
 
 
@@ -45,7 +45,7 @@ def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
     distributions, so nothing but this makes them agree — and a token that
     disagreed would refuse every country site with the package installed.
     """
-    requested = _site(visitor_headers={"ip_country": True}).required_capabilities
+    requested = _site(visitor_headers={"ip_country": True}).policy.required_capabilities
 
     assert requested & blitzecdn_plugin_metadata().capabilities == frozenset({"geoip"})
 
@@ -86,7 +86,7 @@ def test_an_installed_geoip_capability_clears_the_site_validation() -> None:
         {"firewall": {"allowed_countries": ["DE"]}},
         {"firewall": {"denied_countries": ["RU"]}},
     ):
-        assert registry.missing(_site(**policy).required_capabilities) == ()
+        assert registry.missing(_site(**policy).policy.required_capabilities) == ()
 
 
 def test_a_site_that_asks_for_no_country_needs_this_package_for_nothing() -> None:
@@ -100,7 +100,7 @@ def test_a_site_that_asks_for_no_country_needs_this_package_for_nothing() -> Non
         firewall={"deny_sources": ["203.0.113.0/24"], "denied_methods": ["TRACE"]},
     )
 
-    assert "geoip" not in ordinary.required_capabilities
+    assert "geoip" not in ordinary.policy.required_capabilities
 
 
 def test_the_capability_contributes_no_desired_state() -> None:

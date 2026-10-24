@@ -34,6 +34,7 @@ from enum import StrEnum
 from pydantic import BaseModel, ConfigDict
 
 from blitzecdn.capabilities.dns.domain import Domain, Rule
+from blitzecdn.capabilities.serving.policy import SitePolicy
 
 __all__ = ["HostExplanation", "SettingOrigin", "SettingSource", "explain"]
 
@@ -88,36 +89,11 @@ class HostExplanation(BaseModel):
 def _declared_defaults() -> dict[str, object]:
     """Each policy field's schema default, in JSON form.
 
-    Built from ``Domain`` rather than from ``CdnSite``: the zone is where an
-    operator sets policy, so the default an explanation compares against has to
-    be the one the zone editor would have left in place. ``CdnSite`` adds
-    identity fields — ``name``, ``server_names``, ``origin_host`` — which no
-    zone carries and which the explanation reports separately.
+    Built from the composed policy's flat editing projection. Identity is not
+    a policy component, and nested storage containers are not operator setting
+    names; the explanation must use the same vocabulary as the zone editor.
     """
-    defaults: dict[str, object] = {}
-    for name, field in Domain.model_fields.items():
-        if field.is_required():
-            continue
-        defaults[name] = _jsonable(field.get_default(call_default_factory=True))
-    return defaults
-
-
-def _jsonable(value: object) -> object:
-    """The JSON form of a policy value, so two of them compare by value.
-
-    Policy fields hold enums and frozen pydantic models. Comparing those
-    directly would work for the enums and, for the models, would compare two
-    equal documents as equal — but the value that ends up in the explanation
-    has to be JSON either way, and converting first means the comparison and
-    the reported value can never disagree about what the value *is*.
-    """
-    if isinstance(value, BaseModel):
-        return value.model_dump(mode="json")
-    if isinstance(value, StrEnum):
-        return value.value
-    if isinstance(value, tuple | list):
-        return [_jsonable(item) for item in value]
-    return value
+    return SitePolicy().settings(mode="json")
 
 
 def explain(
@@ -137,8 +113,8 @@ def explain(
     """
     defaults = _declared_defaults()
     overrides = dict(rule.overrides) if rule is not None else {}
-    merged = Domain.model_validate({**zone.model_dump(), **overrides})
-    document = merged.model_dump(mode="json")
+    merged = zone.policy.applying(overrides)
+    document = merged.settings(mode="json")
 
     settings: list[SettingSource] = []
     for setting in sorted(defaults):

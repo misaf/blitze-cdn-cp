@@ -48,10 +48,10 @@ class AutomaticSslService:
         candidates = [
             site
             for site in self.sites.list_sites()
-            if site.enabled
-            and site.ssl_automatic_mode is SslAutomaticMode.AUTO
-            and site.certificate_mode is not CertificateMode.DISABLED
-            and site.ssl_mode is not SslMode.FULL_STRICT
+            if site.policy.enabled
+            and site.policy.tls.ssl_automatic_mode is SslAutomaticMode.AUTO
+            and site.policy.tls.certificate_mode is not CertificateMode.DISABLED
+            and site.policy.tls.ssl_mode is not SslMode.FULL_STRICT
         ]
         scanned = tuple(site.name for site in candidates)
         if not candidates:
@@ -60,7 +60,12 @@ class AutomaticSslService:
         current = self._probe(candidates)
         strict = self._probe(
             [
-                site.model_copy(update={"ssl_mode": SslMode.FULL_STRICT})
+                CdnSite(
+                    name=site.name,
+                    server_names=site.server_names,
+                    origin_host=site.origin_host,
+                    policy=site.policy.applying({"ssl_mode": SslMode.FULL_STRICT}),
+                )
                 for site in candidates
             ]
         )
@@ -78,7 +83,7 @@ class AutomaticSslService:
         strict_checks = _checks_by_site(strict)
         for site in candidates:
             recommendation, reason = _recommend(
-                site.ssl_mode,
+                site.policy.tls.ssl_mode,
                 current_checks.get(site.name, {}),
                 strict_checks.get(site.name, {}),
             )
@@ -91,7 +96,7 @@ class AutomaticSslService:
             if applied is None:
                 skipped[site.name] = "policy changed while the scan was running"
                 continue
-            upgraded[site.name] = applied.ssl_mode
+            upgraded[site.name] = applied.policy.tls.ssl_mode
 
         deployment = self.deployments.deploy(operator) if upgraded else None
         return SslAutomaticReconciliation(

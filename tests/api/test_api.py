@@ -54,10 +54,10 @@ def test_the_api_carries_every_policy_field_the_domain_has():
     project a new field away from: a field added to `SitePolicy` is expected
     here and in the patch body, and this is what says so.
     """
-    missing = set(SitePolicy.model_fields) - set(ZonePolicyModel.model_fields)
+    missing = set(SitePolicy.setting_fields()) - set(ZonePolicyModel.model_fields)
     assert not missing, f"the API does not expose {sorted(missing)}"
 
-    unpatchable = set(SitePolicy.model_fields) - set(DomainPatchModel.model_fields)
+    unpatchable = set(SitePolicy.setting_fields()) - set(DomainPatchModel.model_fields)
     assert not unpatchable, f"the API cannot PATCH {sorted(unpatchable)}"
 
 

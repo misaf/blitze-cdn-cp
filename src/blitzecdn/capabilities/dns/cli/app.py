@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import typer
 
+from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.cli import common
 
@@ -42,7 +43,7 @@ def _report(zone: Domain, message: str, *, json_output: bool) -> None:
     caller should not pay for a query whose only output is a sentence it
     discards.
     """
-    common.emit(zone, json_output=json_output)
+    common.emit(serving_document(zone), json_output=json_output)
     if not json_output:
         typer.echo(_applied(zone, message))
 

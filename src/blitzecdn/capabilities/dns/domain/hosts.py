@@ -300,7 +300,7 @@ def _policy_for(zone: Domain, rules: Sequence[Rule], rule_name: str | None) -> D
     if rule_name is None:
         return zone
     rule = next(item for item in rules if item.name == rule_name)
-    return Domain.model_validate({**zone.model_dump(), **rule.overrides})
+    return Domain(name=zone.name, policy=zone.policy.applying(rule.overrides))
 
 
 def host_source(

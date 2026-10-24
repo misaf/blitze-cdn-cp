@@ -65,14 +65,14 @@ def domain_visitor_headers(
             "give at least one of --connecting-ip/--no-connecting-ip or "
             "--ip-country/--no-ip-country"
         )
-    current = control.dns.get_domain(name).visitor_headers
+    current = control.dns.get_domain(name).policy.headers.visitor_headers
     headers = SiteVisitorHeaders.model_validate(current.model_dump() | named)
     zone = _update(name, DomainPatch(visitor_headers=headers))
     sent = [
         header
         for header, on in (
-            ("BZ-Connecting-IP", zone.visitor_headers.connecting_ip),
-            ("BZ-IPCountry", zone.visitor_headers.ip_country),
+            ("BZ-Connecting-IP", zone.policy.headers.visitor_headers.connecting_ip),
+            ("BZ-IPCountry", zone.policy.headers.visitor_headers.ip_country),
         )
         if on
     ]

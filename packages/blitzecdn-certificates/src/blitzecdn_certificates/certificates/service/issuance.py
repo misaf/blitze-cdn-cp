@@ -316,7 +316,7 @@ class CertificateService:
         skipped: dict[str, str] = {}
         failed: dict[str, str] = {}
         for candidate in self.persistence.sites.list_sites():
-            if candidate.certificate_mode is not CertificateMode.DISABLED:
+            if candidate.policy.tls.certificate_mode is not CertificateMode.DISABLED:
                 continue
             report = self.certificate_preflight(candidate.name)
             if not report.ok:
@@ -334,7 +334,7 @@ class CertificateService:
                     ) as progress,
                 ):
                     site = self.persistence.sites.get_site(candidate.name)
-                    if site.certificate_mode is not CertificateMode.DISABLED:
+                    if site.policy.tls.certificate_mode is not CertificateMode.DISABLED:
                         continue
                     registration_email = self.policy.default_email
                     if not registration_email:

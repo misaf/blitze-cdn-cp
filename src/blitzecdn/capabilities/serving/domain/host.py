@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from pydantic import ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
 from blitzecdn.capabilities.serving.policy import SitePolicy
@@ -20,7 +20,7 @@ from blitzecdn.capabilities.tls.policy import (
 from blitzecdn.core.domain.validation import HOST_NAME, hostname
 
 
-class CdnSite(SitePolicy):
+class CdnSite(BaseModel):
     """Validated, provider-independent desired state for one CDN virtual host.
 
     Derived, and carrying no record of what it was derived from. A certificate
@@ -34,6 +34,7 @@ class CdnSite(SitePolicy):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     name: str
+    policy: SitePolicy = Field(default_factory=SitePolicy)
     #: The hostnames this virtual host answers on: every proxied record whose
     #: fqdn resolved to this policy. Empty is legal and means a zone whose
     #: hostnames are all unproxied — it contributes no server block, so an
@@ -77,29 +78,32 @@ class CdnSite(SitePolicy):
         only sets the mode to ``disabled`` is rejected.
         """
         supplied = (
-            self.certificate_path is not None or self.certificate_key_path is not None
+            self.policy.tls.certificate_path is not None
+            or self.policy.tls.certificate_key_path is not None
         )
-        if self.certificate_mode is not CertificateMode.DISABLED and not (
-            self.certificate_path and self.certificate_key_path
+        if self.policy.tls.certificate_mode is not CertificateMode.DISABLED and not (
+            self.policy.tls.certificate_path and self.policy.tls.certificate_key_path
         ):
             raise ValueError("TLS certificate modes require both certificate paths")
-        if self.certificate_mode is CertificateMode.DISABLED and supplied:
+        if self.policy.tls.certificate_mode is CertificateMode.DISABLED and supplied:
             raise ValueError("certificate paths require certificate_mode='existing'")
-        if self.certificate_mode.issuer_owned and (
-            self.certificate_path,
-            self.certificate_key_path,
+        if self.policy.tls.certificate_mode.issuer_owned and (
+            self.policy.tls.certificate_path,
+            self.policy.tls.certificate_key_path,
         ) != managed_certificate_paths(self.name):
             raise ValueError(
-                f"certificate_mode={self.certificate_mode.value!r} is set by the "
+                f"certificate_mode={self.policy.tls.certificate_mode.value!r} "
+                "is set by the "
                 "certificate upload and request endpoints, which own the paths "
                 f"under {MANAGED_TLS_ROOT}/<site>/"
             )
         if (
-            self.ssl_mode.serves_tls
-            and self.certificate_mode is CertificateMode.DISABLED
+            self.policy.tls.ssl_mode.serves_tls
+            and self.policy.tls.certificate_mode is CertificateMode.DISABLED
         ):
             raise ValueError(
-                f"ssl_mode={self.ssl_mode.value!r} requires an active edge certificate"
+                f"ssl_mode={self.policy.tls.ssl_mode.value!r} "
+                "requires an active edge certificate"
             )
         return self
 
@@ -137,7 +141,11 @@ class CdnSite(SitePolicy):
         agree or the preflight probe verifies a certificate the edge never asks
         for.
         """
-        return self.origin_sni or self.origin_request_host or self.origin_host
+        return (
+            self.policy.origin.origin_sni
+            or self.policy.origin.origin_request_host
+            or self.origin_host
+        )
 
     @property
     def serves_tls(self) -> bool:
@@ -147,7 +155,7 @@ class CdnSite(SitePolicy):
         ``always_use_https`` is disabled, a TLS site can therefore cache its
         HTTP and HTTPS responses independently.
         """
-        return self.ssl_mode.serves_tls
+        return self.policy.tls.ssl_mode.serves_tls
 
     @property
     def canonical_visitor_scheme(self) -> HttpScheme:
@@ -175,7 +183,7 @@ class CdnSite(SitePolicy):
         leg, which this endpoint says nothing about — again, see ``OriginProbe``.
         """
         scheme = self.canonical_visitor_scheme
-        return self.ssl_mode.origin_scheme_for(scheme, DEFAULT_PORTS[scheme])
+        return self.policy.tls.ssl_mode.origin_scheme_for(scheme, DEFAULT_PORTS[scheme])
 
     @property
     def redirects_http_to_https(self) -> bool:
@@ -195,4 +203,4 @@ class CdnSite(SitePolicy):
         the edge-contract suite renders the template against this property so the
         two cannot drift.
         """
-        return self.serves_tls and self.always_use_https
+        return self.serves_tls and self.policy.tls.always_use_https
