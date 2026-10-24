@@ -14,7 +14,7 @@ import re
 from collections.abc import Mapping
 from enum import StrEnum
 
-from pydantic import ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
 from blitzecdn.core.domain.policy import CapabilityPolicy
@@ -39,11 +39,36 @@ CERTIFICATE_ROOTS = (f"{MANAGED_TLS_ROOT}/", "/etc/ssl/", "/etc/letsencrypt/")
 CERTIFICATE_PATH = re.compile(r"^[A-Za-z0-9._/-]+$")
 
 
-def managed_certificate_paths(site_name: str) -> tuple[str, str]:
-    """Return the chain and key paths BlitzeCDN manages for ``site_name``."""
+class CertificateVersion(BaseModel):
+    """The exact immutable bytes selected by canonical TLS policy."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    certificate_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+    private_key_digest: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+    @classmethod
+    def from_paths(
+        cls, site_name: str, certificate: str, key: str
+    ) -> "CertificateVersion":
+        prefix = f"{MANAGED_TLS_ROOT}/{site_name}/"
+        chain = re.fullmatch(
+            re.escape(prefix) + r"fullchain-([0-9a-f]{64})\.pem", certificate
+        )
+        private = re.fullmatch(re.escape(prefix) + r"privkey-([0-9a-f]{64})\.pem", key)
+        if chain is None or private is None:
+            raise ValueError(
+                "managed certificate paths must name exact versions under their site"
+            )
+        return cls(certificate_digest=chain[1], private_key_digest=private[1])
+
+
+def managed_certificate_paths(
+    site_name: str, version: CertificateVersion
+) -> tuple[str, str]:
+    """Return the content-addressed edge paths for a selected version."""
     return (
-        f"{MANAGED_TLS_ROOT}/{site_name}/fullchain.pem",
-        f"{MANAGED_TLS_ROOT}/{site_name}/privkey.pem",
+        f"{MANAGED_TLS_ROOT}/{site_name}/fullchain-{version.certificate_digest}.pem",
+        f"{MANAGED_TLS_ROOT}/{site_name}/privkey-{version.private_key_digest}.pem",
     )
 
 

@@ -12,6 +12,7 @@ from blitzecdn_http3.plugin import (
     blitzecdn_fleet_desired_state,
     blitzecdn_plugin_metadata,
 )
+from policy_support import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state as baseline_fleet_desired_state,
@@ -24,7 +25,7 @@ from blitzecdn.core.plugins import PluginMetadata, merge_variables
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
-    chain, key = managed_certificate_paths(name)
+    chain, key = managed_certificate_paths(name, TEST_CERTIFICATE_VERSION)
     return CdnSite(
         name=name,
         server_names=(f"{name}.example.com",),

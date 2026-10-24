@@ -22,6 +22,7 @@ from blitzecdn.capabilities.dns.ports import (
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     CertificateMode,
+    CertificateVersion,
     SslAutomaticMode,
     SslMode,
     managed_certificate_paths,
@@ -74,7 +75,7 @@ class HostService:
     # -- The one write an issuer owns ----------------------------------
 
     def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode
+        self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
     ) -> CdnSite:
         """Record a managed certificate against whatever produced this host.
 
@@ -83,7 +84,9 @@ class HostService:
         things. Writing to the zone in both cases would give a rule's hostnames
         a certificate issued for somebody else's names.
         """
-        certificate_path, certificate_key_path = managed_certificate_paths(site.name)
+        certificate_path, certificate_key_path = managed_certificate_paths(
+            site.name, version
+        )
         changes = {
             "certificate_mode": mode,
             "certificate_path": certificate_path,

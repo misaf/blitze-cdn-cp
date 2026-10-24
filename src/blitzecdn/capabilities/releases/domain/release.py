@@ -52,7 +52,7 @@ __all__ = [
 #: the fleet would go on serving an artifact no code in the tree still
 #: produces. It is not a schema version and it is not a wire version — those
 #: belong to the documents, which carry their own.
-COMPILER_VERSION = 2
+COMPILER_VERSION = 3
 
 #: The one artifact a release carries today: the document Ansible reads with
 #: ``--extra-vars``. A name rather than a position, so a second artifact does

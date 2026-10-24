@@ -14,7 +14,11 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI
-from policy_support import domain_from_settings, site_from_settings
+from policy_support import (
+    TEST_CERTIFICATE_VERSION,
+    domain_from_settings,
+    site_from_settings,
+)
 from pydantic import SecretStr
 
 from blitzecdn.api import create_app
@@ -271,7 +275,9 @@ def seed_site(
         # name — so a caller cannot seed a certificate recorded against the
         # wrong one of a zone's several hosts, which is the mistake the
         # operator-facing guard exists to refuse.
-        control.site_editor.activate_managed_certificate(site, issuer_mode)
+        control.site_editor.activate_managed_certificate(
+            site, issuer_mode, TEST_CERTIFICATE_VERSION
+        )
         if deferred_ssl is not None:
             _set_policy(control, domain, rule, {"ssl_mode": deferred_ssl}, operator)
         return control.sites.get_site(host_name_for(domain, rule))

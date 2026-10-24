@@ -51,7 +51,9 @@ convergence still belongs to Ansible. Provider-maintained external data such as
 GeoIP databases retains its own lifecycle. Managed TLS files retain their
 content-addressed paths outside the configuration tree and are not pruned while
 old releases can refer to them; unmanaged certificates remain external inputs.
-Reference-aware collection and canonical resource-version binding are later work.
+Canonical TLS versions and controller material collection are implemented in
+[decision 0015](0015-canonical-certificate-versions-and-collection.md). Edge
+configuration and material retention remains conservative.
 
 A controller crash leaves an uncommitted edge journal. The durable deployment
 checkpoint resumes activation or verification and commits or withdraws it; there

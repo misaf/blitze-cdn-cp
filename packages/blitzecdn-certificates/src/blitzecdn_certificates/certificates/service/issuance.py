@@ -18,7 +18,7 @@ from typing import Literal
 
 from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.policy import CertificateMode
+from blitzecdn.capabilities.tls.policy import CertificateMode, CertificateVersion
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import (
     BlitzeError,
@@ -43,6 +43,7 @@ from blitzecdn_certificates.certificates.ports import (
     DeploymentRequirements,
     EventRecorder,
     Issuer,
+    MaterialReferences,
     Preflight,
     RecordReader,
     SiteEditor,
@@ -87,6 +88,7 @@ class CertificateService:
     def __init__(
         self,
         *,
+        material_references: MaterialReferences,
         policy: CertificatePolicy,
         persistence: CertificatePersistence,
         execution: CertificateExecution,
@@ -96,6 +98,7 @@ class CertificateService:
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
     ) -> None:
+        self.material_references = material_references
         self.policy = policy
         self.persistence = persistence
         self.execution = execution
@@ -128,7 +131,7 @@ class CertificateService:
             progress.checkpoint("installed", {"site": name})
             with self.persistence.uow.transaction():
                 self.site_editor.activate_managed_certificate(
-                    site, CertificateMode.UPLOADED
+                    site, CertificateMode.UPLOADED, info.version
                 )
                 self.persistence.requirements.require(
                     DeploymentRequirementKind.CERTIFICATES
@@ -286,7 +289,7 @@ class CertificateService:
             progress.checkpoint("stored", {"site": site.name})
         with self.persistence.uow.transaction():
             self.site_editor.activate_managed_certificate(
-                site, CertificateMode.REQUESTED
+                site, CertificateMode.REQUESTED, info.version
             )
             self.persistence.requirements.require(
                 DeploymentRequirementKind.CERTIFICATES
@@ -368,17 +371,40 @@ class CertificateService:
         self.persistence.sites.get_site(name)
         return self.persistence.certificates.get(name)
 
-    def installed_sources(self, name: str) -> tuple[Path, Path]:
-        """Where this controller keeps the material it will ship to the edges.
+    def installed_sources(self, site: CdnSite) -> tuple[Path, Path]:
+        """Verify and locate the exact version selected by captured policy.
 
-        Public because rendering desired state needs it: the site model can say
-        a host is in a controller-managed mode, but only this capability knows the
-        fingerprinted filenames the material is stored under. The alternative —
-        handing the certificate *store* to whoever renders — would put an
-        install-and-list capability in the hands of a caller that wants two
-        paths.
+        Rendering gets verified source paths through this read operation.
+        The metadata pointer is inventory and cannot select a different pair
+        for a site already captured by a compilation or restored by rollback.
         """
-        return self.persistence.certificates.sources(name)
+        return self.persistence.certificates.sources(
+            site.name,
+            version=CertificateVersion.from_paths(
+                site.name,
+                site.policy.tls.certificate_path or "",
+                site.policy.tls.certificate_key_path or "",
+            ),
+        )
+
+    def collect_material(self, operator: str) -> tuple[str, ...]:
+        """Collect superseded controller files with issuance and admission fenced.
+
+        Filesystem deletions are idempotent rather than transactionally reversible.
+        An interrupted sweep can be retried; every deletion is already unreachable.
+        """
+        with self.execution.runner.lock(), self.persistence.uow.transaction():
+            removed = self.persistence.certificates.collect(self.material_references())
+            self.events.record(
+                domain_event(
+                    operator,
+                    "certificate.material.collected",
+                    "certificates",
+                    "controller",
+                    {"removed": list(removed)},
+                )
+            )
+            return removed
 
     def certificate_statuses(self) -> list[CertificateStatus]:
         """Every managed certificate against the clock, soonest expiry first."""

@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import hashlib
 from collections.abc import Sequence
-from pathlib import PurePosixPath
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter
 
-from blitzecdn.capabilities.tls.policy import MANAGED_TLS_ROOT, CertificateMode
+from blitzecdn.capabilities.tls.policy import CertificateMode, CertificateVersion
 from blitzecdn.core.plugins import (
     CliCommandGroup,
     ConfigurationContribution,
@@ -120,24 +118,21 @@ def blitzecdn_site_desired_state(
     if not site.policy.tls.certificate_mode.issuer_owned:
         return None
     certificate, private_key = build_certificate_service(platform).installed_sources(
-        site.name
+        site
     )
-    destination = PurePosixPath(MANAGED_TLS_ROOT, site.name)
+    version = CertificateVersion.from_paths(
+        site.name,
+        site.policy.tls.certificate_path or "",
+        site.policy.tls.certificate_key_path or "",
+    )
     return SiteStateContribution(
         plugin="certificates",
         variables={
             "certificate_source_path": str(certificate),
             "certificate_key_source_path": str(private_key),
-            "certificate_source_sha256": hashlib.sha256(
-                certificate.read_bytes()
-            ).hexdigest(),
-            "certificate_key_source_sha256": hashlib.sha256(
-                private_key.read_bytes()
-            ).hexdigest(),
-            "certificate_path": str(destination / certificate.name),
-            "certificate_key_path": str(destination / private_key.name),
+            "certificate_source_sha256": version.certificate_digest,
+            "certificate_key_source_sha256": version.private_key_digest,
         },
-        overrides=frozenset({"certificate_path", "certificate_key_path"}),
     )
 
 

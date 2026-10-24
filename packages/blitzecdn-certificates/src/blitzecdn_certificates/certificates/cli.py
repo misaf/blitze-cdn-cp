@@ -289,3 +289,10 @@ def cert_request(
             f"\nIssued a certificate for {name}. Run 'blitzecdn deploy' to "
             "send it to the edges."
         )
+
+
+@cert_app.command("collect")
+def cert_collect(json_output: common.JsonOutput = False) -> None:
+    """Remove controller material unreferenced by policy or retained releases."""
+    removed = build_certificate_service(common.control_plane()).collect_material("cli")
+    common.emit({"removed": list(removed)}, json_output=json_output)

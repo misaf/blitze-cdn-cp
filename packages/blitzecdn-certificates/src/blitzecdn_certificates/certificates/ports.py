@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Protocol
@@ -12,7 +13,11 @@ from blitzecdn.capabilities.deployments.ports import (
 from blitzecdn.capabilities.dns.domain import DnsRecord
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
+from blitzecdn.capabilities.tls.policy import (
+    CertificateMode,
+    CertificateVersion,
+    SslMode,
+)
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
@@ -37,7 +42,7 @@ class SiteEditor(Protocol):
     """
 
     def activate_managed_certificate(
-        self, site: CdnSite, mode: CertificateMode
+        self, site: CdnSite, mode: CertificateMode, version: CertificateVersion
     ) -> CdnSite: ...
 
     def apply_automatic_ssl_upgrade(
@@ -79,7 +84,11 @@ class CertificateStore(Protocol):
 
     def list_all(self) -> list[CertificateInfo]: ...
 
-    def sources(self, site_name: str) -> tuple[Path, Path]: ...
+    def collect(self, referenced_paths: Sequence[str]) -> tuple[str, ...]: ...
+
+    def sources(
+        self, site_name: str, *, version: CertificateVersion | None = None
+    ) -> tuple[Path, Path]: ...
 
 
 class Preflight(Protocol):
@@ -118,6 +127,7 @@ __all__ = [
     "DeploymentRequirements",
     "EventRecorder",
     "Issuer",
+    "MaterialReferences",
     "Preflight",
     "RecordReader",
     "SiteEditor",
@@ -126,3 +136,9 @@ __all__ = [
     "WorkflowCoordinator",
     "WorkflowProgress",
 ]
+
+
+class MaterialReferences(Protocol):
+    """Canonical and retained release roots, read under the unit of work."""
+
+    def __call__(self) -> Sequence[str]: ...

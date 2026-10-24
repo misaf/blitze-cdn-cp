@@ -62,6 +62,7 @@ blitzecdn_backup	command	blitzecdn backup inspect	<archive> type=path required
 blitzecdn_backup	command	blitzecdn backup restore	<archive> type=path required --yes/-y type=boolean default=False
 blitzecdn_cache	command	blitzecdn cache purge	--url type=str --all type=boolean default=False --yes/-y type=boolean default=False --limit type=str --json type=boolean default=False
 blitzecdn_cache	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
+blitzecdn_certificates	command	blitzecdn cert collect	--json type=boolean default=False
 blitzecdn_certificates	command	blitzecdn cert list	--expiring-in type=int --json type=boolean default=False
 blitzecdn_certificates	command	blitzecdn cert preflight	<name> type=str required --json type=boolean default=False
 blitzecdn_certificates	command	blitzecdn cert reconcile	--json type=boolean default=False

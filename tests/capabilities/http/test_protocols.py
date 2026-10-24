@@ -7,6 +7,8 @@ whether or not that distribution is installed: the scheme, the port sets, the
 plugin writes into the fleet document.
 """
 
+from policy_support import TEST_CERTIFICATE_VERSION
+
 from blitzecdn.capabilities.http.plugin import (
     blitzecdn_fleet_desired_state,
     blitzecdn_plugin_metadata,
@@ -25,7 +27,7 @@ from blitzecdn.composition import load_control_plane_plugins
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
-    chain, key = managed_certificate_paths(name)
+    chain, key = managed_certificate_paths(name, TEST_CERTIFICATE_VERSION)
     return CdnSite(
         name=name,
         server_names=(f"{name}.example.com",),
