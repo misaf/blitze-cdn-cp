@@ -27,7 +27,7 @@ from policy_support import domain_from_settings
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 
@@ -42,10 +42,28 @@ FIXTURE = FIXTURES / "desired-state.yml"
 #: to read an installed collection and skipped silently when it was absent,
 #: which turned a broken contract into a green run.
 #:
-#: An optional capability's roles are not here. They ship inside that
-#: capability's wheel and its own tests read them from there, which is the same
-#: path a deployment resolves them by.
+#: Capability and provider roles are not here. They ship beside their owners
+#: and are listed by `contributed_roles`, from the same registry a deployment
+#: resolves its role search path from.
 ROLES_DIR = CORE_ANSIBLE / "roles"
+
+
+def contributed_roles() -> dict[str, Path]:
+    """Every role a built-in capability or provider contributes, by name.
+
+    Read from the plugin registry rather than a directory glob, so a role
+    moved to another owner is still found, and a test cannot quietly check
+    fewer roles than a deployment runs.
+    """
+    plugins = load_control_plane_plugins(entry_point_group=None)
+    roles = {
+        f"{contribution.plugin}:{directory.name}": directory
+        for contribution in plugins.ansible_contributions()
+        for directory in sorted(contribution.roles_path.iterdir())
+        if directory.is_dir()
+    }
+    assert roles, "no capability contributes an Ansible role"
+    return roles
 
 
 def _role(name: str) -> Path:

@@ -4,7 +4,13 @@ import re
 from pathlib import Path
 
 import yaml
-from contract_support import PROJECT_DIR, ROLE_DIR, ROLES_DIR, STACK_ROLE_DIR
+from contract_support import (
+    PROJECT_DIR,
+    ROLE_DIR,
+    ROLES_DIR,
+    STACK_ROLE_DIR,
+    contributed_roles,
+)
 
 
 def _cache_directory_declarations(path: Path) -> list[dict]:
@@ -152,11 +158,8 @@ def _declared_boolean_variables() -> set[str]:
     loose string, so a bare conditional on one is not this bug.
     """
     specs = list(ROLES_DIR.glob("*/meta/argument_specs.yml"))
-    specs += list(
-        (PROJECT_DIR / "packages").glob(
-            "*/src/*/ansible/roles/*/meta/argument_specs.yml"
-        )
-    )
+    for role in contributed_roles().values():
+        specs += list(role.glob("meta/argument_specs.yml"))
     declared: set[str] = set()
     for spec in specs:
         document = yaml.safe_load(spec.read_text(encoding="utf-8")) or {}
@@ -188,9 +191,9 @@ def test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string():
 
     sources = list(ROLES_DIR.glob("*/tasks/*.yml"))
     sources += list(ROLES_DIR.glob("*/templates/*.j2"))
-    packages = PROJECT_DIR / "packages"
-    sources += list(packages.glob("*/src/*/ansible/roles/*/tasks/*.yml"))
-    sources += list(packages.glob("*/src/*/ansible/roles/*/templates/*.j2"))
+    for role in contributed_roles().values():
+        sources += list(role.glob("tasks/*.yml"))
+        sources += list(role.glob("templates/*.j2"))
 
     # Three shapes, because the first version of this test knew only the first
     # and the teardown went on failing on the other two in the same file: a
