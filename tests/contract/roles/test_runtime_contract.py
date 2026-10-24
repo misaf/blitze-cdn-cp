@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from contract_support import PROJECT_DIR, ROLES_DIR, _runtime_defaults
+from contract_support import (
+    PROJECT_DIR,
+    ROLES_DIR,
+    _runtime_defaults,
+    contributed_roles,
+)
 
 #: The roles that converge an edge and share its runtime.
 EDGE_ROLES = ("blitzecdn_nginx", "blitzecdn_edge_stack", "blitzecdn_firewall")
@@ -80,20 +85,17 @@ def test_every_edge_role_declares_the_contract_it_reads():
 def _contract_readers() -> dict[str, Path]:
     """Every role that legitimately reads the shared runtime contract.
 
-    Core's three edge roles, and the capability roles that ship in wheels. The
-    second group belongs here for the same reason the first does: a capability
-    converging an edge reads `blitzecdn_edge_runtime` exactly as core's roles
-    do — `blitzecdn_cache_config` owns the cache directory core also creates —
-    so a member it shares with one core role is shared runtime, not a variable
-    that escaped its owner. Core's tests do not otherwise reach into packages,
-    and this one does only to count readers.
+    Core's three edge roles, and every role a capability or provider
+    contributes. The second group belongs here for the same reason the first
+    does: a capability converging an edge reads `blitzecdn_edge_runtime`
+    exactly as core's roles do — `blitzecdn_cache_config` owns the cache
+    directory core also creates — so a member it shares with one core role is
+    shared runtime, not a variable that escaped its owner.
     """
-    readers = {role: ROLES_DIR / role for role in EDGE_ROLES}
-    for package in sorted((PROJECT_DIR / "packages").iterdir()):
-        for directory in sorted(package.glob("src/*/ansible/roles/*")):
-            if directory.is_dir():
-                readers[f"{package.name}:{directory.name}"] = directory
-    return readers
+    return {
+        **{role: ROLES_DIR / role for role in EDGE_ROLES},
+        **contributed_roles(),
+    }
 
 
 def test_the_contract_holds_no_value_only_one_role_uses():

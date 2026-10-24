@@ -178,19 +178,10 @@ def test_the_shipped_example_configuration_is_accepted_as_written(tmp_path):
     release after the broker was removed, and every command then failed with
     `unknown capability configuration: BLITZE_REDIS_URL`.
 
-    Resolved against the plugins actually installed rather than against a list
-    here, because the file documents optional capabilities' settings too —
-    which is also why a core-only environment cannot answer the question and
-    skips rather than reporting those settings as unclaimed.
+    Resolved against the shipped plugins, which declare every capability's
+    settings. Every built-in is mandatory, so none can be absent here.
     """
-    workspace = sorted(
-        path.name.removeprefix("blitzecdn-")
-        for path in (REPO_ROOT / "packages").iterdir()
-        if (path / "pyproject.toml").is_file()
-    )
-    plugins = load_control_plane_plugins()
-    if absent := plugins.missing(workspace):
-        pytest.skip(f"needs every workspace capability; absent: {', '.join(absent)}")
+    plugins = load_control_plane_plugins(entry_point_group=None)
     shutil.copy(REPO_ROOT / "blitzecdn.example.toml", tmp_path / "blitzecdn.toml")
 
     settings = Settings.from_environment({}, project_dir=tmp_path)
