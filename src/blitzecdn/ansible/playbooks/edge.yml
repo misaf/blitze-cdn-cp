@@ -29,21 +29,9 @@
     - "10%"
     - "25%"
     - "100%"
-  # `stage` on every pre-task and on no role, which is what makes staging a
-  # separable phase rather than a name for part of a deploy.
-  #
-  # A `--tags stage` run executes exactly this preparation: assert the host,
-  # establish the runtime contract, install the container engine, create the
-  # persistent directories, pull and digest-pin the runtime image, and prove
-  # that image's Nginx can actually serve. Every one of those is a thing that
-  # must be true *before* a configuration is rendered, and not one of them
-  # changes what the edge is currently serving — so a fleet can be staged
-  # ahead of a window and activated inside it.
-  #
-  # These tasks also carry `always`, so they still run as preconditions under
-  # every other selection. `tests/contract/roles` refuses a role task that
-  # carries `stage`, because a staged edge that had started serving new
-  # configuration would make the phase a lie.
+  # Stage writes only a candidate tree. Activation, rollback and commit are
+  # explicit selections; the controller verifies the public listener between
+  # activation and commit. Untagged execution stages then activates as well.
   pre_tasks:
     - name: Validate supported operating system
       ansible.builtin.assert:
@@ -67,6 +55,11 @@
       ansible.builtin.import_role:
         name: blitzecdn_edge
       tags: [always, stage, firewall, nginx, edge_stack]
+    - name: Select the versioned configuration tree
+      ansible.builtin.import_role:
+        name: blitzecdn_config_release
+        tasks_from: select.yml
+      tags: [always]
     # The container engine, and then everything the edge runtime needs to exist
     # before a configuration is rendered: the persistent directories, the
     # runtime image and the Compose project.
@@ -78,11 +71,13 @@
     - name: Install and verify the host container engine
       ansible.builtin.import_role:
         name: blitzecdn_docker
+      when: "'rollback' not in ansible_run_tags and 'commit' not in ansible_run_tags"
       tags: [always, stage, docker]
     - name: Prepare the persistent edge state and runtime image
       ansible.builtin.import_role:
         name: blitzecdn_edge_stack
         tasks_from: prepare.yml
+      when: "'rollback' not in ansible_run_tags and 'commit' not in ansible_run_tags"
       tags: [always, stage, docker, edge_stack]
     - name: Verify the edge runtime image before firewall changes
       ansible.builtin.import_role:
@@ -94,17 +89,18 @@
         blitzecdn_nginx_config_test_image: >-
           {{ blitzecdn_edge_stack_resolved_image
              | default(blitzecdn_edge_runtime.image) }}
+      when: "'rollback' not in ansible_run_tags and 'commit' not in ansible_run_tags"
       tags: [always, stage, nginx]
   roles:
     - role: blitzecdn_base
-      tags: [base]
+      tags: [base, activate]
     # Host DNS resolution is no longer named here. It ships as
     # `blitzecdn-resolver` and asks for the capability slot below, which is
     # still before blitzecdn_nginx renders the origin hostnames the runtime
     # will look up — so a fleet whose DNS belongs to its network detaches the
     # distribution instead of setting a variable in a role it never wanted.
     - role: blitzecdn_kernel
-      tags: [kernel]
+      tags: [kernel, activate]
     # Every installed capability's own edge role, in one slot.
     #
     # The control plane composes the list from the plugins it discovered —
@@ -121,20 +117,23 @@
     - role: blitzecdn_capabilities
       vars:
         blitzecdn_capabilities_roles: "{{ blitzecdn_capability_roles | default([]) }}"
-      tags: [capabilities, nginx]
+      when:
+        - not blitzecdn_config_release_seal.stat.exists
+        - "ansible_run_tags | intersect(['all', 'stage', 'nginx', 'capabilities']) | length > 0"
+      tags: [capabilities, nginx, stage]
     - role: blitzecdn_firewall
-      tags: [firewall]
+      tags: [firewall, activate]
     # Renders the whole configuration tree onto the host filesystem and proves
-    # it loads, under the very image the container will run. Nothing is started
-    # here and nothing is reloaded unless a container is already serving.
+    # it loads, under the very image the container will run. Candidate writers
+    # cannot reload the active container; activation below owns that switch.
     - role: blitzecdn_nginx
-      tags: [nginx]
+      when: not blitzecdn_config_release_seal.stat.exists
+      tags: [nginx, stage]
     # Starts the edge, or leaves a running one alone, or replaces it for a
     # runtime upgrade — and then proves it is serving. Strictly after the
     # configuration exists: a container started against an incomplete tree is
     # an edge answering 444 for every customer.
-    - role: blitzecdn_edge_stack
-      tags: [nginx, edge_stack]
+    - role: blitzecdn_config_release
     # The second capability slot: what an installed capability does to the
     # *host* rather than to the runtime, once the edge is already serving.
     #
@@ -156,4 +155,5 @@
       vars:
         blitzecdn_capabilities_roles: >-
           {{ blitzecdn_host_capability_roles | default([]) }}
-      tags: [capabilities, security]
+      when: "ansible_run_tags | intersect(['all', 'activate', 'security', 'capabilities']) | length > 0"
+      tags: [capabilities, security, activate]

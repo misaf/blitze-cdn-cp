@@ -80,7 +80,8 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     for deeper in ("nginx", "-t", "ss", "kill", "test"):
         assert deeper not in healthcheck["test"], deeper
 
-    assert "argv: [nginx, -t]" in health
+    assert "['nginx', '-t']" in health
+    assert "current/nginx.conf" in health
     # The status endpoint is verified a second time by Ansible, from the
     # controller's side of the deploy, and separately from Docker's verdict.
     assert "Read the local status endpoint" in health
@@ -202,19 +203,21 @@ def test_every_configuration_activation_is_guarded_by_nginx_t():
         "Reload Nginx after validation"
     ), "the reload handler must run after the validation it depends on"
     validate = listeners[names.index("Validate Nginx configuration")]
-    # Check mode is the only condition: a validation that could be switched off
-    # would leave the reload below it unguarded.
-    assert validate["when"] == "not ansible_check_mode"
+    # Candidate writes suppress the legacy handler; activation is explicit and
+    # uses the sealed tree which staging already tested with the pinned image.
+    assert validate["when"] == (
+        "not ansible_check_mode and not "
+        "(blitzecdn_config_release_enabled | default(false) | bool)"
+    )
     assert validate["ansible.builtin.include_tasks"] == "config-test.yml"
 
     config_test = yaml.safe_load(
         (ROLE_DIR / "tasks/config-test.yml").read_text(encoding="utf-8")
     )
     assert len(config_test) == 1
-    assert config_test[0]["community.docker.docker_container"]["command"] == [
-        "nginx",
-        "-t",
-    ]
+    command = config_test[0]["community.docker.docker_container"]["command"]
+    assert "['nginx', '-t']" in command
+    assert "blitzecdn_config_release_candidate ~ '/nginx.conf'" in command
     assert "when" not in config_test[0]
     assert "failed_when" in config_test[0]
 
@@ -486,7 +489,7 @@ def test_the_edge_lifecycle_order_holds():
         "tasks_from: verify-runtime.yml",
         "role: blitzecdn_firewall",
         "role: blitzecdn_nginx",
-        "role: blitzecdn_edge_stack",
+        "role: blitzecdn_config_release",
     ]
     positions = [play.index(marker) for marker in order]
     assert positions == sorted(positions), (
@@ -498,7 +501,7 @@ def test_the_edge_lifecycle_order_holds():
     # that could close the management path (SSH policy, a Fail2Ban jail, both
     # now shipped by `blitzecdn-hardening`) may run before the runtime has
     # proved it serves.
-    assert play.index("role: blitzecdn_edge_stack") < play.index(
+    assert play.index("role: blitzecdn_config_release") < play.index(
         "blitzecdn_host_capability_roles"
     )
 

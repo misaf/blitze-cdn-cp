@@ -22,7 +22,9 @@ from blitzecdn.composition import load_control_plane_plugins
 #: its state, which ports it listens on, which image it runs — and eight roles
 #: read it. `blitzecdn_nginx_sites` is the site document four roles project
 #: from, and `blitzecdn_nginx_http3_listener_owner` is how `http3` tells
-#: `nginx` which of them opened the QUIC listener.
+#: `nginx` which of them opened the QUIC listener. `blitzecdn_release_digest`
+#: is the compiled release identity: Nginx renders the public marker while the
+#: configuration-release role uses it to select and commit the same tree.
 #:
 #: Written down because they had no home. Each is declared in whichever roles
 #: happen to consume it, and until this list existed the difference between "a
@@ -31,6 +33,7 @@ from blitzecdn.composition import load_control_plane_plugins
 _SHARED_FLEET_VARIABLES = frozenset(
     {
         "blitzecdn_edge_runtime",
+        "blitzecdn_release_digest",
         "blitzecdn_nginx_sites",
         "blitzecdn_nginx_http3_listener_owner",
     }

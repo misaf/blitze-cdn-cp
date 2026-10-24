@@ -53,6 +53,16 @@
       register: blitzecdn_edge_stack_up
       when: not ansible_check_mode
 
+    # Compose sees one stable service definition on a configuration change.
+    # Explicit reload is necessary even when it did not recreate the container.
+    - name: Reload the selected configuration
+      community.docker.docker_container_exec:
+        container: "{{ blitzecdn_edge_runtime.container }}"
+        argv: [nginx, -s, reload, -c, "{{ blitzecdn_config_release_root }}/current/nginx.conf"]
+      when:
+        - not ansible_check_mode
+        - blitzecdn_config_release_enabled | default(false) | bool
+
     - name: Verify the edge is serving
       ansible.builtin.import_tasks: health.yml
 

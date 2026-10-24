@@ -21,14 +21,14 @@
 - name: Validate Nginx configuration
   ansible.builtin.include_tasks: config-test.yml
   listen: Validate and reload Nginx
-  when: not ansible_check_mode
+  when: not ansible_check_mode and not (blitzecdn_config_release_enabled | default(false) | bool)
 
 - name: Inspect the running edge container
   community.docker.docker_container_info:
     name: "{{ blitzecdn_edge_runtime.container }}"
   register: blitzecdn_nginx_running
   listen: Validate and reload Nginx
-  when: not ansible_check_mode
+  when: not ansible_check_mode and not (blitzecdn_config_release_enabled | default(false) | bool)
 
 # Skipped on a first converge, where there is nothing to reload: the container
 # has not been started yet, and blitzecdn_edge_stack starts it — from the
@@ -40,5 +40,6 @@
   listen: Validate and reload Nginx
   when:
     - not ansible_check_mode
+    - not (blitzecdn_config_release_enabled | default(false) | bool)
     - blitzecdn_nginx_running.exists | default(false)
     - blitzecdn_nginx_running.container.State.Running | default(false)

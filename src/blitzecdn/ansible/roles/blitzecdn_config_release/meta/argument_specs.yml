@@ -1,0 +1,17 @@
+---
+argument_specs:
+  main:
+    short_description: Stage and atomically activate a versioned edge configuration
+    options:
+      blitzecdn_release_digest:
+        type: str
+        required: true
+        description: Full immutable release identity supplied by the control plane.
+      blitzecdn_config_release_root:
+        type: path
+        default: /etc/blitzecdn/releases
+        description: Stable parent mounted read-only into the edge runtime.
+      blitzecdn_config_release_helper:
+        type: path
+        default: /etc/blitzecdn/configuration-release.py
+        description: Location of the edge-local durable activation helper.

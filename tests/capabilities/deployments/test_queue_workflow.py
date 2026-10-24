@@ -115,10 +115,10 @@ def test_durable_queue_delivery_is_idempotent(settings):
     assert first.status is DeploymentStatus.SUCCEEDED
     assert duplicate.status is DeploymentStatus.SUCCEEDED
     # One rollout, not two: the second delivery finds the deployment is no
-    # longer QUEUED and converges nothing. The three runs are the one edge's
-    # validate, stage and activate phases.
-    assert runner.check_modes == [True, False, False]
-    assert runner.tag_selections == [(), ("stage",), ()]
+    # longer QUEUED and converges nothing. The four runs are preview, stage,
+    # activation and the externally verified commit.
+    assert runner.check_modes == [True, False, False, False]
+    assert runner.tag_selections == [(), ("stage",), ("activate",), ("commit",)]
 
 
 def test_a_queued_deployment_leaves_a_workflow_record(settings):
@@ -521,8 +521,8 @@ def test_worker_resumes_checkpoints_and_reobserves_completed_edges(
     assert verifier.asked[0][0] == "edge-a"
     if still_serving:
         assert result.status is DeploymentStatus.SUCCEEDED
-        assert runner.host_limits == ["edge-b", "edge-b"]
-        assert runner.tag_selections == [("stage",), ()]
+        assert runner.host_limits == ["edge-b", "edge-b", "edge-b"]
+        assert runner.tag_selections == [("stage",), ("activate",), ("commit",)]
     else:
         assert result.status is DeploymentStatus.FAILED
         assert "recovery observation failed" in result.detail

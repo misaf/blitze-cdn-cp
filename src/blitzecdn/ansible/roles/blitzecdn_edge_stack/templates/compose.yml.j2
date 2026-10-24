@@ -10,6 +10,9 @@ services:
   edge:
     container_name: {{ blitzecdn_edge_runtime.container }}
     image: {{ blitzecdn_edge_stack_resolved_image }}
+{% if blitzecdn_config_release_enabled | default(false) %}
+    command: [nginx, -g, "daemon off;", -c, "{{ blitzecdn_config_release_root }}/current/nginx.conf"]
+{% endif %}
     # Host networking, deliberately.
     #
     # A CDN edge listens on thirteen public TCP ports plus UDP/443, and every
@@ -55,11 +58,15 @@ services:
       # with. The image carries every module the published capabilities can
       # ask for; what an edge actually loads is what this controller has
       # installed, and nginx.conf includes this path on its first line.
+{% if blitzecdn_config_release_enabled | default(false) %}
+      - {{ blitzecdn_config_release_root }}:{{ blitzecdn_config_release_root }}:ro
+{% else %}
       - {{ blitzecdn_edge_runtime.paths.modules_conf }}:{{ blitzecdn_edge_runtime.paths.modules_include }}:ro
       - {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d:ro
       - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-available:ro
       - {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:{{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled:ro
       - {{ blitzecdn_edge_runtime.paths.modules }}:{{ blitzecdn_edge_runtime.paths.modules }}:ro
+{% endif %}
       # Chains and private keys. Read-only, and the host keeps the directory
       # 0700 root with each key 0600 — the container's Nginx master reads them
       # as root at start and at every reload, and nothing else ever needs to.

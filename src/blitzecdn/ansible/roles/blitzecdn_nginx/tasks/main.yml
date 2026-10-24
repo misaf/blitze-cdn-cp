@@ -91,6 +91,15 @@
   no_log: true
   notify: Validate and reload Nginx
 
+- name: Render the candidate entrypoint
+  ansible.builtin.template:
+    src: nginx.conf.j2
+    dest: "{{ blitzecdn_config_release_candidate }}/nginx.conf"
+    owner: root
+    group: root
+    mode: "0644"
+  when: blitzecdn_config_release_enabled | default(false) | bool
+
 - name: Configure generic HTTP support
   ansible.builtin.template:
     src: http.conf.j2
@@ -167,12 +176,18 @@
 
 - name: Inspect managed-site registry
   ansible.builtin.stat:
-    path: "{{ blitzecdn_nginx_managed_sites_file }}"
+    path: >-
+      {{ (blitzecdn_config_release_root ~ '/current/nginx/blitzecdn-managed-sites')
+         if blitzecdn_config_release_enabled | default(false) | bool
+         else blitzecdn_nginx_managed_sites_file }}
   register: blitzecdn_nginx_registry
 
 - name: Read managed-site registry
   ansible.builtin.slurp:
-    path: "{{ blitzecdn_nginx_managed_sites_file }}"
+    path: >-
+      {{ (blitzecdn_config_release_root ~ '/current/nginx/blitzecdn-managed-sites')
+         if blitzecdn_config_release_enabled | default(false) | bool
+         else blitzecdn_nginx_managed_sites_file }}
   register: blitzecdn_nginx_registry_content
   when: blitzecdn_nginx_registry.stat.exists
 
@@ -429,6 +444,7 @@
     path: "{{ blitzecdn_edge_runtime.paths.tls }}/{{ item }}"
     state: absent
   loop: "{{ blitzecdn_nginx_stale_tls_names }}"
+  when: not (blitzecdn_config_release_enabled | default(false) | bool)
 
 # Consumed by blitzecdn_edge_stack's health verification, which waits for every
 # public TCP listener to accept a connection. Whether any listener is claimed at
@@ -478,6 +494,7 @@
   loop_control:
     label: "{{ item.1.path }}"
   when:
+    - not (blitzecdn_config_release_enabled | default(false) | bool)
     - item.1.path != item.0.item.certificate_path
     - item.1.path != item.0.item.certificate_key_path
 

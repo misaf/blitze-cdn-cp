@@ -50,20 +50,18 @@ did.
 `VALIDATE` is a check-mode run against this edge. It reports what would change
 and changes nothing.
 
-`STAGE` is `--tags stage`. The edge play tags every one of its pre-tasks that
-way and no role at all, so this run installs the container engine, creates the
-persistent directories, pulls and digest-pins the runtime image and proves that
-image's Nginx can serve — and touches nothing that decides what is served. A
-fleet can be staged ahead of a window and activated inside it.
-`test_only_the_plays_preparation_carries_the_stage_tag` refuses a role task that
-acquires the tag, because a staged edge that had started serving new
-configuration would make the phase a lie.
+`STAGE` selects `--tags stage`: prepare the runtime, render the complete
+candidate configuration and executable resources, test that tree with the
+selected image, and seal its bytes. The active pointer stays unchanged.
 
-`ACTIVATE` is the converge: render, prove the tree loads under the image that
-will run it, reload.
+`ACTIVATE` selects `--tags activate`: journal the previous pointer and runtime
+records, switch the pointer atomically, and start or reload the selected image.
+The edge restores the previous definition if activation fails.
 
-`VERIFY` asks the edge, over the network, whether it is serving what the release
-says it should. This is the phase the record exists for.
+`VERIFY` asks the edge, over the network, whether it serves the expected release.
+Success selects `--tags commit`; failure selects `--tags rollback`. The durable
+edge journal supplies the previous definition even after a controller restart.
+See [0012](0012-atomic-configuration-activation.md) for transaction boundaries.
 
 **Verification is a request, not a return code.** The controller connects to the
 edge's public address, sends the customer's hostname in `Host` and — over TLS —
@@ -122,8 +120,10 @@ the visitor's, and only something outside the edge can ask it.
 
 ## Consequences
 
-A full converge is now four runs per edge rather than one across the fleet:
-validate, stage, activate, and a request. That is more Ansible than before and
+A full converge makes four Ansible runs per edge: preview, stage, activate,
+then commit after the external serving request. A failed activation or serving
+observation selects rollback instead of commit. The staging and activation
+transaction is described in [0012](0012-atomic-configuration-activation.md). That is more Ansible than before and
 it buys per-phase progress, a durable record of how far an interrupted rollout
 got, and a deployment that cannot be green
 while the fleet serves nothing. `blitzecdn deploy` from the CLI adds one more

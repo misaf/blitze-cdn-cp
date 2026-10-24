@@ -1,0 +1,4 @@
+---
+# Stable parent mount: Docker must observe link replacement inside this tree.
+blitzecdn_config_release_root: /etc/blitzecdn/releases
+blitzecdn_config_release_helper: /etc/blitzecdn/configuration-release.py

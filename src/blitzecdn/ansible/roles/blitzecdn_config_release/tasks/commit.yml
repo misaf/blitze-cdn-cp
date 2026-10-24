@@ -1,0 +1,11 @@
+---
+- name: Commit the externally verified configuration
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ blitzecdn_config_release_helper }}"
+      - commit
+      - "{{ blitzecdn_config_release_root }}"
+      - "{{ blitzecdn_release_digest }}"
+  changed_when: true
+  when: not ansible_check_mode
