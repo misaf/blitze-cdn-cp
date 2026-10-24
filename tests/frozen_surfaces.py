@@ -80,7 +80,7 @@ def _render(lines: list[str]) -> str:
 
     Sorted rather than kept in discovery order: registration order is an
     implementation detail of the plugin manager, and a golden file that changed
-    when a plugin moved in `BUILTIN_PLUGINS` would fail for a reason that is not
+    when a feature moved in `BUILTIN_FEATURES` would fail for a reason that is not
     about the contract.
     """
     return "\n".join(sorted(set(lines))) + "\n"
@@ -169,10 +169,14 @@ def _command_owners(registry: Any) -> dict[str, str]:
     """
     manager = registry._manager
     roots = {
-        manager.get_name(plugin): _owner(
-            getattr(plugin, "__name__", type(plugin).__module__)
-        )
-        for plugin in manager.get_plugins()
+        # Built-in features ship in this distribution by construction.
+        **{feature.name: ROOT for feature in registry.features},
+        **{
+            manager.get_name(plugin): _owner(
+                getattr(plugin, "__name__", type(plugin).__module__)
+            )
+            for plugin in manager.get_plugins()
+        },
     }
     owners: dict[str, str] = {}
     for group in registry.cli_commands():

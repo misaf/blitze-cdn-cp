@@ -9,9 +9,7 @@ out of the teardown slot leaves a decommissioned host public-key-only against a
 control plane that has forgotten it exists.
 """
 
-from importlib import import_module
-
-from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
@@ -19,16 +17,15 @@ from blitzecdn.core.plugins.resolution import (
     resolve_teardown_capability_roles,
 )
 from blitzecdn.providers.hardening import __version__, ansible
-from blitzecdn.providers.hardening.provider import (
-    blitzecdn_ansible_contributions,
-    blitzecdn_plugin_metadata,
-)
+from blitzecdn.providers.hardening.feature import FEATURES
+
+(FEATURE,) = FEATURES
 
 # --- registration -----------------------------------------------------------
 
 
 def test_plugin_provides_hardening_as_a_required_provider() -> None:
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
 
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "hardening"
@@ -43,7 +40,7 @@ def test_hardening_is_a_built_in() -> None:
     Registered both ways it would collide on its own name at startup, and the
     message would blame the entry point rather than the leftover line.
     """
-    assert any("hardening" in module for module in BUILTIN_PLUGINS)
+    assert any("hardening" in module for module in BUILTIN_FEATURES)
 
 
 def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
@@ -85,7 +82,7 @@ def test_the_roles_are_contributed_to_the_host_slot_and_not_the_edge_one() -> No
     management network. The play enforces the position; this enforces that the
     package asked for that position.
     """
-    contributions = blitzecdn_ansible_contributions()
+    contributions = FEATURE.ansible
 
     assert len(contributions) == 1
     contribution = contributions[0]
@@ -107,7 +104,7 @@ def test_fail2ban_follows_ssh_within_the_contribution() -> None:
     express this; it does not need one, because a single contribution's list is
     kept as declared.
     """
-    resolved = resolve_host_capability_roles(blitzecdn_ansible_contributions())
+    resolved = resolve_host_capability_roles(FEATURE.ansible)
 
     assert resolved.index("blitzecdn_hardening_sshd") < resolved.index(
         "blitzecdn_hardening_fail2ban"
@@ -124,7 +121,7 @@ def test_the_capability_withdraws_its_own_files_in_the_teardown_slot() -> None:
     paths of a capability that may not be installed. Declaring the slot here is
     what let those come out.
     """
-    contributions = blitzecdn_ansible_contributions()
+    contributions = FEATURE.ansible
 
     assert contributions[0].teardown_roles == ("blitzecdn_hardening_teardown",)
     assert resolve_teardown_capability_roles(contributions) == (
@@ -139,7 +136,7 @@ def test_converging_and_withdrawing_are_different_roles() -> None:
     decommission play, so a name in both would converge the very policy the
     same run is removing — on a host nothing can reach afterwards.
     """
-    contribution = blitzecdn_ansible_contributions()[0]
+    contribution = FEATURE.ansible[0]
 
     assert not set(contribution.host_roles) & set(contribution.teardown_roles)
 
@@ -156,9 +153,5 @@ def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     Which is what makes attaching and detaching it invisible to every site: the
     document a rollback converges months from now is byte-identical either way.
     """
-    # Configuration is its own contribution now, and this capability makes
-    # none at all: not implementing the hook is how a package says so.
-    assert not hasattr(
-        import_module("blitzecdn.providers.hardening.provider"),
-        "blitzecdn_capability_configuration",
-    )
+    # Configuration is its own contribution, and this capability makes none.
+    assert FEATURE.configuration == ()

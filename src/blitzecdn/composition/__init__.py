@@ -34,7 +34,7 @@ business.
 """
 
 from blitzecdn.composition.control_plane import (
-    BUILTIN_PLUGINS,
+    BUILTIN_FEATURES,
     ControlPlane,
     FleetRunner,
     build_control_plane,
@@ -44,7 +44,7 @@ from blitzecdn.composition.installation import migrate_database
 from blitzecdn.composition.repository import Repository
 
 __all__ = [
-    "BUILTIN_PLUGINS",
+    "BUILTIN_FEATURES",
     "ControlPlane",
     "FleetRunner",
     "Repository",

@@ -5,9 +5,9 @@ crosses a package boundary — often one shipped as a separate distribution — 
 "which keys does this have" has to be answerable by reading a type rather than
 by reading whichever plugin happened to produce the value.
 
-Nothing in this module imports a capability. `core` is what a capability builds on;
-the two runtime-bound hooks that need built services take the composition root
-as an argument instead, which keeps the arrow pointing one way.
+Nothing in this module imports a capability. `core` is what a capability builds
+on; behaviour that needs collaborators is bound by the composition root through
+`FeatureRendering` and `FeatureOperations`, which keeps the arrow pointing one way.
 
 One module per hook family, and this façade over all of them. The split is by
 *which hook answers with it*, so a change to what a capability may put on an
@@ -25,6 +25,13 @@ from blitzecdn.core.plugins.types.configuration import (
     EnvironmentKey,
     SettingValue,
 )
+from blitzecdn.core.plugins.types.feature import (
+    ExtensionContext,
+    Feature,
+    FeatureOperations,
+    FeatureRendering,
+    SiteReader,
+)
 from blitzecdn.core.plugins.types.identity import (
     ENTRY_POINT_GROUP,
     HOOK_API_VERSION,
@@ -37,7 +44,6 @@ from blitzecdn.core.plugins.types.runtime import (
     CliCommandGroup,
     HealthCheck,
     ProcessKind,
-    RuntimeContext,
     ScheduledJob,
 )
 from blitzecdn.core.plugins.types.state import (
@@ -62,15 +68,19 @@ __all__ = [
     "ConfigurationContribution",
     "EdgeModule",
     "EnvironmentKey",
+    "ExtensionContext",
+    "Feature",
+    "FeatureOperations",
+    "FeatureRendering",
     "FleetStateContribution",
     "HealthCheck",
     "NginxContribution",
     "PluginMetadata",
     "ProcessKind",
-    "RuntimeContext",
     "ScheduledJob",
     "SettingValue",
     "Severity",
+    "SiteReader",
     "SiteStateContribution",
     "StateValue",
     "ValidationIssue",

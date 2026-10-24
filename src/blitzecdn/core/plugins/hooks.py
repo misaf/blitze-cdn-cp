@@ -1,27 +1,22 @@
-"""The hook specifications: every extension point BlitzeCDN has.
+"""The hook specifications: how an *external* plugin extends BlitzeCDN.
 
-There are twelve, and the list is meant to stay that short. A hook earns its place
-by being a *registration* point — somewhere the core has to be told that
-something exists — and nothing else. Business communication is not here and
-must not come here: a caller that wants a certificate issued calls
+Built-in features do not use these. They declare a typed
+:class:`~blitzecdn.core.plugins.Feature` and have their rendering and
+operations built by the composition root from explicitly named collaborators.
+A third-party distribution cannot be named by the composition root, so it
+implements these hooks instead, and the registry adapts what they return into
+the same contributions a built-in makes.
+
+A hook earns its place by being a *registration* point — somewhere core has to
+be told that something exists — and nothing else. Business communication is
+not here and must not come here: a caller that wants a certificate issued calls
 ``certificate_service.issue(...)``, because a hook call answers "whoever is
 listening" and issuing a certificate is a thing exactly one service does.
 
-The test for whether something belongs here: could a package that this
-repository has never heard of implement it, and would core have to be edited if
-one did? `blitzecdn-waf` contributes a router, a CLI group, a health check and a
-slice of desired state, and none of those requires a line of core to change.
-`issue_certificate` fails the test in both directions.
-
 One rule covers the arguments: a hook whose contribution is static — a router,
-a command group — takes nothing, and every other hook takes ``platform``, the
-composition root with its services already built. A scheduled job needs the
-service it will call; a health check needs the thing it will probe; a
-certificate's desired state needs the store that knows where the key is on this
-controller. That is registration-time access to a typed object, and it is the
-only reason a plugin ever sees it. Reaching for a service *inside* a request is
-the service-locator shape this deliberately does not offer, and
-``tests/architecture/test_layering.py`` refuses ``platform`` anywhere but ``plugin.py``.
+a command group — takes nothing, and every other hook takes ``context``, an
+:class:`~blitzecdn.core.plugins.ExtensionContext` of ports and configuration.
+No hook receives the composition root or any service.
 """
 
 from __future__ import annotations
@@ -36,11 +31,11 @@ from blitzecdn.core.plugins.types import (
     AnsibleContribution,
     CliCommandGroup,
     ConfigurationContribution,
+    ExtensionContext,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
     PluginMetadata,
-    RuntimeContext,
     ScheduledJob,
     SiteStateContribution,
     ValidationIssue,
@@ -50,7 +45,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
 
     from blitzecdn.capabilities.serving.domain import CdnSite
-    from blitzecdn.composition import ControlPlane
 
 hookspec = pluggy.HookspecMarker(PROJECT_NAME)
 
@@ -137,12 +131,12 @@ def blitzecdn_nginx_contributions() -> Sequence[NginxContribution]:
 
 
 @hookspec
-def blitzecdn_health_checks(platform: ControlPlane) -> Sequence[HealthCheck]:
+def blitzecdn_health_checks(context: ExtensionContext) -> Sequence[HealthCheck]:
     """Contribute a reason ``/health`` may report the node as unavailable."""
 
 
 @hookspec
-def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
+def blitzecdn_scheduled_jobs(context: ExtensionContext) -> Sequence[ScheduledJob]:
     """Contribute recurring maintenance, with its interval and its work.
 
     The job carries its own callable. The scheduler process only publishes the
@@ -154,7 +148,7 @@ def blitzecdn_scheduled_jobs(platform: ControlPlane) -> Sequence[ScheduledJob]:
 
 @hookspec
 def blitzecdn_site_desired_state(
-    site: CdnSite, platform: ControlPlane
+    site: CdnSite, context: ExtensionContext
 ) -> SiteStateContribution | None:
     """Contribute this plugin's share of one virtual host's Ansible document.
 
@@ -166,14 +160,14 @@ def blitzecdn_site_desired_state(
 
 @hookspec
 def blitzecdn_fleet_desired_state(
-    sites: tuple[CdnSite, ...], platform: ControlPlane
+    sites: tuple[CdnSite, ...], context: ExtensionContext
 ) -> FleetStateContribution | None:
     """Contribute variables derived from the whole fleet rather than one site."""
 
 
 @hookspec
 def blitzecdn_deployment_checks(
-    site: CdnSite, platform: ControlPlane
+    site: CdnSite, context: ExtensionContext
 ) -> Sequence[ValidationIssue]:
     """Report what this plugin knows that should stop or qualify a deployment.
 
@@ -183,7 +177,7 @@ def blitzecdn_deployment_checks(
 
 
 @hookspec
-def blitzecdn_startup(context: RuntimeContext, platform: ControlPlane) -> None:
+def blitzecdn_startup(context: ExtensionContext) -> None:
     """Do the work this plugin owes the process that is starting.
 
     ``context.process`` says which one, because the answer differs: only the
@@ -194,7 +188,7 @@ def blitzecdn_startup(context: RuntimeContext, platform: ControlPlane) -> None:
 
 
 @hookspec
-def blitzecdn_shutdown(context: RuntimeContext, platform: ControlPlane) -> None:
+def blitzecdn_shutdown(context: ExtensionContext) -> None:
     """Release what ``blitzecdn_startup`` acquired, in reverse order."""
 
 

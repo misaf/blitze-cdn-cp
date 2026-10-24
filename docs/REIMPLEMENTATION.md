@@ -213,8 +213,23 @@ Each step is committed separately and needs its own confirmation.
    unmodified baseline there, for environmental reasons: no Node.js, no `.git`
    in the copy, running as root beside a real `/opt/blitzecdn`, and two tests
    that read an untracked `packages/` directory.
-2. Pending: built-in features register through one typed interface instead of
-   `plugin.py`/`provider.py` hooks; hooks stop receiving `ControlPlane`.
+2. Complete: built-ins declare typed `Feature` values in `feature.py`, replacing
+   `plugin.py`/`provider.py` hooks; behaviour is bound in two stages from
+   `runtime.py` — rendering from configuration and adapters before the
+   compiler, operations after every service. TLS renders from the shared
+   certificate store, not its service. External plugins keep pluggy; their
+   hooks receive an `ExtensionContext` instead of `ControlPlane`, so the hook
+   API is now version 2 (version 1 is not accepted). Schedule registration
+   moved into `ControlPlane.start`. Declared contributions compare identical
+   to the previous build; plugin ABI and SDK snapshots change as intended, and
+   CLI, HTTP, Ansible and schema snapshots are unchanged. See
+   [0019](decisions/0019-typed-features-and-extension-context.md).
+   Local macOS/Python 3.14: format, lint, strict types (348 files), the fast
+   suite (1,779 passed) and the installed-wheel tests (2 passed) pass. Remote
+   Ubuntu 26.04/Python 3.14.4 in an isolated temporary checkout: format, lint
+   and strict types pass; the fast suite had 1,774 passed and 5 failed — the
+   same environmental failures as the unmodified baseline (no Node.js, no
+   `.git` in the copy, running as root beside `/opt/blitzecdn`).
 3. Pending: render final Nginx configuration on the controller and ship it in
    the content-addressed release.
 

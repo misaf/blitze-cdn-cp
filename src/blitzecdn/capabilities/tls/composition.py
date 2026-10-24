@@ -5,14 +5,12 @@ from __future__ import annotations
 from blitzecdn.capabilities.edges.ports import EdgeStore, OriginProbe
 from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
-from blitzecdn.capabilities.tls.certificates.adapters import (
-    CertbotIssuer,
-    CertificateStore,
-)
+from blitzecdn.capabilities.tls.certificates.adapters import CertbotIssuer
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,
 )
 from blitzecdn.capabilities.tls.certificates.ports import (
+    CertificateStore,
     DeploymentGateway,
     DeploymentLocker,
     DeploymentRequirements,
@@ -76,6 +74,7 @@ def build_certificate_service(
     *,
     settings: Settings,
     config: CertificateConfig,
+    store: CertificateStore,
     releases: ReleaseHistory,
     sites: SiteReader,
     edges: EdgeStore,
@@ -95,7 +94,7 @@ def build_certificate_service(
         policy=CertificatePolicy(default_email=config.default_email),
         persistence=CertificatePersistence(
             sites=sites,
-            certificates=CertificateStore(settings),
+            certificates=store,
             uow=uow,
             requirements=requirements,
         ),

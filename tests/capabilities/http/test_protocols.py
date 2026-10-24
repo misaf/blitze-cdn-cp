@@ -4,15 +4,12 @@ HTTP/3's *derivation* is not here. It moved out with the capability that owns
 it — `tests/providers/http3` — and what stays is the half core keeps
 whether or not that distribution is installed: the scheme, the port sets, the
 `http3_enabled` switch the stored site contract carries, and the baseline this
-plugin writes into the fleet document.
+feature writes into the fleet document.
 """
 
 from policy_support import TEST_CERTIFICATE_VERSION
 
-from blitzecdn.capabilities.http.plugin import (
-    blitzecdn_fleet_desired_state,
-    blitzecdn_plugin_metadata,
-)
+from blitzecdn.capabilities.http.feature import FEATURES
 from blitzecdn.capabilities.http.policy import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
@@ -20,9 +17,12 @@ from blitzecdn.capabilities.http.policy import (
     HttpScheme,
     ProtocolPolicy,
 )
+from blitzecdn.capabilities.http.runtime import baseline_listeners
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
+
+(FEATURE,) = FEATURES
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
@@ -53,7 +53,7 @@ def test_http_owns_the_scheme_and_the_public_proxy_port_sets():
 
 def test_baseline_http_is_a_required_capability_and_provides_no_optional_token():
     """HTTP/1.1 and HTTP/2 are not detachable, so `http` ships with the core."""
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
 
     assert metadata.name == "http"
     assert metadata.required
@@ -84,8 +84,8 @@ def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
     in the edge role's argument spec, so the document has one shape in every
     installation and `blitzecdn-http3` replaces the values through `overrides`.
     """
-    contribution = blitzecdn_fleet_desired_state(
-        (_site("bravo"), _site("alpha"), _site("disabled", enabled=False)), object()
+    contribution = baseline_listeners(
+        (_site("bravo"), _site("alpha"), _site("disabled", enabled=False))
     )
 
     assert contribution.plugin == "http"
@@ -104,11 +104,15 @@ def test_a_registry_without_http3_refuses_a_site_that_requests_it():
     distribution installed at all, which is what an operator who never attached
     `blitzecdn-http3` is running.
     """
-    from blitzecdn.composition import BUILTIN_PLUGINS
+    from blitzecdn.composition import BUILTIN_FEATURES
     from blitzecdn.core.plugins import load_plugins
 
     builtins = load_plugins(
-        tuple(path for path in BUILTIN_PLUGINS if path.endswith(".plugin")),
+        tuple(
+            path
+            for path in BUILTIN_FEATURES
+            if path.startswith("blitzecdn.capabilities.")
+        ),
         entry_point_group=None,
     )
 

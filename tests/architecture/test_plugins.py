@@ -1,18 +1,19 @@
-"""The extension mechanism: discovery, registration, and what it refuses.
+"""The feature and extension mechanism: declaration, discovery, binding, refusal.
 
-Two things are being held here. The first is that the built-in capabilities really
-do reach the API, the CLI, the scheduler and the desired-state document through
-plugin registration and not through a list somebody maintains. The second is
-that a package this repository has never heard of can do the same — so most of
-these tests load `tests/fixtures/plugins/*` through the real entry-point
-machinery rather than registering an object directly, because the path an
-operator's `pip install` takes is the path worth testing.
+Three things are held here. Built-in features reach the API, the CLI, the
+scheduler and the desired-state document through typed declarations and
+bindings, not through a list somebody maintains. A package this repository has
+never heard of can do the same through hooks — so the external tests load
+`tests/external_plugins/*` through the real entry-point machinery, because the
+path an operator's `pip install` takes is the path worth testing. And neither
+kind of contribution is ever handed the composition root.
 """
 
 from __future__ import annotations
 
 import ast
 from dataclasses import MISSING, fields
+from importlib import import_module
 from importlib.metadata import EntryPoint
 from types import SimpleNamespace
 
@@ -22,8 +23,14 @@ from paths import REPO_ROOT, SOURCE
 from policy_support import site_from_settings
 from typer import Typer
 
+from blitzecdn.capabilities.deployments.runtime import deployments_operations
+from blitzecdn.capabilities.diagnostics.runtime import diagnostics_operations
+from blitzecdn.capabilities.dns.runtime import RENDERING as DNS_RENDERING
+from blitzecdn.capabilities.http.runtime import RENDERING as HTTP_RENDERING
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.composition import BUILTIN_PLUGINS
+from blitzecdn.capabilities.tls.config import CertificateConfig
+from blitzecdn.capabilities.tls.runtime import certificates_operations
+from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
 from blitzecdn.core.exceptions import PluginError
 from blitzecdn.core.plugins import (
     ENTRY_POINT_GROUP,
@@ -32,13 +39,14 @@ from blitzecdn.core.plugins import (
     AnsibleContribution,
     CapabilityConfig,
     CliCommandGroup,
+    FeatureOperations,
+    FeatureRendering,
     FleetStateContribution,
     HealthCheck,
     NginxContribution,
     PluginMetadata,
     PluginRegistry,
     ProcessKind,
-    RuntimeContext,
     ScheduledJob,
     Severity,
     SiteStateContribution,
@@ -51,8 +59,15 @@ from blitzecdn.core.plugins import (
     register_external,
 )
 from blitzecdn.core.plugins.resolution import resolve_role_search_path
+from blitzecdn.providers.http3.runtime import RENDERING as HTTP3_RENDERING
 
 _FIXTURES = "external_plugins"
+
+#: The capability features, without the focused providers. A registry missing
+#: `geoip` and `http3` is what lets these tests watch a capability be absent.
+_CAPABILITY_FEATURES = tuple(
+    path for path in BUILTIN_FEATURES if path.startswith("blitzecdn.capabilities.")
+)
 
 
 def entry_point(name: str, module: str) -> EntryPoint:
@@ -60,53 +75,44 @@ def entry_point(name: str, module: str) -> EntryPoint:
     return EntryPoint(name=name, value=f"{_FIXTURES}.{module}", group=ENTRY_POINT_GROUP)
 
 
+def attach(registry: PluginRegistry, *points: EntryPoint):
+    """Install external plugins into ``registry``, as discovery at startup would."""
+    return register_external(
+        registry._manager,
+        points=points,
+        reserved={feature.name for feature in registry.features},
+    )
+
+
 @pytest.fixture
 def baseline() -> PluginRegistry:
     """The capabilities this distribution ships, and nothing an environment added.
 
-    `entry_point_group=None` on purpose: a test asserting on the built-in
-    capability set must not change its answer because a developer happens to have
-    an unrelated BlitzeCDN plugin installed in the same virtualenv.
+    `entry_point_group=None` on purpose: a test asserting on the built-in set
+    must not change its answer because a developer happens to have an
+    unrelated BlitzeCDN plugin installed in the same virtualenv.
     """
-    return load_plugins(
-        tuple(path for path in BUILTIN_PLUGINS if path.endswith(".plugin")),
-        entry_point_group=None,
-    )
+    return load_plugins(_CAPABILITY_FEATURES, entry_point_group=None)
 
 
 def _capability_config(**values: object) -> SimpleNamespace:
-    """A `ResolvedCapabilityEnvironment` double scoped the way the real one is.
-
-    A plugin reads its own configuration through
-    `platform.capability_config.for_plugin(<name>)`, so a double has to answer
-    that call rather than expose a flat namespace — which is the point of the
-    seam being tested.
-    """
+    """A `ResolvedCapabilityEnvironment` double scoped the way the real one is."""
     resolved = {"BLITZE_" + name.upper(): value for name, value in values.items()}
     return SimpleNamespace(
         for_plugin=lambda _name: CapabilityConfig("certificates", {}, resolved)
     )
 
 
-@pytest.fixture
-def platform() -> SimpleNamespace:
-    """Enough of a control plane for a plugin to register against.
-
-    Registration reads intervals and holds on to services; it calls none of
-    them, which is the property that makes a plugin cheap to construct and this
-    double honest.
-    """
+def context(process: ProcessKind = ProcessKind.WORKER) -> SimpleNamespace:
+    """An `ExtensionContext` double: ports and configuration, no services."""
     return SimpleNamespace(
-        settings=SimpleNamespace(
-            drift_check_interval_seconds=900,
-            deployment_timeout_seconds=900,
-        ),
-        capability_config=_capability_config(
-            certificate_reconcile_interval_seconds=3600,
-            certificate_renewal_interval_seconds=3600,
-            certificate_renewal_budget_seconds=300,
-            ssl_automatic_scan_interval_seconds=86_400,
-        ),
+        process=process,
+        settings=SimpleNamespace(),
+        capability_config=_capability_config(),
+        sites=SimpleNamespace(list_sites=list),
+        fleet=SimpleNamespace(),
+        events=SimpleNamespace(),
+        queue_ready=lambda: True,
     )
 
 
@@ -123,6 +129,16 @@ def site(**overrides: object) -> CdnSite:
     )
 
 
+def _drift(calls: list[str], interval: int = 900) -> FeatureOperations:
+    return deployments_operations(
+        deployments=SimpleNamespace(
+            check_drift=lambda _operator: calls.append("drift"),
+            initialize=lambda: calls.append("initialize"),
+        ),
+        drift_check_interval_seconds=interval,
+    )
+
+
 # --- the hook specifications ------------------------------------------------
 
 
@@ -131,8 +147,7 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
 
     The list is asserted whole rather than counted, because the failure this
     guards is not "there are too many" but "someone added
-    `blitzecdn_issue_certificate`" — a business call wearing a hook's clothes,
-    which would give one caller an unnamed implementation and no return value.
+    `blitzecdn_issue_certificate`" — a business call wearing a hook's clothes.
     """
     manager = build_plugin_manager()
     assert set(manager.hook.__dict__) - {"_needs_discovery"} == {
@@ -152,34 +167,42 @@ def test_the_hook_contract_is_small_and_every_hook_is_a_registration_point():
     }
 
 
-# --- built-in discovery -----------------------------------------------------
+def test_no_hook_is_handed_the_composition_root():
+    """Every non-static hook takes an `ExtensionContext`, and nothing else does."""
+    from blitzecdn.core.plugins import hooks
+
+    for name, function in vars(hooks).items():
+        if not name.startswith("blitzecdn_"):
+            continue
+        parameters = set(function.__code__.co_varnames[: function.__code__.co_argcount])
+        assert "platform" not in parameters, name
+        assert parameters <= {"site", "sites", "context"}, name
 
 
-def test_every_built_in_capability_registers_and_declares_itself_required(baseline):
-    assert {plugin.name for plugin in baseline.plugins} == {
-        path.removeprefix("blitzecdn.capabilities.").removesuffix(".plugin")
-        for path in BUILTIN_PLUGINS
-        if path.endswith(".plugin")
+# --- built-in features ------------------------------------------------------
+
+
+def test_every_built_in_feature_is_declared_and_required(baseline):
+    declared = {
+        feature.name
+        for module in _CAPABILITY_FEATURES
+        for feature in import_module(module).FEATURES
     }
+    assert {plugin.name for plugin in baseline.plugins} == declared
     assert all(plugin.required for plugin in baseline.plugins)
     assert baseline.rejected == ()
 
 
-def test_a_strategy_or_mode_never_registers_as_a_plugin(baseline):
-    """The capability registers; the option inside it does not.
+def test_a_strategy_or_mode_never_declares_a_feature_module():
+    """The capability declares a feature; the option inside it does not.
 
-    `http3` was a plugin once. So were `certificates` and `automatic_ssl`,
+    `http3` was a capability once. So were `certificates` and `automatic_ssl`,
     which is how one capability came to have two registrations and two owners
     of `SslMode`. Each name here would be a plausible package, and each belongs
     inside one that already exists.
     """
-    for capability in ("http", "tls", "dns"):
-        assert capability in baseline
-        assert f"blitzecdn.capabilities.{capability}.plugin" in BUILTIN_PLUGINS
-
-    for capability in ("compression", "security"):
-        assert capability not in baseline
-        assert f"blitzecdn.capabilities.{capability}.plugin" not in BUILTIN_PLUGINS
+    for capability in ("http", "tls", "dns", "compression", "security"):
+        assert f"blitzecdn.capabilities.{capability}.feature" in BUILTIN_FEATURES
 
     for option in (
         "gzip",
@@ -190,48 +213,81 @@ def test_a_strategy_or_mode_never_registers_as_a_plugin(baseline):
         "automatic_ssl",
         "geoip",
     ):
-        assert option not in baseline
-        assert f"blitzecdn.capabilities.{option}.plugin" not in BUILTIN_PLUGINS
+        assert f"blitzecdn.capabilities.{option}.feature" not in BUILTIN_FEATURES
 
 
 def test_a_built_in_that_cannot_be_imported_stops_the_process():
     """No degraded mode: a control plane missing `dns` renders an empty fleet."""
     with pytest.raises(PluginError, match="could not be imported"):
-        load_plugins(builtins=("blitzecdn.capabilities.nonexistent.plugin",))
+        load_plugins(builtins=("blitzecdn.capabilities.nonexistent.feature",))
+
+
+def test_a_built_in_module_has_to_declare_its_features():
+    with pytest.raises(PluginError, match="must export FEATURES"):
+        load_plugins(builtins=(f"{_FIXTURES}.external",), entry_point_group=None)
 
 
 def test_a_built_in_that_declares_itself_optional_is_refused():
     with pytest.raises(PluginError, match="declares itself optional"):
         load_plugins(
-            builtins=(f"{_FIXTURES}.external",),
+            builtins=(f"{_FIXTURES}.optional_feature",), entry_point_group=None
+        )
+
+
+def test_two_built_in_modules_cannot_declare_one_feature():
+    with pytest.raises(PluginError, match="both declare a feature named 'dns'"):
+        load_plugins(
+            builtins=(
+                "blitzecdn.capabilities.dns.feature",
+                "blitzecdn.capabilities.dns.feature",
+            ),
             entry_point_group=None,
         )
 
 
-def test_the_built_in_registration_order_does_not_change_desired_state(baseline):
-    """Reordering `BUILTIN_PLUGINS` is a presentation change and nothing more."""
-    reversed_order = load_plugins(
-        builtins=tuple(
-            reversed(
-                tuple(path for path in BUILTIN_PLUGINS if path.endswith(".plugin"))
-            )
-        ),
-        entry_point_group=None,
-    )
-    platform = SimpleNamespace(certificates=None)
+def test_the_built_in_registration_order_does_not_change_desired_state():
+    """Reordering `BUILTIN_FEATURES` is a presentation change and nothing more."""
+    renderings = (DNS_RENDERING, HTTP_RENDERING, HTTP3_RENDERING)
+    forward = load_plugins(BUILTIN_FEATURES, entry_point_group=None)
+    backward = load_plugins(tuple(reversed(BUILTIN_FEATURES)), entry_point_group=None)
     subject = site()
-    assert reversed_order.site_variables(subject, platform) == baseline.site_variables(
-        subject, platform
+
+    assert forward.bind_rendering(renderings, context()).site_variables(
+        subject
+    ) == backward.bind_rendering(tuple(reversed(renderings)), context()).site_variables(
+        subject
     )
+
+
+# --- binding ----------------------------------------------------------------
+
+
+def test_bound_behaviour_has_to_belong_to_a_declared_feature(baseline):
+    with pytest.raises(PluginError, match="'nope' names no built-in feature"):
+        baseline.bind_rendering((FeatureRendering(plugin="nope"),), context())
+
+
+def test_a_feature_binds_its_behaviour_once(baseline):
+    with pytest.raises(PluginError, match="'dns' binds its rendering twice"):
+        baseline.bind_rendering((DNS_RENDERING, DNS_RENDERING), context())
+
+
+def test_rendering_merges_every_bound_feature(baseline):
+    variables = baseline.bind_rendering(
+        (DNS_RENDERING, HTTP_RENDERING), context()
+    ).fleet_variables((site(),))
+
+    assert variables == {
+        "blitzecdn_edge_http3_enabled": False,
+        "blitzecdn_nginx_http3_listener_owner": "",
+    }
 
 
 # --- external discovery through entry points --------------------------------
 
 
 def test_an_external_plugin_is_discovered_through_its_entry_point(baseline):
-    found = register_external(
-        baseline._manager, points=[entry_point("waf", "external")]
-    )
+    found = attach(baseline, entry_point("waf", "external"))
 
     assert [plugin.name for plugin in found.plugins] == ["waf"]
     assert found.rejected == ()
@@ -241,15 +297,15 @@ def test_an_external_plugin_is_discovered_through_its_entry_point(baseline):
     assert "waf" in {group.name for group in baseline.cli_commands()}
 
 
-def test_an_external_plugin_contributes_jobs_health_checks_and_state(
-    baseline, platform
-):
-    register_external(baseline._manager, points=[entry_point("waf", "external")])
+def test_an_external_plugin_contributes_jobs_health_checks_and_state(baseline):
+    attach(baseline, entry_point("waf", "external"))
+    operations = baseline.bind_operations((), context())
+    rendering = baseline.bind_rendering((), context())
 
-    assert "waf-rule-refresh" in baseline.scheduled_jobs(platform)
-    assert "waf-rules" in {check.name for check in baseline.health_checks(platform)}
-    assert baseline.site_variables(site(), platform)["waf_mode"] == "enforce"
-    assert baseline.fleet_variables((site(),), platform)["blitzecdn_edge_waf_enabled"]
+    assert "waf-rule-refresh" in operations.scheduled_jobs
+    assert "waf-rules" in {check.name for check in operations.health_checks}
+    assert rendering.site_variables(site())["waf_mode"] == "enforce"
+    assert rendering.fleet_variables((site(),))["blitzecdn_edge_waf_enabled"]
 
 
 def test_an_installed_plugin_contributes_its_ansible_roles(baseline):
@@ -259,54 +315,57 @@ def test_an_installed_plugin_contributes_its_ansible_roles(baseline):
     anywhere. It reports the directory its wheel put them in and the control
     plane composes that into Ansible's search path.
     """
-    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    attach(baseline, entry_point("waf", "external"))
     contributions = baseline.ansible_contributions()
 
-    assert [item.plugin for item in contributions] == ["waf"]
-    assert (contributions[0].roles_path / "blitzecdn_waf/tasks/main.yml").is_file()
+    assert contributions[-1].plugin == "waf"
+    assert (contributions[-1].roles_path / "blitzecdn_waf/tasks/main.yml").is_file()
 
 
-def test_a_plugin_that_ships_no_roles_contributes_no_directory(baseline):
-    """Most plugins have no Ansible of their own, and say nothing rather than
+def test_a_feature_that_ships_no_roles_contributes_no_directory(baseline):
+    """Most features have no Ansible of their own, and say nothing rather than
     an empty path that core would then have to interpret."""
-    assert baseline.ansible_contributions() == ()
+    contributing = {item.plugin for item in baseline.ansible_contributions()}
+
+    assert contributing == {
+        feature.name for feature in baseline.features if feature.ansible
+    }
+    assert "dns" not in contributing
 
 
 def test_the_roles_of_an_absent_plugin_are_absent_from_the_search_path(
     baseline, tmp_path
 ):
-    """Detach, in the terms Ansible sees. The mirror of the test above.
+    """Detach, in the terms Ansible sees.
 
-    The registry with no `waf` registered yields no contribution, so the
-    resolved path is core's directory alone — the role name simply stops
-    resolving, which is what "the capability is not installed" has to mean on
-    the edge as well as in the API.
+    The registry with no `waf` registered yields no contribution for it, so its
+    role name simply stops resolving, which is what "the capability is not
+    installed" has to mean on the edge as well as in the API.
     """
     core = tmp_path / "roles"
     (core / "blitzecdn_nginx").mkdir(parents=True)
+    detached = resolve_role_search_path(core, baseline.ansible_contributions())
 
-    assert resolve_role_search_path(core, baseline.ansible_contributions()) == (core,)
-
-    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    attach(baseline, entry_point("waf", "external"))
     attached = resolve_role_search_path(core, baseline.ansible_contributions())
 
-    assert len(attached) == 2
-    assert (attached[1] / "blitzecdn_waf").is_dir()
+    assert not any((path / "blitzecdn_waf").is_dir() for path in detached)
+    assert len(attached) == len(detached) + 1
+    assert (attached[-1] / "blitzecdn_waf").is_dir()
 
 
 def test_core_needs_no_change_for_an_external_capability(baseline):
     """The acceptance criterion, stated as a diff that is not required.
 
     Everything the WAF plugin adds — a route, a command, a job, a check, its
-    share of every site's desired state — arrives without `BUILTIN_PLUGINS`,
-    `api/app.py`, `cli/main.py`, `scheduler.py` or the renderer knowing it
-    exists.
+    share of every site's desired state — arrives without `BUILTIN_FEATURES`,
+    `api/app.py`, `cli/main.py` or the release compiler knowing it exists.
     """
     before = len(baseline.api_routers())
-    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    attach(baseline, entry_point("waf", "external"))
 
     assert len(baseline.api_routers()) == before + 1
-    assert f"{_FIXTURES}.external" not in BUILTIN_PLUGINS
+    assert f"{_FIXTURES}.external" not in BUILTIN_FEATURES
 
 
 # --- the failure policy -----------------------------------------------------
@@ -317,9 +376,7 @@ def test_an_external_plugin_that_raises_on_import_is_skipped_with_its_reason(
 ):
     """Skipped, never silent: the reason is logged *and* kept for an operator."""
     with caplog.at_level("WARNING"):
-        found = register_external(
-            baseline._manager, points=[entry_point("waf", "broken")]
-        )
+        found = attach(baseline, entry_point("waf", "broken"))
 
     assert found.plugins == ()
     assert [rejection.source for rejection in found.rejected] == [
@@ -331,13 +388,11 @@ def test_an_external_plugin_that_raises_on_import_is_skipped_with_its_reason(
 
 def test_a_plugin_that_will_not_say_who_it_is_contributes_nothing(baseline):
     """Anonymous contributions cannot be attributed, so they are not accepted."""
-    found = register_external(
-        baseline._manager, points=[entry_point("anonymous", "anonymous")]
-    )
+    found = attach(baseline, entry_point("anonymous", "anonymous"))
 
     assert "no blitzecdn_plugin_metadata hook" in str(found.rejected[0])
     assert "anonymous" not in {
-        check.name for check in baseline.health_checks(SimpleNamespace())
+        check.name for check in baseline.bind_operations((), context()).health_checks
     }
 
 
@@ -354,14 +409,14 @@ def test_a_plugin_states_the_hook_contract_it_was_written_against():
     Writing `api_version=HOOK_API_VERSION` reintroduces exactly that, one level
     up, and looks more correct than the literal while meaning less. So the
     field takes an integer that was true when somebody typed it, and this
-    refuses the import for the plugins this workspace ships.
+    refuses the import for the features this workspace ships.
 
     Third-party wheels cannot be held to it here. What holds them is that the
     natural thing to write — a number — is the right one, and that omitting it
     is now a `TypeError` at construction rather than a silent agreement.
     """
     offenders = []
-    for path in sorted(SOURCE.rglob("plugin.py")) + sorted(SOURCE.rglob("provider.py")):
+    for path in sorted(SOURCE.rglob("feature.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if not (
@@ -389,61 +444,40 @@ def test_a_plugin_states_the_hook_contract_it_was_written_against():
 
 
 def test_the_supported_contract_set_is_how_a_bump_gets_a_deprecation_window():
-    """The gate is membership, not equality, and that is the whole point.
+    """The gate is membership, not equality.
 
-    `!=` made bumping `HOOK_API_VERSION` a same-day fork: v2 core, and every
-    wheel declaring v1 refused at once, with no release in which an author
-    could support both. A set makes the transition expressible — widen to
-    `{1, 2}`, let v1 keep loading while authors move, and drop 1 later as a
-    separate decision visible in that one line.
-
-    The version core *speaks* has to be one it *accepts*, or it would refuse a
-    plugin written against itself.
+    A set makes a transition expressible: widen it to keep the previous
+    contract loading while authors move, and drop that version later as a
+    separate decision visible in one line. The version core *speaks* has to be
+    one it *accepts*, or it would refuse a plugin written against itself.
     """
     assert HOOK_API_VERSION in SUPPORTED_HOOK_API_VERSIONS
 
 
 def test_a_plugin_from_a_later_hook_contract_is_refused_by_version(baseline):
-    found = register_external(
-        baseline._manager, points=[entry_point("future", "from_the_future")]
-    )
+    found = attach(baseline, entry_point("future", "from_the_future"))
 
     assert found.plugins == ()
     assert "targets hook API v99" in str(found.rejected[0])
 
 
-def test_two_plugins_cannot_claim_one_name(baseline, platform):
-    """A duplicate makes every later diagnostic ambiguous, so it is refused.
-
-    Built-ins register first, so the impostor collides with `dns` rather than
-    displacing it — an installed package must not be able to take a built-in
-    capability's identity and quietly answer for it.
-    """
-    found = register_external(
-        baseline._manager, points=[entry_point("impostor", "impostor")]
-    )
+def test_an_external_plugin_cannot_take_a_built_in_name(baseline):
+    """An installed package must not take a built-in's identity and answer for it."""
+    found = attach(baseline, entry_point("impostor", "impostor"))
 
     assert found.plugins == ()
-    assert "already registered" in str(found.rejected[0])
+    assert "which a built-in feature already uses" in str(found.rejected[0])
     assert "dns" in baseline
 
 
 def test_two_installed_packages_cannot_claim_one_name(baseline):
-    """The same rule between two *optional* distributions, neither built in.
+    """The same rule between two external distributions, neither built in.
 
-    Worth its own case because the collision an operator actually hits is this
-    one: an optional capability was extracted into `blitzecdn-cache`, and a
-    third-party package that also calls itself `cache` is now installable
-    beside it. Neither has a built-in to lose to, so nothing about the
-    registration order decides it — the second is refused with its source, and
-    the first keeps the name and keeps working.
+    The second is refused with its source, and the first keeps the name and
+    keeps working.
     """
-    first = register_external(
-        baseline._manager, points=[entry_point("waf", "external")]
-    )
-    second = register_external(
-        baseline._manager, points=[entry_point("waf-again", "external")]
-    )
+    first = attach(baseline, entry_point("waf", "external"))
+    second = attach(baseline, entry_point("waf-again", "external"))
 
     assert [plugin.name for plugin in first.plugins] == ["waf"]
     assert second.plugins == ()
@@ -451,23 +485,27 @@ def test_two_installed_packages_cannot_claim_one_name(baseline):
     assert "waf-again" in str(second.rejected[0])
 
 
+def test_a_registry_refuses_two_plugins_with_one_name(baseline):
+    impostor = PluginMetadata(name="dns", version="0.1", api_version=2)
+
+    with pytest.raises(PluginError, match="two plugins claim the name 'dns'"):
+        PluginRegistry(baseline.features, external=(impostor,))
+
+
 def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
     """`provides` is separate from `name`, and defaults to it.
 
     A plugin identifies itself with `name`; a *configuration* depends on a
-    capability. Almost always they are the same word, so `provides` defaults to
-    empty and `capabilities` folds the name in — but the two are allowed to
-    differ, which is what lets a replacement implementation answer for a token
-    another package used to supply, under its own name.
+    capability. The two are allowed to differ, which is what lets a replacement
+    implementation answer for a token another package used to supply.
     """
     assert "dns" in baseline.capabilities
     assert baseline.missing(["dns", "waf"]) == ("waf",)
 
-    register_external(baseline._manager, points=[entry_point("waf", "external")])
     metadata = PluginMetadata(
         name="acme-waf",
         version="1.0",
-        api_version=1,
+        api_version=2,
         provides=frozenset({"waf", "ratelimit"}),
     )
     assert metadata.capabilities == {"acme-waf", "waf", "ratelimit"}
@@ -476,9 +514,8 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
 def test_requiring_a_capability_nothing_provides_names_it(baseline):
     """The message an operator reads when a package they need is not installed.
 
-    It has to name the missing token *and* what is installed: "backup is not
-    available" without the second half leaves an operator unable to tell a
-    typo from an uninstalled package.
+    It has to name the missing token *and* what is installed, or an operator
+    cannot tell a typo from an uninstalled package.
     """
     baseline.require(["dns"], subject="a test")
 
@@ -489,13 +526,11 @@ def test_requiring_a_capability_nothing_provides_names_it(baseline):
     assert "waf" in message
     assert "this installation" in message
     assert "dns" in message
-    assert "compression" not in message.split("Installed capabilities:")[0]
 
 
 def test_one_broken_plugin_does_not_stop_the_others(baseline):
-    found = register_external(
-        baseline._manager,
-        points=[entry_point("broken", "broken"), entry_point("waf", "external")],
+    found = attach(
+        baseline, entry_point("broken", "broken"), entry_point("waf", "external")
     )
 
     assert [plugin.name for plugin in found.plugins] == ["waf"]
@@ -506,7 +541,7 @@ def test_a_plugin_returning_the_wrong_shape_is_named_rather_than_crashing(baseli
     class Careless:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="careless", version="1.0", api_version=1)
+            return PluginMetadata(name="careless", version="1.0", api_version=2)
 
         @hookimpl
         def blitzecdn_api_routers(self) -> object:
@@ -522,9 +557,8 @@ def test_a_plugin_returning_the_wrong_shape_is_named_rather_than_crashing(baseli
 
 
 def test_contributions_come_back_in_registration_order(baseline):
-    """Pluggy calls implementations last-registered-first; operators read the
-    other way round, and the published route list should not depend on that."""
-    register_external(baseline._manager, points=[entry_point("waf", "external")])
+    """Built-ins in roster order, then external plugins in their own order."""
+    attach(baseline, entry_point("waf", "external"))
     names = [group.name for group in baseline.cli_commands()]
 
     assert names.index("domain") < names.index("edge") < names.index("waf")
@@ -601,7 +635,7 @@ def test_deployment_checks_are_collected_from_every_plugin(baseline):
     class Objector:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="objector", version="1.0")
+            return PluginMetadata(name="objector", version="1.0", api_version=2)
 
         @hookimpl
         def blitzecdn_deployment_checks(self, site: CdnSite) -> list[ValidationIssue]:
@@ -618,7 +652,7 @@ def test_deployment_checks_are_collected_from_every_plugin(baseline):
             ]
 
     baseline._manager.register(Objector(), name="objector")
-    result = baseline.validate_site(site(), SimpleNamespace())
+    result = baseline.bind_rendering((), context()).validate_site(site())
 
     assert not result.ok
     assert [issue.message for issue in result.blocking] == ["no rule set loaded"]
@@ -626,26 +660,26 @@ def test_deployment_checks_are_collected_from_every_plugin(baseline):
 
 
 def test_a_site_no_plugin_objects_to_is_deployable(baseline):
-    assert baseline.validate_site(site(), SimpleNamespace()).ok
+    assert baseline.bind_rendering((), context()).validate_site(site()).ok
 
 
-def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting(
-    baseline,
-):
+def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting():
     """The message an operator reads before any playbook runs.
 
     Generic in both halves: the tokens come from the site's own
     `capability_requirements` and the answer from plugin metadata, so nothing
     on this path knows what `geoip` is. What the mapping adds is *which*
-    setting asked — the failure it prevents is an operator told a capability is
-    missing and left to find which of two unrelated policy blocks wanted it.
+    setting asked.
     """
+    dns_only = load_plugins(
+        ("blitzecdn.capabilities.dns.feature",), entry_point_group=None
+    )
     requested = site(
         visitor_headers={"ip_country": True},
         firewall={"denied_countries": ["RU"]},
     )
 
-    result = baseline.validate_site(requested, SimpleNamespace())
+    result = dns_only.bind_rendering((), context()).validate_site(requested)
 
     assert not result.ok
     messages = {issue.message for issue in result.blocking}
@@ -660,9 +694,11 @@ def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting(
 
 def test_a_capability_requested_by_one_setting_reads_in_the_singular(baseline):
     """One asker, one verb. The plural form is for a site that asked twice."""
-    (issue,) = baseline.validate_site(
-        site(visitor_headers={"ip_country": True}), SimpleNamespace()
-    ).blocking
+    (issue,) = (
+        baseline.bind_rendering((), context())
+        .validate_site(site(visitor_headers={"ip_country": True}))
+        .blocking
+    )
 
     assert "site's visitor_headers.ip_country requests it" in issue.message
 
@@ -670,44 +706,61 @@ def test_a_capability_requested_by_one_setting_reads_in_the_singular(baseline):
 # --- lifecycle --------------------------------------------------------------
 
 
-def test_startup_and_shutdown_reach_every_plugin_with_the_process_kind():
+def test_startup_and_shutdown_reach_every_feature_with_the_process_kind(baseline):
     seen: list[tuple[str, ProcessKind]] = []
 
     class Lifecycle:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="lifecycle", version="1.0")
+            return PluginMetadata(name="lifecycle", version="1.0", api_version=2)
 
         @hookimpl
-        def blitzecdn_startup(self, context: RuntimeContext) -> None:
+        def blitzecdn_startup(self, context) -> None:
             seen.append(("start", context.process))
 
         @hookimpl
-        def blitzecdn_shutdown(self, context: RuntimeContext) -> None:
+        def blitzecdn_shutdown(self, context) -> None:
             seen.append(("stop", context.process))
 
-    manager = build_plugin_manager()
-    manager.register(Lifecycle(), name="lifecycle")
-    registry = PluginRegistry(manager)
-    context = RuntimeContext(process=ProcessKind.WORKER, settings=object())
+    baseline._manager.register(Lifecycle(), name="lifecycle")
+    built_in = FeatureOperations(
+        plugin="jobs",
+        startup=lambda process: seen.append(("built-in start", process)),
+        shutdown=lambda process: seen.append(("built-in stop", process)),
+    )
+    operations = baseline.bind_operations((built_in,), context(ProcessKind.API))
 
-    registry.startup(context, SimpleNamespace())
-    registry.shutdown(context, SimpleNamespace())
+    operations.startup()
+    operations.shutdown()
 
-    assert seen == [("start", ProcessKind.WORKER), ("stop", ProcessKind.WORKER)]
+    assert seen == [
+        ("built-in start", ProcessKind.API),
+        ("start", ProcessKind.API),
+        ("stop", ProcessKind.API),
+        ("built-in stop", ProcessKind.API),
+    ]
+
+
+def test_deployment_recovery_runs_at_api_startup_only(baseline):
+    calls: list[str] = []
+
+    for process in ProcessKind:
+        baseline.bind_operations((_drift(calls),), context(process)).startup()
+
+    assert calls == ["initialize"]
 
 
 # --- scheduled jobs ---------------------------------------------------------
 
 
-def test_two_plugins_cannot_contribute_one_job_name(baseline, platform):
+def test_two_plugins_cannot_contribute_one_job_name(baseline):
     class Clasher:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="clasher", version="1.0")
+            return PluginMetadata(name="clasher", version="1.0", api_version=2)
 
         @hookimpl
-        def blitzecdn_scheduled_jobs(self, platform: object) -> list[ScheduledJob]:
+        def blitzecdn_scheduled_jobs(self, context) -> list[ScheduledJob]:
             return [
                 ScheduledJob(
                     plugin="clasher",
@@ -720,7 +773,48 @@ def test_two_plugins_cannot_contribute_one_job_name(baseline, platform):
     baseline._manager.register(Clasher(), name="clasher")
 
     with pytest.raises(PluginError, match="'deployments' and 'clasher'"):
-        baseline.scheduled_jobs(platform)
+        baseline.bind_operations((_drift([]),), context())
+
+
+def test_every_built_in_job_calls_the_service_that_owns_its_work(baseline):
+    """A job is one object — its interval and its work — so both are checkable."""
+    calls: list[str] = []
+    jobs = baseline.bind_operations((_drift(calls),), context()).scheduled_jobs
+
+    assert set(jobs) == {"check-drift"}
+    jobs["check-drift"].run("scheduler")
+
+    assert calls == ["drift"]
+    assert jobs["check-drift"].interval_seconds == 900
+
+
+def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
+    config = CertificateConfig.from_capability_config(
+        _capability_config(
+            certbot="certbot",
+            acme_default_email="",
+            acme_ca_domain="letsencrypt.org",
+            certificate_reconcile_interval_seconds=0,
+            certificate_renewal_interval_seconds=0,
+            certificate_renewal_budget_seconds=300,
+            ssl_automatic_scan_interval_seconds=0,
+        ).for_plugin("certificates")
+    )
+    operations = baseline.bind_operations(
+        (
+            _drift([], interval=0),
+            certificates_operations(
+                certificates=SimpleNamespace(),
+                automatic_ssl=SimpleNamespace(),
+                config=config,
+                deployment_timeout_seconds=900,
+            ),
+        ),
+        context(),
+    )
+
+    assert len(operations.scheduled_jobs) == 4
+    assert all(job.interval_seconds == 0 for job in operations.scheduled_jobs.values())
 
 
 # --- plugin metadata --------------------------------------------------------
@@ -728,23 +822,32 @@ def test_two_plugins_cannot_contribute_one_job_name(baseline, platform):
 
 def test_a_plugin_name_has_to_be_usable_as_an_identifier():
     with pytest.raises(ValueError, match="must be alphanumeric"):
-        PluginMetadata(name="not a name!", version="1.0", api_version=1)
+        PluginMetadata(name="not a name!", version="1.0", api_version=2)
 
 
 def test_a_registry_reports_what_is_installed_and_what_was_refused(baseline):
-    found = register_external(
-        baseline._manager,
-        points=[entry_point("waf", "external"), entry_point("broken", "broken")],
+    found = attach(
+        baseline, entry_point("waf", "external"), entry_point("broken", "broken")
     )
     registry = PluginRegistry(
-        baseline._manager,
-        plugins=(*baseline.plugins, *found.plugins),
+        baseline.features,
+        manager=baseline._manager,
+        external=found.plugins,
         rejected=found.rejected,
     )
 
     assert "waf" in registry
     assert "dns" in registry
     assert [rejection.reason for rejection in registry.rejected] != []
+
+
+def test_the_shipped_registry_loads_every_built_in_and_rejects_nothing():
+    registry = load_control_plane_plugins(entry_point_group=None)
+
+    assert {"geoip", "http3", "certificates", "tls"} <= {
+        plugin.name for plugin in registry.plugins
+    }
+    assert registry.rejected == ()
 
 
 # --- the contributions a plugin makes are values, not calls ------------------
@@ -778,52 +881,11 @@ def test_a_command_group_names_the_subcommand_it_appears_under():
     assert group.name == "waf"
 
 
-def test_every_built_in_job_calls_the_service_that_owns_its_work(baseline):
-    """A job is one object — its interval and its work — so both are checkable.
-
-    The failure this replaces was structural: an interval in `scheduler.py` and
-    a matching actor in `worker.py`, kept in step by hand, where renaming one
-    published into a queue nothing consumed.
-    """
-    calls: list[str] = []
-    platform = SimpleNamespace(
-        settings=SimpleNamespace(drift_check_interval_seconds=900),
-        deployments=SimpleNamespace(check_drift=lambda _o: calls.append("drift")),
-    )
-    jobs = baseline.scheduled_jobs(platform)
-
-    assert set(jobs) == {"check-drift"}
-    for name in sorted(jobs):
-        jobs[name].run("scheduler")
-
-    assert calls == ["drift"]
-    assert jobs["check-drift"].interval_seconds == 900
-
-
-def test_a_disabled_interval_is_how_a_job_is_turned_off(baseline):
-    platform = SimpleNamespace(
-        settings=SimpleNamespace(
-            drift_check_interval_seconds=0,
-            deployment_timeout_seconds=900,
-        ),
-        capability_config=_capability_config(
-            certificate_reconcile_interval_seconds=0,
-            certificate_renewal_interval_seconds=0,
-            certificate_renewal_budget_seconds=300,
-            ssl_automatic_scan_interval_seconds=0,
-        ),
-    )
-
-    assert all(
-        job.interval_seconds == 0 for job in baseline.scheduled_jobs(platform).values()
-    )
-
-
-def test_a_desired_state_hook_returning_the_wrong_shape_is_named(baseline, platform):
+def test_a_desired_state_hook_returning_the_wrong_shape_is_named(baseline):
     class Careless:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="careless", version="1.0", api_version=1)
+            return PluginMetadata(name="careless", version="1.0", api_version=2)
 
         @hookimpl
         def blitzecdn_site_desired_state(self, site: CdnSite) -> object:
@@ -832,7 +894,7 @@ def test_a_desired_state_hook_returning_the_wrong_shape_is_named(baseline, platf
     baseline._manager.register(Careless(), name="careless")
 
     with pytest.raises(PluginError, match="must return a SiteStateContribution"):
-        baseline.site_variables(site(), platform)
+        baseline.bind_rendering((), context()).site_variables(site())
 
 
 def test_a_plugin_whose_metadata_is_not_metadata_is_refused(baseline):
@@ -868,6 +930,8 @@ def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
     shared = (
         AnsibleContribution,
         CliCommandGroup,
+        FeatureOperations,
+        FeatureRendering,
         FleetStateContribution,
         HealthCheck,
         NginxContribution,
@@ -888,19 +952,26 @@ def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
     assert missing == []
 
 
-def test_two_plugins_cannot_answer_to_one_health_check_name(baseline, platform):
+def test_two_plugins_cannot_answer_to_one_health_check_name(baseline):
     """`/health` reports a check by name, so the name has to be one plugin's."""
 
     class Clasher:
         @hookimpl
         def blitzecdn_plugin_metadata(self) -> PluginMetadata:
-            return PluginMetadata(name="clasher", version="1.0", api_version=1)
+            return PluginMetadata(name="clasher", version="1.0", api_version=2)
 
         @hookimpl
-        def blitzecdn_health_checks(self, platform: object) -> list[HealthCheck]:
+        def blitzecdn_health_checks(self, context) -> list[HealthCheck]:
             return [HealthCheck(plugin="clasher", name="database", check=lambda: None)]
 
     baseline._manager.register(Clasher(), name="clasher")
 
     with pytest.raises(PluginError, match="'diagnostics' and 'clasher'"):
-        baseline.health_checks(platform)
+        baseline.bind_operations(
+            (
+                diagnostics_operations(
+                    read_database=lambda: None, queue_ready=lambda: True
+                ),
+            ),
+            context(),
+        )

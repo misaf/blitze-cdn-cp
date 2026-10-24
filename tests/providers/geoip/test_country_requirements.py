@@ -15,7 +15,9 @@ import pytest
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.composition import load_control_plane_plugins
-from blitzecdn.providers.geoip.provider import blitzecdn_plugin_metadata
+from blitzecdn.providers.geoip.feature import FEATURES
+
+(FEATURE,) = FEATURES
 
 #: Every setting on the stable site schema that asks the edge which country a
 #: visitor is in, and nothing else. A fourth consumer belongs on this list and
@@ -69,7 +71,7 @@ def test_the_country_header_and_the_country_rules_are_one_capability() -> None:
 
     assert site.policy.required_capabilities == frozenset({"geoip", "security"})
     assert len(site.policy.capability_requirements["geoip"]) == 2
-    assert blitzecdn_plugin_metadata().capabilities == frozenset({"geoip"})
+    assert FEATURE.metadata.capabilities == frozenset({"geoip"})
 
 
 def test_country_rules_ask_for_security_as_well_and_geoip_does_not_supply_it() -> None:
@@ -82,7 +84,7 @@ def test_country_rules_ask_for_security_as_well_and_geoip_does_not_supply_it() -
     site = _site(firewall={"allowed_countries": ["DE"]})
 
     assert site.policy.required_capabilities == frozenset({"geoip", "security"})
-    assert "security" not in blitzecdn_plugin_metadata().capabilities
+    assert "security" not in FEATURE.metadata.capabilities
 
 
 def test_a_disabled_site_asks_for_nothing_whatever_it_is_configured_with() -> None:

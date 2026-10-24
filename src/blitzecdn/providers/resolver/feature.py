@@ -1,4 +1,4 @@
-"""Register the capability that decides what an edge host resolves names with.
+"""Declare the capability that decides what an edge host resolves names with.
 
 A focused runtime provider: two Ansible roles, no desired-state contribution,
 service, route or command. It always ships with the application. Its configured
@@ -23,38 +23,26 @@ position in its own plays and never learns either role's name.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
-from blitzecdn.core.plugins import (
-    AnsibleContribution,
-    PluginMetadata,
-    hookimpl,
-)
+from blitzecdn.core.plugins import AnsibleContribution, Feature, PluginMetadata
 from blitzecdn.providers.resolver import __version__, ansible
 
-
-@hookimpl
-def blitzecdn_plugin_metadata() -> PluginMetadata:
-    return PluginMetadata(
-        name="resolver",
-        version=__version__,
-        api_version=1,
-        required=True,
-        provides=frozenset({"resolver"}),
-        summary="Host DNS resolution an edge can trust, and its removal.",
-    )
-
-
-@hookimpl
-def blitzecdn_ansible_contributions() -> Sequence[AnsibleContribution]:
-    # The roles, and the two slots that run them. Core adds the directory to
-    # Ansible's search path, adds each name to the slot that asked for it, and
-    # never learns what either contains.
-    return (
-        AnsibleContribution(
-            plugin="resolver",
-            roles_path=ansible.ROLES_PATH,
-            edge_roles=ansible.EDGE_ROLES,
-            teardown_roles=ansible.TEARDOWN_ROLES,
+FEATURES = (
+    Feature(
+        metadata=PluginMetadata(
+            name="resolver",
+            version=__version__,
+            api_version=2,
+            required=True,
+            provides=frozenset({"resolver"}),
+            summary="Host DNS resolution an edge can trust, and its removal.",
         ),
-    )
+        ansible=(
+            AnsibleContribution(
+                plugin="resolver",
+                roles_path=ansible.ROLES_PATH,
+                edge_roles=ansible.EDGE_ROLES,
+                teardown_roles=ansible.TEARDOWN_ROLES,
+            ),
+        ),
+    ),
+)

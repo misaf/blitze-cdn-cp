@@ -1,12 +1,13 @@
 from types import SimpleNamespace
 
-from blitzecdn.capabilities.tls import provider as plugin
 from blitzecdn.capabilities.tls.config import CertificateConfig
+from blitzecdn.capabilities.tls.feature import CERTIFICATES
+from blitzecdn.capabilities.tls.runtime import certificates_operations
 from blitzecdn.core.plugins import CapabilityConfig
 
 
 def test_metadata_provides_required_certificates_capability() -> None:
-    metadata = plugin.blitzecdn_plugin_metadata()
+    metadata = CERTIFICATES.metadata
 
     assert metadata.name == "certificates"
     assert metadata.capabilities == frozenset({"certificates"})
@@ -28,10 +29,8 @@ def test_jobs_are_owned_by_the_certificate_capability() -> None:
     automatic_ssl = SimpleNamespace(
         reconcile=lambda operator: calls.append(f"scan {operator}")
     )
-    platform = SimpleNamespace(certificates=certificates, automatic_ssl=automatic_ssl)
-    platform.settings = SimpleNamespace(deployment_timeout_seconds=900)
-    platform.capability_config = SimpleNamespace(
-        for_plugin=lambda _name: CapabilityConfig(
+    config = CertificateConfig.from_capability_config(
+        CapabilityConfig(
             "certificates",
             {},
             {
@@ -46,17 +45,20 @@ def test_jobs_are_owned_by_the_certificate_capability() -> None:
         )
     )
 
-    platform.certificate_config = CertificateConfig.from_capability_config(
-        platform.capability_config.for_plugin("certificates")
+    operations = certificates_operations(
+        certificates=certificates,
+        automatic_ssl=automatic_ssl,
+        config=config,
+        deployment_timeout_seconds=900,
     )
-
-    jobs = {job.name: job for job in plugin.blitzecdn_scheduled_jobs(platform)}
+    jobs = {job.name: job for job in operations.scheduled_jobs}
 
     assert set(jobs) == {
         "automatic-ssl-scan",
         "certificate-reconciliation",
         "certificate-renewal",
     }
+    assert jobs["certificate-renewal"].lease_seconds == 1200
     jobs["certificate-reconciliation"].run("scheduler")
     assert calls == ["reconcile scheduler"]
     issued.append("example-com")

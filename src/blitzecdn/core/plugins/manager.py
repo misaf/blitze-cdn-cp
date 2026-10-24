@@ -14,7 +14,7 @@ from collections.abc import Sequence
 import pluggy
 
 from blitzecdn.core.plugins import hooks
-from blitzecdn.core.plugins.discovery import register_builtins, register_external
+from blitzecdn.core.plugins.discovery import load_features, register_external
 from blitzecdn.core.plugins.registry import PluginRegistry
 from blitzecdn.core.plugins.types import ENTRY_POINT_GROUP, PROJECT_NAME
 
@@ -32,33 +32,38 @@ def load_plugins(
     entry_point_group: str | None = ENTRY_POINT_GROUP,
     manager: pluggy.PluginManager | None = None,
 ) -> PluginRegistry:
-    """Discover and register everything, built-in first.
+    """Load the built-in features, then discover external plugins.
 
-    ``builtins`` is an argument rather than a default read from this package,
-    because which capabilities a distribution ships is the composition root's
-    answer and not core's. `blitzecdn.composition.load_control_plane_plugins` is
-    the call that pairs this mechanism with that roster; everything outside
-    core wants that one.
+    ``builtins`` names the modules whose ``FEATURES`` this distribution ships.
+    It is an argument rather than a default read from this package, because
+    which features a distribution ships is the composition root's answer and
+    not core's. `blitzecdn.composition.load_control_plane_plugins` is the call
+    that pairs this mechanism with that roster.
 
-    Built-ins go first so an external plugin that claims a built-in's name
-    collides with the built-in rather than displacing it, and so the command
-    tree an operator sees begins with the commands this distribution ships.
+    Built-ins go first so an external plugin that claims a built-in's name is
+    refused rather than displacing it, and so the command tree an operator sees
+    begins with the commands this distribution ships.
 
     ``entry_point_group=None`` skips external discovery entirely. That is what
-    the unit suite uses: a test asserting on the built-in capability set should
-    not change its answer because a developer happens to have an unrelated
-    BlitzeCDN plugin installed in the same virtualenv.
+    the unit suite uses: a test asserting on the built-in set should not change
+    its answer because a developer happens to have an unrelated BlitzeCDN
+    plugin installed in the same virtualenv.
     """
+    features = load_features(builtins)
     manager = manager or build_plugin_manager()
-    found = register_builtins(manager, builtins)
     external = (
-        register_external(manager, group=entry_point_group)
+        register_external(
+            manager,
+            group=entry_point_group,
+            reserved={feature.name for feature in features},
+        )
         if entry_point_group is not None
         else None
     )
     return PluginRegistry(
-        manager,
-        plugins=(*found, *(external.plugins if external else ())),
+        features,
+        manager=manager,
+        external=external.plugins if external else (),
         rejected=external.rejected if external else (),
     )
 

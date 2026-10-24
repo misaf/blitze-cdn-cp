@@ -8,7 +8,7 @@ from pathlib import Path
 
 from paths import REPO_ROOT, SOURCE
 
-from blitzecdn.composition import BUILTIN_PLUGINS, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 
 
@@ -25,8 +25,13 @@ def test_one_distribution_owns_the_application_and_all_internal_providers():
 def test_all_shipped_providers_are_required_and_share_the_application_version():
     registry = load_control_plane_plugins(entry_point_group=None)
     version = importlib.metadata.version("blitzecdn")
-    assert len(registry.plugins) == len(BUILTIN_PLUGINS)
-    assert len(set(BUILTIN_PLUGINS)) == len(BUILTIN_PLUGINS)
+    declared = [
+        feature
+        for module in BUILTIN_FEATURES
+        for feature in importlib.import_module(module).FEATURES
+    ]
+    assert len(registry.plugins) == len(declared)
+    assert len(set(BUILTIN_FEATURES)) == len(BUILTIN_FEATURES)
     assert all(
         provider.required and provider.version == version
         for provider in registry.plugins
@@ -44,7 +49,7 @@ def test_all_shipped_providers_are_required_and_share_the_application_version():
         "security",
     } <= registry.capabilities
     assert registry.rejected == ()
-    for module in BUILTIN_PLUGINS:
+    for module in BUILTIN_FEATURES:
         assert Path(importlib.import_module(module).__file__).is_relative_to(SOURCE)
 
 
@@ -71,7 +76,7 @@ def test_focused_runtime_providers_have_no_business_services_or_delivery_layers(
     for provider in (SOURCE / "providers").iterdir():
         if not provider.is_dir() or provider.name == "__pycache__":
             continue
-        assert (provider / "provider.py").is_file()
+        assert (provider / "feature.py").is_file()
         assert not any(
             (provider / layer).exists() for layer in ("service", "domain", "api", "cli")
         )

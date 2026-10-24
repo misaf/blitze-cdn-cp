@@ -8,20 +8,17 @@ core keeps — the switch, the baseline listener stance — is asserted there.
 import pytest
 from policy_support import TEST_CERTIFICATE_VERSION
 
-from blitzecdn.capabilities.http.plugin import (
-    blitzecdn_fleet_desired_state as baseline_fleet_desired_state,
-)
+from blitzecdn.capabilities.http.runtime import baseline_listeners
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
-from blitzecdn.composition import load_control_plane_plugins
+from blitzecdn.composition import ControlPlane, load_control_plane_plugins
 from blitzecdn.core.plugins import PluginMetadata, merge_variables
 from blitzecdn.providers.http3 import __version__
-from blitzecdn.providers.http3.provider import (
-    QUIC_FLEET_VARIABLES,
-    blitzecdn_fleet_desired_state,
-    blitzecdn_plugin_metadata,
-)
+from blitzecdn.providers.http3.feature import FEATURES
+from blitzecdn.providers.http3.runtime import QUIC_FLEET_VARIABLES, quic_listener
+
+(FEATURE,) = FEATURES
 
 
 def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
@@ -52,8 +49,8 @@ def _merged(*sites: CdnSite) -> dict[str, object]:
     """
     return merge_variables(
         [
-            baseline_fleet_desired_state(sites, object()),
-            blitzecdn_fleet_desired_state(sites, object()),
+            baseline_listeners(sites),
+            quic_listener(sites),
         ],
         subject="fleet desired state",
     )
@@ -63,7 +60,7 @@ def _merged(*sites: CdnSite) -> dict[str, object]:
 
 
 def test_plugin_provides_http3_as_a_required_provider() -> None:
-    metadata = blitzecdn_plugin_metadata()
+    metadata = FEATURE.metadata
 
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "http3"
@@ -82,15 +79,15 @@ def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
     requested = _site("alpha").policy.required_capabilities
 
     assert "http3" in requested
-    assert requested & blitzecdn_plugin_metadata().capabilities == frozenset({"http3"})
+    assert requested & FEATURE.metadata.capabilities == frozenset({"http3"})
 
 
 # --- the fleet derivation ---------------------------------------------------
 
 
 def test_http3_projects_the_quic_fleet_requirement_and_exactly_one_owner() -> None:
-    contribution = blitzecdn_fleet_desired_state(
-        (_site("bravo"), _site("alpha"), _site("disabled", enabled=False)), object()
+    contribution = quic_listener(
+        (_site("bravo"), _site("alpha"), _site("disabled", enabled=False))
     )
 
     assert contribution.plugin == "http3"
@@ -101,9 +98,7 @@ def test_http3_projects_the_quic_fleet_requirement_and_exactly_one_owner() -> No
 
 
 def test_a_fleet_with_no_http3_site_opens_no_quic_listener() -> None:
-    contribution = blitzecdn_fleet_desired_state(
-        (_site("alpha", http3=False),), object()
-    )
+    contribution = quic_listener((_site("alpha", http3=False),))
 
     assert contribution.variables == {
         "blitzecdn_edge_http3_enabled": False,
@@ -113,9 +108,7 @@ def test_a_fleet_with_no_http3_site_opens_no_quic_listener() -> None:
 
 def test_a_disabled_site_neither_owns_the_listener_nor_opens_it() -> None:
     """A disabled site converges no server block, so it cannot carry reuseport."""
-    contribution = blitzecdn_fleet_desired_state(
-        (_site("alpha", enabled=False),), object()
-    )
+    contribution = quic_listener((_site("alpha", enabled=False),))
 
     assert contribution.variables == {
         "blitzecdn_edge_http3_enabled": False,
@@ -126,8 +119,8 @@ def test_a_disabled_site_neither_owns_the_listener_nor_opens_it() -> None:
 def test_the_owner_is_the_first_site_by_name_whatever_order_they_arrive_in() -> None:
     """Deterministic, so two runs of one fleet render a byte-identical document."""
     sites = (_site("charlie"), _site("alpha"), _site("bravo"))
-    forward = blitzecdn_fleet_desired_state(sites, object())
-    reversed_ = blitzecdn_fleet_desired_state(tuple(reversed(sites)), object())
+    forward = quic_listener(sites)
+    reversed_ = quic_listener(tuple(reversed(sites)))
 
     assert forward.variables == reversed_.variables
     assert forward.variables["blitzecdn_nginx_http3_listener_owner"] == "alpha"
@@ -138,7 +131,7 @@ def test_the_owner_is_the_first_site_by_name_whatever_order_they_arrive_in() -> 
 
 def test_installed_http3_overrides_the_baseline_core_contributes() -> None:
     """The whole difference installing this package makes to a deployment."""
-    assert blitzecdn_fleet_desired_state((), object()).overrides == QUIC_FLEET_VARIABLES
+    assert quic_listener(()).overrides == QUIC_FLEET_VARIABLES
     assert _merged(_site("bravo"), _site("alpha")) == {
         "blitzecdn_edge_http3_enabled": True,
         "blitzecdn_nginx_http3_listener_owner": "alpha",
@@ -154,7 +147,7 @@ def test_the_two_plugins_agree_when_no_site_asks_for_http3() -> None:
     """
     sites = (_site("alpha", http3=False),)
 
-    assert _merged(*sites) == baseline_fleet_desired_state(sites, object()).variables
+    assert _merged(*sites) == baseline_listeners(sites).variables
 
 
 def test_the_two_plugins_never_collide_on_the_variables_they_share() -> None:
@@ -166,7 +159,7 @@ def test_the_two_plugins_never_collide_on_the_variables_they_share() -> None:
 
 def test_claiming_the_override_twice_is_refused() -> None:
     """Two plugins deriving the QUIC listener is a conflict, not a last-wins."""
-    contribution = blitzecdn_fleet_desired_state((_site("alpha"),), object())
+    contribution = quic_listener((_site("alpha"),))
 
     with pytest.raises(Exception, match="each claim to override"):
         merge_variables([contribution, contribution], subject="fleet desired state")
@@ -175,27 +168,27 @@ def test_claiming_the_override_twice_is_refused() -> None:
 # --- through the real registry ----------------------------------------------
 
 
-def test_the_installed_entry_point_derives_the_fleet_state_end_to_end() -> None:
-    """Discovery, registration and the merge, in one pass over real metadata.
+def test_the_composed_rendering_derives_the_fleet_state_end_to_end(settings) -> None:
+    """The bound rendering, merged as the release compiler merges it.
 
-    `load_control_plane_plugins` reads this distribution's installed `blitzecdn.plugins`
-    entry point exactly as a running control plane does, and `fleet_variables`
-    is the call the deployment renderer makes. So this fails if the entry point
-    is misspelled, if the hook is not picked up, or if the `overrides` claim
-    stops resolving against core's baseline — none of which the unit tests
-    above would notice.
+    `control.rendering` is what the compiler calls, so this fails if the
+    composition root stops binding this provider's rendering, or if the
+    `overrides` claim stops resolving against the HTTP baseline — neither of
+    which the unit tests above would notice.
     """
-    registry = load_control_plane_plugins()
-
-    assert "http3" in registry.capabilities
-    assert registry.fleet_variables((_site("bravo"), _site("alpha")), object()) == {
-        "blitzecdn_edge_http3_enabled": True,
-        "blitzecdn_nginx_http3_listener_owner": "alpha",
-    }
-    assert registry.fleet_variables((_site("alpha", http3=False),), object()) == {
-        "blitzecdn_edge_http3_enabled": False,
-        "blitzecdn_nginx_http3_listener_owner": "",
-    }
+    control = ControlPlane(settings=settings)
+    try:
+        assert "http3" in control.plugins.capabilities
+        assert control.rendering.fleet_variables((_site("bravo"), _site("alpha"))) == {
+            "blitzecdn_edge_http3_enabled": True,
+            "blitzecdn_nginx_http3_listener_owner": "alpha",
+        }
+        assert control.rendering.fleet_variables((_site("alpha", http3=False),)) == {
+            "blitzecdn_edge_http3_enabled": False,
+            "blitzecdn_nginx_http3_listener_owner": "",
+        }
+    finally:
+        control.close()
 
 
 def test_an_installed_http3_capability_clears_the_site_validation() -> None:

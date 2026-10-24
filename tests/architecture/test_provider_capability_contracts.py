@@ -22,18 +22,18 @@ def test_the_http_capability_contributes_the_quic_baseline_without_deriving_it()
     """Core may state the baseline; it may not work out who owns `reuseport`.
 
     The derivation is `site.http3_enabled` read across the fleet, and it now
-    lives in `blitzecdn-http3`. Core's `http` plugin still writes both
+    lives in the HTTP/3 provider. The `http` feature still writes both
     variables — they are `required: true` in the edge role's argument spec, so
     the document keeps one shape whatever is installed — but it writes them as
     constants. `policy.py` still reads the switch, which is right: the *field*
     is core's and `required_capabilities` is how a site asks for the capability.
-    What may not come back is a read in `plugin.py`, because that is the
+    What may not come back is a read in `runtime.py`, because that is the
     derivation, and two plugins deriving these two variables from one fleet is
     a merge conflict at deploy time rather than a design anybody chose.
     """
-    plugin = SOURCE / "capabilities/http/plugin.py"
+    plugin = SOURCE / "capabilities/http/runtime.py"
     offenders = [
-        "capabilities/http/plugin.py reads .http3_enabled"
+        "capabilities/http/runtime.py reads .http3_enabled"
         for node in ast.walk(ast.parse(plugin.read_text(encoding="utf-8")))
         if isinstance(node, ast.Attribute) and node.attr == "http3_enabled"
     ]
