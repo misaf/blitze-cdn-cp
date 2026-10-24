@@ -1,0 +1,18 @@
+---
+- name: Validate and seal the candidate
+  ansible.builtin.import_tasks: seal.yml
+  tags: [stage]
+
+- name: Activate the sealed configuration
+  ansible.builtin.import_tasks: activate.yml
+  tags: [activate]
+
+# never excludes these from an untagged converge; the controller selects them
+# explicitly only after the external verifier decided the transaction outcome.
+- name: Roll back the pending configuration transaction
+  ansible.builtin.import_tasks: rollback.yml
+  tags: [never, rollback]
+
+- name: Commit the verified configuration transaction
+  ansible.builtin.import_tasks: commit.yml
+  tags: [never, commit]

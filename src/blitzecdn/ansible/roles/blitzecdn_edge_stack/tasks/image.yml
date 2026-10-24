@@ -89,14 +89,16 @@
     # Pinned to the digest from here on, even when the operator named a tag.
     # The validation container, the running container and the recorded state
     # then all refer to one immutable object, which is what makes a rollback
-    # exact rather than "whatever that tag means now".
+    # exact rather than "whatever that tag means now". Locally loaded images
+    # have no repository digest: retain their immutable image ID instead of
+    # falling back to a tag which could change between stage and activation.
     - name: Pin the resolved image to its digest
       ansible.builtin.set_fact:
         blitzecdn_edge_stack_resolved_image: >-
           {{ (blitzecdn_edge_stack_pulled_info.images[0].RepoDigests | default([]))
              | select('match', '^' ~ (blitzecdn_edge_stack_image_reference | regex_escape) ~ '@')
              | list | first
-             | default(blitzecdn_edge_runtime.image, true) }}
+             | default(blitzecdn_edge_stack_pulled_info.images[0].Id, true) }}
         blitzecdn_edge_stack_upgrading: true
       when: not ansible_check_mode
 

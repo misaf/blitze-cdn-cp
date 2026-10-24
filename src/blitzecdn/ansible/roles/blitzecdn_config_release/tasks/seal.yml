@@ -1,0 +1,34 @@
+---
+- name: Capture the exact validated runtime image
+  ansible.builtin.copy:
+    content: "{{ blitzecdn_edge_stack_resolved_image }}\n"
+    dest: "{{ blitzecdn_config_release_candidate }}/runtime-image"
+    owner: root
+    group: root
+    mode: "0644"
+  when:
+    - not ansible_check_mode
+    - not blitzecdn_config_release_seal.stat.exists
+
+- name: Seal the complete candidate configuration
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ blitzecdn_config_release_helper }}"
+      - seal
+      - "{{ blitzecdn_config_release_root }}"
+      - "{{ blitzecdn_release_digest }}"
+  changed_when: not blitzecdn_config_release_seal.stat.exists
+  when: not ansible_check_mode
+
+# Also test a previously sealed candidate. Neither a retry nor a changed image
+# is permission to trust the result of an earlier configuration test.
+- name: Prove the sealed candidate loads under the selected image
+  ansible.builtin.include_role:
+    name: blitzecdn_nginx
+    tasks_from: config-test.yml
+    apply:
+      tags: [always]
+  vars:
+    blitzecdn_nginx_config_test_image: "{{ blitzecdn_edge_stack_resolved_image }}"
+  when: not ansible_check_mode

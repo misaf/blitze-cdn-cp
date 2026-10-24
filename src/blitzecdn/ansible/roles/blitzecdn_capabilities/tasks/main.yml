@@ -42,5 +42,7 @@
     # checks cover the resources themselves; keeping them public avoids copying
     # optional defaults into core merely to render their templates.
     public: true
+    apply:
+      tags: [always]
   loop: "{{ blitzecdn_capabilities_roles }}"
   tags: [always, capabilities]

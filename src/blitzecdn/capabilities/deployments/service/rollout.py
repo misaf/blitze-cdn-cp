@@ -54,10 +54,7 @@ __all__ = ["Rollout", "RolloutOutcome"]
 
 _LOGGER = logging.getLogger(__name__)
 
-#: The tag selection that runs preparation and nothing that changes what an
-#: edge is serving. `stage` is declared on every pre-task of the edge play and
-#: on no role, and the pre-tasks also carry `always` so they still run as
-#: preconditions under every other selection.
+#: Render and validate a sealed candidate without changing the active pointer.
 _STAGE_TAGS = ("stage",)
 
 
@@ -248,12 +245,13 @@ class Rollout:
                 # up to the caller, which fails the deployment and re-raises.
                 # Swallowing it here would report a fleet-wide breakage as one
                 # edge declining to converge.
+                detail = self._withdraw(phase, target.edge, str(exc), check=check)
                 self._fail(
                     deployment_id,
                     target.edge,
                     fence,
                     phase,
-                    f"{type(exc).__name__}: {exc}",
+                    detail,
                 )
                 raise
             except Exception as exc:
@@ -268,13 +266,13 @@ class Rollout:
                     target.edge,
                     fence,
                     phase,
-                    f"{type(exc).__name__}: {exc}",
+                    self._withdraw(
+                        phase, target.edge, f"{type(exc).__name__}: {exc}", check=check
+                    ),
                 ), last_run
-            # Kept only when the phase produced one. `PREPARE` and `VERIFY`
-            # answer `None` — one writes nothing and the other makes an HTTP
-            # request — and letting either clear this would leave a successful
-            # deployment carrying no Ansible result at all, because verifying
-            # is the last thing a rollout does.
+            # PREPARE produces no tool result. VERIFY observes the public
+            # listener before committing the edge-local journal; its commit
+            # result must not clear a failed activation's original report.
             last_run = produced or last_run
             if produced is not None and not produced.succeeded:
                 return self._fail(
@@ -282,7 +280,12 @@ class Rollout:
                     target.edge,
                     fence,
                     phase,
-                    produced.summary() or "the run reported a failure",
+                    self._withdraw(
+                        phase,
+                        target.edge,
+                        produced.summary() or "the run reported a failure",
+                        check=check,
+                    ),
                 ), last_run
             if not self.targets.record_phase(
                 deployment_id, target.edge, phase, fence=fence
@@ -322,11 +325,10 @@ class Rollout:
     ) -> AnsibleRun | None:
         """Do one phase for one edge, or nothing when the phase is not a run.
 
-        ``PREPARE`` and ``VERIFY`` produce no Ansible result — one writes a
-        file on the controller and the other makes an HTTP request — so both
-        answer ``None`` and report failure by raising. That keeps the caller's
-        two failure paths honest: a run that reported a failure, and a phase
-        that could not be carried out at all.
+        PREPARE is shared controller work and produces no run. VERIFY makes
+        the external request first, then commits the pending activation with
+        an explicit tool run. Observation failures raise; a failed tool result
+        remains distinct from a phase that could not be executed.
         """
         if phase is TargetPhase.PREPARE:
             # Nothing to do per edge: `converge` published the artifact once,
@@ -340,9 +342,35 @@ class Rollout:
         if phase is TargetPhase.STAGE:
             return self.runner.run(check=False, host_limit=edge, tags=_STAGE_TAGS)
         if phase is TargetPhase.ACTIVATE:
-            return self.runner.run(check=check, host_limit=edge)
+            return self.runner.run(check=check, host_limit=edge, tags=("activate",))
         self._verify(edge, release)
-        return None
+        # Only an external observation may commit the edge-local journal.
+        # Replaying this after a lost reply is safe: commit is idempotent.
+        return self.runner.run(check=False, host_limit=edge, tags=("commit",))
+
+    def _withdraw(
+        self, phase: TargetPhase, edge: str, detail: str, *, check: bool
+    ) -> str:
+        """Withdraw an uncommitted activation, preserving both failure reports.
+
+        The remote journal, rather than controller memory, owns the previous
+        pointer and runtime definition. This also works after worker restart
+        between ACTIVATE and VERIFY. Never describe a failed rollback as a
+        restored service, and keep the activation's tool result intact.
+        """
+        if check or phase not in (TargetPhase.ACTIVATE, TargetPhase.VERIFY):
+            return detail
+        try:
+            result = self.runner.run(check=False, host_limit=edge, tags=("rollback",))
+            if not result.succeeded:
+                return f"{detail}; rollback failed: {result.summary()}"
+        except Exception as exc:
+            _LOGGER.exception("configuration rollback failed on %s", edge)
+            return f"{detail}; rollback failed: {exc}"
+        return (
+            f"{detail}; previous configuration restored "
+            "(or failed first installation withdrawn)"
+        )
 
     def _verify(self, edge: str, release: Release) -> None:
         """Require the edge to answer for what the release says it serves.

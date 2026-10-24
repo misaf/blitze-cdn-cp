@@ -1,0 +1,18 @@
+# Managed release {{ blitzecdn_release_digest }}. All includes name this tree,
+# so an old worker's executable resources remain available during a reload.
+include {{ blitzecdn_edge_runtime.paths.modules_conf }};
+user nginx;
+worker_processes auto;
+error_log {{ blitzecdn_edge_runtime.paths.logs }}/error.log warn;
+pid /var/run/nginx.pid;
+events {
+    worker_connections 1024;
+}
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    sendfile on;
+    keepalive_timeout 65;
+    include {{ blitzecdn_edge_runtime.paths.nginx }}/conf.d/*.conf;
+    include {{ blitzecdn_edge_runtime.paths.nginx }}/sites-enabled/*;
+}

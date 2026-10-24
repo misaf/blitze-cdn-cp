@@ -1,0 +1,92 @@
+---
+- name: Require a content-addressed release
+  ansible.builtin.assert:
+    that:
+      - blitzecdn_release_digest is defined
+      - blitzecdn_release_digest is match('^[0-9a-f]{64}$')
+    fail_msg: The edge play requires a compiled release digest.
+
+- name: Select the candidate tree
+  ansible.builtin.set_fact:
+    blitzecdn_config_release_candidate: "{{ blitzecdn_config_release_root }}/{{ blitzecdn_release_digest }}"
+    blitzecdn_config_release_enabled: true
+
+# Do not change state, TLS, cache, logs, ACME or external provider data paths.
+# Only rendered configuration and executable njs resources belong to the
+# release tree. Provider-maintained databases have their own lifecycle.
+# This orchestration role deliberately resolves the shared contract for all
+# writers. It owns activation, not a second copy of each renderer's defaults.
+- name: Bind configuration writers to the candidate  # noqa: var-naming[no-role-prefix]
+  ansible.builtin.set_fact:
+    blitzecdn_edge_runtime: >-  # noqa: var-naming[no-role-prefix]
+      {{ blitzecdn_edge_runtime | combine({'paths': {
+         'nginx': blitzecdn_config_release_candidate ~ '/nginx',
+         'modules_conf': blitzecdn_config_release_candidate ~ '/modules.conf',
+         'modules': blitzecdn_config_release_candidate ~ '/njs'
+         }}, recursive=True) }}
+
+- name: Inspect the candidate seal
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_config_release_candidate }}/manifest.json"
+  register: blitzecdn_config_release_seal
+
+- name: Create the configuration state directory
+  ansible.builtin.file:
+    path: "{{ blitzecdn_config_release_helper | dirname }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  when: not ansible_check_mode
+
+- name: Install the configuration transaction helper
+  ansible.builtin.copy:
+    src: configuration_release.py
+    dest: "{{ blitzecdn_config_release_helper }}"
+    owner: root
+    group: root
+    mode: "0600"
+  when: not ansible_check_mode
+
+# Same stable parent mount as Compose. The remaining mounts are external
+# runtime material; they are intentionally identical in validation and serving.
+- name: Select candidate validation mounts
+  ansible.builtin.set_fact:
+    blitzecdn_nginx_config_test_volumes:  # noqa: var-naming[no-role-prefix]
+      - "{{ blitzecdn_config_release_root }}:{{ blitzecdn_config_release_root }}:ro"
+      - "{{ blitzecdn_edge_runtime.paths.tls }}:{{ blitzecdn_edge_runtime.paths.tls }}:ro"
+      - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
+      - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
+      - "{{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro"
+      - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
+      - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
+
+- name: Read the sealed runtime image identity
+  ansible.builtin.slurp:
+    path: "{{ blitzecdn_config_release_candidate }}/runtime-image"
+  register: blitzecdn_config_release_image
+  when:
+    - blitzecdn_config_release_seal.stat.exists
+    - "'rollback' not in ansible_run_tags"
+
+- name: Reuse the image validated with this candidate
+  ansible.builtin.set_fact:
+    blitzecdn_edge_stack_resolved_image:  # noqa: var-naming[no-role-prefix]
+      "{{ blitzecdn_config_release_image.content | b64decode | trim }}"
+  when:
+    - blitzecdn_config_release_seal.stat.exists
+    - "'rollback' not in ansible_run_tags"
+
+- name: Verify an existing candidate before trusting its image or configuration
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ blitzecdn_config_release_helper }}"
+      - verify
+      - "{{ blitzecdn_config_release_root }}"
+      - "{{ blitzecdn_release_digest }}"
+  check_mode: false
+  changed_when: false
+  when:
+    - blitzecdn_config_release_seal.stat.exists
+    - "'rollback' not in ansible_run_tags"

@@ -15,7 +15,10 @@
   community.docker.docker_container:
     name: blitzecdn-edge-config-test
     image: "{{ blitzecdn_nginx_config_test_image }}"
-    command: [nginx, -t]
+    command: >-
+      {{ ['nginx', '-t', '-c', blitzecdn_config_release_candidate ~ '/nginx.conf']
+         if blitzecdn_config_release_enabled | default(false) | bool
+         else ['nginx', '-t'] }}
     detach: false
     cleanup: true
     network_mode: none

@@ -133,7 +133,12 @@ def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
 
     def run(*, check, host_limit=None, tags=()):
         result = original_run(check=check, host_limit=host_limit, tags=tags)
-        if result.succeeded and not check and not tags and not server.freeze_release:
+        if (
+            result.succeeded
+            and not check
+            and tags == ("activate",)
+            and not server.freeze_release
+        ):
             document = yaml.safe_load(settings.generated_vars_path.read_text())
             server.release_digest = document["blitzecdn_release_digest"]
         return result
@@ -316,6 +321,7 @@ def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
     )
 
     assert control.deployments.execution.rollout.runner.host_limits == [
+        "edge-b",
         "edge-b",
         "edge-b",
         "edge-b",

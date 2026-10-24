@@ -50,7 +50,8 @@ associated decisions describe the implementation that actually exists.
   the controller refuses stale configuration and missing verification addresses.
   Execution envelopes carry identity outside the artifact hash. Formatting and
   strict types pass; 121 release, rollout, live HTTP/TLS, and rendered-template
-  tests pass. Atomic staged activation remains to be implemented.
+  tests pass. The subsequent activation slice below completes configuration
+  staging and reversion.
 
 - Step 4 recovery complete: startup republishes interrupted RUNNING work;
   redelivery resumes durable phases under a new generation and re-observes
@@ -84,21 +85,27 @@ associated decisions describe the implementation that actually exists.
   assert the exact digest against the stored release. The workspace environment
   was restored after the run.
 
+- Step 5 activation implemented: render and seal retained candidate trees,
+  validate with a captured immutable image, atomically switch the active pointer,
+  and retain a durable rollback journal for configuration and runtime records.
+  External release verification commits the journal; activation or observation
+  failures withdraw it. First-install failure and failed rollback have explicit
+  outcomes. The Ansible surface intentionally adds the configuration-release
+  role; all other frozen surfaces are unchanged. See decision 0012.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full workspace fast suite: 1,837 passed, 13 skipped.
-- Core-only suite: 1,268 passed, 35 skipped; workspace packages restored.
+- Full workspace fast suite after activation: 1,854 passed, 13 skipped.
+- Earlier core-only checkpoint: 1,268 passed, 35 skipped; not repeated for this slice.
 - All eleven distributions build as wheels and source archives. The root wheel
-  contains the new serving owner and runtime tasks and excludes the retired
-  DNS host module.
+  contains the configuration transaction helper, every role task, its argument
+  spec and the candidate Nginx entrypoint, verified in the built archive.
 - Live Ubuntu edge convergence has not been executed.
 
 ## Remaining implementation slices
 
-- Stage a complete candidate configuration tree and activate it atomically,
-  with explicit reversion on activation or serving-verification failure.
 - Replace flat policy inheritance with nested composition and introduce shared
   application commands for API and CLI mutations.
 - Bind resource versions to canonical desired state and add reference-aware
@@ -107,3 +114,10 @@ associated decisions describe the implementation that actually exists.
   focused runtime providers.
 - Simplify installation, separate schema migration from ordinary repository
   construction, and verify complete recovery on a real edge.
+
+## Per-step authorization
+
+After this activation step is tested and independently committed, ask for the
+user's confirmation before beginning each subsequent implementation step. The
+next proposed step is nested serving-policy composition, followed by shared
+application commands as a separate confirmed slice.

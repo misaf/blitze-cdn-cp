@@ -1,0 +1,61 @@
+---
+- name: Restore the previous configuration and runtime records
+  ansible.builtin.command:
+    argv:
+      - python3
+      - "{{ blitzecdn_config_release_helper }}"
+      - rollback
+      - "{{ blitzecdn_config_release_root }}"
+      - "{{ blitzecdn_release_digest }}"
+  changed_when: true
+  when: not ansible_check_mode
+
+- name: Inspect the restored Compose definition
+  ansible.builtin.stat:
+    path: "{{ blitzecdn_edge_stack_compose_file }}"
+  register: blitzecdn_config_release_previous_compose
+
+- name: Restart the previous runtime definition
+  community.docker.docker_compose_v2:
+    project_src: "{{ blitzecdn_edge_stack_compose_file | dirname }}"
+    project_name: "{{ blitzecdn_edge_stack_project }}"
+    files: ["{{ blitzecdn_edge_stack_compose_file | basename }}"]
+    state: present
+    pull: never
+    build: never
+    recreate: always
+    remove_orphans: true
+    wait: true
+    wait_timeout: "{{ blitzecdn_edge_stack_health_timeout | int }}"
+  when:
+    - not ansible_check_mode
+    - blitzecdn_config_release_previous_compose.stat.exists
+
+- name: Verify the restored configuration loads
+  community.docker.docker_container_exec:
+    container: "{{ blitzecdn_edge_runtime.container }}"
+    argv: [nginx, -t, -c, "{{ blitzecdn_config_release_root }}/current/nginx.conf"]
+  changed_when: false
+  when:
+    - not ansible_check_mode
+    - blitzecdn_config_release_previous_compose.stat.exists
+
+- name: Verify the restored runtime serves its local status endpoint
+  ansible.builtin.uri:
+    url: >-
+      http://{{ blitzecdn_edge_runtime.status.address }}:{{
+        blitzecdn_edge_runtime.status.port }}{{ blitzecdn_edge_runtime.status.path }}
+    status_code: [200]
+  when:
+    - not ansible_check_mode
+    - blitzecdn_config_release_previous_compose.stat.exists
+
+# A failed first installation has no prior service. Remove its failed container
+# rather than claiming that an edge which never served was restored.
+- name: Withdraw the failed first runtime
+  community.docker.docker_container:
+    name: "{{ blitzecdn_edge_runtime.container }}"
+    state: absent
+  when:
+    - not ansible_check_mode
+    - not blitzecdn_config_release_previous_compose.stat.exists

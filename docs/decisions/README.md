@@ -20,6 +20,7 @@ rejected. Rationale local to one function stays in that function's docstring.
 | [0009](0009-per-edge-reconciliation.md) | Per-edge reconciliation, fencing, and verified serving |
 | [0010](0010-release-integrity.md) | Immutable canonical release documents and verified persistence |
 | [0011](0011-serving-policy-ownership.md) | Shared serving policy and effective virtual-host ownership |
+| [0012](0012-atomic-configuration-activation.md) | Sealed candidate configuration and recoverable atomic activation |
 
 Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes

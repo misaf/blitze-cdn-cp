@@ -158,10 +158,10 @@ def test_every_edge_walks_the_five_phases_in_order(repository):
     assert outcome.succeeded
     (target,) = outcome.targets
     assert target.phase is TargetPhase.VERIFY
-    # Validate in check mode, stage with the tag that touches nothing served,
-    # then the real converge.
-    assert runner.check_modes == [True, False, False]
-    assert runner.tag_selections == [(), ("stage",), ()]
+    # Preview, stage a sealed candidate, activate, then commit only after the
+    # external serving observation.
+    assert runner.check_modes == [True, False, False, False]
+    assert runner.tag_selections == [(), ("stage",), ("activate",), ("commit",)]
 
 
 def test_a_check_mode_rollout_stops_after_validating(repository):
@@ -179,7 +179,7 @@ def test_a_check_mode_rollout_stops_after_validating(repository):
     assert runner.tag_selections == [()]
 
 
-def test_staging_is_the_only_phase_that_selects_a_tag(repository):
+def test_each_mutation_selects_its_explicit_phase(repository):
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
@@ -187,7 +187,11 @@ def test_staging_is_the_only_phase_that_selects_a_tag(repository):
 
     rollout.converge(deployment, release, edges=["edge-a"], check=False)
 
-    assert [tags for tags in runner.tag_selections if tags] == [("stage",)]
+    assert [tags for tags in runner.tag_selections if tags] == [
+        ("stage",),
+        ("activate",),
+        ("commit",),
+    ]
 
 
 # -- Partial failure -------------------------------------------------------
@@ -334,7 +338,7 @@ def test_an_interrupted_rollout_resumes_from_the_edges_it_had_not_reached(
     )
 
     assert outcome.succeeded
-    assert runner.host_limits == ["edge-b", "edge-b", "edge-b"]
+    assert runner.host_limits == ["edge-b", "edge-b", "edge-b", "edge-b"]
 
 
 def test_an_edge_added_since_the_rollout_started_is_picked_up_on_resume(repository):
@@ -470,3 +474,62 @@ def test_a_deployment_records_which_edges_converged_and_which_were_not_attempted
     )
     assert recorded.details["unattempted"] == ["edge-b"]
     assert recorded.details["converged"] == []
+
+
+@pytest.mark.parametrize("rollback_fails", [False, True])
+def test_failed_serving_verification_withdraws_the_pending_activation(
+    repository, rollback_fails
+):
+    class Runtime(FakeRunner):
+        def run(self, *, check, host_limit=None, tags=()):
+            result = super().run(check=check, host_limit=host_limit, tags=tags)
+            if tags == ("rollback",) and rollback_fails:
+                return ansible_run(
+                    host_run("edge-a", failed=1, failure="previous image unavailable"),
+                    status=RunStatus.FAILED,
+                    return_code=2,
+                )
+            return result
+
+    release = stored(repository, a_release(serving=True), release_inputs(serving=True))
+    deployment = deployment_in(repository, release.id)
+    runner = Runtime()
+    rollout = rollout_for(
+        repository,
+        edges={"edge-a": "203.0.113.10"},
+        runner=runner,
+        verifier=StubVerifier(served=False),
+    )
+    outcome = rollout.converge(deployment, release, edges=["edge-a"], check=False)
+    assert not outcome.succeeded
+    assert runner.tag_selections == [(), ("stage",), ("activate",), ("rollback",)]
+    assert outcome.run.succeeded, "the activation tool result remains independent"
+    if rollback_fails:
+        assert "rollback failed" in outcome.error
+        assert "previous configuration restored" not in outcome.error
+    else:
+        assert "previous configuration restored" in outcome.error
+
+
+def test_failed_activation_is_withdrawn_before_the_rollout_stops(repository):
+    class Runtime(FakeRunner):
+        def run(self, *, check, host_limit=None, tags=()):
+            result = super().run(check=check, host_limit=host_limit, tags=tags)
+            if tags == ("activate",):
+                return ansible_run(
+                    host_run("edge-a", failed=1, failure="reload refused"),
+                    status=RunStatus.FAILED,
+                    return_code=2,
+                )
+            return result
+
+    release = stored(repository, a_release())
+    deployment = deployment_in(repository, release.id)
+    runner = Runtime()
+    rollout = rollout_for(repository, edges={"edge-a": "203.0.113.10"}, runner=runner)
+    outcome = rollout.converge(deployment, release, edges=["edge-a"], check=False)
+    assert not outcome.succeeded
+    assert runner.tag_selections[-1] == ("rollback",)
+    assert ("commit",) not in runner.tag_selections
+    assert outcome.targets[0].phase is TargetPhase.STAGE
+    assert not outcome.run.succeeded

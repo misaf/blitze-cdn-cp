@@ -21,6 +21,9 @@
         mode: "{{ item.mode }}"
       loop:
         - {path: "{{ blitzecdn_edge_runtime.paths.state }}", mode: "0755"}
+        - path: >-
+            {{ blitzecdn_config_release_root | default(blitzecdn_edge_runtime.paths.state ~ '/releases') }}
+          mode: "0755"
         # Read-only in the container and root-only on the host: this is where
         # the njs implementation of Under Attack Mode lives, and it is signed
         # with a fleet secret.
@@ -69,6 +72,10 @@
 
     - name: Resolve the edge runtime image
       ansible.builtin.import_tasks: image.yml
+      when: >-
+        not (blitzecdn_config_release_enabled | default(false) | bool)
+        or not (blitzecdn_config_release_seal.stat.exists | default(false))
 
     - name: Render the Compose project
       ansible.builtin.import_tasks: compose.yml
+      when: not (blitzecdn_config_release_enabled | default(false) | bool)

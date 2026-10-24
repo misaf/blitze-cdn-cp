@@ -1,0 +1,31 @@
+---
+# Snapshot the old Compose definition and image record before either is edited.
+# The journal survives controller failure between pointer switch and reload.
+- name: Activate the validated configuration transaction
+  when: not ansible_check_mode
+  block:
+    - name: Switch the active configuration pointer atomically
+      ansible.builtin.command:
+        argv:
+          - python3
+          - "{{ blitzecdn_config_release_helper }}"
+          - activate
+          - "{{ blitzecdn_config_release_root }}"
+          - "{{ blitzecdn_release_digest }}"
+          - "{{ blitzecdn_edge_stack_compose_file }}"
+          - "{{ blitzecdn_edge_stack_deployed_image_file }}"
+      changed_when: true
+
+    - name: Start or reload the selected edge runtime
+      ansible.builtin.include_role:
+        name: blitzecdn_edge_stack
+        apply:
+          tags: [always]
+
+  rescue:
+    - name: Withdraw the unsuccessful activation
+      ansible.builtin.include_tasks: rollback.yml
+
+    - name: Report the withdrawn configuration
+      ansible.builtin.fail:
+        msg: Configuration activation failed; the previous configuration and runtime were restored.

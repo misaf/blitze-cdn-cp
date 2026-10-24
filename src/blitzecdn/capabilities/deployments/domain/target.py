@@ -34,18 +34,18 @@ The five are ordered and each is genuinely separable work.
     A check-mode run against this edge. Reports what would change and changes
     nothing.
 ``STAGE``
-    Everything that must be true before a configuration is rendered: the
-    container engine, the persistent directories, the runtime image pulled and
-    pinned by digest, and that image proved able to serve. Nothing here changes
-    what the edge is currently serving, which is what makes it stageable ahead
-    of a window.
+    Prepare the runtime, render configuration and executable resources into a
+    release directory, test them with the exact selected image, and seal their
+    content. The active configuration pointer is not changed.
 ``ACTIVATE``
-    The converge: render the configuration, prove it loads under the image that
-    will run it, reload.
+    Journal the previous pointer and runtime records, atomically select the
+    sealed tree, then start or reload Nginx. Failure restores the previous
+    configuration and runtime definition.
 ``VERIFY``
     Ask the edge, over the network, whether it is actually serving what the
     release says it should. Deliberately last and deliberately not Ansible's
-    return code — see :class:`TargetPhase`.
+    return code — see :class:`TargetPhase`. Commit the activation journal only
+    after that observation; withdraw the pending activation if it fails.
 """
 
 from __future__ import annotations
