@@ -163,8 +163,25 @@ associated decisions describe the implementation that actually exists.
   recovery on an isolated Ubuntu edge. Resume only when the user asks. Local
   tests do not substitute for this verification.
 
+## Operating and recovery acceptance
+
+The next milestone is a small, understandable system with demonstrated recovery.
+Each step requires separate confirmation and its own commit.
+
+1. Complete: inspect existing evidence and document acceptance criteria in
+   [RECOVERY_ACCEPTANCE.md](RECOVERY_ACCEPTANCE.md). The selected existing tests
+   pass (142 + 29); runtime code and tests are unchanged. Simulated worker
+   interruptions and edge activation are explicitly distinguished from real
+   process and Ubuntu verification.
+2. Pending confirmation: practice recovery across fresh local processes and
+   separate temporary controller directories, with observable results.
+3. Pending confirmation: fix confusing behavior found during that practice.
+4. Pending confirmation: document retention rules and address demonstrated gaps.
+5. Pending confirmation: write the short operating guide from verified results.
+
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
 confirmation before beginning any further implementation. The user deferred
-Ubuntu verification and authorized the final architecture review instead.
+Ubuntu verification. The acceptance checklist is complete; do not begin local
+recovery practice until the user confirms step 2.

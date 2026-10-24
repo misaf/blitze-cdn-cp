@@ -346,7 +346,9 @@ just check                           # all CI gates before pushing
 Implementation decisions and verification status are recorded in
 [docs/REIMPLEMENTATION.md](docs/REIMPLEMENTATION.md). Ubuntu deployment and
 recovery verification is deferred; local tests do not establish live-edge
-readiness. See `just --list` for other focused commands.
+readiness. The [recovery acceptance checklist](docs/RECOVERY_ACCEPTANCE.md)
+separates existing local evidence from recovery practice still to be performed.
+See `just --list` for other focused commands.
 
 Report security issues privately to the maintainers. Do not publish credentials
 or exploit details in an issue.
