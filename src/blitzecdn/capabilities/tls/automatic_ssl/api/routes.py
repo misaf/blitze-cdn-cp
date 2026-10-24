@@ -9,7 +9,6 @@ from blitzecdn.api.dependencies import (
 )
 from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.tls.api.models import SslAutomaticReconciliation
-from blitzecdn.capabilities.tls.composition import build_automatic_ssl_service
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 
@@ -23,6 +22,6 @@ def reconcile_automatic_ssl(
 ) -> SslAutomaticReconciliation:
     """Probe origins from every edge and apply upgrade-only recommendations."""
     return as_operation(
-        build_automatic_ssl_service(control).reconcile(operator),
+        control.automatic_ssl.reconcile(operator),
         SslAutomaticReconciliation,
     )

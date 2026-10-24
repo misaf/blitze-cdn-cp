@@ -17,25 +17,15 @@ the ownership filter and the refreeze recipe are then written once:
 
     <import root>\\t<kind>\\t<detail>
 
-The first field is the distribution that *promises* the line — `blitzecdn` for
-the control plane, `blitzecdn_cache` for what arrives with that wheel. It is
-there because the suite runs in two configurations: `just test` with every
-optional distribution installed, and `just test-core-only` with none of them.
-One golden file serves both, because the test filters it to whatever is
-installed rather than keeping two copies that would drift apart.
-
-Ownership is asked of the code rather than declared: a command's callback, a
-route's endpoint and a role's directory each say which package they came from.
-Nothing here imports an optional distribution — `test_the_control_plane_suite_
-names_no_optional_package` forbids it, and these read `__module__` strings and
-file paths instead.
+The first field identifies the distribution owning the contract. All shipped
+interfaces belong to `blitzecdn`; comparisons cover the complete application.
+Ownership is derived from callbacks, route endpoints and resource paths.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import enum
-import importlib.util
 import inspect
 import re
 from pathlib import Path
@@ -56,23 +46,6 @@ FROZEN = Path(__file__).resolve().parent / "contract" / "frozen"
 SURFACES = ("cli", "http", "plugin_abi", "sdk", "ansible", "schema")
 
 
-def installed(owner: str) -> bool:
-    """Whether this environment actually has the distribution behind a line.
-
-    Shared with `contract/test_frozen`, which filters the golden file by it, so
-    the question "is this surface present here" has exactly one answer. Asked of
-    the import system rather than of the checkout: `packages/blitzecdn-cache`
-    is on disk in every clone, and whether its roles and routes are part of
-    *this* control plane is decided by whether the wheel is installed.
-    """
-    if owner == ROOT:
-        return True
-    try:
-        return importlib.util.find_spec(owner) is not None
-    except (ImportError, ValueError):
-        return False
-
-
 def _owner(module: str | None) -> str:
     """The distribution a symbol came from, from its module path."""
     return (module or "").split(".")[0] or "-"
@@ -86,10 +59,8 @@ def _root_command_owner(path: str, command: Any) -> str:
     work before one exists to register plugins against. They ship in
     `blitzecdn.cli` and belong to core by construction.
 
-    Anything else unclaimed is refused rather than attributed to core by
-    default. A wheel's command landing here would be one a core-only run could
-    not filter out of the golden, which is the exact failure the ownership
-    column exists to prevent — and silence is how it would happen.
+    Anything else unclaimed is refused rather than attributed to the
+    application by default. Extensions must declare their command ownership.
     """
     module = getattr(command.callback, "__module__", "") or ""
     if not module.startswith("blitzecdn.cli."):
@@ -221,12 +192,8 @@ def _command_owners(registry: Any) -> dict[str, str]:
 def http_surface(settings: Any) -> str:
     """Every route and every field of every schema the API publishes.
 
-    Rendered as lines rather than kept as the OpenAPI document itself. Two
-    reasons, and the first is the ownership column: a JSON document cannot be
-    filtered to the installed distributions, so a core-only run would need a
-    second copy of it. The second is that a diff of this is readable in review,
-    which is the point of freezing it at all — a reordered `required` array in
-    a 3,000-line JSON blob is noise, and a removed field is not.
+    Lines preserve ownership and make changes to routes and schema fields
+    readable without incidental OpenAPI ordering noise.
     """
     from blitzecdn.api import create_app
 
@@ -862,7 +829,6 @@ __all__ = [
     "ansible_surface",
     "cli_surface",
     "http_surface",
-    "installed",
     "plugin_abi_surface",
     "schema_surface",
     "sdk_surface",

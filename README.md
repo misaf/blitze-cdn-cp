@@ -33,7 +33,7 @@ database before publishing it.
 Install an independent control plane and edge on a fresh server:
 
 ```bash
-sudo git clone --branch 4.x \
+sudo git clone --branch 5.x \
   https://github.com/misaf/blitze-cdn-cp.git /opt/blitzecdn
 sudo /opt/blitzecdn/install.sh standalone \
   --admin-cidr 203.0.113.8/32 \
@@ -308,64 +308,45 @@ that has not finished its own line first — the releases you would be skipping
 are where the removals were announced. It backs up everything rather than the
 database alone, and asks you to type the version you are moving to.
 
-## Extending BlitzeCDN
+## Application architecture and extensions
 
-Capabilities register themselves through `pluggy`. Some are required parts of
-the control plane; others are ordinary Python distributions that install beside
-it and are found only through their entry points:
+`blitzecdn` is one application distribution. It includes cache, compression,
+TLS, security and origin operations, together with HTTP/3, GeoIP, hardening and
+resolver providers. Site policy and provider configuration determine which
+features run; there are no capability extras or sibling wheels to install.
 
-```bash
-pip install blitzecdn                # the control plane alone
-pip install 'blitzecdn[compression]' # + gzip and Brotli implementation
-pip install 'blitzecdn[certificates]'# + certificate management and Automatic SSL
-pip install 'blitzecdn[security]'    # + site security implementation
-pip install 'blitzecdn[http3]'       # + HTTP/3 over QUIC (HTTP/1.1 and HTTP/2 are baseline)
-pip install 'blitzecdn[geoip]'       # + visitor country lookup (headers and country rules)
-pip install 'blitzecdn[hardening]'   # + public-key-only SSH and Fail2Ban on every edge host
-pip install 'blitzecdn[resolver]'    # + host DNS resolution BlitzeCDN manages, off until enabled
-pip install 'blitzecdn[all]'         # + every optional capability
-pip uninstall blitzecdn-compression  # the capability disappears; core keeps working
-```
+Serving owns immutable site policy and effective virtual hosts. DNS owns zones,
+rules, records and host derivation. Releases capture canonical inputs and
+immutable artifacts; deployment verifies the release served by each edge.
+Services receive focused ports, while the application composition root chooses
+the adapters and owns their lifetime.
 
-A package can contribute routes, commands, scheduled jobs, health checks,
-deployment checks and desired state without a line of this repository changing —
-including one this repository has never heard of. See [PLUGINS.md](PLUGINS.md)
-for how, and [COMPATIBILITY.md](COMPATIBILITY.md) for what a wheel may depend
-on and what a version number obliges.
-
-The stable `CdnSite` configuration remains part of core whether an implementation
-wheel is installed or not. A site with compression off, unmanaged TLS, and the
-default security and visitor-header settings works with core alone, and is
-served over HTTP/1.1 and HTTP/2 — baseline protocol support needs no optional
-wheel. Its per-site upload limit (`max_upload_size`, `100m` or `200m`) needs no
-wheel either: `client_max_body_size` is always compiled into nginx. Requesting gzip/Brotli, uploaded/requested certificates, Automatic SSL
-for active TLS, Under Attack Mode, site firewall rules, HTTP/3, the BZ-IPCountry
-visitor header or country firewall rules without their provider fails
-validation explicitly, naming the capability and the setting that asked for it;
-it is never silently ignored or downgraded.
+The application registers its mandatory built-ins explicitly. Third-party
+integrations may contribute commands, routes, scheduled jobs, checks and runtime
+resources through the `blitzecdn.plugins` entry-point group. See
+[PLUGINS.md](PLUGINS.md) for ownership and extension conventions, and
+[COMPATIBILITY.md](COMPATIBILITY.md) for published contracts.
 
 ## Development
 
-The repository is a [uv](https://docs.astral.sh/uv/) workspace: the root project
-is `blitzecdn`, and each optional capability under `packages/` builds as its own
-wheel. Tasks run through [just](https://just.systems/):
+The repository builds one wheel and source archive from `src/blitzecdn/`.
+Dependencies are locked with [uv](https://docs.astral.sh/uv/); tasks run through
+[just](https://just.systems/):
 
 ```bash
-just install       # the whole workspace, including every optional capability
-just check         # every CI gate, in CI order
+just install                         # application and development tools
+just check-quick                     # formatting, types, shell, Ansible and fast tests
+just test-one tests/platform/test_repository.py
+just test-installation               # install the actual wheel outside the checkout
+just test                            # full suite with coverage and wheel installation
+just build                           # one wheel and source archive
+just check                           # all CI gates before pushing
 ```
 
-Focused commands:
-
-```bash
-just test-package blitzecdn-cache   # one distribution's own tests
-just test-core-only                 # the suite with no optional package installed
-just build                          # every wheel and sdist
-```
-
-`just check` runs the same formatting, linting, type, test, Ansible, security,
-build, and documentation checks used by CI. See `just --list` for focused
-commands.
+Implementation decisions and verification status are recorded in
+[docs/REIMPLEMENTATION.md](docs/REIMPLEMENTATION.md). Ubuntu deployment and
+recovery verification is deferred; local tests do not establish live-edge
+readiness. See `just --list` for other focused commands.
 
 Report security issues privately to the maintainers. Do not publish credentials
 or exploit details in an issue.

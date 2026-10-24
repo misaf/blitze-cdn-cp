@@ -9,7 +9,6 @@ import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
-from blitzecdn.capabilities.tls.composition import build_certificate_service
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
 
@@ -65,9 +64,9 @@ def cert_list(
     """
     control = common.control_plane()
     statuses = (
-        build_certificate_service(control).expiring_certificates(expiring_in)
+        control.certificates.expiring_certificates(expiring_in)
         if expiring_in is not None
-        else build_certificate_service(control).certificate_statuses()
+        else control.certificates.certificate_statuses()
     )
     common.emit(statuses, json_output=json_output)
     if not json_output and not statuses:
@@ -91,9 +90,7 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = build_certificate_service(common.control_plane()).certificate_preflight(
-        name
-    )
+    report = common.control_plane().certificates.certificate_preflight(name)
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -148,7 +145,7 @@ def cert_renew(
     subscription back to the CA, which is rate limited.
     """
     control = common.control_plane()
-    result = build_certificate_service(control).renew_certificates(
+    result = control.certificates.renew_certificates(
         "cli",
         within_days=expiring_in,
         force=force,
@@ -193,9 +190,7 @@ def cert_reconcile(
     preflights never contact the CA, and the deployment runs only after at
     least one new certificate was issued.
     """
-    result = build_certificate_service(common.control_plane()).reconcile_certificates(
-        "cli"
-    )
+    result = common.control_plane().certificates.reconcile_certificates("cli")
     common.emit(result, json_output=json_output)
     deployment = result.deployment
     if result.failed or (
@@ -235,7 +230,7 @@ def cert_upload(
     """
     certificate_pem = _read_material(certificate_file, PEM_CERTIFICATE_LIMIT)
     private_key_pem = _read_material(private_key_file, PEM_PRIVATE_KEY_LIMIT)
-    info = build_certificate_service(common.control_plane()).upload_certificate(
+    info = common.control_plane().certificates.upload_certificate(
         name, certificate_pem, private_key_pem, "cli"
     )
     common.emit(info, json_output=json_output)
@@ -280,7 +275,7 @@ def cert_request(
     the case preflight cannot see, such as a resolver that answers differently
     from where the edge sits.
     """
-    info = build_certificate_service(common.control_plane()).request_certificate(
+    info = common.control_plane().certificates.request_certificate(
         name, "cli", email, skip_preflight=skip_preflight
     )
     common.emit(info, json_output=json_output)
@@ -294,5 +289,5 @@ def cert_request(
 @cert_app.command("collect")
 def cert_collect(json_output: common.JsonOutput = False) -> None:
     """Remove controller material unreferenced by policy or retained releases."""
-    removed = build_certificate_service(common.control_plane()).collect_material("cli")
+    removed = common.control_plane().certificates.collect_material("cli")
     common.emit({"removed": list(removed)}, json_output=json_output)

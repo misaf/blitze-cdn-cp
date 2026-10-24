@@ -28,7 +28,6 @@ deliberate — see the module docstring of `blitzecdn.capabilities.dns.cli`.
 from __future__ import annotations
 
 import frozen_surfaces as surfaces
-from frozen_surfaces import installed
 
 #: One row per operation: the distribution that owns it, the command, the
 #: route, and — for a row that names only one of the two — why the other
@@ -304,15 +303,8 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
 
 
 def _declared(index: int) -> set[str]:
-    """One side of the map, for the distributions this environment has.
-
-    Filtered by `installed` for the same reason `test_frozen` filters its
-    goldens: `just test-core-only` runs with no optional wheel, and a row
-    naming one of their commands is correct there and simply absent.
-    """
-    return {
-        row[index] for row in _DELIVERY if row[index] is not None and installed(row[0])
-    }
+    """Every declared operation on one side of the application boundary."""
+    return {row[index] for row in _DELIVERY if row[index] is not None}
 
 
 def _live_commands() -> set[str]:

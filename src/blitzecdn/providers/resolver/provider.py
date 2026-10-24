@@ -1,11 +1,8 @@
 """Register the capability that decides what an edge host resolves names with.
 
-A narrow capability: two Ansible roles, no desired-state contribution, no
-service, no route and no command. Nothing on ``CdnSite`` asks for it, so no
-site is ever refused for its absence and ``capability_requirements`` never
-derives its token — an installation converges byte-identical desired-state
-documents whether or not it is attached. What attaching changes is only which
-roles core's plays run on the host.
+A focused runtime provider: two Ansible roles, no desired-state contribution,
+service, route or command. It always ships with the application. Its configured
+enabled flag controls host DNS management; site policy never requests its token.
 
 It is the first capability to declare all of `edge_roles` and `teardown_roles`,
 and the pairing is the point rather than an accident of this package:

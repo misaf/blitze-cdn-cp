@@ -216,9 +216,8 @@ class TlsPolicy(CapabilityPolicy):
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Operational certificate capabilities requested by this TLS policy.
 
-        Existing edge material is a core TLS contract. Controller-managed
-        material, and Automatic SSL on an active certificate, require the
-        detachable certificates implementation.
+        Existing edge material needs no issuing operation. Controller-managed
+        material and Automatic SSL require the certificates runtime capability.
 
         Managed material is named ahead of the automatic scan because it is the
         more specific answer: a site that both uploads material and asks for

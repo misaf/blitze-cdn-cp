@@ -1,3 +1,4 @@
+import pytest
 from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
 
@@ -126,3 +127,42 @@ def test_metrics_are_authenticated_and_readable(settings):
     assert "blitzecdn_edges 0" in body
     assert "blitzecdn_sites 0" in body
     assert "blitzecdn_certificates_expiring" not in body
+
+
+@pytest.mark.parametrize("failure", ["start", "stop", "pool", "drain"])
+def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
+    settings, monkeypatch, failure
+):
+    from types import SimpleNamespace
+
+    events = []
+
+    def operation(name):
+        events.append(name)
+        if name == failure:
+            raise RuntimeError(f"failed {name}")
+
+    control = SimpleNamespace(
+        start=lambda: operation("start"),
+        stop=lambda: operation("stop"),
+        close=lambda: operation("close"),
+    )
+
+    def pool(**kwargs):
+        operation("pool")
+        return SimpleNamespace(shutdown=lambda **kwargs: operation("drain"))
+
+    monkeypatch.setattr(
+        "blitzecdn.api.app.build_control_plane", lambda *a, **k: control
+    )
+    monkeypatch.setattr("blitzecdn.api.app.ThreadPoolExecutor", pool)
+    with (
+        pytest.raises(RuntimeError, match=f"failed {failure}"),
+        TestClient(create_app(settings)),
+    ):
+        pass
+    assert events == (
+        ["pool", "close"]
+        if failure == "pool"
+        else ["pool", "start", "drain", "stop", "close"]
+    )

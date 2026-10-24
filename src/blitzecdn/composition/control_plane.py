@@ -6,7 +6,7 @@ the runner is constructed. Plugins receive the assembled control plane.
 
 Capability-local builders assemble services from explicitly injected ports.
 Entry layers call these services directly; the concrete repository is not
-published. Optional packages use the published services and ports.
+published. Capability delivery and external extensions use services and ports.
 
 Durable work goes through the ``jobs`` capability, which is rows in this
 control plane's own database rather than a broker. The worker is an entry point
@@ -57,6 +57,13 @@ from blitzecdn.capabilities.maintenance.composition import build_maintenance_ser
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
 from blitzecdn.capabilities.releases.composition import build_release_service
 from blitzecdn.capabilities.releases.service import ReleaseService
+from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
+from blitzecdn.capabilities.tls.certificates.service import CertificateService
+from blitzecdn.capabilities.tls.composition import (
+    build_automatic_ssl_service,
+    build_certificate_service,
+)
+from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
@@ -140,14 +147,10 @@ class FleetRunner(DeploymentRunner, EdgeRunner, PlaybookRunner, Protocol):
     entire job, and nowhere else. A test that injects a fake runner is the
     other implementer.
 
-    ``PlaybookRunner`` is the odd one out and deliberately so. It is not a
-    capability's port but core's own, published as ``ControlPlane.fleet``, and it
-    is what an *installed* capability is handed: the generic "run this play"
-    and nothing capability-shaped. A detachable package declares its own narrow
-    port over it — ``blitzecdn.capabilities.cache.ports.CacheRunner`` — which is why no
-    ``CacheRunner`` appears in this list. That is the difference between a
-    built-in, whose port core may name, and a distribution core has never heard
-    of.
+    ``PlaybookRunner`` is the generic public fleet port. Capability-local
+    adapters narrow it to the operations their own services require. The
+    composition root can wire those adapters without expanding this runner's
+    protocol for each business operation.
     """
 
 
@@ -179,27 +182,33 @@ class ControlPlane:
             audit_retention=settings.audit_retention,
         )
         self._owned_repository = store if repository is None else None
-        # Discover package roles before constructing the Ansible runner.
-        # Plugins receive the control plane after its services are wired.
-        self.plugins = plugins if plugins is not None else load_control_plane_plugins()
-        # Refuse missing required capabilities before wiring services.
-        # See docs/decisions/0002-capability-configuration-ownership.md.
-        self.plugins.require(
-            self.settings.required_capabilities,
-            subject="this installation's `required_capabilities`",
-        )
-        self._wire_adapters(
-            store=store,
-            runner=runner,
-            origin_probe=origin_probe,
-            serving_probe=serving_probe,
-            edges_store=edges_store,
-            background=background,
-            queue_ready=queue_ready,
-        )
-        self._jobs: dict[str, ScheduledJob] | None = None
-        self._job_runner: JobRunner | None = None
-        self._wire_services(store)
+        try:
+            # Discover package roles before constructing the Ansible runner.
+            # Plugins receive the control plane after its services are wired.
+            self.plugins = (
+                plugins if plugins is not None else load_control_plane_plugins()
+            )
+            # Refuse missing required capabilities before wiring services.
+            # See docs/decisions/0002-capability-configuration-ownership.md.
+            self.plugins.require(
+                self.settings.required_capabilities,
+                subject="this installation's `required_capabilities`",
+            )
+            self._wire_adapters(
+                store=store,
+                runner=runner,
+                origin_probe=origin_probe,
+                serving_probe=serving_probe,
+                edges_store=edges_store,
+                background=background,
+                queue_ready=queue_ready,
+            )
+            self._jobs: dict[str, ScheduledJob] | None = None
+            self._job_runner: JobRunner | None = None
+            self._wire_services(store)
+        except BaseException:
+            self.close()
+            raise
 
     def _wire_adapters(
         self,
@@ -235,8 +244,7 @@ class ControlPlane:
         # the one place that knows both halves: the registry answers what is
         # installed, and each resolver decides the order and refuses what
         # cannot work — a role two packages both ship, a module nothing
-        # declared. Detaching a package empties its share of this with nothing
-        # in core edited.
+        # declared. Core resolves contributions without naming their owners.
         edge_contributions = EdgeContributions.of(
             roles_path=resolve_role_search_path(
                 self.settings.ansible_dir / "roles",
@@ -372,6 +380,14 @@ class ControlPlane:
         self.maintenance: MaintenanceService = build_maintenance_service(
             self, requirements=store.deployment_requirements
         )
+
+        # One application owns these services. No module-global caches retain
+        # the control plane after its API or worker lifetime ends.
+        self.certificate_config = CertificateConfig.from_capability_config(
+            self.capability_config.for_plugin("certificates")
+        )
+        self.certificates: CertificateService = build_certificate_service(self)
+        self.automatic_ssl: AutomaticSslService = build_automatic_ssl_service(self)
 
     @property
     def job_runner(self) -> JobRunner:

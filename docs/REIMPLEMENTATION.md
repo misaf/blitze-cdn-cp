@@ -129,11 +129,17 @@ associated decisions describe the implementation that actually exists.
   migration. Optional configuration-selection switches are retired. Restore
   retains explicit staged migration. See decision 0017.
 
+- Final architecture review implemented: TLS services belong to the application
+  root, global service caches are removed, and failed startup/composition cannot
+  bypass owned-resource cleanup. Contract checks cover the complete application;
+  current documentation and dependency checks match both registration seams.
+  See decision 0018.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full application suite: 1,757 passed with 91.22% coverage, including actual
+- Full application suite: 1,764 passed with 91.17% coverage, including actual
   single-wheel installation outside the checkout with locked runtime dependencies.
 - Retired core-only/attach/detach checks are replaced by single-distribution,
   mandatory assembly, provider scope and installed-resource contracts. Capability
@@ -142,19 +148,23 @@ associated decisions describe the implementation that actually exists.
   explicit schema preparation, usable stores and repeatable credential setup.
 - Startup and migration tests cover untouched unprepared files, damaged schemas,
   concurrent processes and threads, unusual paths and removed database files.
+- Lifecycle regressions cover failed startup, pool creation/draining, shutdown,
+  owned/injected persistence and collection of closed TLS service graphs.
+- Public frozen snapshots are unchanged by the final architecture review.
 - CLI snapshots add `migrate` and remove `setup --schema-only`; Ansible removes
   the retired configuration-selection argument. HTTP, ABI, SDK and database
   snapshots are unchanged.
-- Live Ubuntu edge convergence has not been executed.
+- Live Ubuntu edge convergence has not been executed and was explicitly deferred
+  by the user on 2026-10-24.
 
 ## Remaining implementation slices
 
-- Verify complete convergence, activation, rollback and controller recovery on
-  an isolated Ubuntu edge. Local tests do not substitute for this verification.
+- Deferred: verify complete convergence, activation, rollback and controller
+  recovery on an isolated Ubuntu edge. Resume only when the user asks. Local
+  tests do not substitute for this verification.
 
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
-confirmation before beginning the next. Following explicit schema migration and
-installation simplification, the next proposed step is end-to-end deployment and
-recovery verification on an isolated Ubuntu environment.
+confirmation before beginning any further implementation. The user deferred
+Ubuntu verification and authorized the final architecture review instead.

@@ -200,9 +200,8 @@ class Release(BaseModel):
     #: to the inputs, kept as a digest rather than a copy because the inputs
     #: are stored once beside the release and a deployment refers to both.
     inputs_digest: str
-    #: The capability tokens installed when this was compiled, sorted. In the
-    #: digest because they change the artifact: a site's compression settings
-    #: contribute nothing to the document with `blitzecdn-compression` detached.
+    #: Assembled capability tokens when this was compiled, sorted. They form
+    #: part of release identity because runtime contributions affect artifacts.
     capabilities: tuple[str, ...] = ()
     #: The edges this was compiled for, sorted by name. In the digest because
     #: capability validation is against them: the same state can be servable by

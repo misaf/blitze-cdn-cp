@@ -1,11 +1,8 @@
-"""What compiling a release needs from the world, declared by the compiler.
+"""Consumer-owned ports for release preparation, storage and retention.
 
-Two ports and both are functions, because the compiler is a function: what it
-needs from an installation is answers, not objects with lifecycles. Declaring
-them here rather than importing the plugin registry is what keeps
-``compile_release`` testable with two hand-written closures and no plugin
-registered anywhere — and what stops the pure core of this capability acquiring
-a dependency on the machinery that happens to answer these questions today.
+Live contributors and checks are invoked during preparation; their answers are
+captured as values before entering the deterministic compiler. Storage and target
+ports give release operations only the persistence and fleet reads they need.
 """
 
 from __future__ import annotations

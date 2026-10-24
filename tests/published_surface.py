@@ -1,9 +1,8 @@
-"""The public import policy shared by package and frozen-contract tests.
+"""Public extension SDK declarations shared with frozen-contract checks.
 
-``architecture/packages/test_package_imports.py`` checks which modules optional
-packages may import. ``contract/test_frozen.py`` pins the symbols exposed by
-those modules. Keeping the declarations here lets both suites enforce the same
-policy without importing another test module.
+Application layering tests enforce internal dependencies independently of this
+published surface. The SDK contains values, ports and extension delivery tools;
+application composition and persistence implementations remain private.
 """
 
 from __future__ import annotations

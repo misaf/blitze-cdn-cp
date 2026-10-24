@@ -1,10 +1,7 @@
-"""Read-only reporting: doctor, audit, and the API server.
+"""Read-only controller reporting: doctor, audit and the API server.
 
-`stats` is not here. It reads the cache capability's report, so it belongs to
-the distribution that produces one: formatting `CacheStatsReport` from here
-would mean importing a document this capability does not own, which is the
-exact edge that makes `cache` undetachable.
-"""
+Cache statistics stay with the cache capability that owns their report and
+operations. Diagnostics assembles controller-level observations through ports."""
 
 from __future__ import annotations
 

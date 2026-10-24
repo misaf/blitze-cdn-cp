@@ -1,11 +1,4 @@
-"""Ask the fleet whether it can reach the origins it proxies to.
-
-Moved here from ``EdgeOperationsService`` with the play and the role it runs.
-The fleet *roster* — which hosts exist, registering one, decommissioning one —
-is core's and stayed there: an installation must be able to add and remove
-edges with no optional distribution attached. Asking those edges a question
-about the world is an operation, and operations are wheels.
-"""
+"""Origin-check decisions over consumer-owned runner and reporting ports."""
 
 from __future__ import annotations
 

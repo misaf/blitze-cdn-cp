@@ -1,23 +1,9 @@
-"""The base every capability contract inherits, and the question it answers.
+"""Pure capability policy and the runtime requirements derived from it.
 
-A contract is a set of values describing how one capability is configured. The
-one thing core needs to ask all of them alike is *which detachable
-implementations do these values require* — because that is what the control
-plane refuses a deployment over when a distribution is not installed, and the
-answer has to be derivable from a stored site on a controller that has never
-heard of the capability.
-
-The answer is a mapping rather than a set. "Capability 'geoip' is not
-installed" leaves an operator hunting for which of two unrelated switches asked
-for it, so a token travels with the settings that requested it, named as the
-stable schema names them: what the message says to change is what a patch would
-set.
-
-Declared by the contract that owns the setting, never by the composition. One
-``if`` chain on ``SitePolicy`` restating every capability's rule beside its own
-would make ``dns`` a second place each requirement is written down, and the
-two could disagree without anything saying so.
-"""
+Each policy value declares the capability tokens and setting names it requires.
+Composition collects these requirements; providers and declared edge capabilities
+determine whether a deployment can realize them. Keeping the rule with its value
+avoids a second capability-specific decision table in the serving composition."""
 
 from __future__ import annotations
 
@@ -32,7 +18,7 @@ class CapabilityPolicy(BaseModel):
     """One capability's slice of a site's configuration.
 
     Subclasses override :attr:`capability_requirements` when some value they
-    hold can ask for a detachable implementation. Most do; a contract whose
+    hold can ask for a runtime implementation. A contract whose
     every setting is an invariant of the managed edge — ``OriginPolicy`` — is
     answered by the default and says so by not overriding it.
     """
@@ -41,7 +27,7 @@ class CapabilityPolicy(BaseModel):
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Capability tokens this contract requests, and what asked for each.
 
-        Empty means every value here is served by the control plane alone.
+        Empty means this policy adds no runtime capability requirements.
         """
         return {}
 

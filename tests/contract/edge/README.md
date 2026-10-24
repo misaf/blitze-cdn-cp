@@ -20,7 +20,5 @@ When one of these fails, change the model and the role together in one commit.
 `edge_render_support.py` holds the loaders and the Jinja environment shared
 across these modules. Helpers used by one module stay beside its tests.
 
-A module declares its own `REQUIRES_CAPABILITIES` for the tests in it that read
-a capability's own fragment: the fixture in `tests/control_plane_fixtures.py`
-reads that name off the test's module, so an entry must live beside the test it
-names or the core-only run will not skip it.
+All application capabilities and provider fragments run together. Tests do not
+skip according to package presence; feature-specific policy is set explicitly.

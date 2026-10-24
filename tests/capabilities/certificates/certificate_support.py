@@ -48,7 +48,6 @@ from blitzecdn.capabilities.tls.certificates.ports import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.composition import (
-    _certificate_services,
     build_automatic_ssl_service,
     build_certificate_service,
 )
@@ -106,23 +105,9 @@ def _with_seams(
 
 
 def _attach(control: ControlPlane, service: CertificateService) -> ControlPlane:
-    """Publish ``service`` where the routes, jobs and sibling services look.
-
-    ``_certificate_services`` is the composition root's per-control-plane cache;
-    a substituted service has to be the one it hands back, or the API routes
-    and the Automatic SSL builder would each find the unsubstituted one. That
-    line is the one production depends on: nothing outside this suite reads the
-    two attributes below, which are shorthand this package's tests use to say
-    ``control.certificates`` instead of rebuilding the service per assertion.
-
-    Core does not declare them, and cannot — it has no idea this distribution
-    exists. So the ignores are real ones, in a file mypy reads: under `strict`
-    they are themselves checked, and the day `ControlPlane` grows a
-    ``certificates`` attribute they fail as unused rather than lingering.
-    """
-    _certificate_services[control] = service
-    control.certificates = service  # type: ignore[attr-defined]
-    control.automatic_ssl = build_automatic_ssl_service(control)  # type: ignore[attr-defined]
+    """Replace the application-owned service with the named test seams."""
+    control.certificates = service
+    control.automatic_ssl = build_automatic_ssl_service(control)
     return control
 
 
@@ -138,8 +123,7 @@ def certificate_control_plane(
 
     Returns the control plane. ``control.certificates`` and
     ``control.automatic_ssl`` are set because the services under test read each
-    other through the platform object, exactly as the plugin's own startup hook
-    arranges — but they are the services the composition root builds, with only
+    other through the application composition root, with only
     the named seams replaced.
     """
     repository = Repository(settings.database_path)
@@ -170,8 +154,8 @@ def certificate_cli_control_plane(
 
     The command tree an operator sees is assembled from every installed plugin,
     so core's helper is what points the CLI at a control plane. It builds no
-    certificate services — core has none to build — and `cert list`, `cert
-    renew` and `cert preflight` all read `control.certificates`.
+    additional services; `cert list`, `cert renew` and `cert preflight` all read
+    `control.certificates`.
     """
     control = cli_control_plane(settings, monkeypatch, runner_double)
     return _attach(

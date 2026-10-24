@@ -40,9 +40,8 @@ class CachePolicy(CapabilityPolicy):
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Implementation capabilities requested by this stable policy.
 
-        A site opts *out* of caching, so the default asks for the detachable
-        distribution. That is deliberate: an edge that silently stopped caching
-        because a wheel was missing is the failure worth being loud about.
+        Caching is enabled by default. Declared edge capabilities must still
+        support it; assembly alone does not prove a target can realize policy.
         """
         if not self.cache_enabled:
             return {}

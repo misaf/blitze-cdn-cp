@@ -919,6 +919,7 @@ _PLATFORM_SERVICES = {
     # of the TLS capability, so a plugin reading either is depending on `tls`.
     "automatic_ssl": "tls",
     "certificates": "tls",
+    "certificate_config": "tls",
     "deployments": "deployments",
     "dns": "dns",
     "edges": "edges",
@@ -941,6 +942,7 @@ _PLATFORM_SERVICES = {
 #: `blitzecdn-certificates` out of tree — declares the coordinator as a
 #: Protocol of its own. Reading one is not knowing whose service satisfies it.
 _PLATFORM_COMMON = {
+    "capability_config",
     "audit",
     "close",
     "events",
@@ -966,6 +968,16 @@ _PLATFORM_COMMON = {
     "workflow_history",
     "workflows",
 }
+
+
+def _registration_files() -> list[Path]:
+    """Both shipped spellings of a capability's registration seam."""
+    return sorted(
+        [
+            *_CAPABILITIES.glob("*/plugin.py"),
+            *_CAPABILITIES.glob("*/provider.py"),
+        ]
+    )
 
 
 def _platform_reads(path: Path) -> set[str]:
@@ -1007,7 +1019,7 @@ def _graphs() -> tuple[dict[str, set[str]], dict[str, set[str]]]:
                 continue
             target = contract if _is_policy_import(imported) else implementation
             target[owner].add(depends_on)
-    for path in _CAPABILITIES.glob("*/plugin.py"):
+    for path in _registration_files():
         owner = _capability_name(path)
         for attribute in _platform_reads(path):
             depends_on = _PLATFORM_SERVICES.get(attribute)
@@ -1231,7 +1243,7 @@ def test_a_plugin_reads_only_the_platform_services_its_graph_declares():
     """`platform.x` in a registration hook is a declared dependency or a bug."""
     offenders = [
         f"{path.relative_to(_SOURCE)} reads platform.{attribute}"
-        for path in _CAPABILITIES.glob("*/plugin.py")
+        for path in _registration_files()
         for attribute in sorted(_platform_reads(path))
         if attribute not in _PLATFORM_COMMON
         and _PLATFORM_SERVICES.get(attribute)
