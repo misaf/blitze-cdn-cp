@@ -1,4 +1,4 @@
-# Real-edge rehearsal: preparation checkpoint
+# Real-edge rehearsal: preparation checkpoints
 
 The user authorized the previously deferred Ubuntu rehearsal after completing
 the five controller operating/recovery steps. This record covers preparation
@@ -83,3 +83,49 @@ issuance/renewal and controller backup/rebuild remain unverified by this
 checkpoint. Preparation does not close the gaps listed in
 [RECOVERY_ACCEPTANCE.md](RECOVERY_ACCEPTANCE.md). Each subsequent step requires
 the user's confirmation and its own commit.
+
+## Direct host after the fresh OS installation
+
+On 2026-10-25 the user reinstalled the disposable server with Ubuntu 26.04.1
+and requested that the rehearsal run directly on it. The earlier VM observations
+above remain historical evidence; no VM was created on the fresh installation.
+The source snapshot copied to `/opt/blitzecdn` is commit `a6ba9cb`.
+
+Completed and checked remotely:
+
+- Both Ubuntu archive and security source entries use
+  `http://mirror.arvancloud.ir/ubuntu`, retaining Ubuntu's archive signing key
+  and the Resolute suites. `apt-get update --error-on=any` succeeded and fetched
+  34.9 MB of indexes. Cloud-init is configured to preserve these sources.
+- `94.183.119.90` is the active global systemd-resolved DNS server, with a
+  persistent configuration and the `~.` routing domain. A direct UDP query
+  returned a successful answer in 6 ms; system hostname resolution also passed.
+  The interface still lists DHCP-provided resolvers. A fresh container lists
+  the requested resolver first, followed by those additional addresses.
+- Docker Engine 29.9.2 and Compose 5.6.1 are installed from Docker's signed APT
+  repository. Docker reports `https://docker.arvancloud.ir/` as its active image
+  mirror. A systemd service override preserves this setting when the application
+  role writes its daemon configuration; TLS verification remains enabled.
+- Pulling `docker.arvancloud.ir/library/python:3.13-slim-bookworm` succeeded,
+  with digest
+  `sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530`.
+  Docker and systemd-resolved are active.
+- All four pinned collection versions and **4,210 file hashes** matched their
+  package manifests after transfer to the fresh host.
+
+The ordinary standalone installer was attempted twice. The first attempt failed
+fetching `pycparser` 3.0 from `files.pythonhosted.org`; a retry with serialized
+downloads failed fetching `cryptography` 50.0.0. Both were connection timeouts
+during bootstrap, before controller convergence. No application containers or
+initialized controller database exist on this installation yet. The previously
+verified VM image was saved on the old host before the reinstall, but its
+continued presence must not be assumed after a fresh OS installation.
+
+A Tsinghua PyPI mirror index returned HTTP 200 during investigation. No package
+from it has been installed or accepted as verified at this checkpoint. The next
+installation step can prepare an offline bundle and verify every runtime wheel
+against `uv.lock` before use; the lockfile and source must remain unchanged.
+
+Repository references: [Arvan Ubuntu mirror instructions](https://www.arvancloud.ir/en/dev/linux-repository),
+[Arvan Docker image mirror instructions](https://www.arvancloud.ir/fa/dev/docker)
+and [Tsinghua PyPI mirror documentation](https://mirrors.tuna.tsinghua.edu.cn/help/pypi/).
