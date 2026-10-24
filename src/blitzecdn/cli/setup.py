@@ -21,18 +21,11 @@ import typer
 
 from blitzecdn.cli import common
 from blitzecdn.cli.root import app
+from blitzecdn.composition import migrate_database
 
 
 def _environment_file_body() -> str:
-    """The scaffolded `.env`, holding what core itself needs and nothing else.
-
-    No commented capability placeholders: a MaxMind name here would have
-    `blitzecdn init` scaffold a setting nothing reads on any installation
-    without the `geoip` distribution. An optional capability documents its own
-    `BLITZE_*` names in its own README and claims them through its Ansible
-    contribution. Core forwards only keys claimed by one installed plugin.
-    `.env` is written 0600 and is the intended home for all of them.
-    """
+    """The local API credential; non-secret settings belong in TOML."""
     return f"BLITZE_API_KEYS=local:{secrets.token_urlsafe(48)}\n"
 
 
@@ -51,29 +44,16 @@ def init(
 
 
 @app.command()
-def setup(
-    schema_only: Annotated[
-        bool,
-        typer.Option(
-            "--schema-only",
-            hidden=True,
-            help="Initialize the database without scaffolding local files.",
-        ),
-    ] = False,
-) -> None:
-    """Prepare the local configuration a controller needs to run.
+def migrate() -> None:
+    """Initialize or upgrade the database while controller services are stopped."""
+    migrate_database(common.settings())
+    typer.echo("Database schema is current.")
 
-    Safe to re-run: nothing that already exists is overwritten.
-    """
-    # Create the database on first run. Ansible reads the fleet
-    # through the `blitzecdn` inventory plugin, which refuses a database that
-    # does not exist — so on a fresh install every playbook failed to parse its
-    # inventory until something happened to create one. `setup` is the command
-    # whose whole job is that something.
-    control = common.control_plane()
-    control.close()
-    if schema_only:
-        return
+
+@app.command()
+def setup() -> None:
+    """Initialize the database and scaffold local configuration; safe to re-run."""
+    migrate_database(common.settings())
     root = Path.cwd()
     environment_path = root / ".env"
     created: list[str] = []

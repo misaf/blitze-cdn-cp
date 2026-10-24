@@ -16,6 +16,18 @@ Implementation decisions are recorded in [docs/decisions](docs/decisions/0001-zo
   edge
 - Public-key SSH access to managed edges
 
+## Local database lifecycle
+
+After installing the checkout, run `blitzecdn setup` to initialize its database
+and create local API credentials. Ordinary commands, the API and the worker
+require an already prepared schema and never migrate it at startup.
+
+For maintenance, stop controller services, preserve a backup and run
+`blitzecdn migrate` before restarting them. This command changes only the schema;
+it does not scaffold credentials. The managed installer performs this ordering
+before starting its Compose services. Restore validates and migrates its staged
+database before publishing it.
+
 ## Standalone quick start
 
 Install an independent control plane and edge on a fresh server:

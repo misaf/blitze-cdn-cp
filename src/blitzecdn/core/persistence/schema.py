@@ -1,4 +1,4 @@
-"""The database's schema identity, read without opening the ORM.
+"""Schema identity, read-only validation and explicit migrations.
 
 Core owns this because core owns the schema. A backup records the Alembic
 revision it was taken at and a restore refuses a revision this installation has
@@ -7,23 +7,28 @@ about the engine beside it, not about tar files — and asking it must never mig
 the file being asked about, which is why it is read over `sqlite3` in read-only
 mode rather than through the engine.
 
-:data:`MIGRATIONS_PATH` is the one place the migration tree is located. The
-engine reaches for the same constant, and an installed plugin that needs the
-schema identity gets it from here instead of computing a path relative to a
-module that may not live inside this distribution at all.
+:data:`MIGRATIONS_PATH` locates the migration tree. Migration and read-only
+validation share it; consumers never compute their own resource paths.
 """
 
 from __future__ import annotations
 
+import fcntl
 import sqlite3
+import threading
 from functools import cache
 from io import StringIO
 from pathlib import Path
 
+from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from alembic.util.exc import CommandError
+from sqlalchemy.engine import URL
+from sqlalchemy.exc import SQLAlchemyError
 
 from blitzecdn.core.config import Settings
+from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.runtime.resources import package_directory
 
 #: The Alembic tree this installation migrates with. Located through the same
@@ -35,6 +40,12 @@ MIGRATIONS_PATH = (
     package_directory("blitzecdn", resolves="Alembic reads its migration tree by path")
     / "migrations"
 )
+
+
+# Alembic installs a process-global environment proxy while commands run.
+# File locks serialize migrators across processes; this lock also protects
+# concurrent read-only validation and migration calls within one process.
+_alembic_lock = threading.RLock()
 
 
 @cache
@@ -53,7 +64,7 @@ def _revisions() -> frozenset[str]:
 
 
 class DatabaseSchema:
-    """Reads `alembic_version` directly, so it works on a database at rest."""
+    """Own schema inspection and maintenance independently of repositories."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
@@ -72,7 +83,7 @@ class DatabaseSchema:
         if not path.is_file():
             return None
         try:
-            connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            connection = sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True)
         except sqlite3.Error:
             return None
         try:
@@ -90,24 +101,65 @@ class DatabaseSchema:
         return revision in _revisions()
 
     @staticmethod
-    def migrate(path: Path) -> None:
-        """Bring one database file up to this installation's head revision.
+    def validate(path: Path) -> None:
+        """Refuse absent, stale or damaged schemas without changing the file.
 
-        Core's job, not a caller's. A restore puts back a database taken at an
-        older revision and has to forward-migrate it before anything reads it,
-        but "how this schema moves" is owned here — the alternative was the
-        backup adapter importing `persistence.engine` directly, which made a
-        detachable package depend on the storage implementation rather than on
-        a contract.
-
-        The engine is imported inside the call for two reasons: it imports
-        :data:`MIGRATIONS_PATH` from this module, so a module-scope import
-        would be a cycle; and opening it costs Alembic, which every command
-        that only wants to *read* a revision should not pay.
+        Revision and metadata checks use a read-only connection. Startup never
+        creates directories, acquires migration locks or upgrades a schema.
         """
-        from blitzecdn.core.persistence.engine import Database
+        if not path.is_file():
+            raise ConfigurationError(
+                f"{path} does not exist. Run `blitzecdn setup` for a new controller "
+                "or restore its backup before starting services."
+            )
+        config = _config(path, read_only=True)
+        try:
+            with _alembic_lock:
+                command.check(config)
+        except (CommandError, RuntimeError, SQLAlchemyError) as exc:
+            raise _schema_error(path, exc) from exc
 
-        Database(path).close()
+    @staticmethod
+    def migrate(path: Path) -> None:
+        """Explicitly initialize or upgrade a stopped controller's database.
+
+        The installer stops application services first; restore migrates its
+        staged copy before publication. The stable sidecar serializes separate
+        migration processes, including their final metadata verification.
+        """
+        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        migration_lock = path.with_name(f".{path.name}.migration.lock")
+        with _alembic_lock, migration_lock.open("a+b") as lock_file:
+            migration_lock.chmod(0o600)
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            config = _config(path)
+            try:
+                command.upgrade(config, "head")
+                command.check(config)
+            except (CommandError, RuntimeError, SQLAlchemyError) as exc:
+                raise _schema_error(path, exc) from exc
+
+
+def _config(path: Path, *, read_only: bool = False) -> Config:
+    config = Config(stdout=StringIO())
+    config.set_main_option("script_location", str(MIGRATIONS_PATH))
+    url = URL.create(
+        "sqlite+pysqlite",
+        database=path.resolve().as_uri(),
+        query={"mode": "ro" if read_only else "rwc", "uri": "true"},
+    ).render_as_string(hide_password=False)
+    # Alembic uses ConfigParser interpolation; percent-encoded paths must
+    # survive it before SQLAlchemy decodes the SQLite URI.
+    config.set_main_option("sqlalchemy.url", url.replace("%", "%%"))
+    return config
+
+
+def _schema_error(path: Path, exc: Exception) -> ConfigurationError:
+    return ConfigurationError(
+        f"{path} has an incompatible or damaged schema: {exc}. "
+        "Stop the controller services, preserve a backup and run `blitzecdn migrate`. "
+        "If validation still fails, restore a verified backup."
+    )
 
 
 __all__ = ["MIGRATIONS_PATH", "DatabaseSchema"]

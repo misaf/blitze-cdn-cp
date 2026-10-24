@@ -47,6 +47,7 @@ blitzecdn	command	blitzecdn init	--output type=path default=PosixPath('.env')
 blitzecdn	command	blitzecdn job list	--status type=choice[pending,running,succeeded,failed] --limit type=int range default=50 --json type=boolean default=False
 blitzecdn	command	blitzecdn job schedules	--json type=boolean default=False
 blitzecdn	command	blitzecdn job show	<job_id> type=str required --json type=boolean default=False
+blitzecdn	command	blitzecdn migrate
 blitzecdn	command	blitzecdn origin check	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn plan	--limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn plugins	--json type=boolean default=False
@@ -66,7 +67,7 @@ blitzecdn	command	blitzecdn rule remove	<domain> type=str required <name> type=s
 blitzecdn	command	blitzecdn rule set	<domain> type=str required <name> type=str required --set type=str --match type=str --priority type=int --enabled/--disabled type=boolean --json type=boolean default=False
 blitzecdn	command	blitzecdn rule show	<domain> type=str required <name> type=str required --json type=boolean default=False
 blitzecdn	command	blitzecdn serve	--host type=str default='127.0.0.1' --port type=int range default=8000
-blitzecdn	command	blitzecdn setup	--schema-only type=boolean default=False
+blitzecdn	command	blitzecdn setup
 blitzecdn	command	blitzecdn ssl reconcile	--json type=boolean default=False
 blitzecdn	command	blitzecdn stats	--limit type=str --by-site type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn status	<deployment_id> type=str --limit type=int range default=20 --json type=boolean default=False

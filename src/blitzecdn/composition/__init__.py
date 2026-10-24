@@ -1,11 +1,13 @@
 """Where the control plane is put together, and the only place that decides.
 
-Two modules, one job: choosing which concrete thing satisfies a port, and which
-parts make one running control plane.
+Application and maintenance wiring chooses which concrete thing satisfies a
+port and which parts make one running control plane.
 
 * :mod:`~blitzecdn.composition.control_plane` — the composition root proper.
   It builds the adapters, injects them into the capability services, loads the
   plugins and hands each one the finished platform.
+* :mod:`~blitzecdn.composition.installation` — explicit database maintenance
+  without constructing application services.
 * :mod:`~blitzecdn.composition.repository` — which capability stores sit on one
   SQLite database. A bundle, not a layer: each store already satisfies its
   capability's port, so no service is handed more of persistence than it asked
@@ -38,6 +40,7 @@ from blitzecdn.composition.control_plane import (
     build_control_plane,
     load_control_plane_plugins,
 )
+from blitzecdn.composition.installation import migrate_database
 from blitzecdn.composition.repository import Repository
 
 __all__ = [
@@ -47,4 +50,5 @@ __all__ = [
     "Repository",
     "build_control_plane",
     "load_control_plane_plugins",
+    "migrate_database",
 ]

@@ -117,3 +117,52 @@ print(json.dumps({
         )
         assert described.returncode == 0, described.stderr
     assert not list((directory / "project").rglob("*.db"))
+
+
+def test_installed_wheel_requires_explicit_schema_preparation(installed_application):
+    directory, _, cli = installed_application
+    project = directory / "schema-lifecycle"
+    project.mkdir()
+    environment = {
+        key: value for key, value in os.environ.items() if not key.startswith("BLITZE_")
+    }
+    environment["BLITZE_PROJECT_DIR"] = str(project)
+    environment.pop("PYTHONPATH", None)
+
+    def invoke(*arguments):
+        return subprocess.run(
+            [str(cli), *arguments],
+            cwd=project,
+            env=environment,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    refused = invoke("edge", "list", "--json")
+    assert refused.returncode == 3
+    assert "blitzecdn setup" in refused.stderr
+    assert not list(project.iterdir())
+
+    migrated = invoke("migrate")
+    assert migrated.returncode == 0, migrated.stderr
+    assert not (project / ".env").exists()
+    assert json.loads(invoke("edge", "list", "--json").stdout) == []
+    created = invoke(
+        "edge",
+        "add",
+        "edge-one",
+        "--host",
+        "192.0.2.10",
+        "--ssh-source",
+        "198.51.100.8/32",
+        "--json",
+    )
+    assert created.returncode == 0, created.stderr
+    assert invoke("setup").returncode == 0
+    credentials = (project / ".env").read_bytes()
+    assert invoke("setup").returncode == 0
+    assert (project / ".env").read_bytes() == credentials
+    assert [
+        edge["name"] for edge in json.loads(invoke("edge", "list", "--json").stdout)
+    ] == ["edge-one"]

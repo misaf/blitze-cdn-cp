@@ -1,16 +1,5 @@
 # Managed by BlitzeCDN (blitzecdn_controlplane). Non-secret service configuration.
-#
-# Two kinds of key live in this file and they are separated below, because the
-# difference decides whether writing one is safe. A *core* key is read by the
-# control plane itself and is always recognised. A *capability* key belongs to
-# an optional distribution, and an installation that does not have that
-# distribution attached does not recognise it — the control plane refuses to
-# start on configuration nobody claims, which is what makes a typo or a
-# detached package's leftover setting loud instead of silently ignored.
-#
-# So the capability keys below are written only when their distribution is
-# actually being installed. `blitzecdn_controlplane_capabilities` is that list,
-# and `install.sh` passes the one it is installing with.
+# All capability settings are owned by the single application.
 [blitzecdn]
 
 database_path = ".state/control-plane.db"
@@ -27,17 +16,13 @@ run_log_retention = 500
 history_retention = 1000
 allow_empty_sites = false
 preflight_dns_servers = {{ blitzecdn_controlplane_preflight_dns_servers.split(',') | map('trim') | list | to_json }}
-{% if 'backup' in blitzecdn_controlplane_capabilities %}
 
-# blitzecdn-backup
+# Backup
 backup_dir = {{ blitzecdn_controlplane_backup_dir | to_json }}
-{% endif %}
-{% if 'certificates' in blitzecdn_controlplane_capabilities %}
 
-# blitzecdn-certificates
+# Managed TLS
 acme_default_email = {{ blitzecdn_controlplane_effective_acme_email | to_json }}
 ssl_automatic_scan_interval_seconds = {{ blitzecdn_controlplane_ssl_automatic_scan_seconds }}
 certificate_reconcile_interval_seconds = {{ blitzecdn_controlplane_certificate_reconcile_seconds }}
 certificate_renewal_interval_seconds = {{ blitzecdn_controlplane_certificate_renewal_seconds }}
 certificate_renewal_budget_seconds = 300
-{% endif %}

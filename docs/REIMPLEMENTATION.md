@@ -123,29 +123,38 @@ associated decisions describe the implementation that actually exists.
   Behavioral and resource contracts remain; isolated installation verifies the
   actual wheel outside the checkout. See decision 0016.
 
+- Explicit schema and installation lifecycle implemented: repository construction
+  validates existing state read-only; `migrate` owns initialization/upgrades and
+  `setup` also scaffolds credentials. Managed convergence stops services before
+  migration. Optional configuration-selection switches are retired. Restore
+  retains explicit staged migration. See decision 0017.
+
 ## Verified checkpoint
 
 - Strict typing and formatting pass; shell checks and the Ansible production
   lint profile pass.
-- Full application suite: 1,751 passed with 91.22% coverage, including actual
+- Full application suite: 1,757 passed with 91.22% coverage, including actual
   single-wheel installation outside the checkout with locked runtime dependencies.
 - Retired core-only/attach/detach checks are replaced by single-distribution,
   mandatory assembly, provider scope and installed-resource contracts. Capability
   and provider behavioral tests run together without package-presence skips.
-- One application wheel and source archive build. Package contents are verified
-  against every tracked application source and runtime resource.
-- CLI, HTTP and Ansible snapshot details are identical after removing ownership
-  columns; ownership is now `blitzecdn`. ABI, SDK and database snapshots are unchanged.
+- One application wheel and source archive build; installed-wheel tests verify
+  explicit schema preparation, usable stores and repeatable credential setup.
+- Startup and migration tests cover untouched unprepared files, damaged schemas,
+  concurrent processes and threads, unusual paths and removed database files.
+- CLI snapshots add `migrate` and remove `setup --schema-only`; Ansible removes
+  the retired configuration-selection argument. HTTP, ABI, SDK and database
+  snapshots are unchanged.
 - Live Ubuntu edge convergence has not been executed.
 
 ## Remaining implementation slices
 
-- Simplify installation, separate schema migration from ordinary repository
-  construction, and verify complete recovery on a real edge.
+- Verify complete convergence, activation, rollback and controller recovery on
+  an isolated Ubuntu edge. Local tests do not substitute for this verification.
 
 ## Per-step authorization
 
 After each step is tested and independently committed, ask for the user's
-confirmation before beginning the next. Following the application consolidation,
-the next proposed step is explicit schema migration and simpler installation/startup.
-Complete recovery on a real edge remains a subsequent, separately authorized step.
+confirmation before beginning the next. Following explicit schema migration and
+installation simplification, the next proposed step is end-to-end deployment and
+recovery verification on an isolated Ubuntu environment.

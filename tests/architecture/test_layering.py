@@ -711,10 +711,8 @@ def test_entry_layers_cannot_reach_private_control_plane_adapters_or_stores():
 def test_no_internal_module_dependency_cycles():
     """No module in this distribution can fail to import because of another.
 
-    Module-scope imports only. A deferred import is how a genuine two-way
-    dependency is made safe — `core.persistence.schema` owns the migration tree
-    that `core.persistence.engine` migrates with, and reaches back for the engine
-    inside the one method that runs one — and the loader never sees a loop.
+    Module-scope imports only. Deferred imports keep runtime-only integrations
+    outside the import graph; core schema lifecycle owns no repository imports.
     """
     modules = {
         "blitzecdn." + ".".join(path.relative_to(_SOURCE).with_suffix("").parts): path

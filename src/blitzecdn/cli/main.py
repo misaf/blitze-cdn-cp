@@ -7,13 +7,13 @@ installed package adds `blitzecdn waf ...` without this module changing.
 
 Two things stay here because they are the command line itself rather than a
 capability: the root callback in :mod:`blitzecdn.cli.root` with the global
-options, and `config`, `init` and `setup` — in :mod:`blitzecdn.cli.setup` and
+options, and `config`, `init`, `migrate` and `setup` — in :mod:`blitzecdn.cli.setup` and
 :mod:`blitzecdn.cli.configuration` — which configure the control plane that
 capabilities are then loaded into.
 
 Discovery does not build a control plane. The tree has to exist before an
 argument is parsed, and a command resolves its services when it runs — otherwise
-`blitzecdn --help` would create and migrate the database.
+`blitzecdn --help` would require an initialized database.
 
 Importing this module assembles the command tree, exactly as it did when the
 tree was a list of imports: discovery is cheap, and a `blitzecdn.cli.main` that

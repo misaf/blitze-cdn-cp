@@ -10,7 +10,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import yaml
 from install_support import (
     _function,
     _query,
@@ -20,7 +19,7 @@ from install_support import (
     _section,
     _update_sandbox,
 )
-from paths import CORE_ANSIBLE, REPO_ROOT
+from paths import REPO_ROOT
 
 # --- update: structural guarantees -------------------------------------------
 
@@ -48,7 +47,7 @@ def test_update_takes_a_backup_before_it_changes_anything():
 
 
 def test_update_stops_the_services_before_migrating_the_schema():
-    """The converge runs `blitzecdn setup --schema-only` against a live host."""
+    """The converge runs `blitzecdn migrate` against a live host."""
     update = _section("update")
     assert update.index("stop_control_plane_services") < update.index(
         "converge_control_plane"
@@ -415,33 +414,6 @@ def test_every_command_uses_the_shared_option_parser():
         )
 
 
-def test_configuration_sections_follow_the_installer_list():
-    for override in ("", "backup cache"):
-        prelude = f'export BLITZECDN_CAPABILITIES="{override}"\n' if override else ""
-        names = _query(f"{prelude}capabilities").split()
-        rendered = _query(f"{prelude}capability_json")
-        assert [name.strip('"') for name in rendered.split(",")] == names
-        if override:
-            assert names == override.split()
-
-
-def test_the_installer_never_demands_a_value_no_capability_will_read():
-    """`--email` is required, and it is blitzecdn-certificates' configuration.
-
-    The address is written into the managed blitzecdn.toml only under
-    `certificates`, and the role asserts one is present only under
-    `certificates`. With that capability out of the default list the installer
-    still refused to run without `--email`, validated the address, passed it to
-    Ansible — and the template dropped it, leaving an operator who supplied an
-    ACME account on a controller that could not issue a certificate for any
-    site it served. Requiring a value and installing nothing that reads it is
-    the contradiction; this is the direction that bites, because the installer
-    is where the operator is told the value matters.
-    """
-    assert 'die 2 "error: --email is required"' in _script()
-    assert "certificates" in _query("capabilities").split()
-
-
 def test_the_control_plane_image_installs_the_single_application():
     dockerfile = (
         REPO_ROOT / "src/blitzecdn/docker/control-plane/Dockerfile"
@@ -460,32 +432,6 @@ def test_the_production_recipe_installs_the_single_application():
     assert recipe
     assert "uv sync --frozen --no-dev" in recipe.group(1)
     assert "--extra" not in recipe.group(1)
-
-
-def test_the_control_plane_role_defaults_to_the_list_the_installer_passes():
-    """The role's fallback, for anyone converging it without install.sh.
-
-    install.sh always passes the list, so this default is only reached by a
-    playbook that does not — and a default that had drifted would hand such a
-    run a blitzecdn.toml describing a controller it is not.
-    """
-    defaults = yaml.safe_load(
-        (CORE_ANSIBLE / "roles/blitzecdn_controlplane/defaults/main.yml").read_text(
-            encoding="utf-8"
-        )
-    )
-    spec = yaml.safe_load(
-        (
-            CORE_ANSIBLE / "roles/blitzecdn_controlplane/meta/argument_specs.yml"
-        ).read_text(encoding="utf-8")
-    )
-    declared = spec["argument_specs"]["main"]["options"]
-    expected = sorted(_query("capabilities").split())
-
-    assert sorted(defaults["blitzecdn_controlplane_capabilities"]) == expected
-    assert (
-        sorted(declared["blitzecdn_controlplane_capabilities"]["default"]) == expected
-    )
 
 
 def test_the_command_table_and_the_help_agree_on_every_option():

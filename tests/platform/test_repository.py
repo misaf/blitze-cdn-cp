@@ -24,6 +24,7 @@ from blitzecdn.capabilities.workflows.domain import (
 )
 from blitzecdn.composition import ControlPlane, Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
+from blitzecdn.core.persistence.schema import DatabaseSchema
 
 
 def test_database_does_not_retain_idle_connections(settings):
@@ -348,7 +349,9 @@ def test_release_inputs_read_every_table_in_one_transaction(settings, monkeypatc
 def test_transactions_never_leak_between_repository_instances(settings):
     """An ambient session is scoped to its database, not merely its context."""
     first = Repository(settings.database_path)
-    second = Repository(settings.database_path.with_name("other-control-plane.db"))
+    other = settings.database_path.with_name("other-control-plane.db")
+    DatabaseSchema.migrate(other)
+    second = Repository(other)
 
     with first.transaction():
         first.zones.create_domain(Domain(name="first.example"))
