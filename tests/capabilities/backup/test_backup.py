@@ -21,7 +21,11 @@ from control_plane_fixtures import FakeRunner, seed_record
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.backup.adapters import TarArchive, TemporaryWorkspace
-from blitzecdn.capabilities.backup.adapters.components import DATABASE_MEMBER
+from blitzecdn.capabilities.backup.adapters.components import (
+    DATABASE_MEMBER,
+    AcmeComponent,
+    TlsComponent,
+)
 from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
 from blitzecdn.capabilities.backup.composition import build_backup_service
 from blitzecdn.capabilities.backup.config import BackupConfig
@@ -743,6 +747,73 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
     assert key.read_text() == "STILL HERE"
     assert populated.database_path.read_bytes() == database
     assert service.services.calls == []
+
+
+@pytest.mark.parametrize("component_type", [TlsComponent, AcmeComponent])
+@pytest.mark.parametrize("rollback_fails", [False, True])
+def test_directory_restore_preserves_old_state_when_swap_fails(
+    settings, tmp_path, monkeypatch, component_type, rollback_fails
+):
+    component = component_type(settings)
+    destination = component._root
+    destination.mkdir(parents=True)
+    (destination / "original.pem").write_bytes(b"original private material")
+    staging = tmp_path / "staged-component"
+    staging.mkdir()
+    (staging / "replacement.pem").write_bytes(b"replacement private material")
+    rename = Path.rename
+
+    def fail_swap(path, target):
+        if target == destination:
+            if ".previous." not in path.name:
+                raise OSError("replacement rename failed")
+            if rollback_fails:
+                raise OSError("rollback rename failed")
+        return rename(path, target)
+
+    monkeypatch.setattr(Path, "rename", fail_swap)
+    if rollback_fails:
+        with pytest.raises((OSError, ExecutionError)) as error:
+            component.restore(staging)
+        previous = list(destination.parent.glob(f".{destination.name}.previous.*"))
+        assert len(previous) == 1
+        assert isinstance(error.value, ExecutionError)
+        assert "recover it from" in str(error.value)
+        assert str(previous[0]) in str(error.value)
+        assert isinstance(error.value.__cause__, OSError)
+        assert (previous[0] / "original.pem").read_bytes() == (
+            b"original private material"
+        )
+        assert not destination.exists()
+        assert list(destination.parent.glob(f".{destination.name}.*")) == previous
+    else:
+        with pytest.raises(OSError, match="replacement rename failed"):
+            component.restore(staging)
+        assert (destination / "original.pem").read_bytes() == (
+            b"original private material"
+        )
+        assert not list(destination.parent.glob(f".{destination.name}.*"))
+
+
+@pytest.mark.parametrize("component_type", [TlsComponent, AcmeComponent])
+def test_directory_restore_removes_old_state_only_after_success(
+    settings, tmp_path, component_type
+):
+    component = component_type(settings)
+    destination = component._root
+    destination.mkdir(parents=True)
+    (destination / "original.pem").write_bytes(b"original private material")
+    staging = tmp_path / "staged-component"
+    staging.mkdir()
+    (staging / "replacement.pem").write_bytes(b"replacement private material")
+
+    component.restore(staging)
+
+    assert (destination / "replacement.pem").read_bytes() == (
+        b"replacement private material"
+    )
+    assert not (destination / "original.pem").exists()
+    assert not list(destination.parent.glob(f".{destination.name}.*"))
 
 
 def test_restored_tls_private_keys_are_not_world_readable(populated):

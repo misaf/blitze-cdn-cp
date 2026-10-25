@@ -26,7 +26,7 @@ from blitzecdn.core.config import (
     is_portable_config_key,
     is_portable_environment_key,
 )
-from blitzecdn.core.exceptions import ConfigurationError
+from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
@@ -317,14 +317,17 @@ class _DirectoryComponent:
                 incoming.rename(destination)
             except OSError:
                 if previous.exists():
-                    previous.rename(destination)
+                    try:
+                        previous.rename(destination)
+                    except OSError as exc:
+                        raise ExecutionError(
+                            f"restore failed and the previous directory could not "
+                            f"be put back at {destination}; recover it from {previous}"
+                        ) from exc
                 raise
             rmtree(previous, ignore_errors=True)
         finally:
             rmtree(incoming, ignore_errors=True)
-            # Present only if replacing the old tree succeeded and its cleanup
-            # was interrupted. It no longer participates in live state.
-            rmtree(previous, ignore_errors=True)
 
 
 class TlsComponent(_DirectoryComponent):
