@@ -13,7 +13,7 @@ dependencies exist at three different times:
   jobs and lifecycle work, bound once every service has been built.
 
 A feature declares its :class:`Feature` in ``feature.py`` and builds the other
-two in ``runtime.py`` from explicitly named collaborators. The composition
+two in ``wiring.py`` from explicitly named collaborators. The composition
 root's roster names each feature module and the builders it binds.
 """
 

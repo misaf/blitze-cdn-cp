@@ -11,7 +11,7 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.cache.domain import PurgeEntry
-from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError

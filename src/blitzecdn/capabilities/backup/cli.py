@@ -7,12 +7,12 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.backup.composition import (
+from blitzecdn.capabilities.backup.domain import BackupComponent
+from blitzecdn.capabilities.backup.wiring import (
     build_backup_service,
     build_restore_guard,
     build_restore_journal,
 )
-from blitzecdn.capabilities.backup.domain import BackupComponent
 from blitzecdn.cli import common
 
 backup_app = typer.Typer(

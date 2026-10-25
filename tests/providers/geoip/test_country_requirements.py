@@ -12,8 +12,8 @@ installed, which is the case this file cannot see.
 
 import pytest
 
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.composition import load_registry
 from blitzecdn.providers.geoip.feature import FEATURES
 

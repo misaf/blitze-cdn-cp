@@ -12,8 +12,8 @@ from typing import Literal, Self
 from pydantic import Field, model_validator
 
 from blitzecdn.api.models import Model
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.compression.policy import CompressionMode
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.domain import DnsRecord as DomainDnsRecord
 from blitzecdn.capabilities.dns.domain import Domain as DomainDomain
@@ -23,10 +23,10 @@ from blitzecdn.capabilities.dns.domain import RecordType as DomainRecordType
 from blitzecdn.capabilities.dns.domain import ResolvedPolicy as DomainResolvedPolicy
 from blitzecdn.capabilities.dns.domain import Rule as DomainRule
 from blitzecdn.capabilities.dns.domain import RulePatch as DomainRulePatch
-from blitzecdn.capabilities.http.policy import MaxUploadSize
+from blitzecdn.capabilities.http.contract import MaxUploadSize
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite as DomainCdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,

@@ -14,7 +14,11 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.domain import SslAutomaticReconciliation
 from blitzecdn.capabilities.tls.automatic_ssl.ports import OriginCheckRunner
 from blitzecdn.capabilities.tls.certificates.ports import SiteEditor
-from blitzecdn.capabilities.tls.policy import CertificateMode, SslAutomaticMode, SslMode
+from blitzecdn.capabilities.tls.contract import (
+    CertificateMode,
+    SslAutomaticMode,
+    SslMode,
+)
 
 
 class AutomaticSslService:

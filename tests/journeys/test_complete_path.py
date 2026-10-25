@@ -46,7 +46,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
-from blitzecdn.capabilities.tls.policy import SslMode
+from blitzecdn.capabilities.tls.contract import SslMode
 from blitzecdn.composition import ApplicationServices, Repository
 from blitzecdn.core.domain.runs import RunStatus
 

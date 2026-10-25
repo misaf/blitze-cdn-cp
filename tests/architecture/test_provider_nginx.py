@@ -14,7 +14,7 @@ from paths import SOURCE
 #: validated against. `SiteFirewall` is the source of the first six, so a
 #: seventh rule kind lands here without this list being edited.
 def _firewall_rule_kinds() -> frozenset[str]:
-    from blitzecdn.capabilities.security.policy import SiteFirewall
+    from blitzecdn.capabilities.security.contract import SiteFirewall
 
     return frozenset(SiteFirewall.model_fields)
 
@@ -91,7 +91,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: the exception is gone rather than documented, which is the outcome worth
 #: having for a list whose whole purpose is to stay short.
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
-    "capabilities/security/policy.py": None,
+    "capabilities/security/contract.py": None,
     "capabilities/dns/api/models.py": None,
     "capabilities/dns/cli/security.py": None,
     "capabilities/dns/domain/commands.py": _firewall_rule_kinds(),

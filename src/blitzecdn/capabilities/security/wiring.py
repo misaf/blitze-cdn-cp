@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
-from blitzecdn.capabilities.security.config import SECRET_VARIABLE, SecurityConfig
+from blitzecdn.capabilities.security.settings import SECRET_VARIABLE, SecurityConfig
 from blitzecdn.core.features import FeatureRendering, Severity, ValidationIssue
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime

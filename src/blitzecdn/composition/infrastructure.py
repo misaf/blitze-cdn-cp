@@ -31,11 +31,11 @@ from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.capabilities.edges.ports import EdgeRunner
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.edges.ports import OriginProbe as OriginProbePort
-from blitzecdn.capabilities.jobs.composition import (
+from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
+from blitzecdn.capabilities.jobs.wiring import (
     build_job_queue,
     build_job_scheduler,
 )
-from blitzecdn.capabilities.jobs.service import JobQueue, JobScheduler
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.composition.repository import Repository
 from blitzecdn.composition.roster import load_registry

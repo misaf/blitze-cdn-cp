@@ -19,7 +19,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateSource,
     PreflightReport,
 )
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     CertificateVersion,
     SslMode,

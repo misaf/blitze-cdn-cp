@@ -1,8 +1,8 @@
 from types import SimpleNamespace
 
-from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.capabilities.tls.feature import CERTIFICATES
-from blitzecdn.capabilities.tls.runtime import certificates_operations
+from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.capabilities.tls.wiring import certificates_operations
 from blitzecdn.core.features import CapabilityConfig
 
 

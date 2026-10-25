@@ -24,7 +24,7 @@ from paths import REPO_ROOT
 from policy_support import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
 

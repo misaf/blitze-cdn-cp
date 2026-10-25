@@ -9,7 +9,7 @@ from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CertificateVersion,
     managed_certificate_paths,
 )

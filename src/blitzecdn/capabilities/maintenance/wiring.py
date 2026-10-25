@@ -1,6 +1,6 @@
 """How the maintenance capability is built.
 
-The same shape as :mod:`blitzecdn.capabilities.dns.composition`.
+The same shape as :mod:`blitzecdn.capabilities.dns.wiring`.
 """
 
 from __future__ import annotations

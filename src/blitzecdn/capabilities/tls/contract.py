@@ -16,7 +16,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from blitzecdn.capabilities.http.policy import DEFAULT_PORTS, HttpScheme
+from blitzecdn.capabilities.http.contract import DEFAULT_PORTS, HttpScheme
 from blitzecdn.core.domain.policy import CapabilityPolicy
 
 MANAGED_TLS_ROOT = "/etc/blitzecdn/tls"

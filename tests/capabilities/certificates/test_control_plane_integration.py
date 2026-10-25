@@ -5,7 +5,7 @@ These four were in ``tests/entrypoints/test_control_plane.py``, named in a
 wheel was detached. They also relied on the ``attach_certificate_test_services``
 monkeypatch to make ``control.certificates`` exist at all — a shape production
 core never has. Here they build the services through
-``blitzecdn.capabilities.tls.composition``, which is the path the feature itself
+``blitzecdn.capabilities.tls.wiring``, which is the path the feature itself
 takes, so the wiring under test is the wiring that ships.
 """
 
@@ -21,7 +21,7 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
-from blitzecdn.capabilities.tls.policy import CertificateMode
+from blitzecdn.capabilities.tls.contract import CertificateMode
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.core.exceptions import DeploymentBusyError
 

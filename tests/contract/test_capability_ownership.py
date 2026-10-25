@@ -17,19 +17,19 @@ import re
 
 from paths import CORE_ANSIBLE, SOURCE
 
-from blitzecdn.capabilities.cache.policy import CachePolicy
-from blitzecdn.capabilities.compression.policy import CompressionPolicy
+from blitzecdn.capabilities.cache.contract import CachePolicy
+from blitzecdn.capabilities.compression.contract import CompressionPolicy
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
-from blitzecdn.capabilities.http.policy import ProtocolPolicy
-from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
-from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import (
+from blitzecdn.capabilities.http.contract import ProtocolPolicy
+from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.serving.contract import (
     HeaderPolicy,
     OriginPolicy,
     SitePolicy,
     SiteVisitorHeaders,
 )
-from blitzecdn.capabilities.tls.policy import TlsPolicy
+from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.capabilities.tls.contract import TlsPolicy
 
 _ROLE = CORE_ANSIBLE / "roles/blitzecdn_nginx"
 _TEMPLATE = (_ROLE / "templates/site.conf.j2").read_text(encoding="utf-8")

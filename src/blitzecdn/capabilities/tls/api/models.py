@@ -14,7 +14,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
 from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateRequest as DomainCertificateRequest,
 )
-from blitzecdn.capabilities.tls.policy import SslMode
+from blitzecdn.capabilities.tls.contract import SslMode
 
 
 class CertificateInfo(Model):

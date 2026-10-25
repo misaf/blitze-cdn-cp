@@ -43,7 +43,7 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     WorkflowCoordinator,
     WorkflowProgress,
 )
-from blitzecdn.capabilities.tls.policy import CertificateMode, CertificateVersion
+from blitzecdn.capabilities.tls.contract import CertificateMode, CertificateVersion
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import (
     BlitzeError,

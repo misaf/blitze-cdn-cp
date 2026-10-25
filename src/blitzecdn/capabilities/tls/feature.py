@@ -5,7 +5,7 @@ contract — ``TlsPolicy``, composed into ``CdnSite`` by serving — and declare
 nothing but its name, because the name is what a refusal is written in: a site
 whose ``ssl_mode`` needs issuance is refused by ``capability_requirements``
 naming ``tls``. ``certificates`` issues, renews and runs Automatic SSL/TLS; its
-rendering and operations are built in :mod:`blitzecdn.capabilities.tls.runtime`.
+rendering and operations are built in :mod:`blitzecdn.capabilities.tls.wiring`.
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ from blitzecdn.capabilities.tls.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn.capabilities.tls.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn.capabilities.tls.certificates import cli as certificates_cli
 from blitzecdn.capabilities.tls.certificates.api import routes as certificates_routes
-from blitzecdn.capabilities.tls.composition import (
+from blitzecdn.capabilities.tls.settings import SETTINGS
+from blitzecdn.capabilities.tls.wiring import (
     __version__ as certificates_version,
 )
-from blitzecdn.capabilities.tls.config import SETTINGS
 from blitzecdn.core.features import (
     CliCommandGroup,
     ConfigurationContribution,

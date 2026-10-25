@@ -14,7 +14,7 @@ from typing import Self
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from blitzecdn.capabilities.deployments.domain import Deployment
-from blitzecdn.capabilities.tls.policy import CertificateVersion
+from blitzecdn.capabilities.tls.contract import CertificateVersion
 from blitzecdn.capabilities.workflows.domain import WorkflowKind
 from blitzecdn.core.domain.validation import hostname
 

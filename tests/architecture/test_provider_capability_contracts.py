@@ -25,15 +25,15 @@ def test_the_http_capability_contributes_the_quic_baseline_without_deriving_it()
     lives in the HTTP/3 provider. The `http` feature still writes both
     variables — they are `required: true` in the edge role's argument spec, so
     the document keeps one shape whatever is installed — but it writes them as
-    constants. `policy.py` still reads the switch, which is right: the *field*
+    constants. `contract.py` still reads the switch, which is right: the *field*
     is core's and `required_capabilities` is how a site asks for the capability.
-    What may not come back is a read in `runtime.py`, because that is the
+    What may not come back is a read in `wiring.py`, because that is the
     derivation, and two features deriving these two variables from one fleet is
     a merge conflict at deploy time rather than a design anybody chose.
     """
-    feature = SOURCE / "capabilities/http/runtime.py"
+    feature = SOURCE / "capabilities/http/wiring.py"
     offenders = [
-        "capabilities/http/runtime.py reads .http3_enabled"
+        "capabilities/http/wiring.py reads .http3_enabled"
         for node in ast.walk(ast.parse(feature.read_text(encoding="utf-8")))
         if isinstance(node, ast.Attribute) and node.attr == "http3_enabled"
     ]
@@ -60,7 +60,7 @@ def test_the_site_contract_keeps_the_http3_switch_in_core():
     that shape depend on what is installed, and a stored site asking for HTTP/3
     would stop loading on a controller that had detached it.
     """
-    from blitzecdn.capabilities.http.policy import ProtocolPolicy
+    from blitzecdn.capabilities.http.contract import ProtocolPolicy
     from blitzecdn.capabilities.serving.domain import CdnSite
 
     assert "http3_enabled" in ProtocolPolicy.model_fields
@@ -77,9 +77,9 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
     installed, and a stored site asking for a country would stop loading on a
     controller that had detached it.
     """
-    from blitzecdn.capabilities.security.policy import SiteFirewall
+    from blitzecdn.capabilities.security.contract import SiteFirewall
+    from blitzecdn.capabilities.serving.contract.headers import SiteVisitorHeaders
     from blitzecdn.capabilities.serving.domain import CdnSite
-    from blitzecdn.capabilities.serving.policy.headers import SiteVisitorHeaders
 
     assert {"allowed_countries", "denied_countries"} <= set(SiteFirewall.model_fields)
     assert "ip_country" in SiteVisitorHeaders.model_fields
@@ -99,8 +99,8 @@ def test_the_site_contract_keeps_every_country_setting_in_core():
 #: composition was where a third country-aware setting would have been
 #: registered, and neither contract said anywhere that it needed a lookup.
 _GEOIP_AWARE_CONTRACTS = {
-    "capabilities/security/policy.py",
-    "capabilities/serving/policy/headers.py",
+    "capabilities/security/contract.py",
+    "capabilities/serving/contract/headers.py",
 }
 
 

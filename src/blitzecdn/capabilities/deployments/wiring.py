@@ -1,6 +1,6 @@
-"""How the deployments capability is built.
+"""How the deployments capability is built, and what it runs.
 
-The same shape as :mod:`blitzecdn.capabilities.dns.composition` and the only
+The same shape as :mod:`blitzecdn.capabilities.dns.wiring` and the only
 built-in with real assembly to do. ``DeploymentService`` is three dataclasses
 and a writer before it is a service, and that three-part shape is the
 capability's own: what belongs in ``DeploymentPolicy`` rather than in
@@ -9,6 +9,12 @@ changing deployments, and answering it in the composition root would put it in
 the one file that is supposed to know *which* concrete things are wired and not
 how any capability is put together internally — where adding a collaborator
 here means editing that file.
+
+What it runs is recovery at startup and the drift check. Republishing queued
+deployments and marking orphaned runs abandoned has to happen while holding the
+fleet-wide deployment lock, and once per node. That is what a feature's startup
+is for: it runs when the API process starts, never from a CLI invocation, which
+would take that lock on every command an operator typed.
 """
 
 from __future__ import annotations
@@ -43,6 +49,7 @@ from blitzecdn.capabilities.releases.domain import Release
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit
+from blitzecdn.core.features import FeatureOperations, ScheduledJob
 from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.filesystem import (
     atomic_write_bytes,
@@ -54,6 +61,7 @@ __all__ = [
     "CONFIGURATION_BUNDLE",
     "RegisteredEdgeAddresses",
     "build_deployment_service",
+    "deployments_operations",
     "publish_release",
 ]
 
@@ -195,4 +203,30 @@ def build_deployment_service(
         releases=releases,
         workflows=workflows,
         clock=clock,
+    )
+
+
+def deployments_operations(
+    *, deployments: DeploymentService, drift_check_interval_seconds: int
+) -> FeatureOperations:
+    """The drift check, and node-startup recovery of interrupted deployments."""
+
+    def check(operator: str) -> None:
+        deployments.check_drift(operator)
+
+    def startup() -> None:
+        deployments.initialize()
+
+    return FeatureOperations(
+        feature="deployments",
+        scheduled_jobs=(
+            ScheduledJob(
+                feature="deployments",
+                name="check-drift",
+                interval_seconds=drift_check_interval_seconds,
+                run=check,
+                jitter_seconds=min(600, drift_check_interval_seconds // 10),
+            ),
+        ),
+        startup=startup,
     )

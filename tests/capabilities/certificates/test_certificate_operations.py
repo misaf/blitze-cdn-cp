@@ -42,7 +42,7 @@ from blitzecdn.capabilities.deployments.domain import (
 )
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.tls.certificates.domain import CertificateSource
-from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
+from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
 from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import NotFoundError
 

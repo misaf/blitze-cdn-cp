@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.security.policy import SecurityPolicy, SiteFirewall
+from blitzecdn.capabilities.security.contract import SecurityPolicy, SiteFirewall
 
 
 def test_the_firewall_and_under_attack_mode_share_one_policy():

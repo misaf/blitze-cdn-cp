@@ -48,7 +48,7 @@ from blitzecdn.capabilities.tls.certificates.ports import (
     Preflight,
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
+from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
 from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import ApplicationServices, FleetRunner, Repository
 from blitzecdn.core.config import Settings

@@ -3,13 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.http.policy import MaxUploadSize
-from blitzecdn.capabilities.security.policy import SiteFirewall
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.compression.contract import CompressionMode
+from blitzecdn.capabilities.http.contract import MaxUploadSize
+from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.policy import SslMode
+from blitzecdn.capabilities.tls.contract import SslMode
 
 
 def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
@@ -19,14 +19,15 @@ def test_every_policy_concept_is_defined_by_the_capability_that_owns_it():
     from, so this fails if a capability's contract is redefined or aliased into
     ``dns`` rather than composed from its owner.
     """
-    assert CompressionMode.__module__ == "blitzecdn.capabilities.compression.policy"
-    assert SslMode.__module__ == "blitzecdn.capabilities.tls.policy"
-    assert SiteFirewall.__module__ == "blitzecdn.capabilities.security.policy"
-    assert CacheQueryStringMode.__module__ == "blitzecdn.capabilities.cache.policy"
+    assert CompressionMode.__module__ == "blitzecdn.capabilities.compression.contract"
+    assert SslMode.__module__ == "blitzecdn.capabilities.tls.contract"
+    assert SiteFirewall.__module__ == "blitzecdn.capabilities.security.contract"
+    assert CacheQueryStringMode.__module__ == "blitzecdn.capabilities.cache.contract"
     # The one that stays: no distribution could carry the ``BZ-*`` headers away,
     # so there is no capability to reunite this contract with.
     assert (
-        SiteVisitorHeaders.__module__ == "blitzecdn.capabilities.serving.policy.headers"
+        SiteVisitorHeaders.__module__
+        == "blitzecdn.capabilities.serving.contract.headers"
     )
     assert [mode.value for mode in CompressionMode] == ["off", "gzip", "brotli"]
 
@@ -62,7 +63,7 @@ def test_max_upload_size_is_a_closed_set_the_http_capability_owns():
     The point of the enum over a size string: nothing between here and the
     rendered directive has to know what a valid nginx size looks like.
     """
-    assert MaxUploadSize.__module__ == "blitzecdn.capabilities.http.policy"
+    assert MaxUploadSize.__module__ == "blitzecdn.capabilities.http.contract"
     assert [tier.value for tier in MaxUploadSize] == ["100m", "200m"]
 
     assert SitePolicy().protocols.max_upload_size is MaxUploadSize.SMALL
@@ -114,7 +115,7 @@ def test_geoip_requirement_combines_security_and_header_policy():
 
 def test_the_policy_package_re_exports_only_what_it_owns():
     """Importing another capability's contract from `serving.policy` must not work."""
-    import blitzecdn.capabilities.serving.policy as policy
+    import blitzecdn.capabilities.serving.contract as policy
 
     assert set(policy.__all__) == {
         "HeaderPolicy",
@@ -203,7 +204,7 @@ def test_nested_capability_values_participate_without_inheritance_discovery():
 def test_a_flat_setting_cannot_be_owned_by_two_nested_contracts():
     from pydantic import Field
 
-    from blitzecdn.capabilities.cache.policy import CachePolicy
+    from blitzecdn.capabilities.cache.contract import CachePolicy
 
     class AmbiguousPolicy(SitePolicy):
         second_cache: CachePolicy = Field(default_factory=CachePolicy)

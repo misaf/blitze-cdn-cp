@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from blitzecdn.capabilities.cache import ansible, cli
 from blitzecdn.capabilities.cache.api import routes
-from blitzecdn.capabilities.cache.composition import __version__
+from blitzecdn.capabilities.cache.wiring import __version__
 from blitzecdn.core.features import (
     AnsibleContribution,
     CliCommandGroup,

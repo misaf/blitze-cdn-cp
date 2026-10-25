@@ -31,8 +31,6 @@ from blitzecdn.capabilities.backup.adapters.components import (
 )
 from blitzecdn.capabilities.backup.adapters.recovery import RestoreJournal
 from blitzecdn.capabilities.backup.adapters.services import ComposeRestoreGuard
-from blitzecdn.capabilities.backup.composition import build_backup_service
-from blitzecdn.capabilities.backup.config import BackupConfig
 from blitzecdn.capabilities.backup.domain import (
     BACKUP_FORMAT_VERSION,
     BackupComponent,
@@ -42,6 +40,8 @@ from blitzecdn.capabilities.backup.domain import (
     unsafe_member,
 )
 from blitzecdn.capabilities.backup.service import BackupPolicy, BackupService
+from blitzecdn.capabilities.backup.settings import BackupConfig
+from blitzecdn.capabilities.backup.wiring import build_backup_service
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository, load_registry

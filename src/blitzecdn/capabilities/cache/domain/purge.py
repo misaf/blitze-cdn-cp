@@ -12,7 +12,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, computed_field, field_validator
 
-from blitzecdn.capabilities.http.policy import HttpScheme
+from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.domain.validation import hostname
 

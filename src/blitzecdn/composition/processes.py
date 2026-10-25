@@ -23,7 +23,6 @@ from blitzecdn.capabilities.dns import DnsService
 from blitzecdn.capabilities.dns.ports import SiteReader
 from blitzecdn.capabilities.dns.service import RuleService
 from blitzecdn.capabilities.edges import EdgeOperationsService
-from blitzecdn.capabilities.jobs.composition import schedule_specs
 from blitzecdn.capabilities.jobs.domain import (
     DONE,
     Defer,
@@ -39,12 +38,13 @@ from blitzecdn.capabilities.jobs.service import (
     JobRunner,
     JobScheduler,
 )
+from blitzecdn.capabilities.jobs.wiring import schedule_specs
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.config import CertificateConfig
+from blitzecdn.capabilities.tls.settings import CertificateConfig
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.composition.infrastructure import Infrastructure
 from blitzecdn.composition.services import ApplicationServices

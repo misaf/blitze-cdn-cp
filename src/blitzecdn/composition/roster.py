@@ -4,7 +4,7 @@ One row per feature module. The module is named by path because its
 `feature.py` imports routers and command groups, and those import this
 package: importing feature modules here would be a cycle. A row's builders
 bind the feature's rendering and operations from the composition's input
-records, calling the capability's own `runtime.py` builders with named
+records, calling the capability's own `wiring.py` builders with named
 arguments, so a capability never sees either record.
 """
 
@@ -13,18 +13,18 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from blitzecdn.capabilities.deployments.runtime import deployments_operations
 from blitzecdn.capabilities.deployments.service.convergence import DeploymentService
-from blitzecdn.capabilities.diagnostics.runtime import diagnostics_operations
-from blitzecdn.capabilities.dns.runtime import RENDERING as DNS_RENDERING
-from blitzecdn.capabilities.http.runtime import RENDERING as HTTP_RENDERING
-from blitzecdn.capabilities.security.config import SecurityConfig
-from blitzecdn.capabilities.security.runtime import security_rendering
+from blitzecdn.capabilities.deployments.wiring import deployments_operations
+from blitzecdn.capabilities.diagnostics.wiring import diagnostics_operations
+from blitzecdn.capabilities.dns.wiring import RENDERING as DNS_RENDERING
+from blitzecdn.capabilities.http.wiring import RENDERING as HTTP_RENDERING
+from blitzecdn.capabilities.security.settings import SecurityConfig
+from blitzecdn.capabilities.security.wiring import security_rendering
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
-from blitzecdn.capabilities.tls.config import CertificateConfig
-from blitzecdn.capabilities.tls.runtime import (
+from blitzecdn.capabilities.tls.settings import CertificateConfig
+from blitzecdn.capabilities.tls.wiring import (
     certificates_operations,
     certificates_rendering,
 )
@@ -36,7 +36,7 @@ from blitzecdn.core.features import (
     load_features,
 )
 from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
-from blitzecdn.providers.http3.runtime import RENDERING as HTTP3_RENDERING
+from blitzecdn.providers.http3.wiring import RENDERING as HTTP3_RENDERING
 
 __all__ = [
     "BUILTIN_FEATURES",

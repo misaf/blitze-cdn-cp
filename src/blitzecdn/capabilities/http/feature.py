@@ -3,7 +3,7 @@
 HTTP/1.1 and HTTP/2 are invariants of the managed edge: every edge serves
 them, nothing turns them on, and no distribution has to be installed for them
 to work. That is the whole of what this feature owns; its fleet
-stance is rendered by :mod:`blitzecdn.capabilities.http.runtime`.
+stance is rendered by :mod:`blitzecdn.capabilities.http.wiring`.
 
 The two QUIC variables are contributed here at their *baseline* — no listener,
 no owner — rather than left out. They are `required: true` in the

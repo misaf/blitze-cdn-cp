@@ -22,7 +22,7 @@ from blitzecdn.capabilities.tls.certificates.domain import (
     CertificateInfo,
     CertificateSource,
 )
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     MANAGED_TLS_ROOT,
     CertificateVersion,
     managed_certificate_paths,

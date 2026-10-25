@@ -9,18 +9,18 @@ feature writes into the fleet document.
 
 from policy_support import TEST_CERTIFICATE_VERSION
 
-from blitzecdn.capabilities.http.feature import FEATURES
-from blitzecdn.capabilities.http.policy import (
+from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,
     HTTP_PROXY_PORTS,
     HTTPS_PROXY_PORTS,
     HttpScheme,
     ProtocolPolicy,
 )
-from blitzecdn.capabilities.http.runtime import baseline_listeners
+from blitzecdn.capabilities.http.feature import FEATURES
+from blitzecdn.capabilities.http.wiring import baseline_listeners
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.capabilities.tls.policy import managed_certificate_paths
+from blitzecdn.capabilities.tls.contract import managed_certificate_paths
 
 (FEATURE,) = FEATURES
 
@@ -45,7 +45,7 @@ def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
 
 
 def test_http_owns_the_scheme_and_the_public_proxy_port_sets():
-    assert HttpScheme.__module__ == "blitzecdn.capabilities.http.policy"
+    assert HttpScheme.__module__ == "blitzecdn.capabilities.http.contract"
     assert DEFAULT_PORTS == {HttpScheme.HTTP: 80, HttpScheme.HTTPS: 443}
     assert 80 in HTTP_PROXY_PORTS and 443 in HTTPS_PROXY_PORTS
     assert not set(HTTP_PROXY_PORTS) & set(HTTPS_PROXY_PORTS)

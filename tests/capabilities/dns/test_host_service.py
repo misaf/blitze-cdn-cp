@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy, Rule
 from blitzecdn.capabilities.dns.service import HostService
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     SslAutomaticMode,
     SslMode,

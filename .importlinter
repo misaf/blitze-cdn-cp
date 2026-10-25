@@ -23,7 +23,7 @@ name = A capability's domain and contract are framework- and I/O-free
 type = forbidden
 source_modules =
     blitzecdn.capabilities.**.domain
-    blitzecdn.capabilities.**.policy
+    blitzecdn.capabilities.**.contract
 forbidden_modules =
     fastapi
     starlette
@@ -203,15 +203,16 @@ forbidden_modules =
     blitzecdn.composition
 allow_indirect_imports = True
 
-[importlinter:contract:runtime-not-delivery]
-name = A runtime module imports no delivery layer
+[importlinter:contract:wiring-not-delivery]
+name = A wiring module imports no delivery layer
 type = forbidden
-# The composition root imports `runtime.py` to bind behaviour, and delivery
-# imports the composition root, so the other direction would be a cycle.
-# Routes and commands are declared in `feature.py`, loaded by name.
+# The composition root imports `wiring.py` to build services and bind
+# behaviour, and delivery imports the composition root, so the other direction
+# would be a cycle. Routes and commands are declared in `feature.py`, loaded by
+# name.
 source_modules =
-    blitzecdn.capabilities.*.runtime
-    blitzecdn.providers.*.runtime
+    blitzecdn.capabilities.*.wiring
+    blitzecdn.providers.*.wiring
 forbidden_modules =
     fastapi
     typer

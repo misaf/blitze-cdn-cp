@@ -4,7 +4,7 @@ The consumer owns the port, so this is declared here rather than imported from
 the capability that satisfies it. ``origins`` ships an adapter with exactly this
 shape, but the *description* of what the scan calls belongs to the scan:
 an implementation is a fact about wiring, and wiring is
-:mod:`blitzecdn.capabilities.tls.composition`'s.
+:mod:`blitzecdn.capabilities.tls.wiring`'s.
 """
 
 from __future__ import annotations

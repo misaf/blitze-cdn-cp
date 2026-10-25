@@ -13,12 +13,12 @@ from typing import Any, Union, get_args, get_origin
 
 from pydantic import BaseModel, ConfigDict
 
-from blitzecdn.capabilities.cache.policy import CacheQueryStringMode
-from blitzecdn.capabilities.compression.policy import CompressionMode
-from blitzecdn.capabilities.http.policy import MaxUploadSize
-from blitzecdn.capabilities.security.policy import SiteFirewall
-from blitzecdn.capabilities.serving.policy import SitePolicy, SiteVisitorHeaders
-from blitzecdn.capabilities.tls.policy import (
+from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.compression.contract import CompressionMode
+from blitzecdn.capabilities.http.contract import MaxUploadSize
+from blitzecdn.capabilities.security.contract import SiteFirewall
+from blitzecdn.capabilities.serving.contract import SitePolicy, SiteVisitorHeaders
+from blitzecdn.capabilities.tls.contract import (
     CertificateMode,
     MinimumTlsVersion,
     SslAutomaticMode,

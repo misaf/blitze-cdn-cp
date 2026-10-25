@@ -91,7 +91,7 @@ def test_publishing_writes_the_bundle_before_the_document_that_names_it(
 ):
     import yaml
 
-    from blitzecdn.capabilities.deployments.composition import (
+    from blitzecdn.capabilities.deployments.wiring import (
         CONFIGURATION_BUNDLE,
         publish_release,
     )

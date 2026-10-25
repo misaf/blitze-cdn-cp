@@ -4,15 +4,15 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from blitzecdn.capabilities.security.config import (
+from blitzecdn.capabilities.security.feature import FEATURES
+from blitzecdn.capabilities.security.settings import (
     MINIMUM_SECRET_BYTES,
     SECRET_VARIABLE,
     SecurityConfig,
 )
-from blitzecdn.capabilities.security.feature import FEATURES
-from blitzecdn.capabilities.security.runtime import security_rendering
+from blitzecdn.capabilities.security.wiring import security_rendering
+from blitzecdn.capabilities.serving.contract import SitePolicy
 from blitzecdn.capabilities.serving.domain import CdnSite
-from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.features import ValidationIssue, resolve_capability_environment
 

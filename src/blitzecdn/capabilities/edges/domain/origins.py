@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from blitzecdn.capabilities.http.policy import HttpScheme
-from blitzecdn.capabilities.tls.policy import SslMode
+from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.capabilities.tls.contract import SslMode
 
 
 class OriginCheck(BaseModel):
