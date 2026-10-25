@@ -121,7 +121,7 @@ class Infrastructure:
         try:
             registry = features if features is not None else load_registry()
             # Refuse missing required capabilities before building anything
-            # that would use them. See docs/decisions/0002.
+            # that would use them.
             registry.require(
                 settings.required_capabilities,
                 subject="this installation's `required_capabilities`",

@@ -71,7 +71,7 @@ class UnservableReleaseError(ConfigurationError):
     caller asked for a document that was never rendered, and the reason is a
     configuration an operator has to go and change. The delivery surfaces map
     this to the exit code and the status they map every other configuration
-    refusal to — see ``docs/decisions/0006-how-a-failure-reaches-a-caller.md``.
+    refusal to.
     """
 
 

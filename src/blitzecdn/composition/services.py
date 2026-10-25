@@ -8,9 +8,7 @@ graph is built.
 
 There is no lifecycle and no process branch here. Which of these a process
 uses, and what it does when it starts and stops, is
-:mod:`blitzecdn.composition.processes`. See
-docs/decisions/0021-capability-roster-and-process-composition.md, and 0001
-for the composition rationale.
+:mod:`blitzecdn.composition.processes`.
 """
 
 from __future__ import annotations

@@ -50,8 +50,6 @@ class FailureKind(StrEnum):
     that to a shell and `blitzecdn.api.app` decides what status code says it to
     a client. Neither may invent a kind, and `tests/contract/test_delivery_parity.py`
     fails if either stops covering one.
-
-    See docs/decisions/0006-how-a-failure-reaches-a-caller.md.
     """
 
     #: Another deployment holds the lock. The one failure that clears on its

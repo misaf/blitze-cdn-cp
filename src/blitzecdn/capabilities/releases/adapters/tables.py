@@ -37,8 +37,7 @@ class ReleaseInputsRow(Base, table=True):
     *these* — the zones, rules and records — and not the artifact. Converging
     an old artifact would put an edge back where it was and leave the control
     plane still asserting the newer state; adopting the inputs is what makes a
-    rollback a change of desired state rather than a temporary override. See
-    ``docs/decisions/0007-releases-and-reconciliation.md``.
+    rollback a change of desired state rather than a temporary override.
     """
 
     __tablename__ = "release_inputs"

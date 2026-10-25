@@ -9,8 +9,7 @@ serves an empty fleet. An explicit roster fails at import, names the module,
 and can be read. Which modules it holds is the composition root's answer.
 
 There is no third-party extension mechanism. When one is needed it appends
-to the same roster; see
-docs/decisions/0021-capability-roster-and-process-composition.md.
+to the same roster.
 """
 
 from __future__ import annotations

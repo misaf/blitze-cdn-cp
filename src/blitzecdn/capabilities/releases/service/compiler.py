@@ -113,7 +113,7 @@ def _derivation_findings(inputs: ReleaseInputs) -> Iterable[ReleaseFinding]:
 
     The derivation drops them rather than raising — one broken zone must not
     darken a whole fleet's worth of reads — so this is where the drop stops
-    being silent. See ``docs/decisions/0005-canonical-writes-and-derived-state.md``.
+    being silent.
     """
     for refused in unservable_hosts(
         list(inputs.domains), list(inputs.rules), list(inputs.records)

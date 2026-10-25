@@ -1,10 +1,9 @@
 """Derived virtual hosts and certificate/automatic SSL writeback.
 
 Zones, rules, and records are canonical desired state. Virtual hosts are
-derived by ``dns.domain.hosts`` and are never stored independently.
-See docs/decisions/0001-zone-policy-and-composition.md for the design history,
-and 0005-canonical-writes-and-derived-state.md for why the writes here read
-inside the transaction they write in."""
+derived by ``dns.domain.hosts`` and are never stored independently. The
+writes here read inside the transaction they write in, so what they check is
+what they commit against."""
 
 from __future__ import annotations
 

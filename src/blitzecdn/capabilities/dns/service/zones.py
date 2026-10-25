@@ -1,8 +1,7 @@
 """Zone and record editing, DNS export, and desired-state validation.
 
 Zones, rules, and records are canonical desired state. Virtual hosts are
-derived by ``dns.domain.hosts`` and are never stored independently.
-See docs/decisions/0001-zone-policy-and-composition.md for the design history."""
+derived by ``dns.domain.hosts`` and are never stored independently."""
 
 from __future__ import annotations
 

@@ -17,8 +17,6 @@ The processes themselves â€” `api/`, `cli/`, `worker.py`, `install_handoff.py` â
 live at the package root and import from here. The names re-exported below are
 the whole public face; nothing outside this package imports one of its modules
 by name.
-
-See docs/decisions/0021-capability-roster-and-process-composition.md.
 """
 
 from blitzecdn.composition.infrastructure import FleetRunner, Infrastructure
