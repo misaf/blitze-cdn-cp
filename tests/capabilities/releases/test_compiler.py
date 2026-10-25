@@ -9,7 +9,7 @@ reported where it broke.
 from __future__ import annotations
 
 import pytest
-from policy_support import domain_from_settings
+from support.policy import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Rule
 from blitzecdn.capabilities.releases.domain import (

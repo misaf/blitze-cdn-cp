@@ -13,7 +13,7 @@ import sys
 from collections.abc import Mapping
 
 import pytest
-from paths import SOURCE
+from support.paths import SOURCE
 
 from blitzecdn.host.install_release import (
     NOTHING_TO_DO,

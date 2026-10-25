@@ -3,8 +3,8 @@
 from contextlib import contextmanager
 
 import pytest
-from control_plane_fixtures import FakeRunner, build_application
 from pydantic import ValidationError
+from support.control_plane import FakeRunner, build_application
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,

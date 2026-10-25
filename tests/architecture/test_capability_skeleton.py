@@ -11,7 +11,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from paths import SOURCE
+from support.paths import SOURCE
 
 _CAPABILITIES = SOURCE / "capabilities"
 

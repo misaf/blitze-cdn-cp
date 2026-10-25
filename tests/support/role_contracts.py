@@ -6,10 +6,11 @@ module stay beside its tests.
 """
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import yaml
-from contract_support import (
+
+from support.contracts import (
     STACK_ROLE_DIR,
     _ansible_jinja,
     _role_defaults,
@@ -25,7 +26,10 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
     callers below are the only ones that read a role's defaults without also
     resolving them against the runtime contract.
     """
-    return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
+    return cast(
+        dict[str, Any],
+        yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8")),
+    )
 
 
 COMPOSE_TEMPLATE = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(
@@ -76,4 +80,4 @@ def _render_compose(**overrides: Any) -> dict[str, Any]:
         blitzecdn_edge_stack_resolved_image="example/edge@sha256:" + "ab" * 32,
         **context,
     )
-    return yaml.safe_load(rendered)
+    return cast(dict[str, Any], yaml.safe_load(rendered))

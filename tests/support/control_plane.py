@@ -13,11 +13,6 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from fastapi import FastAPI
-from policy_support import (
-    TEST_CERTIFICATE_VERSION,
-    domain_from_settings,
-    site_from_settings,
-)
 from pydantic import SecretStr
 
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
@@ -56,6 +51,11 @@ from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.entrypoints.api import create_app
 from blitzecdn.entrypoints.cli import common as cli_common
+from support.policy import (
+    TEST_CERTIFICATE_VERSION,
+    domain_from_settings,
+    site_from_settings,
+)
 
 
 @pytest.fixture(autouse=True)

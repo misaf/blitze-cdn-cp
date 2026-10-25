@@ -14,5 +14,5 @@ edge, asserted against the role files and — where it matters — against a rea
 | `test_edge_permissions.py` | What the converged edge may read and write, and who owns it |
 | `test_control_plane_firewall.py` | The controller's own API rules |
 
-`role_contract_support.py` holds the Compose template and the readers shared
-across these modules. Helpers used by one module stay beside its tests.
+`tests/support/role_contracts.py` holds the Compose template and the readers
+shared across these modules. Helpers used by one module stay beside its tests.

@@ -8,8 +8,8 @@ from typing import Any
 
 import pytest
 import yaml
-from contract_support import PROJECT_DIR, ROLES_DIR, _role, _runtime_defaults
-from role_contract_support import (
+from support.contracts import PROJECT_DIR, ROLES_DIR, _role, _runtime_defaults
+from support.role_contracts import (
     _defaults_of,
 )
 

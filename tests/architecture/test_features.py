@@ -13,9 +13,9 @@ from importlib import import_module
 from types import SimpleNamespace
 
 import pytest
-from control_plane_fixtures import FakeRunner, build_application
 from fastapi import APIRouter
-from policy_support import site_from_settings
+from support.control_plane import FakeRunner, build_application
+from support.policy import site_from_settings
 from typer import Typer
 
 from blitzecdn.capabilities.deployments.wiring import deployments_operations

@@ -1,14 +1,14 @@
 """Cross-role wiring: the firewall registry, and the daemon's own configuration."""
 
 import yaml
-from contract_support import (
+from support.contracts import (
     DOCKER_ROLE_DIR,
     STACK_ROLE_DIR,
     _role,
     ansible_bool,
     jinja2,
 )
-from paths import CORE_ANSIBLE
+from support.paths import CORE_ANSIBLE
 
 
 def test_http3_uses_the_firewall_registry_for_udp_443():

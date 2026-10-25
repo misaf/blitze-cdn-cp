@@ -45,7 +45,7 @@ import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-from paths import REPO_ROOT, SOURCE
+from support.paths import REPO_ROOT, SOURCE
 
 #: A Sphinx cross-reference role and the target inside it. The leading ``~`` is
 #: display sugar — it shortens the rendered label to the last component and says

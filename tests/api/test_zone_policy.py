@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from control_plane_fixtures import API_HEADERS, control_plane_app
 from fastapi.testclient import TestClient
+from support.control_plane import API_HEADERS, control_plane_app
 
 from blitzecdn.capabilities.dns.api.models import Domain as DomainModel
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel

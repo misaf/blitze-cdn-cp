@@ -7,8 +7,8 @@ makes them a check on the packaging and not only on the handlers — a route tha
 stopped being contributed would 404 here.
 """
 
-from control_plane_fixtures import FakeRunner, ansible_run, host_run, serve
 from fastapi.testclient import TestClient
+from support.control_plane import FakeRunner, ansible_run, host_run, serve
 
 from blitzecdn.entrypoints.api import create_app
 

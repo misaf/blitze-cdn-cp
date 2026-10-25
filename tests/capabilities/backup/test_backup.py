@@ -20,7 +20,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path
 
 import pytest
-from control_plane_fixtures import FakeRunner, build_application, seed_record
+from support.control_plane import FakeRunner, build_application, seed_record
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.backup.adapters import TarArchive, TemporaryWorkspace

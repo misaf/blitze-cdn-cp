@@ -26,9 +26,9 @@ from __future__ import annotations
 
 import difflib
 
-import frozen_surfaces as surfaces
 import pytest
-from frozen_surfaces import FROZEN
+import support.frozen_surfaces as surfaces
+from support.frozen_surfaces import FROZEN
 
 
 def _compare(name: str, current: str) -> None:

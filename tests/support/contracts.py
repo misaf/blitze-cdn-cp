@@ -2,7 +2,7 @@
 
 Paths, readers and the one fixture, and nothing else. This module used to
 re-export the domain types and the standard library alongside them so that
-consumers could say ``from contract_support import *`` — which left a reader
+consumers could say ``from support.contracts import *`` — which left a reader
 unable to tell where ``SslMode`` came from, and left ruff unable to see that
 ``subprocess`` was the standard library, so S603 fired on none of the eight
 ``ansible-playbook`` calls the contract suites make. The consumers import what
@@ -21,9 +21,6 @@ from typing import Any
 
 import pytest
 import yaml
-from control_plane_fixtures import build_application
-from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
-from policy_support import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
@@ -31,6 +28,9 @@ from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode
 from blitzecdn.composition import Repository, load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
+from support.control_plane import build_application
+from support.paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
+from support.policy import domain_from_settings
 
 jinja2 = pytest.importorskip("jinja2")
 

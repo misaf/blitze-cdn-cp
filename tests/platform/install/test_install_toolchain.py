@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from install_support import (
+from support.install import (
     BASH,
     _function,
     _script,

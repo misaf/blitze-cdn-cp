@@ -1,12 +1,12 @@
 import time
 
-from control_plane_fixtures import (
+from fastapi.testclient import TestClient
+from support.control_plane import (
     API_HEADERS,
     control_plane_app,
     host_run,
     seed_site_over_http,
 )
-from fastapi.testclient import TestClient
 
 from blitzecdn.capabilities.deployments import DeploymentService
 from blitzecdn.capabilities.dns.api.models import DomainPatch as DomainPatchModel

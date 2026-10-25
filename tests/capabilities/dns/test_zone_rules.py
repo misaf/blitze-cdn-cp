@@ -5,8 +5,8 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import pytest
-from control_plane_fixtures import FakeRunner, build_application, seed_site
-from policy_support import TEST_CERTIFICATE_VERSION
+from support.control_plane import FakeRunner, build_application, seed_site
+from support.policy import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.domain import (

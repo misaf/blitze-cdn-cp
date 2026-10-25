@@ -2,11 +2,11 @@
 
 import json
 
-from cli_support import (
+from support.cli import (
     _control,
     runner,
 )
-from control_plane_fixtures import (
+from support.control_plane import (
     seed_site,
 )
 

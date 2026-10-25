@@ -1,7 +1,7 @@
 """The workspace's root pytest configuration.
 
 The one job here is making the control plane's shared fixtures reachable from
-every distribution's tests. `tests/control_plane_fixtures.py` holds them —
+every distribution's tests. `tests/support/control_plane.py` holds them —
 `settings`, the fake runner, the fake stores — and this registers it as a
 plugin for the whole run, which is what lets
 `tests/capabilities/cache/` use `settings` without either copying the
@@ -23,4 +23,4 @@ import os
 # hence here, in the file pytest loads before any test module.
 os.environ["_TYPER_FORCE_DISABLE_TERMINAL"] = "1"
 
-pytest_plugins = ["control_plane_fixtures"]
+pytest_plugins = ["support.control_plane"]

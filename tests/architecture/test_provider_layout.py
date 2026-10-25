@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from paths import CORE_DOCKER, REPO_ROOT
+from support.paths import CORE_DOCKER, REPO_ROOT
 
 
 def test_the_published_docker_paths_are_the_ones_in_the_checkout():

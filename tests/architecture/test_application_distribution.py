@@ -6,7 +6,7 @@ import importlib.metadata
 import tomllib
 from pathlib import Path
 
-from paths import REPO_ROOT, SOURCE
+from support.paths import REPO_ROOT, SOURCE
 
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.features.resolution import resolve_nginx_resources

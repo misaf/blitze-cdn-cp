@@ -29,14 +29,15 @@ from typing import Any, cast
 
 import click
 import yaml
-from paths import SOURCE
 from sqlalchemy import CheckConstraint
+
+from support.paths import SOURCE
 
 #: The root distribution's import package. Everything else is a wheel.
 ROOT = "blitzecdn"
 
 #: Where the committed surfaces live.
-FROZEN = Path(__file__).resolve().parent / "contract" / "frozen"
+FROZEN = Path(__file__).resolve().parent.parent / "contract" / "frozen"
 
 #: The four surfaces, in the order `just refreeze` writes them.
 SURFACES = ("cli", "http", "ansible", "schema")

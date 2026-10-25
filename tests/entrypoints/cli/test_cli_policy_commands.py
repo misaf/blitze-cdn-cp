@@ -1,7 +1,7 @@
 """Delivery submits intent without reading canonical policy to assemble it."""
 
 import pytest
-from cli_support import _control, runner
+from support.cli import _control, runner
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,

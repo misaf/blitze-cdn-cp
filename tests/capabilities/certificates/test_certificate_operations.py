@@ -19,8 +19,8 @@ from contextlib import contextmanager
 
 import pytest
 import yaml
-from application_support import _seed_proxied_record
-from certificate_support import (
+from support.application import _seed_proxied_record
+from support.certificates import (
     FakePreflight,
     _automatic_origin_report,
     _proxied_site_with_certificate,
@@ -28,7 +28,7 @@ from certificate_support import (
     _seed_automatic_ssl_record,
     certificate_control_plane,
 )
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     host_run,

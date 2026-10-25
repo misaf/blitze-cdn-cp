@@ -5,9 +5,9 @@ import sys
 from pathlib import Path
 
 import pytest
-from control_plane_fixtures import FakeEdgeStore, edge
-from paths import REPO_ROOT
 from pydantic import SecretStr
+from support.control_plane import FakeEdgeStore, edge
+from support.paths import REPO_ROOT
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible

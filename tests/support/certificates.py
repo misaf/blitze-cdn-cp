@@ -27,13 +27,6 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import pytest
-from control_plane_fixtures import (
-    FakeRunner,
-    build_application,
-    cli_control_plane,
-    host_run,
-    seed_site,
-)
 
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.certificates.domain import (
@@ -54,6 +47,13 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ExecutionError
 from blitzecdn.entrypoints.cli import common as cli_common
+from support.control_plane import (
+    FakeRunner,
+    build_application,
+    cli_control_plane,
+    host_run,
+    seed_site,
+)
 
 #: What `certificate_pair` hands back: a callable making a certificate and its
 #: key. Spelled once because three signatures below take it.
@@ -198,7 +198,7 @@ class FakePreflight:
 
 # --- builders the certificate and Automatic SSL suites share ----------------
 #
-# These were in `tests/application_support.py`, where core's own suites could
+# These were in `support/application.py`, where core's own suites could
 # reach them. Nothing in core uses them any more: an issuer stub, an uploaded
 # certificate and an origin report shaped for the Automatic SSL scan are all
 # this capability's vocabulary.
@@ -284,7 +284,7 @@ def _proxied_site_with_certificate(
 
 if TYPE_CHECKING:
     # The doubles above stand in for this capability's ports, stated here and
-    # held by `just types` — the same arrangement `control_plane_fixtures.py`
+    # held by `just types` — the same arrangement `support/control_plane.py`
     # uses for core's. `CertificateExecution` takes both, so a drift used to
     # surface as whichever test called the method that moved.
     _preflight_is_a_preflight: Preflight = FakePreflight()

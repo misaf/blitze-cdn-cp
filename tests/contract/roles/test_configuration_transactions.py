@@ -5,7 +5,7 @@ import runpy
 from pathlib import Path
 
 import pytest
-from paths import CORE_ANSIBLE
+from support.paths import CORE_ANSIBLE
 
 _HELPER = CORE_ANSIBLE / "roles/blitzecdn_config_release/files/configuration_release.py"
 ConfigurationRelease = runpy.run_path(str(_HELPER))["ConfigurationRelease"]
@@ -158,7 +158,7 @@ def test_real_ansible_selects_candidate_paths_and_matching_parent_mounts(
     import sys
 
     import yaml
-    from role_contract_support import _render_compose
+    from support.role_contracts import _render_compose
 
     root = str(tmp_path / "releases")
     digest = "a" * 64

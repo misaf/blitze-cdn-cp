@@ -10,7 +10,7 @@ import docker
 import jinja2
 import pytest
 import yaml
-from paths import CORE_ANSIBLE
+from support.paths import CORE_ANSIBLE
 
 from blitzecdn.host import host_runtime
 from blitzecdn.host.host_runtime import (

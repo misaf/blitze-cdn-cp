@@ -15,7 +15,7 @@ from typing import Any
 
 import pytest
 import yaml
-from contract_support import (
+from support.contracts import (
     PROJECT_DIR,
     ROLE_DIR,
     ROLES_DIR,
@@ -23,8 +23,8 @@ from contract_support import (
     _role,
     _role_defaults,
 )
-from paths import SOURCE
-from role_contract_support import (
+from support.paths import SOURCE
+from support.role_contracts import (
     COMPOSE_TEMPLATE,
     _defaults_of,
     _edge_context,

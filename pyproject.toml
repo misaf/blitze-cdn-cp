@@ -101,8 +101,8 @@ addopts = "--strict-config --strict-markers --cov --cov-report=term-missing --co
 filterwarnings = ["error"]
 # All capability and provider tests live in the application suite.
 testpaths = ["tests"]
-# Shared helpers are imported by name from their owning test directories.
-pythonpath = ["tests", "tests/capabilities/cache", "tests/capabilities/certificates"]
+# Shared helpers are the `support` package under it.
+pythonpath = ["tests"]
 
 [tool.coverage.run]
 branch = true
@@ -140,18 +140,18 @@ max-statements = 60
 # argument is a fixed array over `tmp_path` and paths inside this workspace.
 #
 # The helpers module was the only entry here while the suites reached
-# `subprocess` through `from contract_support import *`, which left ruff unable
+# `subprocess` through `from support.contracts import *`, which left ruff unable
 # to tell the name was the standard library and quietly firing S603 nowhere.
 # The imports are explicit now, so the rule reaches the eight call sites it
 # always should have, and the exemption is stated where they are rather than
 # being an accident of how the name arrived.
-"tests/contract_support.py" = ["S603"]
+"tests/support/contracts.py" = ["S603"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 # Check application source and shared test helpers.
-files = ["src", "tests/*.py", "tests/capabilities/cache/cache_support.py", "tests/capabilities/certificates/certificate_support.py"]
+files = ["src", "tests/*.py", "tests/support"]
 
 # The dynamic inventory plugin is Ansible's code, not the control plane's. It
 # ships inside the package because Ansible loads inventory plugins by directory

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from control_plane_fixtures import FakeRunner, build_application, seed_record, seed_site
+from support.control_plane import FakeRunner, build_application, seed_record, seed_site
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,

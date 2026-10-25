@@ -1,10 +1,10 @@
 """How a zone reaches its origin, and what repointing a record moves."""
 
-from cli_support import (
+from support.cli import (
     _control,
     runner,
 )
-from control_plane_fixtures import (
+from support.control_plane import (
     seed_site,
 )
 

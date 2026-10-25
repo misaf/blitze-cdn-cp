@@ -1,6 +1,6 @@
 import pytest
-from application_support import _seed_proxied_record
-from control_plane_fixtures import (
+from support.application import _seed_proxied_record
+from support.control_plane import (
     FakeRunner,
     advance,
     ansible_run,
@@ -266,7 +266,7 @@ def test_a_transition_is_a_new_value_and_keeps_what_it_did_not_change():
 def test_converging_requirements_queues_one_deployment_and_only_when_owed(
     settings,
 ):
-    from control_plane_fixtures import FakeRunner, build_application, seed_site
+    from support.control_plane import FakeRunner, build_application, seed_site
 
     from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
     from blitzecdn.composition import Repository

@@ -7,7 +7,7 @@ import pytest
 # The nginx role renders from its own defaults *and* the shared edge runtime
 # contract, so the loader that builds that namespace is shared with the other
 # contract-test modules rather than reimplemented here.
-from edge_render_support import (
+from support.edge_render import (
     _role_spec,
 )
 

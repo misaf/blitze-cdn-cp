@@ -29,7 +29,7 @@ from collections.abc import Iterator
 
 import pytest
 import yaml
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     build_application,

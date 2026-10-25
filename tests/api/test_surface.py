@@ -1,9 +1,9 @@
 import json
 import re
 
-from control_plane_fixtures import control_plane_app
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from support.control_plane import control_plane_app
 
 from blitzecdn import __version__
 from blitzecdn.capabilities.deployments.api import routes as deployment_routes

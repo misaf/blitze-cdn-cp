@@ -32,7 +32,7 @@ from collections import defaultdict
 from pathlib import Path
 
 import pytest
-from paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
+from support.paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
 
 from blitzecdn.composition import BUILTIN_FEATURES
 

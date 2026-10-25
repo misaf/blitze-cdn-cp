@@ -10,7 +10,7 @@ ourselves.
 
 from __future__ import annotations
 
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     build_application,

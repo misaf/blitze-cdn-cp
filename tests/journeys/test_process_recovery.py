@@ -19,7 +19,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from paths import REPO_ROOT
+from support.paths import REPO_ROOT
 
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.exceptions import DeploymentBusyError

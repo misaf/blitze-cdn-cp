@@ -3,10 +3,10 @@
 import sys
 
 import pytest
-from cli_support import (
+from support.cli import (
     runner,
 )
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     build_application,
 )

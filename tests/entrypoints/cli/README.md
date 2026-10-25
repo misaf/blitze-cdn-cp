@@ -15,9 +15,9 @@ temporary database, grouped by the command tree each module exercises.
 | `test_cli_introspection.py` | Help, plugins, versions, `doctor` |
 | `test_cli_runtime.py` | Setup, the composition root, refusing to serve unauthenticated |
 
-`cli_support.py` holds the runner and the control-plane builders.
+`tests/support/cli.py` holds the runner and the control-plane builders.
 
 A module declares its own `REQUIRES_CAPABILITIES` for tests that read an
 installed capability's own output: the fixture in
-`tests/control_plane_fixtures.py` reads that name off the test's module, so an
+`tests/support/control_plane.py` reads that name off the test's module, so an
 entry must live beside the test it names.

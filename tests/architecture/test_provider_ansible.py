@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from paths import REPO_ROOT, SOURCE
+from support.paths import REPO_ROOT, SOURCE
 
 #: The variables that are the interface *between* roles rather than one role's
 #: own input, so they are the exception to the prefix rule below.

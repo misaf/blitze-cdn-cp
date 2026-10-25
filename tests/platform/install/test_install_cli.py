@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from install_support import (
+from support.install import (
     BASH,
     SCRIPT,
     _embedded_python,

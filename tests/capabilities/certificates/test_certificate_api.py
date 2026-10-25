@@ -8,7 +8,7 @@ for: these routes exist only while this distribution is installed, so the
 suite that asserts on them belongs to the distribution.
 
 The helpers they need — ``control_plane_app``, ``API_HEADERS`` and
-``seed_site_over_http`` — come from ``control_plane_fixtures``, which the
+``seed_site_over_http`` — come from ``support.control_plane``, which the
 workspace's root ``conftest.py`` registers as a feature for every distribution's
 tests.
 """
@@ -17,13 +17,13 @@ from __future__ import annotations
 
 import threading
 
-from control_plane_fixtures import (
+from fastapi.testclient import TestClient
+from support.control_plane import (
     API_HEADERS,
     control_plane_app,
     seed_site_over_http,
     with_capability_settings,
 )
-from fastapi.testclient import TestClient
 
 from blitzecdn.capabilities.tls.certificates.adapters.preflight import (
     CertificatePreflight,

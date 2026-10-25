@@ -3,8 +3,8 @@ from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from application_support import _await_terminal, _await_workflow
-from control_plane_fixtures import (
+from support.application import _await_terminal, _await_workflow
+from support.control_plane import (
     FakeRunner,
     FakeServingProbe,
     RecordingBackgroundQueue,

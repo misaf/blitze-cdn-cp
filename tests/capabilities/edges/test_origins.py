@@ -13,8 +13,8 @@ import threading
 from contextlib import contextmanager
 
 import pytest
-from policy_support import site_from_settings
 from pydantic import ValidationError
+from support.policy import site_from_settings
 
 import blitzecdn.capabilities.edges.adapters.probe as origins_module
 from blitzecdn.capabilities.edges.adapters.probe import OriginProbe

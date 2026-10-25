@@ -1,7 +1,7 @@
 import os
 import subprocess
 
-from control_plane_fixtures import FakeRunner, build_application
+from support.control_plane import FakeRunner, build_application
 
 from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.install_handoff import finalize_standalone, install_wrapper

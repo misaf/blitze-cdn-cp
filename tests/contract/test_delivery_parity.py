@@ -27,7 +27,7 @@ deliberate — see the module docstring of `blitzecdn.capabilities.dns.cli`.
 
 from __future__ import annotations
 
-import frozen_surfaces as surfaces
+import support.frozen_surfaces as surfaces
 
 #: One row per operation: the distribution that owns it, the command, the
 #: route, and — for a row that names only one of the two — why the other

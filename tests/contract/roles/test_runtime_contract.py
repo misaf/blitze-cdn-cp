@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from contract_support import (
+from support.contracts import (
     PROJECT_DIR,
     ROLES_DIR,
     _runtime_defaults,

@@ -3,7 +3,7 @@
 ``desired_state`` renders the document a real deployment would converge, and
 several modules assert against it. A fixture has to be registered with pytest
 rather than imported, so it lives here rather than in
-``edge_render_support.py`` beside the loaders it uses.
+``support/edge_render.py`` beside the loaders it uses.
 """
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from typing import Any
 
 import pytest
 import yaml
-from control_plane_fixtures import build_application
-from edge_render_support import _seed_site
+from support.control_plane import build_application
+from support.edge_render import _seed_site
 
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.tls.contract import CertificateMode, SslMode

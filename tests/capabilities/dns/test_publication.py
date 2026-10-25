@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from control_plane_fixtures import FakeRunner, build_application, seed_record
+from support.control_plane import FakeRunner, build_application, seed_record
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.dns.domain import PUBLICATION, PublicationMode, RecordType

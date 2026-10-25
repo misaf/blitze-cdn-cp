@@ -16,8 +16,8 @@ what lease.
 
 from __future__ import annotations
 
-from control_plane_fixtures import with_capability_settings
 from fastapi.testclient import TestClient
+from support.control_plane import with_capability_settings
 
 from blitzecdn.composition import Repository
 from blitzecdn.entrypoints.api import create_app
