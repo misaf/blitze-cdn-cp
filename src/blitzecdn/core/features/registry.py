@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from blitzecdn.core.exceptions import FeatureError
 from blitzecdn.core.features.types import (
@@ -32,6 +32,7 @@ from blitzecdn.core.features.types import (
     HealthCheck,
     NginxContribution,
     ScheduledJob,
+    Site,
     SiteStateContribution,
     StateValue,
     ValidationIssue,
@@ -40,8 +41,6 @@ from blitzecdn.core.features.types import (
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
-
-    from blitzecdn.capabilities.serving.domain import CdnSite
 
 
 def merge_variables(
@@ -182,7 +181,9 @@ class FeatureRegistry:
 
     # --- binding -----------------------------------------------------------
 
-    def bind_rendering(self, renderings: Sequence[FeatureRendering]) -> Rendering:
+    def bind_rendering[S: Site](
+        self, renderings: Sequence[FeatureRendering[S]]
+    ) -> Rendering[S]:
         """What the release compiler asks every feature, bound once."""
         self._check_bound(renderings, "rendering")
         return Rendering(self, tuple(renderings))
@@ -205,7 +206,9 @@ class FeatureRegistry:
         )
 
     def _check_bound(
-        self, bound: Sequence[FeatureRendering] | Sequence[FeatureOperations], kind: str
+        self,
+        bound: Sequence[FeatureRendering[Any]] | Sequence[FeatureOperations],
+        kind: str,
     ) -> None:
         """Bound behaviour belongs to exactly one declared built-in feature."""
         features = {feature.name for feature in self.features}
@@ -219,7 +222,7 @@ class FeatureRegistry:
                 raise FeatureError(f"{item.feature!r} binds its {kind} twice")
             seen.add(item.feature)
 
-    def _missing_capability_issues(self, site: CdnSite) -> tuple[ValidationIssue, ...]:
+    def _missing_capability_issues(self, site: Site) -> tuple[ValidationIssue, ...]:
         requested = site.policy.capability_requirements
         return tuple(
             ValidationIssue(
@@ -237,16 +240,16 @@ class FeatureRegistry:
         )
 
 
-class Rendering:
+class Rendering[S: Site]:
     """Every feature's share of a release, asked per site or per fleet."""
 
     def __init__(
-        self, registry: FeatureRegistry, renderings: tuple[FeatureRendering, ...]
+        self, registry: FeatureRegistry, renderings: tuple[FeatureRendering[S], ...]
     ) -> None:
         self._registry = registry
         self._renderings = renderings
 
-    def site_variables(self, site: CdnSite) -> dict[str, StateValue]:
+    def site_variables(self, site: S) -> dict[str, StateValue]:
         contributions = [
             contribution
             for rendering in self._renderings
@@ -258,7 +261,7 @@ class Rendering:
             contributions, subject=f"desired state for site {site.name!r}"
         )
 
-    def fleet_variables(self, sites: tuple[CdnSite, ...]) -> dict[str, StateValue]:
+    def fleet_variables(self, sites: tuple[S, ...]) -> dict[str, StateValue]:
         contributions = [
             contribution
             for rendering in self._renderings
@@ -268,7 +271,7 @@ class Rendering:
         ]
         return merge_variables(contributions, subject="fleet desired state")
 
-    def validate_site(self, site: CdnSite) -> ValidationResult:
+    def validate_site(self, site: S) -> ValidationResult:
         """Every reason this site cannot be deployed by this installation.
 
         The capability issues come first and are generic: the tokens are the
@@ -285,7 +288,7 @@ class Rendering:
             + self.site_objections(site),
         )
 
-    def site_objections(self, site: CdnSite) -> tuple[ValidationIssue, ...]:
+    def site_objections(self, site: S) -> tuple[ValidationIssue, ...]:
         """What the *installed* features object to about this site.
 
         Separate from :meth:`validate_site` because the two answers have

@@ -44,6 +44,7 @@ from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.origins.wiring import build_origin_check_service
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.releases.wiring import build_release_service
+from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.automatic_ssl.service import AutomaticSslService
 from blitzecdn.capabilities.tls.certificates.adapters import CertificateStore
 from blitzecdn.capabilities.tls.certificates.ports import (
@@ -104,7 +105,7 @@ class ApplicationServices:
     site_editor: HostService
     sites: SiteReader
     rules: RuleService
-    rendering: Rendering
+    rendering: Rendering[CdnSite]
     releases: ReleaseService
     deployments: DeploymentService
     edges: EdgeOperationsService

@@ -116,11 +116,8 @@ source_modules =
 forbidden_modules =
     blitzecdn.capabilities
     blitzecdn.composition
-# Annotations only: a contribution type names the value it is handed, and
-# nothing is imported at run time to do it.
-ignore_imports =
-    blitzecdn.core.features.registry -> blitzecdn.capabilities.serving.domain
-    blitzecdn.core.features.types.feature -> blitzecdn.capabilities.serving.domain
+# No exceptions, annotations included: a feature type names the `Site`
+# protocol, and the composition root binds it to the concrete site model.
 allow_indirect_imports = True
 
 [importlinter:contract:core-kernel]
