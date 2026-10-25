@@ -77,6 +77,69 @@ def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(settings):
     assert repository.deployments.list_deployments(5) == []
 
 
+@pytest.mark.parametrize(
+    ("check_mode", "status"),
+    [
+        (True, DeploymentStatus.SUCCEEDED),
+        (True, DeploymentStatus.FAILED),
+        (False, DeploymentStatus.FAILED),
+        (False, DeploymentStatus.QUEUED),
+        (False, DeploymentStatus.RUNNING),
+    ],
+)
+def test_newer_non_applied_runs_do_not_hide_a_deployed_site(
+    settings, check_mode, status
+):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    applied = control.deployments.deploy("alice", host_limit="edge-a")
+    assert applied.status is DeploymentStatus.SUCCEEDED
+
+    with repository.transaction():
+        for _ in range(51):
+            newer = repository.deployments.create_deployment(
+                "alice", release_id=applied.release_id, check_mode=check_mode
+            )
+            if status is DeploymentStatus.QUEUED:
+                continue
+            repository.deployments.transition(
+                newer.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+            )
+            if status is not DeploymentStatus.RUNNING:
+                repository.deployments.transition(
+                    newer.id, DeploymentStatus.RUNNING, status
+                )
+
+    assert control.deployments.site_is_deployed("example-com") is True
+    assert control.deployments.site_is_deployed("missing-site") is False
+
+
+def test_site_lookup_uses_only_the_newest_successful_applied_release(settings):
+    repository = Repository(settings.database_path)
+    control = ControlPlane(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_edge(control, name="edge-a")
+    seed_site(control)
+    control.deployments.deploy("alice")
+    repository.zones.delete_record("example.com", "cdn", RecordType.A)
+
+    removed = control.deployments.deploy("alice")
+
+    assert removed.status is DeploymentStatus.SUCCEEDED
+    assert control.deployments.site_is_deployed("example-com") is False
+
+
+def test_latest_successful_applied_is_absent_on_an_empty_controller(settings):
+    repository = Repository(settings.database_path)
+
+    assert repository.deployments.latest_successful_applied() is None
+
+
 def _in_sync_run():
     return ansible_run(host_run("edge-a"), host_run("edge-b"))
 

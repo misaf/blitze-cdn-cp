@@ -16,7 +16,6 @@ this owns only what a stored run means.
 from __future__ import annotations
 
 from blitzecdn.capabilities.deployments.domain import (
-    DeploymentStatus,
     DriftReport,
     TargetStatus,
 )
@@ -26,12 +25,6 @@ from blitzecdn.capabilities.deployments.ports import (
     Releases,
 )
 from blitzecdn.core.exceptions import ConflictError
-
-#: How far back :func:`site_is_deployed` will look for a run to read. A bound
-#: rather than the whole table because the answer comes from the *newest*
-#: qualifying run — anything older cannot change it, and history is pruned to a
-#: retention that may be far larger than this.
-_DEPLOYMENT_LOOKBACK = 50
 
 __all__ = ["drift_report", "site_is_deployed"]
 
@@ -80,14 +73,11 @@ def site_is_deployed(
     newest successful run is consulted; an older one listing the site says
     nothing about whether it is still deployed.
     """
-    for deployment in deployments.list_deployments(limit=_DEPLOYMENT_LOOKBACK):
-        if deployment.status is not DeploymentStatus.SUCCEEDED:
-            continue
-        if deployment.check_mode:
-            continue
-        release = releases.get(deployment.release_id)
-        # The compiled sites, not a fresh derivation from today's state: the
-        # question is what that run actually carried, and re-deriving would
-        # answer it from a zone edited since.
-        return any(entry.name == site_name for entry in release.sites)
-    return False
+    deployment = deployments.latest_successful_applied()
+    if deployment is None:
+        return False
+    release = releases.get(deployment.release_id)
+    # The compiled sites, not a fresh derivation from today's state: the
+    # question is what that run actually carried, and re-deriving would
+    # answer it from a zone edited since.
+    return any(entry.name == site_name for entry in release.sites)
