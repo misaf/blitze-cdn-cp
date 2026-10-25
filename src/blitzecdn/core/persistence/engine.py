@@ -1,9 +1,7 @@
 """The engine, the session, and the transaction boundary.
 
-Owns the three things that were hand-rolled around ``sqlite3`` before: the
-connection, the process-wide write lock, and the Unit of Work every store
-joins. The behaviour is deliberately the same; only the machinery underneath
-changed.
+Owns the connection, the process-wide write lock, and the Unit of Work every
+store joins.
 """
 
 from __future__ import annotations
@@ -128,7 +126,7 @@ class Database:
         A store calls this for every operation without caring which it gets.
         Inside :meth:`transaction` all stores see the same session and one
         commit; outside it, a single-statement store call is its own
-        transaction, exactly as it was.
+        transaction.
         """
         ambient = self._session.get()
         if ambient is not None:
@@ -177,9 +175,9 @@ class Database:
         answers with a snapshot-busy error that no ``busy_timeout`` will wait
         out and that reaches the caller as something other than a conflict.
 
-        This was a sentence in a docstring and an obligation on every caller.
-        It is checked here because the failure it prevents is invisible in
-        review and rare enough in testing to reach production first.
+        Checked here rather than left as an obligation on every caller,
+        because the failure it prevents is invisible in review and rare enough
+        in testing to reach production first.
         """
         if self.current_session() is None:
             raise ValueError(

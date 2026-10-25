@@ -1,9 +1,8 @@
 """Reading the journal.
 
-Two routes, and they were `deployments`' — `/v1/workflows` sat in
-`deployments/api/routes.py` because that is where the first caller of the
-journal was, not because a deployment owns one. A certificate issuance keeps a
-workflow too, and reads it back through the same endpoint.
+Two routes, owned by the journal rather than by any one caller of it: a
+deployment and a certificate issuance both keep a workflow and read it back
+through the same endpoint.
 """
 
 from fastapi import APIRouter, Depends, Query

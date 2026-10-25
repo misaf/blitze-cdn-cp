@@ -8,18 +8,9 @@ package's alike. The **shapes** are the representations of what *core* holds:
 an Ansible run and an audit entry. Each has its domain model in
 ``blitzecdn.core``, so core is where the published form of it belongs too.
 
-A durable workflow was a third, and stopped being core's when the journal did:
-its shape is ``capabilities.workflows.api.models`` now, beside the routes that
-return it, which is the rule the paragraph below states.
-
-Everything else moved out. `CdnSite`, `DnsRecord`, `Edge` and `Deployment` were
-here as well, one module away from the routers that publish them and two from
-the contracts that decide their fields, so adding a site setting meant editing
-``capabilities/sites/policy/`` and then remembering this file — a shared pile
-no capability owned but every capability had to change. A representation now
-lives beside the routes that return it, which is where the optional packages
-have always kept theirs: `blitzecdn.capabilities.cache.api.models` is the shape of this
-rule, not an exception to it.
+Every other representation lives beside the routes that return it, in its
+capability's ``api.models``, so adding a field to a capability's contract never
+means remembering a shared module no capability owns.
 
 What survives the split is what more than one capability answers with.
 `HostRun` is reported by `edges`, by `cache` and by `origins`; `Deployment` is
@@ -45,11 +36,8 @@ class Model(BaseModel):
     Unknown fields are refused rather than ignored, and one schema is published
     per model instead of a validation/serialization pair.
 
-    One base, where there were two identical ones: `Model` for the resources
-    and `OperationModel` for the operational shapes. The distinction was real
-    while the two sets sat in two modules, and became a difference in name only
-    once each shape moved to the capability that owns it — where a site and a
-    purge are simply what that capability publishes.
+    One base for resources and operational shapes alike: a site and a purge
+    are both simply what their capability publishes.
     """
 
     model_config = ConfigDict(extra="forbid", json_schema_mode_override="validation")

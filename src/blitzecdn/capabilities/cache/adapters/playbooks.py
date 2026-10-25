@@ -1,12 +1,9 @@
 """The two plays this capability runs, and the documents they are given.
 
-This is the seam the extraction was about. ``purge_entry_to_ansible`` used to
-live in ``blitzecdn.capabilities.dns.adapters.ansible`` and ``run_cache_purge`` on
-``AnsibleRunner``, which meant the shared Ansible adapter — the one every
-capability reaches through — knew what a :class:`PurgeEntry` was. Core cannot know
-a detachable package's domain type, so the knowledge moved here and core kept
-only the generic primitive: run this play, with these variables, against these
-hosts.
+What a :class:`PurgeEntry` looks like to Ansible is this capability's
+knowledge. Core keeps only the generic primitive — run this play, with these
+variables, against these hosts — because the shared Ansible adapter every
+capability reaches through cannot know any capability's domain types.
 """
 
 from __future__ import annotations
@@ -29,7 +26,7 @@ def purge_entry_to_ansible(entry: PurgeEntry) -> dict[str, str]:
 class CachePlaybooks:
     """``CacheRunner``, over the control plane's generic playbook primitive.
 
-    The plays and the roles they name ship inside this wheel and are located
+    The plays and the roles they name ship with this capability and are located
     through :mod:`blitzecdn.capabilities.cache.ansible`. Core is told the *path* —
     it stages
     the variables, expands the host limit against the fleet it records, and

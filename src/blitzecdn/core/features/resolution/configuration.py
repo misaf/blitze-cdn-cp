@@ -40,7 +40,7 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class CapabilityConfig:
-    """One installed package's own configuration, and nothing else's.
+    """One feature's own configuration, and nothing else's.
 
     The read a capability would otherwise do against
     ``Settings.capability_environment`` itself, done once by core and handed
@@ -157,7 +157,7 @@ def resolve_capability_environment(
     Four refusals — an unprefixed claim, a name claimed twice, a configured name
     nobody claims, and a value that cannot be worked with — each because the
     alternative is a failure much later that names nothing useful. The first
-    three are ``FeatureError``, being about what the installed packages claim;
+    three are ``FeatureError``, being about what the features claim;
     the fourth is ``ConfigurationError``, the fix being a value the operator can
     change.
 
@@ -192,8 +192,8 @@ def resolve_capability_environment(
         raise FeatureError(
             "unknown capability configuration: "
             + ", ".join(unknown)
-            + ". A name here is claimed by no installed capability: check the "
-            "spelling, or whether the package that owned it was detached. In "
+            + ". A name here is claimed by no capability: check the spelling, "
+            "or whether the capability that owned it was removed. In "
             "`blitzecdn.toml` the same name is written lowercase and without "
             "the prefix."
         )

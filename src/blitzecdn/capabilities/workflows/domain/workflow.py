@@ -5,10 +5,9 @@ a CA issuing a certificate — written so a controller that restarts mid-flight
 leaves an operator something to read rather than silence.
 
 `WorkflowKind` is a *shape*, not a list. A closed enum naming `deployment`,
-`rollback` and `certificate` would have this capability enumerate the work of a
-distribution that may not be installed, `certificate` being that of
-`blitzecdn-certificates` — and would leave a wheel that wants a journal entry of
-its own waiting to be added to an enum in a package it does not ship.
+`rollback` and `certificate` would have this capability enumerate every other
+capability's work, and leave a new one waiting to be added to an enum it does
+not own.
 Whose work it is belongs to whoever is doing it: each capability declares its
 own name beside the operation it names, and this validates that the name is one
 a journal can hold. It is the arrangement `capability_requirements` already uses

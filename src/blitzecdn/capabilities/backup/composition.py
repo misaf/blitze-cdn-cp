@@ -1,7 +1,7 @@
 """Compose the application's backup services from their declared collaborators.
 
 Configuration, ports and concrete adapters meet here. Services and domain
-values do not discover installed packages or construct the control plane.
+values do not discover features or construct the control plane.
 """
 
 from __future__ import annotations

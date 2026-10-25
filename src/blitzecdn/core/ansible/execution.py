@@ -212,11 +212,11 @@ class PlaybookExecutor:
     def _environment(self) -> dict[str, str]:
         # The controller's environment minus every `BLITZE_*` name in it. In
         # the container that environment is the managed `.env`, so a plain copy
-        # handed every play — and every role an optional wheel ships — the
+        # handed every play — and every role a capability ships — the
         # operators' `BLITZE_API_KEYS`, one `lookup('env')` away, and wrote it
         # into Runner's artifact tree for the length of the run. What a play
         # is owed is added back by name below: the database path, and the
-        # secrets an installed package declared. Nothing else on the Ansible
+        # secrets a feature declared. Nothing else on the Ansible
         # side reads a `BLITZE_*` name, and nothing should start to by
         # inheriting it.
         environment = {
@@ -227,7 +227,7 @@ class PlaybookExecutor:
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
         # Overrides `roles_path` in ansible.cfg, which can only name directories
         # relative to itself and therefore cannot reach a role that lives inside
-        # an installed wheel. Absolute, in the order the composition root
+        # the installed wheel. Absolute, in the order the composition root
         # resolved, and set even when it holds only core's directory so a run
         # never depends on the cfg value and the env value agreeing.
         environment["ANSIBLE_ROLES_PATH"] = os.pathsep.join(
@@ -241,8 +241,8 @@ class PlaybookExecutor:
         )
         # The third-party collections the platform roles depend on, for the
         # same reason as the two above: ansible.cfg can only name a directory
-        # relative to itself, and since the platform's Ansible moved into the
-        # wheel that would put a controller's collections inside its own
+        # relative to itself, and the platform's Ansible ships in the wheel, so
+        # that would put a controller's collections inside its own
         # site-packages. Not created here — `install.sh` and the container image
         # fetch into it, and a run that finds it empty must fail loudly rather
         # than proceed against a directory this made look valid.
@@ -260,7 +260,7 @@ class PlaybookExecutor:
         # Optional capability configuration after feature ownership has been
         # resolved. The composition root rejects unclaimed and multiply
         # claimed keys, so this contains only names explicitly owned by one
-        # installed package.
+        # feature.
         #
         # The environment, and not `--extra-vars`, because these are usually
         # credentials: an extra-var is in the process table for every user on

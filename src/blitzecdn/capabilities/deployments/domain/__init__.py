@@ -2,10 +2,8 @@
 
 What it converged *to* is not here. That is a release, and it belongs to the
 capability that compiles one — a deployment holds the identifier and nothing
-more. The desired state used to live in this package as `snapshots.py`, which
-made a value spanning three other capabilities' models the property of the one
-that happened to take it, and left "what should the fleet serve" answerable
-only by a caller that already had a deployment in hand.
+more, so "what should the fleet serve" is answerable without a deployment in
+hand.
 """
 
 from blitzecdn.capabilities.deployments.domain.deployment import (

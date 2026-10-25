@@ -1,18 +1,12 @@
 """One unit of durable background work, and the rules its lifecycle obeys.
 
-A job is a row. That is the whole of the design, and it is a deliberate answer
-to what was here before: a Redis broker with Dramatiq actors on one side and an
-APScheduler timer on the other, which put three moving parts and one more
-network service under a control plane whose entire durable state already lives
-in a single SQLite file.
-
-The workload does not need more than a row. There is one deployment at a time —
-a cross-process lock says so — and a handful of scheduled jobs on intervals
-measured in hours. What that workload *does* need is exactly what a broker
-made hard: work that survives a restart of the process that queued it, a
-scheduled job that cannot run twice at once, and a worker whose lease expiring
-means another worker may take over without the first one being able to finish
-underneath it.
+A job is a row, in the SQLite file that already holds the control plane's
+entire durable state. The workload does not need more: there is one deployment
+at a time — a cross-process lock says so — and a handful of scheduled jobs on
+intervals measured in hours. What it does need is work that survives a restart
+of the process that queued it, a scheduled job that cannot run twice at once,
+and a worker whose lease expiring means another worker may take over without
+the first one being able to finish underneath it.
 
 Three ideas do all of that, and each is one column.
 
@@ -122,10 +116,8 @@ class Job(BaseModel):
     #:
     #: Unique across jobs that have not finished, so enqueueing a scheduled job
     #: while the last copy is still pending or running is refused by the
-    #: database rather than by a check somebody remembered to write. This is
-    #: what the Redis ``SET NX`` key did, moved to where the work already is —
-    #: and unlike that key it cannot outlive the job it guards, because it *is*
-    #: a column on the job.
+    #: database rather than by a check somebody remembered to write. It cannot
+    #: outlive the job it guards, because it *is* a column on the job.
     dedupe_key: str | None = None
     #: Claims that executed or disappeared without recording an outcome.
     #: Explicit deferral before execution refunds its claim's increment.

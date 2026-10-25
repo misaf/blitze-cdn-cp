@@ -13,10 +13,8 @@ is up" is not a fleet-wide fact, and an origin reachable from three edges out of
 four is exactly the situation worth surfacing.
 
 ``OriginCheck`` — one edge's answer about one origin — is deliberately *not*
-here. It stays in the control plane because the controller's own advisory probe
-inside certificate preflight produces one without ever running this play, so a
-row shape that travelled with this wheel would take that probe's return type
-away from a controller that had detached it.
+here: the controller's own advisory probe inside certificate preflight produces
+one without ever running this play, so it lives in ``edges``.
 """
 
 from __future__ import annotations

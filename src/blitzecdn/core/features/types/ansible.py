@@ -66,9 +66,9 @@ class AnsibleContribution:
     """The Ansible roles one feature brings with it.
 
     A capability is not complete until the deployment implementation travels
-    with it. A package that owns a role ships the role inside its own wheel and
-    declares the directory it landed in; the control plane adds
-    that directory to Ansible's role search path and learns nothing else.
+    with it. A feature that owns a role ships the role beside its own code and
+    declares the directory; the control plane adds that directory to Ansible's
+    role search path and learns nothing else.
 
     Every member describes something *global* — the search path, one ordered
     list per play slot, the one `load_module` list an Nginx process has — which
@@ -92,14 +92,14 @@ class AnsibleContribution:
     feature: str
     roles_path: Path
     #: Role names, from this contribution's own directory, that core's edge
-    #: play runs. Empty for a package whose roles are only ever reached by its
-    #: own plays — ``blitzecdn-cache`` purges through a play of its own and
+    #: play runs. Empty for a feature whose roles are only ever reached by its
+    #: own plays — ``cache`` purges through a play of its own and
     #: converges nothing on a deploy.
     edge_roles: tuple[str, ...] = ()
     #: Role names, from this contribution's own directory, that core's edge
     #: play runs in its *host* slot — after the edge is serving, for a
     #: capability that configures the host rather than the runtime.
-    #: ``blitzecdn-hardening`` is the whole of the current use: SSH policy and
+    #: ``hardening`` is the whole of the current use: SSH policy and
     #: a Fail2Ban jail, neither of which the rendered configuration reads.
     host_roles: tuple[str, ...] = ()
     #: Role names, from this contribution's own directory, that core's

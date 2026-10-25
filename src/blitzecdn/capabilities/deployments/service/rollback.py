@@ -48,10 +48,9 @@ def select_target(
     neither describes a state the fleet was ever wholly in, and neither is a
     thing to return to.
 
-    "Not the current one" is now a comparison of release identifiers rather
-    than of two serialised documents. That is the same question asked more
-    cheaply, and it is exact: a release is the digest of its own contents, so
-    two runs of unchanged state name one identifier by construction.
+    "Not the current one" is a comparison of release identifiers, and it is
+    exact: a release is the digest of its own contents, so two runs of
+    unchanged state name one identifier by construction.
 
     ``compile`` rather than ``prepare``: this only needs to know what current
     state *would* compile to, and choosing a rollback target should not put a
@@ -74,8 +73,8 @@ def require_unchanged_canonical(releases: Releases, deployment: Deployment) -> N
     back, so anything created since the rollback was queued is gone — and
     record writes deliberately do not take the deployment lock, which means an
     ordinary ``blitzecdn record create`` during a minutes-long fleet rollback is
-    enough. Nothing conflicted, nothing failed, and the audit trail showed the
-    record being created and never being removed.
+    enough. Nothing would conflict, nothing would fail, and the audit trail
+    would show the record being created and never being removed.
 
     Read inside the adoption transaction, which is ``BEGIN IMMEDIATE``, so no
     writer can slip between this comparison and the restore. Raising here

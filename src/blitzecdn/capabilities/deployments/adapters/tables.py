@@ -6,11 +6,8 @@ query reaches, no invariants here that the domain model does not own — and
 Alembic still compares against `Base.metadata`, which these rows register
 themselves in by importing that base.
 
-They sat in `core.persistence.tables` with every other capability's tables,
-which meant the capability that owned the store did not own the table under
-it: adding a column here was an edit to a shared module no slice owned and
-every slice had to change. A table belongs beside the store that reads it, for
-the same reason the wire shapes moved beside the routes that publish them.
+A table belongs beside the store that reads it, so the capability that owns
+a store owns the table under it and adding a column edits no shared module.
 """
 
 from __future__ import annotations
@@ -54,8 +51,7 @@ class DeploymentRow(Base, table=True):
         # A foreign key nothing reads, indexed for what it costs to *write*:
         # SQLite verifies no row still points at a deployment before deleting
         # it, and without this that verification is a table scan per row.
-        # Pruning deletes in bulk, which made it quadratic. `dns_records.site`
-        # is the same self-referential shape and has been indexed all along.
+        # Pruning deletes in bulk, which would make it quadratic.
         Index("ix_deployments_rollback_of", "rollback_of"),
         # Read by rollback selection ("the newest successful run of a
         # different release") and by release pruning ("which releases is

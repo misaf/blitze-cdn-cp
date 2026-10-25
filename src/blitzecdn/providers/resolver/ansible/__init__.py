@@ -29,8 +29,7 @@ ROLES_PATH = _DIRECTORY / "roles"
 #: exists. The slot's position also settles what this role may assume — the
 #: container engine, the runtime image and the persistent directories are
 #: already there, all of them fetched by name through whatever resolver the
-#: host had before this role ran. Managing resolution has never been what made
-#: those fetches work, and moving into this slot does not change that.
+#: host had before this role ran.
 EDGE_ROLES = ("blitzecdn_resolver",)
 
 #: And the role core's decommission play runs, in its teardown slot.

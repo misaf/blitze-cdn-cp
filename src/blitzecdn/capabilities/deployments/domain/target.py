@@ -1,15 +1,9 @@
 """One edge's progress through a deployment, as a durable row.
 
-A deployment used to be a single row and one Ansible run across the whole
-fleet. Everything about *which* edges had been reached lived in that run's
-result, which meant it lived in memory until the run ended: a controller
-restarted mid-rollout came back knowing a deployment had been abandoned and
-nothing at all about which edges were already serving the new configuration.
-The play's own ``serial`` batching had the same shape — a correct rollout
-policy with no durable record of where it had got to.
-
-So the rollout is per edge and each edge's progress is a row. That buys three
-things the fleet-wide run could not have.
+The rollout is per edge and each edge's progress is a row. A single
+fleet-wide Ansible run would keep which edges it had reached in memory until it
+ended, so a controller restarted mid-rollout would know nothing about which
+edges already serve the new configuration. Rows buy three things.
 
 **Partial failure is explicit.** Six edges succeeded, one failed, three were
 never attempted — and each of those is a status on a row rather than an

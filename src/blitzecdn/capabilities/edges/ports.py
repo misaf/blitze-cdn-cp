@@ -12,7 +12,7 @@ class EdgeRunner(Protocol):
     """Everything edge operations run against the fleet.
 
     One method. ``run_origin_check`` is not here: it travels with the play it
-    runs, and ``blitzecdn-origins`` declares its own port over core's generic
+    runs, and ``origins`` declares its own port over core's generic
     ``run_playbook`` primitive. ``host_limit`` is required here and
     never defaulted — an absent limit means "every edge" elsewhere, which for a
     decommission would empty the fleet.
@@ -50,7 +50,7 @@ class OriginProbe(Protocol):
     """A site's origin: how to reach it, and what the controller sees of it.
 
     ``to_probe`` renders an origin for whoever is going to connect to it, which
-    for the operator-facing check is the *edges*: ``blitzecdn-origins`` runs a
+    for the operator-facing check is the *edges*: ``origins`` runs a
     play, because the controller's routes, resolver and egress rules are not
     the ones that carry traffic, and an origin allow-listing the edges refuses
     the controller while working perfectly.

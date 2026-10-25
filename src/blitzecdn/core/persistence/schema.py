@@ -33,9 +33,7 @@ from blitzecdn.core.runtime.resources import package_directory
 
 #: The Alembic tree this installation migrates with. Located through the same
 #: helper the Ansible tree uses rather than by counting ``..`` from
-#: ``__file__``: that count was silently wrong the moment this module moved one
-#: directory deeper, and it is exactly the idiom `runtime.resources` exists to
-#: replace.
+#: ``__file__``, a count that is silently wrong the moment a module moves.
 MIGRATIONS_PATH = (
     package_directory("blitzecdn", resolves="Alembic reads its migration tree by path")
     / "migrations"

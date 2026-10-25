@@ -10,8 +10,7 @@ document and the installed contributions.
 
 This is the only renderer of edge configuration. A release is rendered once,
 when it is prepared, and the rendering is stored with it; the edge stages those
-bytes and renders nothing. It was held byte for byte against the edge play's
-own rendering while both existed.
+bytes and renders nothing.
 
 The release document and the contributions are rendered as *data*, never as
 trusted templates, so an operator-authored value containing ``{{ ... }}`` is

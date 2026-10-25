@@ -93,11 +93,11 @@ class EdgeContributions:
         )
 
     def variables(self) -> dict[str, Any]:
-        """What every run is told about the installed capabilities, as extra-vars.
+        """What every run is told about the shipped capabilities, as extra-vars.
 
         On the command line rather than in a release's variables file: the set
-        of installed packages is not desired state, and pinning it would make a
-        rollback try to run a capability role that has since been detached.
+        of capabilities is not desired state, and pinning it would make a
+        rollback try to run a capability role a later version no longer ships.
         Nothing secret is here — role names and template paths.
         """
         return {

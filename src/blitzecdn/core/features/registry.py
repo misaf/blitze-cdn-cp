@@ -177,7 +177,7 @@ class FeatureRegistry:
         )
 
     def nginx_contributions(self) -> tuple[NginxContribution, ...]:
-        """Every installed package's static Nginx resources."""
+        """Every feature's static Nginx resources."""
         return tuple(item for feature in self.features for item in feature.nginx)
 
     # --- binding -----------------------------------------------------------

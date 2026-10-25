@@ -371,10 +371,9 @@ class ScheduleStore:
     def forget(self, names: Sequence[str]) -> int:
         """Remove every schedule not in ``names``.
 
-        A feature uninstalled while its schedule was registered would otherwise
+        A feature removed while its schedule was registered would otherwise
         leave a row the worker enqueues forever and resolves to nothing — one
-        `NotFoundError` per interval, about a package the operator removed on
-        purpose.
+        `NotFoundError` per interval.
         """
         with self._db.session() as session:
             return _rows_affected(

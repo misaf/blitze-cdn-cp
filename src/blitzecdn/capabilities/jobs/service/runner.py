@@ -91,9 +91,9 @@ class JobRunner:
         """Extend a scheduled job's claim to the lease its schedule declares.
 
         A claim's lease is set before anybody knows which job it will return,
-        so every job used to run under the queue's default — and the lease a
-        schedule stores (`renew-certificates` declares two hours, twice the
-        default) was read by nothing. Renewed straight after the claim, under
+        so it is the queue's default; a schedule may store a longer one
+        (`renew-certificates` declares two hours, twice the default). Renewed
+        straight after the claim, under
         its fence, rather than threaded into the claim query: only this loop
         knows a scheduled job's name maps to a schedule, and the window between
         the two writes is one the default lease already covers.

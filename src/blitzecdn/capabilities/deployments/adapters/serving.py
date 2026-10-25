@@ -145,11 +145,10 @@ class _SniConnection(http.client.HTTPSConnection):
     supported mode, and verifying here would fail a correct deployment for a
     trust store this machine happens to lack.
 
-    The *name* is verified, and by this class rather than by ``ssl``. This
-    docstring used to say a certificate that does not match the SNI "still
-    fails the handshake"; with ``CERT_NONE`` nothing in the handshake looks at
-    the certificate at all, so an edge presenting another site's certificate —
-    a swapped path, a stale file — passed as serving. ``check_hostname`` cannot
+    The *name* is verified, and by this class rather than by ``ssl``. With
+    ``CERT_NONE`` nothing in the handshake looks at the certificate at all, so
+    an edge presenting another site's certificate — a swapped path, a stale
+    file — would otherwise pass as serving. ``check_hostname`` cannot
     be had without chain verification, so the names are read out of the
     certificate the edge sent and matched here, after the handshake.
 

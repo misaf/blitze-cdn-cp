@@ -5,12 +5,7 @@ to tick, and it enqueues every schedule whose time has come, moving each one
 forward with a compare-and-swap so that two controllers ticking at the same
 instant produce one enqueue between them rather than two.
 
-That property is why the table exists at all. The APScheduler timer this
-replaces kept the schedule in memory, which had one failure mode that only
-shows on a bad day: a controller that was down over the hour a renewal was due
-came back with the timer reset and never ran that firing — the job's next
-chance was a whole interval later, and nothing recorded that one had been
-missed. A due row is still due after a restart.
+A due row is still due after a restart, which an in-memory timer is not.
 """
 
 from __future__ import annotations
@@ -80,8 +75,8 @@ class JobScheduler:
         schedule keeps its ``next_run_at`` — a controller restarted every few
         minutes, which is what a crash loop or a rolling upgrade looks like,
         must not push every schedule permanently into the future — and a
-        schedule no installed feature contributes any more is removed, so an
-        uninstalled package stops producing one "no such job" per interval.
+        schedule no feature contributes is removed, so it does not produce one
+        "no such job" per interval.
 
         A schedule seen for the first time is due one interval from now rather
         than immediately. Starting a process must not be a way to trigger every

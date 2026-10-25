@@ -1,9 +1,8 @@
 """What the Automatic SSL/TLS scan needs from the outside world.
 
 The consumer owns the port, so this is declared here rather than imported from
-the distribution that satisfies it. ``blitzecdn-origins`` ships an adapter with
-exactly this shape and this package declares that distribution as a real
-dependency, but the *description* of what the scan calls belongs to the scan:
+the capability that satisfies it. ``origins`` ships an adapter with exactly this
+shape, but the *description* of what the scan calls belongs to the scan:
 an implementation is a fact about wiring, and wiring is
 :mod:`blitzecdn.capabilities.tls.composition`'s.
 """

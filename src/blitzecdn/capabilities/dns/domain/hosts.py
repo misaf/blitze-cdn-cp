@@ -75,10 +75,8 @@ def _origin_slug(origin: str) -> str:
         # A stable name suffix, not a secret or a key. `usedforsecurity=False`
         # is that claim stated to the interpreter rather than only to the
         # reader: it leaves the digest byte-identical, keeps this working on a
-        # FIPS build where an unqualified sha1 raises, and satisfies both
-        # linters at once. A ruff suppression comment spoke to ruff alone, so
-        # bandit's B324 went on failing `just audit` with the rationale for it
-        # sitting right there in the source.
+        # FIPS build where an unqualified sha1 raises, and satisfies both ruff
+        # and bandit without a suppression comment.
         digest = hashlib.sha1(origin.encode(), usedforsecurity=False).hexdigest()
         suffix = digest[: _SLUG_DIGEST_BITS // 4]
         slug = f"{slug[:_SLUG_LIMIT]}-{suffix}"
@@ -256,7 +254,7 @@ def _derive(
                 if not names:
                     continue
                 # The first origin of a group keeps the plain name so that the
-                # common one-origin case is exactly as it always was; further
+                # common one-origin case needs no suffix; further
                 # origins add a slug, and a name already taken gets a counter.
                 candidate = (
                     base if index == 0 else f"{base}{_SEPARATOR}{_origin_slug(origin)}"

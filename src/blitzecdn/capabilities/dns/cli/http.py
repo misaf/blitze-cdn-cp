@@ -2,7 +2,7 @@
 
 Edits fields declared by :mod:`blitzecdn.capabilities.http.policy`. `http3` is
 the switch\'s value on the zone document; whether an edge can serve QUIC at all
-is `blitzecdn-http3`\'s question, asked at deploy time.
+is the `http3` capability\'s question, asked at deploy time.
 """
 
 from __future__ import annotations

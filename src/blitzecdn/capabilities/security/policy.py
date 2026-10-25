@@ -5,10 +5,10 @@ that makes a rule renderable, and the vocabulary that validation is written
 against. What the edge does with them is this capability's nginx contribution;
 what a site does is compose them.
 
-The country and method tables below were in :mod:`blitzecdn.core.domain.validation`,
-which is for primitives *two or more* capabilities share. These have one
-consumer and describe request filtering, so core held the vocabulary of a
-capability an operator can detach. They belong to the rules that use them.
+The country and method tables below have one consumer and describe request
+filtering, so they belong to the rules that use them rather than to
+:mod:`blitzecdn.core.domain.validation`, which holds primitives *two or more*
+capabilities share.
 """
 
 from __future__ import annotations
@@ -190,7 +190,7 @@ class SecurityPolicy(CapabilityPolicy):
     def capability_requirements(self) -> Mapping[str, tuple[str, ...]]:
         """Implementation capabilities requested by this stable policy.
 
-        Two tokens, because a country rule needs two things that detach
+        Two tokens, because a country rule needs two things an edge provides
         separately: this capability, which renders the rule, and the GeoIP
         lookup that gives it a country to compare against. Both are named here
         rather than by `dns` on this contract's behalf, which would make the

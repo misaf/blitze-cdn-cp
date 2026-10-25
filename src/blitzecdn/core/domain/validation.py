@@ -4,11 +4,10 @@ Everything here is shared by two or more of the sibling modules — hostnames by
 sites, DNS and certificates. Nothing here knows what a site or a record is,
 which is what keeps this module free of imports from its own package.
 
-That first sentence is the rule rather than a description of the contents.
-Country codes, HTTP method shapes and the alias table lived here with exactly
-one consumer — :mod:`blitzecdn.capabilities.security.policy` — which left core
-carrying the vocabulary of a capability an operator can detach. They now live
-with the contract that validates against them.
+That first sentence is the rule rather than a description of the contents: a
+shape with one consumer, such as the country codes in
+:mod:`blitzecdn.capabilities.security.policy`, lives with the contract that
+validates against it.
 """
 
 from __future__ import annotations
@@ -42,7 +41,7 @@ class OmittedWhenEmpty(BaseModel):
     Opting in by subclassing, rather than core inspecting every nested model,
     is the point. Naming a block — ``firewall``, say — inside ``dns``' own
     :func:`~blitzecdn.capabilities.dns.adapters.ansible.site_to_ansible` would
-    put the vocabulary of a detachable capability into a generic adapter, and
+    put one capability's vocabulary into a generic adapter, and
     make a second such block a second branch there. So a capability declares
     that its block is absent rather than empty in the document, and core prunes
     whatever declares it without knowing what any of them contain.

@@ -156,10 +156,9 @@ def ansible_roles_path() -> None:
     Core's roles first, then each contributing distribution's, ordered by
     feature name — the exact value the composition root hands the runner, from
     the exact function that composes it. A caller invoking `ansible-playbook`
-    directly needs that same path, and until this command existed the only way
-    to get one was to write it out again: the justfile spelled all nine
-    directories by hand, so a checkout could syntax-check an edge play against
-    a role set no deployment would ever resolve, and nothing would say so.
+    directly needs that same path; writing it out by hand would let a checkout
+    syntax-check an edge play against a role set no deployment would ever
+    resolve, and nothing would say so.
 
     Composing it here rather than restating it also brings the refusals along.
     A capability shipping a role name core already owns is caught by the same
@@ -189,11 +188,8 @@ def ansible_slots() -> None:
     A slot list is not something a caller can write out correctly by reading
     the repository, which is what separates this from the search path above.
     Whether a role converges in the edge slot, the host slot or the
-    decommission slot is a fact the *contributing package* declares, and the
-    justfile's hand-written copy had already drifted from it in both
-    directions: `blitzecdn_resolver` declares an edge role and was missing, and
-    the teardown slot was not passed at all, so the decommission play was never
-    syntax-checked with a capability in it.
+    decommission slot is a fact the *contributing feature* declares, and a
+    hand-written copy drifts from it in both directions.
 
     Empty lists are emitted rather than omitted. Core's plays default them, so
     an absent key and an empty one converge identically — but a caller
@@ -252,10 +248,10 @@ def doctor(
         "python_supported": True,
         "state_dir": str(settings.state_dir),
         "api_auth_configured": bool(settings.api_keys),
-        # Who the API answers, beside what it requires of them. An operator
-        # asking whether this host is exposed had nowhere to read the answer
-        # but the environment file, and an empty list here is the report that
-        # the listener is loopback-only.
+        # Who the API answers, beside what it requires of them, so an operator
+        # asking whether this host is exposed need not read the environment
+        # file. An empty list here is the report that the listener is
+        # loopback-only.
         #
         # The list, not a "publicly bound" verdict: the binding is the
         # entrypoint's decision, and `blitzecdn serve` takes an explicit

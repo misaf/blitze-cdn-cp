@@ -30,19 +30,18 @@ class AnsibleRunner:
     through the two-member port this needs them for: expanding a ``--limit``
     into explicit host names. It is injected rather than opened here because
     that expansion must be answered from the identical rows Ansible is about to
-    be given — reading a separate copy is precisely the drift that removing the
-    static inventory file was meant to end — and it is a roster rather than
+    be given — reading a separate copy would drift from them — and it is a
+    roster rather than
     ``EdgeStore`` because core does not import the capability that records an
     edge.
 
     One adapter, several playbooks. Each capability declares the slice of this it
     actually needs as its own port — ``DeploymentRunner``, ``EdgeRunner``,
     ``DeploymentLocker`` — and the composition root is the only place that
-    knows one object satisfies all of them. An installed capability's own
-    operations are not among them: ``blitzecdn-cache``'s purge and
-    ``blitzecdn-origins``' probe reach the fleet through the generic
-    ``run_playbook`` below, so this class carries no method for a play that
-    might not be installed.
+    knows one object satisfies all of them. A capability's own operations are
+    not among them: ``cache``'s purge and ``origins``' probe reach the fleet
+    through the generic ``run_playbook`` below, so this class carries no
+    method for another capability's play.
     """
 
     def __init__(
@@ -134,13 +133,10 @@ class AnsibleRunner:
     ) -> AnsibleRun:
         """Run one named play with variables the caller supplies.
 
-        The primitive an installed capability reaches for. Purging a cache and
-        collecting statistics were methods on this class while `cache` was a
-        package inside this distribution, which meant core knew what a
-        `PurgeEntry` was — a capability's domain type in the adapter every other
-        capability also uses. They are the cache package's business now, and what
-        core still owns is the part that is genuinely its own: which hosts a
-        limit expands to, where the variables file is staged, and the timeout.
+        The primitive a capability reaches for to run its own play. What core
+        owns is the part that is genuinely its own: which hosts a limit expands
+        to, where the variables file is staged, and the timeout. What a purge
+        or a statistics run means is the capability's business.
 
         Deliberately does not take the deployment lock. Everything reached this
         way is an *operation* rather than a convergence — it writes no desired

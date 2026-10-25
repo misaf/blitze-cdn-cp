@@ -16,7 +16,7 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class NginxContribution:
-    """Static Nginx template fragments shipped by an installed package.
+    """Static Nginx template fragments shipped by a feature.
 
     The four contexts are deliberately structural rather than directive-level:
     one global ``http`` resource, one server-level insertion point, one access

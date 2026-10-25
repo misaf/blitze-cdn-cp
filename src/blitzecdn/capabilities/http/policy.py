@@ -3,20 +3,19 @@
 The scheme, the public proxy port sets, and the one protocol switch a site
 owns. ``serving`` contains :class:`ProtocolPolicy` as a named policy value.
 
-The contract is deliberately wider than what this distribution implements.
+The contract is deliberately wider than what this capability implements.
 HTTP/1.1 and HTTP/2 are invariants of the managed edge and carry no policy;
 HTTP/3 is a switch a site opts into, and the code that turns it into a QUIC
-listener ships separately as ``blitzecdn-http3``. The *field* stays here so
-that a stored site asking for HTTP/3 still loads when that distribution is
-absent — the control plane then refuses the deployment by name through
+listener is the ``http3`` provider. The *field* stays here so that a stored
+site asking for HTTP/3 still loads when an edge cannot serve it — the control
+plane then refuses the deployment by name through
 :attr:`required_capabilities`, rather than failing to read its own database or
 quietly serving the site over HTTP/2 as though nothing had been asked for.
 
 The request body limit sits here for the opposite reason. It is a property of
-how the edge reads an HTTP request rather than of anything detachable: core
+how the edge reads an HTTP request rather than of an optional provider: core
 nginx enforces it with a directive that is always compiled in, so the field
-asks for no capability token and a site carrying it converges on an edge with
-nothing installed beside the control plane.
+asks for no capability token and a site carrying it converges on any edge.
 """
 
 from collections.abc import Mapping
@@ -49,7 +48,7 @@ class MaxUploadSize(StrEnum):
     growing a validator of its own.
 
     nginx's own compiled-in default is 1m, which is not one of these. A site
-    that has never been configured therefore accepts more than it used to, not
+    that has never been configured accepts more than nginx's default, not
     less, so nothing that succeeds against an unmanaged edge starts failing.
     """
 

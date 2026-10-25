@@ -210,10 +210,8 @@ class HostRuntime:
                 if not restore:
                     self.stage_configuration(stage, options)
             if not restore:
-                # Nothing to start first. A disposable CLI container used to
-                # have to bring up the message broker its command would talk
-                # to; durable work lives in the state volume now, which this
-                # container already mounts.
+                # Nothing to start first: durable work lives in the state
+                # volume, which this container already mounts.
                 return self.run_command(arguments, options)
             if stage is None:
                 raise HostRuntimeError("Restore configuration was not staged")

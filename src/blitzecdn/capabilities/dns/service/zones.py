@@ -220,8 +220,8 @@ class DnsService:
     def dns_export(self) -> dict[str, object]:
         """Every record, for the system that publishes DNS — and who that is.
 
-        An envelope rather than the bare list it used to be, because the list
-        alone was read as an answer to a question it does not answer. A caller
+        An envelope rather than a bare list, because a list alone reads as an
+        answer to a question it does not answer. A caller
         fetching it wants to know what DNS should say; what it also has to know
         is that nothing here is going to say it. ``publication`` carries that,
         so a client cannot consume this without meeting it.

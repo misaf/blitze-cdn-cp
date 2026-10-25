@@ -11,13 +11,9 @@ both entry points reach it the same way and every change is audited: "who added
 this edge, and when" is a question the audit trail can answer.
 
 What is *stored* on the edges is a different question, and it is not this
-distribution's: purging and cache statistics are the installed
-``blitzecdn-cache`` package, and asking the edges whether they can reach their
-origins is ``blitzecdn-origins``. All three were here once because they also
-reach the fleet, which describes the transport rather than the work — and being
-able to detach them without touching this service is what that separation
-bought. What cannot leave is the roster: an installation must be able to add
-and remove an edge with no optional distribution attached.
+capability's: purging and cache statistics are ``cache``'s, and asking the
+edges whether they can reach their origins is ``origins``'. That they also
+reach the fleet describes the transport rather than the work.
 """
 
 from __future__ import annotations

@@ -5,15 +5,14 @@ reason it lives apart from the service: it takes no deployment lock, writes to
 no path any other process reads, moves no deployment through the transition
 table, and leaves nothing behind. The service's own rule — one deployment at a
 time, under a cross-process lock, finalised in one transaction — does not apply
-to any of it, and mixing the two put a method that must never touch
-``generated_vars_path`` in the same class as the methods whose job is to write
-it.
+to any of it, and a method that must never touch ``generated_vars_path``
+does not belong in the class whose job is to write it.
 
 Held together as a class rather than a free function only because the question
 has several collaborators and a caller should not have to name them at every
 call site. It owns no state between calls.
 
-Most of the answer is no longer computed here. Deriving the hosts, merging the
+Most of the answer is not computed here. Deriving the hosts, merging the
 rules, asking each installed capability what it objects to and checking every
 requested capability against the edges are all the compiler's, and they arrive
 as findings on the release. What is left is the part a compiler cannot answer:

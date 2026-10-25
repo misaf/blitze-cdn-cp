@@ -146,8 +146,8 @@ def build_deployment_service(
     services is the composition root's decision. How they form the policy,
     persistence and execution parts is decided here.
 
-    Nothing here renders a desired-state document any more. Deriving the hosts,
-    merging every feature's contribution and validating the result belong to the
+    Nothing here renders a desired-state document. Deriving the hosts, merging
+    every feature's contribution and validating the result belong to the
     releases capability; this one holds the ``Releases`` port and an atomic
     writer, which is the whole of its contact with configuration.
     """

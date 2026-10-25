@@ -3,13 +3,8 @@
 The edge runtime's Dockerfile and the Nginx probe baked into it, and the
 control plane's own Dockerfile, ship *inside this wheel* for the
 same reason :mod:`blitzecdn.ansible` does: they are part of the deployment
-implementation, and an installed controller has no repository to find them in.
-Before this module existed they sat in a top-level ``docker/`` directory that
-only a checkout has, which is the undeclared-checkout dependency the Ansible
-move already removed once — the justfile, both integration scripts, the release
-workflow and six contract tests each spelled the path again, and an air-gapped
-fleet that has to build its edge image on the controller had nothing to build
-from.
+implementation, and an installed controller has no repository to find them in
+— an air-gapped fleet has to build its edge image on the controller.
 
 Located through :func:`blitzecdn.core.runtime.resources.package_directory`, not by
 counting ``..`` from ``__file__``, so the paths are the same whether they are
@@ -64,9 +59,8 @@ EDGE_MODULE_PROBE_CONF = EDGE_CONTEXT / "module-probe.conf"
 #: The control plane's own image. A path only — there is no
 #: ``CONTROL_PLANE_CONTEXT`` beside it, because that context is the
 #: distribution's source tree: ``uv sync --frozen`` inside the build needs
-#: ``pyproject.toml``, ``uv.lock`` and every workspace member under
-#: ``packages/``. Naming it here would put the checkout back into the package
-#: that just stopped depending on one. The role that builds this image supplies
+#: ``pyproject.toml``, ``uv.lock`` and ``src/``. Naming it here would make the
+#: package depend on a checkout. The role that builds this image supplies
 #: the context, and only until the control plane is delivered as a published
 #: image like the edge already is.
 CONTROL_PLANE_DOCKERFILE = _DIRECTORY / "control-plane" / "Dockerfile"

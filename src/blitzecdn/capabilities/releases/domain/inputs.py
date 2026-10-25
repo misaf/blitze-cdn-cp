@@ -12,16 +12,13 @@ zone rows and writes them again, and a rule is keyed to its zone with ON DELETE
 CASCADE — so inputs that did not carry rules would not merely fail to restore
 them, they would take every rule in the installation with them.
 
-The settings are in it so a release reproduces the edge it was compiled for.
-They used to reach every play from the live inventory, which meant a rollback
-converged an old release with today's TLS ciphers, timeouts and log policy.
+The settings are in it so a release reproduces the edge it was compiled for:
+read from the live inventory, a rollback would converge an old release with
+today's TLS ciphers, timeouts and log policy.
 
-This is a typed value rather than the JSON string it used to be. The string had
-to be parsed at four call sites, each of which re-derived what the sections
-were; the digest was a free function beside it, and nothing stopped a caller
-digesting a document that had never been through the parser. Here the parse
-happens once, at the edge of the system, and everything downstream holds
-something that cannot be malformed.
+A typed value rather than a JSON string: the parse happens once, at the edge of
+the system, and everything downstream holds something that cannot be
+malformed.
 """
 
 from __future__ import annotations

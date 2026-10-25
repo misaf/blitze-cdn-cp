@@ -4,14 +4,13 @@ This is the seam the whole distribution turns on. As a ``run_origin_check``
 method on core's ``AnsibleRunner``, with the play's location a field on
 ``Settings``, the shared Ansible adapter — the one every capability reaches
 through — would carry an operation only this capability performs, pointing at a
-file only this wheel ships. Core keeps the generic primitive instead: run this
-play, with these variables, against these hosts.
+file only this capability ships. Core keeps the generic primitive instead: run
+this play, with these variables, against these hosts.
 
-It is also what makes the play reachable from *two* distributions without
-either knowing the other's internals. ``blitzecdn-certificates`` builds this
-same adapter in its own composition root for the Automatic SSL/TLS scan; there
-is one implementation of "ask the fleet about these origins" rather than a copy
-per caller.
+It is also what makes the play reachable from *two* capabilities without either
+knowing the other's internals: the Automatic SSL/TLS scan in ``tls`` is given
+this same adapter, so there is one implementation of "ask the fleet about these
+origins" rather than a copy per caller.
 """
 
 from __future__ import annotations
@@ -28,7 +27,7 @@ __all__ = ["OriginCheckPlaybook"]
 class OriginCheckPlaybook:
     """``OriginCheckRunner``, over the control plane's generic play primitive.
 
-    The play and the role it names ship inside this wheel and are located
+    The play and the role it names ship with this capability and are located
     through :mod:`blitzecdn.capabilities.origins.ansible`. Core is told the
     *path* — it
     stages the variables, expands the host limit against the fleet it records,

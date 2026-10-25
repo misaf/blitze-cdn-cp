@@ -8,10 +8,8 @@ most likely to already be running.
 Separate from :mod:`blitzecdn.capabilities.edges.service` despite also acting on the
 fleet. That service answers "which hosts exist"; this one answers "what is
 stored on them", which is a different question with its own domain module
-(:mod:`blitzecdn.capabilities.cache.domain`) and its own entry-point module. They were
-one
-class only because both reach the edges, which is a statement about the
-transport rather than about the work.
+(:mod:`blitzecdn.capabilities.cache.domain`) and its own entry-point module. That
+both reach the edges is a statement about the transport, not about the work.
 """
 
 from __future__ import annotations

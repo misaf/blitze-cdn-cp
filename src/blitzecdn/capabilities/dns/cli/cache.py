@@ -1,8 +1,8 @@
 """The `cache` contract\'s switches on one zone.
 
 Edits fields declared by :mod:`blitzecdn.capabilities.cache.policy`. Purging
-and cache statistics are operations rather than zone policy, so they arrive
-with `blitzecdn-cache` and are not here.
+and cache statistics are operations rather than zone policy, so they belong to
+the `cache` capability's own commands.
 """
 
 from __future__ import annotations
@@ -44,9 +44,9 @@ def domain_cache(
 
     A zone is cached by default, so `--off` is the opt-out; turning caching off
     also withdraws the zone's claim on the 'cache' capability, which is what
-    lets a controller without blitzecdn-cache converge it. Turning it back on
-    means a deploy will refuse by name until that distribution is attached,
-    rather than quietly serving everything from the origin.
+    lets an edge without it converge the zone. Turning it back on means a
+    deploy will refuse by name until the edges provide it, rather than quietly
+    serving everything from the origin.
 
     The two durations are an integer and a unit — ms, s, m, h, d or w — and
     they are separate because a miss and a not-found cost the origin different

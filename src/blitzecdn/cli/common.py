@@ -111,16 +111,10 @@ JsonOutput = Annotated[bool, typer.Option("--json")]
 #: The ``--yes`` switch every destructive command carries, and it means exactly
 #: one thing: **do not prompt**. Nothing else. It never skips a check.
 #:
-#: One definition for the same reason ``JsonOutput`` has one — and this flag is
-#: why that reason is not hypothetical. Declared command by command, ``--yes``
-#: drifted into three meanings: "skip the confirmation" on the `remove`
-#: commands, "skip the confirmation for the dangerous subset" on `cache purge`
-#: and `rollback`, and on `blitzecdn deploy` — the most destructive command in
-#: the product — "skip validation, skip the check-mode preview, *and* skip the
-#: confirmation". An operator putting `deploy --yes` in a CI job to answer a
-#: prompt they could not answer was silently giving up two safety gates they
-#: had no reason to think were attached to it. Skipping those is now
-#: ``--skip-preflight``, which says so.
+#: One definition for the same reason ``JsonOutput`` has one: declared command
+#: by command, a flag drifts in meaning. An operator putting `deploy --yes` in a
+#: CI job to answer a prompt must not silently give up safety gates as well;
+#: skipping those is ``--skip-preflight``, which says so.
 Yes = Annotated[
     bool,
     typer.Option("--yes", "-y", help="Do not prompt for confirmation."),
@@ -170,10 +164,9 @@ def emit(value: Any, *, json_output: bool, note: str | None = None) -> None:
 def describe_hosts(hosts: Sequence[HostRun]) -> str:
     """Render per-host results the way an operator wants to read them.
 
-    Replaces echoing Ansible's own output. That output was thousands of lines
-    of which a handful mattered, and it could not be filtered because nothing
-    had parsed it — whereas the structured result already knows which tasks
-    changed and which failed, so this prints those and nothing else.
+    Ansible's own output is thousands of lines of which a handful matter; the
+    structured result already knows which tasks changed and which failed, so
+    this prints those and nothing else.
     """
     lines: list[str] = []
     for host in hosts:

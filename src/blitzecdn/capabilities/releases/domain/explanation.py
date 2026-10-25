@@ -1,8 +1,8 @@
 """Why one derived host is served the way it is, setting by setting.
 
 "Why is this hostname not caching" is the question operators actually arrive
-with, and until now the control plane could answer only half of it. The
-``/resolve`` endpoint names the rule that won, which settles the match; it does
+with. The ``/resolve`` endpoint names the rule that won, which settles the
+match; it does
 not settle where any individual value came from, and the two are not the same
 question. A rule that wins and overrides nothing relevant leaves the zone's
 value in place, and an operator who reads only "rule ``api`` applied" goes and

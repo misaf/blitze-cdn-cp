@@ -33,9 +33,8 @@ class JobRow(Base, table=True):
         # The single-flight guarantee, enforced by the database rather than by
         # application code. Partial, so it binds only while a job is unfinished:
         # a scheduled job that ran an hour ago must not stop the next firing,
-        # and a finished row keeping its key would do exactly that. This is what
-        # the Redis `SET NX` key with a TTL was, moved to where the work is and
-        # made incapable of outliving it.
+        # and a finished row keeping its key would do exactly that. Being a
+        # column on the job, it cannot outlive the work it guards.
         Index(
             "ix_jobs_dedupe_key_unfinished",
             "dedupe_key",

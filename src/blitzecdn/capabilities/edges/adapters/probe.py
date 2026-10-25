@@ -2,7 +2,7 @@
 
 Two jobs, and the split matters. ``to_probe`` renders a site's origin — host,
 port, scheme, SNI — for whoever is going to connect to it, which for the
-operator-facing check is the edges: ``blitzecdn-origins`` runs a play, so the
+operator-facing check is the edges: ``origins`` runs a play, so the
 answer comes from the machines that actually carry the traffic. Answering it
 from here would answer about the controller's network rather than the fleet's:
 an origin that allow-lists the edges refuses the controller, and one reachable

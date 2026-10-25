@@ -4,11 +4,8 @@ The capability's decisions: when a workflow opens, what closing one means for
 an exception that escaped, how many finished ones are kept, and what a
 controller that restarted mid-flight does with whatever it finds unfinished.
 
-This was `core.application.workflows`, the single tenant of a package whose own
-docstring called itself "the little application logic core is allowed to have".
-It is here because it is a service over a store over a table — a slice, in a
-package arranged by layer — and because the two capabilities that keep a
-journal reach it through a port either way.
+A service over a store over a table, so a capability; the two capabilities that
+keep a journal reach it through a port.
 """
 
 from __future__ import annotations

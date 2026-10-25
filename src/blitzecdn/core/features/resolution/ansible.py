@@ -50,9 +50,9 @@ def resolve_role_search_path(
     deployment would succeed while converging something nobody wrote.
 
     A contributed directory that is not there is refused too. It means the
-    package declared a role tree its wheel did not carry, and the alternative
-    to failing here is a play that fails much later with "the role was not
-    found", naming nothing that would lead anyone to the package.
+    feature declared a role tree it does not carry, and the alternative to
+    failing here is a play that fails much later with "the role was not
+    found", naming nothing that would lead anyone to the feature.
     """
     ordered = sorted(contributions, key=lambda item: item.feature)
     search: list[Path] = [core_roles]
@@ -137,11 +137,11 @@ def _resolve_slot(
     same set of packages runs the same roles in the same order every time. This
     ordering has no dependency semantics: optional roles must depend only on
     established core prerequisites. Within one feature the declared order is
-    kept because that package alone owns those roles — which is how
-    ``blitzecdn-hardening`` gets Fail2Ban after SSH without core knowing that
-    either exists.
+    kept because that feature alone owns those roles — which is how
+    ``hardening`` gets Fail2Ban after SSH without core knowing that either
+    exists.
 
-    A name the contributing package does not actually ship is refused here.
+    A name the contributing feature does not actually ship is refused here.
     Ansible would refuse it too, but much later — after the engine is
     installed, the image pulled and the play half-way through an edge — and it
     would name only the role, not the distribution that asked for it. In the

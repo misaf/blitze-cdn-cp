@@ -1,9 +1,8 @@
 """`edge` — the fleet roster itself, and the image the fleet runs.
 
-`origin check` was here and moved to `blitzecdn-origins` with the play it runs.
-What stayed is what an installation must be able to do with no optional
-distribution attached: add an edge, update one, remove one — and ask what the
-runtime image those edges serve from has to be built with.
+Add an edge, update one, remove one — and ask what the runtime image those
+edges serve from has to be built with. Checking origins belongs to `origins`,
+with the play it runs.
 """
 
 from __future__ import annotations
@@ -92,8 +91,8 @@ def edge_add(
     them makes compilation refuse a site whose settings this edge could not
     serve — Brotli on an nginx that never loaded the module is a syntax error
     at converge time — before a run starts rather than partway through one.
-    Omitting them keeps the old assumption: the edge provides whatever the
-    controller has installed.
+    Omitting them means the edge provides whatever the controller has
+    installed.
     """
     if not ssh_source:
         raise typer.BadParameter(
@@ -258,10 +257,9 @@ def edge_image_spec(
 
     What it prints is the *superset* an image should carry, not what one edge
     loads. An image is shared by fleets whose attached capabilities differ, so
-    it carries every module the installed distributions declare and each edge
-    mounts its own narrower `load_module` list over the image's; run this on a
-    controller with every published capability installed — which is what CI
-    does — and the published image can serve any subset of them.
+    it carries every module the shipped capabilities declare and each edge
+    mounts its own narrower `load_module` list over the image's, so the
+    published image can serve any subset of them.
 
     The features are loaded here rather than taken from a control plane because
     the answer depends only on what is installed: this runs in an image build,

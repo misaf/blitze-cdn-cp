@@ -6,13 +6,6 @@ input arrives as an argument, so a compilation is reproducible by construction:
 run it twice on the same inputs and the digests match, run it in a test and it
 needs nothing running.
 
-That is worth stating because the code this replaces did none of it. Desired
-state was serialised when a deployment was queued, feature variables were merged
-when the run reached the renderer, and capability validation happened somewhere
-between the two against whatever was installed at that moment. Three readings of
-"what should the fleet serve", none of them recorded, and nothing that could
-answer the question after the run had finished.
-
 Findings rather than exceptions
 -------------------------------
 A release that cannot be converged is still compiled, and carries the reasons.
@@ -138,12 +131,12 @@ def _capability_findings(
     """What this site asks for that either the controller or an edge lacks.
 
     Two checks, because they fail differently and are fixed differently. A
-    capability missing from the *controller* means no wheel renders those
-    settings, so the artifact silently omits them — the operator installs a
-    distribution. A capability missing from an *edge* means the artifact is
-    correct and that host cannot execute it — an nginx that never loaded the
-    Brotli module reads a ``brotli on`` directive as a syntax error — so the
-    operator rebuilds or replaces the edge, or aims the run elsewhere.
+    capability missing from the *controller* means nothing renders those
+    settings, so the artifact would silently omit them. A capability missing
+    from an *edge* means the artifact is correct and that host cannot execute
+    it — an nginx that never loaded the Brotli module reads a ``brotli on``
+    directive as a syntax error — so the operator rebuilds or replaces the
+    edge, or aims the run elsewhere.
 
     An edge that has declared nothing is assumed to provide whatever the
     controller has. That is what every installation registered before edges

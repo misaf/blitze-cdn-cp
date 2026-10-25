@@ -71,10 +71,7 @@ class Edge(BaseModel):
     ssh_sources: tuple[str, ...] = Field(default=(), max_length=100)
     #: What this edge's runtime is declared to provide, as capability tokens.
     #:
-    #: ``None`` — the default, and what every edge registered before this field
-    #: existed reads as — means "whatever the controller has installed". That
-    #: is exactly the assumption the control plane made when it had no way to
-    #: ask, so leaving it unset changes nothing about how a fleet converges;
+    #: ``None``, the default, means "whatever the controller has installed";
     #: declaring a set is how an operator opts in to the stricter check, and
     #: what makes a compilation refuse a site whose Brotli settings would reach
     #: an nginx that never loaded the module.

@@ -1,7 +1,7 @@
 """Core's contact with the machine the control plane runs on.
 
-A subprocess, a file on disk, a log handler, the message broker, and where an
-installed distribution's roles and playbooks landed. Nothing here is a policy
+A subprocess, a file on disk, a log handler, and where the installed
+distribution's roles and playbooks landed. Nothing here is a policy
 or a value; everything here does I/O, which is the whole reason the package
 exists — `capabilities/*/domain.py` and every capability contract are refused
 these imports as a package rather than one module name at a time.

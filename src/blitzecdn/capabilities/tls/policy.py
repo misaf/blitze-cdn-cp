@@ -3,7 +3,7 @@
 Pure values: the modes, versions and managed paths that describe how a site's
 TLS is *configured*. The behaviour they name — issuing, uploading, renewing and
 publishing material, and the Automatic SSL/TLS scan that upgrades ``ssl_mode``
-— lives in the optional ``blitzecdn-certificates`` distribution.
+— lives in ``tls.certificates`` and ``tls.automatic_ssl``.
 
 This module imports nothing but ``core`` and another capability's policy
 contract, which is what lets ``dns`` compose it without depending on the TLS
@@ -182,13 +182,10 @@ class TlsPolicy(CapabilityPolicy):
         """Bound where an edge certificate path may point, and what it may say.
 
         On the contract that declares the two fields, so that every model
-        containing this value uses one rule. It was written out twice — on
-        ``CdnSite`` and again on ``Domain`` — which is the arrangement
-        ``serving.domain.host`` describes itself as not having: a rule about one
-        capability's own fields belongs to that capability, and the composition
-        keeps only what reads across two of them. Two copies of a security
-        check are also two things that can be tightened separately, and the
-        pair had to agree for either to mean anything.
+        containing this value — ``CdnSite`` and ``Domain`` alike — uses one
+        rule. A rule about one capability's own fields belongs to that
+        capability, and two copies of a security check could be tightened
+        separately.
 
         A deploy copies these paths as root, which is what the traversal and
         root checks are about. The character check is about the other end: the

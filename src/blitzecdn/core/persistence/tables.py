@@ -59,7 +59,7 @@ from sqlmodel import Field, SQLModel
 
 
 class UtcDateTime(TypeDecorator[datetime]):
-    """A timezone-aware UTC instant, stored as the ISO-8601 text it always was.
+    """A timezone-aware UTC instant, stored as ISO-8601 text.
 
     Not :class:`sqlalchemy.DateTime`. On SQLite that type stores
     ``YYYY-MM-DD HH:MM:SS.ffffff`` and drops the offset, which would do two

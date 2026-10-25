@@ -28,8 +28,8 @@ class FeatureMetadata:
     #: `name` identifies the *feature* — it is how a duplicate is detected and a
     #: failure attributed — while a token names a *capability*, which is what a
     #: site or a fleet setting actually depends on. One feature may supply
-    #: several, and a replacement implementation may supply a token another
-    #: package used to, under its own name.
+    #: several, and a replacement implementation may supply another feature's
+    #: token under its own name.
     provides: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:

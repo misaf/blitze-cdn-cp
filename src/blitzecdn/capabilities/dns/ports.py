@@ -88,7 +88,7 @@ class ZoneReader(Protocol):
 
 
 class SiteReader(Protocol):
-    """Read-only access to derived virtual hosts for installed packages.
+    """Read-only access to derived virtual hosts for other capabilities.
 
     Changing a host requires editing its source zone, rule, or record."""
 
