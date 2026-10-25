@@ -42,6 +42,12 @@ FEATURES = (
         cli_commands=(
             CliCommandGroup(feature="cache", name="cache", app=cli.cache_app),
             CliCommandGroup(feature="cache", name=None, app=cli.stats_app),
+            CliCommandGroup(
+                feature="cache",
+                name="domain",
+                app=cli.domain_commands,
+                extends=True,
+            ),
         ),
         ansible=(
             AnsibleContribution(

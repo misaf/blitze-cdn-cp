@@ -11,7 +11,7 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
+from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.tls.contract import (
     MinimumTlsVersion,
@@ -20,8 +20,12 @@ from blitzecdn.capabilities.tls.contract import (
 )
 from blitzecdn.entrypoints.cli import common
 
+#: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
+#: tls settings, so they ship with the capability that owns them.
+domain_commands = typer.Typer()
 
-@domain_app.command("ssl")
+
+@domain_commands.command("ssl")
 def domain_ssl(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
@@ -40,15 +44,15 @@ def domain_ssl(
     origin certificate and hostname. Every mode except Off requires an active
     edge certificate.
     """
-    zone = _update(name, DomainPatch(ssl_mode=mode))
-    _report(
+    zone = update(name, DomainPatch(ssl_mode=mode))
+    report(
         zone,
         f"{zone.name} now uses SSL mode {zone.policy.tls.ssl_mode.value!r}.",
         json_output=json_output,
     )
 
 
-@domain_app.command("ssl-automatic")
+@domain_commands.command("ssl-automatic")
 def domain_ssl_automatic(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
@@ -61,7 +65,7 @@ def domain_ssl_automatic(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Enroll a zone in Automatic SSL/TLS or opt it into Custom mode."""
-    zone = _update(name, DomainPatch(ssl_automatic_mode=mode))
+    zone = update(name, DomainPatch(ssl_automatic_mode=mode))
     common.emit(
         zone,
         json_output=json_output,
@@ -72,7 +76,7 @@ def domain_ssl_automatic(
     )
 
 
-@domain_app.command("minimum-tls")
+@domain_commands.command("minimum-tls")
 def domain_minimum_tls(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     version: Annotated[
@@ -85,8 +89,8 @@ def domain_minimum_tls(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Set the minimum visitor TLS version for one zone."""
-    zone = _update(name, DomainPatch(minimum_tls_version=version))
-    _report(
+    zone = update(name, DomainPatch(minimum_tls_version=version))
+    report(
         zone,
         f"{zone.name} now requires TLS "
         f"{zone.policy.tls.minimum_tls_version.value} or newer.",

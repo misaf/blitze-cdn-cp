@@ -11,13 +11,17 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
+from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.capabilities.http.contract import MaxUploadSize
 from blitzecdn.entrypoints.cli import common
 
+#: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
+#: http settings, so they ship with the capability that owns them.
+domain_commands = typer.Typer()
 
-@domain_app.command("http3")
+
+@domain_commands.command("http3")
 def domain_http3(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
@@ -33,15 +37,15 @@ def domain_http3(
     HTTP/2 and HTTP/1.1 remain available over TCP. This setting never changes
     the protocol used from the edge to the origin.
     """
-    zone = _update(name, DomainPatch(http3_enabled=on))
-    _report(
+    zone = update(name, DomainPatch(http3_enabled=on))
+    report(
         zone,
         f"HTTP/3 is now {'enabled' if on else 'disabled'} for {zone.name}.",
         json_output=json_output,
     )
 
 
-@domain_app.command("max-upload-size")
+@domain_commands.command("max-upload-size")
 def domain_max_upload_size(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     size: Annotated[
@@ -56,15 +60,15 @@ def domain_max_upload_size(
     contacted, so this is a limit on what visitors may upload rather than on
     what the origin is willing to receive.
     """
-    zone = _update(name, DomainPatch(max_upload_size=size))
-    _report(
+    zone = update(name, DomainPatch(max_upload_size=size))
+    report(
         zone,
         f"{zone.name} now accepts uploads up to {size.value}.",
         json_output=json_output,
     )
 
 
-@domain_app.command("always-use-https")
+@domain_commands.command("always-use-https")
 def domain_always_use_https(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
@@ -81,8 +85,8 @@ def domain_always_use_https(
     The setting takes effect only while the SSL mode serves HTTPS. Disabling it
     leaves HTTPS available and serves HTTP requests through to the origin.
     """
-    zone = _update(name, DomainPatch(always_use_https=on))
-    _report(
+    zone = update(name, DomainPatch(always_use_https=on))
+    report(
         zone,
         f"Always Use HTTPS is now {'enabled' if on else 'disabled'} for {zone.name}.",
         json_output=json_output,

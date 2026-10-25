@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.security import ansible
+from blitzecdn.capabilities.security import ansible, cli
 from blitzecdn.capabilities.security.settings import (
     MINIMUM_SECRET_BYTES,
     SECRET_VARIABLE,
 )
 from blitzecdn.core.features import (
     AnsibleContribution,
+    CliCommandGroup,
     ConfigurationContribution,
     EdgeModule,
     EnvironmentKey,
@@ -44,6 +45,14 @@ FEATURES = (
             version=__version__,
             provides=frozenset({"security"}),
             summary="Per-site request filtering and Under Attack Mode.",
+        ),
+        cli_commands=(
+            CliCommandGroup(
+                feature="security",
+                name="domain",
+                app=cli.domain_commands,
+                extends=True,
+            ),
         ),
         # The fleet-wide key the Under Attack Mode challenge is signed with.
         # Not `required`: a controller with no signing secret is a working

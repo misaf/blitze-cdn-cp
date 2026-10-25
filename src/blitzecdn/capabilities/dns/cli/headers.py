@@ -12,7 +12,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _report, domain_app
+from blitzecdn.capabilities.dns.cli.app import domain_app
+from blitzecdn.capabilities.dns.cli.editing import report
 from blitzecdn.capabilities.dns.domain import EditVisitorHeaders
 from blitzecdn.entrypoints.cli import common
 
@@ -74,7 +75,7 @@ def domain_visitor_headers(
         )
         if on
     ]
-    _report(
+    report(
         zone,
         f"{zone.name} now sends {', '.join(sent)} to the origin."
         if sent

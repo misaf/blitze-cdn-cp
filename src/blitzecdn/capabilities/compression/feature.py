@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.compression import ansible
+from blitzecdn.capabilities.compression import ansible, cli
 from blitzecdn.core.features import (
     AnsibleContribution,
+    CliCommandGroup,
     EdgeModule,
     Feature,
     FeatureMetadata,
@@ -38,6 +39,14 @@ FEATURES = (
             version=__version__,
             provides=frozenset({"compression"}),
             summary="Which encodings a managed edge may produce: gzip and Brotli.",
+        ),
+        cli_commands=(
+            CliCommandGroup(
+                feature="compression",
+                name="domain",
+                app=cli.domain_commands,
+                extends=True,
+            ),
         ),
         ansible=(
             AnsibleContribution(

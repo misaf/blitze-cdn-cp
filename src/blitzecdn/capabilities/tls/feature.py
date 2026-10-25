@@ -11,6 +11,7 @@ rendering and operations are built in :mod:`blitzecdn.capabilities.tls.wiring`.
 from __future__ import annotations
 
 from blitzecdn import __version__
+from blitzecdn.capabilities.tls import cli
 from blitzecdn.capabilities.tls.automatic_ssl import cli as automatic_ssl_cli
 from blitzecdn.capabilities.tls.automatic_ssl.api import routes as automatic_ssl_routes
 from blitzecdn.capabilities.tls.certificates import cli as certificates_cli
@@ -31,6 +32,14 @@ TLS = Feature(
         name="tls",
         version=__version__,
         summary="Stable edge-encryption policy and TLS modes.",
+    ),
+    cli_commands=(
+        CliCommandGroup(
+            feature="tls",
+            name="domain",
+            app=cli.domain_commands,
+            extends=True,
+        ),
     ),
 )
 

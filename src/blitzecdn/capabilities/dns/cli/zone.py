@@ -15,7 +15,8 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
-from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
+from blitzecdn.capabilities.dns.cli.app import domain_app
+from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch
 from blitzecdn.entrypoints.cli import common
 
@@ -146,9 +147,9 @@ def domain_origin(
     # that were *set*, and `origin_sni=None` passed for an option nobody named
     # would clear the override instead of leaving it alone. Going through the
     # dict is what keeps "not mentioned" and "explicitly cleared" distinct.
-    zone = _update(name, DomainPatch.model_validate(named))
+    zone = update(name, DomainPatch.model_validate(named))
     identity = zone.policy.origin.origin_request_host or "the visitor's Host header"
-    _report(
+    report(
         zone,
         f"{zone.name} reaches its origin as {identity}.",
         json_output=json_output,
@@ -169,8 +170,8 @@ def domain_enable(
     stops being converged. Unproxying the records instead would change what DNS
     answers with, which is a different decision.
     """
-    zone = _update(name, DomainPatch(enabled=on))
-    _report(
+    zone = update(name, DomainPatch(enabled=on))
+    report(
         zone,
         f"{zone.name} is now {'enabled' if on else 'disabled'}.",
         json_output=json_output,
