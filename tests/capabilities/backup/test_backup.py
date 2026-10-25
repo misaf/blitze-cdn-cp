@@ -13,7 +13,7 @@ import json
 import os
 import sqlite3
 import tarfile
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 from pathlib import Path
 
 import pytest
@@ -747,6 +747,89 @@ def test_validation_happens_before_anything_is_modified(populated, tmp_path):
     assert key.read_text() == "STILL HERE"
     assert populated.database_path.read_bytes() == database
     assert service.services.calls == []
+
+
+@pytest.mark.parametrize("failure", ["migration", "schema_verification"])
+def test_staged_database_failure_preserves_every_live_component(
+    populated, tmp_path, monkeypatch, failure
+):
+    service = build_backup_service(
+        populated,
+        configuration=load_control_plane_plugins().configuration_contributions(),
+    )
+    archive = service.create(destination=tmp_path / "recovery.tar.gz")
+    live_files = [
+        populated.database_path,
+        populated.certificate_dir / "example-com/privkey-aa.pem",
+        populated.state_dir / "letsencrypt/config/accounts/acme-v02/private_key.json",
+        populated.project_dir / "blitzecdn.toml",
+        populated.environment_path,
+        populated.state_dir / "id_ed25519",
+        populated.state_dir / "id_ed25519.pub",
+    ]
+    for path in live_files[1:]:
+        path.write_bytes(b"newer live state")
+    (populated.project_dir / "blitzecdn.toml").write_text(
+        "[blitzecdn]\nallow_empty_sites = true\n", encoding="utf-8"
+    )
+    populated.environment_path.write_text(
+        "BLITZE_API_KEYS=operator:newer\n", encoding="utf-8"
+    )
+    before = {path: path.read_bytes() for path in live_files}
+    service.services = _RecordingServices()
+
+    if failure == "migration":
+
+        def fail_migration(path):
+            path.write_bytes(b"partially migrated database")
+            raise ConfigurationError("migration failed")
+
+        monkeypatch.setattr(DatabaseSchema, "migrate", staticmethod(fail_migration))
+    else:
+
+        def remove_table(staging):
+            with closing(sqlite3.connect(staging / "database" / DATABASE_MEMBER)) as db:
+                db.execute("DROP TABLE audit_events")
+                db.commit()
+
+        archive = _repack(archive, tmp_path / "schema-drift.tar.gz", remove_table)
+
+    with pytest.raises(ConfigurationError):
+        service.restore(archive)
+
+    assert {path: path.read_bytes() for path in live_files} == before
+    assert service.services.calls == []
+
+
+def test_restore_publishes_the_migrated_staged_database(populated, monkeypatch):
+    service = build_backup_service(
+        populated,
+        configuration=load_control_plane_plugins().configuration_contributions(),
+    )
+    archive = service.create(only=(BackupComponent.DATABASE,))
+    service.services = _RecordingServices()
+    migrate = DatabaseSchema.migrate
+    prepared = []
+
+    def migrate_copy(path):
+        assert path != populated.database_path
+        assert service.services.calls == []
+        migrate(path)
+        with closing(sqlite3.connect(path)) as db:
+            db.execute("UPDATE domains SET name = 'migrated.example'")
+            db.commit()
+        prepared.append(path)
+
+    monkeypatch.setattr(DatabaseSchema, "migrate", staticmethod(migrate_copy))
+
+    service.restore(archive)
+
+    assert len(prepared) == 1
+    with closing(sqlite3.connect(populated.database_path)) as db:
+        assert db.execute("SELECT name FROM domains").fetchall() == [
+            ("migrated.example",)
+        ]
+    assert service.services.calls == ["stop", "start"]
 
 
 @pytest.mark.parametrize("component_type", [TlsComponent, AcmeComponent])

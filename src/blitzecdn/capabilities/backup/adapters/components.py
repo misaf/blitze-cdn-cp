@@ -27,7 +27,6 @@ from blitzecdn.core.config import (
     is_portable_environment_key,
 )
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError
-from blitzecdn.core.persistence.schema import DatabaseSchema
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 
 #: The archived database's name inside the archive. Fixed rather than derived
@@ -237,7 +236,7 @@ class DatabaseComponent:
             )
 
     def restore(self, staging: Path) -> None:
-        """Install the archived database, then bring its schema up to date.
+        """Publish the database already migrated and verified in staging.
 
         The `-wal` and `-shm` beside the old database are removed rather than
         left: they belong to the file being replaced, and SQLite would apply
@@ -250,10 +249,6 @@ class DatabaseComponent:
         atomic_write_bytes(destination, source.read_bytes())
         for suffix in ("-wal", "-shm"):
             destination.with_name(destination.name + suffix).unlink(missing_ok=True)
-        # Forward-migrating the restored file is core's business: it owns the
-        # schema and the migration tree, and this package must not reach for
-        # the storage engine to get at them.
-        DatabaseSchema.migrate(destination)
 
 
 class _DirectoryComponent:
