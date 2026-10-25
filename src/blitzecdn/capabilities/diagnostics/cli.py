@@ -19,7 +19,7 @@ from blitzecdn import ansible as core_ansible
 from blitzecdn.api import create_app
 from blitzecdn.cli import common
 from blitzecdn.cli.common import ExitCode
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     CapabilitySetting,
     EnvironmentKey,
     resolve_edge_capability_roles,
@@ -87,21 +87,21 @@ def plugins(
     whether they arrived is visible only in a failed play.
     """
     control = common.services()
-    registry = control.plugins
+    registry = control.features
     secrets: dict[str, list[EnvironmentKey]] = {}
     settings: dict[str, list[CapabilitySetting]] = {}
     for contribution in registry.configuration_contributions():
-        secrets.setdefault(contribution.plugin, []).extend(
+        secrets.setdefault(contribution.feature, []).extend(
             contribution.environment_keys
         )
-        settings.setdefault(contribution.plugin, []).extend(contribution.settings)
+        settings.setdefault(contribution.feature, []).extend(contribution.settings)
     document: dict[str, Any] = {
         "plugins": [
             {
-                "name": plugin.name,
-                "version": plugin.version,
-                "capabilities": sorted(plugin.capabilities),
-                "summary": plugin.summary,
+                "name": feature.name,
+                "version": feature.version,
+                "capabilities": sorted(feature.capabilities),
+                "summary": feature.summary,
                 "configuration": [
                     {
                         "name": key.name,
@@ -114,13 +114,13 @@ def plugins(
                         "minimum_bytes": key.minimum_bytes,
                         # Whether a value arrived, never the value: this prints
                         # to a terminal and into whatever captures its JSON.
-                        "set": control.capability_config.for_plugin(plugin.name).is_set(
-                            key.name
-                        ),
+                        "set": control.capability_config.for_feature(
+                            feature.name
+                        ).is_set(key.name),
                         "summary": key.summary,
                     }
                     for key in sorted(
-                        secrets.get(plugin.name, ()), key=lambda key: key.name
+                        secrets.get(feature.name, ()), key=lambda key: key.name
                     )
                 ]
                 + [
@@ -131,18 +131,18 @@ def plugins(
                         # secret may not — that difference is the whole reason
                         # the two are declared as different things.
                         "value": str(
-                            control.capability_config.for_plugin(plugin.name).settings[
-                                setting.name
-                            ]
+                            control.capability_config.for_feature(
+                                feature.name
+                            ).settings[setting.name]
                         ),
                         "summary": setting.summary,
                     }
                     for setting in sorted(
-                        settings.get(plugin.name, ()), key=lambda item: item.name
+                        settings.get(feature.name, ()), key=lambda item: item.name
                     )
                 ],
             }
-            for plugin in registry.plugins
+            for feature in registry.metadata
         ],
         "capabilities": sorted(registry.capabilities),
     }
@@ -154,7 +154,7 @@ def ansible_roles_path() -> None:
     """Print `ANSIBLE_ROLES_PATH` for this set of installed capabilities.
 
     Core's roles first, then each contributing distribution's, ordered by
-    plugin name — the exact value the composition root hands the runner, from
+    feature name — the exact value the composition root hands the runner, from
     the exact function that composes it. A caller invoking `ansible-playbook`
     directly needs that same path, and until this command existed the only way
     to get one was to write it out again: the justfile spelled all nine
@@ -167,12 +167,12 @@ def ansible_roles_path() -> None:
     rather than by an operator noticing that an edge converges a role nobody
     wrote.
 
-    The plugins are loaded here rather than taken from a control plane because
+    The features are loaded here rather than taken from a control plane because
     the answer depends only on what is installed: this runs in a lint step,
     where there is no database to open and no fleet to read.
     """
     search = resolve_role_search_path(
-        core_ansible.ROLES_PATH, common.installed_plugins().ansible_contributions()
+        core_ansible.ROLES_PATH, common.installed_features().ansible_contributions()
     )
     typer.echo(":".join(str(path) for path in search))
 
@@ -200,7 +200,7 @@ def ansible_slots() -> None:
     diffing this output wants to see that a slot is empty rather than guess
     whether the question was asked.
     """
-    contributions = common.installed_plugins().ansible_contributions()
+    contributions = common.installed_features().ansible_contributions()
     common.emit(
         {
             "blitzecdn_capability_roles": list(

@@ -2,7 +2,7 @@
 
 Built with `create_app` rather than the core-only app the control plane's own
 API tests use: these routes exist *because* this distribution is installed, so
-the app under test is the one plugin discovery assembles. That is also what
+the app under test is the one feature discovery assembles. That is also what
 makes them a check on the packaging and not only on the handlers — a route that
 stopped being contributed would 404 here.
 """

@@ -68,15 +68,15 @@ from blitzecdn.composition.roster import (
 )
 from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.config import Settings
-from blitzecdn.core.persistence.configuration import AnsibleSettingStore
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
+    FeatureRegistry,
     HealthCheck,
     Operations,
-    PluginRegistry,
     Rendering,
     ScheduledJob,
 )
-from blitzecdn.core.plugins.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.features.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.persistence.configuration import AnsibleSettingStore
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import (
     AuditTrail,
@@ -126,8 +126,8 @@ class ApplicationServices:
         return self.infrastructure.settings
 
     @property
-    def plugins(self) -> PluginRegistry:
-        return self.infrastructure.plugins
+    def features(self) -> FeatureRegistry:
+        return self.infrastructure.features
 
     @property
     def capability_config(self) -> ResolvedCapabilityEnvironment:
@@ -201,7 +201,7 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
 
     # What every feature renders into a release, bound from configuration and
     # adapters only, before the compiler that consumes it.
-    rendering = infra.plugins.bind_rendering(
+    rendering = infra.features.bind_rendering(
         bind_renderings(
             RenderingInputs(
                 capability_config=infra.capability_config,
@@ -215,7 +215,7 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
         edges=infra.edges,
         contributors=rendering,
         objections=rendering.site_objections,
-        capabilities=tuple(infra.plugins.capabilities),
+        capabilities=tuple(infra.features.capabilities),
         allow_empty_sites=settings.allow_empty_sites,
         retention=settings.history_retention,
         uow=store,
@@ -259,7 +259,7 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
         clock=clock,
     )
     certificate_config = CertificateConfig.from_capability_config(
-        infra.capability_config.for_plugin("certificates")
+        infra.capability_config.for_feature("certificates")
     )
     certificates = build_certificate_service(
         settings=settings,
@@ -291,7 +291,7 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
 
     # Contributed jobs close over services, so they are bound once every
     # service exists.
-    operations = infra.plugins.bind_operations(
+    operations = infra.features.bind_operations(
         bind_operations(
             OperationInputs(
                 settings=settings,

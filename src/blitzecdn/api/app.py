@@ -18,18 +18,18 @@ from blitzecdn.composition import (
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
-from blitzecdn.core.plugins import PluginRegistry
+from blitzecdn.core.features import FeatureRegistry
 
 
 def create_app(
-    settings: Settings | None = None, plugins: PluginRegistry | None = None
+    settings: Settings | None = None, features: FeatureRegistry | None = None
 ) -> FastAPI:
     resolved = settings or Settings.from_environment()
     # Loaded once and used twice: the routers below need no services, and the
     # infrastructure the lifespan builds is handed the same registry rather
-    # than loading it again. `plugins` is injectable so a test can serve an
+    # than loading it again. `features` is injectable so a test can serve an
     # app built from exactly the features the test is about.
-    registry = plugins if plugins is not None else load_registry()
+    registry = features if features is not None else load_registry()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -37,7 +37,7 @@ def create_app(
             services = build_api(
                 build_services(
                     Infrastructure.build(
-                        resolved, pool_connections=True, plugins=registry
+                        resolved, pool_connections=True, features=registry
                     )
                 )
             )
@@ -110,7 +110,7 @@ _HTTP_STATUS: dict[FailureKind, int] = {
     # that, where a 500 would blame this service for its dependency.
     FailureKind.EXECUTION: status.HTTP_502_BAD_GATEWAY,
     FailureKind.CONFIGURATION: status.HTTP_400_BAD_REQUEST,
-    # Not 503. A plugin that will not load is not a service that is briefly
+    # Not 503. A feature that will not load is not a service that is briefly
     # unavailable, and inviting a retry that cannot succeed is worse than
     # admitting the installation is broken.
     FailureKind.INTERNAL: status.HTTP_500_INTERNAL_SERVER_ERROR,

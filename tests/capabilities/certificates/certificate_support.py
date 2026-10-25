@@ -150,7 +150,7 @@ def certificate_cli_control_plane(
 ) -> ApplicationServices:
     """`cli_control_plane`, with this capability's services built onto it.
 
-    The command tree an operator sees is assembled from every installed plugin,
+    The command tree an operator sees is assembled from every installed feature,
     so core's helper is what points the CLI at a control plane. It builds no
     additional services; `cert list`, `cert renew` and `cert preflight` all read
     `control.certificates`.

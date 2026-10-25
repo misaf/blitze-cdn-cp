@@ -9,7 +9,7 @@ def test_core_carries_no_setting_named_for_an_optional_capability():
     A field named for a capability is loaded by every installation, including
     the ones that will never have the distribution — and a capability this
     repository has never heard of could not be configured at all. The generic
-    answer is `capability_environment`, whose keys installed plugins must claim
+    answer is `capability_environment`, whose keys installed features must claim
     explicitly before core forwards them.
     """
     from blitzecdn.core.config import Settings

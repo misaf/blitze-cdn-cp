@@ -21,7 +21,7 @@ They had already drifted, at the case least likely to be noticed and most
 likely to matter. A `BlitzeError` that neither list named exited **2**,
 `INVALID_INPUT`, on the command line and answered **503** over HTTP. The first
 tells an operator they typed something wrong; the second tells a client the
-service is briefly down and to retry. `PluginError` — the one concrete subclass
+service is briefly down and to retry. `FeatureError` — the one concrete subclass
 neither list named — is neither. A plugin that will not load is an installation
 that is broken: retrying cannot help, and the operator's command line is not
 where the fix is.
@@ -42,7 +42,7 @@ not a bad request, and a dependency that misbehaved is not a controller that is
 down. Collapsed onto one code, a systemd timer cannot tell "a deployment is
 already running, come back shortly" from "you typed the site name wrong".
 
-`INTERNAL` is the resolution of the drift. It covers `PluginError` and any
+`INTERNAL` is the resolution of the drift. It covers `FeatureError` and any
 unmapped `BlitzeError`, and it is deliberately *not* the operator's input: we
 do not know that it was. It answers exit 3 (`CONFIGURATION` — the fix is the
 installation, and no retry helps) and HTTP 500 rather than 503, because a

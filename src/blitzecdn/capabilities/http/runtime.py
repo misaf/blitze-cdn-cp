@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from blitzecdn.core.plugins import FeatureRendering, FleetStateContribution
+from blitzecdn.core.features import FeatureRendering, FleetStateContribution
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.capabilities.serving.domain import CdnSite
@@ -18,7 +18,7 @@ def baseline_listeners(_sites: tuple[CdnSite, ...]) -> FleetStateContribution:
     a second source of truth for the HTTP/3 provider's listener state.
     """
     return FleetStateContribution(
-        plugin="http",
+        feature="http",
         variables={
             "blitzecdn_edge_http3_enabled": False,
             "blitzecdn_nginx_http3_listener_owner": "",
@@ -26,4 +26,4 @@ def baseline_listeners(_sites: tuple[CdnSite, ...]) -> FleetStateContribution:
     )
 
 
-RENDERING = FeatureRendering(plugin="http", fleet_state=baseline_listeners)
+RENDERING = FeatureRendering(feature="http", fleet_state=baseline_listeners)

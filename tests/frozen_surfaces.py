@@ -48,11 +48,11 @@ def _owner(module: str | None) -> str:
 
 
 def _root_command_owner(path: str, command: Any) -> str:
-    """A command no plugin group claims, which may only be core's own.
+    """A command no feature group claims, which may only be core's own.
 
     `config`, `init` and `setup` are declared on the root Typer application
     directly: they configure and bootstrap the control plane, so they have to
-    work before one exists to register plugins against. They ship in
+    work before one exists to register features against. They ship in
     `blitzecdn.cli` and belong to core by construction.
 
     Anything else unclaimed is refused rather than attributed to the
@@ -75,7 +75,7 @@ def _render(lines: list[str]) -> str:
     """Sorted, de-duplicated, newline-terminated.
 
     Sorted rather than kept in discovery order: registration order is an
-    implementation detail of the plugin manager, and a golden file that changed
+    implementation detail of the roster, and a golden file that changed
     when a feature moved in `BUILTIN_FEATURES` would fail for a reason that is not
     about the contract.
     """
@@ -134,7 +134,7 @@ def cli_surface() -> str:
 
     from blitzecdn.cli import common, main
 
-    owners = _command_owners(common.installed_plugins())
+    owners = _command_owners(common.installed_features())
     lines = []
     # Typer vendors its own copy of click, so what `get_command` hands back is
     # `typer._click.core.Command` — the same class by structure and a different
@@ -153,21 +153,21 @@ def _command_owners(registry: Any) -> dict[str, str]:
     function was written rather than which wheel ships it: a group whose
     commands delegate to a shared helper, or whose callbacks are wrapped by a
     decorator defined elsewhere, is attributed to whoever defined the wrapper.
-    `CliCommandGroup.plugin` says it outright, and a group belongs to exactly
-    one plugin, so every command beneath it does too.
+    `CliCommandGroup.feature` says it outright, and a group belongs to exactly
+    one feature, so every command beneath it does too.
 
     The lookup is keyed on the first word because that is the whole of what a
     group contributes: a named group owns its subtree, and an unnamed one hands
     over root verbs. Not every command comes through a group — `config`, `init`
     and `setup` are declared on the root application itself, because they run
-    before there is a control plane for a plugin to be registered against —
+    before there is a control plane for a feature to be registered against —
     and `_root_command_owner` is where those are accounted for.
     """
     # Every feature ships in this distribution by construction.
     roots = {feature.name: ROOT for feature in registry.features}
     owners: dict[str, str] = {}
     for group in registry.cli_commands():
-        owner = roots[group.plugin]
+        owner = roots[group.feature]
         if group.name is not None:
             owners[group.name] = owner
             continue

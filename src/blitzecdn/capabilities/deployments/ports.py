@@ -200,7 +200,7 @@ class Releases(Protocol):
     """Compiling desired state, and reading back what was compiled.
 
     The whole of what a deployment knows about configuration. It does not
-    derive a virtual host, merge a rule, ask a plugin for a variable or render
+    derive a virtual host, merge a rule, ask a feature for a variable or render
     a document — it asks for a release and converges the artifact in it, which
     is what keeps "what should the fleet serve" answerable in one place and
     answerable after the fact.

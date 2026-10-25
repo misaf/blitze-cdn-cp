@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     AnsibleContribution,
     ConfigurationContribution,
     EdgeModule,
     EnvironmentKey,
     Feature,
+    FeatureMetadata,
     NginxContribution,
-    PluginMetadata,
 )
 from blitzecdn.core.runtime.resources import package_directory
 from blitzecdn.providers.geoip import __version__, ansible
@@ -29,7 +29,7 @@ NGINX_TEMPLATES = (
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="geoip",
             version=__version__,
             provides=frozenset({"geoip"}),
@@ -41,7 +41,7 @@ FEATURES = (
         # refused by capability token rather than by a startup failure.
         configuration=(
             ConfigurationContribution(
-                plugin="geoip",
+                feature="geoip",
                 environment_keys=(
                     EnvironmentKey(
                         name="BLITZE_MAXMIND_ACCOUNT_ID",
@@ -62,7 +62,7 @@ FEATURES = (
         ),
         ansible=(
             AnsibleContribution(
-                plugin="geoip",
+                feature="geoip",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
                 # No `probe`: every geoip2 directive takes a MaxMind database,
@@ -76,7 +76,7 @@ FEATURES = (
         ),
         nginx=(
             NginxContribution(
-                plugin="geoip",
+                feature="geoip",
                 templates_path=NGINX_TEMPLATES,
                 http_fragments=("geoip-http.conf.j2",),
                 upstream_fragments=("geoip-upstream.conf.j2",),

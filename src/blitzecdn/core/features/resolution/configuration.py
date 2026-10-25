@@ -22,8 +22,8 @@ from typing import cast
 
 from pydantic import SecretStr
 
-from blitzecdn.core.exceptions import ConfigurationError, PluginError
-from blitzecdn.core.plugins.types import (
+from blitzecdn.core.exceptions import ConfigurationError, FeatureError
+from blitzecdn.core.features.types import (
     CapabilitySetting,
     ConfigurationContribution,
     EnvironmentKey,
@@ -34,7 +34,7 @@ __all__ = [
     "CapabilityConfig",
     "ResolvedCapabilityEnvironment",
     "resolve_capability_environment",
-    "resolve_plugin_configuration",
+    "resolve_feature_configuration",
 ]
 
 
@@ -45,13 +45,13 @@ class CapabilityConfig:
     The read a capability would otherwise do against
     ``Settings.capability_environment`` itself, done once by core and handed
     back scoped: the keys *this
-    plugin declared*, resolved from the merged environment, with an unset one
+    feature declared*, resolved from the merged environment, with an unset one
     present as an empty secret rather than absent. A name the package did not
     declare is refused rather than returned empty, because the two mistakes
     look identical at the call site and only one of them is a typo.
     """
 
-    plugin: str
+    feature: str
     values: Mapping[str, SecretStr]
     #: The non-secret half, already coerced to each setting's declared type.
     #: Separate from `values` because the two are read differently and shown
@@ -63,8 +63,8 @@ class CapabilityConfig:
     def secret(self, name: str) -> SecretStr:
         """This key's value, empty when the controller has not set it."""
         if name not in self.values:
-            raise PluginError(
-                f"plugin {self.plugin!r} reads the environment key {name!r}, "
+            raise FeatureError(
+                f"feature {self.feature!r} reads the environment key {name!r}, "
                 "which it does not declare. A secret is claimed once, in its "
                 "`ConfigurationContribution.environment_keys`, and read by "
                 "that name."
@@ -86,8 +86,8 @@ class CapabilityConfig:
         `TypeError` several frames away.
         """
         if name not in self.settings:
-            raise PluginError(
-                f"plugin {self.plugin!r} reads the setting {name!r}, which it "
+            raise FeatureError(
+                f"feature {self.feature!r} reads the setting {name!r}, which it "
                 "does not declare. A setting is claimed once, in its "
                 "`ConfigurationContribution.settings`, and read by that name."
             )
@@ -97,8 +97,8 @@ class CapabilityConfig:
             isinstance(value, bool) if kind is bool else isinstance(value, kind)
         ) and not (kind is int and isinstance(value, bool))
         if not matches:
-            raise PluginError(
-                f"plugin {self.plugin!r} reads {name!r} as {kind.__name__}, "
+            raise FeatureError(
+                f"feature {self.feature!r} reads {name!r} as {kind.__name__}, "
                 f"but declares it as {type(value).__name__}"
             )
         return value
@@ -122,7 +122,7 @@ class CapabilityConfig:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedCapabilityEnvironment:
-    """Every claimed key, once flat for Ansible and once scoped per plugin.
+    """Every claimed key, once flat for Ansible and once scoped per feature.
 
     Two shapes of one answer, because there are two consumers and they need
     opposite things. ``environment`` is what ``PlaybookExecutor`` copies into
@@ -135,15 +135,15 @@ class ResolvedCapabilityEnvironment:
     environment: Mapping[str, SecretStr]
     configs: Mapping[str, CapabilityConfig]
 
-    def for_plugin(self, plugin: str) -> CapabilityConfig:
-        """This plugin's configuration; empty if it declared no keys.
+    def for_feature(self, feature: str) -> CapabilityConfig:
+        """This feature's configuration; empty if it declared no keys.
 
         Empty rather than an error, because declaring no keys is the normal
         case and a package should not have to know whether it is one. A
-        mistyped plugin name is caught a line later instead: every read against
+        mistyped feature name is caught a line later instead: every read against
         the empty config names a key that config does not declare.
         """
-        return self.configs.get(plugin) or CapabilityConfig(plugin, {})
+        return self.configs.get(feature) or CapabilityConfig(feature, {})
 
 
 def resolve_capability_environment(
@@ -157,7 +157,7 @@ def resolve_capability_environment(
     Four refusals — an unprefixed claim, a name claimed twice, a configured name
     nobody claims, and a value that cannot be worked with — each because the
     alternative is a failure much later that names nothing useful. The first
-    three are ``PluginError``, being about what the installed packages claim;
+    three are ``FeatureError``, being about what the installed packages claim;
     the fourth is ``ConfigurationError``, the fix being a value the operator can
     change.
 
@@ -172,24 +172,24 @@ def resolve_capability_environment(
     owners: dict[str, str] = {}
     declared: dict[str, ConfigurationContribution] = {}
     secrets: set[str] = set()
-    for contribution in sorted(contributions, key=lambda item: item.plugin):
+    for contribution in sorted(contributions, key=lambda item: item.feature):
         for name in _claimed_names(contribution):
             if not name.startswith("BLITZE_"):
-                raise PluginError(
-                    f"plugin {contribution.plugin!r} claims configuration name "
+                raise FeatureError(
+                    f"feature {contribution.feature!r} claims configuration name "
                     f"{name!r}, which must start with 'BLITZE_'"
                 )
             if name in owners:
-                raise PluginError(
-                    f"configuration name {name!r} is claimed by both plugin "
-                    f"{owners[name]!r} and plugin {contribution.plugin!r}"
+                raise FeatureError(
+                    f"configuration name {name!r} is claimed by both feature "
+                    f"{owners[name]!r} and feature {contribution.feature!r}"
                 )
-            owners[name] = contribution.plugin
+            owners[name] = contribution.feature
         secrets.update(key.name for key in contribution.environment_keys)
-        declared[contribution.plugin] = contribution
+        declared[contribution.feature] = contribution
     unknown = sorted((set(configured) | set(from_file)) - owners.keys())
     if unknown:
-        raise PluginError(
+        raise FeatureError(
             "unknown capability configuration: "
             + ", ".join(unknown)
             + ". A name here is claimed by no installed capability: check the "
@@ -206,10 +206,10 @@ def resolve_capability_environment(
             + ". Set them in the controller's .env instead."
         )
     configs = {
-        plugin: resolve_plugin_configuration(
+        feature: resolve_feature_configuration(
             contribution, configured, from_file, state_dir
         )
-        for plugin, contribution in declared.items()
+        for feature, contribution in declared.items()
     }
     # Secrets only. A setting has a resolved value whether or not an operator
     # supplied one, so forwarding the staged strings would send Ansible the
@@ -225,7 +225,7 @@ def _claimed_names(contribution: ConfigurationContribution) -> tuple[str, ...]:
     )
 
 
-def resolve_plugin_configuration(
+def resolve_feature_configuration(
     contribution: ConfigurationContribution,
     configured: Mapping[str, SecretStr],
     from_file: Mapping[str, str],
@@ -241,7 +241,7 @@ def resolve_plugin_configuration(
     already declared, and gets the same object the composition root would have
     handed it.
 
-    What it deliberately does not do is the cross-plugin half: collisions with
+    What it deliberately does not do is the cross-feature half: collisions with
     other capabilities and names nobody claimed are questions about the whole
     installation, and they are answered once, at startup, by
     :func:`resolve_capability_environment`. This resolves values.
@@ -251,10 +251,10 @@ def resolve_plugin_configuration(
         for key in sorted(contribution.environment_keys, key=lambda item: item.name)
     }
     for key in contribution.environment_keys:
-        _check_value(contribution.plugin, key, values[key.name])
+        _check_value(contribution.feature, key, values[key.name])
     settings = {
         setting.name: _resolve_setting(
-            contribution.plugin,
+            contribution.feature,
             setting,
             # The environment wins over the file, which is the precedence every
             # other source in this control plane follows.
@@ -264,7 +264,7 @@ def resolve_plugin_configuration(
         )
         for setting in sorted(contribution.settings, key=lambda item: item.name)
     }
-    return CapabilityConfig(contribution.plugin, values, settings)
+    return CapabilityConfig(contribution.feature, values, settings)
 
 
 def _optional_secret(value: str | None) -> SecretStr | None:
@@ -273,7 +273,10 @@ def _optional_secret(value: str | None) -> SecretStr | None:
 
 
 def _resolve_setting(
-    plugin: str, setting: CapabilitySetting, supplied: SecretStr | None, state_dir: Path
+    feature: str,
+    setting: CapabilitySetting,
+    supplied: SecretStr | None,
+    state_dir: Path,
 ) -> SettingValue:
     """Read one configured value as the type its capability declared.
 
@@ -283,7 +286,7 @@ def _resolve_setting(
 
     A supplied one is staged as ``SecretStr`` like everything else core cannot
     yet attribute — core does not learn which names are secrets until the
-    plugins declare it, and treating an unattributed value as a secret until
+    features declare it, and treating an unattributed value as a secret until
     told otherwise is the only safe order. Unwrapping here is the moment its
     owner has said it is not one.
     """
@@ -297,7 +300,7 @@ def _resolve_setting(
     except ValueError as exc:
         raise ConfigurationError(
             f"{setting.name} is set to {raw!r}, which the capability "
-            f"{plugin!r} cannot use: {exc}"
+            f"{feature!r} cannot use: {exc}"
         ) from exc
 
 
@@ -350,19 +353,19 @@ def _under(value: SettingValue, state_dir: Path) -> SettingValue:
     return value
 
 
-def _check_value(plugin: str, key: EnvironmentKey, value: SecretStr) -> None:
+def _check_value(feature: str, key: EnvironmentKey, value: SecretStr) -> None:
     """Hold one value to the two rules core can state without reading it."""
     secret = value.get_secret_value()
     detail = f" {key.summary}" if key.summary else ""
     if not secret:
         if key.required:
             raise ConfigurationError(
-                f"the installed capability {plugin!r} requires {key.name}, which "
+                f"the installed capability {feature!r} requires {key.name}, which "
                 f"is not set on this controller.{detail}"
             )
         return
     if key.minimum_bytes and len(secret.encode("utf-8")) < key.minimum_bytes:
         raise ConfigurationError(
             f"{key.name} is set to fewer than {key.minimum_bytes} bytes, which "
-            f"the capability {plugin!r} declares unusable.{detail}"
+            f"the capability {feature!r} declares unusable.{detail}"
         )

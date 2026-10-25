@@ -370,7 +370,7 @@ Services receive focused ports, while the application composition root chooses
 the adapters and owns their lifetime.
 
 The application registers its mandatory built-ins explicitly in one roster;
-there is no third-party plugin mechanism. See [PLUGINS.md](PLUGINS.md) for
+there is no third-party plugin mechanism. See [FEATURES.md](FEATURES.md) for
 ownership and assembly conventions, and [COMPATIBILITY.md](COMPATIBILITY.md) for
 published contracts.
 

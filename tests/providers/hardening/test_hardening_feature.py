@@ -10,8 +10,8 @@ control plane that has forgotten it exists.
 """
 
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
-from blitzecdn.core.plugins import PluginMetadata
-from blitzecdn.core.plugins.resolution import (
+from blitzecdn.core.features import FeatureMetadata
+from blitzecdn.core.features.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
     resolve_teardown_capability_roles,
@@ -27,7 +27,7 @@ from blitzecdn.providers.hardening.feature import FEATURES
 def test_plugin_provides_hardening_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
-    assert isinstance(metadata, PluginMetadata)
+    assert isinstance(metadata, FeatureMetadata)
     assert metadata.name == "hardening"
     assert metadata.capabilities == frozenset({"hardening"})
     assert metadata.version == __version__
@@ -45,7 +45,7 @@ def test_hardening_is_a_built_in() -> None:
 def test_the_shipped_registry_includes_it() -> None:
     registry = load_registry()
 
-    assert "hardening" in {plugin.name for plugin in registry.plugins}
+    assert "hardening" in {feature.name for feature in registry.metadata}
 
 
 def test_no_site_can_ask_for_this_capability() -> None:
@@ -59,14 +59,14 @@ def test_no_site_can_ask_for_this_capability() -> None:
     supported choice into a fleet-wide validation failure.
     """
     registry = load_registry()
-    hardening = next(p for p in registry.plugins if p.name == "hardening")
+    hardening = next(p for p in registry.metadata if p.name == "hardening")
 
     assert hardening.capabilities == frozenset({"hardening"})
     assert not any(
         "hardening" in site_token
-        for plugin in registry.plugins
-        for site_token in plugin.provides
-        if plugin.name != "hardening"
+        for feature in registry.metadata
+        for site_token in feature.provides
+        if feature.name != "hardening"
     )
 
 
@@ -85,7 +85,7 @@ def test_the_roles_are_contributed_to_the_host_slot_and_not_the_edge_one() -> No
 
     assert len(contributions) == 1
     contribution = contributions[0]
-    assert contribution.plugin == "hardening"
+    assert contribution.feature == "hardening"
     assert contribution.edge_roles == ()
     assert contribution.host_roles == (
         "blitzecdn_hardening_sshd",

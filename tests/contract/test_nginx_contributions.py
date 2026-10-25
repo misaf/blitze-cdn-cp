@@ -7,14 +7,14 @@ from pydantic import SecretStr
 
 import blitzecdn
 from blitzecdn.composition import load_registry
-from blitzecdn.core.exceptions import ConfigurationError, PluginError
-from blitzecdn.core.plugins import (
+from blitzecdn.core.exceptions import ConfigurationError, FeatureError
+from blitzecdn.core.features import (
     CapabilitySetting,
     ConfigurationContribution,
     EnvironmentKey,
     NginxContribution,
 )
-from blitzecdn.core.plugins.resolution import (
+from blitzecdn.core.features.resolution import (
     resolve_capability_environment,
     resolve_nginx_resources,
 )
@@ -32,12 +32,12 @@ def test_nginx_resources_are_deterministic_and_keep_contexts_stable(tmp_path):
     _template(zulu, "zulu-upstream.conf.j2")
     contributions = [
         NginxContribution(
-            plugin="zulu",
+            feature="zulu",
             templates_path=zulu,
             upstream_fragments=("zulu-upstream.conf.j2",),
         ),
         NginxContribution(
-            plugin="alpha",
+            feature="alpha",
             templates_path=alpha,
             server_fragments=("alpha-server.conf.j2",),
         ),
@@ -47,8 +47,8 @@ def test_nginx_resources_are_deterministic_and_keep_contexts_stable(tmp_path):
     second = resolve_nginx_resources(reversed(contributions))
 
     assert first == second
-    assert [resource.plugin for resource in first["server"]] == ["alpha"]
-    assert [resource.plugin for resource in first["upstream"]] == ["zulu"]
+    assert [resource.feature for resource in first["server"]] == ["alpha"]
+    assert [resource.feature for resource in first["upstream"]] == ["zulu"]
 
 
 def test_two_plugins_cannot_own_one_nginx_resource(tmp_path):
@@ -57,7 +57,7 @@ def test_two_plugins_cannot_own_one_nginx_resource(tmp_path):
     _template(first, "shared.conf.j2")
     _template(second, "shared.conf.j2")
 
-    with pytest.raises(PluginError, match=r"shared.*alpha.*zulu"):
+    with pytest.raises(FeatureError, match=r"shared.*alpha.*zulu"):
         resolve_nginx_resources(
             [
                 NginxContribution("alpha", first, server_fragments=("shared.conf.j2",)),
@@ -69,7 +69,7 @@ def test_two_plugins_cannot_own_one_nginx_resource(tmp_path):
 
 
 def test_a_declared_nginx_resource_must_ship_in_the_package(tmp_path):
-    with pytest.raises(PluginError, match=r"missing.conf.j2.*is not a file"):
+    with pytest.raises(FeatureError, match=r"missing.conf.j2.*is not a file"):
         resolve_nginx_resources(
             [
                 NginxContribution(
@@ -88,12 +88,12 @@ def test_installed_packages_supply_only_package_owned_templates():
     invariant is the same either way — core contributes no fragment of its own,
     and every fragment that exists ships inside the distribution that owns it.
     """
-    plugins = load_registry()
-    owners = {plugin.name for plugin in plugins.plugins}
-    resources = resolve_nginx_resources(plugins.nginx_contributions())
+    features = load_registry()
+    owners = {feature.name for feature in features.metadata}
+    resources = resolve_nginx_resources(features.nginx_contributions())
     flattened = [resource for context in resources.values() for resource in context]
 
-    assert {resource.plugin for resource in flattened} <= owners
+    assert {resource.feature for resource in flattened} <= owners
     assert all(
         resource.template.is_relative_to(Path(blitzecdn.__file__).parent)
         for resource in flattened
@@ -104,7 +104,7 @@ def test_only_explicitly_claimed_environment_reaches_ansible(tmp_path):
     roles = tmp_path / "roles"
     roles.mkdir()
     contribution = ConfigurationContribution(
-        plugin="geoip",
+        feature="geoip",
         environment_keys=(EnvironmentKey(name="BLITZE_MAXMIND_LICENSE_KEY"),),
     )
     configured = {"BLITZE_MAXMIND_LICENSE_KEY": SecretStr("sentinel")}
@@ -141,11 +141,11 @@ def test_a_package_reads_its_own_configuration_and_no_other_package_s(tmp_path):
     }
 
     resolved = resolve_capability_environment(contributions, configured, {}, tmp_path)
-    geoip = resolved.for_plugin("geoip")
+    geoip = resolved.for_feature("geoip")
 
     assert geoip.secret("BLITZE_MAXMIND_LICENSE_KEY").get_secret_value() == "sentinel"
     assert geoip.is_set("BLITZE_MAXMIND_LICENSE_KEY")
-    with pytest.raises(PluginError, match=r"geoip.*BLITZE_TOKEN.*does not declare"):
+    with pytest.raises(FeatureError, match=r"geoip.*BLITZE_TOKEN.*does not declare"):
         geoip.secret("BLITZE_TOKEN")
 
 
@@ -165,7 +165,7 @@ def test_a_declared_key_is_present_and_empty_rather_than_absent(tmp_path):
 
     config = resolve_capability_environment(
         [contribution], {}, {}, tmp_path
-    ).for_plugin("security")
+    ).for_feature("security")
 
     assert config.secret("BLITZE_TOKEN").get_secret_value() == ""
     assert not config.is_set("BLITZE_TOKEN")
@@ -178,7 +178,7 @@ def test_a_plugin_that_declares_nothing_gets_an_empty_configuration(tmp_path):
 
     resolved = resolve_capability_environment([contribution], {}, {}, tmp_path)
 
-    assert resolved.for_plugin("resolver").values == {}
+    assert resolved.for_feature("resolver").values == {}
 
 
 def test_a_required_key_that_is_unset_stops_the_control_plane(tmp_path):
@@ -226,7 +226,7 @@ def test_a_value_shorter_than_the_capability_declared_is_refused(tmp_path):
         [contribution], {"BLITZE_TOKEN": SecretStr("x" * 32)}, {}, tmp_path
     )
 
-    assert resolved.for_plugin("security").is_set("BLITZE_TOKEN")
+    assert resolved.for_feature("security").is_set("BLITZE_TOKEN")
 
 
 def test_a_minimum_length_says_nothing_about_whether_a_key_is_required(tmp_path):
@@ -245,7 +245,7 @@ def test_a_minimum_length_says_nothing_about_whether_a_key_is_required(tmp_path)
 
     resolved = resolve_capability_environment([contribution], {}, {}, tmp_path)
 
-    assert not resolved.for_plugin("security").is_set("BLITZE_TOKEN")
+    assert not resolved.for_feature("security").is_set("BLITZE_TOKEN")
 
 
 def test_duplicate_environment_ownership_names_both_plugins(tmp_path):
@@ -260,12 +260,12 @@ def test_duplicate_environment_ownership_names_both_plugins(tmp_path):
         ),
     ]
 
-    with pytest.raises(PluginError, match=r"BLITZE_TOKEN.*alpha.*zulu"):
+    with pytest.raises(FeatureError, match=r"BLITZE_TOKEN.*alpha.*zulu"):
         resolve_capability_environment(contributions, {}, {}, tmp_path)
 
 
 def test_unknown_capability_environment_is_a_configuration_error(tmp_path):
-    with pytest.raises(PluginError, match=r"unknown.*BLITZE_TYPO"):
+    with pytest.raises(FeatureError, match=r"unknown.*BLITZE_TYPO"):
         resolve_capability_environment(
             [], {"BLITZE_TYPO": SecretStr("value")}, {}, tmp_path
         )
@@ -276,7 +276,7 @@ def test_unknown_capability_environment_is_a_configuration_error(tmp_path):
 
 def _setting(**overrides) -> ConfigurationContribution:
     return ConfigurationContribution(
-        plugin="certificates",
+        feature="certificates",
         settings=(CapabilitySetting(**overrides),),
     )
 
@@ -292,14 +292,14 @@ def test_a_setting_a_controller_never_configured_is_its_declared_default(tmp_pat
 
     resolved = resolve_capability_environment([contribution], {}, {}, tmp_path)
 
-    assert resolved.for_plugin("certificates").integer("BLITZE_RENEWAL") == 43_200
+    assert resolved.for_feature("certificates").integer("BLITZE_RENEWAL") == 43_200
 
 
 def test_a_setting_reads_as_the_type_its_default_fixed(tmp_path):
     """The default carries the type as well as the value, so the two agree."""
     contributions = [
         ConfigurationContribution(
-            plugin="example",
+            feature="example",
             settings=(
                 CapabilitySetting(name="BLITZE_COUNT", default=1),
                 CapabilitySetting(name="BLITZE_FLAG", default=False),
@@ -315,7 +315,7 @@ def test_a_setting_reads_as_the_type_its_default_fixed(tmp_path):
 
     config = resolve_capability_environment(
         contributions, configured, {}, tmp_path
-    ).for_plugin("example")
+    ).for_feature("example")
 
     assert config.integer("BLITZE_COUNT") == 7
     assert config.flag("BLITZE_FLAG") is True
@@ -325,13 +325,13 @@ def test_a_setting_reads_as_the_type_its_default_fixed(tmp_path):
 def test_a_word_is_never_read_as_a_flag(tmp_path):
     """`bool("false")` is `True`, which is how a disabled switch turns itself on."""
     contribution = ConfigurationContribution(
-        plugin="example",
+        feature="example",
         settings=(CapabilitySetting(name="BLITZE_FLAG", default=True),),
     )
 
     config = resolve_capability_environment(
         [contribution], {"BLITZE_FLAG": SecretStr("false")}, {}, tmp_path
-    ).for_plugin("example")
+    ).for_feature("example")
 
     assert config.flag("BLITZE_FLAG") is False
     with pytest.raises(ConfigurationError, match=r"BLITZE_FLAG.*'perhaps'.*example"):
@@ -357,7 +357,7 @@ def test_a_relative_path_setting_resolves_under_this_controllers_state(tmp_path)
 
     config = resolve_capability_environment(
         [contribution], {}, {}, tmp_path
-    ).for_plugin("certificates")
+    ).for_feature("certificates")
 
     assert config.path("BLITZE_ARCHIVES") == tmp_path / "backups"
 
@@ -370,7 +370,7 @@ def test_an_absolute_path_setting_is_taken_as_written(tmp_path):
         {"BLITZE_ARCHIVES": SecretStr("/var/backups/blitzecdn")},
         {},
         tmp_path,
-    ).for_plugin("certificates")
+    ).for_feature("certificates")
 
     assert config.path("BLITZE_ARCHIVES") == Path("/var/backups/blitzecdn")
 
@@ -381,9 +381,9 @@ def test_reading_a_setting_as_the_wrong_type_is_refused_by_name(tmp_path):
 
     config = resolve_capability_environment(
         [contribution], {}, {}, tmp_path
-    ).for_plugin("certificates")
+    ).for_feature("certificates")
 
-    with pytest.raises(PluginError, match=r"BLITZE_RENEWAL.*str.*int"):
+    with pytest.raises(FeatureError, match=r"BLITZE_RENEWAL.*str.*int"):
         config.text("BLITZE_RENEWAL")
 
 
@@ -392,7 +392,7 @@ def test_a_setting_may_come_from_the_committed_file(tmp_path):
 
     config = resolve_capability_environment(
         [contribution], {}, {"BLITZE_RENEWAL": "7200"}, tmp_path
-    ).for_plugin("certificates")
+    ).for_feature("certificates")
 
     assert config.integer("BLITZE_RENEWAL") == 7200
 
@@ -405,7 +405,7 @@ def test_the_environment_outranks_the_committed_file(tmp_path):
         {"BLITZE_RENEWAL": SecretStr("99")},
         {"BLITZE_RENEWAL": "7200"},
         tmp_path,
-    ).for_plugin("certificates")
+    ).for_feature("certificates")
 
     assert config.integer("BLITZE_RENEWAL") == 99
 
@@ -420,7 +420,7 @@ def test_a_secret_may_never_be_set_in_the_committed_file(tmp_path):
     with the spelling an operator used.
     """
     contribution = ConfigurationContribution(
-        plugin="security",
+        feature="security",
         environment_keys=(EnvironmentKey(name="BLITZE_UNDER_ATTACK_SECRET"),),
     )
 
@@ -440,7 +440,7 @@ def test_a_setting_is_not_forwarded_to_ansible(tmp_path):
     """
     contributions = [
         ConfigurationContribution(
-            plugin="example",
+            feature="example",
             environment_keys=(EnvironmentKey(name="BLITZE_TOKEN"),),
             settings=(CapabilitySetting(name="BLITZE_COUNT", default=1),),
         )
@@ -456,15 +456,15 @@ def test_one_name_may_not_be_both_a_secret_and_a_setting(tmp_path):
     """They share a namespace, so this is the same collision as any other."""
     contributions = [
         ConfigurationContribution(
-            plugin="alpha", environment_keys=(EnvironmentKey(name="BLITZE_SHARED"),)
+            feature="alpha", environment_keys=(EnvironmentKey(name="BLITZE_SHARED"),)
         ),
         ConfigurationContribution(
-            plugin="zulu",
+            feature="zulu",
             settings=(CapabilitySetting(name="BLITZE_SHARED", default=1),),
         ),
     ]
 
-    with pytest.raises(PluginError, match=r"BLITZE_SHARED.*alpha.*zulu"):
+    with pytest.raises(FeatureError, match=r"BLITZE_SHARED.*alpha.*zulu"):
         resolve_capability_environment(contributions, {}, {}, tmp_path)
 
 

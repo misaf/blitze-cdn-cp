@@ -155,7 +155,7 @@ def _release(repository):
     """Compile and record a release from whatever these rows currently say.
 
     Store-level, like the rest of this module: the compiler is a pure function
-    and takes its plugin contributions as an argument, so a release can be made
+    and takes its feature contributions as an argument, so a release can be made
     here without wiring a control plane. What is being exercised is the foreign
     key — a deployment names a release, and the release has to exist first.
     """
@@ -493,7 +493,7 @@ def test_the_store_refuses_a_setting_name_the_fleet_should_not_carry(
 
     These rows are published to every host at inventory precedence, so an
     unprefixed name could reach a connection variable and a reserved one could
-    override what the plugin derives per edge. Enforced here so the CLI is not
+    override what the feature derives per edge. Enforced here so the CLI is not
     the only thing standing between a caller and the fleet.
     """
     repository = Repository(settings.database_path)

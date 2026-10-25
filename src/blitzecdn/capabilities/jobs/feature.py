@@ -18,15 +18,15 @@ from __future__ import annotations
 
 from blitzecdn import __version__
 from blitzecdn.capabilities.jobs import cli
-from blitzecdn.core.plugins import CliCommandGroup, Feature, PluginMetadata
+from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="jobs",
             version=__version__,
             summary="Durable background work, on the control plane's own database.",
         ),
-        cli_commands=(CliCommandGroup(plugin="jobs", name="job", app=cli.job_app),),
+        cli_commands=(CliCommandGroup(feature="jobs", name="job", app=cli.job_app),),
     ),
 )

@@ -34,7 +34,7 @@ questions — is this reproducible, does this state compile to the same document
 twice — were not askable.
 
 *A capability was validated against the controller and never against an edge.*
-`PluginRegistry.validate_site` answers "is a wheel installed here". Whether the
+`FeatureRegistry.validate_site` answers "is a wheel installed here". Whether the
 *edge* runtime can execute what the wheel rendered is a different question, and
 the only thing asking it was the `blitzecdn_nginx` role's build probe, halfway
 through a converge that was already touching hosts.

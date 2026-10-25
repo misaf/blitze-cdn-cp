@@ -143,7 +143,7 @@ def _runtime_imports(path: Path) -> set[str]:
 
     An annotation-only import cannot create a cycle and cannot pull a package
     into a process, so where the rule is about *runtime* direction — what the
-    plugin machinery loads, what a module makes the interpreter import — this
+    feature machinery loads, what a module makes the interpreter import — this
     is the honest question to ask. Where the rule is about knowledge rather than
     loading, `_imports` still counts every one.
     """
@@ -506,8 +506,8 @@ def test_core_imports_no_capability():
 def test_core_names_no_capability_even_in_a_string():
     """The same rule, asked of the text rather than of the import graph.
 
-    `core.plugins.discovery` held `BUILTIN_PLUGINS` — eight
-    `blitzecdn.capabilities.*.plugin` paths, imported by name at load time. The
+    `core.features.discovery` held `BUILTIN_PLUGINS` — eight
+    `blitzecdn.capabilities.*.feature` paths, imported by name at load time. The
     test above stayed green throughout, because a module path in a tuple is not
     an `ast.Import` and the foundation was reaching up into the tree it
     supports anyway: adding a built-in capability meant editing `core`, and
@@ -519,7 +519,7 @@ def test_core_names_no_capability_even_in_a_string():
     reason that module already gives: choosing which parts make one control
     plane is composition.
 
-    Docstrings are exempt. `core.plugins` has to be able to say where the
+    Docstrings are exempt. `core.features` has to be able to say where the
     roster went, and prose pointing *at* the composition root is the opposite
     of core holding the list.
     """
@@ -600,7 +600,7 @@ def test_core_domain_and_ports_are_framework_and_io_independent():
     `pydantic` is allowed and is deliberately absent from `_IO_IMPORTS`: every
     value in `core/domain` is a pydantic model, and validating a value is not
     reaching for the machine. `core/exceptions.py` is in the kernel because it
-    is what PLUGINS.md calls the one module every layer may name — a leaf with
+    is what FEATURES.md calls the one module every layer may name — a leaf with
     no imports at all, and a rule that let it grow one would be describing the
     package it used to be.
     """
@@ -1144,7 +1144,7 @@ def test_the_entry_layers_import_no_capability_at_all():
     """The point of the whole exercise, asserted where it can be checked.
 
     `api/app.py` used to name seventeen router modules and `cli/main.py` eleven
-    command groups, so adding a capability meant editing both. They ask the plugin
+    command groups, so adding a capability meant editing both. They ask the feature
     registry now, and a capability that appears in neither list is a capability that
     forgot to contribute — not one somebody forgot to wire.
 
@@ -1163,7 +1163,7 @@ def test_the_entry_layers_import_no_capability_at_all():
 
 
 def test_the_plugin_infrastructure_depends_on_no_capability():
-    """`core.plugins` is the mechanism, not a participant in it.
+    """`core.features` is the mechanism, not a participant in it.
 
     Runtime imports only. The hookspecs annotate their arguments with the
     control plane and with `CdnSite`, because a specification with untyped
@@ -1172,7 +1172,7 @@ def test_the_plugin_infrastructure_depends_on_no_capability():
     """
     offenders = [
         f"{path.relative_to(_SOURCE)} imports {imported}"
-        for path in (_SOURCE / "core/plugins").rglob("*.py")
+        for path in (_SOURCE / "core/features").rglob("*.py")
         for imported in sorted(_runtime_imports(path))
         if imported.startswith(("blitzecdn.capabilities", _COMPOSITION_ROOT))
     ]

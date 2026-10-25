@@ -9,8 +9,8 @@ without core knowing the path.
 """
 
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
-from blitzecdn.core.plugins import PluginMetadata
-from blitzecdn.core.plugins.resolution import (
+from blitzecdn.core.features import FeatureMetadata
+from blitzecdn.core.features.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
     resolve_teardown_capability_roles,
@@ -26,7 +26,7 @@ from blitzecdn.providers.resolver.feature import FEATURES
 def test_plugin_provides_resolver_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
-    assert isinstance(metadata, PluginMetadata)
+    assert isinstance(metadata, FeatureMetadata)
     assert metadata.name == "resolver"
     assert metadata.capabilities == frozenset({"resolver"})
     assert metadata.version == __version__
@@ -44,7 +44,7 @@ def test_resolver_is_a_built_in() -> None:
 def test_the_shipped_registry_includes_it() -> None:
     registry = load_registry()
 
-    assert "resolver" in {plugin.name for plugin in registry.plugins}
+    assert "resolver" in {feature.name for feature in registry.metadata}
 
 
 def test_no_site_can_ask_for_this_capability() -> None:
@@ -58,7 +58,7 @@ def test_no_site_can_ask_for_this_capability() -> None:
     choice into a fleet-wide validation failure.
     """
     registry = load_registry()
-    resolver = next(p for p in registry.plugins if p.name == "resolver")
+    resolver = next(p for p in registry.metadata if p.name == "resolver")
 
     assert resolver.capabilities == frozenset({"resolver"})
 
@@ -78,7 +78,7 @@ def test_converging_goes_in_the_edge_slot_and_never_the_host_one() -> None:
 
     assert len(contributions) == 1
     contribution = contributions[0]
-    assert contribution.plugin == "resolver"
+    assert contribution.feature == "resolver"
     assert contribution.edge_roles == ("blitzecdn_resolver",)
     assert contribution.host_roles == ()
     assert resolve_edge_capability_roles(contributions) == ("blitzecdn_resolver",)

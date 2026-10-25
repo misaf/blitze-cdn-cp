@@ -14,7 +14,7 @@ import typer
 
 from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
 from blitzecdn.cli import common
-from blitzecdn.core.plugins.resolution import resolve_edge_modules
+from blitzecdn.core.features.resolution import resolve_edge_modules
 
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
 
@@ -263,16 +263,16 @@ def edge_image_spec(
     controller with every published capability installed — which is what CI
     does — and the published image can serve any subset of them.
 
-    The plugins are loaded here rather than taken from a control plane because
+    The features are loaded here rather than taken from a control plane because
     the answer depends only on what is installed: this runs in an image build,
     where there is no database to open and no fleet to read.
     """
-    modules = resolve_edge_modules(common.installed_plugins().ansible_contributions())
+    modules = resolve_edge_modules(common.installed_features().ansible_contributions())
     if json_output:
         common.emit(
             [
                 {
-                    "plugin": module.plugin,
+                    "plugin": module.feature,
                     "name": module.name,
                     "objects": list(module.objects),
                     "build": module.build,

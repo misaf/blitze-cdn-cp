@@ -7,8 +7,8 @@ from __future__ import annotations
 from blitzecdn.capabilities.origins import __version__, ansible
 from blitzecdn.capabilities.origins.feature import FEATURES
 from blitzecdn.composition import BUILTIN_FEATURES, load_registry
-from blitzecdn.core.plugins import PluginMetadata
-from blitzecdn.core.plugins.resolution import (
+from blitzecdn.core.features import FeatureMetadata
+from blitzecdn.core.features.resolution import (
     resolve_edge_capability_roles,
     resolve_host_capability_roles,
 )
@@ -21,7 +21,7 @@ from blitzecdn.core.plugins.resolution import (
 def test_plugin_provides_origins_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
-    assert isinstance(metadata, PluginMetadata)
+    assert isinstance(metadata, FeatureMetadata)
     assert metadata.name == "origins"
     assert metadata.capabilities == frozenset({"origins"})
     assert metadata.version == __version__
@@ -35,7 +35,7 @@ def test_origins_is_a_built_in() -> None:
 def test_the_shipped_registry_includes_it() -> None:
     registry = load_registry()
 
-    assert "origins" in {plugin.name for plugin in registry.plugins}
+    assert "origins" in {feature.name for feature in registry.metadata}
 
 
 # --- the surface it contributes ---------------------------------------------
@@ -69,7 +69,7 @@ def test_the_role_is_shipped_but_asked_of_neither_slot_of_the_edge_play() -> Non
 
     assert len(contributions) == 1
     contribution = contributions[0]
-    assert contribution.plugin == "origins"
+    assert contribution.feature == "origins"
     assert contribution.edge_roles == ()
     assert contribution.host_roles == ()
     assert resolve_edge_capability_roles(contributions) == ()

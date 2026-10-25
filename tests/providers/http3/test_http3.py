@@ -14,7 +14,7 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
 from blitzecdn.composition import load_registry
-from blitzecdn.core.plugins import PluginMetadata, merge_variables
+from blitzecdn.core.features import FeatureMetadata, merge_variables
 from blitzecdn.providers.http3 import __version__
 from blitzecdn.providers.http3.feature import FEATURES
 from blitzecdn.providers.http3.runtime import QUIC_FLEET_VARIABLES, quic_listener
@@ -44,9 +44,9 @@ def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
 def _merged(*sites: CdnSite) -> dict[str, object]:
     """The fleet document as a real deployment would merge it.
 
-    Both plugins, through the same `merge_variables` the registry uses — which
+    Both features, through the same `merge_variables` the registry uses — which
     is the only place the `overrides` claim is actually honoured. Asserting on
-    this plugin's contribution alone would pass even if the two collided.
+    this feature's contribution alone would pass even if the two collided.
     """
     return merge_variables(
         [
@@ -63,7 +63,7 @@ def _merged(*sites: CdnSite) -> dict[str, object]:
 def test_plugin_provides_http3_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
-    assert isinstance(metadata, PluginMetadata)
+    assert isinstance(metadata, FeatureMetadata)
     assert metadata.name == "http3"
     assert metadata.capabilities == frozenset({"http3"})
     assert metadata.version == __version__
@@ -72,7 +72,7 @@ def test_plugin_provides_http3_as_a_required_provider() -> None:
 def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
     """The two halves of "requested but absent" have to name the same token.
 
-    `ProtocolPolicy` decides the string a site asks for and this plugin decides
+    `ProtocolPolicy` decides the string a site asks for and this feature decides
     the string an installation answers with. They are in different
     distributions, so nothing but this makes them agree.
     """
@@ -90,7 +90,7 @@ def test_http3_projects_the_quic_fleet_requirement_and_exactly_one_owner() -> No
         (_site("bravo"), _site("alpha"), _site("disabled", enabled=False))
     )
 
-    assert contribution.plugin == "http3"
+    assert contribution.feature == "http3"
     assert contribution.variables == {
         "blitzecdn_edge_http3_enabled": True,
         "blitzecdn_nginx_http3_listener_owner": "alpha",
@@ -158,7 +158,7 @@ def test_the_two_plugins_never_collide_on_the_variables_they_share() -> None:
 
 
 def test_claiming_the_override_twice_is_refused() -> None:
-    """Two plugins deriving the QUIC listener is a conflict, not a last-wins."""
+    """Two features deriving the QUIC listener is a conflict, not a last-wins."""
     contribution = quic_listener((_site("alpha"),))
 
     with pytest.raises(Exception, match="each claim to override"):
@@ -178,7 +178,7 @@ def test_the_composed_rendering_derives_the_fleet_state_end_to_end(settings) -> 
     """
     control = build_application(settings=settings)
     try:
-        assert "http3" in control.plugins.capabilities
+        assert "http3" in control.features.capabilities
         assert control.rendering.fleet_variables((_site("bravo"), _site("alpha"))) == {
             "blitzecdn_edge_http3_enabled": True,
             "blitzecdn_nginx_http3_listener_owner": "alpha",

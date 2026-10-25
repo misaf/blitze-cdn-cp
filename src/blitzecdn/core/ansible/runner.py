@@ -55,8 +55,8 @@ class AnsibleRunner:
         self._fleet = fleet
         # Core's roles alone, and no capability roles, when nobody says
         # otherwise. The composition root resolves what is installed and passes
-        # it; a test that only runs core's plays needs neither the registry nor
-        # a plugin manager to build a runner.
+        # it; a test that only runs core's plays needs no registry to build a
+        # runner.
         if contributions is None:
             contributions = EdgeContributions(
                 roles_path=(settings.ansible_dir / "roles",)

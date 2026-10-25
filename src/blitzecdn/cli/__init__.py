@@ -4,7 +4,7 @@ Nothing is imported at package import time, and that is load-bearing. Every
 capability's command module does ``from blitzecdn.cli import common``, which runs
 this file first — so an eager ``from blitzecdn.cli.main import app`` here meant
 importing a capability's commands re-entered the module that assembles them, and
-plugin discovery found itself half-loaded.
+feature discovery found itself half-loaded.
 
 ``app`` is still reachable as ``blitzecdn.cli.app`` through PEP 562, for the
 published introspection surface the documentation site reads. Resolving it on

@@ -1,7 +1,7 @@
 # Capability configuration ownership
 
-Status: accepted; documents the design in `core.plugins.types.configuration`,
-`core.plugins.resolution.configuration` and `core.config`.
+Status: accepted; documents the design in `core.features.types.configuration`,
+`core.features.resolution.configuration` and `core.config`.
 
 ## Context
 
@@ -57,7 +57,7 @@ because the alternative is a much later failure that names nothing useful:
    than its declared usable length, or a setting unreadable as its declared
    type.
 
-The first three are `PluginError`: they are all about what the installed
+The first three are `FeatureError`: they are all about what the installed
 packages claim. The fourth is `ConfigurationError` — nothing is wrong with the
 package, and the fix is a value the operator can change. Setting a declared
 secret in `blitzecdn.toml` is a `ConfigurationError` for the same reason.
@@ -118,8 +118,8 @@ Core carries no capability's name.
 
 ## Code and verification
 
-- [Contribution types](../../src/blitzecdn/core/plugins/types/configuration.py)
-- [Resolver and refusals](../../src/blitzecdn/core/plugins/resolution/configuration.py)
+- [Contribution types](../../src/blitzecdn/core/features/types/configuration.py)
+- [Resolver and refusals](../../src/blitzecdn/core/features/resolution/configuration.py)
 - [Staging from environment and TOML](../../src/blitzecdn/core/config/loading.py)
 - [Settings](../../src/blitzecdn/core/config/settings.py)
 - [A capability's own config](../../src/blitzecdn/capabilities/tls/config.py)

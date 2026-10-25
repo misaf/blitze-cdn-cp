@@ -11,7 +11,7 @@ layer-first — and it is the only package in this workspace that is:
 * :mod:`~blitzecdn.core.runtime` — subprocesses, files, logging, the broker,
   and where an installed distribution landed;
 * :mod:`~blitzecdn.core.ansible`, :mod:`~blitzecdn.core.config`,
-  :mod:`~blitzecdn.core.plugins` — already packages, unchanged;
+  :mod:`~blitzecdn.core.features` — already packages, unchanged;
 * :mod:`~blitzecdn.core.exceptions` — the one module every layer may name,
   which is why it is still a file here.
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from blitzecdn.core.plugins import FeatureRendering, FleetStateContribution
+from blitzecdn.core.features import FeatureRendering, FleetStateContribution
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from blitzecdn.capabilities.serving.domain import CdnSite
@@ -34,7 +34,7 @@ def quic_listener(sites: tuple[CdnSite, ...]) -> FleetStateContribution:
         if site.policy.enabled and site.policy.protocols.http3_enabled
     )
     return FleetStateContribution(
-        plugin="http3",
+        feature="http3",
         variables={
             "blitzecdn_edge_http3_enabled": bool(enabled),
             "blitzecdn_nginx_http3_listener_owner": enabled[0] if enabled else "",
@@ -43,4 +43,4 @@ def quic_listener(sites: tuple[CdnSite, ...]) -> FleetStateContribution:
     )
 
 
-RENDERING = FeatureRendering(plugin="http3", fleet_state=quic_listener)
+RENDERING = FeatureRendering(feature="http3", fleet_state=quic_listener)

@@ -89,7 +89,7 @@ class ReleaseService:
     def capture(self, *, host_limit: str | None = None) -> Compilation:
         """Snapshot database facts together, then resolve external resources.
 
-        Plugin I/O is outside this transaction unless an admitting command
+        Feature I/O is outside this transaction unless an admitting command
         already owns one. Compilation itself receives only the captured value.
         """
         with self.uow.transaction():

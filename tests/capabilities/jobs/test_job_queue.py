@@ -442,7 +442,7 @@ def test_a_failing_job_retries_with_bounded_backoff(repository):
 
 
 def test_a_job_whose_kind_has_no_handler_fails_permanently(repository):
-    """A plugin uninstalled while one of its jobs was still queued.
+    """A feature uninstalled while one of its jobs was still queued.
 
     Retrying would produce the same missing handler at every attempt, so this
     is one of the two failures that skip the backoff entirely.

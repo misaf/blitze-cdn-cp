@@ -14,7 +14,7 @@ from blitzecdn.capabilities.security.runtime import security_rendering
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.plugins import ValidationIssue, resolve_capability_environment
+from blitzecdn.core.features import ValidationIssue, resolve_capability_environment
 
 (FEATURE,) = FEATURES
 
@@ -52,7 +52,7 @@ def _checks(secret: str):
         Path("/nonexistent"),
     )
     rendering = security_rendering(
-        config=SecurityConfig.from_capability_config(resolved.for_plugin("security"))
+        config=SecurityConfig.from_capability_config(resolved.for_feature("security"))
     )
     assert rendering.deployment_checks is not None
     checks = rendering.deployment_checks
@@ -72,7 +72,7 @@ def test_metadata_provides_required_security_capability() -> None:
 def test_under_attack_without_a_controller_secret_is_a_blocking_issue() -> None:
     (issue,) = _checks("")(_site(under_attack=True))
 
-    assert issue.plugin == "security"
+    assert issue.feature == "security"
     assert issue.site == "alpha"
     assert issue.severity == "blocking"
     assert "BLITZE_UNDER_ATTACK_SECRET" in issue.message
@@ -112,7 +112,7 @@ def test_the_edge_role_travels_with_the_distribution() -> None:
     """
     (contribution,) = FEATURE.ansible
 
-    assert contribution.plugin == "security"
+    assert contribution.feature == "security"
     assert contribution.roles_path.is_dir()
     assert contribution.edge_roles == ("blitzecdn_security",)
     assert (contribution.roles_path / "blitzecdn_security").is_dir()

@@ -117,7 +117,7 @@ def is_portable_config_key(name: str) -> bool:
 
     A capability's own machine-specific setting is not visible here, because
     core does not know which of them are. It is declared on the setting, as
-    `CapabilitySetting.portable`, and the caller that has the plugins loaded
+    `CapabilitySetting.portable`, and the caller that has the features loaded
     combines the two answers.
     """
     return name not in MACHINE_SPECIFIC_CONFIG_KEYS
@@ -271,8 +271,8 @@ def _read_project_config(path: Path) -> dict[str, object]:
     """Read `[blitzecdn]`, without deciding whether every key is meaningful.
 
     A key core does not recognise is not refused here, and cannot be: this runs
-    long before any plugin has said what it claims. The refusal belongs to the
-    plugin resolver — see
+    long before any feature has said what it claims. The refusal belongs to the
+    feature resolver — see
     `docs/decisions/0002-capability-configuration-ownership.md`.
     """
     if not path.exists():
@@ -339,13 +339,13 @@ def _read_capability_environment(env: Mapping[str, str]) -> dict[str, SecretStr]
     every shell — which is the whole reason this is collected here rather
     than left to `os.environ` in the executor.
 
-    The plugin resolver interprets ownership, not values. It accepts only
+    The feature resolver interprets ownership, not values. It accepts only
     names explicitly declared by one installed package and rejects typos,
     detached-package settings and ownership collisions before a runner is
     built. Thus collecting candidates here is not a forwarding policy.
 
     Staged as `SecretStr` — including values that will turn out to be ordinary
-    numbers. Core does not learn which names are secrets until the plugins
+    numbers. Core does not learn which names are secrets until the features
     declare it, and for a value it cannot yet attribute the safe assumption is
     that it is one. The resolver unwraps a setting at the moment its owner says
     it is not a secret.

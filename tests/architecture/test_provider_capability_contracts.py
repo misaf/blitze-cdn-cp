@@ -28,20 +28,20 @@ def test_the_http_capability_contributes_the_quic_baseline_without_deriving_it()
     constants. `policy.py` still reads the switch, which is right: the *field*
     is core's and `required_capabilities` is how a site asks for the capability.
     What may not come back is a read in `runtime.py`, because that is the
-    derivation, and two plugins deriving these two variables from one fleet is
+    derivation, and two features deriving these two variables from one fleet is
     a merge conflict at deploy time rather than a design anybody chose.
     """
-    plugin = SOURCE / "capabilities/http/runtime.py"
+    feature = SOURCE / "capabilities/http/runtime.py"
     offenders = [
         "capabilities/http/runtime.py reads .http3_enabled"
-        for node in ast.walk(ast.parse(plugin.read_text(encoding="utf-8")))
+        for node in ast.walk(ast.parse(feature.read_text(encoding="utf-8")))
         if isinstance(node, ast.Attribute) and node.attr == "http3_enabled"
     ]
     assert offenders == []
 
     constants = {
         key.value: getattr(value, "value", value)
-        for node in ast.walk(ast.parse(plugin.read_text(encoding="utf-8")))
+        for node in ast.walk(ast.parse(feature.read_text(encoding="utf-8")))
         if isinstance(node, ast.Dict)
         for key, value in zip(node.keys, node.values, strict=True)
         if isinstance(key, ast.Constant)

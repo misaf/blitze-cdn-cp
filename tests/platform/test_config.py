@@ -7,7 +7,7 @@ from paths import CORE_ANSIBLE, REPO_ROOT
 from blitzecdn.composition import load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.plugins.resolution import resolve_capability_environment
+from blitzecdn.core.features.resolution import resolve_capability_environment
 
 
 def test_unconfigured_values_use_model_defaults(tmp_path, monkeypatch):
@@ -135,7 +135,7 @@ def test_a_capabilitys_settings_may_come_from_the_committed_toml(tmp_path):
     environment, because a capability could declare nothing else.
 
     So an unrecognised key is staged rather than refused, under the `BLITZE_`
-    name it corresponds to, and ownership is decided later by the plugin that
+    name it corresponds to, and ownership is decided later by the feature that
     claims it. Secrets stay out by a narrower route than before: the file's
     keys are staged *separately* from the environment's, only a
     `CapabilitySetting` is ever satisfied from them, and a name a package
@@ -178,16 +178,16 @@ def test_the_shipped_example_configuration_is_accepted_as_written(tmp_path):
     release after the broker was removed, and every command then failed with
     `unknown capability configuration: BLITZE_REDIS_URL`.
 
-    Resolved against the shipped plugins, which declare every capability's
+    Resolved against the shipped features, which declare every capability's
     settings. Every built-in is mandatory, so none can be absent here.
     """
-    plugins = load_registry()
+    features = load_registry()
     shutil.copy(REPO_ROOT / "blitzecdn.example.toml", tmp_path / "blitzecdn.toml")
 
     settings = Settings.from_environment({}, project_dir=tmp_path)
 
     resolve_capability_environment(
-        plugins.configuration_contributions(),
+        features.configuration_contributions(),
         settings.capability_environment,
         settings.capability_config_file,
         settings.state_dir,

@@ -39,7 +39,7 @@ class ConfigurationRenderer(Protocol):
 class StateContributors(Protocol):
     """Every installed capability's share of the artifact, already merged.
 
-    Two mappings, not a plugin manager. A capability contributes per-site
+    Two mappings, not a feature registry. A capability contributes per-site
     variables — a site's compression settings, its certificate paths — and
     fleet-wide ones, and which capability contributed which is settled before
     the compiler sees any of it.

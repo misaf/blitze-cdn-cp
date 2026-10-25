@@ -300,7 +300,7 @@ def test_the_upload_limit_covers_every_listener_a_site_serves(size):
     """Server level, not location level.
 
     A limit inside `location /` alone would leave the ACME challenge, the
-    reserved `/.blitzecdn` paths and every plugin fragment on nginx's 1m
+    reserved `/.blitzecdn` paths and every feature fragment on nginx's 1m
     default, so a site set to 200m would still refuse a 2m upload down some
     paths and not others.
     """

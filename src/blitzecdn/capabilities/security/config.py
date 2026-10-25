@@ -9,7 +9,7 @@ would miss the controller's ``.env``, which core merges and the process never
 exports.
 
 So this package declares the key it owns in its Ansible contribution, and core
-hands back exactly that: ``platform.capability_config.for_plugin("security")``,
+hands back exactly that: ``platform.capability_config.for_feature("security")``,
 a ``CapabilityConfig`` holding this package's keys and no other package's,
 already merged from the environment and the controller's ``.env``. Composition
 rejects an unclaimed or multiply claimed name and forwards only resolved
@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from pydantic import SecretStr
 
-from blitzecdn.core.plugins import CapabilityConfig
+from blitzecdn.core.features import CapabilityConfig
 
 __all__ = ["MINIMUM_SECRET_BYTES", "SECRET_VARIABLE", "SecurityConfig"]
 

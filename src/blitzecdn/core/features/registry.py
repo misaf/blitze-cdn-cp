@@ -5,9 +5,9 @@ question across all of them, in registration order.
 
 Rendering and operations are bound in two stages, because their collaborators
 exist at two different times:
-:meth:`~blitzecdn.core.plugins.PluginRegistry.bind_rendering` before the
+:meth:`~blitzecdn.core.features.FeatureRegistry.bind_rendering` before the
 release compiler is built, and
-:meth:`~blitzecdn.core.plugins.PluginRegistry.bind_operations` after every
+:meth:`~blitzecdn.core.features.FeatureRegistry.bind_operations` after every
 service is. Neither stage hands anything the composition root.
 
 The registry is not a service locator. Nothing here resolves a *service*: it
@@ -20,8 +20,8 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins.types import (
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features.types import (
     AnsibleContribution,
     CliCommandGroup,
     ConfigurationContribution,
@@ -49,16 +49,16 @@ def merge_variables(
     *,
     subject: str,
 ) -> dict[str, StateValue]:
-    """Merge every plugin's variables into one document, order-independently.
+    """Merge every feature's variables into one document, order-independently.
 
-    Two plugins writing one variable is a conflict, not a race won by whichever
-    registered last. The single exception is a declared override: a plugin may
+    Two features writing one variable is a conflict, not a race won by whichever
+    registered last. The single exception is a declared override: a feature may
     say it is deliberately replacing a value another produced — ``certificates``
     replaces the certificate paths projected from the site model, because the
     installed certificate lives on this controller and the model only knows
-    where it will land on the edge. Exactly one plugin may claim that per
+    where it will land on the edge. Exactly one feature may claim that per
     variable, and claiming a variable nobody else writes is fine: whether the
-    site model happens to carry a path is not something the certificate plugin
+    site model happens to carry a path is not something the certificate feature
     should have to know.
 
     So ``BUILTIN_FEATURES`` can be reordered freely and no edge converges
@@ -72,7 +72,7 @@ def merge_variables(
     for contribution in contributions:
         for key, value in contribution.variables.items():
             bucket = claimed if key in contribution.overrides else plain
-            bucket.setdefault(key, []).append((contribution.plugin, value))
+            bucket.setdefault(key, []).append((contribution.feature, value))
             if key not in order:
                 order.append(key)
     merged: dict[str, StateValue] = {}
@@ -80,12 +80,12 @@ def merge_variables(
         overriding = claimed.get(key, [])
         writers = plain.get(key, [])
         if len(overriding) > 1:
-            raise PluginError(
+            raise FeatureError(
                 f"{subject}: {', '.join(sorted(name for name, _ in overriding))} "
-                f"each claim to override {key!r}; exactly one plugin may"
+                f"each claim to override {key!r}; exactly one feature may"
             )
         if not overriding and len(writers) > 1:
-            raise PluginError(
+            raise FeatureError(
                 f"{subject}: {', '.join(sorted(name for name, _ in writers))} "
                 f"both set {key!r}; one of them must declare it in `overrides` "
                 "to say which wins"
@@ -94,52 +94,52 @@ def merge_variables(
     return merged
 
 
-class PluginRegistry:
+class FeatureRegistry:
     """Every feature, and what each declares."""
 
     def __init__(self, features: Sequence[Feature] = ()) -> None:
         self.features = tuple(features)
-        self.plugins = tuple(feature.metadata for feature in self.features)
+        self.metadata = tuple(feature.metadata for feature in self.features)
         seen: set[str] = set()
-        for plugin in self.plugins:
-            if plugin.name in seen:
-                raise PluginError(f"two plugins claim the name {plugin.name!r}")
-            seen.add(plugin.name)
+        for feature in self.metadata:
+            if feature.name in seen:
+                raise FeatureError(f"two features claim the name {feature.name!r}")
+            seen.add(feature.name)
 
     def __contains__(self, name: str) -> bool:
-        return any(plugin.name == name for plugin in self.plugins)
+        return any(feature.name == name for feature in self.metadata)
 
     @property
     def capabilities(self) -> frozenset[str]:
-        """Every capability token the installed plugins answer for.
+        """Every capability token the installed features answer for.
 
-        The union of what each plugin declared, and the only thing anything in
+        The union of what each feature declared, and the only thing anything in
         core asks about "is that capability here?". Core never learns which
         distribution supplied a token, which is what keeps
         `if compression_installed:` from being writable in the first place.
         """
-        return frozenset().union(*(plugin.capabilities for plugin in self.plugins))
+        return frozenset().union(*(feature.capabilities for feature in self.metadata))
 
     def missing(self, required: Iterable[str]) -> tuple[str, ...]:
-        """Which of ``required`` no installed plugin provides, sorted."""
+        """Which of ``required`` no installed feature provides, sorted."""
         return tuple(sorted(set(required) - self.capabilities))
 
     def require(self, required: Iterable[str], *, subject: str) -> None:
         """Refuse to continue while a named capability is not installed.
 
         Deterministic and generic: the tokens come from configuration, the
-        answer comes from plugin metadata, and nothing between them names a
+        answer comes from feature metadata, and nothing between them names a
         capability. A configuration that asks for a capability no installed
-        plugin provides is a startup failure with the token in it, not a
+        feature provides is a startup failure with the token in it, not a
         control plane that comes up and quietly serves its absence.
         """
         absent = self.missing(required)
         if absent:
             installed = ", ".join(sorted(self.capabilities)) or "none"
-            raise PluginError(
+            raise FeatureError(
                 f"{subject} requires the "
                 f"{'capabilities' if len(absent) > 1 else 'capability'} "
-                f"{', '.join(absent)}, which no installed plugin provides. "
+                f"{', '.join(absent)}, which no installed feature provides. "
                 f"Installed capabilities: {installed}. Install the distribution "
                 "that supplies it, or remove it from `required_capabilities`."
             )
@@ -157,20 +157,20 @@ class PluginRegistry:
         )
 
     def ansible_contributions(self) -> tuple[AnsibleContribution, ...]:
-        """Every installed plugin's Ansible roles directory, in a fixed order.
+        """Every installed feature's Ansible roles directory, in a fixed order.
 
         Registration order, like the routers and the commands. The search path
-        this feeds is composed in :mod:`blitzecdn.core.plugins.resolution`,
+        this feeds is composed in :mod:`blitzecdn.core.features.resolution`,
         which is where determinism and shadowing are actually decided.
         """
         return tuple(item for feature in self.features for item in feature.ansible)
 
     def configuration_contributions(self) -> tuple[ConfigurationContribution, ...]:
-        """Every installed plugin's claim on `BLITZE_*` names it configures.
+        """Every installed feature's claim on `BLITZE_*` names it configures.
 
         Read once, before any adapter exists, because several adapters are
         built from what it resolves to. Ownership, collisions and unclaimed
-        names are decided in :mod:`blitzecdn.core.plugins.resolution`.
+        names are decided in :mod:`blitzecdn.core.features.resolution`.
         """
         return tuple(
             item for feature in self.features for item in feature.configuration
@@ -211,25 +211,25 @@ class PluginRegistry:
         features = {feature.name for feature in self.features}
         seen: set[str] = set()
         for item in bound:
-            if item.plugin not in features:
-                raise PluginError(
-                    f"{kind} for {item.plugin!r} names no built-in feature"
+            if item.feature not in features:
+                raise FeatureError(
+                    f"{kind} for {item.feature!r} names no built-in feature"
                 )
-            if item.plugin in seen:
-                raise PluginError(f"{item.plugin!r} binds its {kind} twice")
-            seen.add(item.plugin)
+            if item.feature in seen:
+                raise FeatureError(f"{item.feature!r} binds its {kind} twice")
+            seen.add(item.feature)
 
     def _missing_capability_issues(self, site: CdnSite) -> tuple[ValidationIssue, ...]:
         requested = site.policy.capability_requirements
         return tuple(
             ValidationIssue(
-                plugin="capabilities",
+                feature="capabilities",
                 site=site.name,
                 message=(
                     f"capability {capability!r} is not installed, and this "
                     f"site's {', '.join(requested[capability])} "
                     f"{'request' if len(requested[capability]) > 1 else 'requests'}"
-                    " it; install a plugin that provides it or disable the "
+                    " it; install a feature that provides it or disable the "
                     "site setting that requests it"
                 ),
             )
@@ -241,7 +241,7 @@ class Rendering:
     """Every feature's share of a release, asked per site or per fleet."""
 
     def __init__(
-        self, registry: PluginRegistry, renderings: tuple[FeatureRendering, ...]
+        self, registry: FeatureRegistry, renderings: tuple[FeatureRendering, ...]
     ) -> None:
         self._registry = registry
         self._renderings = renderings
@@ -272,7 +272,7 @@ class Rendering:
         """Every reason this site cannot be deployed by this installation.
 
         The capability issues come first and are generic: the tokens are the
-        site's own `capability_requirements`, the answer is plugin metadata,
+        site's own `capability_requirements`, the answer is feature metadata,
         and the settings that asked are quoted straight out of the mapping.
 
         Both halves, which is what a caller asking "can this installation serve
@@ -286,7 +286,7 @@ class Rendering:
         )
 
     def site_objections(self, site: CdnSite) -> tuple[ValidationIssue, ...]:
-        """What the *installed* plugins object to about this site.
+        """What the *installed* features object to about this site.
 
         Separate from :meth:`validate_site` because the two answers have
         different consequences. A capability that is missing cannot be asked
@@ -338,18 +338,18 @@ class Operations:
 def _unique_checks(checks: Sequence[HealthCheck]) -> tuple[HealthCheck, ...]:
     """Refuse two checks that answer to one name.
 
-    `/health` reports a check by `name`, so two plugins contributing
+    `/health` reports a check by `name`, so two features contributing
     `"database"` would put two entries under one label and an operator reading
     a failure would have no way to tell which wheel's check is red.
     """
     seen: dict[str, str] = {}
     for check in checks:
         if check.name in seen:
-            raise PluginError(
-                f"plugins {seen[check.name]!r} and {check.plugin!r} both "
+            raise FeatureError(
+                f"features {seen[check.name]!r} and {check.feature!r} both "
                 f"contribute a health check named {check.name!r}"
             )
-        seen[check.name] = check.plugin
+        seen[check.name] = check.feature
     return tuple(checks)
 
 
@@ -358,12 +358,12 @@ def _unique_jobs(jobs: Sequence[ScheduledJob]) -> dict[str, ScheduledJob]:
     table: dict[str, ScheduledJob] = {}
     for job in jobs:
         if job.name in table:
-            raise PluginError(
-                f"plugins {table[job.name].plugin!r} and {job.plugin!r} both "
+            raise FeatureError(
+                f"features {table[job.name].feature!r} and {job.feature!r} both "
                 f"contribute a job named {job.name!r}"
             )
         table[job.name] = job
     return table
 
 
-__all__ = ["Operations", "PluginRegistry", "Rendering", "merge_variables"]
+__all__ = ["FeatureRegistry", "Operations", "Rendering", "merge_variables"]

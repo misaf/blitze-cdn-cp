@@ -1,7 +1,7 @@
 """Loading the built-in features, and what happens when one cannot be loaded.
 
 Built-in features are modules the composition root names, each exporting
-``FEATURES``: typed :class:`~blitzecdn.core.plugins.Feature` declarations.
+``FEATURES``: typed :class:`~blitzecdn.core.features.Feature` declarations.
 They are not optional and not really "discovered" — the control plane *is*
 these features — so resolving them through installation metadata would turn a
 broken editable install into a control plane that starts happily and quietly
@@ -18,8 +18,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from importlib import import_module
 
-from blitzecdn.core.exceptions import PluginError
-from blitzecdn.core.plugins.types import Feature
+from blitzecdn.core.exceptions import FeatureError
+from blitzecdn.core.features.types import Feature
 
 __all__ = ["load_features"]
 
@@ -37,20 +37,20 @@ def load_features(modules: Sequence[str]) -> tuple[Feature, ...]:
         try:
             module = import_module(path)
         except ImportError as exc:
-            raise PluginError(
+            raise FeatureError(
                 f"built-in feature module {path} could not be imported: {exc}"
             ) from exc
         declared = getattr(module, "FEATURES", None)
         if not isinstance(declared, tuple) or not declared:
-            raise PluginError(f"{path} must export FEATURES, a tuple of Feature")
+            raise FeatureError(f"{path} must export FEATURES, a tuple of Feature")
         for feature in declared:
             if not isinstance(feature, Feature):
-                raise PluginError(
+                raise FeatureError(
                     f"{path} exports a {type(feature).__name__} in FEATURES "
                     "where a Feature was expected"
                 )
             if feature.name in names:
-                raise PluginError(
+                raise FeatureError(
                     f"{path} and {names[feature.name]} both declare a feature "
                     f"named {feature.name!r}"
                 )

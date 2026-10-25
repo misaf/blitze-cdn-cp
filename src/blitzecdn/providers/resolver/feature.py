@@ -23,12 +23,12 @@ position in its own plays and never learns either role's name.
 
 from __future__ import annotations
 
-from blitzecdn.core.plugins import AnsibleContribution, Feature, PluginMetadata
+from blitzecdn.core.features import AnsibleContribution, Feature, FeatureMetadata
 from blitzecdn.providers.resolver import __version__, ansible
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="resolver",
             version=__version__,
             provides=frozenset({"resolver"}),
@@ -36,7 +36,7 @@ FEATURES = (
         ),
         ansible=(
             AnsibleContribution(
-                plugin="resolver",
+                feature="resolver",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=ansible.EDGE_ROLES,
                 teardown_roles=ansible.TEARDOWN_ROLES,

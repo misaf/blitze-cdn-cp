@@ -12,7 +12,7 @@ consumes share a table rather than a message bus — see
 turned out to be the smaller thing rather than the cruder one.
 
 What is left in this file is the process lifecycle: build, register the
-schedules this installation's plugins contribute, install signal handlers so a
+schedules this installation's features contribute, install signal handlers so a
 container stop finishes the job in hand, and loop.
 """
 

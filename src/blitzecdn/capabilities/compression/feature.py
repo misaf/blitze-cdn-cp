@@ -3,17 +3,17 @@
 from __future__ import annotations
 
 from blitzecdn.capabilities.compression import ansible
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     AnsibleContribution,
     EdgeModule,
     Feature,
+    FeatureMetadata,
     NginxContribution,
-    PluginMetadata,
 )
 from blitzecdn.core.runtime.resources import distribution_version, package_directory
 
 #: This distribution's version, asked of the environment rather than
-#: written down here: it is what ``PluginMetadata.version`` reports and
+#: written down here: it is what ``FeatureMetadata.version`` reports and
 #: what ``blitzecdn plugins`` shows an operator, so the one number that
 #: must not drift from ``pyproject.toml`` is not copied out of it.
 __version__ = distribution_version(__name__)
@@ -33,7 +33,7 @@ NGINX_TEMPLATES = (
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="compression",
             version=__version__,
             provides=frozenset({"compression"}),
@@ -41,7 +41,7 @@ FEATURES = (
         ),
         ansible=(
             AnsibleContribution(
-                plugin="compression",
+                feature="compression",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
                 # gzip is compiled into Nginx; Brotli is not, and it is the
@@ -60,7 +60,7 @@ FEATURES = (
         ),
         nginx=(
             NginxContribution(
-                plugin="compression",
+                feature="compression",
                 templates_path=NGINX_TEMPLATES,
                 server_fragments=("compression-server.conf.j2",),
             ),

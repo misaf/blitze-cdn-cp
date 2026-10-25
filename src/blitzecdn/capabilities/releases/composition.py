@@ -2,12 +2,12 @@
 
 The compiler is a pure function, so almost all of this is deciding what its
 arguments are: which capabilities are installed, which edges a run would reach,
-who answers a plugin's site check, and where compiled releases are kept. Every
+who answers a feature's site check, and where compiled releases are kept. Every
 one of those is a composition decision, which is why they are settled here and
 not inside the service.
 
 The two adapters below exist for the same reason. Both bind something the
-composition root has — the plugin registry, the edge store — to a port this
+composition root has — the feature registry, the edge store — to a port this
 capability declared, and neither has any behaviour a capability test would want
 to fake around.
 """
@@ -28,19 +28,19 @@ from blitzecdn.capabilities.releases.ports import (
 from blitzecdn.capabilities.releases.service import ReleaseService
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.validation import matches_edge_limit
-from blitzecdn.core.plugins import Severity, ValidationIssue
+from blitzecdn.core.features import Severity, ValidationIssue
 from blitzecdn.core.ports import UnitOfWork
 
-__all__ = ["PluginSiteChecks", "StoredEdgeTargets", "build_release_service"]
+__all__ = ["FeatureSiteChecks", "StoredEdgeTargets", "build_release_service"]
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class PluginSiteChecks:
+class FeatureSiteChecks:
     """The compiler's view of "what do the installed capabilities object to".
 
     Two jobs, and the second is why this is a class rather than a bound method.
-    A plugin issue carries a severity: a blocking one must refuse the
+    A feature issue carries a severity: a blocking one must refuse the
     deployment, and a warning must be logged and converged anyway. The compiler
     has no logger and must not acquire one — it is a pure function — so the
     warning is emitted here and only the blocking issues become findings.
@@ -65,10 +65,12 @@ class PluginSiteChecks:
     def __call__(self, site: CdnSite) -> Sequence[ReleaseFinding]:
         findings: list[ReleaseFinding] = []
         for issue in self._objections(site):
-            message = f"{issue.plugin}: {issue.site}: {issue.message}"
+            message = f"{issue.feature}: {issue.site}: {issue.message}"
             if issue.severity is Severity.BLOCKING:
                 findings.append(
-                    ReleaseFinding(source=issue.plugin, host=site.name, message=message)
+                    ReleaseFinding(
+                        source=issue.feature, host=site.name, message=message
+                    )
                 )
             else:
                 _LOGGER.warning("%s", message)
@@ -119,7 +121,7 @@ def build_release_service(
         targets=StoredEdgeTargets(edges),
         releases=releases,
         contributors=contributors,
-        site_checks=PluginSiteChecks(objections),
+        site_checks=FeatureSiteChecks(objections),
         capabilities=sorted(capabilities),
         allow_empty_sites=allow_empty_sites,
         uow=uow,

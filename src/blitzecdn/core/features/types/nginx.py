@@ -30,7 +30,7 @@ class NginxContribution:
     carry a secret.
     """
 
-    plugin: str
+    feature: str
     templates_path: Path
     http_fragments: tuple[str, ...] = ()
     server_fragments: tuple[str, ...] = ()

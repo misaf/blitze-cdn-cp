@@ -1,4 +1,4 @@
-"""What the CLI reports about itself: help, plugins, versions, doctor."""
+"""What the CLI reports about itself: help, features, versions, doctor."""
 
 import json
 import sys
@@ -195,8 +195,10 @@ def test_plugins_lists_every_feature_and_the_tokens_it_answers_for(
     result = runner.invoke(cli.app, ["plugins", "--json"])
     document = json.loads(result.stdout)
 
-    assert {"dns", "deployments"} <= {plugin["name"] for plugin in document["plugins"]}
-    by_name = {plugin["name"]: plugin for plugin in document["plugins"]}
+    assert {"dns", "deployments"} <= {
+        feature["name"] for feature in document["plugins"]
+    }
+    by_name = {feature["name"]: feature for feature in document["plugins"]}
     assert by_name["dns"]["capabilities"] == ["dns"]
     assert "dns" in document["capabilities"]
     assert "rejected" not in document
@@ -219,8 +221,8 @@ def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
     document = json.loads(result.stdout)
     configuration = {
         entry["name"]: entry
-        for plugin in document["plugins"]
-        for entry in plugin["configuration"]
+        for feature in document["plugins"]
+        for entry in feature["configuration"]
     }
 
     secret = configuration["BLITZE_UNDER_ATTACK_SECRET"]
@@ -234,7 +236,7 @@ def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
 
 
 def test_ansible_roles_path_is_what_a_deployment_would_resolve():
-    """Core's roles first, then each contributing distribution's, by plugin name.
+    """Core's roles first, then each contributing distribution's, by feature name.
 
     The justfile used to spell all nine directories out, so a checkout could
     syntax-check an edge play against a role set no deployment would resolve.
@@ -247,14 +249,14 @@ def test_ansible_roles_path_is_what_a_deployment_would_resolve():
     # which is why this assertion needs no capability installed.
     assert entries[0].endswith("src/blitzecdn/ansible/roles")
     assert all(Path(entry).is_dir() for entry in entries)
-    # Ordered by plugin name after core's, which is what makes two controllers
+    # Ordered by feature name after core's, which is what makes two controllers
     # with the same packages installed resolve every role identically.
     from blitzecdn.composition import load_registry
 
     contributions = load_registry().ansible_contributions()
     expected = [
         str(item.roles_path)
-        for item in sorted(contributions, key=lambda item: item.plugin)
+        for item in sorted(contributions, key=lambda item: item.feature)
     ]
     assert entries[1:] == list(dict.fromkeys(expected))
 

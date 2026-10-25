@@ -70,7 +70,7 @@ class JobQueue:
         self.jobs = jobs
         #: Kind to handler. The worker resolves a claimed job through this and
         #: learns nothing else about it, which is what lets a convergence and a
-        #: plugin-contributed maintenance run share one loop.
+        #: feature-contributed maintenance run share one loop.
         self.handlers = dict(handlers)
         self.worker_id = worker_id
         self.lease_seconds = lease_seconds

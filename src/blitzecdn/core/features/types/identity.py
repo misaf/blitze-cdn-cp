@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-__all__ = ["PluginMetadata"]
+__all__ = ["FeatureMetadata"]
 
 
 @dataclass(frozen=True, slots=True)
-class PluginMetadata:
+class FeatureMetadata:
     """Who a feature is.
 
     Every feature is built in and required: one that fails to import stops the
@@ -20,26 +20,26 @@ class PluginMetadata:
     name: str
     version: str
     summary: str = ""
-    #: The capability tokens this plugin supplies, for configuration that has
+    #: The capability tokens this feature supplies, for configuration that has
     #: to say what it depends on. Empty means "just my own name", which is the
-    #: right answer for almost every plugin: `backup` provides `backup`.
+    #: right answer for almost every feature: `backup` provides `backup`.
     #:
     #: It is separate from `name` because the two answer different questions.
-    #: `name` identifies the *plugin* — it is how a duplicate is detected and a
+    #: `name` identifies the *feature* — it is how a duplicate is detected and a
     #: failure attributed — while a token names a *capability*, which is what a
-    #: site or a fleet setting actually depends on. One plugin may supply
+    #: site or a fleet setting actually depends on. One feature may supply
     #: several, and a replacement implementation may supply a token another
     #: package used to, under its own name.
     provides: frozenset[str] = frozenset()
 
     def __post_init__(self) -> None:
         if not self.name or not self.name.replace("_", "").replace("-", "").isalnum():
-            raise ValueError(f"plugin name {self.name!r} must be alphanumeric")
+            raise ValueError(f"feature name {self.name!r} must be alphanumeric")
         for token in self.provides:
             if not token or not token.replace("_", "").replace("-", "").isalnum():
                 raise ValueError(f"capability {token!r} must be alphanumeric")
 
     @property
     def capabilities(self) -> frozenset[str]:
-        """Every capability token this plugin answers for, its name included."""
+        """Every capability token this feature answers for, its name included."""
         return self.provides | {self.name}

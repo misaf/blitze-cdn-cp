@@ -379,7 +379,7 @@ def test_a_detached_capabilitys_fragment_is_not_in_the_release(settings):
     try:
         contributions = control.infrastructure.edge_contributions
         resources = {
-            context: tuple(item for item in items if item.plugin != "security")
+            context: tuple(item for item in items if item.feature != "security")
             for context, items in contributions.nginx_resources.items()
         }
         detached = EdgeRenderer(

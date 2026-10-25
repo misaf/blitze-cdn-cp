@@ -52,14 +52,14 @@ ROLES_DIR = CORE_ANSIBLE / "roles"
 def contributed_roles() -> dict[str, Path]:
     """Every role a built-in capability or provider contributes, by name.
 
-    Read from the plugin registry rather than a directory glob, so a role
+    Read from the feature registry rather than a directory glob, so a role
     moved to another owner is still found, and a test cannot quietly check
     fewer roles than a deployment runs.
     """
-    plugins = load_registry()
+    features = load_registry()
     roles = {
-        f"{contribution.plugin}:{directory.name}": directory
-        for contribution in plugins.ansible_contributions()
+        f"{contribution.feature}:{directory.name}": directory
+        for contribution in features.ansible_contributions()
         for directory in sorted(contribution.roles_path.iterdir())
         if directory.is_dir()
     }

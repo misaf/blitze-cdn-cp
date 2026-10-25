@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from blitzecdn.core.plugins import (
+from blitzecdn.core.features import (
     AnsibleContribution,
     Feature,
+    FeatureMetadata,
     NginxContribution,
-    PluginMetadata,
 )
 from blitzecdn.core.runtime.resources import package_directory
 from blitzecdn.providers.http3 import __version__, ansible
@@ -26,7 +26,7 @@ NGINX_TEMPLATES = (
 
 FEATURES = (
     Feature(
-        metadata=PluginMetadata(
+        metadata=FeatureMetadata(
             name="http3",
             version=__version__,
             provides=frozenset({"http3"}),
@@ -34,14 +34,14 @@ FEATURES = (
         ),
         ansible=(
             AnsibleContribution(
-                plugin="http3",
+                feature="http3",
                 roles_path=ansible.ROLES_PATH,
                 edge_roles=(ansible.EDGE_ROLE,),
             ),
         ),
         nginx=(
             NginxContribution(
-                plugin="http3",
+                feature="http3",
                 templates_path=NGINX_TEMPLATES,
                 server_fragments=("http3-server.conf.j2",),
                 upstream_fragments=("http3-upstream.conf.j2",),

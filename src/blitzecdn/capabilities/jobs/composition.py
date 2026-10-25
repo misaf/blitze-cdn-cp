@@ -18,7 +18,7 @@ from blitzecdn.capabilities.jobs.service import (
     JobScheduler,
     ScheduleSpec,
 )
-from blitzecdn.core.plugins import ScheduledJob
+from blitzecdn.core.features import ScheduledJob
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.clock import Clock, system_clock
 
@@ -41,7 +41,7 @@ def worker_identity() -> str:
 
 
 def schedule_specs(jobs: Mapping[str, ScheduledJob]) -> tuple[ScheduleSpec, ...]:
-    """Translate what the plugins contributed into what the scheduler stores.
+    """Translate what the features contributed into what the scheduler stores.
 
     Two resolutions happen here and both belong at this seam. A job with an
     interval of zero is disabled — that is how every one of them is turned off

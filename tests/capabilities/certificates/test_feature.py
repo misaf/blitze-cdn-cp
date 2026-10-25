@@ -3,7 +3,7 @@ from types import SimpleNamespace
 from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.capabilities.tls.feature import CERTIFICATES
 from blitzecdn.capabilities.tls.runtime import certificates_operations
-from blitzecdn.core.plugins import CapabilityConfig
+from blitzecdn.core.features import CapabilityConfig
 
 
 def test_metadata_provides_required_certificates_capability() -> None:

@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from blitzecdn.core.exceptions import ConfigurationError
-from blitzecdn.core.plugins import CapabilityConfig, CapabilitySetting
+from blitzecdn.core.features import CapabilityConfig, CapabilitySetting
 
 __all__ = ["SETTINGS", "CertificateConfig"]
 
