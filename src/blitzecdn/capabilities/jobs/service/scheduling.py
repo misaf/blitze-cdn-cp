@@ -18,12 +18,12 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any
 
-from blitzecdn.capabilities.jobs.domain import Schedule, next_due, utcnow
+from blitzecdn.capabilities.jobs.domain import Schedule, next_due
 from blitzecdn.capabilities.jobs.ports import ScheduleStore
 from blitzecdn.capabilities.jobs.service.queue import JobQueue
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = ["JobScheduler", "ScheduleSpec"]
 
@@ -66,7 +66,7 @@ class JobScheduler:
         schedules: ScheduleStore,
         queue: JobQueue,
         uow: UnitOfWork,
-        clock: Any = utcnow,
+        clock: Clock = system_clock,
     ) -> None:
         self.schedules = schedules
         self.queue = queue

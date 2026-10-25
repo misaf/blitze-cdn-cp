@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 from blitzecdn.capabilities.deployments.domain import (
@@ -65,6 +64,7 @@ from blitzecdn.core.exceptions import (
     DeploymentBusyError,
     ExecutionError,
 )
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -135,7 +135,9 @@ class DeploymentService:
         dns: ZoneEditor,
         releases: Releases,
         workflows: Workflows,
+        clock: Clock = system_clock,
     ) -> None:
+        self.clock = clock
         self.policy = policy
         self.persistence = persistence
         self.execution = execution
@@ -512,7 +514,7 @@ class DeploymentService:
                 deployment.id,
                 DeploymentStatus.QUEUED,
                 DeploymentStatus.RUNNING,
-                started_at=datetime.now(UTC),
+                started_at=self.clock(),
             )
         try:
             release = self.releases.get(deployment.release_id)
@@ -574,6 +576,7 @@ class DeploymentService:
                 "with 'blitzecdn edge add'"
             ),
             interrupted=False,
+            now=self.clock(),
         )
         if outcome.succeeded:
             target_status = DeploymentStatus.SUCCEEDED
@@ -607,7 +610,7 @@ class DeploymentService:
                 deployment.id,
                 DeploymentStatus.RUNNING,
                 target_status,
-                finished_at=datetime.now(UTC),
+                finished_at=self.clock(),
                 result=run,
                 error=outcome.error,
             )
@@ -653,8 +656,8 @@ class DeploymentService:
                 deployment.id,
                 DeploymentStatus.RUNNING,
                 status,
-                finished_at=datetime.now(UTC),
-                result=aborted_run(exc, interrupted=interrupted),
+                finished_at=self.clock(),
+                result=aborted_run(exc, interrupted=interrupted, now=self.clock()),
             )
             self.events.record(
                 domain_event(

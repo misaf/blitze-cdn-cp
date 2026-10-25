@@ -9,7 +9,6 @@ import shutil
 import subprocess
 import sys
 from collections.abc import Sequence
-from datetime import UTC, datetime
 from itertools import pairwise
 from pathlib import Path
 
@@ -30,6 +29,7 @@ from blitzecdn.capabilities.tls.policy import (
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError, ExecutionError, NotFoundError
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.filesystem import atomic_write_bytes
 from blitzecdn.core.runtime.process import terminate_process_group
 
@@ -38,8 +38,9 @@ _MAX_PRIVATE_KEY_BYTES = 262_144
 
 
 class CertificateStore:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, *, clock: Clock = system_clock) -> None:
         self._settings = settings
+        self._clock = clock
 
     def install(
         self,
@@ -74,7 +75,7 @@ class CertificateStore:
             raise ConfigurationError(
                 "certificate does not cover: " + ", ".join(sorted(missing))
             )
-        now = datetime.now(UTC)
+        now = self._clock()
         if leaf.not_valid_before_utc > now or leaf.not_valid_after_utc <= now:
             raise ConfigurationError("certificate is not currently valid")
         directory = self._directory(site.name)
@@ -249,9 +250,8 @@ class CertificateStore:
         names.update(str(value) for value in san.get_values_for_type(x509.IPAddress))
         return names
 
-    @staticmethod
-    def _validate_chain(certificates: list[x509.Certificate]) -> None:
-        now = datetime.now(UTC)
+    def _validate_chain(self, certificates: list[x509.Certificate]) -> None:
+        now = self._clock()
         for child, issuer in pairwise(certificates):
             if issuer.not_valid_before_utc > now or issuer.not_valid_after_utc <= now:
                 raise ConfigurationError("certificate chain contains an invalid issuer")

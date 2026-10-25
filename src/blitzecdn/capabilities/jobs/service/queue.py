@@ -26,7 +26,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping, Sequence
 from datetime import datetime, timedelta
-from typing import Any
 
 from blitzecdn.capabilities.jobs.domain import (
     DEFAULT_LEASE_SECONDS,
@@ -36,9 +35,9 @@ from blitzecdn.capabilities.jobs.domain import (
     JobStatus,
     PermanentJobError,
     backoff_for,
-    utcnow,
 )
 from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = ["DEPLOYMENT_JOB", "SCHEDULED_JOB", "JobQueue"]
 
@@ -64,7 +63,7 @@ class JobQueue:
         worker_id: str,
         lease_seconds: int = DEFAULT_LEASE_SECONDS,
         retention: int = 200,
-        clock: Any = utcnow,
+        clock: Clock = system_clock,
     ) -> None:
         self.jobs = jobs
         #: Kind to handler. The worker resolves a claimed job through this and

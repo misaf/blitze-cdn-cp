@@ -34,7 +34,7 @@ you, and the part that makes "at least once" safe to rely on.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Self
 
@@ -190,7 +190,3 @@ class PermanentJobError(Exception):
     abandoned, and running the job again would find it abandoned again. Raising
     this fails the job at once and records the message as its error.
     """
-
-
-def utcnow() -> datetime:
-    return datetime.now(UTC)

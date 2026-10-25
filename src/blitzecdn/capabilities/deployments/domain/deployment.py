@@ -7,7 +7,7 @@ finished — the :class:`~blitzecdn.core.domain.runs.AnsibleRun` it produced. A
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from enum import StrEnum
 from uuid import uuid4
 
@@ -90,7 +90,7 @@ DEPLOYMENT_TRANSITIONS: dict[DeploymentStatus, frozenset[DeploymentStatus]] = {
 }
 
 
-def aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
+def aborted_run(exc: BaseException, *, interrupted: bool, now: datetime) -> AnsibleRun:
     """A result for a deployment that never got a run of its own.
 
     The runner raised before Ansible reported anything — a misconfiguration
@@ -99,7 +99,6 @@ def aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
     outcome uses rather than leaving ``result`` empty and making every
     reader handle a second way of saying "it failed".
     """
-    now = datetime.now(UTC)
     return AnsibleRun(
         id=uuid4().hex,
         playbook="",
@@ -115,13 +114,12 @@ def aborted_run(exc: BaseException, *, interrupted: bool) -> AnsibleRun:
     )
 
 
-def abandoned_run(reason: str) -> AnsibleRun:
+def abandoned_run(reason: str, *, now: datetime) -> AnsibleRun:
     """A result for a deployment ended because whoever was running it is gone.
 
     The shape :func:`aborted_run` gives, for the case with no exception to
     name: the process that would have raised is the one that died.
     """
-    now = datetime.now(UTC)
     return AnsibleRun(
         id=uuid4().hex,
         playbook="",

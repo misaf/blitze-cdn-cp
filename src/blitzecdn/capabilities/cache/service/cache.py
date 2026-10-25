@@ -17,7 +17,7 @@ transport rather than about the work.
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 
 from blitzecdn.capabilities.cache.domain import (
     CacheStatsReport,
@@ -34,6 +34,7 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ConflictError, ExecutionError, NotFoundError
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.ports.operations import EventRecorder
 
 
@@ -46,12 +47,14 @@ class CacheService:
         sites: SiteReader,
         events: EventRecorder,
         runner: CacheRunner,
+        clock: Clock = system_clock,
     ) -> None:
         #: Read to decide which hostnames may be purged. This service never
         #: writes a site; purging is not a change to desired state.
         self.sites = sites
         self.events = events
         self.runner = runner
+        self.clock = clock
 
     def purge_cache(
         self,
@@ -89,7 +92,7 @@ class CacheService:
             host_limit=host_limit,
         )
         report = PurgeResult(
-            purged_at=datetime.now(UTC),
+            purged_at=self.clock(),
             entries=resolved_entries,
             purge_all=purge_all,
             host_limit=host_limit,
@@ -208,7 +211,7 @@ class CacheService:
         """
         run = self.runner.run_stats(host_limit=host_limit)
         report = CacheStatsReport(
-            collected_at=datetime.now(UTC),
+            collected_at=self.clock(),
             host_limit=host_limit,
             edges=tuple(_edge_stats(host) for host in run.hosts),
         )

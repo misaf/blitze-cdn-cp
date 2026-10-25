@@ -1327,3 +1327,23 @@ def test_delivery_code_reaches_only_its_own_process_container():
         if named:
             offenders.append(f"{relative} names {sorted(named)}")
     assert offenders == []
+
+
+def test_domain_and_service_code_never_reads_the_wall_clock():
+    """Time is handed in: a `Clock` to a service, `now` to domain code.
+
+    Adapters that time an external process (`core/ansible/execution.py`) and
+    the ORM's fallback column defaults are outside the rule.
+    """
+    reads = ("datetime.now(", "datetime.utcnow(", "time.time(")
+    offenders = [
+        f"{path.relative_to(_SOURCE)}:{number}"
+        for path in sorted(_SOURCE.rglob("*.py"))
+        if {"domain", "service", "policy"} & set(path.relative_to(_SOURCE).parts)
+        or path.name in {"policy.py"}
+        for number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        )
+        if any(read in line for read in reads)
+    ]
+    assert offenders == []

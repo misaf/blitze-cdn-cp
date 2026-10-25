@@ -13,7 +13,6 @@ from blitzecdn.capabilities.jobs.domain.job import (
     PermanentJobError,
     backoff_for,
     is_terminal,
-    utcnow,
 )
 from blitzecdn.capabilities.jobs.domain.schedule import Schedule, next_due
 
@@ -30,5 +29,4 @@ __all__ = [
     "backoff_for",
     "is_terminal",
     "next_due",
-    "utcnow",
 ]

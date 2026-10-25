@@ -16,7 +16,7 @@ import json
 from collections.abc import Callable, Sequence
 from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from blitzecdn.capabilities.backup.domain import (
@@ -38,6 +38,7 @@ from blitzecdn.capabilities.backup.ports import (
     Workspace,
 )
 from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
+from blitzecdn.core.ports.clock import system_clock
 
 
 @dataclass(frozen=True)
@@ -74,7 +75,7 @@ class BackupService:
         self.services = services
         self.workspace = workspace
         self.recovery = recovery
-        self.clock = clock or (lambda: datetime.now(UTC))
+        self.clock = clock or system_clock
         self._components = {gateway.component: gateway for gateway in components}
 
     # -- Creating ------------------------------------------------------

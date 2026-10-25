@@ -20,6 +20,7 @@ from blitzecdn.capabilities.jobs.service import (
 )
 from blitzecdn.core.plugins import ScheduledJob
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = [
     "build_job_queue",
@@ -66,6 +67,7 @@ def build_job_queue(
     jobs: JobStore,
     retention: int,
     handlers: Mapping[str, JobHandler] | None = None,
+    clock: Clock = system_clock,
 ) -> JobQueue:
     """Wire the queue to this installation's job table.
 
@@ -78,11 +80,16 @@ def build_job_queue(
         handlers=handlers if handlers is not None else {},
         worker_id=worker_identity(),
         retention=retention,
+        clock=clock,
     )
 
 
 def build_job_scheduler(
-    *, schedules: ScheduleStore, queue: JobQueue, uow: UnitOfWork
+    *,
+    schedules: ScheduleStore,
+    queue: JobQueue,
+    uow: UnitOfWork,
+    clock: Clock = system_clock,
 ) -> JobScheduler:
     """Wire the scheduler to the schedule table and the queue it publishes to."""
-    return JobScheduler(schedules=schedules, queue=queue, uow=uow)
+    return JobScheduler(schedules=schedules, queue=queue, uow=uow, clock=clock)

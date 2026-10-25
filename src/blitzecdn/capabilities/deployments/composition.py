@@ -43,6 +43,7 @@ from blitzecdn.capabilities.releases.domain import Release
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.validation import matches_edge_limit
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.filesystem import (
     atomic_write_bytes,
     atomic_write_yaml,
@@ -137,6 +138,7 @@ def build_deployment_service(
     workflows: Workflows,
     events: EventRecorder,
     uow: UnitOfWork,
+    clock: Clock = system_clock,
 ) -> DeploymentService:
     """Assemble the capability from its policy, its state, and its runners.
 
@@ -177,6 +179,7 @@ def build_deployment_service(
                 runner=runner,
                 addresses=addresses,
                 verifier=verifier,
+                clock=clock,
                 # The PREPARE phase writes the release's configuration and its
                 # execution document beside it, for the edge play to stage.
                 publish=lambda release: publish_release(
@@ -191,4 +194,5 @@ def build_deployment_service(
         dns=dns,
         releases=releases,
         workflows=workflows,
+        clock=clock,
     )

@@ -1,7 +1,7 @@
 """Persistence for deployment history, the releases it names, and requirements."""
 
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any, cast
 from uuid import uuid4
 
@@ -22,9 +22,10 @@ from blitzecdn.capabilities.deployments.domain import (
     DeploymentTarget,
     TargetPhase,
     TargetStatus,
+    abandoned_run,
     require_transition,
 )
-from blitzecdn.core.domain.runs import AnsibleRun, RunStatus
+from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
@@ -199,13 +200,8 @@ class DeploymentStore:
         "the controller restarted" is as much an answer as a failed task is.
         """
         now = self._db.now()
-        abandoned = AnsibleRun(
-            id=uuid4().hex,
-            playbook="",
-            status=RunStatus.UNSTARTED,
-            started_at=datetime.now(UTC),
-            finished_at=datetime.now(UTC),
-            error="the controller restarted before this deployment completed",
+        abandoned = abandoned_run(
+            "the controller restarted before this deployment completed", now=now
         ).model_dump(mode="json")
         with self._db.session() as session:
             return _rows_affected(
