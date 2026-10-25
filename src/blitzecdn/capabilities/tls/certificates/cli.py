@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import re
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
+from blitzecdn.capabilities.tls import ansible
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
 from blitzecdn.entrypoints.cli import common
 from blitzecdn.entrypoints.cli.common import ExitCode
@@ -298,3 +301,53 @@ def cert_collect(json_output: common.JsonOutput = False) -> None:
     """Remove controller material unreferenced by policy or retained releases."""
     removed = common.services().certificates.collect_material("cli")
     common.emit({"removed": list(removed)}, json_output=json_output)
+
+
+_ACME_TOKEN = re.compile(r"^[A-Za-z0-9_-]{1,512}$")
+_ACME_VALIDATION = re.compile(r"^[A-Za-z0-9_.-]{1,2048}$")
+_ACME_DOMAIN = re.compile(r"^[A-Za-z0-9.-]{1,253}$")
+
+
+@cert_app.command("acme-hook", hidden=True)
+def cert_acme_hook(
+    action: Annotated[str, typer.Argument(help="'present' or 'absent'.")],
+) -> None:
+    """Put one HTTP-01 challenge on every edge, or take it off again.
+
+    Certbot runs this as its manual auth and cleanup hook, with the challenge
+    in `CERTBOT_*` variables; nobody types it, so it is hidden. Every value is
+    checked against a strict pattern before it reaches a playbook, because
+    the environment is certbot's and the playbook writes files on the edges.
+    """
+    domain = os.environ.get("CERTBOT_DOMAIN", "")
+    token = os.environ.get("CERTBOT_TOKEN", "")
+    validation = os.environ.get("CERTBOT_VALIDATION", "")
+    if action not in {"present", "absent"}:
+        _acme_fail("invalid ACME hook action", ExitCode.INVALID_INPUT)
+    if not _ACME_DOMAIN.fullmatch(domain) or not _ACME_TOKEN.fullmatch(token):
+        _acme_fail("invalid ACME challenge environment", ExitCode.INVALID_INPUT)
+    if action == "present" and not _ACME_VALIDATION.fullmatch(validation):
+        _acme_fail("invalid ACME validation value", ExitCode.INVALID_INPUT)
+    run = common.services().fleet.run_playbook(
+        name="acme-challenge",
+        playbook=ansible.ACME_CHALLENGE_PLAYBOOK,
+        variables={
+            "blitzecdn_acme_action": action,
+            "blitzecdn_acme_domain": domain,
+            "blitzecdn_acme_token": token,
+            "blitzecdn_acme_validation": validation,
+        },
+    )
+    if not run.succeeded:
+        # certbot shows this to the operator when issuance fails, so it has to
+        # be the useful line: run.summary() names the task and the edge, and
+        # the full output stays in the run log it points at.
+        _acme_fail(
+            f"{run.summary()} (full output: {run.log_path})",
+            ExitCode.DEPLOYMENT_FAILED,
+        )
+
+
+def _acme_fail(message: str, code: ExitCode) -> NoReturn:
+    typer.echo(message, err=True)
+    raise typer.Exit(code)

@@ -265,6 +265,12 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ("blitzecdn", "origin check", "POST /v1/origins/check", ""),
     (
         "blitzecdn",
+        "cert acme-hook",
+        None,
+        "Certbot's HTTP-01 hook on this controller; no client asks for it.",
+    ),
+    (
+        "blitzecdn",
         "cert collect",
         None,
         "Controller-local material maintenance; no remote operation is needed.",

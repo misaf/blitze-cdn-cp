@@ -33,19 +33,6 @@ PARTS = frozenset(
     }
 )
 
-#: Every entry outside `PARTS` today, and what it is. Each one is a decision
-#: still to make, not a second convention: the list only shrinks, and an entry
-#: whose path has gone fails until it is removed from here too.
-KNOWN_DEVIATIONS = {
-    "capabilities/origins/reporting.py": (
-        "parses the report an edge publishes, which is adapter work; "
-        "`automatic_ssl` reads it too, so it is published across capabilities"
-    ),
-    "capabilities/tls/acme_hook.py": (
-        "a process certbot starts, so an entry point rather than a part"
-    ),
-}
-
 #: Slices nested inside a capability rather than beside it. `test_layering`
 #: refuses them a top-level package of their own (`certificates` and
 #: `automatic_ssl` are strategies `tls` owns, `http3` a version of `http`,
@@ -96,20 +83,13 @@ def test_a_slice_holds_only_the_named_parts(slice_: Path) -> None:
         name
         for child in _children(slice_)
         for name in (str(child.relative_to(SOURCE)),)
-        if child.name.removesuffix(".py") not in PARTS
-        and name not in KNOWN_DEVIATIONS
-        and name not in NESTED_SLICES
+        if child.name.removesuffix(".py") not in PARTS and name not in NESTED_SLICES
     ]
     assert offenders == [], (
-        f"{offenders} are not parts of a slice; put each in one of "
-        f"{sorted(PARTS)}, or record why it is not in KNOWN_DEVIATIONS"
+        f"{offenders} are not parts of a slice; put each in one of {sorted(PARTS)}"
     )
 
 
-def test_every_recorded_exception_still_exists() -> None:
-    stale = sorted(
-        name
-        for name in (*KNOWN_DEVIATIONS, *NESTED_SLICES)
-        if not (SOURCE / name).exists()
-    )
+def test_every_nested_slice_still_exists() -> None:
+    stale = sorted(name for name in NESTED_SLICES if not (SOURCE / name).exists())
     assert stale == [], f"{stale} no longer exist; remove them from this module"

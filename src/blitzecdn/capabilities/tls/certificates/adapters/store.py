@@ -301,7 +301,7 @@ class CertbotIssuer:
         for directory in (config_dir, work_dir, logs_dir):
             directory.mkdir(parents=True, exist_ok=True, mode=0o700)
         hook = shlex.join(
-            [sys.executable, "-m", "blitzecdn.capabilities.tls.acme_hook"]
+            [sys.executable, "-m", "blitzecdn.entrypoints.cli", "cert", "acme-hook"]
         )
         command = [
             executable,
