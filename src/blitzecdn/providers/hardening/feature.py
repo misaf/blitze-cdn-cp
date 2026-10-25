@@ -10,8 +10,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="hardening",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"hardening"}),
             summary="Public-key-only SSH and a Fail2Ban jail on every edge host.",
         ),

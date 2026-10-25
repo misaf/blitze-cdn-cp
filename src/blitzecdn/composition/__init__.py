@@ -1,54 +1,64 @@
-"""Where the control plane is put together, and the only place that decides.
+"""Where the application is put together, and the only place that decides.
 
-Application and maintenance wiring chooses which concrete thing satisfies a
-port and which parts make one running control plane.
-
-* :mod:`~blitzecdn.composition.control_plane` — the composition root proper.
-  It builds the adapters, injects them into the capability services, loads the
-  plugins and hands each one the finished platform.
+* :mod:`~blitzecdn.composition.roster` — the features this application ships,
+  and the rendering and operations each one binds.
+* :mod:`~blitzecdn.composition.infrastructure` — the concrete adapters: the
+  database, the fleet runner, the probes, the job queue.
+* :mod:`~blitzecdn.composition.services` — the service graph, built once from
+  the infrastructure.
+* :mod:`~blitzecdn.composition.processes` — one container per process, holding
+  only what that process uses, and its start and stop.
 * :mod:`~blitzecdn.composition.installation` — explicit database maintenance
   without constructing application services.
 * :mod:`~blitzecdn.composition.repository` — which capability stores sit on one
-  SQLite database. A bundle, not a layer: each store already satisfies its
-  capability's port, so no service is handed more of persistence than it asked
-  for.
+  SQLite database.
 
-Both were loose modules at the package root, beside `worker.py` and
-`install_handoff.py`, which meant the root answered two unrelated questions at
-once and answered neither: "how is a control plane assembled" and "which
-processes exist". The root is the processes now — `api/`, `cli/`, `worker.py`,
-`install_handoff.py` — and `test_a_loose_module_at_the_root_starts_a_process`
-holds that.
+The processes themselves — `api/`, `cli/`, `worker.py`, `install_handoff.py` —
+live at the package root and import from here. The names re-exported below are
+the whole public face; nothing outside this package imports one of its modules
+by name.
 
-`repository` was `blitzecdn.persistence`, one import away from
-`blitzecdn.core.persistence` and forever explaining in its own docstring which
-of the two it was. What core keeps is what a capability builds *on* — the
-engine, the write lock, the Unit of Work, the schema. What is chosen here is
-which stores go on one file.
-
-The names re-exported below are the whole public face. An entry layer, a
-capability's seam and an installed distribution all import
-`blitzecdn.composition`; nothing outside this package imports one of its
-modules by name, so where a piece of the wiring lives stays this package's
-business.
+See docs/decisions/0021-capability-roster-and-process-composition.md.
 """
 
-from blitzecdn.composition.control_plane import (
-    BUILTIN_FEATURES,
-    ControlPlane,
-    FleetRunner,
-    build_control_plane,
-    load_control_plane_plugins,
-)
+from blitzecdn.composition.infrastructure import FleetRunner, Infrastructure
 from blitzecdn.composition.installation import migrate_database
+from blitzecdn.composition.processes import (
+    ApiServices,
+    CliServices,
+    HandoffServices,
+    WorkerServices,
+    build_api,
+    build_cli,
+    build_install_handoff,
+    build_worker,
+)
 from blitzecdn.composition.repository import Repository
+from blitzecdn.composition.roster import (
+    BUILTIN_FEATURES,
+    ROSTER,
+    RosterEntry,
+    load_registry,
+)
+from blitzecdn.composition.services import ApplicationServices, build_services
 
 __all__ = [
     "BUILTIN_FEATURES",
-    "ControlPlane",
+    "ROSTER",
+    "ApiServices",
+    "ApplicationServices",
+    "CliServices",
     "FleetRunner",
+    "HandoffServices",
+    "Infrastructure",
     "Repository",
-    "build_control_plane",
-    "load_control_plane_plugins",
+    "RosterEntry",
+    "WorkerServices",
+    "build_api",
+    "build_cli",
+    "build_install_handoff",
+    "build_services",
+    "build_worker",
+    "load_registry",
     "migrate_database",
 ]

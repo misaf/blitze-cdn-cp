@@ -40,7 +40,7 @@ def resolve_role_search_path(
 
     Ordering is core first and then contributions by plugin name, so the path a
     deployment runs against depends on *what is installed* and never on the
-    order pluggy happened to register it in. Two edges converged from the same
+    order it happened to be registered in. Two edges converged from the same
     set of packages resolve every role identically.
 
     A role name that appears in two directories is refused with both owners

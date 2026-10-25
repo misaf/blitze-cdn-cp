@@ -26,4 +26,3 @@ def test_plugin_provides_compression() -> None:
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "compression"
     assert metadata.capabilities == frozenset({"compression"})
-    assert metadata.required

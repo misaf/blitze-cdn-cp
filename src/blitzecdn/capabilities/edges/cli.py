@@ -29,7 +29,7 @@ def edge_list(json_output: common.JsonOutput = False) -> None:
 
         ansible-inventory -i ansible/inventory/blitzecdn.yml --list
     """
-    common.emit(common.control_plane().edges.list_edges(), json_output=json_output)
+    common.emit(common.services().edges.list_edges(), json_output=json_output)
 
 
 @edge_app.command("add")
@@ -99,7 +99,7 @@ def edge_add(
         raise typer.BadParameter(
             "at least one --ssh-source management CIDR is required"
         )
-    edge = common.control_plane().edges.add_edge(
+    edge = common.services().edges.add_edge(
         Edge(
             name=name,
             host=host,
@@ -180,7 +180,7 @@ def edge_update(
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:
         raise typer.BadParameter("give at least one field to change")
-    edge = common.control_plane().edges.update_edge(
+    edge = common.services().edges.update_edge(
         name, EdgePatch.model_validate(named), "cli"
     )
     common.emit(
@@ -226,7 +226,7 @@ def edge_remove(
     )
     if not yes and not typer.confirm(prompt):
         raise typer.Abort()
-    control = common.control_plane()
+    control = common.services()
     if decommission:
         control.edges.decommission_edge(name, "cli", force=force)
     else:

@@ -4,7 +4,7 @@ Everything in `tests/architecture/` guards the shape of the source tree — whic
 directory a module sits in, which layer may import which. All of it is fixable
 with `git mv` on any afternoon. What nobody outside this repository can see, and
 what no test held, is the other set: the HTTP routes, the command names, the
-hook signatures, the Ansible variables and the database columns. Those are the
+Ansible variables and the database columns. Those are the
 promises, and after the first `pip install` they are the expensive ones.
 
 So each generator here renders one such surface as sorted lines, and
@@ -12,7 +12,7 @@ So each generator here renders one such surface as sorted lines, and
 `tests/contract/frozen/`. A rename that reaches a public name stops being a
 green diff and becomes a named failure.
 
-**The line format is one format for all six surfaces**, because the comparison,
+**The line format is one format for all four surfaces**, because the comparison,
 the ownership filter and the refreeze recipe are then written once:
 
     <import root>\\t<kind>\\t<detail>
@@ -24,10 +24,6 @@ Ownership is derived from callbacks, route endpoints and resource paths.
 
 from __future__ import annotations
 
-import dataclasses
-import enum
-import inspect
-import re
 from pathlib import Path
 from typing import Any, cast
 
@@ -42,8 +38,8 @@ ROOT = "blitzecdn"
 #: Where the committed surfaces live.
 FROZEN = Path(__file__).resolve().parent / "contract" / "frozen"
 
-#: The six surfaces, in the order `just refreeze` writes them.
-SURFACES = ("cli", "http", "plugin_abi", "sdk", "ansible", "schema")
+#: The four surfaces, in the order `just refreeze` writes them.
+SURFACES = ("cli", "http", "ansible", "schema")
 
 
 def _owner(module: str | None) -> str:
@@ -167,17 +163,8 @@ def _command_owners(registry: Any) -> dict[str, str]:
     before there is a control plane for a plugin to be registered against —
     and `_root_command_owner` is where those are accounted for.
     """
-    manager = registry._manager
-    roots = {
-        # Built-in features ship in this distribution by construction.
-        **{feature.name: ROOT for feature in registry.features},
-        **{
-            manager.get_name(plugin): _owner(
-                getattr(plugin, "__name__", type(plugin).__module__)
-            )
-            for plugin in manager.get_plugins()
-        },
-    }
+    # Every feature ships in this distribution by construction.
+    roots = {feature.name: ROOT for feature in registry.features}
     owners: dict[str, str] = {}
     for group in registry.cli_commands():
         owner = roots[group.plugin]
@@ -334,307 +321,6 @@ def _schema_shape(spec: dict[str, Any]) -> str:
     if spec.get("type") == "array":
         return f"array[{_schema_shape(spec.get('items', {}))}]"
     return str(spec.get("type", "any"))
-
-
-# --- the plugin ABI ---------------------------------------------------------
-
-
-def plugin_abi_surface() -> str:
-    """What a third-party capability wheel is written against.
-
-    The hookspecs and the contribution dataclasses, with their signatures and
-    field types. This is the one surface where a silent change breaks code this
-    repository cannot see or test: an installed wheel implements these hooks and
-    constructs these dataclasses, and a renamed field is an AttributeError in
-    somebody else's package.
-
-    `HOOK_API_VERSION` is included as a line of its own, so the version and the
-    contract it names move in the same diff or not at all.
-    """
-    from blitzecdn.core.plugins import hooks, types
-
-    lines = [
-        _line(ROOT, "hook_api_version", str(types.HOOK_API_VERSION)),
-        # The set, not just the current version: this is what actually decides
-        # whether an installed wheel loads, and widening or narrowing it is the
-        # compatibility decision. Pinning only `HOOK_API_VERSION` would let a
-        # supported contract be dropped without the surface moving.
-        _line(
-            ROOT,
-            "supported_hook_api_versions",
-            ",".join(
-                str(version) for version in sorted(types.SUPPORTED_HOOK_API_VERSIONS)
-            ),
-        ),
-        _line(ROOT, "entry_point_group", types.ENTRY_POINT_GROUP),
-        *(
-            _line(ROOT, "framework", requirement)
-            for requirement in _abi_frameworks(hooks, types)
-        ),
-    ]
-
-    for name, function in sorted(vars(hooks).items()):
-        if not name.startswith("blitzecdn_") or not inspect.isfunction(function):
-            continue
-        signature = inspect.signature(function)
-        lines.append(_line(ROOT, "hook", f"{name}{_signature(signature)}"))
-
-    # Any module of the `types` package, not just its facade: the classes are
-    # defined in one module per hook family and re-exported, so `__module__` is
-    # `...types.ansible` rather than `...types`. The test is still "declared
-    # here rather than imported", which is what keeps `Path` and `Typer` out.
-    for name, declared in sorted(vars(types).items()):
-        if not inspect.isclass(declared) or not declared.__module__.startswith(
-            types.__name__
-        ):
-            continue
-        if dataclasses.is_dataclass(declared):
-            for field in dataclasses.fields(declared):
-                default = _default(field)
-                lines.append(
-                    _line(
-                        ROOT,
-                        "contribution",
-                        f"{name}.{field.name}: {_annotation(field.type)}{default}",
-                    )
-                )
-        elif issubclass(declared, enum.Enum):
-            lines.extend(
-                _line(ROOT, "enum", f"{name}.{member.name} = {member.value!r}")
-                for member in declared
-            )
-    return _render(lines)
-
-
-def _abi_frameworks(*modules: Any) -> list[str]:
-    """The third-party libraries this ABI is expressed in, and their bounds.
-
-    A hookspec returns `Sequence[APIRouter]` and a contribution carries a
-    `Typer`, so a wheel implementing either is written against FastAPI and
-    Typer as surely as it is written against these dataclasses — and pluggy is
-    the mechanism itself, since `hookimpl` is a marker every wheel applies.
-
-    Core pins all three, so a wheel inherits the bound transitively through
-    `blitzecdn>=4.0.0,<5` and pip resolves one of each. What was missing is
-    that nothing recorded *which* major the contract was written in. Widening
-    `typer<1` to `typer<2` would leave every line of this file identical while
-    `CliCommandGroup.app` came to mean a different class, which is precisely
-    the change a wheel author needs to see.
-
-    Derived by reading what the two ABI modules import, `TYPE_CHECKING` blocks
-    included, so a fourth library entering a hookspec signature brings its
-    bound in here without anyone remembering to add it.
-    """
-    import ast
-    import importlib.metadata
-    import sys
-
-    imported: set[str] = set()
-    sources = []
-    for module in modules:
-        # A package here is read whole. `types` is one module per hook family
-        # behind a facade, and the facade imports none of the libraries the
-        # ABI is expressed in — reading only `__init__.py` would report that a
-        # contract carrying a `Typer` is written against nothing.
-        path = Path(inspect.getfile(module))
-        sources.extend(
-            sorted(path.parent.glob("*.py"))
-            if module.__file__ and path.name == "__init__.py"
-            else [path]
-        )
-    for source in sources:
-        tree = ast.parse(source.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                imported.update(alias.name.split(".")[0] for alias in node.names)
-            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
-                imported.add(node.module.split(".")[0])
-    external = imported - sys.stdlib_module_names - {ROOT, "__future__"}
-
-    requirements = importlib.metadata.requires(ROOT) or []
-    found = []
-    for requirement in requirements:
-        name = re.split(r"[<>=!~\[;\s]", requirement, maxsplit=1)[0].strip()
-        if name in external:
-            found.append(requirement.replace(" ", ""))
-    missing = external - {
-        re.split(r"[<>=!~\[;\s]", requirement, maxsplit=1)[0].strip()
-        for requirement in requirements
-    }
-    assert not missing, (
-        f"the plugin ABI is expressed in {sorted(missing)}, which core does "
-        "not declare as a dependency; a wheel would inherit no bound at all"
-    )
-    return sorted(found)
-
-
-def _signature(signature: inspect.Signature) -> str:
-    """Names, annotations and defaults — a default is part of the contract.
-
-    Rendered rather than taken from `str(signature)`, which prints the module
-    path of every annotation and would churn this file on an import move that
-    changed nothing a caller can see.
-    """
-    parameters = []
-    for name, parameter in signature.parameters.items():
-        rendered = f"{name}: {_annotation(parameter.annotation)}"
-        if parameter.default is not inspect.Parameter.empty:
-            rendered += f" = {parameter.default!r}"
-        parameters.append(rendered)
-    return f"({', '.join(parameters)}) -> {_annotation(signature.return_annotation)}"
-
-
-def _annotation(annotation: Any) -> str:
-    if annotation is inspect.Signature.empty:
-        return "-"
-    if isinstance(annotation, str):
-        return annotation
-    name = getattr(annotation, "__name__", None)
-    return name if isinstance(name, str) else str(annotation)
-
-
-def _default(field: dataclasses.Field[Any]) -> str:
-    if field.default is not dataclasses.MISSING:
-        return f" = {field.default!r}"
-    if field.default_factory is not dataclasses.MISSING:
-        return " = <factory>"
-    return ""
-
-
-# --- the published SDK ------------------------------------------------------
-
-
-def sdk_surface(public_prefixes: tuple[str, ...]) -> str:
-    """Every published name, at the one path this project promises for it.
-
-    `_PUBLIC_SDK_PREFIXES` in `published_surface` decides which *modules* a wheel
-    may import. It says nothing about what is in them, so a symbol an installed
-    package uses can be renamed or removed with the allowlist untouched. This
-    is the symbol-level half.
-
-    One path per symbol, and the shallowest one. A prefix publishes every
-    module beneath it, so a package that re-exports through its `__init__`
-    published each of its names twice — `CliCommandGroup` arrived as both
-    `core.plugins.CliCommandGroup` and `core.plugins.types.CliCommandGroup`,
-    and `resolve_role_search_path` three times, once for every level of
-    `resolution`. Sixty-three of a hundred and seventy-five lines were the same
-    promise written again at a deeper address.
-
-    Pinning the deep one is worse than redundant: it freezes the layout behind
-    the façade. Splitting `types.py`, or moving a class between the modules
-    under `resolution/`, would fail this file having changed nothing a wheel
-    can see — while the re-export it actually imports stayed exactly where it
-    was. So a name reachable from a published ancestor under the same identity
-    is recorded at the ancestor, and the module it happens to live in becomes
-    an implementation detail again.
-
-    A name the façade does *not* re-export keeps its own path, because that
-    path is the only way to reach it — `core.ports.operations` is published
-    module by module for that reason, and so is `hookspec`, which core uses to
-    declare hookspecs and no `__init__` hands on.
-    """
-    import importlib
-    import pkgutil
-
-    modules: dict[str, Any] = {}
-    for prefix in public_prefixes:
-        for module_name in _modules_under(prefix, importlib, pkgutil):
-            try:
-                modules[module_name] = importlib.import_module(module_name)
-            except Exception:  # a module that needs a live control plane
-                continue
-
-    lines = []
-    for module_name, module in modules.items():
-        for name in _exported(module, module_name):
-            if _shallower_path(module_name, name, modules) is not None:
-                continue
-            shape = _symbol(module, name)
-            lines.append(_line(ROOT, "sdk", f"{module_name}.{name}\t{shape}"))
-    return _render(lines)
-
-
-def _shallower_path(module_name: str, name: str, modules: dict[str, Any]) -> str | None:
-    """A published ancestor package that re-exports this very object, if any.
-
-    Identity, not the name. `AuditEvent` is published twice on purpose —
-    `api.models.AuditEvent` is the wire shape and `core.domain.audit.AuditEvent`
-    is the domain model, two different classes that share a leaf name — and
-    collapsing those would erase a real promise rather than a duplicated one.
-    Only an ancestor holding the *same object* is the same promise.
-    """
-    parts = module_name.split(".")
-    here = getattr(modules[module_name], name, _ABSENT)
-    for depth in range(len(parts) - 1, 0, -1):
-        ancestor = ".".join(parts[:depth])
-        if ancestor in modules and getattr(modules[ancestor], name, _ABSENT) is here:
-            return ancestor
-    return None
-
-
-def _symbol(module: Any, name: str) -> str:
-    """What the name *is*, not merely that it was listed.
-
-    A module's `__all__` is a list of strings, and a string survives the
-    function it names being renamed. Recording only the names let
-    `package_directory` become `resolve_package_directory` with this surface
-    unchanged and the pin green — which is exactly the break it exists to
-    catch, since an installed wheel calls that function by name.
-
-    So the shape is recorded too: `missing` when `__all__` promises something
-    the module does not have, and a signature for anything callable, because a
-    parameter a caller passes is as much of the contract as the name is.
-    """
-    value = getattr(module, name, _ABSENT)
-    if value is _ABSENT:
-        return "missing"
-    if inspect.isclass(value):
-        bases = ",".join(base.__name__ for base in value.__bases__)
-        return f"class({bases})"
-    if inspect.isfunction(value) or inspect.ismethod(value):
-        return f"def{_signature(inspect.signature(value))}"
-    if callable(value):
-        return f"callable {type(value).__name__}"
-    return type(value).__name__
-
-
-_ABSENT = object()
-
-
-def _exported(module: Any, module_name: str) -> list[str]:
-    """A module's own public names, not everything it happens to import.
-
-    `__all__` decides where a module declares one — that is the module saying
-    what it publishes, and several here re-export a sibling's symbol
-    deliberately. Where there is none, a name counts only if it was *defined*
-    in this module: without that test the surface fills up with `Annotated`,
-    `Path` and every framework class the module imported, and the golden file
-    then churns on refactors that changed nothing anyone can import.
-    """
-    exported = getattr(module, "__all__", None)
-    if exported is not None:
-        return sorted(exported)
-    names = []
-    for name, value in vars(module).items():
-        if name.startswith("_") or inspect.ismodule(value):
-            continue
-        if getattr(value, "__module__", module_name) != module_name:
-            continue
-        names.append(name)
-    return sorted(names)
-
-
-def _modules_under(prefix: str, importlib: Any, pkgutil: Any) -> list[str]:
-    try:
-        module = importlib.import_module(prefix)
-    except Exception:
-        return []
-    if not hasattr(module, "__path__"):
-        return [prefix]
-    return [
-        prefix,
-        *(info.name for info in pkgutil.walk_packages(module.__path__, f"{prefix}.")),
-    ]
 
 
 # --- the Ansible interface --------------------------------------------------
@@ -833,7 +519,5 @@ __all__ = [
     "ansible_surface",
     "cli_surface",
     "http_surface",
-    "plugin_abi_surface",
     "schema_surface",
-    "sdk_surface",
 ]

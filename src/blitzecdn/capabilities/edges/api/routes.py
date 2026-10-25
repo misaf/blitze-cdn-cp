@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query, status
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     require_operator,
 )
 from blitzecdn.api.models import HostRun, as_operation
@@ -12,19 +12,19 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/edges", response_model=list[Edge])
-def list_edges(control: ControlPlaneDependency) -> list[Edge]:
+def list_edges(control: ServicesDependency) -> list[Edge]:
     """Every registered edge, which is exactly what Ansible will be given."""
     return [Edge.from_domain(item) for item in control.edges.list_edges()]
 
 
 @router.get("/v1/edges/{name}", response_model=Edge)
-def get_edge(name: str, control: ControlPlaneDependency) -> Edge:
+def get_edge(name: str, control: ServicesDependency) -> Edge:
     return Edge.from_domain(control.edges.get_edge(name))
 
 
 @router.post("/v1/edges", response_model=Edge, status_code=status.HTTP_201_CREATED)
 def add_edge(
-    edge: Edge, operator: OperatorDependency, control: ControlPlaneDependency
+    edge: Edge, operator: OperatorDependency, control: ServicesDependency
 ) -> Edge:
     """Register an edge without converging or contacting it."""
     return Edge.from_domain(control.edges.add_edge(edge.to_domain(), operator))
@@ -35,7 +35,7 @@ def update_edge(
     name: str,
     patch: EdgePatch,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Edge:
     return Edge.from_domain(
         control.edges.update_edge(name, patch.to_domain(), operator)
@@ -46,7 +46,7 @@ def update_edge(
 def remove_edge(
     name: str,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     decommission: bool = Query(
         True,
         description=(

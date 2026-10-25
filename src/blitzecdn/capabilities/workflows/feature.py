@@ -11,8 +11,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="workflows",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Durable progress for work that crosses out of a transaction.",
         ),
         api_routers=(routes.router,),

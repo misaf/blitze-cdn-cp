@@ -16,8 +16,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="deployments",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Converge the fleet, roll back, and detect drift.",
         ),
         api_routers=(routes.router,),

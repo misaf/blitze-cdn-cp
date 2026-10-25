@@ -75,26 +75,18 @@ def check_resolver(settings: Any) -> ResolverCheck:
 def plugins(
     json_output: common.JsonOutput = False,
 ) -> None:
-    """List the capabilities this controller has, and any that failed to load.
+    """List the features this controller ships and the configuration they claim.
 
-    The answer to "I installed blitzecdn-cache and there is no `cache purge`".
-    A required capability that failed would have stopped the process, but an
-    optional one is reported and skipped by design, and a warning that scrolled
-    past at startup is not somewhere an operator can look afterwards — so the
-    reason is kept on the registry and printed here.
-
-    `required` distinguishes a capability this distribution ships from one
-    installed beside it. `capabilities` are the tokens configuration depends on
-    through `required_capabilities`, which is usually just the plugin's name.
+    `capabilities` are the tokens configuration depends on through
+    `required_capabilities`, which is usually just the feature's name.
 
     `configuration` is the other half of the same question: which `BLITZE_*`
-    names this capability claims, and whether this controller has set them.
-    Asked here rather than left inside each package, where "I installed
-    blitzecdn-geoip and no database is provisioned" has no command to ask: the
-    names live in a README, and whether they arrived is visible only in a
-    failed play.
+    names each feature claims, and whether this controller has set them.
+    Asked here rather than left inside each feature, where "no GeoIP database
+    is provisioned" has no command to ask: the names live in a README, and
+    whether they arrived is visible only in a failed play.
     """
-    control = common.control_plane()
+    control = common.services()
     registry = control.plugins
     secrets: dict[str, list[EnvironmentKey]] = {}
     settings: dict[str, list[CapabilitySetting]] = {}
@@ -108,7 +100,6 @@ def plugins(
             {
                 "name": plugin.name,
                 "version": plugin.version,
-                "required": plugin.required,
                 "capabilities": sorted(plugin.capabilities),
                 "summary": plugin.summary,
                 "configuration": [
@@ -154,18 +145,8 @@ def plugins(
             for plugin in registry.plugins
         ],
         "capabilities": sorted(registry.capabilities),
-        "rejected": [
-            {"source": rejection.source, "reason": rejection.reason}
-            for rejection in registry.rejected
-        ],
     }
     common.emit(document, json_output=json_output)
-    if json_output:
-        return
-    for rejection in registry.rejected:
-        typer.echo(
-            f"\n{rejection.source} was not registered: {rejection.reason}", err=True
-        )
 
 
 @ansible_app.command("roles-path")
@@ -243,7 +224,7 @@ def audit(
 ) -> None:
     """Show immutable operator audit events."""
     common.emit(
-        common.control_plane().audit.list_audit_events(limit),
+        common.services().audit.list_audit_events(limit),
         json_output=json_output,
     )
 
@@ -289,9 +270,7 @@ def doctor(
         # says that publishing DNS is a thing it does not do, so a fleet that
         # is otherwise perfectly ready still serves nobody until something
         # else answers for these hostnames.
-        "dns_publication": common.control_plane()
-        .dns.publication()
-        .model_dump(mode="json"),
+        "dns_publication": common.services().dns.publication().model_dump(mode="json"),
     }
     resolver_report = check_resolver(settings) if resolver_check else None
     if resolver_report is not None:

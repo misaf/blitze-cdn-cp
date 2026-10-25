@@ -31,7 +31,7 @@ def list_settings(
 ) -> None:
     """List database-backed global edge settings."""
     common.emit(
-        common.control_plane().ansible_settings.list_settings(),
+        common.services().ansible_settings.list_settings(),
         json_output=json_output,
     )
 
@@ -42,12 +42,12 @@ def set_setting(name: str, value: str) -> None:
     parsed = yaml.safe_load(value)
     if parsed is None:
         raise typer.BadParameter("value must not be null")
-    common.control_plane().ansible_settings.set_setting(_name(name), parsed)
+    common.services().ansible_settings.set_setting(_name(name), parsed)
     typer.echo(f"Set {name}; it reaches the edges with the next deployment.")
 
 
 @config_app.command("unset")
 def unset_setting(name: str) -> None:
     """Remove an override and fall back to the shipped default."""
-    common.control_plane().ansible_settings.delete_setting(_name(name))
+    common.services().ansible_settings.delete_setting(_name(name))
     typer.echo(f"Unset {name}; it reaches the edges with the next deployment.")

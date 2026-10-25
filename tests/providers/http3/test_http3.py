@@ -6,13 +6,14 @@ core keeps — the switch, the baseline listener stance — is asserted there.
 """
 
 import pytest
+from control_plane_fixtures import build_application
 from policy_support import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.http.runtime import baseline_listeners
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import managed_certificate_paths
-from blitzecdn.composition import ControlPlane, load_control_plane_plugins
+from blitzecdn.composition import load_registry
 from blitzecdn.core.plugins import PluginMetadata, merge_variables
 from blitzecdn.providers.http3 import __version__
 from blitzecdn.providers.http3.feature import FEATURES
@@ -65,7 +66,6 @@ def test_plugin_provides_http3_as_a_required_provider() -> None:
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "http3"
     assert metadata.capabilities == frozenset({"http3"})
-    assert metadata.required
     assert metadata.version == __version__
 
 
@@ -176,7 +176,7 @@ def test_the_composed_rendering_derives_the_fleet_state_end_to_end(settings) -> 
     `overrides` claim stops resolving against the HTTP baseline — neither of
     which the unit tests above would notice.
     """
-    control = ControlPlane(settings=settings)
+    control = build_application(settings=settings)
     try:
         assert "http3" in control.plugins.capabilities
         assert control.rendering.fleet_variables((_site("bravo"), _site("alpha"))) == {
@@ -197,6 +197,6 @@ def test_an_installed_http3_capability_clears_the_site_validation() -> None:
     Same site, same token, opposite answer — which is the whole of what
     attaching this distribution changes for a deployment.
     """
-    registry = load_control_plane_plugins()
+    registry = load_registry()
 
     assert registry.missing(_site("alpha").policy.required_capabilities) == ()

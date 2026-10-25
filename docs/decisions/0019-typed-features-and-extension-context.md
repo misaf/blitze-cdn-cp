@@ -1,5 +1,10 @@
 # Typed features, two-stage binding, and the extension context
 
+Amended by [0021](0021-capability-roster-and-process-composition.md): the
+external pluggy path, `ExtensionContext` and the hook ABI are removed, and the
+roster now carries each feature's rendering and operations builders. Typed
+features and the two binding stages below are unchanged.
+
 ## Context
 
 Every built-in capability registered through pluggy hooks, though none was
@@ -32,35 +37,28 @@ different times:
   is bound after every service exists.
 
 Each lives in the feature's `runtime.py` as a constant or a builder whose
-collaborators are named arguments, and the composition root calls it
-explicitly. `runtime.py` imports no delivery layer, so the root can import it.
+collaborators are named arguments. The composition root's roster row for the
+feature module calls it (0021). `runtime.py` imports no delivery layer, so the root can import it.
 Registering the installation's job schedules consumes every feature's jobs at
-once, so `ControlPlane.start` does it, beside the worker's handler table.
+once, so the API's and the worker's process containers do it on start (0021).
 
-External plugins keep pluggy, adapted into the same contributions. A hook that
-is not static receives an `ExtensionContext` — process, settings, scoped
-configuration, sites, fleet, events and queue readiness — and never the control
-plane or a service. That changed every non-static hook's signature, so the
-hook API moved to version 2; nothing was deployed against version 1, so it is
-not accepted.
+There are no external plugins (0021).
 
 ## Consequences
 
 No module a capability or provider owns names the composition root, even for
 typing; the dependency graph is the import graph again. A built-in's behaviour
-is testable by calling its builder with doubles, without a control plane. An
-external plugin built against version 1 must rename `platform` to `context` and
-read ports from it. Registration order still decides presentation only.
+is testable by calling its builder with doubles, without the service graph.
+Registration order still decides presentation only.
 
 ## Code and verification
 
 - `core/plugins/types/feature.py`: `Feature`, `FeatureRendering`,
-  `FeatureOperations`, `ExtensionContext`.
-- `core/plugins/registry.py`, `discovery.py`, `hooks.py`: declarations,
-  binding, external adaptation and name reservation.
+  `FeatureOperations`.
+- `core/plugins/registry.py`, `discovery.py`: declarations, loading and
+  binding.
 - `capabilities/*/feature.py`, `providers/*/feature.py` and their `runtime.py`.
-- `composition/control_plane.py`: the roster and both binding stages.
+- `composition/roster.py`: the roster and both binding stages.
 - `tests/architecture/test_plugins.py`: mechanism, binding and failure policy.
 - `tests/architecture/test_layering.py`: no module names the composition root;
   runtime modules import no delivery layer; every capability declares a feature.
-- `tests/contract/frozen/plugin_abi.txt`, `sdk.txt`: the published contract.

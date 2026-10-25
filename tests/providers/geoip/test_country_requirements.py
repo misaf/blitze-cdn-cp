@@ -14,7 +14,7 @@ import pytest
 
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.composition import load_control_plane_plugins
+from blitzecdn.composition import load_registry
 from blitzecdn.providers.geoip.feature import FEATURES
 
 (FEATURE,) = FEATURES
@@ -54,7 +54,7 @@ def test_every_country_setting_requests_this_capability(
 def test_every_country_setting_deploys_once_the_capability_is_installed(
     _setting: str, policy: dict[str, object]
 ) -> None:
-    registry = load_control_plane_plugins()
+    registry = load_registry()
     assert registry.missing(_site(**policy).policy.required_capabilities) == ()
 
 

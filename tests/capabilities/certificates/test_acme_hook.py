@@ -17,7 +17,7 @@ def test_acme_hook_validates_and_runs(monkeypatch, settings):
             return ansible_run(host_run("edge-a"))
 
     control = SimpleNamespace(settings=settings, fleet=Fleet(), close=close)
-    monkeypatch.setattr(acme_hook.common, "control_plane", lambda: control)
+    monkeypatch.setattr(acme_hook.common, "services", lambda: control)
     monkeypatch.setattr(acme_hook.sys, "argv", ["acme-hook", "present"])
     monkeypatch.setattr(
         acme_hook,

@@ -3,6 +3,7 @@ from application_support import _seed_proxied_record
 from control_plane_fixtures import (
     FakeRunner,
     ansible_run,
+    build_application,
     host_run,
     seed_edge,
     seed_site,
@@ -10,7 +11,7 @@ from control_plane_fixtures import (
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import RecordType
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, ExecutionError
 
 
@@ -22,7 +23,7 @@ def test_a_canary_records_its_limit_and_converges_only_that_edge(settings):
     """
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control, name="edge-a")
     seed_edge(control, name="edge-b", host="192.0.2.11")
     seed_site(control)
@@ -44,7 +45,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
     """
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
 
     # Three distinct desired states. A release is the digest of what the zones,
     # rules and records compile to, so any change to those produces a different
@@ -66,7 +67,7 @@ def test_a_canary_is_never_the_automatic_rollback_target(settings):
 
 def test_a_malformed_limit_is_refused_before_a_deployment_is_recorded(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     seed_site(control)
@@ -91,7 +92,7 @@ def test_newer_non_applied_runs_do_not_hide_a_deployed_site(
     settings, check_mode, status
 ):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     seed_edge(control, name="edge-a")
@@ -120,7 +121,7 @@ def test_newer_non_applied_runs_do_not_hide_a_deployed_site(
 
 def test_site_lookup_uses_only_the_newest_successful_applied_release(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     seed_edge(control, name="edge-a")
@@ -162,7 +163,7 @@ def _drifted_run():
 def test_drift_check_runs_without_changing_anything(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_in_sync_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control, name="edge-a")
     seed_site(control)
 
@@ -177,7 +178,7 @@ def test_drift_check_runs_without_changing_anything(settings):
 def test_drift_check_names_the_edges_that_moved(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control, name="edge-a")
     seed_site(control)
 
@@ -194,7 +195,7 @@ def test_drift_check_names_the_edges_that_moved(settings):
 def test_a_drift_report_can_be_reread_from_the_recorded_deployment(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     first = control.deployments.check_drift("alice")
@@ -207,7 +208,7 @@ def test_an_applied_deployment_is_not_a_drift_report(settings):
     """Its output says what it did, not what had drifted."""
     repository = Repository(settings.database_path)
     runner = FakeRunner([_drifted_run()])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_site(control)
 
     applied = control.deployments.deploy("alice")

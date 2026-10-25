@@ -41,17 +41,17 @@ implementations of compression, not separate application capabilities.
 
 ## Assembly and execution
 
-`composition.control_plane.BUILTIN_FEATURES` is the explicit application
-roster of feature modules. Every shipped feature is required and reports the
-application's version.
+`composition.roster.ROSTER` is the explicit application roster: one row per
+feature module, carrying the rendering and operations builders that module
+binds. Every shipped feature is required and reports the application's version.
 A missing or broken built-in fails startup. Package presence never enables or
 disables an internal feature. Site policy, provider configuration and the
 edge's declared capabilities decide how resources are used.
 
-The registry collects declarations from features and external plugins alike,
-and binds behaviour in two stages: rendering before the release compiler is
-built, from configuration and adapters only, and operations after every
-service exists. No feature or hook ever receives the composition root. Business calls
+The registry collects declarations from the features and binds behaviour in two
+stages: rendering before the release compiler is built, from configuration and
+adapters only, and operations after every service exists. No feature ever
+receives the composition root. Business calls
 use services through their declared ports; there is no hook-based business
 command bus. Configuration that needs no runtime registration stays a pure
 value. Role search paths and renderer insertion slots are composed from the
@@ -62,15 +62,18 @@ credential and portability rules stay with their owner. Backup composition
 receives those declarations explicitly; its filesystem adapter does not reach
 into the CLI or construct a control plane during recovery.
 
+Composition is layered. `composition.infrastructure` builds the adapters,
+`composition.services` builds the service graph once from them, and
+`composition.processes` gives each process (API, worker, CLI, installer
+handoff) a container holding only what it uses. Delivery code reads its own
+container; only the API's container runs feature startup.
+
 ## Extensions and contracts
 
-Third-party integrations may register through `blitzecdn.plugins` by
-implementing the hooks in `core.plugins.hooks`. This is an external extension
-boundary, not how the application assembles itself. A hook that is not static
-receives an `ExtensionContext` of ports and configuration — never the control
-plane or a service. The frozen hook ABI (version 2) and public SDK remain the
-contract for those integrations. An external extension must not claim a
-shipped feature's name.
+There is no third-party extension mechanism, no hook ABI and no published SDK.
+The roster is the seam one would attach to; the conditions for adding one, and
+the order it would arrive in, are in
+[ADR 0021](docs/decisions/0021-capability-roster-and-process-composition.md).
 
 Cross-capability imports use domain values, policy, ports and public reporting.
 API response-model reuse belongs to API delivery. Concrete implementations from

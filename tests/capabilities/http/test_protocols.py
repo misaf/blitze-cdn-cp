@@ -56,7 +56,6 @@ def test_baseline_http_is_a_required_capability_and_provides_no_optional_token()
     metadata = FEATURE.metadata
 
     assert metadata.name == "http"
-    assert metadata.required
     assert metadata.provides == frozenset()
     assert "http3" not in metadata.capabilities
 
@@ -99,21 +98,22 @@ def test_baseline_http_writes_the_off_listener_state_whatever_the_fleet_wants():
 def test_a_registry_without_http3_refuses_a_site_that_requests_it():
     """The one intended semantic change, asserted against the built-in set.
 
-    `load_control_plane_plugins(entry_point_group=None)` is a control plane with no
+    `load_registry()` is a control plane with no
     optional
     distribution installed at all, which is what an operator who never attached
     `blitzecdn-http3` is running.
     """
     from blitzecdn.composition import BUILTIN_FEATURES
-    from blitzecdn.core.plugins import load_plugins
+    from blitzecdn.core.plugins import PluginRegistry, load_features
 
-    builtins = load_plugins(
-        tuple(
-            path
-            for path in BUILTIN_FEATURES
-            if path.startswith("blitzecdn.capabilities.")
-        ),
-        entry_point_group=None,
+    builtins = PluginRegistry(
+        load_features(
+            tuple(
+                path
+                for path in BUILTIN_FEATURES
+                if path.startswith("blitzecdn.capabilities.")
+            )
+        )
     )
 
     assert "http3" not in builtins.capabilities

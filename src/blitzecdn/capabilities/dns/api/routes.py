@@ -3,8 +3,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Query, status
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     require_operator,
 )
 from blitzecdn.capabilities.dns.api.models import (
@@ -26,19 +26,19 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/domains", response_model=list[Domain])
-def list_domains(control: ControlPlaneDependency) -> list[Domain]:
+def list_domains(control: ServicesDependency) -> list[Domain]:
     return [Domain.from_domain(item) for item in control.dns.list_domains()]
 
 
 @router.post("/v1/domains", response_model=Domain, status_code=status.HTTP_201_CREATED)
 def create_domain(
-    domain: Domain, operator: OperatorDependency, control: ControlPlaneDependency
+    domain: Domain, operator: OperatorDependency, control: ServicesDependency
 ) -> Domain:
     return Domain.from_domain(control.dns.create_domain(domain.to_domain(), operator))
 
 
 @router.get("/v1/domains/{domain}", response_model=Domain)
-def get_domain(domain: str, control: ControlPlaneDependency) -> Domain:
+def get_domain(domain: str, control: ServicesDependency) -> Domain:
     return Domain.from_domain(control.dns.get_domain(domain))
 
 
@@ -47,7 +47,7 @@ def update_domain(
     domain: str,
     patch: DomainPatch,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Domain:
     return Domain.from_domain(
         control.dns.update_domain(
@@ -58,13 +58,13 @@ def update_domain(
 
 @router.delete("/v1/domains/{domain}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_domain(
-    domain: str, operator: OperatorDependency, control: ControlPlaneDependency
+    domain: str, operator: OperatorDependency, control: ServicesDependency
 ) -> None:
     control.dns.delete_domain(domain, operator)
 
 
 @router.get("/v1/hosts", response_model=list[CdnSite])
-def list_hosts(control: ControlPlaneDependency) -> list[CdnSite]:
+def list_hosts(control: ServicesDependency) -> list[CdnSite]:
     """The virtual hosts the zones and their rules resolve to.
 
     Its own collection rather than a sub-resource of a zone, because a host is
@@ -78,12 +78,12 @@ def list_hosts(control: ControlPlaneDependency) -> list[CdnSite]:
 
 
 @router.get("/v1/hosts/{name}", response_model=CdnSite)
-def get_host(name: str, control: ControlPlaneDependency) -> CdnSite:
+def get_host(name: str, control: ServicesDependency) -> CdnSite:
     return CdnSite.from_domain(control.sites.get_site(name))
 
 
 @router.get("/v1/domains/{domain}/records", response_model=list[DnsRecord])
-def list_records(domain: str, control: ControlPlaneDependency) -> list[DnsRecord]:
+def list_records(domain: str, control: ServicesDependency) -> list[DnsRecord]:
     return [DnsRecord.from_domain(item) for item in control.dns.list_records(domain)]
 
 
@@ -96,7 +96,7 @@ def create_record(
     domain: str,
     record: DnsRecord,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> DnsRecord:
     if record.domain != domain:
         raise ConflictError(
@@ -114,7 +114,7 @@ def update_record(
     name: str,
     patch: RecordPatch,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
 ) -> DnsRecord:
     return DnsRecord.from_domain(
@@ -131,14 +131,14 @@ def delete_record(
     domain: str,
     name: str,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     type_: Annotated[RecordType, Query(alias="type")] = RecordType.A,
 ) -> None:
     control.dns.delete_record(domain, name, type_.to_domain(), operator)
 
 
 @router.get("/v1/dns/export")
-def dns_export(control: ControlPlaneDependency) -> dict[str, Any]:
+def dns_export(control: ServicesDependency) -> dict[str, Any]:
     """Desired DNS state for whatever is authoritative for these zones.
 
     Unmodelled, and an envelope rather than a bare list. A client consuming
@@ -150,7 +150,7 @@ def dns_export(control: ControlPlaneDependency) -> dict[str, Any]:
 
 
 @router.get("/v1/domains/{domain}/rules", response_model=list[Rule])
-def list_rules(domain: str, control: ControlPlaneDependency) -> list[Rule]:
+def list_rules(domain: str, control: ServicesDependency) -> list[Rule]:
     return [Rule.from_domain(item) for item in control.rules.list_rules(domain)]
 
 
@@ -163,13 +163,13 @@ def create_rule(
     domain: str,
     rule: RuleCreate,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Rule:
     return Rule.from_domain(control.rules.create_rule(rule.to_domain(domain), operator))
 
 
 @router.get("/v1/domains/{domain}/rules/{name}", response_model=Rule)
-def get_rule(domain: str, name: str, control: ControlPlaneDependency) -> Rule:
+def get_rule(domain: str, name: str, control: ServicesDependency) -> Rule:
     return Rule.from_domain(control.rules.get_rule(domain, name))
 
 
@@ -179,7 +179,7 @@ def update_rule(
     name: str,
     patch: RulePatch,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Rule:
     return Rule.from_domain(
         control.rules.update_rule(domain, name, patch.to_domain(), operator)
@@ -193,7 +193,7 @@ def delete_rule(
     domain: str,
     name: str,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> None:
     control.rules.delete_rule(domain, name, operator)
 
@@ -204,7 +204,7 @@ def resolve_hostname(
     hostname: Annotated[
         str, Query(description="The hostname to resolve, e.g. api.example.com.")
     ],
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> ResolvedPolicy:
     """How a hostname is served, and which rule decided it.
 

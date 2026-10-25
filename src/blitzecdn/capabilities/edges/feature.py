@@ -12,8 +12,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="edges",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Register, update and decommission edge servers.",
         ),
         api_routers=(routes.router,),

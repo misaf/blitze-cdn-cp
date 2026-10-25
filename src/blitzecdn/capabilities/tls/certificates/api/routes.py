@@ -5,8 +5,8 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     WorkerPoolDependency,
     require_operator,
 )
@@ -25,13 +25,13 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 
 
 @router.get("/v1/hosts/{name}/certificate", response_model=CertificateInfo)
-def certificate(name: str, control: ControlPlaneDependency) -> CertificateInfo:
+def certificate(name: str, control: ServicesDependency) -> CertificateInfo:
     return as_operation(control.certificates.certificate(name), CertificateInfo)
 
 
 @router.get("/v1/certificates", response_model=list[CertificateStatus])
 def list_certificates(
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     expiring_in: int | None = Query(None, ge=0, le=3650),
 ) -> list[CertificateStatus]:
     """Managed certificates against the clock, soonest expiry first."""
@@ -46,7 +46,7 @@ def list_certificates(
 async def renew_certificates(
     request: RenewRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     worker_pool: WorkerPoolDependency,
 ) -> RenewalResult:
     """Reissue ACME certificates close to expiry within a bounded worker pool."""
@@ -66,7 +66,7 @@ async def renew_certificates(
 
 @router.post("/v1/certificates/reconcile", response_model=ReconciliationResult)
 def reconcile_certificates(
-    operator: OperatorDependency, control: ControlPlaneDependency
+    operator: OperatorDependency, control: ServicesDependency
 ) -> ReconciliationResult:
     """Issue first certificates for ready sites, then install them."""
     return as_operation(
@@ -79,7 +79,7 @@ def reconcile_certificates(
 async def upload_certificate(
     name: str,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     certificate: Annotated[UploadFile, File()],
     private_key: Annotated[UploadFile, File()],
 ) -> CertificateInfo:
@@ -99,7 +99,7 @@ def request_certificate(
     name: str,
     request: CertificateRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> CertificateInfo:
     return as_operation(
         control.certificates.request_certificate(
@@ -113,9 +113,7 @@ def request_certificate(
 
 
 @router.get("/v1/hosts/{name}/certificate/preflight", response_model=PreflightReport)
-def certificate_preflight(
-    name: str, control: ControlPlaneDependency
-) -> PreflightReport:
+def certificate_preflight(name: str, control: ServicesDependency) -> PreflightReport:
     """Whether HTTP-01 could validate this site right now."""
     return as_operation(
         control.certificates.certificate_preflight(name), PreflightReport

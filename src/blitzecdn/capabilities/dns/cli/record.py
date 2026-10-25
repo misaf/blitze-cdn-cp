@@ -55,7 +55,7 @@ def record_add(
         proxied=proxied,
     )
     common.emit(
-        common.control_plane().dns.create_record(record, "cli"),
+        common.services().dns.create_record(record, "cli"),
         json_output=json_output,
     )
 
@@ -72,9 +72,7 @@ def record_list(
     handed out by the DNS system. The policy behind any hostname is
     'blitzecdn domain show', and any exception to that is 'blitzecdn rule list'.
     """
-    common.emit(
-        common.control_plane().dns.list_records(domain), json_output=json_output
-    )
+    common.emit(common.services().dns.list_records(domain), json_output=json_output)
 
 
 @record_app.command("proxy")
@@ -91,7 +89,7 @@ def record_proxy(
     address is left alone — from now on it is where the edge fetches from, not
     what clients resolve to.
     """
-    record = common.control_plane().dns.proxy(domain, name, type_, "cli")
+    record = common.services().dns.proxy(domain, name, type_, "cli")
     common.emit(
         record,
         json_output=json_output,
@@ -127,7 +125,7 @@ def record_unproxy(
     The zone's policy is left as it is. If nothing else in the zone is proxied,
     it simply stops being served.
     """
-    record = common.control_plane().dns.unproxy(domain, name, type_, value, "cli")
+    record = common.services().dns.unproxy(domain, name, type_, value, "cli")
     common.emit(
         record,
         json_output=json_output,
@@ -157,7 +155,7 @@ def record_remove(
     label = f"{name}.{domain}" if name != "@" else domain
     if not yes and not typer.confirm(f"Delete {type_.value} record for {label!r}?"):
         raise typer.Abort()
-    common.control_plane().dns.delete_record(domain, name, type_, "cli")
+    common.services().dns.delete_record(domain, name, type_, "cli")
     typer.echo(f"Deleted {label}")
 
 
@@ -178,4 +176,4 @@ def dns_export(json_output: common.JsonOutput = False) -> None:
     leaves this side. The record's own value is emitted only when it is
     unproxied, which is the case where the value *is* the public answer.
     """
-    common.emit(common.control_plane().dns.dns_export(), json_output=json_output)
+    common.emit(common.services().dns.dns_export(), json_output=json_output)

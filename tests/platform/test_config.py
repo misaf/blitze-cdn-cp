@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 from paths import CORE_ANSIBLE, REPO_ROOT
 
-from blitzecdn.composition import load_control_plane_plugins
+from blitzecdn.composition import load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.plugins.resolution import resolve_capability_environment
@@ -181,7 +181,7 @@ def test_the_shipped_example_configuration_is_accepted_as_written(tmp_path):
     Resolved against the shipped plugins, which declare every capability's
     settings. Every built-in is mandatory, so none can be absent here.
     """
-    plugins = load_control_plane_plugins(entry_point_group=None)
+    plugins = load_registry()
     shutil.copy(REPO_ROOT / "blitzecdn.example.toml", tmp_path / "blitzecdn.toml")
 
     settings = Settings.from_environment({}, project_dir=tmp_path)

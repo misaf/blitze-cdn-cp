@@ -29,8 +29,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="http3",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"http3"}),
             summary="Visitor HTTP/3 over QUIC, and the edge's single QUIC listener.",
         ),

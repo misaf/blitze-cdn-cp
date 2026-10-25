@@ -104,7 +104,7 @@ def domain_firewall(
     country database on the edge. A deploy will refuse rather than silently
     serve the traffic they were meant to block.
     """
-    control = common.control_plane()
+    control = common.services()
     supplied = {
         "allow_sources": allow_source,
         "deny_sources": deny_source,

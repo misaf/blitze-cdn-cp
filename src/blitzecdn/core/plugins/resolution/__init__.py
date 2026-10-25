@@ -11,7 +11,7 @@ that is exactly why core composes them.
 
 The rules are the same in every one of them, and they are stated here once so
 they stay the same. Contributions are ordered by plugin name, never by the
-order pluggy registered them, so two controllers with the same packages
+order they were registered in, so two controllers with the same features
 installed resolve the same value. A conflict is refused with *both* owners
 named rather than resolved by first-wins, because first-wins here means a
 package silently replacing `blitzecdn_nginx` or an edge loading whichever

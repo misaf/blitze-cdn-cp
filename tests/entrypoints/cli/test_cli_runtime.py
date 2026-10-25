@@ -8,11 +8,12 @@ from cli_support import (
 )
 from control_plane_fixtures import (
     FakeRunner,
+    build_application,
 )
 
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 def test_migrate_initializes_database_without_scaffolding(tmp_path, monkeypatch):
@@ -30,12 +31,12 @@ def test_migrate_initializes_database_without_scaffolding(tmp_path, monkeypatch)
 
 def test_run_reports_domain_errors_without_a_traceback(settings, monkeypatch, capsys):
     """`run()` is outside Click, so it must exit rather than raise."""
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     monkeypatch.setattr(sys, "argv", ["blitzecdn", "record", "list", "absent.example"])
 
@@ -55,7 +56,7 @@ def test_control_plane_factory_builds_from_the_environment(settings, monkeypatch
         cli.Settings, "from_environment", classmethod(lambda cls: settings)
     )
     assert cli.common.settings() is settings
-    assert cli.common.control_plane().settings is settings
+    assert cli.common.services().settings is settings
 
 
 def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):

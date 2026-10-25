@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from control_plane_fixtures import FakeRunner, ansible_run, host_run
+from control_plane_fixtures import FakeRunner, ansible_run, build_application, host_run
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentStatus,
@@ -444,10 +444,8 @@ def test_a_deployment_records_which_edges_converged_and_which_were_not_attempted
 ):
     from control_plane_fixtures import seed_edge, seed_site
 
-    from blitzecdn.composition import ControlPlane
-
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner(

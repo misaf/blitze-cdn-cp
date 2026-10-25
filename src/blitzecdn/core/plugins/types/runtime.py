@@ -1,15 +1,13 @@
 """What a capability contributes to a running control-plane process.
 
-Commands, health checks, recurring jobs, and what a lifecycle hook is told
-about the process it woke up in. The one group here whose members hold live
-callables rather than descriptions of files.
+Commands, health checks and recurring jobs. The one group here whose members
+hold live callables rather than descriptions of files.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
@@ -18,24 +16,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
 __all__ = [
     "CliCommandGroup",
     "HealthCheck",
-    "ProcessKind",
     "ScheduledJob",
 ]
-
-
-class ProcessKind(StrEnum):
-    """Which long-running process is starting.
-
-    Startup work is not the same in all of them: republishing queued
-    deployments belongs to the API, which is the one process that owns the
-    deployment lock for the lifetime of the node, and running it from every
-    CLI invocation would take that lock a hundred times a day.
-    """
-
-    API = "api"
-    CLI = "cli"
-    WORKER = "worker"
-    SCHEDULER = "scheduler"
 
 
 @dataclass(frozen=True, slots=True)

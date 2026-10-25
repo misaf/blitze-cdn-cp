@@ -36,8 +36,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="compression",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"compression"}),
             summary="Which encodings a managed edge may produce: gzip and Brotli.",
         ),

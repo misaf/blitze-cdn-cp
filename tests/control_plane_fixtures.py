@@ -38,10 +38,12 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import CertificateMode
 from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import (
-    ControlPlane,
+    ApplicationServices,
     FleetRunner,
+    Infrastructure,
     Repository,
-    load_control_plane_plugins,
+    build_services,
+    load_registry,
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import (
@@ -71,7 +73,7 @@ def serving_probe_opens_no_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
     one against a server it starts itself.
     """
     monkeypatch.setattr(
-        "blitzecdn.composition.control_plane.ServingProbe",
+        "blitzecdn.composition.infrastructure.ServingProbe",
         lambda *args, **kwargs: FakeServingProbe(),
     )
 
@@ -99,7 +101,7 @@ def _issuer_owned_mode(policy: Mapping[str, object]) -> CertificateMode | None:
 
 
 def _set_policy(
-    control: ControlPlane,
+    control: ApplicationServices,
     domain: str,
     rule: str | None,
     policy: Mapping[str, object],
@@ -127,7 +129,7 @@ def _set_policy(
 
 
 def seed_site(
-    control: ControlPlane,
+    control: ApplicationServices,
     *,
     name: str = "example-com",
     origin: str = "198.51.100.10",
@@ -239,7 +241,7 @@ _DEFAULT_ORIGINS = {RecordType.A: "198.51.100.10", RecordType.AAAA: "2001:db8::1
 
 
 def seed_edge(
-    control: ControlPlane,
+    control: ApplicationServices,
     *,
     name: str = "edge-a",
     host: str = "192.0.2.10",
@@ -297,7 +299,7 @@ class FakeServingProbe:
 
 
 def seed_record(
-    control: ControlPlane,
+    control: ApplicationServices,
     *,
     domain: str = "example.com",
     name: str = "cdn",
@@ -678,16 +680,17 @@ def record_payload() -> dict[str, object]:
 
 
 @pytest.fixture
-def seeded(settings: Settings) -> Callable[..., tuple[ControlPlane, Repository]]:
+def seeded(settings: Settings) -> Callable[..., tuple[ApplicationServices, Repository]]:
     """A control plane holding one site with one hostname routed to it.
 
     Returns ``(control, repository)``.
     """
 
-    def build(runner: FleetRunner | None = None) -> tuple[ControlPlane, Repository]:
-
+    def build(
+        runner: FleetRunner | None = None,
+    ) -> tuple[ApplicationServices, Repository]:
         repository = Repository(settings.database_path)
-        control = ControlPlane(
+        control = build_application(
             settings=settings,
             repository=repository,
             runner=runner or FakeRunner(),
@@ -777,7 +780,7 @@ def cli_control_plane(
     settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
     runner_double: FleetRunner | None = None,
-) -> ControlPlane:
+) -> ApplicationServices:
     """A control plane wired to doubles, with the CLI pointed at it.
 
     Shared because more than one distribution's CLI tests need it: the command
@@ -785,14 +788,37 @@ def cli_control_plane(
     of `blitzecdn cache purge` drives the same root application as a test of
     `blitzecdn deploy` and needs the same substitution to do it.
     """
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_double or FakeRunner(),
     )
-    monkeypatch.setattr(cli_common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli_common, "services", lambda: control)
     monkeypatch.setattr(cli_common, "settings", lambda: settings)
     return control
+
+
+def build_application(*, settings: Settings, **adapters: Any) -> ApplicationServices:
+    """The production service graph over real adapters, except those passed.
+
+    ``adapters`` are :meth:`Infrastructure.build`'s keywords — ``repository``,
+    ``runner``, ``serving_probe`` and the rest — so a test replaces only what
+    it is about.
+    """
+    return build_services(Infrastructure.build(settings, **adapters))
+
+
+def serve(monkeypatch: pytest.MonkeyPatch, control: ApplicationServices) -> None:
+    """Make the next `create_app` lifespan serve ``control``'s services.
+
+    The API builds its infrastructure inside its lifespan, so a test that has
+    already seeded a service graph hands that one over instead.
+    """
+    monkeypatch.setattr(
+        "blitzecdn.api.app.Infrastructure.build",
+        lambda *_args, **_kwargs: control.infrastructure,
+    )
+    monkeypatch.setattr("blitzecdn.api.app.build_services", lambda _infra: control)
 
 
 def repository_on(settings: Settings) -> Repository:
@@ -808,7 +834,7 @@ def repository_on(settings: Settings) -> Repository:
 
 def control_plane_app(settings: Settings) -> FastAPI:
     """The all-package workspace API used by cross-capability integration tests."""
-    return create_app(settings, plugins=load_control_plane_plugins())
+    return create_app(settings, plugins=load_registry())
 
 
 #: The API key `settings` configures, as the header a client sends. Shared

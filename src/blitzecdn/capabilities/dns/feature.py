@@ -19,8 +19,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="dns",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="DNS zones, their policy, the rules on it, and their records.",
         ),
         api_routers=(routes.router,),

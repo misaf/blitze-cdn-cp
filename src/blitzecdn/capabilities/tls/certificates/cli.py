@@ -62,7 +62,7 @@ def cert_list(
     Exits 4 if any listed certificate has already expired, so a scheduled
     check notices without anyone reading the output.
     """
-    control = common.control_plane()
+    control = common.services()
     statuses = (
         control.certificates.expiring_certificates(expiring_in)
         if expiring_in is not None
@@ -90,7 +90,7 @@ def cert_preflight(
 
     Exits 3 if anything blocks issuance. Advisories alone do not.
     """
-    report = common.control_plane().certificates.certificate_preflight(name)
+    report = common.services().certificates.certificate_preflight(name)
     common.emit(report, json_output=json_output)
     if not json_output:
         for check in report.checks:
@@ -144,7 +144,7 @@ def cert_renew(
     Use --site to retry a single failure without sending every other
     subscription back to the CA, which is rate limited.
     """
-    control = common.control_plane()
+    control = common.services()
     result = control.certificates.renew_certificates(
         "cli",
         within_days=expiring_in,
@@ -190,7 +190,7 @@ def cert_reconcile(
     preflights never contact the CA, and the deployment runs only after at
     least one new certificate was issued.
     """
-    result = common.control_plane().certificates.reconcile_certificates("cli")
+    result = common.services().certificates.reconcile_certificates("cli")
     common.emit(result, json_output=json_output)
     deployment = result.deployment
     if result.failed or (
@@ -230,7 +230,7 @@ def cert_upload(
     """
     certificate_pem = _read_material(certificate_file, PEM_CERTIFICATE_LIMIT)
     private_key_pem = _read_material(private_key_file, PEM_PRIVATE_KEY_LIMIT)
-    info = common.control_plane().certificates.upload_certificate(
+    info = common.services().certificates.upload_certificate(
         name, certificate_pem, private_key_pem, "cli"
     )
     common.emit(info, json_output=json_output)
@@ -275,7 +275,7 @@ def cert_request(
     the case preflight cannot see, such as a resolver that answers differently
     from where the edge sits.
     """
-    info = common.control_plane().certificates.request_certificate(
+    info = common.services().certificates.request_certificate(
         name, "cli", email, skip_preflight=skip_preflight
     )
     common.emit(info, json_output=json_output)
@@ -289,5 +289,5 @@ def cert_request(
 @cert_app.command("collect")
 def cert_collect(json_output: common.JsonOutput = False) -> None:
     """Remove controller material unreferenced by policy or retained releases."""
-    removed = common.control_plane().certificates.collect_material("cli")
+    removed = common.services().certificates.collect_material("cli")
     common.emit({"removed": list(removed)}, json_output=json_output)

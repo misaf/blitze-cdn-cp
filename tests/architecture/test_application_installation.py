@@ -71,8 +71,8 @@ def test_installed_wheel_carries_every_provider_command_and_resource(
             """
 import json
 from importlib.metadata import distributions
-from blitzecdn.composition import load_control_plane_plugins
-registry = load_control_plane_plugins(entry_point_group=None)
+from blitzecdn.composition import load_registry
+registry = load_registry()
 print(json.dumps({
  "distributions": sorted(
      item.metadata["Name"] for item in distributions()

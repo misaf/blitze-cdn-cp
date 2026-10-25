@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Query, status
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     require_operator,
 )
 from blitzecdn.api.models import as_operation
@@ -26,7 +26,7 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 def deploy(
     request: DeployRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Deployment:
     """Queue a convergence; poll GET /v1/deployments/{id} for the outcome."""
     return as_operation(
@@ -39,7 +39,7 @@ def deploy(
 
 @router.get("/v1/deployments", response_model=list[Deployment])
 def deployments(
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     limit: int = Query(20, ge=1, le=100),
 ) -> list[Deployment]:
     return [
@@ -51,7 +51,7 @@ def deployments(
 @router.get("/v1/deployments/{deployment_id}", response_model=Deployment)
 def deployment(
     deployment_id: str,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Deployment:
     return as_operation(control.deployments.get_deployment(deployment_id), Deployment)
 
@@ -62,7 +62,7 @@ def deployment(
 )
 def deployment_targets(
     deployment_id: str,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> list[DeploymentTarget]:
     """How far each edge got: the per-edge half of a partial rollout.
 
@@ -82,7 +82,7 @@ def deployment_targets(
 def check_drift(
     request: DriftRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Deployment:
     return as_operation(
         control.deployments.submit_deployment(
@@ -95,7 +95,7 @@ def check_drift(
 @router.get("/v1/deployments/{deployment_id}/drift", response_model=DriftReport)
 def drift_report(
     deployment_id: str,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> DriftReport:
     return as_operation(control.deployments.drift_report(deployment_id), DriftReport)
 
@@ -108,7 +108,7 @@ def drift_report(
 def rollback(
     request: RollbackRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Deployment:
     return as_operation(
         control.deployments.submit_rollback(

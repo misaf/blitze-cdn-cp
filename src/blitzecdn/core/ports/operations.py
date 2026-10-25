@@ -25,7 +25,7 @@ class AuditTrail(Protocol):
 class PlaybookRunner(Protocol):
     """Run one named play across the edges in scope, and report structurally.
 
-    Published as ``ControlPlane.fleet``, and the only fleet capability an
+    Published as ``CliServices.fleet``, and the only fleet capability an
     installed distribution is given. Generic on purpose: core stages the
     variables file, expands a host limit against the fleet it records, applies
     the timeout, and learns nothing about what the play is for. A capability

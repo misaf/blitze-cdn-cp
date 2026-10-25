@@ -69,7 +69,7 @@ def cache_purge(
     ):
         raise typer.Abort()
     entries = [_purge_entry(value) for value in url or []]
-    result = common.control_plane().cache.purge_cache(
+    result = common.services().cache.purge_cache(
         "cli", entries=entries, purge_all=everything, host_limit=limit
     )
     common.emit(result, json_output=json_output)
@@ -119,7 +119,7 @@ def stats(
     errors nginx served itself, and sites with caching disabled are excluded
     rather than scored as misses.
     """
-    report = common.control_plane().cache.cache_stats("cli", host_limit=limit)
+    report = common.services().cache.cache_stats("cli", host_limit=limit)
     if json_output:
         common.emit(_stats_document(report, by_site=by_site), json_output=True)
         return

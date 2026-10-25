@@ -63,11 +63,11 @@ class EdgeModule:
 
 @dataclass(frozen=True, slots=True)
 class AnsibleContribution:
-    """The Ansible roles one installed plugin brings with it.
+    """The Ansible roles one feature brings with it.
 
     A capability is not complete until the deployment implementation travels
     with it. A package that owns a role ships the role inside its own wheel and
-    answers this hook with the directory it landed in; the control plane adds
+    declares the directory it landed in; the control plane adds
     that directory to Ansible's role search path and learns nothing else.
 
     Every member describes something *global* — the search path, one ordered

@@ -25,7 +25,7 @@ def _schedules() -> Sequence[Schedule]:
     through two objects to get there and reads worse than the sentence it
     stands for.
     """
-    return common.control_plane().job_scheduler.schedules.list_schedules()
+    return common.services().job_scheduler.schedules.list_schedules()
 
 
 def _row(job: object) -> dict[str, object]:
@@ -65,9 +65,7 @@ def job_list(
     common.emit(
         [
             _row(job)
-            for job in common.control_plane().job_queue.list_jobs(
-                status=status, limit=limit
-            )
+            for job in common.services().job_queue.list_jobs(status=status, limit=limit)
         ],
         json_output=json_output,
     )
@@ -89,9 +87,7 @@ def job_show(
     Expiry permits a claim; it does not guarantee immediate or successful work.
     Do not edit queue rows or submit duplicate work to bypass the wait.
     """
-    common.emit(
-        _row(common.control_plane().job_queue.get(job_id)), json_output=json_output
-    )
+    common.emit(_row(common.services().job_queue.get(job_id)), json_output=json_output)
 
 
 @job_app.command("schedules")

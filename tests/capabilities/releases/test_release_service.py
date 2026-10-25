@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from control_plane_fixtures import FakeRunner, seed_record, seed_site
+from control_plane_fixtures import FakeRunner, build_application, seed_record, seed_site
 
 from blitzecdn.capabilities.dns.domain import (
     Domain,
@@ -26,7 +26,7 @@ from blitzecdn.capabilities.releases.domain import (
     DESIRED_STATE_ARTIFACT,
     UnservableReleaseError,
 )
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import NotFoundError
 
@@ -34,7 +34,7 @@ from blitzecdn.core.exceptions import NotFoundError
 @pytest.fixture
 def control(settings):
     repository = Repository(settings.database_path)
-    return ControlPlane(
+    return build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     ), repository
 

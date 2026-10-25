@@ -7,12 +7,12 @@ from typing import Annotated, cast
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
 
-from blitzecdn.composition import ControlPlane
+from blitzecdn.composition import ApiServices
 from blitzecdn.core.config import Settings
 
 
-def get_control_plane(request: Request) -> ControlPlane:
-    return cast(ControlPlane, request.app.state.control_plane)
+def get_services(request: Request) -> ApiServices:
+    return cast(ApiServices, request.app.state.services)
 
 
 def get_settings(request: Request) -> Settings:
@@ -61,6 +61,6 @@ def require_operator(
     )
 
 
-ControlPlaneDependency = Annotated[ControlPlane, Depends(get_control_plane)]
+ServicesDependency = Annotated[ApiServices, Depends(get_services)]
 OperatorDependency = Annotated[str, Depends(require_operator)]
 WorkerPoolDependency = Annotated[ThreadPoolExecutor, Depends(get_worker_pool)]

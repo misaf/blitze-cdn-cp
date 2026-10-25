@@ -82,7 +82,7 @@ def test_deploy_can_issue_ready_certificates_and_install_them(settings, monkeypa
         "_issue_certificate_locked",
         lambda target, *_args, **_kwargs: requested.append(target.name),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: configured)
 
     result = runner.invoke(
@@ -123,7 +123,7 @@ def test_deploy_does_not_contact_ca_when_certificate_preflight_blocks(
     monkeypatch.setattr(
         control.certificates, "_issue_certificate_locked", _unexpected_request
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
 
     result = runner.invoke(
         cli.app, ["deploy", "--yes", "--request-certificates", "--json"]

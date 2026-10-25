@@ -18,7 +18,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
+from blitzecdn.api.dependencies import ServicesDependency, require_operator
 from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.releases.api.models import Release, ReleaseDetail
 
@@ -47,7 +47,7 @@ def _summary(release: Any) -> dict[str, Any]:
 
 @router.get("/v1/releases", response_model=list[Release])
 def releases(
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     limit: int = Query(20, ge=1, le=100),
 ) -> list[Release]:
     """Recorded releases, newest first."""
@@ -59,7 +59,7 @@ def releases(
 
 @router.get("/v1/releases/current", response_model=ReleaseDetail)
 def current_release(
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     host_limit: str | None = Query(default=None, max_length=512),
 ) -> ReleaseDetail:
     """What canonical state compiles to right now, without recording it.
@@ -74,7 +74,7 @@ def current_release(
 
 
 @router.get("/v1/releases/{release_id}", response_model=ReleaseDetail)
-def release(release_id: str, control: ControlPlaneDependency) -> ReleaseDetail:
+def release(release_id: str, control: ServicesDependency) -> ReleaseDetail:
     """One recorded release, with the explanation of every host in it."""
     return as_operation(_summary(control.releases.get(release_id)), ReleaseDetail)
 
@@ -83,9 +83,7 @@ def release(release_id: str, control: ControlPlaneDependency) -> ReleaseDetail:
     "/v1/releases/{release_id}/artifacts/{name}",
     status_code=status.HTTP_200_OK,
 )
-def artifact(
-    release_id: str, name: str, control: ControlPlaneDependency
-) -> dict[str, Any]:
+def artifact(release_id: str, name: str, control: ServicesDependency) -> dict[str, Any]:
     """One artifact document, exactly as the edges were handed it.
 
     Unmodelled on purpose: the document is a mapping of Ansible variables whose

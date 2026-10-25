@@ -33,7 +33,6 @@ import frozen_surfaces as surfaces
 import pytest
 from frozen_surfaces import FROZEN
 from paths import REPO_ROOT
-from published_surface import _PUBLIC_SDK_PREFIXES, facade_private_modules
 
 
 def _compare(name: str, current: str) -> None:
@@ -71,14 +70,6 @@ def test_the_http_api_is_what_it_was(settings):
     _compare("http", surfaces.http_surface(settings))
 
 
-def test_the_plugin_abi_is_what_it_was():
-    _compare("plugin_abi", surfaces.plugin_abi_surface())
-
-
-def test_the_published_sdk_is_what_it_was():
-    _compare("sdk", surfaces.sdk_surface(_PUBLIC_SDK_PREFIXES))
-
-
 def test_the_ansible_interface_is_what_it_was():
     _compare("ansible", surfaces.ansible_surface())
 
@@ -104,8 +95,6 @@ def test_every_surface_found_something_to_freeze(settings):
     floors = {
         "cli": (surfaces.cli_surface(), 40),
         "http": (surfaces.http_surface(settings), 150),
-        "plugin_abi": (surfaces.plugin_abi_surface(), 50),
-        "sdk": (surfaces.sdk_surface(_PUBLIC_SDK_PREFIXES), 100),
         "ansible": (surfaces.ansible_surface(), 100),
         "schema": (surfaces.schema_surface(), 40),
     }
@@ -134,30 +123,6 @@ def test_the_command_line_needs_no_database_to_describe_itself():
 
     assert main.app.registered_groups
     assert "domain" in {group.name for group in main.app.registered_groups}
-
-
-def test_what_the_sdk_publishes_is_what_a_wheel_is_allowed_to_import():
-    """The two halves of the narrowing, checked against each other.
-
-    A published name is pinned at its shallowest path here, and a wheel is
-    refused the deeper one by `test_an_optional_package_imports_only_public_
-    contracts`. Those are two derivations of one idea — that a module behind a
-    façade is an implementation detail — written in different files against
-    different data, and either could drift into disagreeing with the other.
-
-    Disagreement in one direction leaves a module a wheel may import and
-    nothing pins, which is the freeze the golden was supposed to provide. In
-    the other it leaves a name pinned at a path no wheel may use, which is a
-    promise nobody can accept. So neither is allowed: a module the import rule
-    calls private contributes no line to this surface.
-    """
-    private = facade_private_modules()
-    published = {
-        line.split("\t")[2].rsplit(".", 1)[0]
-        for line in surfaces.sdk_surface(_PUBLIC_SDK_PREFIXES).splitlines()
-        if line
-    }
-    assert published & private == set()
 
 
 def test_the_compatibility_policy_cites_things_that_exist():

@@ -16,8 +16,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="origins",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"origins"}),
             summary="Probe every site's origin from the edges that proxy to it.",
         ),

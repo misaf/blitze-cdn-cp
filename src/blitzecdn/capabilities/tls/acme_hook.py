@@ -23,7 +23,7 @@ def main() -> int:
         return _fail("invalid ACME challenge environment")
     if action == "present" and not _VALIDATION.fullmatch(validation):
         return _fail("invalid ACME validation value")
-    control = common.control_plane()
+    control = common.services()
     try:
         run = control.fleet.run_playbook(
             name="acme-challenge",

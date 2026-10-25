@@ -13,12 +13,13 @@ from __future__ import annotations
 from control_plane_fixtures import (
     FakeRunner,
     ansible_run,
+    build_application,
     host_run,
     origin_report,
     seed_site,
 )
 
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 def origin_checks(
@@ -51,7 +52,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"), origin_report("edge-b"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     seed_site(control)
 
     report = control.origins.check_origins("alice", host_limit="edge-*")
@@ -68,7 +69,7 @@ def test_origins_are_probed_by_the_edges_not_the_controller(settings, site_paylo
 def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
     """The distinction a single vantage point could never have made."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner(
@@ -92,7 +93,7 @@ def test_an_origin_only_some_edges_can_reach_names_them(settings, site_payload):
 def test_a_silent_edge_is_not_a_passing_edge(settings, site_payload):
     """An edge that said nothing has not confirmed anything."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(origin_report("edge-a"), host_run("edge-b"))]),
@@ -109,7 +110,7 @@ def test_a_disabled_site_is_not_probed(settings, site_payload):
     """The edge will not proxy to it, so its origin being down says nothing."""
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     seed_site(control, enabled=False)
 
     control.origins.check_origins("alice")
@@ -126,7 +127,7 @@ def test_the_check_takes_no_deployment_lock(settings, site_payload):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(origin_report("edge-a"))])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     seed_site(control)
 
     control.origins.check_origins("alice")

@@ -6,7 +6,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 from blitzecdn import __version__
-from blitzecdn.api.dependencies import get_control_plane
+from blitzecdn.api.dependencies import get_services
 from blitzecdn.capabilities.deployments.api import routes as deployment_routes
 from blitzecdn.capabilities.diagnostics.api import readiness as diagnostics
 from blitzecdn.capabilities.diagnostics.api import routes as diagnostic_routes
@@ -15,7 +15,7 @@ from blitzecdn.capabilities.dns.api import routes as zone_routes
 from blitzecdn.capabilities.edges.api import routes as edge_routes
 
 
-def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
+def test_routes_are_domain_modules_and_services_are_a_dependency():
     """Every router this *distribution* ships, and where its endpoints live.
 
     Scoped to the control plane's own routers on purpose. An optional
@@ -62,7 +62,7 @@ def test_routes_are_domain_modules_and_control_plane_is_a_dependency():
 
     for route in routes:
         if route.path in {"/health", "/metrics"} or route.path.startswith("/v1/"):
-            assert get_control_plane in dependency_calls(route), route.path
+            assert get_services in dependency_calls(route), route.path
 
 
 def test_openapi_documents_core_control_workflows(settings):

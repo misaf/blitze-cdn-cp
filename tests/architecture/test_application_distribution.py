@@ -8,7 +8,7 @@ from pathlib import Path
 
 from paths import REPO_ROOT, SOURCE
 
-from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 
 
@@ -22,8 +22,8 @@ def test_one_distribution_owns_the_application_and_all_internal_providers():
     assert not any(requirement.startswith("blitzecdn-") for requirement in requirements)
 
 
-def test_all_shipped_providers_are_required_and_share_the_application_version():
-    registry = load_control_plane_plugins(entry_point_group=None)
+def test_all_shipped_features_share_the_application_version():
+    registry = load_registry()
     version = importlib.metadata.version("blitzecdn")
     declared = [
         feature
@@ -32,10 +32,7 @@ def test_all_shipped_providers_are_required_and_share_the_application_version():
     ]
     assert len(registry.plugins) == len(declared)
     assert len(set(BUILTIN_FEATURES)) == len(BUILTIN_FEATURES)
-    assert all(
-        provider.required and provider.version == version
-        for provider in registry.plugins
-    )
+    assert all(provider.version == version for provider in registry.plugins)
     assert {
         "backup",
         "cache",
@@ -48,7 +45,6 @@ def test_all_shipped_providers_are_required_and_share_the_application_version():
         "resolver",
         "security",
     } <= registry.capabilities
-    assert registry.rejected == ()
     for module in BUILTIN_FEATURES:
         assert Path(importlib.import_module(module).__file__).is_relative_to(SOURCE)
 
@@ -89,7 +85,7 @@ def test_focused_runtime_providers_have_no_business_services_or_delivery_layers(
 
 
 def test_every_declared_role_and_nginx_fragment_is_owned_by_the_application():
-    registry = load_control_plane_plugins(entry_point_group=None)
+    registry = load_registry()
     owners = set()
     for contribution in registry.ansible_contributions():
         assert contribution.roles_path.is_relative_to(SOURCE)

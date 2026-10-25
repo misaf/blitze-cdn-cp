@@ -1,5 +1,10 @@
 # One application with focused runtime providers
 
+Amended by [0021](0021-capability-roster-and-process-composition.md): the
+third-party entry-point seam, hook ABI and public SDK described below are
+removed, and `composition/control_plane.py` is replaced by the roster,
+infrastructure, service graph and per-process containers.
+
 ## Context
 
 Ten independently installed distributions implemented features of one control

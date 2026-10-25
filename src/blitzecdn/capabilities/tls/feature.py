@@ -30,8 +30,6 @@ TLS = Feature(
     metadata=PluginMetadata(
         name="tls",
         version=__version__,
-        api_version=2,
-        required=True,
         summary="Stable edge-encryption policy and TLS modes.",
     ),
 )
@@ -40,8 +38,6 @@ CERTIFICATES = Feature(
     metadata=PluginMetadata(
         name="certificates",
         version=certificates_version,
-        api_version=2,
-        required=True,
         provides=frozenset({"certificates"}),
         summary="Certificate upload, ACME renewal, and Automatic SSL/TLS.",
     ),

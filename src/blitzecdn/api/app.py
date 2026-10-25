@@ -11,46 +11,49 @@ from pydantic import ValidationError
 from blitzecdn import __version__
 from blitzecdn.api.access import AllowedIPsMiddleware
 from blitzecdn.composition import (
-    build_control_plane,
-    load_control_plane_plugins,
+    Infrastructure,
+    build_api,
+    build_services,
+    load_registry,
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
-from blitzecdn.core.plugins import PluginRegistry, ProcessKind
+from blitzecdn.core.plugins import PluginRegistry
 
 
 def create_app(
     settings: Settings | None = None, plugins: PluginRegistry | None = None
 ) -> FastAPI:
     resolved = settings or Settings.from_environment()
-    # Discovered once and used twice: the routers below need no services, and
-    # the control plane the lifespan builds is handed the same registry rather
-    # than repeating discovery. `plugins` is injectable so a test can serve an
-    # app built from exactly the plugins the test is about.
-    registry = plugins if plugins is not None else load_control_plane_plugins()
+    # Loaded once and used twice: the routers below need no services, and the
+    # infrastructure the lifespan builds is handed the same registry rather
+    # than loading it again. `plugins` is injectable so a test can serve an
+    # app built from exactly the features the test is about.
+    registry = plugins if plugins is not None else load_registry()
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         with ExitStack() as resources:
-            control = build_control_plane(
-                resolved,
-                pool_connections=True,
-                process=ProcessKind.API,
-                plugins=registry,
+            services = build_api(
+                build_services(
+                    Infrastructure.build(
+                        resolved, pool_connections=True, plugins=registry
+                    )
+                )
             )
-            resources.callback(control.close)
+            resources.callback(services.close)
             worker_pool = ThreadPoolExecutor(
                 max_workers=resolved.api_worker_threads,
                 thread_name_prefix="blitzecdn-worker",
             )
-            # Drain in-flight work before shutting down plugins and stores.
+            # Drain in-flight work before shutting down features and stores.
             # Every acquired resource is released even if startup or another
             # cleanup callback raises.
-            resources.callback(control.stop)
+            resources.callback(services.stop)
             resources.callback(worker_pool.shutdown, wait=True)
-            application.state.control_plane = control
+            application.state.services = services
             application.state.worker_pool = worker_pool
-            control.start()
+            services.start()
             yield
 
     application = FastAPI(
@@ -83,8 +86,7 @@ def create_app(
 
     _register_exception_handlers(application)
     # The application does not know which capabilities exist. Every router is a
-    # plugin's contribution, in registration order, so a separately installed
-    # package adds routes without a line changing here.
+    # feature's contribution, in roster order.
     for router in registry.api_routers():
         application.include_router(router)
     return application

@@ -8,7 +8,7 @@ workflow too, and reads it back through the same endpoint.
 
 from fastapi import APIRouter, Depends, Query
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
+from blitzecdn.api.dependencies import ServicesDependency, require_operator
 from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.workflows.api.models import Workflow
 
@@ -17,7 +17,7 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 
 @router.get("/v1/workflows", response_model=list[Workflow])
 def list_workflows(
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     limit: int = Query(default=100, ge=1, le=1000),
 ) -> list[Workflow]:
     """Durable progress for operations that crossed external systems."""
@@ -30,6 +30,6 @@ def list_workflows(
 @router.get("/v1/workflows/{workflow_id}", response_model=Workflow)
 def get_workflow(
     workflow_id: str,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> Workflow:
     return as_operation(control.workflow_history.get(workflow_id), Workflow)

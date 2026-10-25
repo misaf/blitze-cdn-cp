@@ -19,7 +19,7 @@ deployment_app = typer.Typer()
 @deployment_app.command()
 def validate(json_output: common.JsonOutput = False) -> None:
     """Validate configuration, desired state, inventory, and playbook syntax."""
-    errors = common.control_plane().deployments.validate()
+    errors = common.services().deployments.validate()
     common.emit({"valid": not errors, "errors": errors}, json_output=json_output)
     if errors:
         raise typer.Exit(ExitCode.CONFIGURATION)
@@ -31,9 +31,7 @@ def plan(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Run Ansible check mode and show the resulting deployment record."""
-    result = common.control_plane().deployments.deploy(
-        "cli", check=True, host_limit=limit
-    )
+    result = common.services().deployments.deploy("cli", check=True, host_limit=limit)
     common.emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -56,7 +54,7 @@ def deploy(
     no. Giving those up is --skip-preflight, separately, because a caller that
     cannot answer a prompt is not thereby a caller that wants no checks.
     """
-    control = common.control_plane()
+    control = common.services()
     if not skip_preflight:
         errors = control.deployments.validate()
         if errors:
@@ -113,9 +111,7 @@ def rollback(
         )
     ):
         raise typer.Abort()
-    result = common.control_plane().deployments.rollback(
-        "cli", deployment_id, check=check
-    )
+    result = common.services().deployments.rollback("cli", deployment_id, check=check)
     common.emit(result, json_output=json_output)
     if result.status is not DeploymentStatus.SUCCEEDED:
         raise typer.Exit(ExitCode.DEPLOYMENT_FAILED)
@@ -131,7 +127,7 @@ def drift(
     Changes nothing: it is a check-mode run read as a question. Exits 6 when a
     reachable edge would change, so it can be scheduled and alerted on.
     """
-    report = common.control_plane().deployments.check_drift("cli", host_limit=limit)
+    report = common.services().deployments.check_drift("cli", host_limit=limit)
     common.emit(
         {
             "deployment_id": report.deployment_id,
@@ -182,7 +178,7 @@ def status(
     stopped rollout the difference is the difference between a fleet that is
     fine and one running two configurations.
     """
-    deployments = common.control_plane().deployments
+    deployments = common.services().deployments
     if not deployment_id:
         common.emit(deployments.list_deployments(limit), json_output=json_output)
         return

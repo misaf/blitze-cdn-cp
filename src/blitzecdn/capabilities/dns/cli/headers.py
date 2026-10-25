@@ -56,7 +56,7 @@ def domain_visitor_headers(
 
     Options you do not name are left as they are.
     """
-    control = common.control_plane()
+    control = common.services()
     supplied = {"connecting_ip": connecting_ip, "ip_country": ip_country}
     named = {field: value for field, value in supplied.items() if value is not None}
     if not named:

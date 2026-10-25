@@ -3,7 +3,7 @@
 from contextlib import contextmanager
 
 import pytest
-from control_plane_fixtures import FakeRunner
+from control_plane_fixtures import FakeRunner, build_application
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.dns.domain import (
@@ -16,7 +16,7 @@ from blitzecdn.capabilities.dns.domain import (
 from blitzecdn.capabilities.dns.service import DnsService
 from blitzecdn.capabilities.security.policy import SiteFirewall
 from blitzecdn.capabilities.serving.policy import SitePolicy
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 def test_selective_firewall_intent_covers_the_contract_lists():
@@ -85,7 +85,7 @@ def test_selective_edit_observes_another_writer_at_transaction_entry(
     settings, earlier, later, expected
 ):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     control.dns.create_domain(Domain(name="example.com"), "setup")
@@ -115,7 +115,7 @@ def test_selective_edit_observes_another_writer_at_transaction_entry(
 
 
 def test_failed_merged_validation_does_not_write_policy_or_audit(settings):
-    control = ControlPlane(settings=settings, runner=FakeRunner())
+    control = build_application(settings=settings, runner=FakeRunner())
     original = Domain(
         name="example.com",
         policy=SitePolicy.from_settings({"firewall": {"allowed_countries": ["DE"]}}),
@@ -131,7 +131,7 @@ def test_failed_merged_validation_does_not_write_policy_or_audit(settings):
 
 
 def test_audit_failure_rolls_back_the_policy_write(settings):
-    control = ControlPlane(settings=settings, runner=FakeRunner())
+    control = build_application(settings=settings, runner=FakeRunner())
     original = control.dns.create_domain(Domain(name="example.com"), "setup")
     before = control.audit.list_audit_events()
 

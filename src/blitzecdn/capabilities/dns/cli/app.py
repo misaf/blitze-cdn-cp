@@ -31,7 +31,7 @@ __all__ = ["dns_app", "domain_app", "record_app", "rule_app"]
 
 
 def _update(name: str, patch: DomainPatch) -> Domain:
-    return common.control_plane().dns.update_domain(
+    return common.services().dns.update_domain(
         name, PatchPolicy.from_patch(patch), "cli"
     )
 
@@ -58,9 +58,7 @@ def _applied(zone: Domain, message: str) -> str:
     stops an operator tuning cache headers on a zone that serves no traffic and
     wondering why nothing changed.
     """
-    if any(
-        record.proxied for record in common.control_plane().dns.list_records(zone.name)
-    ):
+    if any(record.proxied for record in common.services().dns.list_records(zone.name)):
         return f"{message} Run 'blitzecdn deploy' to apply."
     return (
         f"{message} Nothing in {zone.name!r} is proxied yet, so nothing is "
