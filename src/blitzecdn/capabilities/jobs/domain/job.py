@@ -34,6 +34,7 @@ you, and the part that makes "at least once" safe to rely on.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Any, Self
@@ -42,12 +43,16 @@ from pydantic import BaseModel, ConfigDict, Field
 
 __all__ = [
     "DEFAULT_LEASE_SECONDS",
+    "DONE",
     "MAX_BACKOFF_SECONDS",
-    "DeferredJobError",
+    "Defer",
+    "Done",
+    "Fail",
     "Job",
     "JobClaim",
+    "JobOutcome",
     "JobStatus",
-    "PermanentJobError",
+    "Retry",
     "backoff_for",
     "is_terminal",
 ]
@@ -177,16 +182,48 @@ class JobClaim(BaseModel):
         return cls(job=job, fence=job.fence)
 
 
-class DeferredJobError(Exception):
-    """Work could not start; defer it without spending an execution attempt."""
+@dataclass(frozen=True, slots=True)
+class Done:
+    """The work is finished."""
 
 
-class PermanentJobError(Exception):
-    """A handler's way of saying a retry would find the same answer.
+@dataclass(frozen=True, slots=True)
+class Retry:
+    """The work failed in a way another attempt may not; back off and retry.
 
-    The queue retries what a handler raises, with backoff, because the failures
-    it expects are transient. Some are not, and the handler is the only party
-    that can tell: a deployment its worker died in the middle of has been
-    abandoned, and running the job again would find it abandoned again. Raising
-    this fails the job at once and records the message as its error.
+    Spends the attempt it ran under, so a job that keeps returning this ends
+    failed once its attempts are exhausted.
     """
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Defer:
+    """The work could not start; put it back without spending an attempt.
+
+    For contention that clears on its own, such as the fleet-wide deployment
+    lock being held by another deployment.
+    """
+
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class Fail:
+    """The work failed, and a retry would meet the same answer.
+
+    Only the handler can tell: a deployment that finished failed is failed on
+    every redelivery, so its job fails at once with the recorded reason.
+    """
+
+    reason: str
+
+
+#: What a handler reports. An exception escaping a handler is not one of
+#: these: it is an unexpected error, retried like ``Retry`` and logged with its
+#: traceback.
+JobOutcome = Done | Retry | Defer | Fail
+
+#: The one ``Done``, so a handler can say ``return DONE``.
+DONE = Done()

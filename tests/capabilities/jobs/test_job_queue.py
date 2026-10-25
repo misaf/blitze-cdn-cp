@@ -16,9 +16,11 @@ import pytest
 from sqlalchemy import event
 
 from blitzecdn.capabilities.jobs.domain import (
-    DeferredJobError,
+    DONE,
+    Defer,
+    Fail,
     JobStatus,
-    PermanentJobError,
+    Retry,
     backoff_for,
 )
 from blitzecdn.capabilities.jobs.service import JobQueue
@@ -59,6 +61,7 @@ def queue_for(
 def ran(record: list[str], name: str):
     def handler(payload):
         record.append(f"{name}:{payload.get('id', '')}")
+        return DONE
 
     return handler
 
@@ -79,7 +82,7 @@ def test_a_queued_job_is_claimed_and_run(repository):
 
 def test_a_job_is_not_claimed_before_it_is_available(repository):
     clock = Clock()
-    queue = queue_for(repository, clock=clock, handlers={"work": lambda _p: None})
+    queue = queue_for(repository, clock=clock, handlers={"work": lambda _p: DONE})
     queue.jobs.enqueue(
         kind="work", payload={}, available_at=_START + timedelta(seconds=30)
     )
@@ -145,7 +148,7 @@ def test_a_job_delivered_twice_runs_its_handler_twice_and_that_is_declared(
     clock = Clock()
     calls: list[int] = []
     queue = queue_for(
-        repository, clock=clock, handlers={"work": lambda _p: calls.append(1)}
+        repository, clock=clock, handlers={"work": lambda _p: calls.append(1) or DONE}
     )
     queue.jobs.enqueue(kind="work", payload={}, available_at=_START)
 
@@ -157,7 +160,7 @@ def test_a_job_delivered_twice_runs_its_handler_twice_and_that_is_declared(
         repository,
         worker="worker-b",
         clock=clock,
-        handlers={"work": lambda _p: calls.append(2)},
+        handlers={"work": lambda _p: calls.append(2) or DONE},
     )
     second.run_one()
 
@@ -354,7 +357,7 @@ def test_deferring_work_preserves_the_budget_for_real_failures(repository):
         calls.append(1)
         if len(calls) in (1, 7):
             raise RuntimeError("execution failed")
-        raise DeferredJobError("waiting for a resource")
+        return Defer("waiting for a resource")
 
     queue = queue_for(
         repository, clock=clock, handlers={"work": blocked_between_failures}
@@ -459,7 +462,7 @@ def test_a_job_whose_kind_has_no_handler_fails_permanently(repository):
 
 def test_pruning_removes_finished_jobs_and_never_pending_ones(repository):
     """A pending job is work nobody has done. Losing one loses a deployment."""
-    queue = queue_for(repository, handlers={"work": lambda _p: None}, retention=1)
+    queue = queue_for(repository, handlers={"work": lambda _p: DONE}, retention=1)
     for index in range(3):
         queue.jobs.enqueue(kind="work", payload={"id": str(index)}, available_at=_START)
         queue.run_one()
@@ -525,7 +528,7 @@ def test_an_enqueue_landing_mid_claim_waits_instead_of_failing_the_claim(setting
 
 
 def test_a_handler_can_say_a_retry_would_meet_the_same_answer(repository):
-    """`PermanentJobError` fails at once, attempts left or not.
+    """`Fail` fails at once, attempts left or not.
 
     The other permanent case beside a missing handler, and the one a handler
     decides for itself: a deployment that was abandoned is abandoned on every
@@ -535,7 +538,7 @@ def test_a_handler_can_say_a_retry_would_meet_the_same_answer(repository):
 
     def abandoned(_payload):
         attempts.append(1)
-        raise PermanentJobError("deployment dep-1 was abandoned")
+        return Fail("deployment dep-1 was abandoned")
 
     queue = queue_for(repository, handlers={"work": abandoned})
     job = queue.jobs.enqueue(
@@ -584,3 +587,34 @@ def test_a_publishing_queue_is_given_its_handlers_once(repository):
     assert record == ["work:a"]
     with pytest.raises(RuntimeError, match="already has its handlers"):
         queue.consume_with({})
+
+
+def test_a_retry_outcome_spends_an_attempt_and_records_its_reason(repository):
+    clock = Clock()
+    queue = queue_for(
+        repository, clock=clock, handlers={"work": lambda _p: Retry("edge busy")}
+    )
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=2
+    )
+
+    queue.run_one()
+
+    retried = queue.get(job.id)
+    assert retried.status is JobStatus.PENDING
+    assert retried.attempts == 1
+    assert retried.last_error == "edge busy"
+
+
+def test_a_handler_that_returns_no_outcome_fails_permanently(repository):
+    """Returning nothing is a programming error, not an implicit success."""
+    queue = queue_for(repository, handlers={"work": lambda _p: None})
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=_START, max_attempts=3
+    )
+
+    queue.run_one()
+
+    failed = queue.get(job.id)
+    assert failed.status is JobStatus.FAILED
+    assert "not a job outcome" in (failed.last_error or "")
