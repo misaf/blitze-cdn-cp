@@ -157,53 +157,15 @@ class PlaybookExecutor:
         event_handler: RunnerEvents,
     ) -> Any:
         """Execute through Ansible Runner without exposing it above this adapter."""
-        resources_by_context = self._contributions.nginx_resources
         options = [
             "--extra-vars",
             f"@{request.variables}",
             # What is installed, on the command line rather than in the
-            # variables file. The variables file for a deployment *is* the
-            # desired-state snapshot — the document a rollback converges months
-            # later — and the set of installed packages is not desired state:
-            # pinning it would make a rollback try to run a capability role
-            # that has since been detached. Every run gets the list as it is
-            # now, and a play that has no use for it ignores it.
-            #
-            # Nothing secret goes here. These are role names, which are already
-            # readable in every wheel on the controller; credentials reach
-            # Ansible through the environment precisely so they stay out of the
+            # variables file; see `EdgeContributions.variables`. Credentials
+            # reach Ansible through the environment so they stay out of the
             # process table.
             "--extra-vars",
-            json.dumps(
-                {
-                    "blitzecdn_capability_roles": list(self._contributions.edge_roles),
-                    "blitzecdn_host_capability_roles": list(
-                        self._contributions.host_roles
-                    ),
-                    "blitzecdn_edge_teardown_capability_roles": list(
-                        self._contributions.teardown_roles
-                    ),
-                    "blitzecdn_nginx_modules": [
-                        {
-                            "plugin": module.plugin,
-                            "name": module.name,
-                            "objects": list(module.objects),
-                        }
-                        for module in self._contributions.edge_modules
-                    ],
-                    "blitzecdn_nginx_resources": {
-                        context: [
-                            {
-                                "plugin": resource.plugin,
-                                "name": resource.name,
-                                "template": str(resource.template),
-                            }
-                            for resource in resources
-                        ]
-                        for context, resources in resources_by_context.items()
-                    },
-                }
-            ),
+            json.dumps(self._contributions.variables()),
         ]
         if request.tags:
             options.extend(("--tags", ",".join(request.tags)))

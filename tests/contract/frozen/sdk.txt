@@ -23,6 +23,7 @@ blitzecdn	sdk	blitzecdn.core.config.is_portable_config_key	def(name: str) -> boo
 blitzecdn	sdk	blitzecdn.core.config.is_portable_environment_key	def(name: str) -> bool
 blitzecdn	sdk	blitzecdn.core.config.settings_payload	def(environment: Mapping[str, str] | None = None, project_dir: Path | None = None) -> dict[str, object]
 blitzecdn	sdk	blitzecdn.core.domain.audit.AuditEvent	class(BaseModel)
+blitzecdn	sdk	blitzecdn.core.domain.configuration.ConfigurationBundle	class(object)
 blitzecdn	sdk	blitzecdn.core.domain.documents.canonical_document	def(value: object) -> str
 blitzecdn	sdk	blitzecdn.core.domain.documents.read_document	def(content: str) -> dict[str, Any]
 blitzecdn	sdk	blitzecdn.core.domain.events.DomainEvent	class(BaseModel)

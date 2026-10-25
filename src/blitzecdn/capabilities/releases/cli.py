@@ -1,6 +1,6 @@
 """Reading compiled releases from the command line.
 
-Four verbs and no way to create one, for the same reason the routes are
+Five verbs and no way to create one, for the same reason the routes are
 read-only: a release is what canonical state compiles to, so the way to get a
 different one is to change a zone, a rule or a record. ``blitzecdn release
 show`` with no argument compiles the current state and records nothing, which
@@ -10,6 +10,9 @@ send, and why does this hostname look like that".
 
 from __future__ import annotations
 
+import json
+import os
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -137,6 +140,48 @@ def release_artifact(
             "name": artifact.name,
             "digest": artifact.digest,
             "document": artifact.document,
+        },
+        json_output=json_output,
+    )
+
+
+@release_app.command("render")
+def release_render(
+    output: Annotated[
+        Path, typer.Option("--output", "-o", help="An empty or missing directory.")
+    ],
+    release_id: Annotated[str | None, typer.Option("--release")] = None,
+    json_output: common.JsonOutput = False,
+) -> None:
+    """Write the edge configuration tree a release renders to, as an edge would.
+
+    The tree is the candidate an edge serves from, links included, with a
+    `manifest.json` in the format the edge seals it with — so what reaches an
+    edge can be read, diffed and reviewed before a deploy.
+    """
+    if output.exists() and any(output.iterdir()):
+        raise typer.BadParameter(f"{output} is not empty", param_hint="--output")
+    releases = common.control_plane().releases
+    release = releases.get(release_id) if release_id else releases.compile()
+    bundle = releases.render(release)
+    for name, content in bundle.files.items():
+        path = output / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(content)
+    for name, target in bundle.links.items():
+        path = output / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        os.symlink(target, path)
+    (output / "manifest.json").write_text(
+        json.dumps(bundle.manifest(), sort_keys=True), encoding="utf-8"
+    )
+    common.emit(
+        {
+            "release": release.id,
+            "bundle": bundle.digest,
+            "files": len(bundle.files),
+            "links": len(bundle.links),
+            "output": str(output),
         },
         json_output=json_output,
     )

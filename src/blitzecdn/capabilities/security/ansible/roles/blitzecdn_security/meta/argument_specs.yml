@@ -41,3 +41,4 @@ argument_specs:
           Environment-provisioned HMAC secret; at least 32 bytes and never
           stored in desired state or the fleet settings database.
       blitzecdn_security_under_attack_js_file: {type: path, required: true}
+      blitzecdn_security_under_attack_key_file: {type: path, required: true}

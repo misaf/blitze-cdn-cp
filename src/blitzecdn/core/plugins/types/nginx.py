@@ -23,6 +23,11 @@ class NginxContribution:
     phase before dispatch, and one upstream location after dispatch.  They are
     enough for current capabilities without allowing a package to replace a
     complete server block or turning Pluggy into a templating API.
+
+    ``module_fragments`` are not Nginx configuration but executable njs
+    modules, rendered into the runtime's modules directory under their name
+    without ``.j2``. They ship in the configuration release, so they must not
+    carry a secret.
     """
 
     plugin: str
@@ -31,3 +36,4 @@ class NginxContribution:
     server_fragments: tuple[str, ...] = ()
     access_fragments: tuple[str, ...] = ()
     upstream_fragments: tuple[str, ...] = ()
+    module_fragments: tuple[str, ...] = ()

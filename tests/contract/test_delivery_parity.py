@@ -141,6 +141,15 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ),
     (
         "blitzecdn",
+        "release render",
+        None,
+        "writes the rendered edge configuration tree, with its links and seal "
+        "manifest, into a local directory for review. A tree of files and "
+        "symlinks is a filesystem artifact rather than a resource; an API "
+        "client reads the same release through its artifact route.",
+    ),
+    (
+        "blitzecdn",
         "release explain",
         None,
         "where each effective setting came from. The route answers it too — an "

@@ -105,6 +105,7 @@ blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules	type=path
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules_conf	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.modules_include	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.nginx	type=path required
+blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.secrets	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.state	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.paths.tls	type=path required
 blitzecdn	variable	blitzecdn_edge.blitzecdn_edge_runtime.status	type=dict required
@@ -262,6 +263,7 @@ blitzecdn	variable	blitzecdn_security.blitzecdn_edge_runtime	type=dict required
 blitzecdn	variable	blitzecdn_security.blitzecdn_nginx_sites	type=list elements=dict required
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_enabled	type=bool required
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_js_file	type=path required
+blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_key_file	type=path required
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_passage_seconds	type=int required
 blitzecdn	variable	blitzecdn_security.blitzecdn_security_under_attack_secret	type=str required
 blitzecdn	variable	blitzecdn_uninstall.blitzecdn_uninstall_cli_wrapper	type=path

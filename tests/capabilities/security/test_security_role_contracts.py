@@ -57,7 +57,11 @@ def test_the_role_this_distribution_ships_is_where_it_says_it_is():
     assert ansible.ROLES_PATH.is_dir()
     assert [path.name for path in ansible.ROLES_PATH.iterdir()] == [ansible.EDGE_ROLE]
     assert TASKS.is_file()
-    assert (ROLE / "templates/under-attack.js.j2").is_file()
+    assert (ROLE / "templates/under-attack-key.conf.j2").is_file()
+    # The implementation is a configuration resource, not something the role
+    # writes: it ships in the release beside the fragments that import it.
+    assert (NGINX / "under-attack.js.j2").is_file()
+    assert not (ROLE / "templates/under-attack.js.j2").exists()
 
 
 def test_the_module_lands_where_the_container_mounts_it_read_only():
@@ -77,8 +81,8 @@ def test_the_module_lands_where_the_container_mounts_it_read_only():
     assert "{{ blitzecdn_edge_runtime.paths.modules }}:" in compose
 
 
-def test_the_snippet_imports_the_module_the_role_writes():
-    """One path, spelled the same in the snippet and in the task that writes it."""
+def test_the_snippet_imports_the_module_and_includes_the_key():
+    """One path each, spelled the same in the snippet and where it is written."""
     resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
     environment = _ansible_jinja(
         loader=jinja2.FileSystemLoader(NGINX),
@@ -88,6 +92,9 @@ def test_the_snippet_imports_the_module_the_role_writes():
     assert (
         f"js_import blitzecdn_under_attack from "
         f"{resolved['blitzecdn_security_under_attack_js_file']};" in snippet
+    )
+    assert f"include {resolved['blitzecdn_security_under_attack_key_file']};" in (
+        snippet
     )
 
 
@@ -100,7 +107,7 @@ def test_package_resources_dispatch_into_the_module_this_role_installs():
     site = "\n".join(
         path.read_text(encoding="utf-8") for path in sorted(NGINX.glob("*.j2"))
     )
-    module = (ROLE / "templates/under-attack.js.j2").read_text(encoding="utf-8")
+    module = (NGINX / "under-attack.js.j2").read_text(encoding="utf-8")
     for entry in ("challenge", "verify", "guard"):
         assert f"js_content blitzecdn_under_attack.{entry};" in site
         assert entry in module
@@ -110,7 +117,11 @@ def test_package_resources_dispatch_into_the_module_this_role_installs():
 
 
 def test_the_secret_file_is_private_and_unlogged():
-    """Mode and no_log are the whole protection; assert them, not the intent."""
+    """Mode and no_log are the whole protection; assert them, not the intent.
+
+    The secret lives only in the edge-local key include, root-only, outside
+    every configuration release; the njs module itself carries none.
+    """
 
     def walk(items):
         for task in items:
@@ -123,12 +134,20 @@ def test_the_secret_file_is_private_and_unlogged():
     writer = next(
         task
         for task in walk(tasks)
-        if task.get("ansible.builtin.template", {}).get("src") == "under-attack.js.j2"
+        if task.get("ansible.builtin.template", {}).get("src")
+        == "under-attack-key.conf.j2"
     )
-    assert writer["ansible.builtin.template"]["mode"] == "0640"
+    assert writer["ansible.builtin.template"]["mode"] == "0600"
     assert writer["ansible.builtin.template"]["owner"] == "root"
-    assert writer["ansible.builtin.template"]["group"] == "www-data"
+    assert writer["ansible.builtin.template"]["group"] == "root"
     assert writer["no_log"] is True
+    resolved = _defaults(blitzecdn_security_under_attack_enabled=True)
+    secrets = resolved["blitzecdn_edge_runtime"]["paths"]["secrets"]
+    assert resolved["blitzecdn_security_under_attack_key_file"].startswith(
+        f"{secrets}/"
+    )
+    module = (NGINX / "under-attack.js.j2").read_text(encoding="utf-8")
+    assert "blitzecdn_security_under_attack_secret" not in module
 
     spec = yaml.safe_load(
         (ROLE / "meta/argument_specs.yml").read_text(encoding="utf-8")

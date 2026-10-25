@@ -24,6 +24,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from pydantic import SecretStr
 
@@ -90,3 +91,36 @@ class EdgeContributions:
             edge_modules=tuple(edge_modules),
             environment=dict(environment or {}),
         )
+
+    def variables(self) -> dict[str, Any]:
+        """What every run is told about the installed capabilities, as extra-vars.
+
+        On the command line rather than in a release's variables file: the set
+        of installed packages is not desired state, and pinning it would make a
+        rollback try to run a capability role that has since been detached.
+        Nothing secret is here — role names and template paths.
+        """
+        return {
+            "blitzecdn_capability_roles": list(self.edge_roles),
+            "blitzecdn_host_capability_roles": list(self.host_roles),
+            "blitzecdn_edge_teardown_capability_roles": list(self.teardown_roles),
+            "blitzecdn_nginx_modules": [
+                {
+                    "plugin": module.plugin,
+                    "name": module.name,
+                    "objects": list(module.objects),
+                }
+                for module in self.edge_modules
+            ],
+            "blitzecdn_nginx_resources": {
+                context: [
+                    {
+                        "plugin": resource.plugin,
+                        "name": resource.name,
+                        "template": str(resource.template),
+                    }
+                    for resource in resources
+                ]
+                for context, resources in self.nginx_resources.items()
+            },
+        }

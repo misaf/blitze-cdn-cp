@@ -48,7 +48,9 @@ remain readable; it validates the previous tree it is restoring.
 This is atomic **configuration selection**, not a transaction over the operating
 system, firewall, provider services or in-flight network connections. Host
 convergence still belongs to Ansible. Provider-maintained external data such as
-GeoIP databases retains its own lifecycle. Managed TLS files retain their
+GeoIP databases retains its own lifecycle, and so do capability credentials:
+they live in the runtime contract's `paths.secrets`, outside every release
+tree (see [decision 0020](0020-controller-rendered-configuration.md)). Managed TLS files retain their
 content-addressed paths outside the configuration tree and are not pruned while
 old releases can refer to them; unmanaged certificates remain external inputs.
 Canonical TLS versions and controller material collection are implemented in

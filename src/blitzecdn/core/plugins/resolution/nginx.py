@@ -23,7 +23,7 @@ from blitzecdn.core.plugins.types import NginxContribution
 __all__ = ["ResolvedNginxResource", "resolve_nginx_resources"]
 
 
-_CONTEXTS = ("http", "server", "access", "upstream")
+_CONTEXTS = ("http", "server", "access", "upstream", "module")
 
 
 @dataclass(frozen=True, slots=True)

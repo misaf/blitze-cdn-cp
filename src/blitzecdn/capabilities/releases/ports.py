@@ -8,7 +8,7 @@ ports give release operations only the persistence and fleet reads they need.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Protocol
+from typing import Any, Protocol
 
 from blitzecdn.capabilities.releases.domain import (
     EdgeCapabilities,
@@ -17,15 +17,23 @@ from blitzecdn.capabilities.releases.domain import (
     ReleaseInputs,
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.configuration import ConfigurationBundle
 
 __all__ = [
     "CanonicalState",
+    "ConfigurationRenderer",
     "ReleaseReferences",
     "ReleaseStore",
     "SiteChecks",
     "StateContributors",
     "TargetReader",
 ]
+
+
+class ConfigurationRenderer(Protocol):
+    """The edge configuration tree a release's execution document renders to."""
+
+    def render(self, document: Mapping[str, Any]) -> ConfigurationBundle: ...
 
 
 class StateContributors(Protocol):

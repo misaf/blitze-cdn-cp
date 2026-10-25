@@ -10,6 +10,7 @@ blitzecdn_nginx_resources:
   server: []
   access: []
   upstream: []
+  module: []
 # The Nginx dynamic modules the installed capabilities need loaded, composed by
 # the control plane and delivered as an extra-var on every run. Empty here so
 # the role stands on its own, and empty is a valid edge: HTTP/1.1, HTTP/2,
@@ -59,6 +60,7 @@ blitzecdn_nginx_config_test_volumes:
   - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
   - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
   - "{{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro"
+  - "{{ blitzecdn_edge_runtime.paths.secrets }}:{{ blitzecdn_edge_runtime.paths.secrets }}:ro"
   - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
   - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
 # Certificate paths become copy destinations written as root, so confine them to

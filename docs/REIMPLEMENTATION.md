@@ -240,8 +240,21 @@ Each step is committed separately and needs its own confirmation.
      A setting naming a derived variable withholds the artifact. Local: strict
      types and 1,785 tests pass. Remote Ubuntu 26.04: format, lint and strict
      types pass; 1,780 passed with the same 5 environmental failures.
-   - 3b pending: a controller renderer using ansible-core's templar over the
-     shipped templates, with a parity test against today's edge rendering.
+   - 3b complete: `EdgeRenderer` renders a release document into a
+     `ConfigurationBundle` with ansible-core's templar over the shipped
+     templates, in the edge play's variable precedence; the document is
+     rendered as data, not trusted templates. A parity test runs the real edge
+     roles in check mode and matches every file and link byte for byte across
+     seven configuration kinds. The Under Attack key moved to a root-only
+     `paths.secrets` include; the njs module is now a contributed
+     `module_fragments` resource with no secret, failing closed without a key.
+     `blitzecdn release render --output DIR` writes a release's tree. See
+     [0020](decisions/0020-controller-rendered-configuration.md). Local:
+     strict types, ansible-lint (production profile), 1,798 tests and the
+     installed-wheel tests pass. Remote Ubuntu 26.04 as root: format, lint and
+     strict types pass; 1,793 passed including parity, with the same 5
+     environmental failures (one is the Node-based module test: no Node.js).
+     Deployments still render on the edge until 3c.
    - 3c pending: the bundle becomes the sealed candidate; Ansible copies it,
      checks its manifest, validates and activates.
 

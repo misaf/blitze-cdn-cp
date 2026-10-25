@@ -59,6 +59,7 @@ blitzecdn	command	blitzecdn record unproxy	<domain> type=str required <name> typ
 blitzecdn	command	blitzecdn release artifact	--release type=str --name type=str default='desired-state' --json type=boolean default=False
 blitzecdn	command	blitzecdn release explain	--host type=str --release type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn release list	--limit type=int range default=20 --json type=boolean default=False
+blitzecdn	command	blitzecdn release render	--output/-o type=path required --release type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn release show	<release_id> type=str --limit type=str --json type=boolean default=False
 blitzecdn	command	blitzecdn rollback	<deployment_id> type=str --yes/-y type=boolean default=False --check type=boolean default=False --json type=boolean default=False
 blitzecdn	command	blitzecdn rule add	<domain> type=str required <name> type=str required --set type=str required --match type=str default='*' --priority type=int default=100 --json type=boolean default=False

@@ -74,6 +74,7 @@ argument_specs:
               acme: {type: path, required: true}
               empty: {type: path, required: true}
               data: {type: path, required: true}
+              secrets: {type: path, required: true}
           status:
             type: dict
             required: true

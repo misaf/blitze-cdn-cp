@@ -92,8 +92,8 @@ blitzecdn_edge_runtime:
     modules_conf: /etc/nginx/blitzecdn-modules.conf
     modules_include: /etc/nginx/modules.conf
     # njs modules an installed capability provisions. Root-owned and 0750
-    # rather than world-readable, because a module here may be generated from
-    # a fleet secret — the Under Attack Mode implementation is.
+    # rather than world-readable, because a module here is executable code the
+    # edge runs on every request it guards.
     modules: /etc/blitzecdn/nginx
     # Chains and private keys.
     tls: /etc/blitzecdn/tls
@@ -106,6 +106,11 @@ blitzecdn_edge_runtime:
     # An empty document root, for a location that has to dispatch through one
     # without ever serving a file from it.
     empty: /var/lib/blitzecdn/empty
+    # Root-only credentials an installed capability provisions for the
+    # running edge, outside every configuration release so a content-addressed
+    # release never carries a secret. Nginx's master process reads them as
+    # root at configuration load.
+    secrets: /etc/blitzecdn/secrets
     # Read-only runtime data an installed capability provisions for the edge:
     # a lookup database, a table, anything the Nginx configuration reads but
     # the control plane does not render.
