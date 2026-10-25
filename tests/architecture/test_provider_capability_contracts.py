@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ast
 
-from paths import SOURCE
+from support.paths import SOURCE
 
 # --- HTTP/3 is optional; the protocol it is a version of is not -------------
 

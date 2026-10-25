@@ -6,7 +6,7 @@ asserted here is this distribution: the token it answers for, and the fact that
 attaching it is the only thing that makes a country-aware site deployable.
 """
 
-from control_plane_fixtures import build_application
+from support.control_plane import build_application
 
 from blitzecdn.capabilities.security.geoip import __version__
 from blitzecdn.capabilities.security.geoip.feature import FEATURES

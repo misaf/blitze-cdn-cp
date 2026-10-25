@@ -4,12 +4,12 @@ import re
 from pathlib import Path
 
 import pytest
-from policy_support import (
+from pydantic import ValidationError
+from support.policy import (
     TEST_CERTIFICATE_VERSION,
     domain_from_settings,
     site_from_settings,
 )
-from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
 from blitzecdn.capabilities.dns.cli import domain_app

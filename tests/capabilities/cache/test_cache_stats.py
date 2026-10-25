@@ -1,4 +1,4 @@
-from control_plane_fixtures import FakeRunner, ansible_run, build_application, host_run
+from support.control_plane import FakeRunner, ansible_run, build_application, host_run
 
 from blitzecdn.composition import Repository
 

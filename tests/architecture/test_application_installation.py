@@ -7,7 +7,7 @@ import subprocess
 import sys
 
 import pytest
-from paths import REPO_ROOT
+from support.paths import REPO_ROOT
 
 pytestmark = pytest.mark.packaging
 

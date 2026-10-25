@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import yaml
-from install_support import (
+from support.install import (
     PROJECT_DIR,
     ROLE,
     _fake_installation,
@@ -21,7 +21,7 @@ from install_support import (
     _section,
     _stub_bin,
 )
-from paths import CORE_ANSIBLE
+from support.paths import CORE_ANSIBLE
 
 # --- the control-plane role --------------------------------------------------
 #

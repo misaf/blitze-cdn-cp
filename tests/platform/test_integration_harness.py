@@ -24,7 +24,7 @@ import shlex
 
 import pytest
 import yaml
-from paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 PROJECT_DIR = REPO_ROOT
 HTTP3_HARNESS = PROJECT_DIR / "tests/http3-edge-integration.sh"

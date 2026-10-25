@@ -1,9 +1,9 @@
 """Canonical resource versions survive renewal, replay and retained history."""
 
 import pytest
-from application_support import _seed_proxied_record
-from certificate_support import certificate_control_plane
-from control_plane_fixtures import FakeRunner
+from support.application import _seed_proxied_record
+from support.certificates import certificate_control_plane
+from support.control_plane import FakeRunner
 
 from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
@@ -141,7 +141,7 @@ def test_collection_preserves_a_pair_installed_before_failed_canonical_writeback
 
 
 def test_inactive_rule_override_remains_a_material_root(settings, certificate_pair):
-    from control_plane_fixtures import seed_site
+    from support.control_plane import seed_site
 
     from blitzecdn.capabilities.dns.domain import RulePatch
 
@@ -333,7 +333,7 @@ def test_collection_holds_the_write_boundary_while_reading_roots_and_deleting(
 def test_cli_collect_reports_reclaimed_files(settings, monkeypatch):
     import json
 
-    from certificate_support import certificate_cli_control_plane
+    from support.certificates import certificate_cli_control_plane
     from typer.testing import CliRunner
 
     from blitzecdn.entrypoints.cli import main as cli

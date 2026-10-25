@@ -13,7 +13,7 @@ operator scripting this must be able to tell "an origin is unreachable" from
 
 from __future__ import annotations
 
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     cli_control_plane,

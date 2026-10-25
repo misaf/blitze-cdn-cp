@@ -20,6 +20,6 @@ everything that decides whether to provision, and the lifecycle paths inside a
 sandbox — the script copied with every path redirected under a temp directory,
 the root check neutralised, and the privileged commands stubbed on `PATH`.
 
-`install_support.py` holds only helpers shared across these modules: the source
+`tests/support/install.py` holds only helpers shared across these modules: the source
 extractors and the sandbox builders. Helpers used by one module stay beside its
 tests.

@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from install_support import (
+from support.install import (
     _query,
     _role_task,
     _script,

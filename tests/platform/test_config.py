@@ -2,7 +2,7 @@ import shutil
 from pathlib import Path
 
 import pytest
-from paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.composition import load_registry
 from blitzecdn.core.config import Settings

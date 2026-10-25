@@ -13,14 +13,14 @@ validator has an opinion about.
 import json
 
 import pytest
-from control_plane_fixtures import (
+from pydantic import SecretStr
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     build_application,
     host_run,
     seed_site,
 )
-from pydantic import SecretStr
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus

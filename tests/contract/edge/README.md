@@ -17,8 +17,8 @@ about the boundary between the two, not either side alone.
 
 When one of these fails, change the model and the role together in one commit.
 
-`edge_render_support.py` holds the loaders and the Jinja environment shared
-across these modules. Helpers used by one module stay beside its tests.
+`tests/support/edge_render.py` holds the loaders and the Jinja environment
+shared across these modules. Helpers used by one module stay beside its tests.
 
 All application capabilities and provider fragments run together. Tests do not
 skip according to package presence; feature-specific policy is set explicitly.

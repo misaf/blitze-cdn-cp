@@ -2,7 +2,7 @@
 
 Only helpers, deliberately. This module used to re-export the domain types,
 the fakes and the standard library alongside them, and every consumer said
-``from application_support import *`` to get the lot — which meant a reader
+``from support.application import *`` to get the lot — which meant a reader
 could not tell where ``ApplicationServices`` came from, ruff could not check an
 undefined name in any of those files, and five helpers had quietly become
 duplicates: three that a consumer redefined identically and so never used from
@@ -13,12 +13,11 @@ here is what nowhere else owns.
 
 import time
 
-from control_plane_fixtures import seed_site
-
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
 from blitzecdn.composition import ApplicationServices, Repository
+from support.control_plane import seed_site
 
 
 def _seed_proxied_record(control: ApplicationServices) -> CdnSite:

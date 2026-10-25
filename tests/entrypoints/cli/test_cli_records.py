@@ -2,13 +2,13 @@
 
 import json
 
-from cli_support import (
+from support.cli import (
     _control,
     _seed_site,
     _store,
     runner,
 )
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     build_application,
 )

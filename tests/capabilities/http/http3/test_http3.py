@@ -6,8 +6,8 @@ core keeps — the switch, the baseline listener stance — is asserted there.
 """
 
 import pytest
-from control_plane_fixtures import build_application
-from policy_support import TEST_CERTIFICATE_VERSION
+from support.control_plane import build_application
+from support.policy import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.http.http3 import __version__
 from blitzecdn.capabilities.http.http3.feature import FEATURES

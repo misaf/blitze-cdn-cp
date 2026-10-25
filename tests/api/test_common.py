@@ -1,6 +1,6 @@
 import pytest
-from control_plane_fixtures import control_plane_app
 from fastapi.testclient import TestClient
+from support.control_plane import control_plane_app
 
 from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.entrypoints.api import create_app

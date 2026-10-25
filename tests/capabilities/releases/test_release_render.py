@@ -6,8 +6,8 @@ import json
 import os
 
 import pytest
-from control_plane_fixtures import cli_control_plane, seed_site
-from paths import CORE_ANSIBLE
+from support.control_plane import cli_control_plane, seed_site
+from support.paths import CORE_ANSIBLE
 from typer.testing import CliRunner
 
 from blitzecdn.core.domain.configuration import ConfigurationBundle

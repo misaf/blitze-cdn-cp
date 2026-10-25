@@ -12,8 +12,8 @@ takes, so the wiring under test is the wiring that ships.
 from __future__ import annotations
 
 import pytest
-from certificate_support import FakePreflight, certificate_control_plane
-from control_plane_fixtures import (
+from support.certificates import FakePreflight, certificate_control_plane
+from support.control_plane import (
     FakeRunner,
     repository_on,
     seed_site,

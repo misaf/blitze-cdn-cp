@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.capabilities.edges.adapters.ansible import edge_to_inventory
 from blitzecdn.capabilities.edges.domain import EDGE_GROUP, Edge, firewall_sources

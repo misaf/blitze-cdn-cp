@@ -2,9 +2,9 @@ import sqlite3
 from datetime import UTC, datetime
 
 import pytest
-from control_plane_fixtures import advance, build_application
-from policy_support import domain_from_settings, site_from_settings
 from sqlalchemy.pool import NullPool, QueuePool
+from support.control_plane import advance, build_application
+from support.policy import domain_from_settings, site_from_settings
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentRequirementKind,

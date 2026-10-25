@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from install_support import (
+from support.install import (
     _function,
     _run_sandboxed,
     _update_sandbox,

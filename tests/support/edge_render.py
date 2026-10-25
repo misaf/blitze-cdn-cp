@@ -11,22 +11,11 @@ from __future__ import annotations
 import re
 from contextlib import suppress
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-import pytest
+import jinja2
+import jinja2.runtime
 import yaml
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
-from contract_support import (
-    _role_defaults,
-    _runtime_defaults,
-    _split_runtime,
-    ansible_bool,
-)
-from paths import CORE_ANSIBLE
-from policy_support import domain_from_settings, site_from_settings
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
@@ -34,12 +23,21 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import (
     SslMode,
 )
-from blitzecdn.composition import load_registry
+from blitzecdn.composition import Repository, load_registry
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_nginx_resources
 
-jinja2 = pytest.importorskip("jinja2")
-
+# The nginx role renders from its own defaults *and* the shared edge runtime
+# contract, so the loader that builds that namespace is shared with the other
+# contract-test modules rather than reimplemented here.
+from support.contracts import (
+    _role_defaults,
+    _runtime_defaults,
+    _split_runtime,
+    ansible_bool,
+)
+from support.paths import CORE_ANSIBLE
+from support.policy import domain_from_settings, site_from_settings
 
 #: The roles ship with this control plane, so there is no install step to get
 #: wrong and no reason for these tests to skip. That matters: they used to read
@@ -75,8 +73,8 @@ def _nginx_resources() -> dict[str, list[dict[str, str]]]:
     }
 
 
-def _nginx_environment():
-    environment = jinja2.Environment(
+def _nginx_environment() -> jinja2.Environment:
+    environment = jinja2.Environment(  # noqa: S701 - renders nginx, not HTML
         loader=jinja2.FileSystemLoader(ROLE_DIR / "templates"),
         undefined=jinja2.StrictUndefined,
         keep_trailing_newline=True,
@@ -84,7 +82,13 @@ def _nginx_environment():
     environment.filters["bool"] = ansible_bool
 
     @jinja2.pass_context
-    def lookup(context, _plugin, template, *, template_vars=None):
+    def lookup(
+        context: jinja2.runtime.Context,
+        _plugin: str,
+        template: str,
+        *,
+        template_vars: dict[str, Any] | None = None,
+    ) -> str:
         values = dict(context.get_all())
         values.update(template_vars or {})
         return environment.from_string(Path(template).read_text()).render(**values)
@@ -97,7 +101,7 @@ def _role_spec() -> dict[str, Any]:
     document = yaml.safe_load(
         (ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
     )
-    return document["argument_specs"]["main"]["options"]
+    return cast(dict[str, Any], document["argument_specs"]["main"]["options"])
 
 
 def _contract(*path: str) -> Any:
@@ -109,7 +113,10 @@ def _contract(*path: str) -> Any:
 
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:
-    return yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8"))
+    return cast(
+        dict[str, Any],
+        yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8")),
+    )
 
 
 def _capability_defaults() -> dict[str, Any]:
@@ -130,7 +137,9 @@ def _capability_defaults() -> dict[str, Any]:
     return defaults
 
 
-def _seed_site(repository, *, name, label, origin, **policy):
+def _seed_site(
+    repository: Repository, *, name: str, label: str, origin: str, **policy: Any
+) -> None:
     """A zone carrying the policy, and one proxied hostname in it.
 
     Written through the stores rather than the services because these fixtures

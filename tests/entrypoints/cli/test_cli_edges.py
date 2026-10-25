@@ -2,13 +2,13 @@
 
 import json
 
-from cli_support import (
+from click.utils import strip_ansi
+from support.cli import (
     _control,
     _store,
     runner,
 )
-from click.utils import strip_ansi
-from control_plane_fixtures import (
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     host_run,

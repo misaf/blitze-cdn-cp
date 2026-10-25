@@ -9,7 +9,7 @@ from typing import Any
 
 import jinja2
 import yaml
-from paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 from blitzecdn.assets.docker import (
     CONTROL_PLANE_DOCKERFILE,

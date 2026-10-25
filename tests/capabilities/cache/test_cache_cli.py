@@ -15,8 +15,8 @@ import json
 import sys
 
 import pytest
-from cache_support import purges
-from control_plane_fixtures import (
+from support.cache import purges
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     cli_control_plane,

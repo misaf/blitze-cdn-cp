@@ -9,11 +9,11 @@ import yaml
 # The nginx role renders from its own defaults *and* the shared edge runtime
 # contract, so the loader that builds that namespace is shared with the other
 # contract-test modules rather than reimplemented here.
-from contract_support import (
+from support.contracts import (
     _role_defaults,
 )
-from control_plane_fixtures import build_application
-from edge_render_support import (
+from support.control_plane import build_application
+from support.edge_render import (
     _contract,
     _defaults_of,
     _mode_site,
@@ -23,7 +23,7 @@ from edge_render_support import (
     _role,
     _seed_site,
 )
-from policy_support import site_from_settings
+from support.policy import site_from_settings
 
 from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
 from blitzecdn.capabilities.dns.domain import Domain

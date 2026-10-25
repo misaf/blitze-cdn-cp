@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import pytest
-from control_plane_fixtures import FakeRunner, build_application, seed_record
-from policy_support import domain_from_settings
+from support.control_plane import FakeRunner, build_application, seed_record
+from support.policy import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,

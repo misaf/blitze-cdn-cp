@@ -2,7 +2,7 @@
 
 from types import SimpleNamespace
 
-from control_plane_fixtures import ansible_run, host_run
+from support.control_plane import ansible_run, host_run
 from typer.testing import CliRunner
 
 from blitzecdn.core.domain.runs import RunStatus

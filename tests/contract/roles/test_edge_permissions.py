@@ -4,7 +4,7 @@ import re
 from pathlib import Path
 
 import yaml
-from contract_support import (
+from support.contracts import (
     PROJECT_DIR,
     ROLE_DIR,
     ROLES_DIR,

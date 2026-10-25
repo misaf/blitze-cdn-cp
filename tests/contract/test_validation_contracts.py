@@ -8,15 +8,15 @@ from typing import Any
 
 import pytest
 import yaml
-from contract_support import (
+from support.contracts import (
     PROJECT_DIR,
     ROLE_DIR,
     _role_defaults,
     _seed_site,
     _split_runtime,
 )
-from control_plane_fixtures import build_application
-from paths import CORE_ANSIBLE
+from support.control_plane import build_application
+from support.paths import CORE_ANSIBLE
 
 from blitzecdn.capabilities.dns.domain import Rule
 from blitzecdn.composition import Repository

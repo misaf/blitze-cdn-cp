@@ -24,8 +24,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from control_plane_fixtures import FakeEdgeStore, settings  # noqa: F401
 from pydantic import SecretStr
+from support.control_plane import FakeEdgeStore, settings  # noqa: F401
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
 from blitzecdn.core import ansible

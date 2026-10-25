@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from control_plane_fixtures import FakeRunner, build_application
+from support.control_plane import FakeRunner, build_application
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.contract import HttpScheme

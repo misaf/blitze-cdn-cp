@@ -7,7 +7,7 @@ whether or not that distribution is installed: the scheme, the port sets, the
 feature writes into the fleet document.
 """
 
-from policy_support import TEST_CERTIFICATE_VERSION
+from support.policy import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.http.contract import (
     DEFAULT_PORTS,

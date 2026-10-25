@@ -6,11 +6,11 @@ import subprocess
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from control_plane_fixtures import private_key_pem
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.x509.oid import NameOID
-from policy_support import site_from_settings
+from support.control_plane import private_key_pem
+from support.policy import site_from_settings
 
 from blitzecdn.capabilities.tls.certificates.adapters import (
     CertbotIssuer,

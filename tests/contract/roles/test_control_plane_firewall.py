@@ -9,8 +9,8 @@ from pathlib import Path
 
 import pytest
 import yaml
-from contract_support import PROJECT_DIR, _role, jinja2
-from role_contract_support import (
+from support.contracts import PROJECT_DIR, _role, jinja2
+from support.role_contracts import (
     _defaults_of,
 )
 

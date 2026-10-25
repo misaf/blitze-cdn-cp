@@ -22,7 +22,7 @@ from typing import Any
 
 import pytest
 import yaml
-from contract_support import PROJECT_DIR, _role_defaults, _runtime_defaults
+from support.contracts import PROJECT_DIR, _role_defaults, _runtime_defaults
 
 from blitzecdn.capabilities.cache import ansible
 

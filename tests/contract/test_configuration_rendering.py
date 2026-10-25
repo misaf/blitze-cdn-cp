@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from certificate_support import certificate_control_plane
-from control_plane_fixtures import (
+from support.certificates import certificate_control_plane
+from support.control_plane import (
     build_application,
     seed_site,
     with_capability_settings,

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 
-from paths import CORE_ANSIBLE, SOURCE
+from support.paths import CORE_ANSIBLE, SOURCE
 
 from blitzecdn.capabilities.cache.contract import CachePolicy
 from blitzecdn.capabilities.compression.contract import CompressionPolicy

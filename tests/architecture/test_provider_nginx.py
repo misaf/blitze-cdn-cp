@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from pathlib import Path
 
-from paths import SOURCE
+from support.paths import SOURCE
 
 # --- the firewall belongs to the security capability, not to core -----------
 

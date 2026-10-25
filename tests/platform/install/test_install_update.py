@@ -11,7 +11,7 @@ import re
 from pathlib import Path
 
 import pytest
-from install_support import (
+from support.install import (
     _function,
     _query,
     _run,
@@ -20,7 +20,7 @@ from install_support import (
     _section,
     _update_sandbox,
 )
-from paths import REPO_ROOT
+from support.paths import REPO_ROOT
 
 # --- update: structural guarantees -------------------------------------------
 

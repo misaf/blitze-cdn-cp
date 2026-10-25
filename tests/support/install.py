@@ -22,10 +22,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import jinja2
 import yaml
-from paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
+
+from support.paths import CORE_ANSIBLE, REPO_ROOT, SOURCE
 
 PROJECT_DIR = REPO_ROOT
 SCRIPT = PROJECT_DIR / "install.sh"
@@ -102,7 +104,7 @@ def _embedded_python(marker: str) -> str:
         if marker in block
     ]
     assert len(blocks) == 1, f"expected exactly one heredoc containing {marker!r}"
-    return blocks[0]
+    return str(blocks[0])
 
 
 def _run_embedded(source: str, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -487,11 +489,14 @@ def _update_sandbox(
 ROLE = CORE_ANSIBLE / "roles/blitzecdn_controlplane"
 
 
-def _role_tasks() -> list[dict]:
-    return yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8"))
+def _role_tasks() -> list[dict[str, Any]]:
+    return cast(
+        list[dict[str, Any]],
+        yaml.safe_load((ROLE / "tasks/main.yml").read_text(encoding="utf-8")),
+    )
 
 
-def _role_task(name: str) -> dict:
+def _role_task(name: str) -> dict[str, Any]:
     matches = [task for task in _role_tasks() if task.get("name") == name]
     assert len(matches) == 1, f"expected exactly one task named {name!r}"
     return matches[0]

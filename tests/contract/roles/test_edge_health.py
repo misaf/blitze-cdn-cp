@@ -10,7 +10,7 @@ failure that fails a deploy.
 import re
 
 import yaml
-from contract_support import (
+from support.contracts import (
     PROJECT_DIR,
     ROLE_DIR,
     STACK_ROLE_DIR,
@@ -18,9 +18,9 @@ from contract_support import (
     _role,
     _role_defaults,
 )
-from control_plane_fixtures import build_application
-from paths import CORE_ANSIBLE
-from role_contract_support import (
+from support.control_plane import build_application
+from support.paths import CORE_ANSIBLE
+from support.role_contracts import (
     COMPOSE_TEMPLATE,
     _defaults_of,
     _edge_context,

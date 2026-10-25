@@ -22,9 +22,8 @@ called the playbook `object` where the double records a `Path`.
 
 from __future__ import annotations
 
-from control_plane_fixtures import FakeRunner
-
 from blitzecdn.capabilities.cache.domain import PurgeEntry
+from support.control_plane import FakeRunner
 
 
 def purges(fake: FakeRunner) -> list[tuple[tuple[PurgeEntry, ...], bool, str | None]]:

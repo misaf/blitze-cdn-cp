@@ -10,18 +10,18 @@ import yaml
 # The nginx role renders from its own defaults *and* the shared edge runtime
 # contract, so the loader that builds that namespace is shared with the other
 # contract-test modules rather than reimplemented here.
-from contract_support import (
+from support.contracts import (
     _role_defaults,
     _runtime_defaults,
 )
-from edge_render_support import (
+from support.edge_render import (
     ROLE_DIR,
     _defaults_of,
     _render,
     _role_spec,
 )
-from paths import REPO_ROOT
-from policy_support import site_from_settings
+from support.paths import REPO_ROOT
+from support.policy import site_from_settings
 
 import blitzecdn
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode

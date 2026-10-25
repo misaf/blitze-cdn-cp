@@ -19,8 +19,8 @@ from alembic import command
 from alembic.config import Config
 from alembic.runtime.migration import MigrationContext
 from alembic.script import ScriptDirectory
-from paths import SOURCE
 from sqlalchemy import create_engine
+from support.paths import SOURCE
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.composition import Repository

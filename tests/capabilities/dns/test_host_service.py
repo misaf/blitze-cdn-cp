@@ -3,9 +3,9 @@
 from contextlib import contextmanager
 
 import pytest
-from control_plane_fixtures import FakeRunner, build_application, seed_record, seed_site
-from policy_support import TEST_CERTIFICATE_VERSION
 from pydantic import ValidationError
+from support.control_plane import FakeRunner, build_application, seed_record, seed_site
+from support.policy import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy, Rule
 from blitzecdn.capabilities.dns.service import HostService

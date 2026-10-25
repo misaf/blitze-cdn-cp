@@ -18,8 +18,8 @@ from blitzecdn.core.config import Settings
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-import frozen_surfaces as surfaces
-from control_plane_fixtures import settings as _settings_fixture
+import support.frozen_surfaces as surfaces
+from support.control_plane import settings as _settings_fixture
 
 
 def _settings() -> Settings:

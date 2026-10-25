@@ -12,7 +12,7 @@ from typing import ClassVar
 import dns.exception
 import dns.resolver
 import pytest
-from control_plane_fixtures import FakeEdgeStore
+from support.control_plane import FakeEdgeStore
 
 from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.domain.origins import OriginCheck

@@ -17,9 +17,9 @@ from __future__ import annotations
 
 import json
 
-from certificate_support import FakePreflight, certificate_cli_control_plane
 from click.utils import strip_ansi
-from control_plane_fixtures import (
+from support.certificates import FakePreflight, certificate_cli_control_plane
+from support.control_plane import (
     FakeRunner,
     ansible_run,
     host_run,

@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 import yaml
-from install_support import (
+from support.install import (
     _fake_installation,
     _fake_unrelated,
     _function,
@@ -25,7 +25,7 @@ from install_support import (
     _section,
     _stub_bin,
 )
-from paths import CORE_ANSIBLE, REPO_ROOT
+from support.paths import CORE_ANSIBLE, REPO_ROOT
 
 # --- fresh rebuild and uninstall: dispatch ------------------------------------
 

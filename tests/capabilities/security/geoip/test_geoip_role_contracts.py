@@ -14,7 +14,7 @@ checkout that an installed wheel would not have.
 from typing import Any
 
 import yaml
-from contract_support import (
+from support.contracts import (
     STACK_ROLE_DIR,
     _ansible_jinja,
     _resolve,
