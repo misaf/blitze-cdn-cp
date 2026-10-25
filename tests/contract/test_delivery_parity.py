@@ -308,6 +308,21 @@ _DELIVERY: tuple[tuple[str, str | None, str | None, str], ...] = (
     ),
     ("blitzecdn", "backup inspect", None, "see `backup create`."),
     ("blitzecdn", "backup restore", None, "see `backup create`."),
+    (
+        "blitzecdn",
+        "backup recover",
+        None,
+        "runs with the controller stopped, the API among it, and puts back "
+        "the state an unfinished restore replaced. No request could reach it.",
+    ),
+    (
+        "blitzecdn",
+        "backup commit-restore",
+        None,
+        "hidden; the host wrapper's acknowledgement that restored "
+        "configuration was published, run with the controller stopped. See "
+        "`backup recover`.",
+    ),
 )
 
 
