@@ -1,15 +1,9 @@
 """The rendered edge configuration of one release, as an addressable value.
 
-A bundle is the tree an edge serves from: the Nginx entrypoint, its includes,
-the sites, the module list and executable njs resources, laid out exactly as
-the edge's candidate directory `/etc/blitzecdn/releases/<release digest>/`.
-Paths are relative to that directory. Links keep their absolute targets,
-because that is what the edge creates and what its seal records.
-
-The release digest is rendered into the configuration — the edge reports it
-on every response so the controller can verify activation — so a bundle is a
-projection of a release rather than part of it. Its own identity is the digest
-of its manifest, which uses the format the edge seals a candidate with.
+A bundle is laid out exactly as the edge's candidate directory
+`/etc/blitzecdn/releases/<release digest>/`, paths relative to it; links keep
+their absolute targets. Its identity is the digest of its manifest, in the
+format the edge seals a candidate with.
 """
 
 from __future__ import annotations
@@ -61,12 +55,7 @@ class ConfigurationBundle:
         return hashlib.sha256(encoded).hexdigest()
 
     def encode(self) -> str:
-        """The bundle as one JSON document, for storage and for the edge.
-
-        The manifest travels with the content, so whoever decodes it — the
-        controller reading its own record, or the edge staging a candidate —
-        verifies the bytes against the identity they were shipped under.
-        """
+        """The bundle as one JSON document, carrying the manifest it is verified by."""
         return json.dumps(
             {
                 "files": {

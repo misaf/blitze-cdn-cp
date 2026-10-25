@@ -1,35 +1,14 @@
 """Running Ansible, and turning what it reports into domain models.
 
-Every invocation produces one retained artefact. An Ansible Runner event handler turns
-structured task and recap events into an
-:class:`~blitzecdn.core.domain.runs.AnsibleRun` — that is the only thing the
-application layer sees. Raw terminal output goes to a log file under
-``state_dir/logs`` that nothing here parses; it is kept so an operator has the
-full account of a run, and so a process that died before Ansible could report
-anything still leaves evidence behind.
+Every run yields an :class:`~blitzecdn.core.domain.runs.AnsibleRun` built from
+Runner's structured events; nothing above this package reads terminal output.
+The raw output is kept as a log under ``state_dir/logs`` for operators, and as
+evidence when a run dies before Ansible reports anything.
 
-The parts, each with its own reason to change:
-
-``events``
-    Runner's event stream to :class:`~blitzecdn.core.domain.runs.AnsibleRun`
-    components. The boundary that lets the layering tests refuse textual
-    reasoning everywhere above.
-``execution``
-    One invocation: the environment, the artifact tree, the operator log and
-    its retention, and the result-to-status mapping.
-``hosts``
-    A ``--limit`` expanded against the recorded fleet, which is what keeps a
-    limit from naming a host the control plane does not manage. It reads the
-    fleet through :class:`~blitzecdn.core.ports.fleet.FleetRoster`, so core
-    needs no capability to answer "which hosts are there".
-``lock``
-    The cross-process lock that makes "one deployment at a time" true across
-    the API, the CLI and the worker.
-``runner``
-    :class:`AnsibleRunner`: which playbook, which variables, which edges.
-``variables``
-    The per-run variable file, which is per-run because the runs that skip the
-    deployment lock overlap routinely.
+``events`` translates Runner events; ``execution`` runs one invocation;
+``hosts`` expands a ``--limit`` against the recorded fleet; ``lock``
+serialises deployments across processes; ``runner`` decides which playbook,
+variables and edges; ``variables`` writes per-run variable files.
 """
 
 from blitzecdn.core.ansible.lock import DeploymentLock

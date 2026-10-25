@@ -1,13 +1,7 @@
 """What an operator configured, resolved into what each capability may read.
 
-The one resolver here that is not about a *fleet* value. The role search path,
-the slot lists, the module set and the fragment set are all single process-wide
-answers core composes and hands to an adapter; a capability's configuration is
-composed once and then handed back **scoped**, so that a package reads the keys
-it declared and cannot see another's credential.
-
-Secrets and settings are both here because they arrive together and are refused
-together, and are separated only once they have owners.
+Unlike the other resolvers, the result is handed back scoped: a capability
+reads the keys it declared and cannot see another's credential.
 """
 
 from __future__ import annotations
@@ -39,22 +33,14 @@ __all__ = [
 class CapabilityConfig:
     """One feature's own configuration, and nothing else's.
 
-    The read a capability would otherwise do against
-    ``Settings.capability_environment`` itself, done once by core and handed
-    back scoped: the keys *this
-    feature declared*, resolved from the merged environment, with an unset one
-    present as an empty secret rather than absent. A name the package did not
-    declare is refused rather than returned empty, because the two mistakes
-    look identical at the call site and only one of them is a typo.
+    An unset declared key reads as an empty secret; an undeclared one is refused,
+    because at the call site that is a typo, not an absence.
     """
 
     feature: str
     values: Mapping[str, SecretStr]
-    #: The non-secret half, already coerced to each setting's declared type.
-    #: Separate from `values` because the two are read differently and shown
-    #: differently: a secret is only ever asked whether it is *set*, while a
-    #: setting is asked for its value and has one whether or not an operator
-    #: supplied it.
+    #: The non-secret half, coerced to each setting's declared type. A setting
+    #: always has a value; a secret is only ever asked whether it is set.
     settings: Mapping[str, SettingValue] = field(default_factory=dict)
 
     def secret(self, name: str) -> SecretStr:
@@ -73,14 +59,10 @@ class CapabilityConfig:
         return bool(self.secret(name).get_secret_value())
 
     def _setting(self, name: str, kind: type) -> SettingValue:
-        """One declared setting, checked against the type the caller expects.
+        """One declared setting, checked against the type the call site expects.
 
-        The check is not redundant with the coercion that produced the value.
-        That one held the value to the *declaration*; this one holds the
-        declaration to the *call site*, and the two are written in different
-        files by different people. `integer()` on a setting somebody later
-        redeclared as a path is a mistake worth a sentence rather than a
-        `TypeError` several frames away.
+        Catches a setting later redeclared as another type with a clear message
+        rather than a `TypeError` several frames away.
         """
         if name not in self.settings:
             raise FeatureError(
@@ -119,27 +101,18 @@ class CapabilityConfig:
 
 @dataclass(frozen=True, slots=True)
 class ResolvedCapabilityEnvironment:
-    """Every claimed key, once flat for Ansible and once scoped per feature.
+    """Every claimed secret, flat for Ansible and scoped per feature.
 
-    Two shapes of one answer, because there are two consumers and they need
-    opposite things. ``environment`` is what ``PlaybookExecutor`` copies into
-    the subprocess, where a role reads its own name with ``lookup('env', ...)``
-    and the flatness *is* the interface. ``configs`` is what a package reads on
-    the controller, where seeing another capability's credential would be the
-    thing this whole seam exists to prevent.
+    ``environment`` is what ``PlaybookExecutor`` copies into the subprocess, where
+    roles read names with ``lookup('env', ...)``. ``configs`` is what a capability
+    reads on the controller.
     """
 
     environment: Mapping[str, SecretStr]
     configs: Mapping[str, CapabilityConfig]
 
     def for_feature(self, feature: str) -> CapabilityConfig:
-        """This feature's configuration; empty if it declared no keys.
-
-        Empty rather than an error, because declaring no keys is the normal
-        case and a package should not have to know whether it is one. A
-        mistyped feature name is caught a line later instead: every read against
-        the empty config names a key that config does not declare.
-        """
+        """This feature's configuration; empty, not an error, if it declared no keys."""
         return self.configs.get(feature) or CapabilityConfig(feature, {})
 
 
@@ -151,17 +124,11 @@ def resolve_capability_environment(
 ) -> ResolvedCapabilityEnvironment:
     """Resolve claimed configuration, and refuse what cannot be worked with.
 
-    Four refusals — an unprefixed claim, a name claimed twice, a configured name
-    nobody claims, and a value that cannot be worked with — each because the
-    alternative is a failure much later that names nothing useful. The first
-    three are ``FeatureError``, being about what the features claim;
-    the fourth is ``ConfigurationError``, the fix being a value the operator can
-    change.
-
-    ``configured`` is the process environment and the controller's ``.env``,
-    which is 0600 and uncommitted; ``from_file`` is ``blitzecdn.toml``, which is
-    neither. A setting may come from either, the environment winning; a secret
-    may come only from the first. Only secrets are forwarded to Ansible.
+    Refuses an unprefixed claim, a name claimed twice and a configured name nobody
+    claims (``FeatureError``), and an unusable value (``ConfigurationError``).
+    ``configured`` is the environment and the 0600 ``.env``; ``from_file`` is
+    ``blitzecdn.toml``. A setting may come from either, the environment winning; a
+    secret only from the first. Only secrets are forwarded to Ansible.
     """
     owners: dict[str, str] = {}
     declared: dict[str, ConfigurationContribution] = {}
@@ -205,9 +172,8 @@ def resolve_capability_environment(
         )
         for feature, contribution in declared.items()
     }
-    # Secrets only. A setting has a resolved value whether or not an operator
-    # supplied one, so forwarding the staged strings would send Ansible the
-    # subset that happened to be set rather than the answer.
+    # Secrets only: forwarding staged settings would send the subset that
+    # happened to be set rather than the resolved values.
     environment = {key: configured[key] for key in sorted(configured) if key in secrets}
     return ResolvedCapabilityEnvironment(environment=environment, configs=configs)
 
@@ -225,20 +191,11 @@ def resolve_feature_configuration(
     from_file: Mapping[str, str],
     state_dir: Path,
 ) -> CapabilityConfig:
-    """Resolve one capability's own configuration, and only its own.
+    """Resolve one capability's own configuration, without the cross-feature checks.
 
-    Public because one caller genuinely has no control plane to ask. Backup's
-    commands are built from ``Settings`` alone and open no repository — that is
-    the point of them, since a controller whose database will not open is
-    exactly when a restore is wanted — so ``platform.capability_config`` does
-    not exist on that path. The package calls this with the contribution it
-    already declared, and gets the same object the composition root would have
-    handed it.
-
-    What it deliberately does not do is the cross-feature half: collisions with
-    other capabilities and names nobody claimed are questions about the whole
-    installation, and they are answered once, at startup, by
-    :func:`resolve_capability_environment`. This resolves values.
+    For callers with no control plane — backup's commands must work when the
+    database will not open. Collisions and unclaimed names are checked once at
+    startup by :func:`resolve_capability_environment`.
     """
     values = {
         key.name: configured.get(key.name, SecretStr(""))
@@ -274,15 +231,9 @@ def _resolve_setting(
 ) -> SettingValue:
     """Read one configured value as the type its capability declared.
 
-    An unsupplied setting is its default, which is what makes a setting
-    different from a secret: there is always a value, so no package has to
-    carry an "or the default" expression at every read.
-
-    A supplied one is staged as ``SecretStr`` like everything else core cannot
-    yet attribute — core does not learn which names are secrets until the
-    features declare it, and treating an unattributed value as a secret until
-    told otherwise is the only safe order. Unwrapping here is the moment its
-    owner has said it is not one.
+    An unsupplied setting is its default. A supplied one arrives as ``SecretStr``,
+    because core stages every unattributed value as secret until its owner says
+    otherwise; this is where it is unwrapped.
     """
     if supplied is None:
         return _under(setting.default, state_dir)
@@ -333,15 +284,7 @@ def _coerce(setting: CapabilitySetting, raw: str) -> SettingValue:
 
 
 def _under(value: SettingValue, state_dir: Path) -> SettingValue:
-    """Resolve a relative path setting against this controller's state.
-
-    Only a path is touched. A capability names a location before it can know
-    where this controller keeps its state, so a relative one is read the way
-    core already read its own ``backup_dir``: under the state directory. An
-    absolute one is taken as written, which is what an installed controller
-    configures — ``/var/backups/blitzecdn`` rather than a directory inside the
-    tree an uninstall removes.
-    """
+    """Resolve a relative path setting under the state directory; keep absolute ones."""
     if isinstance(value, Path) and not value.is_absolute():
         return state_dir / value
     return value

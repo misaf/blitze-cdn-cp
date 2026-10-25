@@ -1,22 +1,10 @@
-"""What the installed capabilities add to an Ansible run.
+"""What the registered capabilities add to an Ansible run.
 
-Seven values that always travel together and always come from one place. The
-composition root resolves them from the feature registry — it is the only thing
-that knows what is installed — and the Ansible adapter is handed the finished
-answer.
-
-One object rather than seven parameters, because they are one fact: *this
-installation*. Passed separately they have to be listed on
-:class:`~blitzecdn.core.ansible.runner.AnsibleRunner` and again on
-:class:`~blitzecdn.core.ansible.execution.PlaybookExecutor`, which forwards
-every one of them unchanged — so adding an eighth kind of contribution means
-editing two signatures and a call site to carry a value neither class reads.
-
-Deliberately not resolved here. Each field is the output of a
-``blitzecdn.core.features.resolution`` function that already refuses what cannot
-work — a role two packages both ship, a module no capability declared — and
-doing it here would make ``core.ansible`` reach for the registry rather than be
-handed what it needs.
+The composition root resolves these from the feature registry and hands the
+finished value to the Ansible adapter, so ``core.ansible`` never reaches for
+the registry. One object rather than seven parameters, because both
+:class:`~blitzecdn.core.ansible.runner.AnsibleRunner` and
+:class:`~blitzecdn.core.ansible.execution.PlaybookExecutor` carry it unchanged.
 """
 
 from __future__ import annotations
@@ -35,12 +23,10 @@ __all__ = ["EdgeContributions"]
 
 @dataclass(frozen=True, slots=True)
 class EdgeContributions:
-    """One installation's answer to "what do the installed capabilities add?"."""
+    """What the capabilities add to every run."""
 
-    #: Where Ansible resolves a role name: core's roles and every installed
-    #: feature's, in the order
-    #: :func:`~blitzecdn.core.features.resolution.resolve_role_search_path`
-    #: settled. One process-wide list, which is why core composes it.
+    #: Core's roles directory, then every feature's, as
+    #: :func:`~blitzecdn.core.features.resolution.resolve_role_search_path` orders them.
     roles_path: tuple[Path, ...] = ()
     #: Contributed roles core's edge play runs before the configuration tree is
     #: rendered and validated.
@@ -53,13 +39,11 @@ class EdgeContributions:
     nginx_resources: Mapping[str, tuple[ResolvedNginxResource, ...]] = field(
         default_factory=dict
     )
-    #: The Nginx dynamic modules those fragments need loaded. Not desired
-    #: state: it is what is *installed*, so it never enters the snapshot a
-    #: rollback converges.
+    #: The Nginx dynamic modules those fragments need. Not desired state, so a
+    #: rollback never pins them.
     edge_modules: tuple[ResolvedEdgeModule, ...] = ()
-    #: The secrets declared by installed capabilities, forwarded into Ansible's
-    #: subprocess environment and nowhere else — never argv, never desired
-    #: state.
+    #: Declared secrets, forwarded only through Ansible's environment — never
+    #: argv, never desired state.
     environment: Mapping[str, SecretStr] = field(default_factory=dict)
 
     @classmethod
@@ -74,11 +58,7 @@ class EdgeContributions:
         edge_modules: Sequence[ResolvedEdgeModule] = (),
         environment: Mapping[str, SecretStr] | None = None,
     ) -> EdgeContributions:
-        """Build one from whatever sequence types the resolvers returned.
-
-        The resolvers answer with sequences and mappings of sequences; this is
-        the one place that freezes them, so no caller has to remember to.
-        """
+        """Build one from the resolvers' output, freezing every sequence."""
         return cls(
             roles_path=tuple(roles_path),
             edge_roles=tuple(edge_roles),
@@ -93,12 +73,10 @@ class EdgeContributions:
         )
 
     def variables(self) -> dict[str, Any]:
-        """What every run is told about the shipped capabilities, as extra-vars.
+        """The capability contributions as extra-vars, never in a release's variables.
 
-        On the command line rather than in a release's variables file: the set
-        of capabilities is not desired state, and pinning it would make a
-        rollback try to run a capability role a later version no longer ships.
-        Nothing secret is here — role names and template paths.
+        The set of capabilities is not desired state; pinning it would make a rollback
+        run a role a later version no longer ships. Nothing here is secret.
         """
         return {
             "blitzecdn_capability_roles": list(self.edge_roles),

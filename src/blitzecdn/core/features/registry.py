@@ -51,19 +51,10 @@ def merge_variables(
     """Merge every feature's variables into one document, order-independently.
 
     Two features writing one variable is a conflict, not a race won by whichever
-    registered last. The single exception is a declared override: a feature may
-    say it is deliberately replacing a value another produced — ``certificates``
-    replaces the certificate paths projected from the site model, because the
-    installed certificate lives on this controller and the model only knows
-    where it will land on the edge. Exactly one feature may claim that per
-    variable, and claiming a variable nobody else writes is fine: whether the
-    site model happens to carry a path is not something the certificate feature
-    should have to know.
-
-    So ``BUILTIN_FEATURES`` can be reordered freely and no edge converges
-    differently. Registration order decides presentation and nothing else. Key
-    *order* still follows first appearance, because the rendered YAML is read by
-    people and a stable layout is worth having.
+    registered last, unless exactly one of them declares it in ``overrides`` —
+    as ``certificates`` does for the certificate paths the site model projects.
+    So reordering ``BUILTIN_FEATURES`` never changes what an edge converges to;
+    it changes only key order, which follows first appearance for readable YAML.
     """
     plain: dict[str, list[tuple[str, StateValue]]] = {}
     claimed: dict[str, list[tuple[str, StateValue]]] = {}
@@ -110,12 +101,11 @@ class FeatureRegistry:
 
     @property
     def capabilities(self) -> frozenset[str]:
-        """Every capability token the installed features answer for.
+        """Every capability token the registered features provide.
 
-        The union of what each feature declared, and the only thing anything in
-        core asks about "is that capability here?". Core never learns which
-        distribution supplied a token, which is what keeps
-        `if compression_installed:` from being writable in the first place.
+        The only answer core has to "is that capability here?": it never learns
+        which feature supplied a token, so `if compression_installed:` cannot be
+        written.
         """
         return frozenset().union(*(feature.capabilities for feature in self.metadata))
 
@@ -124,13 +114,10 @@ class FeatureRegistry:
         return tuple(sorted(set(required) - self.capabilities))
 
     def require(self, required: Iterable[str], *, subject: str) -> None:
-        """Refuse to continue while a named capability is not installed.
+        """Refuse to start while a configured capability has no provider.
 
-        Deterministic and generic: the tokens come from configuration, the
-        answer comes from feature metadata, and nothing between them names a
-        capability. A configuration that asks for a capability no installed
-        feature provides is a startup failure with the token in it, not a
-        control plane that comes up and quietly serves its absence.
+        A startup failure naming the token, rather than a control plane that
+        comes up and quietly serves its absence.
         """
         absent = self.missing(required)
         if absent:
@@ -156,20 +143,18 @@ class FeatureRegistry:
         )
 
     def ansible_contributions(self) -> tuple[AnsibleContribution, ...]:
-        """Every installed feature's Ansible roles directory, in a fixed order.
+        """Every feature's Ansible roles directory, in registration order.
 
-        Registration order, like the routers and the commands. The search path
-        this feeds is composed in :mod:`blitzecdn.core.features.resolution`,
-        which is where determinism and shadowing are actually decided.
+        The search path is composed, and shadowing decided, in
+        :mod:`blitzecdn.core.features.resolution`.
         """
         return tuple(item for feature in self.features for item in feature.ansible)
 
     def configuration_contributions(self) -> tuple[ConfigurationContribution, ...]:
-        """Every installed feature's claim on `BLITZE_*` names it configures.
+        """Every feature's claim on the `BLITZE_*` names it configures.
 
-        Read once, before any adapter exists, because several adapters are
-        built from what it resolves to. Ownership, collisions and unclaimed
-        names are decided in :mod:`blitzecdn.core.features.resolution`.
+        Ownership, collisions and unclaimed names are decided in
+        :mod:`blitzecdn.core.features.resolution`.
         """
         return tuple(
             item for feature in self.features for item in feature.configuration
@@ -272,15 +257,10 @@ class Rendering[S: Site]:
         return merge_variables(contributions, subject="fleet desired state")
 
     def validate_site(self, site: S) -> ValidationResult:
-        """Every reason this site cannot be deployed by this installation.
+        """Every reason this installation cannot deploy this site.
 
-        The capability issues come first and are generic: the tokens are the
-        site's own `capability_requirements`, the answer is feature metadata,
-        and the settings that asked are quoted straight out of the mapping.
-
-        Both halves, which is what a caller asking "can this installation serve
-        this site" wants. The release compiler asks a narrower question and
-        uses :meth:`site_objections` instead — see there for why.
+        Missing capabilities first, then what the features object to. The
+        release compiler uses :meth:`site_objections` alone; see there for why.
         """
         return ValidationResult(
             site=site.name,
@@ -289,17 +269,12 @@ class Rendering[S: Site]:
         )
 
     def site_objections(self, site: S) -> tuple[ValidationIssue, ...]:
-        """What the *installed* features object to about this site.
+        """What the registered features object to about this site.
 
-        Separate from :meth:`validate_site` because the two answers have
-        different consequences. A capability that is missing cannot be asked
-        for anything and simply contributes nothing; a capability that is
-        installed and objects must not then be asked to render this site,
-        because the objection is usually the reason asking would fail.
-
-        The release compiler makes the missing-capability check itself, against
-        the edges as well as against this controller, so asking for both here
-        would report each of them twice.
+        Separate because an objecting feature must not then be asked to render
+        the site, while a missing one simply contributes nothing. The release
+        compiler checks missing capabilities itself, against the edges too, so
+        asking for both here would report each twice.
         """
         return tuple(
             issue
@@ -322,10 +297,8 @@ class Operations:
     def startup(self) -> None:
         """Let every feature do what it owes a starting node.
 
-        Deliberately promises no order. A feature whose startup depends on
-        another feature's startup has a dependency it has not declared and
-        cannot declare here — that belongs in the composition root, where the
-        two services are built in an order you can read.
+        Promises no order: a startup that depends on another feature's belongs
+        in the composition root, where the build order is explicit.
         """
         for item in self.operations:
             if item.startup is not None:
@@ -341,9 +314,8 @@ class Operations:
 def _unique_checks(checks: Sequence[HealthCheck]) -> tuple[HealthCheck, ...]:
     """Refuse two checks that answer to one name.
 
-    `/health` reports a check by `name`, so two features contributing
-    `"database"` would put two entries under one label and an operator reading
-    a failure would have no way to tell which wheel's check is red.
+    `/health` reports checks by name, so a duplicate would leave an operator
+    unable to tell which feature's check is failing.
     """
     seen: dict[str, str] = {}
     for check in checks:

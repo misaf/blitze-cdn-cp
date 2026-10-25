@@ -1,19 +1,10 @@
-"""The dynamic modules an edge's Nginx loads, composed from what is installed.
+"""The dynamic modules an edge's Nginx loads.
 
-Separate from :mod:`~blitzecdn.core.features.resolution.nginx` although both
-end up in the same configuration, because the two obey opposite conflict
-rules and that difference is the whole content of each.
-
-A fragment name is claimed *once*: two packages contributing it is a mistake
-whichever way it resolves. A module may be declared by any number of
-capabilities as long as they declare it identically — njs is one shared object
-in the base image, and refusing the second claimant would force one capability
-to depend on another over a file neither of them owns. What is refused is one
-name described two ways, and one shared object loaded twice.
-
-It is composed from ``AnsibleContribution`` rather than from
-``NginxContribution`` because a module is a property of the *image* a
-capability needs, which is the same declaration that carries its roles.
+The opposite conflict rule to fragments: any number of capabilities may
+declare one module as long as they declare it identically — njs is one shared
+object several may want. One name described two ways, or one shared object
+loaded twice, is refused. Composed from ``AnsibleContribution`` because a
+module is a property of the image.
 """
 
 from __future__ import annotations
@@ -41,24 +32,7 @@ class ResolvedEdgeModule:
 def resolve_edge_modules(
     contributions: Iterable[AnsibleContribution],
 ) -> tuple[ResolvedEdgeModule, ...]:
-    """Compose the fleet's `load_module` set from what is installed.
-
-    The companion to :func:`resolve_nginx_resources` for the one Nginx input
-    that is not a fragment: `load_module` is a main-context directive, so the
-    modules an edge loads are a single process-wide list, and core composes it
-    the way it composes the role search path — ordered by feature name so two
-    controllers with the same packages resolve the same list, and by declared
-    order within one feature, which is the only ordering a capability owns.
-
-    Two features declaring the *same* module is allowed when they declare it
-    identically, and that is deliberate rather than lenient. njs is the case:
-    it is one shared object in the base image and any number of capabilities
-    may want it, and refusing the second would force one of them to declare a
-    dependency on the other over a file neither of them owns. What is refused
-    is the same name declared two different ways, which is not a capability
-    asking for a module but two capabilities disagreeing about what it is —
-    and Nginx would take whichever this happened to emit first.
-    """
+    """Compose the fleet's `load_module` list, ordered by feature, then as declared."""
     resolved: list[ResolvedEdgeModule] = []
     owners: dict[str, ResolvedEdgeModule] = {}
     objects: dict[str, str] = {}

@@ -1,15 +1,9 @@
-"""Source precedence: where a `Settings` value comes from, as settings sources.
+"""Where a `Settings` value comes from, as an ordered chain of settings sources.
 
-The model in :mod:`blitzecdn.core.config.settings` says what a setting *is*.
-This module says where it comes from, as an ordered chain of pydantic-settings
-sources, highest first: explicit arguments, the `BLITZE_*` environment, the
-project-local `.env` (which never overrides an exported name), then
-`blitzecdn.toml`, then the field default. pydantic-settings merges them;
-nothing here coerces a value.
-
-Only a field the model lists in `Settings.OPERATOR_SETTINGS` is read from a
-source. Everything else is derived from the project directory by
-:func:`settings_sources`.
+Highest first: explicit arguments, the `BLITZE_*` environment, the project's
+`.env` (never overriding an exported name), `blitzecdn.toml`, then the field
+default. Only fields in `Settings.OPERATOR_SETTINGS` are read from a source;
+the rest derive from the project directory.
 """
 
 from __future__ import annotations
@@ -38,9 +32,7 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from pydantic.fields import FieldInfo
     from pydantic_settings import BaseSettings
 
-# Disaster recovery moves portable policy and non-regenerable identity onto a
-# compatible fresh install, but it must not replace the new host's filesystem
-# layout with values from the failed machine.
+# Restores carry policy and identity, never the failed machine's filesystem layout.
 MACHINE_SPECIFIC_CONFIG_KEYS = frozenset({"database_path", "environment_path"})
 MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
     {
@@ -66,19 +58,14 @@ _API_KEY_VARIABLE = "BLITZE_API_KEY"
 def is_portable_config_key(name: str) -> bool:
     """Whether this `blitzecdn.toml` key survives a restore onto a fresh host.
 
-    A predicate rather than an allow-list: a capability owns its own keys in
-    this file and core must not name them. A capability's own machine-specific
-    setting is declared on the setting, as `CapabilitySetting.portable`.
+    A predicate, so core never names a capability's keys; capabilities mark their
+    own with `CapabilitySetting.portable`.
     """
     return name not in MACHINE_SPECIFIC_CONFIG_KEYS
 
 
 def is_portable_environment_key(name: str) -> bool:
-    """Whether this environment setting survives a restore onto a fresh host.
-
-    Everything but the handful of settings that describe *this machine* is
-    portable, so core never has to name a capability's variable to say so.
-    """
+    """Whether this environment setting survives a restore onto a fresh host."""
     return name.startswith(_PREFIX) and name not in MACHINE_SPECIFIC_ENVIRONMENT_KEYS
 
 
@@ -98,12 +85,10 @@ def _operator_settings(
 class EnvironmentSource(EnvSettingsSource):
     """`BLITZE_*` settings from a given mapping, never from `os.environ`.
 
-    Names match exactly and in upper case, the way a shell spells them. Every
-    other `BLITZE_*` name is staged, masked, in `capability_environment` for the
-    feature resolver to claim: core cannot tell a credential from a tuning
-    value, and the safe assumption for one it cannot interpret is that it is a
-    credential. Core's own names, the API keys among them, are never staged, so
-    they never reach a subprocess.
+    Names match exactly, upper case. Every other `BLITZE_*` name is staged, masked,
+    in `capability_environment` for the features to claim, since core cannot tell
+    a credential from a tuning value. Core's own names, the API keys among them,
+    are never staged, so they never reach a subprocess.
     """
 
     def __init__(
@@ -159,12 +144,9 @@ class EnvironmentSource(EnvSettingsSource):
 class ProjectFileSource(TomlConfigSettingsSource):
     """The `[blitzecdn]` table of `blitzecdn.toml`.
 
-    A key core does not recognise is staged in `capability_config_file` under
-    the `BLITZE_*` name it corresponds to, rather than refused: this runs long
-    before any feature has said what it claims. Kept apart from the
-    environment's staging, and never `SecretStr`, because this file is
-    committed: only a `CapabilitySetting` is ever satisfied from it, never a
-    secret declared as an `EnvironmentKey`.
+    Unknown keys are staged in `capability_config_file` under their `BLITZE_*`
+    names for the features to claim. Never `SecretStr` and never used for a
+    secret: this file is committed.
     """
 
     def __init__(self, settings_cls: type[BaseSettings], path: Path) -> None:
@@ -203,10 +185,9 @@ def settings_sources(
 ) -> tuple[tuple[PydanticBaseSettingsSource, ...], dict[str, Any]]:
     """Every source for one `Settings`, highest precedence first.
 
-    Shaped for `BaseSettings(_build_sources=...)`. The project root is resolved
-    twice, deliberately: `.env` is read relative to the root the process
-    already knows, and only then may that file move the root by setting
-    `BLITZE_PROJECT_DIR` itself. An explicit `project_dir` outranks both.
+    The project root is resolved twice: `.env` is read from the root the process
+    knows, and may then move it with `BLITZE_PROJECT_DIR`. An explicit
+    `project_dir` outranks both.
     """
     supplied = os.environ if environment is None else environment
     initial_root = (
@@ -236,11 +217,7 @@ def _layout(root: Path) -> dict[str, Any]:
     return {
         "project_dir": root,
         "state_dir": state,
-        # Not derived from `root`. The platform's Ansible ships inside this
-        # wheel and is located through `importlib.resources`, so these resolve
-        # identically in a checkout and on a controller that has no checkout
-        # at all. Pointing the control plane at someone else's copy of the
-        # platform roles is not a supported deployment.
+        # Not derived from `root`: the platform's Ansible ships in the package.
         "ansible_dir": core_ansible.ROLES_PATH.parent,
         "inventory_path": core_ansible.INVENTORY_PATH,
         "playbook_path": core_ansible.EDGE_PLAYBOOK,
@@ -254,9 +231,8 @@ def _layout(root: Path) -> dict[str, Any]:
 def read_environment_file(path: Path) -> dict[str, str]:
     """Read a `.env` strictly: one shell-quoted `NAME=value` per line.
 
-    Stricter than python-dotenv on purpose. A symlink or a value with an
-    unquoted space is refused rather than guessed at, because this file holds
-    the controller's secrets.
+    Stricter than python-dotenv: a symlink or an unquoted space is refused, because
+    this file holds the controller's secrets.
     """
     values: dict[str, str] = {}
     if not path.exists():
@@ -290,11 +266,7 @@ def read_environment_file(path: Path) -> dict[str, str]:
 
 
 def _scalar(value: object) -> str:
-    """One TOML value as the string an environment variable would have held.
-
-    `True` is the one that would otherwise be wrong: Python spells it
-    capitalised and no environment variable ever does.
-    """
+    """One TOML value as an environment variable would spell it (`true`, not `True`)."""
     if isinstance(value, bool):
         return "true" if value else "false"
     if isinstance(value, (list, tuple, dict)):

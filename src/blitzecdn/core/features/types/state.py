@@ -35,11 +35,8 @@ type StateValue = (
 class SiteStateContribution:
     """One feature's share of the Ansible document for one virtual host.
 
-    `overrides` is what makes merging order-independent. Two features writing
-    the same variable is a conflict unless exactly one of them says it is
-    replacing a value another produced — `certificates` deliberately replaces
-    the certificate paths projected from the site model, and saying so is the
-    difference between a designed override and whichever feature loaded last.
+    `overrides` names the variables this feature deliberately replaces; see
+    :func:`~blitzecdn.core.features.merge_variables`.
     """
 
     feature: str
@@ -51,9 +48,8 @@ class SiteStateContribution:
 class FleetStateContribution:
     """Variables about the fleet as a whole rather than about one site.
 
-    Separate from `SiteStateContribution` because it is derived from every
-    site at once: which single site carries `reuseport` on the QUIC listener
-    is not a fact any one site knows about itself.
+    Derived from every site at once: which one site carries `reuseport` on the
+    QUIC listener is not something any single site knows.
     """
 
     feature: str

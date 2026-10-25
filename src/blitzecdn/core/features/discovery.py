@@ -1,15 +1,9 @@
-"""Loading the built-in features, and what happens when one cannot be loaded.
+"""Loading the built-in features, and refusing to start without one.
 
-Built-in features are modules the composition root names, each exporting
-``FEATURES``: typed :class:`~blitzecdn.core.features.Feature` declarations.
-They are not optional and not really "discovered" — the control plane *is*
-these features — so resolving them through installation metadata would turn a
-broken editable install into a control plane that starts happily and quietly
-serves an empty fleet. An explicit roster fails at import, names the module,
-and can be read. Which modules it holds is the composition root's answer.
-
-There is no third-party extension mechanism. When one is needed it appends
-to the same roster.
+Each module the composition root names exports ``FEATURES``, a tuple of
+:class:`~blitzecdn.core.features.Feature`. The roster is explicit rather than
+discovered from installation metadata, so a broken install fails at import and
+names the module instead of starting with an empty fleet.
 """
 
 from __future__ import annotations
@@ -24,11 +18,9 @@ __all__ = ["load_features"]
 
 
 def load_features(modules: Sequence[str]) -> tuple[Feature, ...]:
-    """Import the features the caller ships. Any failure is fatal.
+    """Import the named feature modules. Any failure is fatal.
 
-    ``modules`` has no default. A default would be this module's own answer to
-    "which features exist", which is the one question core must not hold an
-    opinion about.
+    No default: which features exist is the composition root's answer, not core's.
     """
     found: list[Feature] = []
     names: dict[str, str] = {}

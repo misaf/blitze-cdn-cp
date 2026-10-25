@@ -1,15 +1,8 @@
-"""Where a role is, and which of them core's own plays run.
+"""Where a role is, and which roles core's own plays run in each slot.
 
-Four answers from one contribution, and they are four rather than one because
-Ansible asks them in four different places. ``resolve_role_search_path``
-answers where a role *is* — a single process-wide list, so a name resolving to
-two directories is a package silently replacing ``blitzecdn_nginx``. The three
-slot resolvers answer which contributed roles a *play* includes, and a role
-belongs to exactly one slot: two positions in the edge play, one in the
-decommission play.
-
-A package that ships a role only its own plays reach declares the directory
-and no slot at all, which is why the two questions cannot be one.
+The search path answers where a role is; the slot resolvers answer which roles
+a play includes. A feature whose roles only its own plays reach declares a
+directory and no slot.
 """
 
 from __future__ import annotations
@@ -36,23 +29,12 @@ _CORE = "the control plane"
 def resolve_role_search_path(
     core_roles: Path, contributions: Iterable[AnsibleContribution]
 ) -> tuple[Path, ...]:
-    """Core's roles directory, then each contributor's, deterministically.
+    """Core's roles directory, then each feature's, ordered by feature name.
 
-    Ordering is core first and then contributions by feature name, so the path a
-    deployment runs against depends on *what is installed* and never on the
-    order it happened to be registered in. Two edges converged from the same
-    set of packages resolve every role identically.
-
-    A role name that appears in two directories is refused with both owners
-    named, rather than silently shadowed. Shadowing is the failure this exists
-    to prevent: Ansible takes the first match, so a package shipping
-    ``blitzecdn_nginx`` would replace the edge's configuration renderer and the
-    deployment would succeed while converging something nobody wrote.
-
-    A contributed directory that is not there is refused too. It means the
-    feature declared a role tree it does not carry, and the alternative to
-    failing here is a play that fails much later with "the role was not
-    found", naming nothing that would lead anyone to the feature.
+    A role name in two directories is refused with both owners named: Ansible
+    takes the first match, so a feature shipping ``blitzecdn_nginx`` would
+    silently replace the edge renderer. A declared directory that is missing is
+    refused here rather than as an unexplained "role not found" mid-play.
     """
     ordered = sorted(contributions, key=lambda item: item.feature)
     search: list[Path] = [core_roles]
@@ -83,47 +65,24 @@ def resolve_role_search_path(
 def resolve_edge_capability_roles(
     contributions: Iterable[AnsibleContribution],
 ) -> tuple[str, ...]:
-    """Which contributed roles core's edge play runs, in a fixed order.
-
-    The companion to the search path, and separate from it for the same reason
-    the two questions are separate: the search path says where a role *is*, and
-    this says which ones the shared edge play *includes*. A package that ships
-    a role only its own plays reach — a purge, a statistics collection —
-    answers this with nothing and converges no edge on a deploy.
-    """
+    """The contributed roles core's edge play runs, before rendering."""
     return _resolve_slot(contributions, "edge_roles")
 
 
 def resolve_host_capability_roles(
     contributions: Iterable[AnsibleContribution],
 ) -> tuple[str, ...]:
-    """The same question for the play's *host* slot, at the end of the run.
-
-    A separate list rather than a flag on the names in one, because the two
-    slots are two positions in a play and a role belongs to exactly one of
-    them. Composed identically, and deliberately by the same private helper:
-    the ordering rule, the "your wheel does not ship that" refusal and the
-    determinism are properties of *a slot*, and a second copy of them would be
-    a second place for them to drift.
-    """
+    """The contributed roles the edge play runs in its host slot, at the end."""
     return _resolve_slot(contributions, "host_roles")
 
 
 def resolve_teardown_capability_roles(
     contributions: Iterable[AnsibleContribution],
 ) -> tuple[str, ...]:
-    """The same question again, for the decommission play's slot.
+    """The contributed roles the decommission play runs.
 
-    A third list rather than a reuse of either edge slot, because a
-    decommission is a different play with a different guarantee: it runs on a
-    host that is about to leave inventory, and after it there is no way back.
-    A capability removes what it wrote here or it stays on the host forever.
-
-    Composed by the same helper for the same reason as the other two, and
-    ordered by feature name like them — with one consequence worth naming.
-    Removal order is not the reverse of convergence order and does not need to
-    be: each role withdraws only what its own package wrote, and nothing in
-    this slot may depend on another capability's files still being present.
+    Not the reverse of convergence order, and need not be: each role removes only
+    what its own feature wrote.
     """
     return _resolve_slot(contributions, "teardown_roles")
 
@@ -131,22 +90,11 @@ def resolve_teardown_capability_roles(
 def _resolve_slot(
     contributions: Iterable[AnsibleContribution], slot: str
 ) -> tuple[str, ...]:
-    """Compose one of core's capability slots.
+    """Compose one slot: by feature name, then each feature's declared order.
 
-    Ordered by feature name, like the search path, so a fleet converged from the
-    same set of packages runs the same roles in the same order every time. This
-    ordering has no dependency semantics: optional roles must depend only on
-    established core prerequisites. Within one feature the declared order is
-    kept because that feature alone owns those roles — which is how
-    ``hardening`` gets Fail2Ban after SSH without core knowing that either
-    exists.
-
-    A name the contributing feature does not actually ship is refused here.
-    Ansible would refuse it too, but much later — after the engine is
-    installed, the image pulled and the play half-way through an edge — and it
-    would name only the role, not the distribution that asked for it. In the
-    decommission slot that lateness is worse still: the play would have already
-    started taking the host apart.
+    A name the feature does not ship is refused before the play starts — in the
+    decommission slot, the alternative is failing half-way through taking a host
+    apart.
     """
     roles: list[str] = []
     for contribution in sorted(contributions, key=lambda item: item.feature):
@@ -166,15 +114,7 @@ def _resolve_slot(
 
 
 def _role_names(path: Path) -> Sequence[str]:
-    """Every role directory directly under ``path``, sorted.
-
-    A role is a directory, so a stray file is not one. Nothing here reads what
-    is inside: whether a role is *valid* is Ansible's question and
-    ansible-lint's, and answering it here would be a second, weaker copy of
-    both. A directory that is not there contributes no names — a contributed
-    one has already been refused by then, and core's is checked by
-    ``Settings.validate_runtime`` where every other missing path is.
-    """
+    """Every role directory directly under ``path``, sorted; none if it is missing."""
     if not path.is_dir():
         return ()
     return sorted(entry.name for entry in path.iterdir() if entry.is_dir())

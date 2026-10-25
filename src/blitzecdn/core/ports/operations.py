@@ -10,12 +10,7 @@ from blitzecdn.core.domain.runs import AnsibleRun
 
 
 class AuditTrail(Protocol):
-    """The append-only operator log, as the entry layers need to read it.
-
-    Read-only on purpose. Application services write through
-    :class:`EventRecorder`; entry layers cannot manufacture audit rows for
-    actions no use case performed.
-    """
+    """The append-only operator log, read-only; services write via `EventRecorder`."""
 
     def get_audit_event(self, event_id: int) -> AuditEvent: ...
 
@@ -25,17 +20,10 @@ class AuditTrail(Protocol):
 class PlaybookRunner(Protocol):
     """Run one named play across the edges in scope, and report structurally.
 
-    Published as ``CliServices.fleet``, and the only fleet primitive a
-    capability is given. Generic on purpose: core stages the
-    variables file, expands a host limit against the fleet it records, applies
-    the timeout, and learns nothing about what the play is for. A capability
-    runs its own play through exactly
-    this method, and one that ships inside it — `cache` — is not privileged.
-
-    Takes no deployment lock. Everything reached this way is an operation
-    rather than a convergence: it writes no desired state, and an operation
-    that had to wait for a deploy would be useless precisely when a deploy is
-    running.
+    The only fleet primitive a capability is given. Core stages variables, expands
+    the host limit and applies the timeout, knowing nothing of what the play is
+    for. Takes no deployment lock: an operation that waited for a deploy would be
+    useless exactly when one is running.
     """
 
     def run_playbook(

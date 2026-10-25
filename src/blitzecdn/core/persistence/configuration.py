@@ -14,13 +14,7 @@ from blitzecdn.core.persistence.tables import AnsibleSettingRow
 
 
 def _rows_affected(result: Result[Any]) -> int:
-    """``rowcount`` for a DML statement.
-
-    ``Session.execute`` is typed as returning ``Result``, which has no
-    ``rowcount`` — only the ``CursorResult`` a DML statement actually produces
-    does. The narrowing is here rather than at each call site so "how many rows
-    did that touch" stays one readable expression.
-    """
+    """``rowcount`` for a DML statement, narrowed from ``Result`` once, here."""
     return cast("CursorResult[Any]", result).rowcount
 
 
@@ -38,9 +32,7 @@ class AnsibleSettingStore:
             return {row.name: row.value for row in rows}
 
     def set_setting(self, name: str, value: Any) -> None:
-        # Checked here rather than only at the entry point that happens to be
-        # the sole writer today. These rows are published to every host at
-        # inventory precedence, so the rule protects the fleet, not the CLI.
+        # Checked in the store, not the CLI: these rows reach every host.
         name = validate_setting_name(name)
         with self._db.session() as session:
             statement = sqlite_insert(AnsibleSettingRow).values(
@@ -68,11 +60,7 @@ class AnsibleSettingStore:
                 raise NotFoundError(f"Ansible setting {name!r} does not exist")
 
     def replace_all_settings(self, settings: Mapping[str, Any]) -> None:
-        """Restore the table wholesale, for a rollback that adopts a release.
-
-        Every name is validated as `set_setting` would: a release's settings
-        were written through this store, but they are read back from storage.
-        """
+        """Restore the table wholesale for a rollback, revalidating every name."""
         names = {name: validate_setting_name(name) for name in settings}
         now = self._db.now()
         with self._db.session() as session:

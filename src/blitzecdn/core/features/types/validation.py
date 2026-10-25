@@ -1,7 +1,4 @@
-"""What a capability knows about a site that a deployment should hear.
-
-Answered by ``blitzecdn_deployment_checks``, before anything is rendered.
-"""
+"""What a capability knows about a site that a deployment should hear."""
 
 from __future__ import annotations
 

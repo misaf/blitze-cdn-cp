@@ -1,8 +1,4 @@
-"""The validated settings model.
-
-What a setting means, what it may hold, and what it is when unset. Where a
-value *comes from* is :mod:`blitzecdn.core.config.loading`'s question.
-"""
+"""The validated settings model; where values come from is :mod:`.loading`'s job."""
 
 from __future__ import annotations
 
@@ -30,13 +26,7 @@ from blitzecdn.core.exceptions import ConfigurationError
 
 
 class Settings(BaseSettings):
-    """Validated application settings assembled from environment and TOML.
-
-    :mod:`blitzecdn.core.config.loading` builds the sources and their order;
-    ``from_environment`` hands them to ``BaseSettings``, which merges and
-    coerces. What a value may be, including the comma-separated spellings an
-    environment variable needs, is validated here.
-    """
+    """Validated application settings, merged from the sources `loading` builds."""
 
     #: The fields an operator sets, as `BLITZE_<FIELD>` or a `blitzecdn.toml`
     #: key. Every other field is derived from the project directory.
@@ -78,9 +68,8 @@ class Settings(BaseSettings):
         dotenv_settings: PydanticBaseSettingsSource,
         file_secret_settings: PydanticBaseSettingsSource,
     ) -> tuple[PydanticBaseSettingsSource, ...]:
-        # `from_environment` supplies its own sources. Constructed directly,
-        # the model takes its arguments and nothing else: reading the process
-        # environment here would let unprefixed variables override defaults.
+        # Constructed directly, the model reads only its arguments;
+        # `from_environment` supplies the real sources.
         return (init_settings,)
 
     project_dir: Path
@@ -90,9 +79,7 @@ class Settings(BaseSettings):
         default=Path(".state/control-plane.db"), validate_default=True
     )
     ansible_dir: Path
-    #: The Ansible inventory *source*, which is the `blitzecdn` plugin's
-    #: configuration rather than a list of hosts. The fleet itself comes from
-    #: the `edges` table; this file only tells Ansible to go and read it.
+    #: The inventory plugin's configuration; the hosts come from the database.
     inventory_path: Path
     playbook_path: Path
     generated_vars_path: Path
@@ -106,117 +93,45 @@ class Settings(BaseSettings):
     decommission_playbook_path: Path
     ansible_playbook: str = "ansible-playbook"
     deployment_timeout_seconds: int = Field(default=900, ge=30, le=7200)
-    #: Budget for one CAA lookup during certificate preflight. A resolver that
-    #: needs longer is treated as unavailable and the check downgrades to an
-    #: advisory rather than blocking issuance.
+    #: Budget for one CAA lookup in certificate preflight; past it, the check
+    #: becomes advisory rather than blocking.
     preflight_dns_timeout_seconds: int = Field(default=5, ge=1, le=60)
-    #: Resolvers preflight asks, instead of whatever this host resolves with.
-    #:
-    #: Preflight predicts what the CA will see, and the CA resolves from the
-    #: public internet. The controller's own resolver answers a different
-    #: question: a split-horizon view, an internal forwarder, or a transparent
-    #: proxy that claims every name will all disagree with the public answer
-    #: while being perfectly healthy for every other purpose. Empty means fall
-    #: back to the host resolver, which is right for an air-gapped controller
-    #: with its own view of public DNS.
+    #: Resolvers preflight asks instead of the host's, to see what the CA sees
+    #: rather than a split-horizon view. Empty uses the host resolver.
     preflight_dns_servers: Annotated[tuple[str, ...], NoDecode] = ()
-    #: Capabilities this installation's configuration depends on, by token.
-    #:
-    #: Additional capability tokens an operator requires, including external
-    #: extensions. Missing requirements fail during application construction.
+    #: Capability tokens this installation requires; a missing one fails startup.
     required_capabilities: Annotated[tuple[str, ...], NoDecode] = ()
-    #: Candidate `BLITZE_*` variables that core itself does not consume.
-    #:
-    #: The generic answer to "a capability needs a credential", and
-    #: the reason core carries no capability's name. Installed features claim
-    #: names during composition through `ConfigurationContribution`; unclaimed
-    #: and multiply claimed names are errors, and only the resolved *secrets*
-    #: reach a package role through the subprocess environment.
-    #:
-    #: `SecretStr` because core cannot know which of these are credentials, and
-    #: the safe assumption for a value it cannot interpret is that it is one:
-    #: a traceback or a debugger that reprs `Settings` prints `**********`.
-    #: Not environment-only: a `blitzecdn.toml` key core does not recognise is
-    #: staged here as `BLITZE_<KEY>` rather than refused outright, because a
-    #: non-secret capability setting has to be writable in the file that holds
-    #: every other non-secret default.
-    #:
-    #: Core's own names are excluded, which keeps `BLITZE_API_KEY` and
-    #: `BLITZE_API_KEYS` — controller authentication, no edge's business — out
-    #: of every subprocess the control plane starts.
+    #: `BLITZE_*` variables core does not consume, staged for features to claim
+    #: through `ConfigurationContribution`. `SecretStr`, because core cannot
+    #: tell which are credentials. Core's own names, the API keys included, are
+    #: never staged here, so they never reach a subprocess.
     capability_environment: dict[str, SecretStr] = Field(default_factory=dict)
-    #: Capability configuration from `blitzecdn.toml`: keys core does not
-    #: recognise, staged under the `BLITZE_*` name they correspond to.
-    #:
-    #: Separate from `capability_environment` because of where it came from.
-    #: A non-secret capability setting belongs in the non-secret file — a
-    #: renewal interval is exactly what it exists to hold — but a *secret*
-    #: must not be settable there, and the two are indistinguishable until a
-    #: feature says which is which. Keeping the origins apart lets the resolver
-    #: honour that: a `CapabilitySetting` reads from both, an `EnvironmentKey`
-    #: only from the environment. Plain strings, never `SecretStr`, because
-    #: nothing that reaches this map is allowed to be a credential.
-    #:
-    #: Lower precedence than the environment, like every other source here.
+    #: Unknown `blitzecdn.toml` keys, staged under their `BLITZE_*` names. Kept
+    #: apart from the environment so a secret can never be satisfied from the
+    #: committed file: a `CapabilitySetting` reads both, an `EnvironmentKey`
+    #: only the environment.
     capability_config_file: dict[str, str] = Field(default_factory=dict)
-    #: Per-origin budget for `blitzecdn origin check`. Short on purpose: an
-    #: origin that needs longer than this to answer a bare TCP connect is one
-    #: the edges will struggle with too.
-    #: The controller's *own* advisory probe budget, inside certificate
-    #: preflight. Not the fleet check's: that one is the ``origins`` role's
-    #: default.
+    #: The controller's own advisory origin-probe budget in certificate
+    #: preflight; the fleet check's is the ``origins`` role's default.
     origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
-    #: How much of a run log to read back when showing an operator why a run
-    #: failed. The log itself is never truncated — it is the full account — but
-    #: an error message quoting all of it helps nobody.
+    #: How much of a run log to quote back in an error; the log is never cut.
     output_limit_bytes: int = Field(default=1_048_576, ge=4096, le=10_485_760)
-    #: How many run logs to keep. They accumulate one per invocation — deploys,
-    #: drift checks on a timer, every purge — so something has to bound them,
-    #: and the alternative to a cap here is a disk that fills on a schedule.
-    #: The newest are kept; a deployment whose log has aged out still has its
-    #: structured result, which is what the control plane reasons from.
+    #: How many run logs to keep, newest first; every invocation writes one.
     run_log_retention: int = Field(default=500, ge=10, le=100_000)
     #: How many finished check-mode deployments, jobs and workflows to keep,
-    #: and the baseline number of releases (referenced releases survive too).
-    #:
-    #: The drift timer fires hourly and each firing writes a deployment row
-    #: naming its immutable release. Unfinished deployments are never pruned;
-    #: real deployments are also retained as rollback history.
+    #: and the baseline number of releases; referenced releases, unfinished
+    #: deployments and real deployments' rollback history always survive.
     history_retention: int = Field(default=1000, ge=50, le=100_000)
-    #: How many audit events to keep.
-    #:
-    #: The audit log is the only table with a writer on every mutation and no
-    #: reader that ever removes one, so it is the one thing here that would
-    #: otherwise grow without bound — a control plane that eventually dies of
-    #: having recorded too well. This is a bound against that, not a judgement
-    #: about what is worth keeping: the default holds years of ordinary
-    #: operation, and an installation that needs a longer trail than a local
-    #: SQLite file should be shipping these events off the box rather than
-    #: raising this.
+    #: How many audit events to keep. A disk bound, not a retention policy: the
+    #: default holds years, and a longer trail belongs off the box.
     audit_retention: int = Field(default=100_000, ge=1_000, le=10_000_000)
     drift_check_interval_seconds: int = Field(default=3600, ge=0, le=86_400)
-    #: How often the worker looks for durable work when it found none last time.
-    #:
-    #: A poll rather than a push, and the interval is what that trade costs: an
-    #: idle tick is one indexed SELECT against a local SQLite file, and a queued
-    #: deployment waits at most this long before a worker picks it up. Pushing
-    #: would need a broker — a second network service — for a workload of one
-    #: convergence at a time.
+    #: How often an idle worker polls for durable work: one indexed SELECT,
+    #: rather than a broker for one convergence at a time.
     worker_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
-    #: How many route handlers may occupy the API's offload pool at once.
-    #:
-    #: Their own pool, not the server's. Some operations block for minutes —
-    #: a certificate renewal sweep is the standing example — and left in the
-    #: shared thread pool a handful of them starve every other endpoint,
-    #: including `/health`, so the controller would look dead to a load
-    #: balancer while working perfectly.
-    #:
-    #: Core's, despite a certificate sweep being the standing example of what
-    #: fills it: the pool is API infrastructure rather than one capability's
-    #: setting.
-    #:
-    #: Small on purpose: the work it carries serialises on the deployment lock
-    #: anyway, so more workers would only queue deeper.
+    #: Size of the API's own pool for long blocking handlers, kept off the
+    #: server's so a renewal sweep cannot starve `/health`. Small, because the
+    #: work serialises on the deployment lock anyway.
     api_worker_threads: int = Field(default=2, ge=1, le=16)
     #: Public API client IPv4 addresses/CIDRs. Empty keeps the API on loopback.
     allowed_ips: Annotated[tuple[str, ...], NoDecode] = ()
@@ -285,22 +200,14 @@ class Settings(BaseSettings):
                 raise ValueError("allowed_ips entries must be non-empty IPs/CIDRs")
             entry = item.strip()
             network = ip_network(entry, strict=False)
-            # The installed listener binds 0.0.0.0, so an IPv6 entry would be
-            # configuration that cannot admit anyone. Refused at load rather
-            # than accepted and ignored: an operator who lists an address and
-            # is then refused by the API has no way to tell which of the two
-            # is wrong.
+            # The listener binds 0.0.0.0, so an IPv6 entry could admit no one.
             if network.version != 4:
                 raise ValueError(
                     f"allowed_ips entry {entry!r} is IPv6; the API "
                     "listens on IPv4 and cannot admit it"
                 )
-            # `203.0.113.8/24` is either one host or two hundred and fifty six,
-            # and masking the host bits away silently picks the wider reading.
-            # This is the one validation error where guessing admits people the
-            # operator did not name, so the entry is refused and both readings
-            # are offered back. A bare address still parses strictly: it is a
-            # /32, not host bits.
+            # `203.0.113.8/24` is one host or 256; masking would silently admit
+            # the wider reading, so refuse and offer both.
             try:
                 exact = ip_network(entry, strict=True)
             except ValueError:
@@ -342,23 +249,12 @@ class Settings(BaseSettings):
 
     @property
     def run_dir(self) -> Path:
-        """Working files for an invocation in flight: its vars, its result.
-
-        Derived rather than configurable. Everything in here is created and
-        removed inside one run, so there is no reason for an operator to place
-        it anywhere but beside the rest of the state.
-        """
+        """Working files for an invocation in flight, removed when it ends."""
         return self.state_dir / "runs"
 
     @property
     def log_dir(self) -> Path:
-        """Raw Ansible output, one file per run.
-
-        Kept for maintenance, debugging and operator inspection. No application
-        code reads these — what the control plane acts on comes from the
-        Runner's structured events — so a missing or rotated-away log costs an
-        explanation, never a decision.
-        """
+        """Raw Ansible output, one file per run, for operators; no code reads it."""
         return self.state_dir / "logs"
 
     @classmethod

@@ -1,10 +1,4 @@
-"""The names control-plane values are keyed by, constrained once.
-
-Four aliases, each the shape of something the control plane identifies rather
-than the thing itself: an operator, a deployment, an edge. They are core's
-because more than one capability keys a value by them and none of them decides
-what a valid one looks like.
-"""
+"""The names control-plane values are keyed by, constrained once."""
 
 from __future__ import annotations
 

@@ -1,9 +1,4 @@
-"""Ansible resources owned by compression.
-
-Resolved through importlib resources so the installed application works without
-a repository or a particular working directory. Role and playbook names remain
-stable; their files travel beside their owning implementation in the one wheel.
-"""
+"""The compression capability's Ansible roles and plays, located inside the package."""
 
 from __future__ import annotations
 

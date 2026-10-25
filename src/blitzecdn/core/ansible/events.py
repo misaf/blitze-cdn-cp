@@ -1,10 +1,8 @@
 """Ansible Runner's event stream, translated into the run contract.
 
-This module is the whole of the translation, and the reason the rest of the
-control plane can be held to "never reason from Ansible's textual output": a
-structured task or recap event goes in, an
-:class:`~blitzecdn.core.domain.runs.AnsibleRun` component comes out, and nothing above
-this ever sees the terminal output that also happened.
+The only place structured task and recap events become
+:class:`~blitzecdn.core.domain.runs.AnsibleRun` components; nothing above it
+sees terminal output.
 """
 
 from __future__ import annotations

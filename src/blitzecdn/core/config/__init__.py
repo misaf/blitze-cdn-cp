@@ -1,13 +1,4 @@
-"""Control-plane configuration: the model, and where its values come from.
-
-Split because the two are different jobs with different reasons to change.
-:mod:`.settings` is the pydantic model — every field, its bounds and the
-reason it exists. :mod:`.loading` is the chain of pydantic-settings sources — process
-environment, `.env`, `blitzecdn.toml` — and the order they are merged in.
-
-`Settings` stays importable from `blitzecdn.core.config`, which is the name
-the rest of the control plane and every capability wheel already uses.
-"""
+"""Control-plane configuration: the model in `settings`, its sources in `loading`."""
 
 from __future__ import annotations
 

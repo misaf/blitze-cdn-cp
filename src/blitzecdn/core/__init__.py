@@ -1,23 +1,12 @@
-"""What every capability stands on, organised by who is allowed to import it.
+"""What every capability stands on, arranged by who may import each part.
 
-`core` is a layer rather than a slice, so unlike `capabilities/` it is arranged
-layer-first — and it is the only package in this workspace that is:
-
-* :mod:`~blitzecdn.core.domain` — values and vocabulary, no I/O anywhere;
-* :mod:`~blitzecdn.core.ports` — the protocols a service declares instead of
-  naming an implementation;
-* :mod:`~blitzecdn.core.persistence` — the SQLite engine, the physical schema
-  and the stores on it, private but for `persistence.schema`;
-* :mod:`~blitzecdn.core.runtime` — subprocesses, files, logging,
-  and where the installed distribution landed;
-* :mod:`~blitzecdn.core.ansible`, :mod:`~blitzecdn.core.config`,
-  :mod:`~blitzecdn.core.features` — configuration, Ansible execution, and
-  the feature mechanism;
-* :mod:`~blitzecdn.core.exceptions` — the one module every layer may name,
-  which is why it is still a file here.
-
-The import rules name `blitzecdn.core.persistence` and
-`blitzecdn.core.runtime` as packages, so a module lands inside a rule the moment
-it is created, and the directory a file goes in is the same decision as who may
-depend on it.
+The only layer-first package: :mod:`~blitzecdn.core.domain` holds values with
+no I/O; :mod:`~blitzecdn.core.ports` the protocols services depend on;
+:mod:`~blitzecdn.core.persistence` the SQLite engine, schema and stores;
+:mod:`~blitzecdn.core.runtime` subprocesses, files and logging;
+:mod:`~blitzecdn.core.ansible`, :mod:`~blitzecdn.core.config` and
+:mod:`~blitzecdn.core.features` Ansible execution, configuration and the
+feature mechanism; and :mod:`~blitzecdn.core.exceptions` the errors every layer
+may name. The import contracts name these packages, so where a file goes
+decides who may depend on it.
 """
