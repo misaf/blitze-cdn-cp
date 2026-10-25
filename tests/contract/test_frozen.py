@@ -115,7 +115,7 @@ def test_the_command_line_needs_no_database_to_describe_itself():
     this suite would start writing SQLite files as a side effect of describing
     itself — and the operator-facing property would already be broken.
     """
-    from blitzecdn.cli import main
+    from blitzecdn.entrypoints.cli import main
 
     assert main.app.registered_groups
     assert "domain" in {group.name for group in main.app.registered_groups}

@@ -14,9 +14,9 @@ from control_plane_fixtures import (
     host_run,
 )
 
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_setup_and_edge_workflow(tmp_path, monkeypatch):

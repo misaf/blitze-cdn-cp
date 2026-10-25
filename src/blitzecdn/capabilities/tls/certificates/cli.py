@@ -9,8 +9,8 @@ import typer
 
 from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.tls.certificates.domain import CERTIFICATE_RENEWAL_DAYS
-from blitzecdn.cli import common
-from blitzecdn.cli.common import ExitCode
+from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.common import ExitCode
 
 cert_app = typer.Typer(
     no_args_is_help=True, help="Inspect, issue and renew managed TLS certificates."

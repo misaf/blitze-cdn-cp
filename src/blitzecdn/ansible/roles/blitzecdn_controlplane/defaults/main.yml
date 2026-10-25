@@ -45,7 +45,7 @@ blitzecdn_controlplane_preflight_dns_servers: 1.1.1.1,1.0.0.1
 
 # The API listener, and the host firewall rules that admit it.
 #
-# The port is `blitzecdn.api.__main__.API_PORT`, and a contract test fails if
+# The port is `blitzecdn.entrypoints.api.__main__.API_PORT`, and a contract test fails if
 # the two disagree: the role would otherwise be admitting a port nothing
 # serves while the listener sat behind a closed one, and neither half says so.
 #

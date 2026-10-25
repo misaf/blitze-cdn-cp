@@ -336,7 +336,7 @@ def test_cli_collect_reports_reclaimed_files(settings, monkeypatch):
     from certificate_support import certificate_cli_control_plane
     from typer.testing import CliRunner
 
-    from blitzecdn.cli import main as cli
+    from blitzecdn.entrypoints.cli import main as cli
 
     certificate_cli_control_plane(settings, monkeypatch)
     directory = settings.certificate_dir / "orphan"

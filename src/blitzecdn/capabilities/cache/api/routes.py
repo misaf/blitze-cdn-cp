@@ -1,17 +1,17 @@
 from fastapi import APIRouter, Depends, Response, status
 
-from blitzecdn.api.dependencies import (
-    OperatorDependency,
-    ServicesDependency,
-    require_operator,
-)
-from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.cache.api.models import (
     CacheStatsReport,
     PurgeRequest,
     PurgeResult,
     StatsRequest,
 )
+from blitzecdn.entrypoints.api.dependencies import (
+    OperatorDependency,
+    ServicesDependency,
+    require_operator,
+)
+from blitzecdn.entrypoints.api.models import as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

@@ -80,12 +80,12 @@ dev = [
 ]
 
 [project.scripts]
-blitzecdn = "blitzecdn.cli.main:run"
-# The worker is its own console script as well as `python -m blitzecdn.worker`.
+blitzecdn = "blitzecdn.entrypoints.cli.main:run"
+# The worker is its own console script as well as `python -m blitzecdn.entrypoints.worker`.
 # It used to be started by the `dramatiq` CLI, which meant the process the
 # control plane ran was one this project did not define and could not give a
 # signal handler to.
-blitzecdn-worker = "blitzecdn.worker:main"
+blitzecdn-worker = "blitzecdn.entrypoints.worker:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/blitzecdn"]

@@ -9,7 +9,7 @@ from blitzecdn.capabilities.dns.domain import (
     EditVisitorHeaders,
     PatchPolicy,
 )
-from blitzecdn.cli import main as cli
+from blitzecdn.entrypoints.cli import main as cli
 
 
 @pytest.mark.parametrize(

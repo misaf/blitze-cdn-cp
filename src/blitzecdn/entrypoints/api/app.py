@@ -9,7 +9,6 @@ from fastapi.responses import JSONResponse
 from pydantic import ValidationError
 
 from blitzecdn import __version__
-from blitzecdn.api.access import AllowedIPsMiddleware
 from blitzecdn.composition import (
     Infrastructure,
     build_api,
@@ -19,6 +18,7 @@ from blitzecdn.composition import (
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
+from blitzecdn.entrypoints.api.access import AllowedIPsMiddleware
 
 
 def create_app(
@@ -92,8 +92,8 @@ def create_app(
     return application
 
 
-#: How a failure reaches a client. The projection of core's `FailureKind` onto
-#: this delivery layer; `blitzecdn.cli.main` projects the same kinds onto exit
+#: How a failure reaches a client. The projection of core's `FailureKind` onto this
+#: delivery layer; `blitzecdn.entrypoints.cli.main` projects the same kinds onto exit
 #: codes, so the two cannot disagree about a failure — see `FailureKind`.
 #:
 #: Total over `FailureKind` by construction: `_failure_response` subscripts it,

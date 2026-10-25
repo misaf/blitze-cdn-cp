@@ -11,7 +11,7 @@ import typer
 
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
 from blitzecdn.capabilities.dns.domain import Domain, DomainPatch, PatchPolicy
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 domain_app = typer.Typer(
     no_args_is_help=True,

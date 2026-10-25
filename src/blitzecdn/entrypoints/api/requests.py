@@ -1,6 +1,6 @@
 """The request vocabulary core owns.
 
-The mirror of :mod:`blitzecdn.api.models`: what every request body is built
+The mirror of :mod:`blitzecdn.entrypoints.api.models`: what every request body is built
 from, and the one body shape more than one capability accepts. A deploy, a
 drift check, a purge and an origin check all take a host limit, so
 `FleetRequest` is core's; `DeployRequest` and `RollbackRequest` are

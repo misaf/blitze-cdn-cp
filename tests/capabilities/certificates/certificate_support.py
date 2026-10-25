@@ -49,11 +49,11 @@ from blitzecdn.capabilities.tls.certificates.ports import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.contract import SslAutomaticMode, SslMode
-from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import ApplicationServices, FleetRunner, Repository
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ExecutionError
+from blitzecdn.entrypoints.cli import common as cli_common
 
 #: What `certificate_pair` hands back: a callable making a certificate and its
 #: key. Spelled once because three signatures below take it.

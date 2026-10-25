@@ -51,7 +51,7 @@ argument_specs:
         required: true
         description: >-
           The port the installed API listens on and the one this role admits
-          through ufw. Held equal to blitzecdn.api.__main__.API_PORT by a
+          through ufw. Held equal to blitzecdn.entrypoints.api.__main__.API_PORT by a
           contract test, so a rule on a dead port and a listener behind a
           closed one are both impossible rather than merely unlikely.
       blitzecdn_controlplane_firewall_registry_file:

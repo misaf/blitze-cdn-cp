@@ -184,7 +184,7 @@
 
 - name: Install the host Docker SDK runner
   ansible.builtin.copy:
-    src: "{{ role_path }}/../../../host_runtime.py"
+    src: "{{ role_path }}/../../../host/host_runtime.py"
     dest: "{{ blitzecdn_controlplane_config_dir }}/host_runtime.py"
     owner: root
     group: root

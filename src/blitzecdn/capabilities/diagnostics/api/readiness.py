@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import PlainTextResponse
 
-from blitzecdn.api.dependencies import ServicesDependency, require_operator
+from blitzecdn.entrypoints.api.dependencies import ServicesDependency, require_operator
 
 router = APIRouter()
 _LOGGER = logging.getLogger(__name__)

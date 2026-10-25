@@ -12,8 +12,8 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.edges.domain import Edge, EdgePatch
-from blitzecdn.cli import common
 from blitzecdn.core.features.resolution import resolve_edge_modules
+from blitzecdn.entrypoints.cli import common
 
 edge_app = typer.Typer(no_args_is_help=True, help="Manage edge servers.")
 

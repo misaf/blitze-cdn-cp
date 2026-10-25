@@ -15,7 +15,7 @@ from collections.abc import Mapping
 import pytest
 from paths import SOURCE
 
-from blitzecdn.install_release import (
+from blitzecdn.host.install_release import (
     NOTHING_TO_DO,
     Plan,
     RefusedError,
@@ -148,7 +148,7 @@ def test_an_upgrade_from_the_newest_line_says_so():
 
 def test_the_plan_reaches_the_script_as_key_value_lines(monkeypatch, capsys):
     monkeypatch.setattr(
-        sys.modules["blitzecdn.install_release"], "git_in", lambda _: fake_git()
+        sys.modules["blitzecdn.host.install_release"], "git_in", lambda _: fake_git()
     )
     assert main(["update", "--repository", REPOSITORY]) == 0
     assert capsys.readouterr().out.splitlines() == [
@@ -158,7 +158,7 @@ def test_the_plan_reaches_the_script_as_key_value_lines(monkeypatch, capsys):
     ]
 
     monkeypatch.setattr(
-        sys.modules["blitzecdn.install_release"],
+        sys.modules["blitzecdn.host.install_release"],
         "git_in",
         lambda _: fake_git(exact="v3.1.0"),
     )
@@ -168,7 +168,7 @@ def test_the_plan_reaches_the_script_as_key_value_lines(monkeypatch, capsys):
 
 def test_the_selector_runs_on_a_bare_interpreter():
     """The host's python3 runs it before the release it belongs to is installed."""
-    tree = ast.parse((SOURCE / "install_release.py").read_text(encoding="utf-8"))
+    tree = ast.parse((SOURCE / "host/install_release.py").read_text(encoding="utf-8"))
     imported = {
         alias.name.split(".")[0]
         for node in ast.walk(tree)

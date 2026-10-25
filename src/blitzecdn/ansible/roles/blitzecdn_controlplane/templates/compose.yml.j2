@@ -29,7 +29,7 @@ services:
   blitzecdn-api:
     <<: *blitzecdn-runtime
     container_name: blitzecdn-api
-    command: ["python", "-m", "blitzecdn.api"]
+    command: ["python", "-m", "blitzecdn.entrypoints.api"]
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).read()"]
@@ -41,14 +41,14 @@ services:
   blitzecdn-worker:
     <<: *blitzecdn-runtime
     container_name: blitzecdn-worker
-    command: ["python", "-m", "blitzecdn.worker"]
+    command: ["python", "-m", "blitzecdn.entrypoints.worker"]
     restart: unless-stopped
     # The worker holds no listener, so liveness is "is the process the image
     # was told to run still the process running". A queue-depth check was
     # considered and rejected: an empty queue is the normal state, and a worker
     # that is merely idle must not be restarted for it.
     healthcheck:
-      test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'blitzecdn.worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
+      test: ["CMD", "python", "-c", "import pathlib; raise SystemExit(0 if b'blitzecdn.entrypoints.worker' in pathlib.Path('/proc/1/cmdline').read_bytes() else 1)"]
       interval: 10s
       timeout: 3s
       retries: 6

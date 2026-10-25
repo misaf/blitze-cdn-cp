@@ -10,8 +10,8 @@ from control_plane_fixtures import cli_control_plane, seed_site
 from paths import CORE_ANSIBLE
 from typer.testing import CliRunner
 
-from blitzecdn.cli import main as cli
 from blitzecdn.core.domain.configuration import ConfigurationBundle
+from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
 

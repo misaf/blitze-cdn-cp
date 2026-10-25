@@ -13,8 +13,8 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypatch):

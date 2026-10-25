@@ -403,7 +403,7 @@ run_install_handoff() {
   docker compose --file "${CONTROL_PLANE_COMPOSE_FILE}" run --rm \
     --entrypoint python \
     -e "BLITZE_ALLOW_EMPTY_SITES=${BLITZE_ALLOW_EMPTY_SITES:-false}" \
-    blitzecdn-cli -m blitzecdn.install_handoff "$@"
+    blitzecdn-cli -m blitzecdn.entrypoints.install_handoff "$@"
 }
 
 # Converge this host through the control-plane role.
@@ -563,7 +563,7 @@ handoff_user_wrapper() {
     echo "warning: HOME is unset; skipping the ${script_dir}/.venv/bin/blitzecdn shortcut" >&2
     return 0
   fi
-  .venv/bin/python -m blitzecdn.install_handoff wrapper \
+  .venv/bin/python -m blitzecdn.entrypoints.install_handoff wrapper \
     --project-dir "${script_dir}" --wrapper-dir "${wrapper_dir}"
   case ":${PATH}:" in
     *":${wrapper_dir}:"*) echo "Run 'blitzecdn' from any directory." ;;
@@ -828,7 +828,7 @@ EOF
 # it. Prints the plan as key=value lines; status 1 is a refusal it has already
 # explained, and 3 an update with nothing to do.
 release_plan() {
-  python3 -I "${INSTALL_DIR}/src/blitzecdn/install_release.py" "$1" \
+  python3 -I "${INSTALL_DIR}/src/blitzecdn/host/install_release.py" "$1" \
     --repository "${INSTALL_DIR}"
 }
 

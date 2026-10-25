@@ -18,9 +18,9 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Query, status
 
-from blitzecdn.api.dependencies import ServicesDependency, require_operator
-from blitzecdn.api.models import as_operation
 from blitzecdn.capabilities.releases.api.models import Release, ReleaseDetail
+from blitzecdn.entrypoints.api.dependencies import ServicesDependency, require_operator
+from blitzecdn.entrypoints.api.models import as_operation
 
 router = APIRouter(dependencies=[Depends(require_operator)])
 

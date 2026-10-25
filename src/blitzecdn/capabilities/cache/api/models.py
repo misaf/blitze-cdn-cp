@@ -8,10 +8,10 @@ from typing import Any, cast
 
 from pydantic import Field, field_validator
 
-from blitzecdn.api.models import HostRun, Model
-from blitzecdn.api.requests import FleetRequest
 from blitzecdn.capabilities.cache.domain import PurgeEntry as DomainPurgeEntry
 from blitzecdn.capabilities.http.contract import HttpScheme
+from blitzecdn.entrypoints.api.models import HostRun, Model
+from blitzecdn.entrypoints.api.requests import FleetRequest
 
 
 class PurgeEntry(Model):

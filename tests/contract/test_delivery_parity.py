@@ -415,14 +415,14 @@ def test_every_failure_kind_reaches_both_surfaces():
     are subscripted rather than `.get()`, so an uncovered kind is a `KeyError`
     at the moment a failure is being reported — the worst time to discover it.
     """
-    from blitzecdn.api.app import _HTTP_STATUS
-    from blitzecdn.cli.main import _EXIT_CODES
     from blitzecdn.core.exceptions import FailureKind
+    from blitzecdn.entrypoints.api.app import _HTTP_STATUS
+    from blitzecdn.entrypoints.cli.main import _EXIT_CODES
 
     missing = {
-        "exit codes (blitzecdn.cli.main._EXIT_CODES)": set(FailureKind)
+        "exit codes (blitzecdn.entrypoints.cli.main._EXIT_CODES)": set(FailureKind)
         - set(_EXIT_CODES),
-        "HTTP statuses (blitzecdn.api.app._HTTP_STATUS)": set(FailureKind)
+        "HTTP statuses (blitzecdn.entrypoints.api.app._HTTP_STATUS)": set(FailureKind)
         - set(_HTTP_STATUS),
     }
     report = "; ".join(

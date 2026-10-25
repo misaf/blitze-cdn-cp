@@ -14,8 +14,8 @@ from control_plane_fixtures import FakeRunner, build_application, seed_record
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.dns.domain import PUBLICATION, PublicationMode, RecordType
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import ApplicationServices, Repository
+from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
 

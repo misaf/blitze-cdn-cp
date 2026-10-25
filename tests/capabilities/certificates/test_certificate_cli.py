@@ -32,7 +32,7 @@ from typer.testing import CliRunner
 from blitzecdn.capabilities.tls.certificates.domain import (
     RenewalResult,
 )
-from blitzecdn.cli import main as cli
+from blitzecdn.entrypoints.cli import main as cli
 
 runner = CliRunner()
 

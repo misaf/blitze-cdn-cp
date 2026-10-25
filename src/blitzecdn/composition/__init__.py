@@ -13,10 +13,9 @@
 * :mod:`~blitzecdn.composition.repository` — which capability stores sit on one
   SQLite database.
 
-The processes themselves — `api/`, `cli/`, `worker.py`, `install_handoff.py` —
-live at the package root and import from here. The names re-exported below are
-the whole public face; nothing outside this package imports one of its modules
-by name.
+The processes themselves — :mod:`blitzecdn.entrypoints` — import from here. The names
+re-exported below are the whole public face; nothing outside this package imports one of
+its modules by name.
 """
 
 from blitzecdn.composition.infrastructure import FleetRunner, Infrastructure

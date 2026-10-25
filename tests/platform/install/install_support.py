@@ -473,9 +473,9 @@ def _update_sandbox(
     _stub_update_services(sandbox, root)
     # The real release selector, where `release_plan` runs it from: the plan is
     # the behaviour these tests are about, answered through the git stub.
-    selector = root / "opt/blitzecdn/src/blitzecdn/install_release.py"
+    selector = root / "opt/blitzecdn/src/blitzecdn/host/install_release.py"
     selector.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(SOURCE / "install_release.py", selector)
+    shutil.copyfile(SOURCE / "host/install_release.py", selector)
     installed = root / "opt/blitzecdn/install.sh"
     shutil.copyfile(script, installed)
     installed.chmod(0o700)

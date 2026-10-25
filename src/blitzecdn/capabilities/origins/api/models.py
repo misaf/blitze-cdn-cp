@@ -7,10 +7,10 @@ from datetime import datetime
 
 from pydantic import Field
 
-from blitzecdn.api.models import Model
-from blitzecdn.api.requests import FleetRequest
 from blitzecdn.capabilities.http.contract import HttpScheme
 from blitzecdn.capabilities.tls.contract import SslMode
+from blitzecdn.entrypoints.api.models import Model
+from blitzecdn.entrypoints.api.requests import FleetRequest
 
 
 class OriginCheck(Model):

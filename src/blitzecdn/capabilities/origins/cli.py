@@ -6,8 +6,8 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.cli import common
-from blitzecdn.cli.common import ExitCode
+from blitzecdn.entrypoints.cli import common
+from blitzecdn.entrypoints.cli.common import ExitCode
 
 origin_app = typer.Typer(
     no_args_is_help=True, help="Check the origins the edges proxy to."

@@ -20,7 +20,6 @@ from policy_support import (
 )
 from pydantic import SecretStr
 
-from blitzecdn.api import create_app
 from blitzecdn.capabilities.deployments.domain import Deployment, DeploymentStatus
 from blitzecdn.capabilities.deployments.ports import QueueBackgroundRunner
 from blitzecdn.capabilities.dns.domain import (
@@ -37,7 +36,6 @@ from blitzecdn.capabilities.edges.domain import Edge
 from blitzecdn.capabilities.edges.ports import EdgeStore as EdgeStorePort
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.contract import CertificateMode
-from blitzecdn.cli import common as cli_common
 from blitzecdn.composition import (
     ApplicationServices,
     FleetRunner,
@@ -56,6 +54,8 @@ from blitzecdn.core.domain.runs import (
 )
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.entrypoints.api import create_app
+from blitzecdn.entrypoints.cli import common as cli_common
 
 
 @pytest.fixture(autouse=True)
@@ -816,10 +816,12 @@ def serve(monkeypatch: pytest.MonkeyPatch, control: ApplicationServices) -> None
     already seeded a service graph hands that one over instead.
     """
     monkeypatch.setattr(
-        "blitzecdn.api.app.Infrastructure.build",
+        "blitzecdn.entrypoints.api.app.Infrastructure.build",
         lambda *_args, **_kwargs: control.infrastructure,
     )
-    monkeypatch.setattr("blitzecdn.api.app.build_services", lambda _infra: control)
+    monkeypatch.setattr(
+        "blitzecdn.entrypoints.api.app.build_services", lambda _infra: control
+    )
 
 
 def advance(

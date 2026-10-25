@@ -16,9 +16,9 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.dns.domain import Domain
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def _fleet(settings, monkeypatch, runner_double=None):

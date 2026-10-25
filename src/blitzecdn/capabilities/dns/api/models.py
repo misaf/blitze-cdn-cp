@@ -11,7 +11,6 @@ from typing import Literal, Self
 
 from pydantic import Field, model_validator
 
-from blitzecdn.api.models import Model
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
 from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.adapters.documents import serving_document
@@ -32,6 +31,7 @@ from blitzecdn.capabilities.tls.contract import (
     SslAutomaticMode,
     SslMode,
 )
+from blitzecdn.entrypoints.api.models import Model
 
 
 class ZoneFirewall(Model):

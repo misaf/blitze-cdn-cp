@@ -2,8 +2,8 @@
 
 import uvicorn
 
-from blitzecdn.api.app import create_app
 from blitzecdn.core.config import Settings
+from blitzecdn.entrypoints.api.app import create_app
 
 #: The port the installed API listens on, and the one the control-plane role
 #: admits through the host firewall. Named here rather than written twice

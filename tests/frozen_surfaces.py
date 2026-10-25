@@ -53,13 +53,13 @@ def _root_command_owner(path: str, command: Any) -> str:
     `config`, `init` and `setup` are declared on the root Typer application
     directly: they configure and bootstrap the control plane, so they have to
     work before one exists to register features against. They ship in
-    `blitzecdn.cli` and belong to core by construction.
+    `blitzecdn.entrypoints.cli` and belong to core by construction.
 
     Anything else unclaimed is refused rather than attributed to the
     application by default. Extensions must declare their command ownership.
     """
     module = getattr(command.callback, "__module__", "") or ""
-    if not module.startswith("blitzecdn.cli."):
+    if not module.startswith("blitzecdn.entrypoints.cli."):
         raise AssertionError(
             f"no CliCommandGroup claims {path!r}, and it is not core's own: "
             f"its callback is in {module!r}"
@@ -124,15 +124,15 @@ def _walk_commands(
 def cli_surface() -> str:
     """Every command an operator can type, with its options, types and defaults.
 
-    Read from the assembled Typer application rather than from the source, so a
-    command contributed by an installed wheel is in here exactly as an operator
-    would find it. Importing `blitzecdn.cli.main` builds the tree and touches no
-    database — that property is the reason `blitzecdn --help` is fast, and it is
-    what makes this generator cheap enough to run in the suite.
+    Read from the assembled Typer application rather than from the source, so a command
+    contributed by an installed wheel is in here exactly as an operator would find it.
+    Importing `blitzecdn.entrypoints.cli.main` builds the tree and touches no database —
+    that property is the reason `blitzecdn --help` is fast, and it is what makes this
+    generator cheap enough to run in the suite.
     """
     from typer.main import get_command
 
-    from blitzecdn.cli import common, main
+    from blitzecdn.entrypoints.cli import common, main
 
     owners = _command_owners(common.installed_features())
     lines = []
@@ -186,7 +186,7 @@ def http_surface(settings: Any) -> str:
     Lines preserve ownership and make changes to routes and schema fields
     readable without incidental OpenAPI ordering noise.
     """
-    from blitzecdn.api import create_app
+    from blitzecdn.entrypoints.api import create_app
 
     app = create_app(settings)
     lines = []

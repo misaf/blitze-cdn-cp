@@ -12,8 +12,8 @@ from control_plane_fixtures import (
 )
 
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
-from blitzecdn.cli import main as cli
 from blitzecdn.composition import Repository
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_migrate_initializes_database_without_scaffolding(tmp_path, monkeypatch):

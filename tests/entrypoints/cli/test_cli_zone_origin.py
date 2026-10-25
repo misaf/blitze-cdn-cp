@@ -8,7 +8,7 @@ from control_plane_fixtures import (
     seed_site,
 )
 
-from blitzecdn.cli import main as cli
+from blitzecdn.entrypoints.cli import main as cli
 
 
 def test_site_origin_sets_the_request_identity_without_moving_the_address(

@@ -14,7 +14,7 @@ import typer
 from blitzecdn.capabilities.compression.contract import CompressionMode
 from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
 from blitzecdn.capabilities.dns.domain import DomainPatch
-from blitzecdn.cli import common
+from blitzecdn.entrypoints.cli import common
 
 
 @domain_app.command("compression")

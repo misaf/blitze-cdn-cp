@@ -4,10 +4,10 @@ The command tree is assembled from what the features contribute, not from a
 list of imports here. A capability's commands appear because its feature
 declares a :class:`~blitzecdn.core.features.CliCommandGroup`.
 
-Two things stay here because they are the command line itself rather than a
-capability: the root callback in :mod:`blitzecdn.cli.root` with the global
-options, and `config`, `init`, `migrate` and `setup` — in :mod:`blitzecdn.cli.setup` and
-:mod:`blitzecdn.cli.configuration` — which configure the control plane that
+Two things stay here because they are the command line itself rather than a capability:
+the root callback in :mod:`blitzecdn.entrypoints.cli.root` with the global options, and
+`config`, `init`, `migrate` and `setup` — in :mod:`blitzecdn.entrypoints.cli.setup` and
+:mod:`blitzecdn.entrypoints.cli.configuration` — which configure the control plane that
 capabilities are then loaded into.
 
 Loading the features builds no services. The tree has to exist before an
@@ -15,7 +15,7 @@ argument is parsed, and a command resolves its services when it runs — otherwi
 `blitzecdn --help` would require an initialized database.
 
 Importing this module assembles the command tree: discovery is cheap, and a
-`blitzecdn.cli.main` that
+`blitzecdn.entrypoints.cli.main` that
 had been imported but had no commands on it would be a trap for every caller
 that reaches for `app` — the console script, the tests, and `--help`.
 
@@ -27,12 +27,12 @@ from __future__ import annotations
 import typer
 from pydantic import ValidationError
 
-from blitzecdn.cli import common, configuration, setup
-from blitzecdn.cli.common import ExitCode, emit, services, settings
-from blitzecdn.cli.root import app, main
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
 from blitzecdn.core.features import FeatureRegistry
+from blitzecdn.entrypoints.cli import common, configuration, setup
+from blitzecdn.entrypoints.cli.common import ExitCode, emit, services, settings
+from blitzecdn.entrypoints.cli.root import app, main
 
 app.add_typer(configuration.config_app, name="config")
 
@@ -70,8 +70,8 @@ __all__ = [
 ]
 
 
-#: How a failure reaches a script. The projection of core's `FailureKind` onto
-#: this delivery layer; `blitzecdn.api.app` projects the same kinds onto status
+#: How a failure reaches a script. The projection of core's `FailureKind` onto this
+#: delivery layer; `blitzecdn.entrypoints.api.app` projects the same kinds onto status
 #: codes, and neither table classifies exceptions itself.
 #:
 #: The distinctions are kept apart deliberately — a conflict is not a bad

@@ -79,7 +79,8 @@ def practice(tmp_path):
 
     def cli(project, *arguments):
         return run(
-            project, ["-c", "from blitzecdn.cli.main import run; run()", *arguments]
+            project,
+            ["-c", "from blitzecdn.entrypoints.cli.main import run; run()", *arguments],
         )
 
     def child_arguments(mode, *extra):
