@@ -23,6 +23,7 @@ from typing import Any
 from blitzecdn.capabilities.jobs.domain import Schedule, next_due, utcnow
 from blitzecdn.capabilities.jobs.ports import ScheduleStore
 from blitzecdn.capabilities.jobs.service.queue import JobQueue
+from blitzecdn.core.ports import UnitOfWork
 
 __all__ = ["JobScheduler", "ScheduleSpec"]
 
@@ -64,10 +65,12 @@ class JobScheduler:
         *,
         schedules: ScheduleStore,
         queue: JobQueue,
+        uow: UnitOfWork,
         clock: Any = utcnow,
     ) -> None:
         self.schedules = schedules
         self.queue = queue
+        self.uow = uow
         self.clock = clock
 
     def register(self, specs: Sequence[ScheduleSpec]) -> Sequence[Schedule]:
@@ -108,41 +111,35 @@ class JobScheduler:
     def tick(self, *, now: datetime | None = None) -> Sequence[str]:
         """Enqueue every schedule that is due, and say which ones those were.
 
-        The order is: move the schedule forward, *then* enqueue. Doing it the
-        other way round would leave a controller that died between the two
-        steps with a schedule still due and a job already queued, and the next
-        tick would queue a second one. This way the loser of that race is a
-        firing that was recorded as having happened and did not — recoverable
-        by the next interval, and far cheaper than a duplicate convergence.
-
-        A duplicate is refused anyway: ``enqueue_scheduled`` is keyed on the
-        job name and the partial unique index binds while the last copy is
-        unfinished. The ordering is the belt to that index's braces.
+        Each firing advances its schedule and enqueues its job in one
+        transaction. An enqueue failure leaves the schedule due for another
+        tick. A concurrent scheduler must win the schedule's compare-and-swap
+        before publishing; an already pending or running job deliberately
+        skips this interval without adding a duplicate.
         """
         moment = now or self.clock()
         fired: list[str] = []
         for schedule in self.schedules.due(moment):
-            won = self.schedules.reschedule(
-                schedule.name,
-                expected=schedule.next_run_at,
-                next_run_at=next_due(
-                    now=moment,
-                    interval_seconds=schedule.interval_seconds,
-                    jitter_seconds=schedule.jitter_seconds,
-                ),
-                ran_at=moment,
-            )
-            if not won:
-                # Another controller moved this schedule between the read and
-                # the write. It owns this firing; there is nothing to report.
-                continue
-            if self.queue.enqueue_scheduled(schedule.name) is None:
-                _LOGGER.info(
-                    "scheduled job %r is still in flight; skipping this firing",
+            with self.uow.transaction():
+                won = self.schedules.reschedule(
                     schedule.name,
+                    expected=schedule.next_run_at,
+                    next_run_at=next_due(
+                        now=moment,
+                        interval_seconds=schedule.interval_seconds,
+                        jitter_seconds=schedule.jitter_seconds,
+                    ),
+                    ran_at=moment,
                 )
-                continue
-            fired.append(schedule.name)
+                if not won:
+                    continue
+                if self.queue.enqueue_scheduled(schedule.name) is None:
+                    _LOGGER.info(
+                        "scheduled job %r is still in flight; skipping this firing",
+                        schedule.name,
+                    )
+                    continue
+                fired.append(schedule.name)
         return fired
 
     def leases(self) -> Mapping[str, int]:
