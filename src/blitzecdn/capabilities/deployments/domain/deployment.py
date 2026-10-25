@@ -191,6 +191,39 @@ class Deployment(BaseModel):
     #: A rollout or verification failure independent of Ansible's exit code.
     error: str | None = None
 
+    def start(self, *, now: datetime) -> Deployment:
+        """This deployment, running from ``now``.
+
+        Raises ``ValueError`` when the lifecycle has no such step. Persisting
+        the result is the store's job, and it refuses the write if another
+        process moved the row first.
+        """
+        require_transition(self.status, DeploymentStatus.RUNNING)
+        return self.model_copy(
+            update={"status": DeploymentStatus.RUNNING, "started_at": now}
+        )
+
+    def finish(
+        self,
+        status: DeploymentStatus,
+        *,
+        now: datetime,
+        result: AnsibleRun | None = None,
+        error: str | None = None,
+    ) -> Deployment:
+        """This deployment, ended in ``status`` at ``now`` with what it learned."""
+        if not is_terminal(status):
+            raise ValueError(f"{status.value} is not a finished state")
+        require_transition(self.status, status)
+        return self.model_copy(
+            update={
+                "status": status,
+                "finished_at": now,
+                "result": result,
+                "error": error,
+            }
+        )
+
     @property
     def hosts(self) -> tuple[HostRun, ...]:
         return self.result.hosts if self.result else ()

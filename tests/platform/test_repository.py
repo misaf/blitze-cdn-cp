@@ -2,7 +2,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 import pytest
-from control_plane_fixtures import build_application
+from control_plane_fixtures import advance, build_application
 from policy_support import domain_from_settings, site_from_settings
 from sqlalchemy.pool import NullPool, QueuePool
 
@@ -280,21 +280,20 @@ def test_deployment_transitions_releases_and_recovery(
     )
     assert repository.deployments.deployment_release(deployment.id) == release.id
     assert [entry.name for entry in release.sites] == ["example-com"]
-    running = repository.deployments.transition(
-        deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-    )
+    now = datetime.now(UTC)
+    running = repository.deployments.save(deployment, deployment.start(now=now))
     assert running.status is DeploymentStatus.RUNNING
-    # A lawful step against a stale expected state is a race, so the loser gets
-    # a ConflictError rather than a ValueError.
+    assert running.started_at == now
+    # A lawful step against a stale state is a race, so the loser gets a
+    # ConflictError rather than a ValueError.
     with pytest.raises(ConflictError):
-        repository.deployments.transition(
-            deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-        )
-    # A step the lifecycle does not contain is refused before any row is read.
+        repository.deployments.save(deployment, deployment.start(now=now))
+    # A step the lifecycle does not contain is refused by the domain, before
+    # anything reaches the store.
     with pytest.raises(ValueError, match="illegal deployment transition"):
-        repository.deployments.transition(
-            deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.SUCCEEDED
-        )
+        deployment.finish(DeploymentStatus.SUCCEEDED, now=now)
+    with pytest.raises(ValueError, match="not a finished state"):
+        running.finish(DeploymentStatus.RUNNING, now=now)
     assert repository.deployments.abandon_running() == 1
     assert (
         repository.deployments.get_deployment(deployment.id).status
@@ -311,12 +310,8 @@ def test_rollback_target_requires_different_success(
     deployment = repository.deployments.create_deployment(
         "alice", release_id=current.id, check_mode=False
     )
-    repository.deployments.transition(
-        deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-    )
-    repository.deployments.transition(
-        deployment.id, DeploymentStatus.RUNNING, DeploymentStatus.SUCCEEDED
-    )
+    advance(repository.deployments, deployment.id, DeploymentStatus.RUNNING)
+    advance(repository.deployments, deployment.id, DeploymentStatus.SUCCEEDED)
     with pytest.raises(NotFoundError):
         repository.deployments.successful_rollback_target(current.id)
 
@@ -539,12 +534,8 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
         deployment = repository.deployments.create_deployment(
             "scheduler", release_id=release.id, check_mode=True
         )
-        repository.deployments.transition(
-            deployment.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-        )
-        repository.deployments.transition(
-            deployment.id, DeploymentStatus.RUNNING, finished_status
-        )
+        advance(repository.deployments, deployment.id, DeploymentStatus.RUNNING)
+        advance(repository.deployments, deployment.id, finished_status)
 
     assert repository.deployments.prune_history(4) == 6
 
@@ -565,19 +556,15 @@ def test_history_retention_preserves_unfinished_drift_progress(settings, running
     )
     repository.deployment_targets.plan(unfinished.id, ["edge-a"], fence=0)
     if running:
-        unfinished = repository.deployments.transition(
-            unfinished.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
+        unfinished = advance(
+            repository.deployments, unfinished.id, DeploymentStatus.RUNNING
         )
     for _ in range(3):
         completed = repository.deployments.create_deployment(
             "scheduler", release_id=release.id, check_mode=True
         )
-        repository.deployments.transition(
-            completed.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-        )
-        repository.deployments.transition(
-            completed.id, DeploymentStatus.RUNNING, DeploymentStatus.SUCCEEDED
-        )
+        advance(repository.deployments, completed.id, DeploymentStatus.RUNNING)
+        advance(repository.deployments, completed.id, DeploymentStatus.SUCCEEDED)
 
     assert repository.deployments.prune_history(1) == 2
     assert repository.deployments.get_deployment(unfinished.id) == unfinished

@@ -23,9 +23,7 @@ from blitzecdn.capabilities.deployments.domain import (
     TargetPhase,
     TargetStatus,
     abandoned_run,
-    require_transition,
 )
-from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
@@ -97,43 +95,27 @@ class DeploymentStore:
             # than what was just created.
             return self._deployment(row)
 
-    def transition(
-        self,
-        deployment_id: str,
-        expected: DeploymentStatus,
-        target: DeploymentStatus,
-        **values: Any,
-    ) -> Deployment:
-        # The lifecycle table belongs to the domain and is enforced before the
-        # write, so an illegal step is refused even when no row would match.
-        # The status guard below then owns the race: a lawful step against a
-        # stale expected state is a ConflictError, not a ValueError.
-        require_transition(expected, target)
-        allowed = {"started_at", "finished_at", "result", "error"}
-        if set(values) - allowed:
-            raise ValueError("unsupported deployment transition fields")
-        result = values.get("result")
-        if result is not None and not isinstance(result, AnsibleRun):
-            raise ValueError("deployment result must be an AnsibleRun")
+    def save(self, before: Deployment, after: Deployment) -> Deployment:
+        """Record a transition ``before.start(...)`` or ``before.finish(...)`` made.
+
+        Whether the step is lawful was decided by the domain method that built
+        ``after``. This owns the race: the write happens only while the row is
+        still in ``before``'s status, so the loser of two processes moving one
+        deployment gets a ``ConflictError`` rather than overwriting the winner.
+        """
+        if after.id != before.id:
+            raise ValueError("a transition cannot change which deployment it is")
         with self._db.session() as session:
-            row = session.get(DeploymentRow, deployment_id)
-            if row is None or row.status != expected.value:
-                raise ConflictError(f"deployment {deployment_id} is not {expected}")
-            row.status = target.value
-            # Each field is left alone when the caller did not supply it —
-            # what COALESCE did in the SQL this replaced. A transition that
-            # only finishes a run must not blank the time it started.
-            for field in ("started_at", "finished_at"):
-                supplied = values.get(field)
-                if supplied is not None:
-                    setattr(row, field, supplied)
-            if result is not None:
-                row.result = result.model_dump(mode="json")
-            if "error" in values:
-                row.error = values["error"]
-            # Inside the transaction, for the same reason as above: a caller
-            # that just moved a deployment to RUNNING must be handed the
-            # deployment it moved, not the state of the row a moment later.
+            row = session.get(DeploymentRow, before.id)
+            if row is None or row.status != before.status.value:
+                raise ConflictError(f"deployment {before.id} is not {before.status}")
+            row.status = after.status.value
+            row.started_at = after.started_at
+            row.finished_at = after.finished_at
+            row.result = after.result.model_dump(mode="json") if after.result else None
+            row.error = after.error
+            # Inside the transaction: the caller is handed the deployment it
+            # moved, not the state of the row a moment later.
             return self._deployment(row)
 
     def get_deployment(self, deployment_id: str) -> Deployment:

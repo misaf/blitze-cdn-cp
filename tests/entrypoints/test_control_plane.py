@@ -8,6 +8,7 @@ import pytest
 from control_plane_fixtures import (
     FakeRunner,
     RecordingBackgroundQueue,
+    advance,
     ansible_run,
     build_application,
     host_run,
@@ -626,9 +627,7 @@ def test_startup_recovery_requeues_what_a_dead_process_left_behind(settings):
         stranded = repository.deployments.create_deployment(
             "alice", release_id=control.releases.prepare().id, check_mode=False
         )
-        repository.deployments.transition(
-            stranded.id, DeploymentStatus.QUEUED, DeploymentStatus.RUNNING
-        )
+        advance(repository.deployments, stranded.id, DeploymentStatus.RUNNING)
         workflow = repository.workflows.create(
             "interrupted", "certificate", "alice", "example-com"
         )

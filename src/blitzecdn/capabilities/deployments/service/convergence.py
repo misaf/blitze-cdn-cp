@@ -510,11 +510,8 @@ class DeploymentService:
         """
         check = deployment.check_mode
         if deployment.status is DeploymentStatus.QUEUED:
-            deployment = self.persistence.deployments.transition(
-                deployment.id,
-                DeploymentStatus.QUEUED,
-                DeploymentStatus.RUNNING,
-                started_at=self.clock(),
+            deployment = self.persistence.deployments.save(
+                deployment, deployment.start(now=self.clock())
             )
         try:
             release = self.releases.get(deployment.release_id)
@@ -606,13 +603,11 @@ class DeploymentService:
                     self.persistence.settings,
                     self.releases.inputs_for(release.id),
                 )
-            deployment = self.persistence.deployments.transition(
-                deployment.id,
-                DeploymentStatus.RUNNING,
-                target_status,
-                finished_at=self.clock(),
-                result=run,
-                error=outcome.error,
+            deployment = self.persistence.deployments.save(
+                deployment,
+                deployment.finish(
+                    target_status, now=self.clock(), result=run, error=outcome.error
+                ),
             )
             if target_status is DeploymentStatus.SUCCEEDED and not check:
                 self.persistence.requirements.clear(
@@ -652,12 +647,14 @@ class DeploymentService:
         interrupted = not isinstance(exc, Exception)
         status = DeploymentStatus.ABANDONED if interrupted else DeploymentStatus.FAILED
         with self.persistence.uow.transaction():
-            deployment = self.persistence.deployments.transition(
-                deployment.id,
-                DeploymentStatus.RUNNING,
-                status,
-                finished_at=self.clock(),
-                result=aborted_run(exc, interrupted=interrupted, now=self.clock()),
+            now = self.clock()
+            deployment = self.persistence.deployments.save(
+                deployment,
+                deployment.finish(
+                    status,
+                    now=now,
+                    result=aborted_run(exc, interrupted=interrupted, now=now),
+                ),
             )
             self.events.record(
                 domain_event(
