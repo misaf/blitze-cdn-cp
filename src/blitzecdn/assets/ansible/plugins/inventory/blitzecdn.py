@@ -67,6 +67,10 @@ plugin: blitzecdn
 #: The group the playbooks target. Mirrors ``domain.edges.EDGE_GROUP``.
 EDGE_GROUP = "blitzecdn_edges"
 
+#: Files that mark a project root: its configuration, or a checkout before
+#: `blitzecdn setup` has written one.
+_PROJECT_MARKERS = ("blitzecdn.toml", "pyproject.toml")
+
 #: Mirrors ``RESERVED_ANSIBLE_SETTINGS``, checked by ``test_inventory.py``. Such
 #: a row should never exist, but publishing it at host precedence could close
 #: the SSH port on every edge at once, so it is refused here too.
@@ -215,13 +219,19 @@ def _json_list(value, edge_name, column):
 def _default_database(source):
     """Where a default installation keeps the database, derived from this source.
 
-    From the source path rather than the working directory, which differs between
-    the control plane, operators and ansible-lint. ``database:`` or
+    The nearest ancestor of the source holding a project marker, searched rather
+    than counted so it survives the tree moving inside the package; the working
+    directory, as ``Settings`` defaults, when none does. ``database:`` or
     ``BLITZE_DATABASE_PATH`` override it.
     """
-    inventory_dir = os.path.dirname(os.path.abspath(source))
-    project = os.path.dirname(os.path.dirname(inventory_dir))
-    return os.path.join(project, ".state", "control-plane.db")
+    directory = os.path.dirname(os.path.abspath(source))
+    while True:
+        if any(os.path.isfile(os.path.join(directory, m)) for m in _PROJECT_MARKERS):
+            return os.path.join(directory, ".state", "control-plane.db")
+        parent = os.path.dirname(directory)
+        if parent == directory:
+            return os.path.join(os.getcwd(), ".state", "control-plane.db")
+        directory = parent
 
 
 def _host_variables(edge):
