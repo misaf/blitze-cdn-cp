@@ -18,9 +18,7 @@ from blitzecdn.entrypoints.cli import main as cli
 def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     """Merge semantics, and the derived site carries the result.
 
-    The CLI keeps the lists the operator did not mention, unlike the API PATCH
-    that replaces the whole block. Getting this wrong would silently drop the
-    rules a second invocation did not repeat.
+    Unlike the API PATCH, the CLI keeps the lists the operator did not mention.
     """
     control = build_application(
         settings=settings,

@@ -1,9 +1,8 @@
 """What a prepared release renders to, and that it is kept as it was rendered.
 
-The controller is the only renderer of edge configuration. Its output was held
-byte for byte against the edge play's own rendering while both existed; what
-remains to hold is that preparation records the rendering, that the record is
-the rendering, and the properties of the tree each kind of configuration produces.
+The controller is the only renderer of edge configuration. These hold that
+preparation records the rendering, that the record is the rendering, and the
+properties of the tree each kind of configuration produces.
 """
 
 from __future__ import annotations

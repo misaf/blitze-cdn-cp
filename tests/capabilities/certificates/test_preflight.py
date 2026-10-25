@@ -1,8 +1,7 @@
 """Tests for certificate preflight.
 
-Nothing here touches the network. ``_resolve`` and the CAA lookup are the two
-seams that would, and both are replaced: the point of these tests is the
-decision made about what was found, not the finding.
+``_resolve`` and the CAA lookup are replaced, so nothing touches the network:
+these test the decision, not the finding.
 """
 
 from __future__ import annotations

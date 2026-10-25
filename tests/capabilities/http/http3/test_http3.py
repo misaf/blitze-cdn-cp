@@ -1,8 +1,7 @@
 """The HTTP/3 capability: its metadata, and the fleet state it derives.
 
-These are the tests that moved out of `tests/capabilities/http/` with the code. The
-derivation is asserted here because it is this distribution's behavior; what
-core keeps — the switch, the baseline listener stance — is asserted there.
+The switch and the baseline listener stance are tested in
+`tests/capabilities/http/`.
 """
 
 import pytest
@@ -44,9 +43,7 @@ def _site(name: str, *, enabled: bool = True, http3: bool = True) -> CdnSite:
 def _merged(*sites: CdnSite) -> dict[str, object]:
     """The fleet document as a real deployment would merge it.
 
-    Both features, through the same `merge_variables` the registry uses — which
-    is the only place the `overrides` claim is actually honoured. Asserting on
-    this feature's contribution alone would pass even if the two collided.
+    Through `merge_variables`, the only place the `overrides` claim is honoured.
     """
     return merge_variables(
         [
@@ -70,12 +67,7 @@ def test_plugin_provides_http3_as_a_required_provider() -> None:
 
 
 def test_the_capability_token_matches_what_the_site_contract_asks_for() -> None:
-    """The two halves of "requested but absent" have to name the same token.
-
-    `ProtocolPolicy` decides the string a site asks for and this feature decides
-    the string an installation answers with. They are in different
-    distributions, so nothing but this makes them agree.
-    """
+    """The two halves of "requested but absent" have to name the same token."""
     requested = _site("alpha").policy.required_capabilities
 
     assert "http3" in requested
@@ -139,12 +131,7 @@ def test_installed_http3_overrides_the_baseline_core_contributes() -> None:
 
 
 def test_the_two_plugins_agree_when_no_site_asks_for_http3() -> None:
-    """Attached-but-unused converges exactly what detached converges.
-
-    So attaching the distribution to a fleet that has not turned HTTP/3 on
-    anywhere is a no-op at the edge, not a listener that opens because a
-    package was installed.
-    """
+    """Attached-but-unused converges exactly what detached converges."""
     sites = (_site("alpha", http3=False),)
 
     assert _merged(*sites) == baseline_listeners(sites).variables
@@ -171,10 +158,8 @@ def test_claiming_the_override_twice_is_refused() -> None:
 def test_the_composed_rendering_derives_the_fleet_state_end_to_end(settings) -> None:
     """The bound rendering, merged as the release compiler merges it.
 
-    `control.rendering` is what the compiler calls, so this fails if the
-    composition root stops binding this provider's rendering, or if the
-    `overrides` claim stops resolving against the HTTP baseline — neither of
-    which the unit tests above would notice.
+    Fails if the composition root stops binding this provider's rendering or the
+    `overrides` claim stops resolving against the HTTP baseline.
     """
     control = build_application(settings=settings)
     try:
@@ -192,10 +177,8 @@ def test_the_composed_rendering_derives_the_fleet_state_end_to_end(settings) -> 
 
 
 def test_an_installed_http3_capability_clears_the_site_validation() -> None:
-    """The mirror of core's "requested but absent" test.
-
-    Same site, same token, opposite answer — which is the whole of what
-    attaching this distribution changes for a deployment.
+    """The mirror of core's "requested but absent" test: same site, same token,
+    opposite answer.
     """
     registry = load_registry()
 

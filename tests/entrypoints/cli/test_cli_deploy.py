@@ -24,11 +24,8 @@ from blitzecdn.entrypoints.cli import main as cli
 def _fleet(settings, monkeypatch, runner_double=None):
     """A CLI-wired control plane with one edge in it.
 
-    A rollout walks the registered fleet, so every command here that converges
-    needs somewhere to converge to. Seeded per test rather than in the shared
-    helper, because the tests about the edge roster itself assert on an empty
-    one and a fixture that planted an edge would be answering their question
-    for them.
+    Per test rather than in the shared helper, since roster tests assert on an
+    empty fleet.
     """
     control = _control(settings, monkeypatch, runner_double)
     seed_edge(control)
@@ -50,9 +47,8 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
     monkeypatch.setattr(cli.common, "services", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
-    # --skip-preflight, so this stays the straight-through path it was written
-    # to cover: one scripted run per command. The validate-and-preview flow
-    # --yes no longer skips has its own test below.
+    # --skip-preflight: one scripted run per command. The validate-and-preview flow
+    # has its own test below.
     deployed = runner.invoke(cli.app, ["deploy", "--yes", "--skip-preflight", "--json"])
     assert deployed.exit_code == 0
     deployment_id = json.loads(deployed.stdout)["id"]
@@ -76,16 +72,14 @@ def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch
     )
     control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
-    # Nothing optional: this is about the interactive flow, and a site left on
-    # its defaults asks for `cache` and `compression`, which the core-only
-    # workspace does not have and would refuse the deploy over.
+    # Cache and compression off: this is about the interactive flow, not about
+    # which capabilities the site requests.
     seed_site(control, cache_enabled=False, compression="off")
     monkeypatch.setattr(cli.common, "services", lambda: control)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
     assert "Configuration is valid" in result.stdout
-    # The preview names the task that would change. It used to echo Ansible's
-    # own output verbatim, which meant several hundred lines to find this in.
+    # The preview names the task that would change, not Ansible's raw output.
     assert "edge-a: would change 1 task(s)" in result.stdout
     assert "Render managed sites" in result.stdout
     assert "succeeded" in result.stdout
@@ -207,9 +201,8 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
     result = runner.invoke(cli.app, ["deploy"], input="n\n")
 
     assert result.exit_code == 1
-    # The preview's rollout ran the one edge's VALIDATE phase in check mode and
-    # stopped there; declining meant no apply, so nothing ever ran with
-    # `check=False` and nothing was ever staged.
+    # The preview ran the edge's VALIDATE phase in check mode; declining meant
+    # nothing ran with `check=False` or was staged.
     assert fake.check_modes == [True]
     assert fake.tag_selections == [()]
 
@@ -240,12 +233,8 @@ def test_drift_says_so_when_no_edge_answered(settings, monkeypatch):
 def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkeypatch):
     """--yes means "do not prompt". It does not mean "do not check".
 
-    The regression this pins: --yes used to gate the whole pre-flight, so
-    `blitzecdn deploy --yes` — the obvious way to run the most destructive
-    command in the product from a CI job that cannot answer a prompt — silently
-    gave up configuration validation *and* the check-mode preview as well. An
-    operator had no reason to think either was attached to the flag, and
-    nothing said so. Giving them up is now --skip-preflight, spelled out.
+    Validation and the check-mode preview still run; skipping them is
+    --skip-preflight, spelled out.
     """
     fake = FakeRunner(
         [

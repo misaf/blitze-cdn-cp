@@ -10,9 +10,8 @@ from support.paths import SOURCE
 # --- the firewall belongs to the security capability, not to core -----------
 
 
-#: The six kinds of rule a site firewall carries, and the vocabulary they are
-#: validated against. `SiteFirewall` is the source of the first six, so a
-#: seventh rule kind lands here without this list being edited.
+#: The kinds of rule a site firewall carries, and the vocabulary they are
+#: validated against. `SiteFirewall` is the source, so a new kind needs no edit.
 def _firewall_rule_kinds() -> frozenset[str]:
     from blitzecdn.capabilities.security.contract import SiteFirewall
 
@@ -27,10 +26,8 @@ _FIREWALL_VOCABULARY = frozenset(
 def _names_and_string_constants(path: Path) -> set[str]:
     """Every identifier and string literal a module actually contains.
 
-    Text search would answer differently: `core/validation.py` names
-    `blitzecdn_firewall_ssh_port`, which is the *edge host's* SSH firewall — a
-    different concept that reaches Ansible from the edge record, and one that
-    a grep for "firewall" cannot tell apart from a site's request rules.
+    A text search cannot tell `blitzecdn_firewall_ssh_port`, the edge host's SSH
+    firewall, from a site's request rules.
     """
     tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     found: set[str] = set()
@@ -50,17 +47,10 @@ def _names_and_string_constants(path: Path) -> set[str]:
 
 
 def test_core_knows_no_kind_of_firewall_rule():
-    """`core/` names none of it — not a rule kind, not the vocabulary.
+    """`core/` names no firewall rule kind and none of its vocabulary.
 
-    The rule the whole extraction rests on, stated where it can fail. A firewall
-    is the security capability's, and `blitzecdn-security` is a wheel an
-    operator can leave out; core carrying `allowed_countries` or the ISO table
-    would mean the control plane's generic infrastructure had memorised the
-    settings of something detachable. Two leaks lived here and are gone: the
-    country and HTTP-method tables in `core/validation.py`, whose only consumer
-    was the security contract, and `if site.firewall.empty` in
-    `capabilities/dns/adapters/ansible.py`, which named one capability's
-    block inside a generic adapter.
+    A firewall is the security capability's; core holding `allowed_countries` or
+    the ISO table would mean generic infrastructure knew one capability's settings.
     """
     forbidden = _firewall_rule_kinds() | _FIREWALL_VOCABULARY
     offenders = [
@@ -71,24 +61,15 @@ def test_core_knows_no_kind_of_firewall_rule():
     assert offenders == []
 
 
-#: Where a firewall rule kind may still be named outside its own contract, and
-#: why. This list *is* the "remaining core knowledge" section of the
-#: extraction: it is short, every entry is a deliberate contract, and a new
-#: entry is a decision rather than an oversight.
+#: Where a firewall rule kind may still be named outside its own contract. A new
+#: entry is a decision, not an oversight:
 #:
-#: * `api/models.py` holds the published *resource* shapes, which restate the
-#:   fields rather than re-export the contract, because what a client is
-#:   shown is a decision separate from what a policy happens to hold;
-#: * `security/cli.py` carries `blitzecdn domain firewall` beside the contract
-#:   it edits. It was the whole 572-line `sites/cli.py` once, which meant every
-#:   unrelated command shared an exemption written for two of them;
-#: * `dns/domain/commands.py` names the editable lists to express selective
-#:   firewall intent. Validation vocabulary stays in the security contract;
-#: `sites/domain.py` used to be a fourth entry, permitted to name the two
-#: *country* settings so it could derive the `geoip` token. It derives nothing
-#: now — `SecurityPolicy` declares the token beside the rule that needs it — so
-#: the exception is gone rather than documented, which is the outcome worth
-#: having for a list whose whole purpose is to stay short.
+#: * `api/models.py` holds the published resource shapes, which restate the
+#:   fields rather than re-export the contract;
+#: * `security/cli.py` carries `blitzecdn domain firewall` beside the contract it
+#:   edits;
+#: * `dns/domain/commands.py` names the editable lists for selective firewall
+#:   intent.
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/contract.py": None,
     "capabilities/dns/api/models.py": None,
@@ -118,13 +99,10 @@ def test_only_declared_modules_outside_the_contract_name_a_firewall_rule():
 def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
     """`site_to_ansible` asks whether a block opted in, never what it is.
 
-    Both halves matter. The source may not name a capability's block, and the
-    behaviour must still be the one the edge role and the committed contract
-    fixture were written against: an empty firewall is *absent* from the
-    document rather than present and empty, a configured one is there, and
-    `visitor_headers` — which is not `OmittedWhenEmpty` — is never pruned,
-    because a block that has never been configured is not the same as one whose
-    switches are off.
+    The source may not name a capability's block, and the behaviour must match
+    the edge role and committed fixture: an empty firewall is absent from the
+    document, a configured one present, and `visitor_headers` (not
+    `OmittedWhenEmpty`) never pruned.
     """
     from blitzecdn.capabilities.dns.adapters.ansible import site_to_ansible
     from blitzecdn.capabilities.serving.domain import CdnSite
@@ -138,8 +116,7 @@ def test_the_edge_document_prunes_blocks_by_declaration_not_by_name():
         for node in ast.walk(ast.parse(source))
         if isinstance(node, ast.FunctionDef) and node.name == "site_to_ansible"
     )
-    # The docstring is exempt: it explains what the branch used to be, which is
-    # the record of why the pruning is written this way.
+    # The docstring is exempt: it may name blocks to explain the pruning.
     body = mapper.body[1:] if ast.get_docstring(mapper) else mapper.body
     assert "firewall" not in "".join(ast.unparse(node) for node in body)
 

@@ -106,11 +106,7 @@ def test_options_requiring_a_value_reject_a_missing_one(subcommand: str, option:
 
 
 def test_update_does_not_take_a_ref():
-    """A server follows its own release line; the target is not an operator's
-
-    to choose. The option existed, so rejecting it explicitly is what tells an
-    operator running the old command that the contract changed.
-    """
+    """A server follows its own release line; `update` takes no ref."""
     result = _run("update", "--ref", "v3.1.0")
     assert result.returncode == 2
     assert "unknown option" in result.stderr
@@ -225,10 +221,7 @@ def test_allowed_ips_validation(value: str, accepted: bool):
 def test_allowed_ips_is_refused_before_anything_is_installed():
     """The refusal has to name the two readings, not just say no.
 
-    An operator who writes a host-bit CIDR meant one of them, and the whole
-    point of refusing rather than masking is that the widening is chosen out
-    loud. A message that only reported "invalid" would leave them to guess
-    which correction the installer would have applied.
+    Refusing rather than masking makes the widening a choice the operator states.
     """
     result = _validate_allowed_ips("203.0.113.8/24")
     assert result.returncode != 0
@@ -252,16 +245,11 @@ def test_allowed_ips_is_refused_before_anything_is_installed():
 def test_the_installer_and_the_setting_it_seeds_agree(tmp_path, value: str):
     """One list, two validators, and the flag runs first.
 
-    `--allowed-ips` is checked by the host interpreter before a package is
-    installed, while `Settings` checks the same list when the API reads it. The
-    rules are written twice because there is no virtualenv yet to import the
-    first from; this is what keeps the second copy honest. A flag that accepted
-    what the control plane later refused would provision a server that cannot
-    start.
-
-    The empty value is deliberately not in this list: an empty environment
-    variable is how a server is returned to loopback, while an empty `--allowed-ips`
-    is a flag given nothing and is refused.
+    `--allowed-ips` is checked by the host interpreter before any package exists;
+    `Settings` checks the same list when the API reads it. This keeps the copies
+    agreeing, so the flag never provisions a server that cannot start. An empty
+    environment value returns a server to loopback, but an empty flag is refused,
+    so it is not listed here.
     """
     accepted_by_installer = _validate_allowed_ips(value).returncode == 0
     try:

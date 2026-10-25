@@ -52,9 +52,8 @@ def test_standalone_defaults_to_no_deployment():
     ("distribution", "version", "accepted"),
     [
         ("ubuntu", "26.04", True),
-        # Both of these are supported control-plane platforms and neither can be
-        # an edge, which is the whole reason this check is separate from the
-        # role's.
+        # Supported control-plane platforms that cannot be edges, which is why this
+        # check is separate from the role's.
         ("ubuntu", "24.04", False),
         ("debian", "13", False),
         ("ubuntu", "26.10", False),
@@ -66,10 +65,8 @@ def test_a_standalone_host_must_satisfy_the_edge_platform(
 ):
     """The narrower of the two contracts a standalone server signs.
 
-    It is a control plane and an edge on one machine: the control-plane role
-    takes Debian 13+ and Ubuntu 24.04+, the edge play takes Ubuntu 26.04 alone.
-    Accepting the wider one here is what made a Debian host install everything
-    and then fail at an assert it had no way to anticipate.
+    The control-plane role takes Debian 13+ and Ubuntu 24.04+; the edge play only
+    Ubuntu 26.04. A standalone host is both, so it must meet the edge's.
     """
     supported = (
         _query(
@@ -82,31 +79,24 @@ def test_a_standalone_host_must_satisfy_the_edge_platform(
 
 
 def test_the_platform_is_checked_before_anything_is_installed():
-    """Before apt, for the reason --admin-cidr is checked before apt.
+    """Before apt, as --admin-cidr is.
 
-    And in `--fresh`, before the confirmation rather than after it: a rebuild
-    that cannot reinstall is a destroyed installation, and the platform is
-    knowable before the teardown starts.
+    In `--fresh`, before the confirmation: a rebuild that cannot reinstall is a
+    destroyed installation.
     """
     standalone = _section("standalone")
     assert standalone.index("require_edge_platform") < standalone.index("apt-get")
     fresh = _section("fresh")
     assert fresh.index("require_edge_platform") < fresh.index("converge_uninstall")
     assert fresh.index("require_edge_platform") < fresh.index("confirm_destructive")
-    # Deliberately not the release-move commands: they converge the control
-    # plane alone, so refusing them on the platform a host already runs would
-    # strand it rather than protect it.
+    # Not the release-move commands: they converge the control plane alone, and
+    # refusing them would strand an existing host.
     for command in ("update", "upgrade"):
         assert "require_edge_platform" not in _section(command)
 
 
 def test_standalone_collects_the_access_list_from_either_spelling():
-    """Repeat the flag or hand it a list; the role receives one value.
-
-    Both spellings exist because the setting itself accepts a comma-separated
-    string, and an operator who has three offices should not have to remember
-    which of the two this script wanted.
-    """
+    """Repeat the flag or hand it a list; the role receives one value."""
     required = "--admin-cidr 203.0.113.8/32 --email operator@example.com"
     assert (
         _query(
@@ -143,11 +133,7 @@ def test_standalone_collects_the_access_list_from_either_spelling():
 def test_a_release_move_can_repoint_the_access_list(subcommand: str):
     """The three commands that converge the control plane all take the list.
 
-    A server's access list is not a property of the release it is on, so an
-    update that could only be run without one would send an operator back to
-    editing the environment file by hand for a change they could have made in
-    the same breath. Omitting the flag is the common case and leaves the
-    installed list untouched.
+    Omitting the flag, the common case, leaves the installed list untouched.
     """
     section = _section(subcommand)
     assert '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in section
@@ -162,9 +148,7 @@ def test_a_release_move_can_repoint_the_access_list(subcommand: str):
 def test_the_access_list_survives_an_empty_flag_on_bash_3():
     """macOS ships Bash 3.2, which calls an empty array unbound under `set -u`.
 
-    Every `update` evaluates this whether the flag was given or not, so the
-    plain expansion would abort the run that did not ask for an access list at
-    all — the overwhelmingly common one.
+    Every `update` evaluates this, flag or not.
     """
     assert (
         _query(
@@ -177,9 +161,7 @@ def test_the_access_list_survives_an_empty_flag_on_bash_3():
 def test_a_rebuild_carries_the_access_list_with_it():
     """`--fresh` reinstalls exactly as a new server is installed.
 
-    Every standalone option it forwards is one an operator does not have to
-    reapply afterwards. An access list left behind would silently return a
-    public API to loopback on a rebuild.
+    A dropped access list would silently return a public API to loopback.
     """
     assert (
         _query(
@@ -193,10 +175,8 @@ def test_a_rebuild_carries_the_access_list_with_it():
 def test_standalone_guards_existing_sites_from_empty_desired_state():
     """The installer's flag and the variable it ends up as, in one assertion.
 
-    The module is located by importing it rather than by a path written here.
-    A path went stale the moment the renderer moved into `adapters/`, and again
-    when it became the release compiler — and the failure said only that a file
-    was missing, not that the two halves of this contract had stopped meeting.
+    The module is located by import rather than by path, so a move cannot
+    silently break the check.
     """
     standalone = _section("standalone")
     assert 'BLITZE_ALLOW_EMPTY_SITES="${parsed_allow_empty_sites}"' in standalone
@@ -216,12 +196,7 @@ def test_role_keeps_the_installation_tree_root_owned_and_read_only_to_runtime():
 
 
 def test_installer_installs_only_third_party_collections():
-    """The BlitzeCDN roles ship inside the wheel; nothing pins or builds them.
-
-    The --force that used to be here worked around ansible-core comparing a
-    v-prefixed Git ref to a numeric manifest. With no Git-backed collection
-    left, needing it again would mean the roles had been re-externalised.
-    """
+    """The BlitzeCDN roles ship inside the package; nothing pins or builds them."""
     script = _script()
     assert (
         '-r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"'
@@ -240,7 +215,7 @@ def test_production_bootstrap_does_not_install_the_application_on_the_host():
 
 def test_installer_preserves_rather_than_deletes_an_incomplete_virtualenv():
     script = _script()
-    # `pip` is no longer the tell: uv builds the environment and a server
-    # install has no pip in it at all.
+    # The interpreter is the tell, not `pip`: uv builds the environment without
+    # pip.
     assert "! -x .venv/bin/python" in script
     assert ".venv.invalid.$(date -u +%Y%m%dT%H%M%SZ)" in script

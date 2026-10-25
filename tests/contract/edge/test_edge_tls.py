@@ -6,10 +6,6 @@ import re
 from typing import Any
 
 import pytest
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.contracts import (
     _role_defaults,
     ansible_bool,
@@ -60,10 +56,9 @@ def test_site_template_renders_from_real_model_output(desired_state):
 def test_the_template_sends_the_sni_the_control_plane_probed_with():
     """Both halves must resolve SNI identically, and never to a wildcard.
 
-    `OriginProbe` verifies the origin certificate against
-    `CdnSite.effective_origin_sni`; the edge is what actually sends it. If they
-    drift, a preflight pass means nothing. A wildcard `server_name` is the case
-    that used to break this: legal in nginx, unmatchable in a handshake.
+    `OriginProbe` verifies against `CdnSite.effective_origin_sni` and the edge
+    sends it; if they drift, a preflight pass means nothing. A wildcard
+    `server_name` is legal in nginx but unmatchable in a handshake.
     """
     site = site_from_settings(
         {
@@ -86,16 +81,12 @@ def test_the_template_sends_the_sni_the_control_plane_probed_with():
     assert "proxy_ssl_verify_depth 5;" in rendered
 
 
-#: (mode, serves_tls, origin scheme on an HTTP listener, origin scheme on the
-#: canonical HTTPS listener :443, origin scheme on an alternate HTTPS listener).
+#: (mode, serves_tls, origin scheme on an HTTP listener, on the canonical HTTPS
+#: listener :443, on an alternate HTTPS listener).
 #:
-#: The origin *port* is not in here on purpose: it is always the listener's own,
-#: for every mode and every one of the thirteen public proxy ports. The scheme
-#: varies with the visitor — Full and Full (strict) mirror the visitor rather
-#: than forcing HTTPS, so an HTTP request under Full still reaches an HTTP
-#: origin — and, for Flexible alone, with the listener port: Flexible is
-#: Flexible on 443 and falls back to Full-like transport on 2053/2083/2087/
-#: 2096/8443.
+#: The origin port is always the listener's own. The scheme follows the visitor
+#: (Full and Full (strict) mirror it), and for Flexible also the port: Flexible on
+#: 443, Full-like on 2053/2083/2087/2096/8443.
 _MODE_SCHEMES = [
     (SslMode.OFF, False, "http", None, None),
     (SslMode.FLEXIBLE, True, "http", "http", "https"),
@@ -156,11 +147,7 @@ def test_every_ssl_mode_renders_its_transport(
 def test_the_visitor_port_is_preserved_toward_the_origin(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """The whole capability, stated once: origin port == listener port.
-
-    A request to :8080 must reach the origin's 8080, not its 80 — the bug this
-    replaces sent every alternate port to the scheme's default.
-    """
+    """The whole capability, stated once: origin port == listener port."""
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
     runtime = defaults["blitzecdn_edge_runtime"]
@@ -204,12 +191,7 @@ def test_representative_ports_render_their_own_upstream(
 
 
 def test_flexible_443_is_plaintext_and_flexible_8443_is_not():
-    """The compatibility bug this change exists to fix, pinned on its own.
-
-    Treating Flexible as one global origin protocol sent an HTTPS visitor on
-    8443 to ``http://origin:8443``. Cloudflare supports Flexible for HTTPS on
-    443 only; the other five HTTPS proxy ports fall back to Full.
-    """
+    """Flexible applies on 443 only; the other HTTPS proxy ports fall back to Full."""
     upstreams = _upstreams(_render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True))))
 
     assert "http://origin.example.com:443" in upstreams
@@ -229,8 +211,7 @@ def _https_block(rendered: str, defaults: dict[str, Any], port: int) -> str:
 def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
     """443 terminates and re-originates plaintext; the alternates do not.
 
-    proxy_ssl_* on a plaintext leg would be a claim the edge does not honour, so
-    the directives have to be attributed to the listener rather than to the site.
+    So proxy_ssl_* directives are attributed to the listener, not the site.
     """
     rendered = _render(site_to_ansible(_mode_site(SslMode.FLEXIBLE, True)))
     defaults = _role_defaults()
@@ -245,9 +226,7 @@ def test_flexible_emits_origin_tls_only_on_the_fallback_listeners():
         if port == 443:
             continue
         block = _https_block(rendered, defaults, port)
-        # Full-like transport and SNI, but never Full (strict)'s verification:
-        # an origin that opted into Flexible was never asked for a certificate
-        # the edge could validate.
+        # Full-like transport and SNI, but never Full (strict)'s verification.
         assert "proxy_ssl_server_name on;" in block
         assert "proxy_ssl_name origin.example.com;" in block
         assert "proxy_ssl_verify off;" in block
@@ -279,14 +258,11 @@ def test_ssl_off_never_encrypts_an_origin_leg_on_any_port():
 def test_the_template_agrees_with_the_domains_scheme_rule(
     mode, serves_tls, http_origin, canonical_origin, alternate_origin
 ):
-    """The rule is written twice — Jinja and Python — so pin them together.
+    """The rule is written twice (Jinja and Python), so pin them together.
 
-    ``site.conf.j2`` cannot import ``SslMode``, so the only defence against the
-    two copies drifting is asserting the rendered output against the domain
-    method for every mode and every listener. That now includes the port, which
-    is the whole of Flexible's alternate-port fallback: an equality on the
-    complete upstream set, not a containment check, so a template that answered
-    HTTPS where the domain answers HTTP would fail here too.
+    ``site.conf.j2`` cannot import ``SslMode``, so the rendered upstream set is
+    compared for equality with the domain method for every mode and listener,
+    port included.
     """
     rendered = _render(site_to_ansible(_mode_site(mode, serves_tls)))
     defaults = _role_defaults()
@@ -307,9 +283,7 @@ def test_full_strict_verifies_only_where_the_origin_leg_is_https():
     """TLS directives belong to the HTTPS listeners and nowhere else.
 
     Under Full (strict) an HTTP visitor is proxied over HTTP, so its location
-    must carry no proxy_ssl_* directive at all — verification of a connection
-    that is not TLS is meaningless, and emitting it would be a claim the edge
-    does not honour.
+    carries no proxy_ssl_* directive.
     """
     rendered = _render(site_to_ansible(_mode_site(SslMode.FULL_STRICT, True)))
     defaults = _role_defaults()
@@ -381,11 +355,9 @@ def test_the_origin_request_host_override_survives_port_preservation():
 
 
 def test_the_cache_key_still_separates_the_listener_ports():
-    """$server_port is what keeps :8080 and :80 from sharing a cached object.
+    """$server_port keeps :8080 and :80 from sharing a cached object.
 
-    Preserving the port toward the origin makes this load-bearing rather than
-    merely tidy: two listeners can now reach genuinely different origin
-    services.
+    Two listeners may reach genuinely different origin services.
     """
     rendered = _render(site_to_ansible(_mode_site(SslMode.FULL, True)))
     assert rendered.count('proxy_cache_key "$scheme$server_port$request_method') >= 2

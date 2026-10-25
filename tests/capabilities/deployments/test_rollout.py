@@ -1,10 +1,8 @@
 """What a rollout guarantees per edge: progress, fencing, partial failure, resume.
 
-These drive the rollout directly rather than through a deployment, because
-what is under test is the state machine and not the transaction around it. The
-store is real — every guarantee here is a conditional UPDATE naming the fence
-it read, and a fake store would be a second implementation of exactly the thing
-being checked.
+These drive the rollout state machine directly. The store is real: every
+guarantee is a conditional UPDATE naming the fence it read, which a fake would
+reimplement.
 """
 
 from __future__ import annotations
@@ -90,10 +88,8 @@ def release_inputs(*, serving: bool) -> ReleaseInputs:
 def a_release(*, serving: bool = False):
     """A compiled release, optionally with a hostname in it to verify.
 
-    Empty by default because most of these tests are about the phase machine
-    and not about what is served — and an empty release keeps the verifier out
-    of the way. `serving=True` puts one hostname in, which is what makes the
-    verification phase have something to ask about.
+    Empty by default, keeping the verifier out of the way; `serving=True` gives
+    the verification phase something to ask about.
     """
     inputs = release_inputs(serving=serving)
     return compile_release(
@@ -134,10 +130,7 @@ def rollout_for(repository, *, edges, runner=None, verifier=None, published=None
 def stored(repository, release, inputs: ReleaseInputs | None = None):
     """Put a release and the inputs it names on record.
 
-    The inputs go with it rather than being defaulted: the release row's
-    foreign key points at their digest, so saving a release compiled from one
-    document beside a different one is a constraint failure — which is the
-    schema doing its job.
+    The release row's foreign key points at the inputs' digest.
     """
     with repository.transaction():
         repository.releases.save(release, inputs or ReleaseInputs())
@@ -200,11 +193,7 @@ def test_each_mutation_selects_its_explicit_phase(repository):
 def test_the_first_failing_edge_stops_the_rollout_and_the_rest_are_skipped(
     repository,
 ):
-    """Skipped, not failed. Those edges are serving what they had.
-
-    Reporting them as failures would send an operator to look at hosts that
-    are fine, which is the opposite of what a partial-failure report is for.
-    """
+    """Skipped, not failed. Those edges are serving what they had."""
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
     runner = FakeRunner(
@@ -242,9 +231,8 @@ def test_an_edge_that_accepted_the_configuration_but_serves_nothing_fails(
 ):
     """A reload that returned zero is not evidence that a visitor gets a reply.
 
-    This is the whole reason verification is a phase: `nginx -t` parsed the
-    tree and `nginx -s reload` succeeded, and the edge still answers nothing —
-    an unreachable upstream, an unclaimed listener, a firewall in front of it.
+    That is why verification is a phase: an unreachable upstream, an unclaimed
+    listener or a firewall can leave the edge answering nothing.
     """
     release = stored(repository, a_release(serving=True), release_inputs(serving=True))
     deployment = deployment_in(repository, release.id)
@@ -308,8 +296,8 @@ def test_an_interrupted_rollout_resumes_from_the_edges_it_had_not_reached(
 ):
     """Run again for the same deployment, the rollout skips converged edges.
 
-    Production worker recovery uses this same state machine, re-observing a
-    completed edge before trusting its durable success checkpoint.
+    Worker recovery uses the same state machine, re-observing a completed edge
+    before trusting its checkpoint.
     """
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
@@ -363,9 +351,8 @@ def test_an_edge_added_since_the_rollout_started_is_picked_up_on_resume(reposito
 def test_a_worker_whose_rollout_was_taken_over_cannot_advance_an_edge(repository):
     """The fence, and the reason a lease alone is not enough.
 
-    A lease decides who *may* converge an edge. This decides whose result about
-    that edge is recorded — so a worker that was paused past its lease cannot
-    report success for a rollout somebody else has since resumed.
+    A lease decides who may converge an edge; the fence decides whose result is
+    recorded, so a worker paused past its lease cannot report success.
     """
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)
@@ -373,9 +360,8 @@ def test_a_worker_whose_rollout_was_taken_over_cannot_advance_an_edge(repository
     stale = targets.claim_generation(deployment)
     targets.plan(deployment, ["edge-a"], fence=stale)
 
-    # Another worker takes the deployment over: it claims a new generation and
-    # stamps every row with it, which is what the first worker's writes will
-    # now fail to match.
+    # Another worker takes over: it claims a new generation and stamps every row,
+    # so the first worker's writes no longer match.
     fresh = targets.claim_generation(deployment)
     # Takeover is effective before the new worker plans or executes anything.
     assert targets.begin(deployment, "edge-a", fence=stale, now=_NOW) is False
@@ -406,9 +392,7 @@ def test_a_worker_whose_rollout_was_taken_over_cannot_advance_an_edge(repository
 def test_a_rollout_that_lost_its_claim_stops_rather_than_reporting(repository):
     """A worker that was taken over mid-rollout reports nothing about its edge.
 
-    Not "it failed" and not "it succeeded" — this worker no longer has any
-    claim on that edge, so its opinion about it is worth nothing and recording
-    one would overwrite whatever the new owner is doing.
+    Recording anything would overwrite whatever the new owner is doing.
     """
     release = stored(repository, a_release())
     deployment = deployment_in(repository, release.id)

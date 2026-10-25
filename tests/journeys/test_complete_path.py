@@ -1,24 +1,15 @@
 """The whole path, once, in the order an operator walks it.
 
-Create a zone, point it at an origin, put a hostname on the edge, compile a
-release, deploy it, verify the edge is serving, break it, and recover. Every
-one of those has focused tests elsewhere; what this holds is that they compose
-— that the release a deploy converges is the one the compiler made from the
-zone that was just edited, and that a failure partway through leaves state an
-operator can act on.
+Create a zone, put a hostname on the edge, compile a release, deploy it,
+verify the edge serves, break it, and recover. This holds that the steps
+compose: a deploy converges the release compiled from the zone just edited,
+and a failure partway leaves state an operator can act on.
 
-**What is real here and what is not.** The database, the compiler, the release
-store, the per-edge rollout, the job queue and the serving probe are the
-production objects. Ansible is not: the runner is a double, because a real one
-needs an Ubuntu 26.04 host with Docker on it and this suite runs on a laptop.
-So this proves the control plane's half of the path end to end and proves
-nothing about what Ansible does on an edge — `tests/integration/` and
-`just test-integration-http3` are where that lives, and they are honest about
-needing a machine.
-
-The serving probe is the exception and is deliberately real: verification's
-whole claim is that something answered over a socket, so this starts a server,
-lets the probe find it, and then takes it away.
+**Real and not.** The database, compiler, release store, rollout, job queue
+and serving probe are production objects. Ansible is a double, so this says
+nothing about what happens on an edge; `tests/integration/` and
+`just test-integration-http3` cover that on a real machine. The probe is real
+and talks to a loopback server this module starts and stops.
 """
 
 from __future__ import annotations
@@ -56,8 +47,8 @@ _SERVERS: dict[int, http.server.HTTPServer] = {}
 class _Edge(http.server.BaseHTTPRequestHandler):
     """Something that answers on a socket, standing in for a running edge.
 
-    It reports the release activated by the simulated runner, independently
-    of the real serving probe. Merely accepting HTTP proves no release identity.
+    It reports the release the simulated runner activated, since accepting HTTP
+    proves no release identity.
     """
 
     def do_GET(self) -> None:
@@ -74,11 +65,8 @@ class _Edge(http.server.BaseHTTPRequestHandler):
 class _EdgeProcess:
     """A listener that can be taken away, which is what "stops serving" means.
 
-    Not a status code. A 502 or a 503 is the edge working and reporting on
-    something behind it, and the probe passes both on purpose — an origin that
-    was already down was not this deployment's doing. The failure verification
-    exists to catch is the edge answering *nothing*, so that is what this can
-    do.
+    Not a status code: the probe passes a 502 or 503, which is the edge reporting
+    on something behind it. Verification catches an edge answering nothing.
     """
 
     def __init__(self) -> None:
@@ -113,11 +101,7 @@ def edge_port(edge: _EdgeProcess) -> int:
 
 
 def probe_on(port: int) -> ServingProbe:
-    """The production probe, aimed at a loopback port instead of 80.
-
-    Overriding the port is the one concession: in production it comes from the
-    site's scheme, which is the contract and is not what this is testing.
-    """
+    """The production probe, aimed at a loopback port instead of 80."""
 
     class LoopbackProbe(ServingProbe):
         def _connection(self, scheme, address, _port, hostname):
@@ -159,10 +143,8 @@ def test_the_whole_path_from_an_empty_control_plane_to_a_verified_edge(
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
     control = control_plane(settings, edge_port, runner)
 
-    # 1. An edge, and a zone with a hostname on it. Seeded through the shared
-    # helper so the site is one *this* workspace can serve: in the core-only
-    # run the optional settings are off, and the path being walked is the same
-    # either way. The origin is the record's own value.
+    # 1. An edge, and a zone with a hostname on it, seeded through the shared helper.
+    # The origin is the record's own value.
     seed_edge(control, name="edge-a", public_address="127.0.0.1")
 
     # 2. The policy the zone serves that hostname by.
@@ -209,9 +191,8 @@ def test_an_edge_that_stops_serving_fails_the_deployment_that_touched_it(
 ):
     """A reload that returned zero is not a fleet that is serving.
 
-    This is the failure the whole verification phase exists for, walked the
-    long way round: everything Ansible reports is fine, and the edge answers
-    503 to the one request that matters.
+    Everything Ansible reports is fine, and the edge answers 503 to the request
+    that matters.
     """
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
     control = control_plane(settings, edge.port, runner)
@@ -219,9 +200,7 @@ def test_an_edge_that_stops_serving_fails_the_deployment_that_touched_it(
     seed_site(control, ssl_mode=SslMode.OFF)
     assert control.deployments.deploy("alice").status is DeploymentStatus.SUCCEEDED
 
-    # The edge stops listening — a container that died, a listener that never
-    # claimed the port, a firewall that closed in front of it. Ansible knows
-    # none of that; it already said every task was fine.
+    # The edge stops listening, while Ansible already said every task was fine.
     edge.stop()
     control.dns.update_domain(
         "example.com",
@@ -244,9 +223,8 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
 ):
     """Rollback is a change of desired state, not a temporary override.
 
-    Converging the old artifact alone would leave the edges on one state and
-    the control plane asserting another — and the next reconciliation would
-    compile what the control plane still held and quietly undo the rollback.
+    Converging the old artifact alone would let the next reconciliation undo the
+    rollback.
     """
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
     control = control_plane(settings, edge_port, runner)
@@ -267,9 +245,8 @@ def test_a_failed_update_is_recovered_by_rolling_back_the_desired_target(
     rolled_back = control.deployments.rollback("alice", good.id)
 
     assert rolled_back.status is DeploymentStatus.SUCCEEDED
-    # The edges converged the old release *and* canonical state came back with
-    # it, so compiling now produces the release that was rolled back to rather
-    # than the one that was rolled back from.
+    # Canonical state came back with the old release, so compiling now produces
+    # the release rolled back to.
     assert control.dns.get_domain("example.com").policy.tls.always_use_https is False
     assert control.releases.compile().id == good.release_id
 
@@ -279,18 +256,12 @@ def test_a_rollout_interrupted_partway_resumes_rather_than_restarting(
 ):
     """A rollout that stopped mid-fleet: what the edges already have is on record.
 
-    This scenario retries the rollout primitive after a reported failure.
-    Worker crash recovery exercises the same checkpoints through run_queued in
+    This retries the rollout after a reported failure; worker crash recovery is in
     the deployment workflow suite.
     """
 
     class OneBadEdge(FakeRunner):
-        """Every edge converges except `edge-b`, which cannot be reached.
-
-        Per edge rather than per call, because that is the shape of the failure
-        being modelled: one host in a fleet is down, and the rollout has to get
-        that far before it finds out.
-        """
+        """Every edge converges except `edge-b`, which cannot be reached."""
 
         def run(self, *, check, host_limit=None, tags=()):
             super().run(check=check, host_limit=host_limit, tags=tags)

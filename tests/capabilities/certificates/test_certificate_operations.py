@@ -1,16 +1,7 @@
 """Issuance, upload, renewal and the Automatic SSL scan, at the service level.
 
-Twenty tests that were in ``tests/capabilities/deployments/`` — core's
-deployments suite — listed by name in a ``REQUIRES_CERTIFICATES`` set so the
-shared fixtures would skip them once this wheel was detached. They are not
-deployments tests: what they assert is what this capability does *to* a
-deployment, which is this capability's behaviour.
-
-They also built their control plane as ``build_application(..., issuer=...,
-preflight=...)``, keyword arguments core's constructor does not take — the
-shared fixtures monkeypatched ``__init__`` to accept them. Here they go through
-``certificate_control_plane``, which builds the same services this
-distribution's composition root builds and substitutes only the named seam.
+Built through ``certificate_control_plane``, which builds the composition
+root's services and substitutes only the named seam.
 """
 
 from __future__ import annotations
@@ -112,10 +103,8 @@ def test_new_certificate_material_owes_the_fleet_a_deployment(
     """The requirement lifecycle, from the service that raises it to the one that
     clears it.
 
-    Storing a certificate in the control plane does not put it on an edge. The
-    gap between the two is recorded durably, so a crash in between cannot lose
-    the fact that the fleet is behind — and a check-mode run, which converges
-    nothing, must not clear it.
+    Storing a certificate does not put it on an edge. The gap is recorded
+    durably, so a crash cannot lose it, and a check-mode run must not clear it.
     """
     repository = Repository(settings.database_path)
     control = certificate_control_plane(
@@ -405,10 +394,8 @@ def test_a_spent_renewal_budget_stops_between_sites_and_says_so(
 ):
     """A truncated sweep is a slower renewal, not a missed one.
 
-    The budget is checked between sites and never during one, so a request that
-    runs out of time cannot leave the CA believing it issued a certificate this
-    store never recorded. Whatever it did not reach comes back under `skipped`
-    and is picked up by the next run.
+    The budget is checked between sites, never during one, so the CA cannot have
+    issued something unrecorded. What was not reached comes back as `skipped`.
     """
     issuer = _RecordingIssuer(certificate_pair)
     control = certificate_control_plane(
@@ -488,11 +475,9 @@ def test_a_renewal_that_returned_the_same_certificate_is_not_reported_renewed(
 ):
     """The failure mode certbot's `--keep-until-expiring` default produces.
 
-    An issuer that hands back the certificate already in place exits cleanly
-    and stores cleanly, and the store is content-addressed, so nothing changes
-    on disk and no edge sees anything new. Every signal except the fingerprint
-    says the renewal worked, which is how a fleet reaches expiry with a timer
-    that has been reporting success all along.
+    The issuer returns the certificate already in place and every signal except
+    the fingerprint says the renewal worked, which is how a fleet reaches expiry
+    with a timer reporting success.
     """
 
     class _StuckIssuer:

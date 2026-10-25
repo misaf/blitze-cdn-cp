@@ -1,15 +1,8 @@
 """The one check in `doctor` that leaves the machine.
 
-`check_resolver` had no test. `tests/entrypoints/cli/` covers `doctor`
-by monkeypatching this function with a canned `ResolverCheck`, which asserts
-what the command does with an answer and nothing about how the answer is
-reached — so the probe itself, the three ways a resolver can respond to it, and
-the wording an operator is shown were unverified.
-
-The probe is the point: a resolver that invents addresses for names that cannot
-exist makes every other preflight check wrong while staying invisible to all of
-them. So what is asserted here is that a *refusal* is the passing case, and an
-*answer* is the failure.
+A resolver that invents addresses for impossible names makes every other
+preflight check wrong while staying invisible to them, so a refusal is the
+passing case and an answer the failure.
 """
 
 from __future__ import annotations
@@ -27,8 +20,8 @@ from blitzecdn.capabilities.diagnostics.cli import check_resolver
 class FakeResolver:
     """Records how it was configured, and answers however the test says.
 
-    Constructed by `check_resolver` rather than injected, so the class is what
-    a test substitutes and the instance is what it inspects afterwards.
+    `check_resolver` constructs it, so the class is substituted and the instance
+    inspected afterwards.
     """
 
     last: Any = None
@@ -90,9 +83,8 @@ def test_an_empty_answer_passes_for_the_same_reason(monkeypatch, settings):
 def test_a_resolver_that_does_not_answer_at_all_passes(monkeypatch, settings):
     """A timeout is not evidence of the defect this looks for.
 
-    `doctor` is a local readiness report, and failing it because a probe timed
-    out would make an offline machine look misconfigured. The distinct wording
-    is what tells an operator the probe was inconclusive rather than clean.
+    An offline machine must not look misconfigured; the wording says the probe was
+    inconclusive.
     """
 
     def timeout(_name, _rdatatype):
@@ -130,9 +122,7 @@ def test_the_probe_asks_for_a_reserved_name_it_has_never_asked_before(
 ):
     """`.invalid` cannot be delegated, and the label is fresh each run.
 
-    A fixed name would be answered from a cache — the resolver's or an
-    intermediary's — so a second run could pass on a stale negative answer from
-    a resolver that has since started inventing addresses.
+    A fixed name could be answered from a stale cached negative.
     """
 
     def nxdomain(_name, _rdatatype):
@@ -152,10 +142,7 @@ def test_the_probe_asks_for_a_reserved_name_it_has_never_asked_before(
 def test_the_probe_is_bounded_by_the_configured_timeout(monkeypatch, settings):
     """Both budgets, not just one.
 
-    `timeout` bounds a single server and `lifetime` the whole query; setting
-    only the first lets a resolver list with several entries take a multiple of
-    the configured budget, and `doctor` is a command an operator runs while
-    waiting for it.
+    `timeout` bounds one server and `lifetime` the whole query.
     """
 
     def nxdomain(_name, _rdatatype):
@@ -171,11 +158,8 @@ def test_the_probe_is_bounded_by_the_configured_timeout(monkeypatch, settings):
 
 
 def test_configured_servers_are_probed_and_named_in_the_detail(monkeypatch, settings):
-    """Which resolver answered is half the report.
-
-    An operator reading "resolver invents addresses" needs to know whether that
-    was the host's resolver or the one they configured for preflight, because
-    the two are fixed in different places.
+    """Which resolver answered is half the report: the host's and the configured one
+    are fixed in different places.
     """
 
     def nxdomain(_name, _rdatatype):

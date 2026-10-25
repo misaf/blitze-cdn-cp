@@ -1,9 +1,8 @@
 """The shared edge runtime contract.
 
 ``blitzecdn_nginx``, ``blitzecdn_edge_stack`` and ``blitzecdn_firewall``
-converge the same machine and need the same answers about it: where its files
-live, which ports it listens on, where its health can be read. One contract,
-read by all three, with no sibling reads left to grow back.
+converge one machine and need the same answers: where files live, which ports
+it listens on, where health is read. One contract, read by all three.
 """
 
 import re
@@ -22,17 +21,12 @@ from support.contracts import (
 EDGE_ROLES = ("blitzecdn_nginx", "blitzecdn_edge_stack", "blitzecdn_firewall")
 
 
-#: The one reference across those roles that is not a contract member.
+#: The references across those roles that are not contract members.
 #:
-#: blitzecdn_edge_stack overrides blitzecdn_nginx_config_test_image when it asks
-#: that role to validate the running configuration against a *new* image. That
-#: is a parameter passed to a task file, which is what an entry point is for —
-#: not a read of another role's state — and blitzecdn_nginx declares it.
-#:
-#: blitzecdn_nginx_listeners_claimed goes the other way: the Nginx role decides
-#: whether any server block claims the public ports and publishes the answer,
-#: and health.yml reads that rather than re-deriving it from the site list. A
-#: published output is a contract of its own; the defaults file is not.
+#: blitzecdn_nginx_config_test_image is a parameter blitzecdn_edge_stack passes
+#: to validate against a new image, declared by blitzecdn_nginx.
+#: blitzecdn_nginx_listeners_claimed is an output the Nginx role publishes for
+#: health.yml.
 SIBLING_EXCEPTIONS = {
     "blitzecdn_nginx_config_test_image",
     "blitzecdn_nginx_listeners_claimed",
@@ -40,13 +34,10 @@ SIBLING_EXCEPTIONS = {
 
 
 def test_no_edge_role_reads_another_edge_roles_variables():
-    """The coupling this contract replaced must not grow back.
+    """A role never reads a sibling role's variables.
 
-    A sibling read is invisible in review and expensive in production: it makes
-    the role that runs the container depend on the role that writes
-    configuration, for reasons that have nothing to do with configuration, and
-    it means a value can be changed in one place and silently disagree in
-    another. Everything genuinely shared is blitzecdn_edge_runtime's.
+    Such a read couples the roles invisibly and lets one value silently disagree
+    with another. Everything shared is blitzecdn_edge_runtime's.
     """
     for role in EDGE_ROLES:
         others = [f"{other}_" for other in EDGE_ROLES if other != role]
@@ -71,8 +62,7 @@ def test_no_edge_role_reads_another_edge_roles_variables():
 def test_every_edge_role_declares_the_contract_it_reads():
     """An undeclared contract is an undefined-variable error mid-converge.
 
-    Declaring it makes a play that forgot blitzecdn_edge fail in argument
-    validation, before the role has changed anything.
+    Declared, a play missing blitzecdn_edge fails argument validation first.
     """
     for role in EDGE_ROLES:
         spec = yaml.safe_load(
@@ -85,12 +75,8 @@ def test_every_edge_role_declares_the_contract_it_reads():
 def _contract_readers() -> dict[str, Path]:
     """Every role that legitimately reads the shared runtime contract.
 
-    Core's three edge roles, and every role a capability or provider
-    contributes. The second group belongs here for the same reason the first
-    does: a capability converging an edge reads `blitzecdn_edge_runtime`
-    exactly as core's roles do — `blitzecdn_cache_config` owns the cache
-    directory core also creates — so a member it shares with one core role is
-    shared runtime, not a variable that escaped its owner.
+    Core's three edge roles and every contributed role: a capability converging
+    an edge reads `blitzecdn_edge_runtime` exactly as core's roles do.
     """
     return {
         **{role: ROLES_DIR / role for role in EDGE_ROLES},
@@ -101,17 +87,10 @@ def _contract_readers() -> dict[str, Path]:
 def test_the_contract_holds_no_value_only_one_role_uses():
     """Every member has to be read by at least two roles that converge an edge.
 
-    Otherwise the contract becomes the place variables go to escape their
-    owner, and "shared runtime" stops meaning anything. Nginx policy — cache
-    sizing, ciphers, compression — stays in blitzecdn_nginx; the health timeout
-    and the rollback record stay in blitzecdn_edge_stack.
-
-    "Two roles" counts a capability's role as readily as one of core's. The
-    runtime identity is the case that made the distinction matter: core's
-    blitzecdn_edge_stack and the cache capability's role both create the cache
-    directory, both have to own it as the uid the image's workers run as, and
-    a value those two share is the definition of shared runtime even though
-    only one of them is core's.
+    Otherwise the contract becomes a dumping ground. Nginx policy stays in
+    blitzecdn_nginx; the health timeout and rollback record in
+    blitzecdn_edge_stack. A capability's role counts: blitzecdn_edge_stack and the
+    cache role both own the cache directory as the image's worker uid.
     """
     runtime = _runtime_defaults()["blitzecdn_edge_runtime"]
     sources = {
@@ -139,12 +118,7 @@ def test_the_contract_holds_no_value_only_one_role_uses():
 
 
 def test_the_shared_runtime_is_defined_in_exactly_one_place():
-    """One authoritative value, which is the whole point of the exercise.
-
-    The literals below used to appear in two and three role defaults at once,
-    held together by tests asserting the copies agreed. Agreement is not
-    something a single definition can fail at.
-    """
+    """One authoritative value, which is the whole point of the exercise."""
     duplicated = (
         "/var/cache/nginx/blitzecdn",
         "/var/lib/blitzecdn/acme",

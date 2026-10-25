@@ -1,9 +1,9 @@
 """The containerised runtime.
 
-Nginx runs in a container and its configuration does not. Everything here
-guards a seam between the two: an image that is validated but not the one that
-serves, a mount the configuration test cannot see, a persistent path nothing
-creates, a runtime removal that takes a customer's keys with it.
+Nginx runs in a container and its configuration does not. These guard the
+seam: an image validated but not the one that serves, a mount the
+configuration test cannot see, a persistent path nothing creates, a runtime
+removal that takes a customer's keys with it.
 """
 
 import os
@@ -50,10 +50,8 @@ def _compose_mounts(**overrides: Any) -> dict[str, str]:
 def test_the_configuration_test_sees_what_the_running_edge_sees():
     """A probe with fewer mounts passes against a tree the real edge refuses.
 
-    `nginx -t` opens every certificate, every njs module and the GeoIP
-    database. A configuration test that cannot reach one of them reports a
-    valid configuration, the deploy commits it, and the container that is then
-    started — or reloaded — fails on the file the test never looked at.
+    `nginx -t` opens every certificate, njs module and the GeoIP database, so the
+    test must see every one the edge will.
     """
     probe = {
         entry.split(":")[0]: entry.split(":")[2]
@@ -61,10 +59,8 @@ def test_the_configuration_test_sees_what_the_running_edge_sees():
             "blitzecdn_nginx_config_test_volumes"
         ]
     }
-    # Rendered with GeoIP on, because the probe mounts the database
-    # unconditionally and this has to compare the full set. The other direction
-    # is the safe one: a probe that always sees the database can never miss one
-    # the edge has.
+    # Rendered with GeoIP on, because the probe always mounts the database and this
+    # compares the full set.
     compose = _compose_mounts(blitzecdn_edge_geoip_enabled=True)
     assert compose == probe, (
         "the configuration test container and the running edge disagree about "
@@ -76,9 +72,7 @@ def test_the_configuration_test_sees_what_the_running_edge_sees():
 def test_only_cache_and_logs_are_writable_to_the_edge():
     """Configuration and TLS material are read-only mounts, deliberately.
 
-    An edge has no business rewriting what the control plane rendered, and a
-    container that cannot write its own configuration cannot be talked into
-    persisting a change the next converge would silently revert.
+    An edge cannot persist a change the next converge would silently revert.
     """
     runtime = _role_defaults()["blitzecdn_edge_runtime"]
     writable = {path for path, mode in _compose_mounts().items() if mode == "rw"}
@@ -88,13 +82,9 @@ def test_only_cache_and_logs_are_writable_to_the_edge():
 def test_every_mounted_path_is_created_before_the_container_starts():
     """Docker creates a missing bind source as an empty root-owned directory.
 
-    Which means a path nothing creates does not fail: it silently becomes an
-    empty directory, and the edge starts with no configuration and answers 444
-    for every customer.
-
-    The configuration files themselves are created by staging the release's
-    bundle, at the paths the controller renderer's recipe names; that recipe
-    is read in the same contract-variable spelling the tasks use.
+    So a path nothing creates becomes an empty directory and the edge answers 444.
+    Configuration files are created by staging the release bundle, at the paths
+    the controller renderer's recipe names.
     """
     recipe = re.sub(
         r'paths\["([a-z_]+)"\]',
@@ -114,11 +104,8 @@ def test_every_mounted_path_is_created_before_the_container_starts():
         ]
     )
     context = _edge_context()
-    # Paths are almost never written out in a task: they are composed from the
-    # contract, as `{{ blitzecdn_edge_runtime.paths.nginx }}/conf.d`. So the
-    # task text is substituted before it is searched, which is what lets this
-    # compare directories rather than variable names — and keeps it honest when
-    # a path is half literal and half contract.
+    # Task paths are composed from the contract, so task text is substituted before
+    # it is searched, comparing directories rather than variable names.
     substitutions: dict[str, str] = {}
 
     def collect(prefix: str, value: Any) -> None:
@@ -144,11 +131,8 @@ def test_every_mounted_path_is_created_before_the_container_starts():
 def test_the_edge_container_takes_the_host_network():
     """Bridged, $remote_addr is a gateway address and the CDN lies to itself.
 
-    Every per-site source rule, the GeoIP2 country lookup and BZ-Connecting-IP
-    all read $remote_addr. Behind Docker's userland proxy that is the bridge
-    gateway, so an edge would happily apply a country rule to itself — and the
-    published-port list would become a second copy of the supported ports to
-    keep in step.
+    Source rules, the GeoIP2 lookup and BZ-Connecting-IP all read $remote_addr,
+    and published ports would be a second copy of the port list.
     """
     assert "network_mode: host" in COMPOSE_TEMPLATE
     assert "ports:" not in COMPOSE_TEMPLATE
@@ -158,9 +142,8 @@ def test_the_edge_container_takes_the_host_network():
 def test_a_configuration_change_reloads_and_does_not_replace_the_container():
     """Replacing the container for a site change drops every live connection.
 
-    It also empties the shared-memory cache zone. Nginx applies a new
-    configuration without dropping a request, so the handler signals the
-    running container and the stack role leaves it alone.
+    It also empties the cache zone; the handler signals the running container
+    instead.
     """
     handlers = (ROLE_DIR / "handlers/main.yml").read_text(encoding="utf-8")
     assert "nginx, -s, reload" in handlers
@@ -171,9 +154,8 @@ def test_a_configuration_change_reloads_and_does_not_replace_the_container():
 def test_a_rollback_returns_to_a_recorded_digest():
     """ "Put the old one back" is only possible if the old one has a name.
 
-    By the time a rollback is needed the tag that was running an hour ago may
-    point somewhere else, so restoring a tag would install a third unknown
-    version. The record holds what was asked for and what it resolved to.
+    The tag may point elsewhere by then; the record holds what was asked for and
+    what it resolved to.
     """
     image = (STACK_ROLE_DIR / "tasks/image.yml").read_text(encoding="utf-8")
     rollback = (STACK_ROLE_DIR / "tasks/rollback.yml").read_text(encoding="utf-8")
@@ -188,10 +170,8 @@ def test_a_rollback_returns_to_a_recorded_digest():
 def test_teardown_separates_stopping_the_edge_from_erasing_it():
     """Two operations that must not be confused for one.
 
-    The containers are disposable and always go. TLS material, the
-    configuration tree, ACME state and the cache go only on request, so taking
-    the runtime off a host that is about to be rebuilt cannot destroy what it
-    was serving.
+    Containers always go. TLS material, configuration, ACME state and the cache go
+    only on request.
     """
     teardown = _role("blitzecdn_edge_teardown")
     tasks = yaml.safe_load((teardown / "tasks/main.yml").read_text(encoding="utf-8"))
@@ -200,10 +180,8 @@ def test_teardown_separates_stopping_the_edge_from_erasing_it():
     def gate(name: str) -> str:
         return str(next(task for task in tasks if task["name"] == name).get("when", ""))
 
-    # Which switch, not how it is spelled. The coercion these conditionals
-    # carry is `test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string`
-    # to enforce; pinning the exact string here made adding it look like a
-    # change of meaning.
+    # Which switch, not how it is spelled: the coercion filter is enforced by
+    # `test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string`.
     switch = "blitzecdn_edge_teardown_remove_data"
     assert switch not in gate("Stop and remove the edge stack"), (
         "stopping the edge is gated on the switch that erases it, so a host "
@@ -348,31 +326,21 @@ def test_removed_host_compatibility_contracts_do_not_reappear():
         "blitzecdn_edge_stack_migrate_" + "from_native",
         "blitzecdn_edge_stack_native_" + "packages",
         "/etc/" + "GeoIP.conf",
-        # The standalone edge health check script and the variable that
-        # configured it. Docker's probe is now the Compose healthcheck, which
-        # reads the status endpoint straight from the role's variables.
+        # The standalone edge health check script and its variable.
         "blitzecdn-" + "healthcheck",
         "BLITZECDN_" + "HEALTH_URL",
-        # The flags that once made the status endpoint and the container's
-        # health optional. Both are part of the edge runtime contract now, so
-        # there is no supported state for these to name.
+        # Flags that made the status endpoint and container health optional.
         "blitzecdn_nginx_status_" + "enabled",
         "blitzecdn_edge_stack_status_" + "enabled",
         "blitzecdn_edge_stack_require_" + "container_health",
-        # The switches that offered to skip the runtime itself. An edge with
-        # its ports open and its configuration rendered has to run the
-        # container serving them, and every BlitzeCDN process on both an edge
-        # and the control plane is a container, so neither `false` named a
-        # state this collection supports.
+        # Switches that offered to skip the runtime itself.
         "blitzecdn_edge_stack_" + "enabled",
         "blitzecdn_docker_" + "enabled",
     }
     ignored = {".git", ".venv", ".state", ".mypy_cache", ".pytest_cache"}
 
     def sources():
-        # Pruned during the walk, not filtered after one: `.venv` alone holds
-        # tens of thousands of files, and descending into it to discard every
-        # entry was most of this test's runtime.
+        # Pruned during the walk: `.venv` alone holds tens of thousands of files.
         for parent, directories, files in os.walk(PROJECT_DIR):
             directories[:] = [name for name in directories if name not in ignored]
             for name in files:
@@ -392,9 +360,8 @@ def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modul
     assert "ARG NGINX_IMAGE=nginx:1.31.4-alpine" in dockerfile
     assert dockerfile.count("FROM ${NGINX_IMAGE}") == 2
     assert '"${NGINX_VERSION}-${PKG_RELEASE}"' in dockerfile
-    # Every package the builder stage produced has to carry this image's Nginx
-    # version in its filename. It replaces two `apk add` lines that named the
-    # two modules, and it is the same ABI guarantee without the enumeration.
+    # Every package the builder stage produced carries this image's Nginx version in
+    # its filename: the ABI guarantee without enumerating modules.
     assert "was not built for nginx ${NGINX_VERSION}" in dockerfile
     assert "--with-http_v3_module" in dockerfile
     assert "module-probe.conf" in dockerfile
@@ -403,22 +370,16 @@ def test_the_edge_image_extends_the_pinned_official_image_with_abi_matched_modul
 
     probe = EDGE_MODULE_PROBE_CONF.read_text(encoding="utf-8")
     assert "include /etc/nginx/modules.conf;" in probe
-    # A module that loads but registers no directive is indistinguishable from
-    # a working one until an edge configuration uses it. The directives are
-    # generated from what the capabilities declared, so the probe includes
-    # them rather than spelling them.
+    # A module that loads but registers no directive looks like a working one, so
+    # the probe includes the directives the capabilities declared.
     assert "include /usr/share/blitzecdn/module-probe-directives.conf;" in probe
 
 
 def test_the_edge_image_enumerates_no_capability():
     """The image build takes its module set as an input, not as a literal.
 
-    This is the regression the whole mechanism exists to refuse. A module name
-    written into the build context is a second register of which capabilities
-    exist, and the one that cannot be corrected by detaching a distribution:
-    the image is built once and pinned by digest, so an edge whose controller
-    has no `blitzecdn-geoip` installed still loaded GeoIP2 for as long as the
-    Dockerfile said so.
+    A module name in the build context is a second register of capabilities, and
+    the image is pinned by digest, so it outlives any change to that register.
     """
     for path in (EDGE_DOCKERFILE, EDGE_MODULE_PROBE_CONF):
         document = path.read_text(encoding="utf-8").lower()
@@ -452,18 +413,10 @@ def test_the_edge_image_enumerates_no_capability():
 def test_the_edge_image_deletes_nothing_it_inherited():
     """A whiteout is a layer that a nested or unprivileged engine cannot apply.
 
-    Deleting a file that came from the base image records `.wh.<name>` in this
-    layer, and applying that means a 0:0 character device or a `trusted.*`
-    xattr — refused inside a nested engine. The failure is not local to the
-    file: no container starts from the image at all, and the engine reports a
-    layer it could not extract, which names neither the file nor the `rm` that
-    put it there. `rm -f /etc/nginx/conf.d/default.conf` cost the HTTP/3 edge
-    job a week of looking at the wrong thing.
-
-    Emptying an inherited file is fine — that is an ordinary modified file — as
-    is removing one this same layer created. Only the inherited ones matter, so
-    a deliberate deletion of something written above it in the same `RUN` can
-    relax this with its reason written down.
+    Deleting an inherited file records `.wh.<name>`, which needs a 0:0 character
+    device or a `trusted.*` xattr; a nested engine refuses it and no container
+    starts, with an error naming neither the file nor the `rm`. Emptying an
+    inherited file is fine, as is removing one the same layer created.
     """
     final_stage = EDGE_DOCKERFILE.read_text(encoding="utf-8").rsplit("\nFROM ", 1)[-1]
     deletions = [

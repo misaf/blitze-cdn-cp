@@ -62,16 +62,11 @@ from support.policy import (
 def serving_probe_opens_no_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
     """Keep every test that deploys off the network.
 
-    A deployment's last phase asks the edge, over HTTP, whether it is actually
-    serving — which is the whole point of the phase and exactly what a test of
-    anything else must not do. Left alone, every `deploy()` in this suite would
-    open a connection to an address in TEST-NET-1 and wait out the timeout.
-
-    This replaces the *default*, so a control plane built without an opinion
-    gets an answer instead of a socket. A test about verification passes its
-    own `serving_probe=` and is unaffected, and
-    `tests/capabilities/deployments/test_serving_probe.py` exercises the real
-    one against a server it starts itself.
+    A deployment's last phase asks the edge over HTTP whether it is serving. This
+    replaces the default probe, so a control plane built without one gets an
+    answer instead of a socket. Tests pass their own `serving_probe=` to override
+    it; `tests/capabilities/deployments/test_serving_probe.py` exercises the real
+    one.
     """
     monkeypatch.setattr(
         "blitzecdn.composition.infrastructure.ServingProbe",
@@ -80,15 +75,11 @@ def serving_probe_opens_no_sockets(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 #: What a rule overrides when the caller asked for a distinct site and named no
-#: policy — several sites in one zone, each holding its own certificate, which
-#: is what the certificate and backup suites need.
+#: policy, for suites needing several sites in one zone.
 #:
-#: It has to override *something*: a rule that overrides nothing is refused,
-#: because first match wins and such a rule would shadow every rule after it
-#: while changing nothing. `enabled` restates the zone's own default, so the
-#: rule is real without moving any desired state. That is enough to get a
-#: separate host, because `derive_hosts` groups by which rule won rather than
-#: by whether the resolved policies differ.
+#: A rule that overrides nothing is refused, so `enabled` restates the zone's
+#: default. That is enough for a separate host: `derive_hosts` groups by which
+#: rule won.
 _IDENTITY_ONLY = {"enabled": True}
 
 
@@ -110,9 +101,8 @@ def _set_policy(
 ) -> None:
     """Write policy where this host's policy lives: its zone, or its rule.
 
-    The same choice ``HostService._apply_to_source`` makes, and for the same
-    reason — a rule's host must not have its settings merged into the zone,
-    where every other hostname would pick them up.
+    As ``HostService._apply_to_source`` does: a rule's settings must not merge
+    into the zone, where every other hostname would pick them up.
     """
     if rule is None:
         control.dns.update_domain(
@@ -144,33 +134,20 @@ def seed_site(
 ) -> CdnSite:
     """Set a zone's policy and proxy a hostname in it, then return the host.
 
-    ``name`` decides where the policy goes rather than what anything is
-    called: ``example-com`` is the zone's own policy, and anything else makes a
-    rule claiming this hostname — which derives ``example-com--<record>``,
-    whatever the caller asked for. Callers that need the name read it off the
-    returned host.
+    ``name`` decides where the policy goes: ``example-com`` is the zone's own, and
+    anything else makes a rule claiming this hostname, deriving
+    ``example-com--<record>``. Callers read the name off the returned host.
 
-    ``origin`` is where the proxied record points the edge: it is the record's
-    ``value``, not a zone setting. ``routed=False`` sets the policy and proxies
-    nothing, which derives no host at all — a zone we answer DNS for and serve
-    nothing of.
+    ``origin`` is the proxied record's ``value``. ``routed=False`` sets the policy
+    and proxies nothing, so no host is derived.
 
-    ``policy`` is any ``SitePolicy`` field, and it is set in both places: on
-    the zone, and as the rule's overrides when ``name`` asked for one. A caller
-    that names a rule and passes no policy gets :data:`_IDENTITY_ONLY`, which
-    is what "a second site here, however it differs" has to be spelled as.
+    ``policy`` takes ``SitePolicy`` fields, set on the zone and as the rule's
+    overrides. A rule with no policy gets :data:`_IDENTITY_ONLY`. The zone is
+    created on first use.
 
-    The zone is created on first use so that several calls can share one domain
-    without the caller tracking which was first.
-
-    A caller naming a controller-managed ``certificate_mode`` is seeding a site
-    the *issuer* already acted on, and gets the sequence a real one goes
-    through rather than a single write: the operator's policy first, then
-    ``activate_managed_certificate``, then the TLS mode that only becomes legal
-    once there is a certificate. The one-shot version used to work and no
-    longer does — the operator-facing writes refuse an issuer-owned mode — but
-    it was fabricating a state no deployment can reach in one step, so the
-    sequence is the more faithful fixture regardless.
+    A controller-managed ``certificate_mode`` is seeded the way the issuer reaches
+    it: the operator's policy, then ``activate_managed_certificate``, then the TLS
+    mode that needs a certificate.
     """
     policy = dict(policy)
     issuer_mode = _issuer_owned_mode(policy)
@@ -218,10 +195,7 @@ def seed_site(
         site = control.sites.get_site(host_name_for(domain, rule))
         if issuer_mode is None:
             return site
-        # The issuer's own write, which derives the two paths from this host's
-        # name — so a caller cannot seed a certificate recorded against the
-        # wrong one of a zone's several hosts, which is the mistake the
-        # operator-facing guard exists to refuse.
+        # The issuer's own write, which derives the paths from this host's name.
         control.site_editor.activate_managed_certificate(
             site, issuer_mode, TEST_CERTIFICATE_VERSION
         )
@@ -249,12 +223,9 @@ def seed_edge(
     public_address: str | None = None,
     capabilities: tuple[str, ...] | None = None,
 ) -> Edge:
-    """Register one edge, which is what makes a deployment have somewhere to go.
+    """Register one edge, so a deployment has somewhere to go.
 
-    A rollout walks the registered fleet, so a test that deploys and then reads
-    what the runner was asked to do needs an edge for the rollout to walk. The
-    addresses default to TEST-NET-1, which is unroutable by design — the
-    serving probe is a double in these tests and nothing here opens a socket.
+    Addresses default to TEST-NET-1; the serving probe is a double here.
     """
     return control.edges.add_edge(
         Edge(
@@ -271,11 +242,7 @@ def seed_edge(
 class FakeServingProbe:
     """A serving verifier that answers without a network.
 
-    The real one makes an HTTP request to an edge, which is the whole point of
-    the phase — and exactly what a unit test of anything else must not do. This
-    records what it was asked and answers as told, so a test about a deployment
-    can decide whether the fleet came up without waiting out a connect timeout
-    to an address nobody is listening on.
+    Records what it was asked and answers as told.
     """
 
     def __init__(self, *, served: bool = True) -> None:
@@ -346,9 +313,8 @@ def host_run(
 ) -> HostRun:
     """One host's part in a fake run.
 
-    `changes` and `failure` build the task lists the runner adapter produces,
-    so a test can assert on what a report *says happened* rather than only on a
-    count.
+    `changes` and `failure` build the task lists the runner adapter produces, so a
+    test can assert on what a report says happened.
     """
     return HostRun(
         host=name,
@@ -376,12 +342,7 @@ def ansible_run(
     error: str | None = None,
     targeted: tuple[str, ...] = (),
 ) -> AnsibleRun:
-    """What the runner hands back: per-host structured results plus a status.
-
-    Tests build these directly rather than faking Ansible output, because the
-    structured result *is* the contract now — there is no text for a double to
-    imitate.
-    """
+    """What the runner hands back: per-host structured results plus a status."""
     now = datetime.now(UTC)
     return AnsibleRun(
         id="run",
@@ -408,9 +369,8 @@ def origin_report(
 ) -> HostRun:
     """One edge's published origin report, as the runner adapter delivers it.
 
-    Built as the role would render it — strings for the booleans, `-1` for a
-    status that never arrived — because that crossing is exactly what the
-    reader under test has to undo.
+    Rendered as the role would (strings for booleans, `-1` for a missing status),
+    since undoing that is the reader's job.
     """
     return host_run(
         host,
@@ -443,10 +403,6 @@ class FakeRunner:
         #: was not the shared desired-state file.
         self.validated: list[Path] = []
         #: Every `run_playbook` call, as `(name, playbook, variables, limit)`.
-        #: Generic because the runner is: purging a cache and collecting
-        #: statistics are an installed capability's business now, and this
-        #: double records what it was *asked to run* rather than growing a
-        #: method per play some package might contribute.
         self.playbooks: list[tuple[str, Path, dict[str, object], str | None]] = []
         self.decommissions: list[str] = []
         #: The `--tags` selection each run was made with. `("stage",)` is the
@@ -470,11 +426,8 @@ class FakeRunner:
         self.check_modes.append(check)
         self.host_limits.append(host_limit)
         self.tag_selections.append(tags)
-        # Repeats the last result once the list is spent rather than raising.
-        # A rollout makes several runs per edge — validate, stage, activate —
-        # so a test that supplies one result is saying "every run answers this",
-        # which is what it always meant. A test about a *sequence* of outcomes
-        # supplies the sequence and gets it, in order, until it runs out.
+        # Repeats the last result once the list is spent: one result means every run
+        # answers this, and a sequence is played in order.
         if len(self.results) > 1:
             return self.results.pop(0)
         return self.results[0]
@@ -498,11 +451,7 @@ class FakeRunner:
 class FakeEdgeStore:
     """An in-memory ``EdgeStore``, for anything that only needs the roster.
 
-    The real store is a SQLite table and also the thing the Ansible inventory
-    feature reads, so tests about the *feature* use a real database (see
-    `test_inventory.py`). Everything else — preflight comparing addresses, the
-    runner expanding a host limit — only wants "which edges exist", and a list
-    answers that without a file on disk.
+    Tests of the inventory feature use a real database (`test_inventory.py`).
     """
 
     def __init__(self, edges: list[Edge] | None = None) -> None:
@@ -526,12 +475,8 @@ class FakeEdgeStore:
     def replace_edge(self, edge: Edge, *, expected: Edge | None = None) -> Edge:
         """Replace one edge, refusing the write if it moved underneath.
 
-        `expected` is the caller's copy of the row it read. The real store
-        compares it against what is on disk and refuses a write that would
-        overwrite someone else's, in that order — a name that does not exist
-        is missing rather than conflicted, whatever `expected` says. The
-        transaction the real one requires alongside `expected` is a fact about
-        the database and has nothing to model here.
+        `expected` is the caller's copy of the row. A missing name is missing rather
+        than conflicted, whatever `expected` says.
         """
         for index, candidate in enumerate(self.edges):
             if candidate.name == edge.name:
@@ -581,13 +526,7 @@ class RefusingBackgroundQueue(RecordingBackgroundQueue):
 
 
 if TYPE_CHECKING:
-    # The doubles above stand in for ports, and this is where that claim is
-    # *checked* rather than asserted in a docstring. `FleetRunner`'s own
-    # docstring already names "a test that injects a fake runner" as its other
-    # implementer; before this block nothing held that to be true, and every
-    # call site had grown a `# type: ignore[arg-type]` which suppressed nothing
-    # because the suite is outside mypy's scope. A double that drifts from its
-    # port now fails `just types`, in this file, where the double is.
+    # The doubles above stand in for ports; `just types` checks that here.
     _runner_is_a_fleet_runner: FleetRunner = FakeRunner()
     _edge_store_is_an_edge_store: EdgeStorePort = FakeEdgeStore()
     _queue_is_a_background_runner: QueueBackgroundRunner = RecordingBackgroundQueue()
@@ -630,11 +569,8 @@ def settings(tmp_path: Path) -> Settings:
 def with_capability_settings(settings: Settings, **values: object) -> Settings:
     """A copy of ``settings`` carrying capability configuration.
 
-    An optional capability's settings are not fields on ``Settings`` any more,
-    so a test configures one the way an operator does — by the `BLITZE_*` name
-    its package claims — rather than by `model_copy(update=...)` against a
-    field core no longer has. Names are given unprefixed and lowercase, as they
-    are written in ``blitzecdn.toml``.
+    Configured by the `BLITZE_*` name the capability claims, as an operator does.
+    Names are given unprefixed and lowercase, as in ``blitzecdn.toml``.
     """
     return settings.model_copy(
         update={
@@ -653,9 +589,8 @@ def with_capability_settings(settings: Settings, **values: object) -> Settings:
 def site_payload() -> dict[str, object]:
     """A site with one hostname routed to it.
 
-    ``server_names`` is here because this payload is also used to *build* a
-    `CdnSite` in tests that never touch a database. Through the API and the
-    services it is maintained by `dns` and cannot be set.
+    ``server_names`` is here because the payload also builds a `CdnSite` directly;
+    through the API and services `dns` maintains it.
     """
     return {
         "name": "example-com",
@@ -702,12 +637,9 @@ def seeded(settings: Settings) -> Callable[..., tuple[ApplicationServices, Repos
     return build
 
 
-#: RSA-2048 generation costs about a tenth of a second, and the suite asks for
-#: well over a hundred certificates. Nothing asserts on the modulus, only on
-#: whether a key *matches* the certificate beside it, so a small pool of keys
-#: reused across certificates proves exactly what generating each one afresh
-#: did. The pool is built once per process — which under xdist means once per
-#: worker — and the keys are immutable, so it carries no state between tests.
+#: RSA-2048 generation is slow and nothing asserts on the modulus, only on
+#: whether a key matches its certificate. So a small pool of immutable keys is
+#: built once per process (per xdist worker) and reused.
 _KEY_POOL_SIZE = 4
 _key_pool: list[rsa.RSAPrivateKey] = []
 
@@ -734,9 +666,8 @@ def private_key_pem(key: rsa.RSAPrivateKey) -> bytes:
 
 @pytest.fixture
 def certificate_pair() -> Callable[..., tuple[bytes, bytes]]:
-    #: Per test, not per session: successive calls within one test hand back
-    #: *different* keys, so a test that installs one pair over another can still
-    #: tell the two apart on disk.
+    #: Per test: successive calls in one test return different keys, so a test
+    #: installing one pair over another can tell them apart.
     issued = 0
 
     def generate(
@@ -784,10 +715,8 @@ def cli_control_plane(
 ) -> ApplicationServices:
     """A control plane wired to doubles, with the CLI pointed at it.
 
-    Shared because more than one distribution's CLI tests need it: the command
-    tree an operator sees is assembled from every installed feature, so a test
-    of `blitzecdn cache purge` drives the same root application as a test of
-    `blitzecdn deploy` and needs the same substitution to do it.
+    The command tree is assembled from every feature, so every CLI test drives the
+    same root application.
     """
     control = build_application(
         settings=settings,
@@ -845,10 +774,8 @@ def advance(
 def repository_on(settings: Settings) -> Repository:
     """A second handle on the test database, for seeding and reading back.
 
-    The control plane does not hand out its stores — that is the point of the
-    layering rule — so a test that wants to plant a derived site or read the
-    audit trail straight from SQLite opens its own handle on the same file
-    rather than reaching through the object under test.
+    The control plane does not hand out its stores, so a test opens its own handle
+    on the same file.
     """
     return Repository(settings.database_path)
 
@@ -858,10 +785,7 @@ def control_plane_app(settings: Settings) -> FastAPI:
     return create_app(settings, features=load_registry())
 
 
-#: The API key `settings` configures, as the header a client sends. Shared
-#: rather than spelled per module: every HTTP suite in the workspace needs it,
-#: and an optional distribution's tests cannot reach a helper defined inside
-#: `tests/api/test_api.py`.
+#: The API key `settings` configures, as the header a client sends.
 API_HEADERS = {"X-API-Key": "x" * 32}
 
 
@@ -873,11 +797,7 @@ def seed_site_over_http(
     label: str = "cdn",
     **policy: object,
 ) -> Any:
-    """Zone, policy, record — over HTTP, the way a client would.
-
-    Still three calls: the policy is set on the zone, and the record proxies
-    the hostname with its value as the origin the edge fetches from.
-    """
+    """Zone, policy, record: over HTTP, the way a client would."""
     client.post("/v1/domains", json={"name": "example.com"}, headers=headers)
     created = client.patch(
         "/v1/domains/example.com",

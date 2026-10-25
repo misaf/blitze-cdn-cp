@@ -17,10 +17,9 @@ from blitzecdn.core.exceptions import ConflictError, ExecutionError
 
 
 def test_a_canary_records_its_limit_and_converges_only_that_edge(settings):
-    """A limit narrows the *rollout*, not just the `--limit` Ansible is given.
+    """A limit narrows the rollout, not just the `--limit` Ansible is given.
 
-    The rollout walks the edges the limit selects, so an edge outside it is
-    never begun — which is a row saying so rather than an absence to infer.
+    An edge outside it is never begun, and a row says so.
     """
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a"))])
@@ -39,18 +38,12 @@ def test_a_canary_records_its_limit_and_converges_only_that_edge(settings):
 
 
 def test_a_canary_is_never_the_automatic_rollback_target(settings):
-    """A limited run only proves one edge reached that release.
-
-    Rolling the fleet back to it would converge every other edge onto a state
-    it had never been given, which is the disagreement rollback exists to end.
-    """
+    """A limited run only proves one edge reached that release."""
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)])
     control = build_application(settings=settings, repository=repository, runner=runner)
 
-    # Three distinct desired states. A release is the digest of what the zones,
-    # rules and records compile to, so any change to those produces a different
-    # identifier.
+    # Three distinct desired states, so three release identifiers.
     seed_edge(control, name="edge-a")
     seed_site(control, name="example-com", record="cdn")
     full = control.deployments.deploy("alice")
@@ -143,11 +136,7 @@ def _in_sync_run():
 
 
 def _drifted_run():
-    """edge-a would rewrite two vhosts and reload; edge-b is converged.
-
-    The task names matter now: a drift report says which configuration moved,
-    not only how many tasks would run.
-    """
+    """edge-a would rewrite two vhosts and reload; edge-b is converged."""
     return ansible_run(
         host_run(
             "edge-a",

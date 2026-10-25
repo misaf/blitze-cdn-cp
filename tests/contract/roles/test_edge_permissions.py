@@ -16,10 +16,8 @@ from support.contracts import (
 def _cache_directory_declarations(path: Path) -> list[dict]:
     """Every mapping in a task file that gives the cache directory an owner.
 
-    Found by walking the loaded YAML rather than by reading lines: one writer
-    declares the path and its owner as an inline `loop` entry and the other as
-    module arguments, and a line-oriented check passes on whichever it was
-    written against.
+    Walked through the loaded YAML, since one writer uses an inline `loop` entry
+    and the other module arguments.
     """
     found: list[dict] = []
 
@@ -41,17 +39,10 @@ def _cache_directory_declarations(path: Path) -> list[dict]:
 def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
     """Two roles create this directory, and Nginx has an opinion about it.
 
-    Nginx chowns its cache root to the user its workers run as when it starts,
-    and that user belongs to the runtime image, not to the host: Alpine's
-    `nginx` is 101 where Ubuntu's `www-data` is 33, and only the uid crosses a
-    bind mount. A host-side name here is a chown on every converge — the edge
-    setting it to the one, the next deploy setting it back to the other, and
-    no fleet ever reporting itself converged.
-
-    Both writers are checked together because they run in one converge:
-    `blitzecdn_cache_config` in the capability slot, `blitzecdn_edge_stack` in
-    its pre-task. Agreeing with Nginx in one and not the other just moves the
-    loop to the other task.
+    Nginx chowns its cache root to its worker user at start, and that user is the
+    image's (Alpine's `nginx` is 101, Ubuntu's `www-data` 33; only the uid crosses
+    a bind mount). A host-side name would mean a chown on every converge. Both
+    writers run in one converge, so both are checked.
     """
     writers = {
         "blitzecdn_edge_stack": STACK_ROLE_DIR / "tasks/prepare.yml",
@@ -77,9 +68,8 @@ def test_every_writer_of_the_cache_directory_owns_it_as_the_runtime_worker():
 def _acme_challenge_declarations(path: Path) -> list[dict]:
     """Every mapping that gives the challenge directory or a token a mode.
 
-    Walked rather than grepped for the same reason the cache one is: the two
-    writers spell it as a `loop` entry and as module arguments, and the token
-    is a `copy` whose `dest` is the path rather than a `path`.
+    Walked for the same reason as the cache one; the token is a `copy` whose
+    `dest` is the path.
     """
     found: list[dict] = []
 
@@ -87,9 +77,8 @@ def _acme_challenge_declarations(path: Path) -> list[dict]:
         if isinstance(node, dict):
             for key in ("path", "dest"):
                 declared = node.get(key)
-                # `state: absent` is the task that withdraws a token once the
-                # authority has read it. It names the path and grants no
-                # access, which is the whole of what it should do.
+                # `state: absent` withdraws a token once the authority has read it; it
+                # grants no access.
                 if (
                     isinstance(declared, str)
                     and "acme-challenge" in declared
@@ -110,18 +99,10 @@ def _acme_challenge_declarations(path: Path) -> list[dict]:
 def test_the_edge_can_read_the_acme_challenge_it_is_asked_to_serve():
     """The webroot is written on the host and read from inside the container.
 
-    Nginx serves `/.well-known/acme-challenge/` from a read-only bind mount of
-    this tree, and its workers are the image's uid — 101 — not a host account.
-    Owning the directory `root:www-data` at 0750 gave the worker neither the
-    owner bits nor the group, so it fell to `other`, which 0750 leaves empty:
-    every HTTP-01 validation on the fleet answered 403 for a file that was
-    sitting right there, and ACME reports that as a failed challenge without
-    ever saying why.
-
-    Both writers are checked together because they create the same directory
-    in one lifecycle — `blitzecdn_nginx` on every converge, the challenge
-    playbook each time a certificate is issued — and disagreeing about its
-    mode would make them take turns, which is the cache bug again.
+    Nginx serves `/.well-known/acme-challenge/` from a read-only bind mount, as
+    uid 101, not a host account. `root:www-data` at 0750 leaves that uid only the
+    empty `other` bits, so every HTTP-01 validation answered 403. Both writers
+    (`blitzecdn_nginx` and the challenge playbook) must agree on the mode.
     """
     writers = {
         "blitzecdn_nginx": ROLE_DIR / "tasks/main.yml",
@@ -152,10 +133,7 @@ def test_the_edge_can_read_the_acme_challenge_it_is_asked_to_serve():
 def _declared_boolean_variables() -> set[str]:
     """Role variables an argument spec declares as a bool, top level only.
 
-    Top level because that is what `-e name=value` can reach. A sub-option —
-    a per-site `connecting_ip`, an `ssl_mode` inside the site document — comes
-    from the control plane already typed and cannot be handed to a play as a
-    loose string, so a bare conditional on one is not this bug.
+    Only top-level variables can arrive as strings through `-e name=value`.
     """
     specs = list(ROLES_DIR.glob("*/meta/argument_specs.yml"))
     for role in contributed_roles().values():
@@ -173,18 +151,10 @@ def _declared_boolean_variables() -> set[str]:
 def test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string():
     """`-e name=value` is a string, and every non-empty string is true.
 
-    An operator who writes `-e blitzecdn_edge_teardown_remove_data=false` is
-    saying keep the TLS material, the configuration tree, the ACME state and
-    the cache. A bare `when:` on that variable read "false" as true and
-    destroyed all four — the argument spec's `type: bool` does not reach a
-    value that arrives on the command line. ansible-core 2.19 and later refuse
-    a non-boolean conditional rather than guessing, which turns the silent
-    version of this into a failed play, but only on a version that new and
-    only when the path is actually run. Twelve conditionals were written this
-    way, in core and in three capability wheels.
-
-    So: a conditional on a variable some argument spec calls a bool has to end
-    in a filter that makes it one.
+    `-e blitzecdn_edge_teardown_remove_data=false` under a bare `when:` would
+    destroy the data it asks to keep; the argument spec's `type: bool` does not
+    reach command-line values. So a conditional on a bool-declared variable must
+    end in a filter that makes it one.
     """
     booleans = _declared_boolean_variables()
     assert booleans, "no argument spec declares a boolean; this test found nothing"
@@ -195,10 +165,8 @@ def test_no_conditional_trusts_a_boolean_it_was_handed_as_a_string():
         sources += list(role.glob("tasks/*.yml"))
         sources += list(role.glob("templates/*.j2"))
 
-    # Three shapes, because the first version of this test knew only the first
-    # and the teardown went on failing on the other two in the same file: a
-    # conditional standing alone, one behind `not`, and a Jinja `if` — in a
-    # template, or mid-expression where a list is being built.
+    # Three shapes: a conditional alone, one behind `not`, and a Jinja `if` in a
+    # template or mid-expression.
     forms = (
         re.compile(r"\s*(?:when:|-)\s+([A-Za-z_][\w.]*)\s*$"),
         re.compile(r"\bnot\s+([A-Za-z_]\w*)\b"),

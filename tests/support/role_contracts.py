@@ -20,12 +20,7 @@ from support.contracts import (
 
 
 def _defaults_of(role_dir: Path) -> dict[str, Any]:
-    """A role's `defaults/main.yml`, parsed.
-
-    Local to this module rather than shared: it is one line, and the two
-    callers below are the only ones that read a role's defaults without also
-    resolving them against the runtime contract.
-    """
+    """A role's `defaults/main.yml`, parsed, without resolving the runtime contract."""
     return cast(
         dict[str, Any],
         yaml.safe_load((role_dir / "defaults/main.yml").read_text(encoding="utf-8")),
@@ -40,10 +35,8 @@ COMPOSE_TEMPLATE = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(
 def _edge_context(**overrides: Any) -> dict[str, Any]:
     """The variables the edge stack renders from, with references resolved.
 
-    The paths, the image and the status endpoint are blitzecdn_edge_runtime's;
-    what remains in blitzecdn_edge_stack's defaults derives from them. Resolving
-    both here is what lets these tests read the *paths*, which is what the
-    mounts actually are.
+    The stack's defaults derive from blitzecdn_edge_runtime, so both are resolved
+    to read the paths the mounts actually use.
     """
     inputs, plain = _split_runtime(overrides)
     context: dict[str, Any] = (

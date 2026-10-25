@@ -35,11 +35,9 @@ def test_http3_uses_the_firewall_registry_for_udp_443():
 def test_the_udp_443_listener_is_verified_where_the_firewall_opened_it():
     """The firewall and the QUIC listener must not be able to disagree.
 
-    The play refuses to converge when the two *desired* states differ. That is
-    only half of it: a QUIC bind that fails inside the container leaves UDP/443
-    open in the firewall, Alt-Svc advertised to every visitor, and nothing
-    listening — an edge that tells browsers to use a protocol it does not
-    serve. The health check is the other half.
+    The play refuses differing desired states, but a QUIC bind failing in the
+    container would leave UDP/443 open and Alt-Svc advertised with nothing
+    listening. The health check covers that.
     """
     health = (STACK_ROLE_DIR / "tasks/health.yml").read_text(encoding="utf-8")
     assert "ss" in health and "-lnu" in health

@@ -1,16 +1,8 @@
 """Execute the rendered edge challenge module against hostile token inputs.
 
-Here rather than in `tests/capabilities/security/` because this is the security
-capability's edge behaviour, and this distribution is where that capability
-lives. What core keeps — the `under_attack_mode` switch and the firewall rule
-contract that a detached controller must still be able to read back — is
-asserted beside the contract, in `tests/capabilities/security/test_security_policy.py`.
-
-The template is a module resource of the security feature, which ships inside
-this wheel beside the fragments that import it — so the module under test here
-is read from the same path a release is rendered from. It carries no secret:
-the key arrives per request as `$blitzecdn_under_attack_key`, which this
-harness sets the way the edge-local include does.
+The template is read from the same path a release is rendered from. It
+carries no secret: the key arrives per request as `$blitzecdn_under_attack_key`,
+which this harness sets the way the edge-local include does.
 """
 
 from __future__ import annotations

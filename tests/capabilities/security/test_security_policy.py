@@ -26,12 +26,7 @@ def test_country_rules_are_validated_where_they_are_owned():
 
 
 def test_every_rule_kind_is_validated_and_normalised_by_the_contract():
-    """The validation moved with its vocabulary, so assert it from the outside.
-
-    The country and HTTP-method tables were in `core/validation.py` with this
-    as their only consumer. Nothing about the rules changed; what changed is
-    that core no longer carries them, and these hold the behaviour to that.
-    """
+    """The contract owns its validation vocabulary; assert it from the outside."""
     firewall = SiteFirewall(
         allow_sources=(" 198.51.100.0/24 ",),
         deny_sources=("203.0.113.7",),
@@ -91,9 +86,7 @@ def test_a_firewall_survives_a_round_trip_through_its_serialised_form():
 def test_replacing_swaps_the_named_lists_and_keeps_the_rest():
     """What an operator editing one rule at a time means by it.
 
-    Naming `deny_sources` says nothing about the countries, so leaving a list
-    unnamed must not clear it. Clearing a list is expressible by naming it
-    empty, which is what keeps "not mentioned" and "emptied" distinct.
+    An unnamed list is kept; naming one empty clears it.
     """
     firewall = SiteFirewall(
         deny_sources=("203.0.113.0/24",),

@@ -1,22 +1,11 @@
 """What an installed capability contributes to Ansible, and how core composes it.
 
-The role search path is the larger half: an optional capability is only whole
-if its deployment implementation travels with it, and Ansible resolves a role
-name against a single process-wide list. So the composition of that list is a
-contract in its own right: what is in it, in which order, and what happens when
-two packages claim one name. The dynamic modules an edge loads are the same
-shape of question one level down — `load_module` is a main-context directive,
-so there is one list per Nginx process too.
+Ansible resolves a role name against one process-wide search path, so its
+composition is a contract: what is in it, in which order, and what happens
+when two owners claim one name. The modules an edge loads are the same
+question one level down, since `load_module` is one list per Nginx process.
 
-An optional capability is only whole if its deployment implementation travels
-with it, and Ansible resolves a role name against a single process-wide list.
-So the composition of that list is a contract in its own right: what is in it,
-in which order, and what happens when two packages claim one name.
-
-Nothing here installs anything. The property being asserted is the *rule*, so
-the contributions are built by hand; `tests/architecture/lifecycle/`
-asserts the other half — that a real wheel really carries the directory a real
-feature really contributes.
+Nothing here installs anything: the contributions are built by hand.
 """
 
 from __future__ import annotations
@@ -61,12 +50,9 @@ def test_core_roles_come_first_and_contributed_roles_follow(tmp_path):
 
 
 def test_the_order_follows_the_plugins_not_the_order_they_registered(tmp_path):
-    """Two installations with the same packages resolve every role alike.
+    """Two installations with the same features resolve every role alike.
 
-    Pluggy calls implementations last-registered-first, and registration order
-    depends on entry-point iteration. A search path that inherited it would
-    make "which directory answers for this role" a property of the environment
-    rather than of what is installed.
+    The search path is ordered by feature, not by registration order.
     """
     core = _roles(tmp_path / "core")
     waf = _roles(tmp_path / "waf", "blitzecdn_waf")
@@ -113,9 +99,8 @@ def test_a_role_two_packages_both_ship_is_refused_by_name(tmp_path):
 def test_a_package_may_not_shadow_a_role_the_control_plane_owns(tmp_path):
     """The dangerous direction, and the reason this is not merely a warning.
 
-    Ansible takes the first directory that has the name. A package shipping
-    `blitzecdn_nginx` would replace the edge's configuration renderer, and the
-    deployment would succeed while converging something nobody wrote.
+    Ansible takes the first directory with the name, so a contributed
+    `blitzecdn_nginx` would silently replace the edge's renderer.
     """
     core = _roles(tmp_path / "core", "blitzecdn_nginx")
     impostor = _roles(tmp_path / "impostor", "blitzecdn_nginx")
@@ -130,11 +115,9 @@ def test_a_package_may_not_shadow_a_role_the_control_plane_owns(tmp_path):
 
 
 def test_a_contributed_directory_that_is_not_there_is_refused(tmp_path):
-    """A wheel built without its Ansible tree fails here, naming the package.
+    """A contribution whose Ansible tree is missing fails here, naming its owner.
 
-    Left to Ansible it would surface much later as "the role was not found",
-    which names neither the distribution that promised it nor the fact that its
-    files never shipped.
+    Ansible would only say the role was not found.
     """
     core = _roles(tmp_path / "core")
 
@@ -155,9 +138,8 @@ def test_the_resolved_path_is_what_ansible_is_actually_given(
 ):
     """The composition reaches the subprocess, not just the constructor.
 
-    `ANSIBLE_ROLES_PATH` rather than `ansible.cfg`, because the cfg can only
-    name a directory relative to itself and an installed wheel is nowhere near
-    it.
+    Through `ANSIBLE_ROLES_PATH`, since `ansible.cfg` can only name directories
+    relative to itself.
     """
     cache = _roles(tmp_path / "cache", "blitzecdn_cache")
     captured: dict[str, str] = {}
@@ -210,10 +192,9 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
 ):
     """The controller's own credentials stay in the controller.
 
-    The container's environment is the managed `.env`, operator API keys
-    included, and the run used to inherit all of it. A play now receives the
-    database path and the secrets an installed package declared — and every
-    other variable of the controller's, which Ansible itself may need.
+    A play receives the database path and the secrets installed features declared
+    among the `BLITZE_*` names, plus the controller's other variables, which
+    Ansible itself may need.
     """
     captured: dict[str, str] = {}
 
@@ -249,12 +230,10 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
 
 
 def test_a_slot_refuses_a_role_the_package_does_not_ship(tmp_path):
-    """Refused at composition, naming the distribution that asked.
+    """Refused at composition, naming the owner that asked.
 
-    Ansible would refuse it too, but only once the play had reached the include
-    — with the engine installed, the image pulled and, in the decommission
-    slot, a host already half taken apart. And it would name the role rather
-    than the wheel, which is the part that leads nobody anywhere.
+    Ansible would refuse it only on reaching the include, possibly mid-teardown,
+    and would name the role rather than its owner.
     """
     roles = _roles(tmp_path / "resolver", "blitzecdn_resolver")
     contribution = AnsibleContribution(
@@ -274,10 +253,8 @@ def test_a_slot_refuses_a_role_the_package_does_not_ship(tmp_path):
 def test_the_three_slots_are_composed_independently(tmp_path):
     """One set of contributions, three lists, no leakage between them.
 
-    A role landing in the wrong slot is not a cosmetic error: the edge slot
-    runs before the firewall is validated and the teardown slot runs on a host
-    that is leaving inventory. Each list must hold exactly what was declared
-    for it.
+    The edge slot runs before the firewall is validated and the teardown slot on
+    a host leaving inventory, so each list holds exactly what was declared for it.
     """
     roles = _roles(
         tmp_path / "pkg", "converge_role", "host_role", "withdraw_role", "own_play_role"
@@ -313,15 +290,9 @@ def test_every_slot_reaches_ansible_on_the_command_line(
 ):
     """The composed lists reach the subprocess, not just the constructor.
 
-    Each slot's role includes the list by name, so a slot the executor did not
-    forward is a slot that silently converges nothing — the play still reports
-    success, and the capability simply never ran. That is the failure this
-    catches, and it is invisible in every other test: the play parses, the
-    roles resolve, and nothing happens.
-
-    On the command line rather than in the variables file, because that file
-    *is* the desired-state snapshot a rollback converges months later, and what
-    is installed today is not desired state.
+    A slot the executor did not forward converges nothing while the play reports
+    success. On the command line rather than in the variables file, because that
+    file is the desired-state snapshot a rollback converges later.
     """
     captured: dict[str, str] = {}
 
@@ -357,9 +328,8 @@ def test_every_slot_reaches_ansible_on_the_command_line(
     assert '"blitzecdn_capability_roles": ["converge_role"]' in command
     assert '"blitzecdn_host_capability_roles": ["host_role"]' in command
     assert '"blitzecdn_edge_teardown_capability_roles": ["withdraw_role"]' in command
-    # The same journey for the module list, and for the same reason: an edge
-    # loads what the extra-var says and nothing else, so a list the executor
-    # did not forward is an edge whose contributed directives are unknown.
+    # The same journey for the module list: an edge loads what the extra-var says
+    # and nothing else.
     assert '"blitzecdn_nginx_modules"' in command
     assert '"objects": ["filter.so"]' in command
 
@@ -370,9 +340,7 @@ def test_every_slot_reaches_ansible_on_the_command_line(
 def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
     """`load_module` is one list per process, so core composes it.
 
-    Ordered by feature name like every other slot, so two controllers with the
-    same features render the same file and an edge's configuration tree does
-    not change because the roster lists them in a different order.
+    Ordered by feature name, so the same features always render the same file.
     """
     contributions = [
         AnsibleContribution(
@@ -397,11 +365,7 @@ def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
 
 
 def test_two_capabilities_may_need_the_same_module():
-    """njs is one shared object, and any number of capabilities may want it.
-
-    Refusing the second would make one capability declare a dependency on the
-    other over a file neither of them owns.
-    """
+    """njs is one shared object, and any number of capabilities may want it."""
     njs = EdgeModule(name="njs", objects=("js.so",), build=False, probe="js_path /e;")
     contributions = [
         AnsibleContribution(

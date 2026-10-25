@@ -12,11 +12,10 @@ from blitzecdn.capabilities.serving.contract import SitePolicy
 
 
 def test_the_api_carries_every_zone_field_the_zone_has():
-    """A knob an operator can set but never see would fail nowhere else.
+    """A setting an operator can set but never see would fail nowhere else.
 
-    The published zone is written out rather than imported from `dns`, since
-    a published surface may not cross a capability boundary. This is what makes
-    the duplication safe: a field added to the zone is expected on both bodies.
+    The published zone restates the fields rather than importing from `dns`; this
+    keeps the copy complete on both bodies.
     """
     published = set(DomainModel.model_fields)
     missing = (set(SitePolicy.setting_fields()) | {"name"}) - published
@@ -150,14 +149,9 @@ def test_a_rule_naming_a_hostname_outside_its_zone_is_refused(settings):
 def test_the_two_surfaces_replace_different_things(settings):
     """The CLI replaces one rule list; PATCH replaces the whole block.
 
-    Both are reasonable readings of "set the firewall", and an operator who
-    learns one on the command line and then scripts the other will be surprised
-    by whichever they meet second — so the difference is asserted here rather
-    than left to be discovered. `zone firewall` edits one rule at a time and
-    keeps the lists it was not given; `PATCH` is a document update and the
-    document it is given is the whole `firewall`.
-
-    If the two are ever brought together, this is the test that should fail.
+    `zone firewall` edits one rule at a time and keeps the lists it was not given;
+    `PATCH` is a document update of the whole `firewall`. Asserted so the
+    difference is deliberate.
     """
     seeded = SiteFirewall(deny_sources=("203.0.113.0/24",), denied_countries=("DE",))
 

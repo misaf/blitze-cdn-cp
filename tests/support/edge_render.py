@@ -27,9 +27,8 @@ from blitzecdn.composition import Repository, load_registry
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.features.resolution import resolve_nginx_resources
 
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
+# The nginx role renders from its defaults and the shared edge runtime
+# contract, so this loader is shared with the other contract-test modules.
 from support.contracts import (
     _role_defaults,
     _runtime_defaults,
@@ -39,10 +38,7 @@ from support.contracts import (
 from support.paths import CORE_ANSIBLE
 from support.policy import domain_from_settings, site_from_settings
 
-#: The roles ship with this control plane, so there is no install step to get
-#: wrong and no reason for these tests to skip. That matters: they used to read
-#: an installed collection and skipped silently when it was absent, which turned
-#: a broken contract into a green run.
+#: The roles ship with this control plane, so these tests never skip.
 ROLES_DIR = CORE_ANSIBLE / "roles"
 
 
@@ -122,12 +118,8 @@ def _defaults_of(role_dir: Path) -> dict[str, Any]:
 def _capability_defaults() -> dict[str, Any]:
     """Every installed capability role's defaults, the way a play resolves them.
 
-    A capability's fragment reads its own role's variables — the cache zone,
-    the compression level — and those are `defaults/main.yml` in a role that
-    ships inside the wheel. Discovered through the contributions rather than
-    listed by path: a checkout directory is not where an installed controller
-    finds them, and naming the packages here would make core's tests need an
-    edit every time a capability is attached or detached.
+    Discovered through the contributions rather than by path, so attaching a
+    capability needs no edit here.
     """
     defaults: dict[str, Any] = {}
     for contribution in load_registry().ansible_contributions():
@@ -142,14 +134,10 @@ def _seed_site(
 ) -> None:
     """A zone carrying the policy, and one proxied hostname in it.
 
-    Written through the stores rather than the services because these fixtures
-    describe *state*, not the operations that produce it, and the desired-state
-    document is what is under test.
-
-    ``name`` is the host the caller expects to be derived, and it decides where
-    the policy goes: ``example-com`` is the zone's own policy, and any other
-    name becomes a rule matching this hostname. There is no site to create
-    under either name. The origin is the record's value.
+    Written through the stores: these fixtures describe state, and the
+    desired-state document is what is under test. ``example-com`` puts the policy
+    on the zone, any other name on a rule matching this hostname. The origin is the
+    record's value.
     """
     zone = "example.com"
     with suppress(ConflictError):
@@ -173,9 +161,9 @@ def _seed_site(
 
 def _render(site: dict[str, Any], **overrides: Any) -> str:
     environment = _nginx_environment()
-    # A contract input has to be applied before the contract is composed, so
+    # A contract input is applied before the contract is composed, so
     # `blitzecdn_edge_geoip_enabled=True` reaches the template as
-    # `blitzecdn_edge_runtime.geoip.enabled`, not as a stray extra variable.
+    # `blitzecdn_edge_runtime.geoip.enabled`.
     inputs, plain = _split_runtime(overrides)
     return environment.get_template("site.conf.j2").render(
         **(
@@ -193,9 +181,8 @@ def _server_blocks(
 ) -> tuple[list[str], list[str]]:
     """Split a rendered site into its HTTP and HTTPS ``server`` blocks.
 
-    Directives have to be attributed to the listener they belong to: "somewhere
-    in the file" is exactly the assertion that let an origin TLS directive sit
-    in a plaintext location unnoticed.
+    Directives must be attributed to their listener: "somewhere in the file" let
+    an origin TLS directive sit in a plaintext location unnoticed.
     """
     runtime = defaults["blitzecdn_edge_runtime"]
     blocks = ["server {" + part for part in rendered.split("server {")[1:]]

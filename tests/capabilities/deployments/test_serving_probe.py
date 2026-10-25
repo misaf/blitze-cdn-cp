@@ -1,11 +1,7 @@
 """The verification phase against a real socket, not a double.
 
-Every other test of a deployment replaces this probe, because a unit test must
-not open a connection. This one is the exception and has to be: what the phase
-claims is that an edge *answered over the network*, and a fake that returned
-`served=True` would prove that claim about itself rather than about any HTTP.
-
-The server is a disposable one this module starts on loopback and stops again.
+The phase claims an edge answered over the network, which only a real
+connection can show. The server is a disposable one on loopback.
 """
 
 from __future__ import annotations
@@ -77,12 +73,7 @@ def site(**policy: object) -> CdnSite:
 
 
 def probe_on(port: int) -> ServingProbe:
-    """A probe pointed at the disposable server rather than at port 80.
-
-    The port comes from the scheme in production — that is the contract, and
-    nothing here is trying to change it — so this overrides the one thing a
-    test cannot control about a loopback server.
-    """
+    """A probe pointed at the disposable server rather than at port 80."""
 
     class LoopbackProbe(ServingProbe):
         def _connection(self, scheme, address, _port, hostname):
@@ -104,8 +95,7 @@ def test_an_edge_that_answers_is_reported_as_serving(edge_server):
 def test_the_request_is_addressed_to_the_hostname_not_to_the_edge(edge_server):
     """DNS usually does not answer with this edge yet when a deploy finishes.
 
-    Resolving the hostname would test the DNS transition rather than the edge,
-    so the connection goes to the address and the name travels in the header.
+    The connection goes to the address and the name travels in the header.
     """
     probe_on(edge_server).verify(
         edge="edge-a", address="127.0.0.1", release_digest="a" * 64, sites=[site()]
@@ -117,9 +107,7 @@ def test_the_request_is_addressed_to_the_hostname_not_to_the_edge(edge_server):
 def test_an_edge_that_is_not_listening_is_reported_as_not_serving():
     """The failure the phase exists to catch, and it is not an exception.
 
-    A configuration that `nginx -t` accepted and a reload that returned zero
-    can still leave nothing answering; the probe says so rather than raising,
-    so the rollout can attribute it to the edge and the phase.
+    The probe reports it, so the rollout can attribute it to the edge and phase.
     """
 
     # Port 9 is discard, which nothing listens on; a connection is refused
@@ -150,11 +138,7 @@ def test_a_site_with_no_hostname_is_not_probed(edge_server):
 
 
 def test_one_request_per_site_rather_than_one_per_hostname(edge_server):
-    """A site's hostnames share one server block, so the rest prove nothing.
-
-    A fleet with a thousand hostnames would otherwise turn every deployment
-    into a thousand requests.
-    """
+    """A site's hostnames share one server block, so the rest prove nothing."""
     probe_on(edge_server).verify(
         edge="edge-a",
         address="127.0.0.1",
@@ -171,8 +155,7 @@ def test_one_request_per_site_rather_than_one_per_hostname(edge_server):
 def _certificate(*names: str, san: bool = True) -> tuple[bytes, bytes]:
     """A self-signed certificate and its key, PEM, naming ``names``.
 
-    Self-signed on purpose: the probe does not verify the chain, and a test
-    that needed a CA would be testing something the probe does not claim.
+    The probe does not verify the chain.
     """
     key = ec.generate_private_key(ec.SECP256R1())
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, names[0])])
@@ -215,8 +198,7 @@ def _der(*names: str, san: bool = True) -> bytes:
 class _QuietServer(http.server.HTTPServer):
     """Drops the traceback a client that hangs up mid-request leaves behind.
 
-    Which is what the probe does, correctly, to an edge whose certificate does
-    not name the site: it closes after the handshake and sends no request.
+    The probe does that to an edge whose certificate does not name the site.
     """
 
     def handle_error(self, request: object, client_address: object) -> None:
@@ -273,11 +255,9 @@ def test_an_edge_presenting_the_sites_certificate_is_serving(tls_edge):
 
 
 def test_an_edge_presenting_another_sites_certificate_is_not_serving(tls_edge):
-    """The case the probe's docstring used to claim the handshake caught.
+    """An edge presenting the wrong certificate is refused before the request.
 
-    With the chain unverified nothing in the handshake looks at the
-    certificate, so an edge presenting the wrong one — a swapped path, a stale
-    file — answered 200 and passed. It is now refused before the request.
+    With the chain unverified, the handshake alone does not check the names.
     """
     port = tls_edge("other.example.net")
 

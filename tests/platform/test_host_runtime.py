@@ -339,9 +339,7 @@ def test_a_normal_command_starts_nothing_and_forwards_the_environment(
 ):
     """No service has to be brought up before a disposable CLI container runs.
 
-    One did: the broker its command would have talked to. Durable work is rows
-    in the state volume this container already mounts, so the whole
-    dependency-starting path went with it.
+    Durable work is rows in the state volume this container already mounts.
     """
     monkeypatch.setenv("BLITZE_ALLOW_EMPTY_SITES", "1")
     command = MagicMock(return_value=17)

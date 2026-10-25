@@ -1,14 +1,12 @@
 """The agreements this capability's edge role has with the core it converges on.
 
-These moved here with the role. `blitzecdn_geoip` writes the database under the
-runtime contract's capability data directory and contributes the Nginx
-resource defining `$blitzecdn_country`; each is a place where core and this
-package have to agree without either importing the other.
+`blitzecdn_geoip` writes the database under the runtime contract's capability
+data directory and contributes the Nginx resource defining
+`$blitzecdn_country`; both are agreements with core.
 
-Core's side is read through the shared contract helpers; this package's side is
-read through :data:`blitzecdn.capabilities.security.geoip.ansible.ROLES_PATH` —
-the same path a deployment resolves the role by, rather than a directory in the
-checkout that an installed wheel would not have.
+The role is read through
+:data:`blitzecdn.capabilities.security.geoip.ansible.ROLES_PATH`, the path a
+deployment resolves it by.
 """
 
 from typing import Any
@@ -34,9 +32,7 @@ NGINX = ansible.ROLES_PATH.parents[1] / "nginx"
 def _defaults(**overrides: Any) -> dict[str, Any]:
     """This role's defaults, resolved on top of the runtime contract.
 
-    Resolved because Ansible resolves: every path here is written as an
-    expression over `blitzecdn_edge_runtime`, and a test comparing template
-    source against a literal proves nothing.
+    Every path is an expression over `blitzecdn_edge_runtime`.
     """
     context = _runtime_defaults() | yaml.safe_load(
         (ROLE / "defaults/main.yml").read_text(encoding="utf-8")
@@ -57,13 +53,7 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
 
 
 def test_the_role_this_distribution_ships_is_where_it_says_it_is():
-    """The contribution is only true if the directory really carries the role.
-
-    Everything below reads this directory, so a wheel built without its Ansible
-    tree would make the rest of this file fail with `FileNotFoundError` rather
-    than with the thing it is actually about — and a deploy would fail with
-    "the role was not found", naming nothing that leads back to this package.
-    """
+    """The contribution is only true if the directory really carries the role."""
     assert ansible.ROLES_PATH.is_dir()
     assert [path.name for path in ansible.ROLES_PATH.iterdir()] == [ansible.EDGE_ROLE]
     assert TASKS.is_file()
@@ -73,10 +63,8 @@ def test_the_role_this_distribution_ships_is_where_it_says_it_is():
 def test_the_database_lives_under_the_contract_data_directory():
     """Core mounts one directory read-only; anything outside it is invisible.
 
-    The edge container and the configuration-test container both mount
-    `paths.data` and nothing else a capability writes. A database provisioned
-    anywhere else would be present on the host, absent inside Nginx, and the
-    edge would fail to start with a geoip2 directive pointing at nothing.
+    Both containers mount `paths.data`; a database elsewhere would leave the
+    geoip2 directive pointing at nothing.
     """
     resolved = _defaults()
     data = resolved["blitzecdn_edge_runtime"]["paths"]["data"]
@@ -89,10 +77,7 @@ def test_the_database_lives_under_the_contract_data_directory():
 def test_the_contract_data_directory_is_mounted_read_only_by_both_containers():
     """Core's half of the same agreement, asserted from this side too.
 
-    This package cannot edit core's Compose template or the configuration-test
-    mounts, so the only guard against one of them dropping the data mount is a
-    test that reads them. Without the mount every country lookup on the fleet
-    stops resolving, and the failure appears as an edge that will not start.
+    Without the mount every country lookup stops and the edge will not start.
     """
     data = _runtime_defaults()["blitzecdn_edge_runtime"]["paths"]["data"]
     compose = (STACK_ROLE_DIR / "templates/compose.yml.j2").read_text(encoding="utf-8")
@@ -106,11 +91,9 @@ def _render_data_mounts() -> str:
 
 
 def test_the_snippet_defines_the_variable_the_site_template_reads():
-    """One variable name, spelled the same in two distributions.
+    """One variable name, spelled the same on both sides.
 
-    Nothing at run time catches a rename: nginx refuses an undefined variable
-    at config-test time, which is a rolled-back deploy rather than a message
-    naming the two files that disagree.
+    A rename surfaces only as a failed `nginx -t`.
     """
     snippet = (NGINX / "geoip-http.conf.j2").read_text(encoding="utf-8")
     site = (NGINX / "geoip-upstream.conf.j2").read_text(encoding="utf-8")
@@ -121,9 +104,8 @@ def test_the_snippet_defines_the_variable_the_site_template_reads():
 def test_maxmind_credentials_never_reach_an_nginx_config():
     """The license key belongs in one 0600 file and nowhere else.
 
-    /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only
-    the database path. A key that leaked into the snippet would be disclosed to
-    every account on the edge.
+    /etc/nginx/conf.d is world-readable, and the geoip2 directive needs only the
+    database path.
     """
     environment = _ansible_jinja(
         loader=jinja2.FileSystemLoader([NGINX, ROLE / "templates"]),
@@ -139,10 +121,8 @@ def test_maxmind_credentials_never_reach_an_nginx_config():
     assert "123456" not in snippet
     assert context["blitzecdn_geoip_database"] in snippet
 
-    # …and it does reach the file that is supposed to carry it. The updater is
-    # a container, so the credential travels as a 0600 env_file rather than a
-    # geoipupdate(8) configuration — and never through the Compose file, where
-    # `docker inspect` would hand it to anyone who can talk to the engine.
+    # The updater is a container, so the credential travels as a 0600 env_file,
+    # never through the Compose file, where `docker inspect` would expose it.
     credentials = environment.get_template("geoipupdate.env.j2").render(**context)
     assert "GEOIPUPDATE_LICENSE_KEY=SENTINELKEY" in credentials
 
@@ -178,11 +158,9 @@ def test_the_credentials_file_is_written_private_and_unlogged():
 
 
 def test_the_capability_is_off_until_an_operator_turns_it_on():
-    """Installing the distribution provides the capability; it does not arm it.
+    """The capability is available but not armed by default.
 
-    A default of true would put a MaxMind credential requirement on every edge
-    of every fleet that happened to install this wheel, and fail the deploy of
-    a fleet that never asked for country rules.
+    On by default, every fleet would need a MaxMind credential.
     """
     assert _defaults()["blitzecdn_geoip_enabled"] is False
 
@@ -203,9 +181,8 @@ def test_the_role_refuses_country_rules_when_the_capability_is_off(tmp_path):
 def test_the_role_refuses_the_country_header_when_the_capability_is_off(tmp_path):
     """`ip_country` must fail the deploy, not be quietly dropped.
 
-    An origin cannot tell a header that was never sent from a visitor whose
-    country the database could not place, so omitting BZ-IPCountry would hand
-    it a wrong answer rather than no answer.
+    An origin cannot tell an unsent header from a visitor the database could not
+    place.
     """
     sites = _sites_with(visitor_headers={"connecting_ip": True, "ip_country": True})
 
@@ -215,12 +192,7 @@ def test_the_role_refuses_the_country_header_when_the_capability_is_off(tmp_path
 
 
 def test_the_role_accepts_a_site_that_asks_for_no_country_setting(tmp_path):
-    """The capability being off is normal, not an error, for everyone else.
-
-    The whole point of a detachable capability is that a fleet which does not
-    use it converges exactly as before. A blanket refusal here would make
-    installing the wheel a breaking change for every site on the fleet.
-    """
+    """With the capability off, a site that needs no country converges normally."""
     sites = _sites_with(visitor_headers={"connecting_ip": True, "ip_country": False})
 
     accepted = run_role_tasks(TASKS, _defaults(blitzecdn_nginx_sites=sites), tmp_path)

@@ -1,13 +1,8 @@
 """The security check where it actually runs: inside `deployments.validate()`.
 
-The unit tests beside this one hold the hook to its answer. These hold the
-control plane to what it does with that answer — refusing *before* Ansible is
-invoked is the whole reason the check exists, and only the real service can
-show that no scratch file was rendered and no playbook was handed one.
-
-Sites are seeded with a record routed to them rather than left bare: a site no
-hostname reaches contributes no server block, so it would not be the thing the
-validator has an opinion about.
+These show the control plane refuses before Ansible is invoked: no scratch
+file rendered, no playbook handed one. Sites are seeded with a routed record,
+since a site no hostname reaches contributes no server block.
 """
 
 import json
@@ -120,9 +115,8 @@ def test_cli_error_semantics_are_unchanged_by_the_new_refusal(
 ):
     """A blocking feature issue is reported like every other validation error.
 
-    Same exit code, same `--json` envelope, and the `feature: site: message`
-    attribution the deployment service already applied to feature issues. The
-    refusal adds a reason to fail, not a new way of failing.
+    Same exit code, same `--json` envelope, same `feature: site: message`
+    attribution.
     """
     control = _control_serving(unprovisioned, FakeRunner(), under_attack_mode=True)
     monkeypatch.setattr(cli.common, "services", lambda: control)

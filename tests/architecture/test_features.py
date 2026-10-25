@@ -1,9 +1,8 @@
 """The feature mechanism: declaration, the roster, binding, refusal.
 
 Built-in features reach the API, the CLI, the scheduler and the desired-state
-document through typed declarations and the roster's bindings, not through a
-list somebody maintains beside them. No contribution is ever handed the
-composition root.
+document through typed declarations and the roster's bindings. No contribution
+is ever handed the composition root.
 """
 
 from __future__ import annotations
@@ -56,9 +55,8 @@ from blitzecdn.core.features import (
 )
 from blitzecdn.entrypoints.cli.main import register_commands
 
-#: The features that only realize an edge capability: roles and fragments, no
-#: service. A registry missing `geoip` and `http3` is what lets these tests
-#: watch a capability be absent.
+#: Features that only realize an edge capability: roles and fragments, no
+#: service. A registry without `geoip` and `http3` lets tests see one absent.
 _EDGE_PROVIDERS = frozenset(
     {
         "blitzecdn.capabilities.hardening.feature",
@@ -195,9 +193,7 @@ def test_the_roster_names_each_feature_module_once():
 def test_every_roster_builder_binds_behaviour_its_own_module_declares(settings):
     """A row's builders belong to the features its module declares.
 
-    The rendering a row binds names a feature, and that feature has to come from
-    the row's own module — not merely from somewhere in the roster — or the one
-    place a feature is registered would quietly be two again.
+    Otherwise a feature would be registered in two places.
     """
     control = build_application(
         settings=settings,
@@ -254,9 +250,8 @@ def test_a_registry_refuses_two_features_with_one_name(baseline):
 def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
     """`provides` is separate from `name`, and defaults to it.
 
-    A feature identifies itself with `name`; a *configuration* depends on a
-    capability. The two are allowed to differ, which is what lets one feature
-    answer for a token another used to supply.
+    A feature identifies itself with `name`; a configuration depends on a
+    capability token, which another feature may supply.
     """
     assert "dns" in baseline.capabilities
     assert baseline.missing(["dns", "waf"]) == ("waf",)
@@ -272,8 +267,8 @@ def test_a_capability_token_says_what_a_configuration_may_depend_on(baseline):
 def test_requiring_a_capability_nothing_provides_names_it(baseline):
     """The message an operator reads when configuration requires an unknown token.
 
-    It has to name the missing token *and* what is available, or an operator
-    cannot tell a typo from a capability this application does not have.
+    It names the missing token and what is available, so a typo is told apart
+    from an absent capability.
     """
     baseline.require(["dns"], subject="a test")
 
@@ -397,10 +392,9 @@ def test_a_site_no_plugin_objects_to_is_deployable(baseline):
 def test_a_requested_capability_nothing_supplies_blocks_and_names_the_setting():
     """The message an operator reads before any playbook runs.
 
-    Generic in both halves: the tokens come from the site's own
-    `capability_requirements` and the answer from feature metadata, so nothing
-    on this path knows what `geoip` is. What the mapping adds is *which*
-    setting asked.
+    The tokens come from the site's `capability_requirements` and the answer from
+    feature metadata, so nothing on this path knows what `geoip` is. The mapping
+    adds which setting asked.
     """
     dns_only = FeatureRegistry(load_features(("blitzecdn.capabilities.dns.feature",)))
     requested = site(
@@ -660,22 +654,11 @@ def test_only_the_founding_group_sets_the_order():
 
 
 def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():
-    """Registration under a name the whole fleet shares carries its owner.
+    """Registration under a fleet-wide name carries its owning feature.
 
-    Five of these carried `feature` and three did not, and the split was not a
-    decision — `CliCommandGroup`, `HealthCheck` and `ScheduledJob` were simply
-    the ones nobody had needed to attribute yet. The cost showed up three
-    times: the duplicate-job error could say two features collided but not
-    which two, two health checks could answer to one name with nothing to tell
-    them apart, and the frozen CLI surface had to guess ownership from a
-    callback's `__module__`.
-
-    The rule is positional rather than a list to maintain: a contribution type
-    whose instances are registered under a name that the rest of the fleet can
-    also claim has to say which feature claimed it. A new one that forgets fails
-    here, while the field is still free to add — once a wheel exists that
-    constructs one, adding a required field is a breaking change to its
-    constructor.
+    Without it, duplicate errors cannot say which features collided and the
+    frozen CLI surface has to guess ownership. Any contribution type registered
+    under a shared name must declare `feature`.
     """
     shared = (
         AnsibleContribution,

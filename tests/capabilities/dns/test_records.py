@@ -49,8 +49,7 @@ def test_the_hostname_covers_apex_subdomain_and_wildcard(label, expected_fqdn):
 def test_a_record_always_carries_an_address():
     """``value`` is required whether the edge serves the hostname or not.
 
-    It is the origin the edge fetches from while proxied and the DNS answer
-    when not — the same field, present either way, as on Cloudflare.
+    It is the origin while proxied and the DNS answer when not, as on Cloudflare.
     """
     with pytest.raises(ValueError, match="value"):
         DnsRecord(domain="example.com", name="x")
@@ -107,12 +106,10 @@ def test_duplicate_records_conflict(settings):
 
 
 def test_a_proxied_hostname_cannot_point_two_families_at_two_origins(settings):
-    """One virtual host has one upstream, so A and AAAA must agree where the
-    edge fetches from — and an A record takes an IPv4 origin while an AAAA
-    takes an IPv6 one, so only one family can be proxied.
+    """One virtual host has one upstream, so only one address family can be
+    proxied.
 
-    This is the one contradiction left, and the only one that can still be
-    written. ``validation_errors`` refuses the deploy and names the hostname.
+    ``validation_errors`` refuses the deploy and names the hostname.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)
@@ -161,9 +158,8 @@ def test_a_zone_serving_nothing_derives_no_virtual_host(settings):
 
 def test_unproxying_publishes_the_address_the_record_holds(settings):
     """As on Cloudflare, grey-clouding leaves the record's own address as the
-    answer. ``control.dns.unproxy`` still takes one explicitly, so the service
-    does not publish the origin by accident; the record patch endpoint lets an
-    operator ask for it by name.
+    answer. ``control.dns.unproxy`` takes one explicitly, so the origin is never
+    published by accident.
     """
     repository = Repository(settings.database_path)
     control = _control(settings, repository)

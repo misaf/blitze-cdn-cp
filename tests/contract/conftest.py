@@ -1,10 +1,7 @@
 """Fixtures for the contract modules under this directory.
 
-``desired_state`` is built in ``support/contracts.py``, beside the loaders and
-the seeding it uses. A fixture has to be *registered* with pytest rather than
-imported into the module that asks for it, though, so the name is re-exported
-here — the same arrangement ``edge/conftest.py`` uses, which overrides this one
-for the edge modules with a document shaped for them.
+``desired_state`` is built in ``support/contracts.py`` and registered here;
+``edge/conftest.py`` overrides it for the edge modules.
 """
 
 from support.contracts import desired_state

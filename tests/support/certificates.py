@@ -1,23 +1,8 @@
 """Building this capability's services the way the composition root does.
 
-The control plane's shared fixtures used to carry an
-``attach_certificate_test_services`` fixture that monkeypatched
-``ApplicationServices.__init__`` so that ``control.certificates`` existed and could be
-handed a fake store, issuer or preflight. Its own docstring called it legacy,
-and it was: production core never constructs these services, and every test
-that relied on it was a certificates test living in ``tests/``.
-
-Here the wiring is the real one. ``control.certificates`` is the service the
-composition root built, and the seams a test needs — the store, the issuer, the
-preflight — are substituted by rebuilding the two dataclasses around it rather
-than by intercepting a constructor.
-
-`just types` checks this module, which is what makes the seams above claims
-rather than hopes. ``FakePreflight`` and ``_RecordingIssuer`` are handed
-straight to ``CertificateExecution``, whose fields are the ``Preflight`` and
-``Issuer`` protocols; before the gate reached here, a double that had drifted
-from its port would have been caught by whichever test happened to call the
-method that moved, and reported as that test failing.
+``control.certificates`` is the service the composition root built. The seams a
+test needs (the store, the issuer, the preflight) are substituted by rebuilding
+the dataclasses around it. `just types` checks the doubles against their ports.
 """
 
 from __future__ import annotations
@@ -69,10 +54,8 @@ def _with_seams(
 ) -> CertificateService:
     """``service`` again, with the named collaborators replaced.
 
-    ``CertificateService`` is a plain class, so it is rebuilt; the two halves it
-    holds are frozen dataclasses, so those are ``replace``d. Passing nothing
-    returns the service untouched, which keeps the default path the one the
-    composition root produced.
+    ``CertificateService`` is rebuilt and its two frozen halves ``replace``d.
+    Passing nothing returns the service untouched.
     """
     if certificate_store is None and issuer is None and preflight is None:
         return service
@@ -90,12 +73,8 @@ def _with_seams(
         ),
         events=service.events,
         dns=service.dns,
-        # `service.site_editor`, not `service.dns` a second time. The composition
-        # root hands the same object to both, so reconstructing this slot from
-        # `dns` was right by coincidence — and `just types` reaching this file
-        # is what said so: `dns` is a `RecordReader` and the slot wants a
-        # `SiteEditor`. Preserving what the service already holds is what
-        # "again, with the named collaborators replaced" claims to do.
+        # `service.site_editor`, not `service.dns`: the composition root passes the same
+        # object to both, but the slot is typed `SiteEditor`.
         site_editor=service.site_editor,
         deployments=service.deployments,
         workflows=service.workflows,
@@ -119,10 +98,8 @@ def certificate_control_plane(
 ) -> ApplicationServices:
     """A control plane with this capability's services built onto it.
 
-    Returns the control plane. ``control.certificates`` and
-    ``control.automatic_ssl`` are set because the services under test read each
-    other through the application composition root, with only
-    the named seams replaced.
+    ``control.certificates`` and ``control.automatic_ssl`` are the composition
+    root's, with only the named seams replaced.
     """
     repository = Repository(settings.database_path)
     control = build_application(
@@ -150,9 +127,7 @@ def certificate_cli_control_plane(
 ) -> ApplicationServices:
     """`cli_control_plane`, with this capability's services built onto it.
 
-    The command tree an operator sees is assembled from every installed feature,
-    so core's helper is what points the CLI at a control plane. It builds no
-    additional services; `cert list`, `cert renew` and `cert preflight` all read
+    `cert list`, `cert renew` and `cert preflight` all read
     `control.certificates`.
     """
     built = cli_control_plane(settings, monkeypatch, runner_double)
@@ -164,14 +139,8 @@ def certificate_cli_control_plane(
 class FakePreflight:
     """Stands in for ``CertificatePreflight`` without touching the network.
 
-    Certificate preflight resolves hostnames, queries CAA and probes origins,
-    none of which a test can do. The default is a clean report so tests about
-    issuance stay about issuance; ``failures`` makes it block, for the tests
-    that are about the refusal itself.
-
-    It was one of core's shared fixtures, where its ``check`` had to reach the
-    report types through ``import_module`` because core cannot import an
-    optional distribution. Beside the types it builds, it is an ordinary class.
+    The default is a clean report so issuance tests stay about issuance;
+    ``failures`` makes it block, for tests about the refusal.
     """
 
     def __init__(self, failures: tuple[str, ...] = ()) -> None:
@@ -197,11 +166,6 @@ class FakePreflight:
 
 
 # --- builders the certificate and Automatic SSL suites share ----------------
-#
-# These were in `support/application.py`, where core's own suites could
-# reach them. Nothing in core uses them any more: an issuer stub, an uploaded
-# certificate and an origin report shaped for the Automatic SSL scan are all
-# this capability's vocabulary.
 
 
 def _automatic_origin_report(
@@ -283,10 +247,8 @@ def _proxied_site_with_certificate(
 
 
 if TYPE_CHECKING:
-    # The doubles above stand in for this capability's ports, stated here and
-    # held by `just types` — the same arrangement `support/control_plane.py`
-    # uses for core's. `CertificateExecution` takes both, so a drift used to
-    # surface as whichever test called the method that moved.
+    # The doubles above stand in for this capability's ports; `just types` holds
+    # them to those ports here.
     _preflight_is_a_preflight: Preflight = FakePreflight()
     _issuer_is_an_issuer: Issuer = _RecordingIssuer(lambda *a, **k: (b"", b""))
 

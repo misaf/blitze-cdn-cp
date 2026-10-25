@@ -5,10 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import yaml
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.contracts import (
     _role_defaults,
 )
@@ -49,9 +45,8 @@ def test_public_ports_match_cloudflare_and_the_firewall():
     """A listener without a firewall rule is unreachable, and the reverse
     exposes a port that can never serve traffic.
 
-    Both roles read one contract member now, so the two cannot fall out of
-    lockstep — what is still worth pinning is that the member holds the
-    Cloudflare-compatible proxy port sets, and that the domain's copy agrees.
+    Both roles read one contract member; this pins that it holds the
+    Cloudflare-compatible port sets and that the domain's copy agrees.
     """
     http_ports = [80, 8080, 8880, 2052, 2082, 2086, 2095]
     https_ports = [443, 2053, 2083, 2087, 2096, 8443]
@@ -59,10 +54,8 @@ def test_public_ports_match_cloudflare_and_the_firewall():
     assert _contract("listeners", "http") == http_ports
     assert _contract("listeners", "https") == https_ports
     assert _contract("listeners", "http3") is False
-    # The domain holds the second copy, because Flexible's origin scheme now
-    # depends on which set a listener belongs to. It is the last one: the Nginx
-    # role binds these ports and the firewall opens them from the same contract
-    # member, so a listener without a rule is no longer possible to write.
+    # The domain holds the second copy, because Flexible's origin scheme depends on
+    # which set a listener belongs to.
     assert list(HTTP_PROXY_PORTS) == http_ports
     assert list(HTTPS_PROXY_PORTS) == https_ports
     firewall = _defaults_of(_role("blitzecdn_firewall"))
@@ -162,15 +155,9 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
 ):
     """The shape of the QUIC contract, which does not depend on what is installed.
 
-    One key, not two. The firewall's UDP/443 rule and the QUIC listener read the
-    same contract member, so desired state states HTTP/3 once and the edge play
-    no longer has to assert that two copies of it agree.
-
-    Both keys are `required: true` in the edge and Nginx argument specs, so they
-    are emitted whether or not `blitzecdn-http3` is attached — core writes the
-    baseline and the package overrides it. The *values* are that package's
-    behavior and are asserted in its own tests and in the packaging lifecycle;
-    what core owns is that these two names, and no others, carry the answer.
+    The firewall's UDP/443 rule and the QUIC listener read one member. Both keys
+    are required by the edge and Nginx argument specs, so core writes the
+    baseline and the HTTP/3 provider overrides the values, tested there.
     """
     repository = Repository(settings.database_path)
     control = build_application(settings=settings, repository=repository)

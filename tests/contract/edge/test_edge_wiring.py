@@ -7,10 +7,6 @@ import re
 from pathlib import Path
 
 import yaml
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.edge_render import (
     ROLES_DIR,
     _role_spec,
@@ -44,10 +40,8 @@ class _IndentedDumper(yaml.SafeDumper):
 def _plays_and_their_roles() -> list[tuple[Path, tuple[Path, ...]]]:
     """Every play in the workspace, with the role directories it may resolve in.
 
-    Core's plays see core's roles. A package's play sees core's *and* its own,
-    which is exactly what `resolve_role_search_path` composes at run time — the
-    ACME play is the case that matters, because it is owned by
-    `blitzecdn-certificates` and names the core `blitzecdn_edge` role.
+    Core's plays see core's roles; a contributed play sees core's and its owner's,
+    as `resolve_role_search_path` composes them.
     """
     found: list[tuple[Path, tuple[Path, ...]]] = [
         (playbook, (ROLES_DIR,))
@@ -67,9 +61,7 @@ def _plays_and_their_roles() -> list[tuple[Path, tuple[Path, ...]]]:
 def test_every_role_a_playbook_names_exists():
     """A role rename cannot leave a playbook pointing at a missing local role.
 
-    Across the workspace, not only core: a package's play resolves against the
-    same composed search path a deployment gives Ansible, so a capability that
-    shipped a play without the role it names fails here.
+    A contributed play resolves against the same composed path a deployment uses.
     """
     referenced: set[str] = set()
     for playbook, search in _plays_and_their_roles():
@@ -107,10 +99,8 @@ def test_no_reference_to_the_retired_edge_collection_remains():
     )
 
 
-# The two assertions that were here — the drop-in's directives and the role's
-# defaults — moved to `tests/capabilities/hardening/` with the roles
-# themselves. This half of the SSH contract stays, because `ansible.cfg` is the
-# control plane's own file and holds whether or not that package is attached.
+# The SSH drop-in's own assertions are in `tests/capabilities/hardening/`.
+# `ansible.cfg` is the control plane's file, so this half stays.
 def test_controller_refuses_password_authentication():
     """The other half of the contract: what this repository dials out with."""
     config = (CORE_ANSIBLE / "ansible.cfg").read_text(encoding="utf-8")
@@ -145,11 +135,9 @@ def test_committed_fixture_matches_generated_desired_state(desired_state):
     committed = yaml.safe_load(FIXTURE.read_text(encoding="utf-8"))
     expected = dict(committed)
     actual = dict(desired_state)
-    # The fixture is an Ansible example, not a release compiled for every
-    # installation. Capability availability is part of release identity, so
-    # core-only and full installations have different envelope digests even
-    # when the rendered document is equal. The production publication test
-    # verifies the exact link between an envelope and its recorded release.
+    # The fixture is an Ansible example, not a compiled release: capability
+    # availability is part of release identity, so envelope digests differ by
+    # installation.
     for document in (expected, actual):
         assert re.fullmatch(r"[0-9a-f]{64}", document.pop("blitzecdn_release_digest"))
     assert expected == actual, (

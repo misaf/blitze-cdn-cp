@@ -1,16 +1,7 @@
 """The commands this capability contributes, driven the way an operator does.
 
-`blitzecdn cert list`, `cert renew` and `cert preflight` exist only while this
-distribution is installed — they reach the CLI through this package's
-``blitzecdn_cli_commands`` hook — so they belong here for the same reason the
-`origin check` cases belong in ``tests/capabilities/origins``.
-
-They were in ``tests/entrypoints/cli/``, listed by name in a
-``REQUIRES_CERTIFICATES`` set the shared fixtures read in order to skip them
-whenever the wheel was detached. Three `deploy` cases came with them: issuance
-during a deployment is this capability joining the deployment, and with the
-wheel gone there is no behaviour left to assert rather than an assertion that
-fails.
+`blitzecdn cert list`, `cert renew` and `cert preflight`, plus the `deploy`
+cases where issuance joins a deployment.
 """
 
 from __future__ import annotations
@@ -74,9 +65,8 @@ def test_deploy_can_issue_ready_certificates_and_install_them(settings, monkeypa
     monkeypatch.setattr(
         control.certificates, "certificate_preflight", lambda _name: report
     )
-    # Patched below the reconciliation rather than at `request_certificate`,
-    # because the CLI no longer drives issuance itself: it runs the same
-    # reconciliation the scheduler does, and this is where that reaches the CA.
+    # Patched below the reconciliation: the CLI runs the same reconciliation the
+    # scheduler does, and this is where it reaches the CA.
     monkeypatch.setattr(
         control.certificates,
         "_issue_certificate_locked",

@@ -1,10 +1,4 @@
-"""BlitzeCDN does not publish DNS, and every surface that could imply it says so.
-
-This is a test about honesty rather than about behaviour, and it is here for a
-concrete reason: the limitation was true before it was stated, the tree said so
-in three docstrings, and the one place an operator actually met it —
-``blitzecdn record unproxy`` — told them the opposite.
-"""
+"""BlitzeCDN does not publish DNS, and every surface that could imply it says so."""
 
 from __future__ import annotations
 
@@ -39,9 +33,7 @@ def test_the_control_plane_says_it_publishes_nothing():
 def test_the_export_carries_the_limitation_beside_the_records(settings, monkeypatch):
     """A caller cannot consume the instructions without meeting the caveat.
 
-    The export is desired state for a system BlitzeCDN does not operate. As a
-    bare list it read as an answer to "what does DNS say", which is a question
-    nothing here can answer.
+    The export is desired state for a system BlitzeCDN does not operate.
     """
     control = control_for(settings, monkeypatch)
     seed_record(control, name="cdn")
@@ -66,13 +58,7 @@ def test_a_proxied_record_asks_for_an_edge_address_rather_than_naming_one(
 
 
 def test_unproxying_does_not_claim_that_dns_now_answers(settings, monkeypatch):
-    """The regression this pins, in the words it used to use.
-
-    `cdn.example.com now bypasses the CDN and answers with 203.0.113.9` is a
-    statement about what DNS is doing, made by the one component in the system
-    that cannot make it. The record was written, nothing answered with
-    anything, and the operator had been told the switch was thrown.
-    """
+    """Unproxying records the change without claiming DNS now answers with it."""
     control = control_for(settings, monkeypatch)
     seed_record(control, name="cdn")
 
@@ -90,13 +76,7 @@ def test_unproxying_does_not_claim_that_dns_now_answers(settings, monkeypatch):
 
 
 def test_doctor_reports_that_dns_publication_is_somebody_elses(settings, monkeypatch):
-    """A fleet that is otherwise ready still serves nobody without this.
-
-    Every other line of the readiness report says whether something this
-    control plane does is working. This one says that publishing DNS is not
-    among them, which is the kind of gap an operator otherwise learns about
-    from a customer.
-    """
+    """A fleet that is otherwise ready still serves nobody without this."""
     control_for(settings, monkeypatch)
 
     report = json.loads(

@@ -1,25 +1,12 @@
 """The public surfaces, held to a file that changes only on purpose.
 
-`tests/architecture/` is 5,600 lines that guard where a module sits. Every one
-of those failures is fixable with `git mv`. These six guard the things that are
-not: the routes an API client calls, the commands an operator's script types,
-the hook signatures a third-party wheel implements, the names in a published
-module, the variables in an operator's own inventory, and the columns in a
-database that will outlive every one of them.
+The routes an API client calls, the commands an operator's script types, the
+variables in an operator's inventory, and the database columns. A change to a
+public name arrives as a diff somebody has to approve.
 
-Nothing held any of that before. A commit could rename an Ansible variable or
-change a hookspec and CI stayed green, because the tests exercising it were
-edited in the same commit — a deliberate change and an accidental one looked
-identical, and neither was visible in review. These files are the difference:
-a change to a public name now arrives as a diff somebody has to approve.
-
-**When one of these fails, read the diff before regenerating it.** The question
-it asks is not "is the new surface correct" but "may this change, given who is
-already depending on the old one". `just refreeze` exists for when the answer is
-yes; it is not a way to make a test go away.
-
-One application, one complete golden file per surface. No package-presence
-filter may hide a missing built-in interface.
+**When one of these fails, read the diff before regenerating it.** The
+question is whether this may change given who depends on it. `just refreeze`
+records a yes; it is not a way to make a test go away.
 """
 
 from __future__ import annotations
@@ -77,16 +64,9 @@ def test_the_database_schema_is_what_it_was():
 def test_every_surface_found_something_to_freeze(settings):
     """The failure mode a golden file cannot catch on its own.
 
-    Each generator reaches into a framework's internals — Typer's click tree,
-    FastAPI's router wrappers, SQLModel's metadata — and every one of those has
-    changed shape before. `_api_routes` already had to be rewritten twice
-    against one FastAPI version. A generator that quietly stopped finding
-    anything would leave an empty surface matching an empty golden, and the pin
-    would read green while guarding nothing.
-
-    So each surface is held to a floor. The numbers are deliberately loose: this
-    asks whether the generator still works, not what the contract contains —
-    that is what the golden files are for.
+    Each generator reaches into framework internals (Typer's click tree, FastAPI's
+    router wrappers, SQLModel's metadata). One that stopped finding anything would
+    match an empty golden, so each surface has a loose floor.
     """
     floors = {
         "cli": (surfaces.cli_surface(), 40),
@@ -109,11 +89,8 @@ def test_every_surface_found_something_to_freeze(settings):
 def test_the_command_line_needs_no_database_to_describe_itself():
     """The property that makes freezing the CLI cheap, asserted where it is used.
 
-    `blitzecdn --help` must not create and migrate a database, and
-    `cli_surface` depends on the same thing: it imports the command tree and
-    reads it. If building the tree ever started constructing a control plane,
-    this suite would start writing SQLite files as a side effect of describing
-    itself — and the operator-facing property would already be broken.
+    `blitzecdn --help` must not create a database, and `cli_surface` relies on the
+    same thing.
     """
     from blitzecdn.entrypoints.cli import main
 

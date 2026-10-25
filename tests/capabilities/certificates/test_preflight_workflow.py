@@ -21,21 +21,13 @@ from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError
 
 # ----------------------------------------------------------------------
-# Certificate preflight enforcement
-#
-# The checks themselves are tested in test_preflight.py. These are about what
-# the application does with a report: refuse, override, or pass through.
+# Certificate preflight enforcement: what the application does with a report
+# (refuse, override, pass through). The checks are in test_preflight.py.
 # ----------------------------------------------------------------------
 
 
 def _preflight_control(settings, certificate_pair, failures=()):
-    """The control plane these cases share, with the CA and the checks faked.
-
-    It used to assemble `CertificateService` field by field — the only place in
-    the suite that did — because core's fixtures could not build one. It now
-    goes through the same helper every other suite here uses, so a change to
-    the composition root reaches this file too.
-    """
+    """The control plane these cases share, with the CA and the checks faked."""
     issuer = _RecordingIssuer(certificate_pair)
     preflight = FakePreflight(failures)
     control = certificate_control_plane(
@@ -166,11 +158,8 @@ def test_certificate_preflight_reports_without_contacting_a_ca(
 def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     """Validation takes no lock, so it must not touch shared desired state.
 
-    A deploy in another process owns `generated_vars_path` between writing its
-    snapshot there and Ansible reading it. A validate landing in that window
-    would converge the fleet to a document the deployment never recorded —
-    worst of all under rollback, which would then rewrite canonical records to
-    the old zones while the edges received current state.
+    A deploy in another process owns `generated_vars_path` between writing it and
+    Ansible reading it.
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner()
@@ -194,16 +183,9 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
 def test_overlapping_runs_never_share_a_variables_file(settings, monkeypatch):
     """Purge, stats, origin check and decommission all skip the deployment lock.
 
-    They therefore overlap routinely. A fixed filename per playbook made the
-    document shared mutable state: the second writer won, so a two-URL purge
-    could find `purge_all: true` in the file by the time its own playbook read
-    it and empty the cache on every edge.
-
-    Asserted against the generic primitive rather than against any one play.
-    `run_playbook` is what core offers an installed capability, so the
-    isolation has to hold for a play this repository has never seen — which is
-    also why the two calls below are deliberately the same play with different
-    variables, the exact shape that used to collide.
+    They overlap routinely, so a shared variables file would let one run read
+    another's document (a two-URL purge finding `purge_all: true`). Asserted on
+    `run_playbook` itself, with the same play and different variables.
     """
     from blitzecdn.core import ansible
 

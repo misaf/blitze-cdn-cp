@@ -122,10 +122,8 @@ def test_destructive_commands_require_confirmation():
         assert "confirm_destructive" in section
         assert 'confirm_destructive "${parsed_yes}"' in section
     parser = _function("parse_options")
-    # The flag is handled once, in the shared parser, rather than by each
-    # command reading its own arguments. Matched loosely: the case label grows
-    # a branch whenever a command gains a flag, and that is not what this
-    # guards.
+    # The flag is handled once, in the shared parser. Matched loosely, since the
+    # case label grows with every new flag.
     assert re.search(r"^      --yes\|.*\)$", parser, re.MULTILINE)
     # And it is the parser that records it, for every command that takes it.
     for command in ("uninstall", "fresh", "update"):
@@ -150,11 +148,8 @@ def test_fresh_reuses_the_same_ansible_teardown_as_uninstall():
 def _release_branch() -> str:
     """The branch a release installation tracks, from the workspace version.
 
-    `install.sh` treats one branch name as a named revision worth preserving
-    across a rebuild, and it is the current major's line. Written as `"3.x"`
-    here until the 4.0.0 release, which put a version string inside two tests
-    about rebuild behaviour and made them fail on the day the branch moved —
-    for a reason that had nothing to do with what they assert.
+    `install.sh` preserves the current major's line across a rebuild; derived so
+    these tests do not break when the version moves.
     """
     version = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
     return f"{re.search(r'^version = \"(\d+)', version, re.M).group(1)}.x"
@@ -326,10 +321,8 @@ def test_fresh_refuses_an_unsupported_platform_before_destroying_anything(
 ):
     """The refusal that matters most, because the alternative is unrecoverable.
 
-    `--fresh` uninstalls and then reinstalls by running `standalone` again. On
-    a host the reinstall would refuse, doing the teardown first turns a rebuild
-    into a deletion -- so the platform is read before the confirmation, not
-    after it.
+    `--fresh` uninstalls then reruns `standalone`; on a host the reinstall would
+    refuse, that is a deletion. So the platform is read before the confirmation.
     """
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)

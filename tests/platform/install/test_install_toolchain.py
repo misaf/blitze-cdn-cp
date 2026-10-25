@@ -18,11 +18,8 @@ from support.install import (
 
 #: Preamble for a stub curl: find the output path the way curl does.
 #:
-#: install.sh passes several flags before `-o`, so a stub that guesses at a
-#: positional argument writes the download somewhere else entirely — and then
-#: the checksum test still "passes", because a file that was never created
-#: cannot match either. Parsing the flag is what makes these tests mean
-#: something.
+#: install.sh passes several flags before `-o`; a stub guessing positionally
+#: would write elsewhere and the checksum test would pass vacuously.
 _CURL_STUB = """#!/usr/bin/env bash
 out=""
 while [[ $# -gt 0 ]]; do
@@ -35,10 +32,7 @@ done
 def _host_uv_target() -> str:
     """The release triple `ensure_uv` should pick on the machine running this.
 
-    Derived rather than hardcoded: these tests run on the Linux servers CI uses
-    and on the macOS laptops the controller-only checkout is developed on, and
-    a harness that always expected a Linux triple is exactly the assumption
-    that shipped a Linux binary to a Mac.
+    Derived, since these run on Linux CI and macOS laptops.
     """
     platforms = {"Linux": "unknown-linux-gnu", "Darwin": "apple-darwin"}
     architectures = {
@@ -54,9 +48,8 @@ def _host_uv_target() -> str:
 def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Path:
     """A runnable script holding just `die` and `ensure_uv`.
 
-    Extracted from install.sh rather than copied, so a change to either
-    function is exercised here instead of drifting away from a stale duplicate.
-    The script cannot be sourced whole — its last line dispatches a subcommand.
+    Extracted from install.sh, whose last line dispatches, so it cannot be
+    sourced whole.
     """
     pins = re.search(
         r"^UV_VERSION=.*?^UV_SHA256_aarch64_apple_darwin=.*?$",
@@ -80,10 +73,8 @@ def _uv_harness(tmp_path: Path, *, curl_body: str, digest: str = "0" * 64) -> Pa
     stub_bin.mkdir()
     (stub_bin / "curl").write_text(curl_body, encoding="utf-8")
     (stub_bin / "curl").chmod(0o755)
-    # install.sh calls sha256sum, which is right for the Debian and Ubuntu
-    # servers it installs onto but absent on a macOS developer machine. Stubbed
-    # so the test runs the same everywhere: what is under test is the
-    # comparison and the refusal, not the hashing.
+    # install.sh calls sha256sum, absent on macOS, so it is stubbed: the comparison
+    # and refusal are under test, not the hashing.
     (stub_bin / "sha256sum").write_text(
         f'#!/usr/bin/env bash\nprintf "%s  %s\\n" "{digest}" "$1"\n',
         encoding="utf-8",
@@ -153,9 +144,7 @@ def test_the_download_follows_the_host_os_not_only_its_architecture(
 ):
     """A Linux build unpacked on a Mac passes its checksum and then cannot run.
 
-    The failure surfaces as `cannot execute binary file` well after the point
-    that was supposed to catch a wrong artifact, so the triple has to be right
-    before the download, not discovered after it.
+    So the triple must be right before the download.
     """
     harness = _uv_harness(
         tmp_path,
@@ -224,9 +213,7 @@ def test_an_existing_recent_uv_is_used_rather_than_downloaded(tmp_path: Path):
 def test_a_verified_uv_download_returns_only_its_path(tmp_path: Path):
     """The function's stdout is its return value, so nothing else may go there.
 
-    A progress message printed to stdout is substituted into the caller's
-    `uv="$(ensure_uv)"` along with the path, and the install then fails on a
-    command name with a sentence in front of it.
+    Anything printed would be substituted into `uv="$(ensure_uv)"`.
     """
     target = _host_uv_target()
     name = "UV_SHA256_" + target.replace("-", "_")

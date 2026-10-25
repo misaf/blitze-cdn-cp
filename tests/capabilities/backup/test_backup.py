@@ -1,10 +1,7 @@
 """Backup and restore, from the component rules up to a full round trip.
 
-The archive is a compatibility contract with the operator's future self, so the
-cases here are weighted towards what an archive is *allowed to be*: what it may
-contain, what it must contain, and what a restore must refuse before it has
-written anything. A backup that fails loudly is recoverable; one that restores
-the wrong thing quietly is not.
+Weighted towards what an archive is allowed to be: what it may contain, what
+it must contain, and what a restore must refuse before writing anything.
 """
 
 from __future__ import annotations
@@ -52,11 +49,7 @@ runner = CliRunner()
 
 
 def _backup_dir(settings):
-    """Where this capability writes, resolved the way the service resolves it.
-
-    Not a field on `Settings` any more: it is this package's own setting, so a
-    test asks the package rather than core.
-    """
+    """Where this capability writes, resolved the way the service resolves it."""
     return BackupConfig.from_settings(settings).backup_dir
 
 
@@ -131,9 +124,8 @@ def _manifest(archive: Path) -> dict:
 def _repack(source: Path, destination: Path, edit) -> Path:
     """Rebuild an archive after a callback has tampered with its contents.
 
-    Archives under test are built by the real writer and then modified, rather
-    than assembled by hand: a test that constructs its own tar can only assert
-    against the shape it invented.
+    Archives are built by the real writer and then modified, so tests do not
+    assert against a shape they invented.
     """
     staging = destination.parent / f"{destination.stem}-staging"
     with tarfile.open(source) as handle:
@@ -457,11 +449,7 @@ def test_multiple_selected_components_restore_together(populated):
 
 
 def test_the_manifest_decides_what_is_restored(populated, tmp_path):
-    """Data present in the archive but absent from the manifest is refused.
-
-    The alternative — restoring whatever directories happen to be there —
-    would let a tampered archive add a component the manifest never declared.
-    """
+    """Data present in the archive but absent from the manifest is refused."""
     archive = build_backup_service(
         populated,
         configuration=load_registry().configuration_contributions(),
@@ -1226,19 +1214,17 @@ def _relocated(settings, root: Path):
 def test_a_full_backup_rebuilds_a_controller_from_nothing(settings, tmp_path):
     """Create state, back it up, install fresh, restore, and check it works.
 
-    The final assertion is the one that matters: the restored controller renders
-    byte-for-byte the same edge configuration the original would have. Generated
-    edge state is never archived, so this is what proves the *authoritative*
-    state came back intact and can regenerate the rest.
+    The restored controller must render byte-for-byte the same edge configuration.
+    Generated edge state is never archived, so this proves the authoritative state
+    came back and can regenerate the rest.
     """
     _populate(settings)
     store = Repository(settings.database_path)
     original = build_application(
         settings=settings, repository=store, runner=FakeRunner()
     )
-    # Where the edge fetches from is the proxied record's own value now, not a
-    # zone setting, so one record says both that `cdn.example.com` is served
-    # and where from — which is what makes the snapshot render a host at all.
+    # The proxied record's value is the origin, so one record says both that
+    # `cdn.example.com` is served and from where.
     seed_record(original, value="198.51.100.10", operator="tester")
     expected = tmp_path / "expected.yml"
     original.deployments.publish_artifact(original.releases.compile(), expected)
@@ -1369,11 +1355,8 @@ def test_the_workspace_removes_its_directory_however_it_is_left(tmp_path):
 def test_a_backup_service_without_a_component_refuses_to_restore_it(
     populated, tmp_path
 ):
-    """Forward extensibility, from the other side.
-
-    An installation that has never heard of a component must say so rather than
-    skip it — a restore that quietly leaves out half the archive is the worst
-    possible answer.
+    """An installation that does not know a component refuses rather than skipping
+    it.
     """
     archive = build_backup_service(
         populated,
@@ -1491,12 +1474,9 @@ def test_restoring_configuration_says_the_firewall_is_still_behind(
 ):
     """The archive moves the access list; nothing moves the rules with it.
 
-    `BLITZE_ALLOWED_IPS` is portable, so a restore replaces who the API answers
-    while the host goes on admitting packets for the list it was converged
-    against. The installer reconciles the two and nothing else does, so the
-    restore says so rather than leaving it to be discovered -- the same reason
-    it already names `blitzecdn deploy` for the edges. A tls-only restore
-    carries no configuration and must stay quiet.
+    `BLITZE_ALLOWED_IPS` is restored, but the host firewall still reflects the old
+    list until the installer reconciles it, so the restore says so. A tls-only
+    restore carries no configuration and stays quiet.
     """
 
     def restore(component: str) -> str:
@@ -1548,10 +1528,8 @@ def test_a_manifest_that_is_not_an_object_is_refused():
 
 
 def test_an_unrecognised_manifest_field_is_ignored():
-    """Forward extensibility: a later release may record more than this one.
-
-    `format_version` is what guards compatibility. A field this release has no
-    use for must not turn a readable archive into an unreadable one.
+    """A manifest field this release does not know is ignored; `format_version`
+    guards compatibility.
     """
     manifest = parse_manifest(
         {

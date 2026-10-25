@@ -70,10 +70,7 @@ def _await_workflow(
 def test_the_audit_retention_setting_reaches_the_log_that_enforces_it(settings):
     """The store honours a bound; this is that the composition hands it one.
 
-    `AuditLog` carries a default so a test can build one without an opinion,
-    which is exactly the shape that lets a setting silently go unread — the
-    control plane would keep a hundred thousand events whatever an operator
-    configured, and nothing would say so.
+    `AuditLog` has a default, so an unread setting would go unnoticed.
     """
     control = build_application(
         settings=settings.model_copy(update={"audit_retention": 4})
@@ -136,15 +133,9 @@ def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatc
 
 
 def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
-    """The test this replaces existed because a table restated the records.
+    """Hostnames are computed from the records on every read.
 
-    ``CdnSite.server_names`` was a projection with a revision stamp beside it,
-    ``validation_errors`` reported it stale, and ``rebuild_hostname_projection``
-    repaired it. All three are gone: the hostnames are computed from the
-    records on every read, so there is no second copy to fall behind.
-
-    What is left to assert is that it really is computed — that a record
-    written behind the service's back still shows up.
+    So a record written behind the service's back still shows up.
     """
     repository = Repository(settings.database_path)
     control = build_application(
@@ -245,9 +236,7 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
 def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
     """The CDN on/off switch is which site a record names, if any.
 
-    The site survives the switch now. Unrouting used to delete the whole
-    virtual host along with its policy, because the record *was* the policy;
-    here it takes the hostname off a site that is still configured and waiting.
+    Unrouting takes the hostname off a site that stays configured.
     """
     repository = Repository(settings.database_path)
     control = build_application(
@@ -295,15 +284,10 @@ def _plane(settings, repository):
 
 
 def test_a_hostname_cannot_reach_two_origins_at_once(settings):
-    """A hostname resolves once, through one policy, but its two families are
-    still two records — and every record carries its own origin. Writing both a
-    proxied A and a proxied AAAA is exactly how a hostname pointed two places
-    gets written, including behind the service's back, which this checks.
+    """A hostname's two families are two records, each with its own origin.
 
-    It cannot be served that way: one virtual host has one upstream, so
-    validation refuses the pair. The A record is IPv4-only and the AAAA
-    IPv6-only, so the two origins can never agree — one family has to be
-    unproxied.
+    One virtual host has one upstream and A/AAAA origins can never agree, so
+    validation refuses a proxied pair, including one written behind the service.
     """
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
@@ -358,14 +342,8 @@ def test_a_rule_claims_a_hostname_without_taking_it_from_its_zone(settings):
 def test_validate_reports_a_hostname_served_from_two_origins(settings):
     """The one contradiction canonical state can still hold.
 
-    It replaces two that it cannot: a record naming a site that is gone, and a
-    hostname routed to two sites. Both were about a stored reference between a
-    record and a site, and there is no such reference now — what is left is a
-    hostname whose two families point the edge at two different origins, which
-    one virtual host with one upstream cannot serve.
-
-    Written behind the service, which is what a restore from a damaged backup
-    amounts to.
+    A hostname whose two families point the edge at two origins, written behind
+    the service as a damaged restore would.
     """
     repository = Repository(settings.database_path)
     control = _plane(settings, repository)
@@ -428,9 +406,8 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
         control.deployments.deploy("alice", check=True).status
         is DeploymentStatus.TIMED_OUT
     )
-    # The failing deploy stopped at its VALIDATE phase, which is a check-mode
-    # run; the timed-out one is a check-mode deployment whose own validate
-    # timed out. Both are the first run of their rollout, so both are `True`.
+    # The failing deploy stopped at its check-mode VALIDATE phase and the timed-out
+    # one's validate timed out; both are the first run of their rollout.
     assert runner.check_modes == [True, True]
 
 
@@ -441,9 +418,8 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
     )
-    # `cache_enabled` is named so the change below is a real one in every
-    # workspace: the seed fills in an "off" where the cache wheel is detached,
-    # and a patch setting a value to what it already holds moves nothing.
+    # `cache_enabled` makes the change real: a patch to the current value moves
+    # nothing.
     original = seed_site(control, name="example-com", record="cdn", cache_enabled=True)
     successful = control.deployments.deploy("alice")
     control.dns.update_domain(
@@ -522,10 +498,8 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
     repository.zones.replace_all_records = recording_replace
 
     successful = control.deployments.deploy("alice")
-    # A concurrent edit while the fleet converges. The rollback restores the
-    # snapshot's zones over it, and must do so while still holding the lock —
-    # swapping them after releasing it would drop whatever landed in between
-    # without the guard ever seeing it.
+    # A concurrent edit while the fleet converges. The rollback must restore the
+    # snapshot's zones while still holding the lock.
     control.dns.update_domain(
         "example.com", PatchPolicy.from_patch(DomainPatch(cache_enabled=False)), "bob"
     )
@@ -544,12 +518,8 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
 def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
     """A rollout stops at the first edge that failed, and says so per edge.
 
-    Half the fleet on the new configuration and half on the old is the fact an
-    operator most needs, and it used to be an inference: an edge missing from a
-    fleet-wide result might have succeeded quietly, failed unreported, or never
-    been contacted. Now each of those is a status on a row, and the edges after
-    the failure are SKIPPED — still serving what they had, with nothing known
-    to be wrong with them.
+    Each edge's outcome is a status on a row; those after the failure are SKIPPED,
+    still serving what they had.
     """
     repository = Repository(settings.database_path)
     stopped = ansible_run(
@@ -583,11 +553,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
 
 
 def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
-    """An edge the check never got to is one we have no answer for.
-
-    Reporting in sync on the strength of the edges that did answer would be
-    answering a narrower question than the one asked.
-    """
+    """An edge the check never got to is one we have no answer for."""
     repository = Repository(settings.database_path)
     control = build_application(
         settings=settings,
@@ -646,11 +612,9 @@ def test_startup_recovery_requeues_what_a_dead_process_left_behind(settings):
 def test_startup_recovery_leaves_a_live_deployment_alone(settings):
     """Restarting the API must not rewrite a run another process is doing.
 
-    Status alone cannot distinguish "orphaned by a process that died" from
-    "being converged right now", and the second is ordinary: an upgrade
-    restarts the API while a CLI deploy is minutes into a run. Abandoning it
-    would rewrite the record of a deployment still changing edges, and its own
-    final transition would then fail against the status recovery had written.
+    Status cannot tell an orphaned run from one in progress, and an upgrade
+    restarts the API while CLI deploys run. Abandoning it would also make the
+    run's own final transition fail.
     """
     repository = Repository(settings.database_path)
 
@@ -677,13 +641,11 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
 
 
 def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
-    """The lost update rollback used to make silently.
+    """A rollback refuses to adopt over a record written during it.
 
-    Record writes deliberately do not take the deployment lock, and adoption
-    restores wholesale — so a record created during a minutes-long fleet
-    rollback was deleted by the adoption that followed it, with no conflict and
-    an audit trail showing it created and never removed. The write is done from
-    inside the runner here because that is exactly when the window is open.
+    Record writes do not take the deployment lock and adoption restores wholesale,
+    so a record created mid-rollback would be silently deleted. The write happens
+    inside the runner, while the window is open.
     """
     repository = Repository(settings.database_path)
     control = build_application(
@@ -701,11 +663,8 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
 
     class WritingRunner(FakeRunner):
         def run(self, *, check, host_limit=None, tags=()):
-            # Mid-run: the fleet is converging the old release while an
-            # operator adds a record the rollback has never heard of. A rollout
-            # makes several runs per edge, so this writes once and lets the
-            # rest pass — the window is open for the whole rollout, not for one
-            # call inside it.
+            # Mid-run, an operator adds a record the rollback has never heard of.
+            # Written once; the window spans the whole rollout.
             with suppress(ConflictError):
                 control.dns.create_record(concurrent, "bob")
             return super().run(check=check, host_limit=host_limit, tags=tags)
@@ -714,9 +673,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     control.deployments.execution = replace(
         control.deployments.execution, runner=writing
     )
-    # The rollout holds its own reference to the runner, because it is the
-    # thing that actually calls it. Swapping only the service's would leave the
-    # per-edge phases running against the original.
+    # The rollout holds its own runner reference, so that is the one swapped.
     control.deployments.execution.rollout.runner = writing
 
     rolled_back = control.deployments.rollback("alice", successful.id)

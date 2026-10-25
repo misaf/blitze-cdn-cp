@@ -1,19 +1,11 @@
 """Verify the Ansible inventory against the fleet the control plane records.
 
-The fleet is one table. Ansible learns about it through the `blitzecdn`
-inventory plugin, which reads that table directly at the start of every run —
-so there is no file to keep in step, and nothing here writes one.
-
-What is left to check is the seam the plugin sits on, and it is a real seam:
-the plugin ships in `src/blitzecdn/assets/ansible/plugins/inventory/`, runs inside
-`ansible-playbook` under whatever interpreter that is, and cannot import
-`blitzecdn` to validate what it reads. Two independent pieces of code therefore
-know the shape of an edge — `capabilities.edges.adapters.ansible.edge_to_inventory`
-and the plugin's `_host_variables` —
-and the only honest way to check they agree is to write a database with the
-model and then run the real `ansible-inventory` against it. That is what
-`test_the_plugin_publishes_what_the_model_renders` does.
-
+The `blitzecdn` inventory plugin reads the `edges` table at the start of every
+run. It runs inside `ansible-playbook` and cannot import `blitzecdn`, so two
+pieces of code know an edge's shape:
+`capabilities.edges.adapters.ansible.edge_to_inventory` and the plugin's
+`_host_variables`. These tests write a database with the model and run the
+real `ansible-inventory` against it.
 """
 
 from __future__ import annotations
@@ -44,10 +36,8 @@ INVENTORY_SOURCE = ANSIBLE_DIR / "inventory/blitzecdn.yml"
 def _executable() -> str:
     """Find `ansible-inventory`, preferring the one beside this interpreter.
 
-    `shutil.which` alone finds nothing when the tests run through
-    `.venv/bin/python` without the virtualenv activated, which is how CI and
-    most editors invoke them — and a skip there would quietly stop checking the
-    one thing in this file that cannot be checked any other way.
+    `shutil.which` finds nothing when tests run through `.venv/bin/python`
+    without the virtualenv activated.
     """
     local = Path(sys.executable).parent / "ansible-inventory"
     if local.is_file():
@@ -61,10 +51,8 @@ def _executable() -> str:
 def _ansible_inventory(database: Path) -> dict:
     """Run the real `ansible-inventory` against a database, as a deploy would.
 
-    Subprocess rather than importing the plugin, because importing it would
-    test a different thing: the plugin only matters as something Ansible loads,
-    resolves options for, and merges group_vars on top of. Anything that skips
-    that skips the parts most likely to break.
+    A subprocess, because the plugin matters as something Ansible loads, resolves
+    options for and merges group_vars on top of.
     """
     environment = {
         **os.environ,
@@ -85,12 +73,7 @@ def _ansible_inventory(database: Path) -> dict:
 
 
 def _plain(value):
-    """Strip Ansible's `AnsibleUnsafe` wrappers from a `--list` document.
-
-    Every string an inventory plugin produces comes back tagged this way in
-    JSON. It is a marker meaning "do not template this", which is correct and
-    irrelevant to whether the value is right.
-    """
+    """Strip Ansible's `AnsibleUnsafe` wrappers from a `--list` document."""
     if isinstance(value, dict):
         if set(value) == {"__ansible_unsafe"}:
             return value["__ansible_unsafe"]
@@ -104,11 +87,8 @@ def _plain(value):
 def fleet(tmp_path: Path) -> tuple[Path, list[Edge]]:
     """A database holding two deliberately dissimilar edges.
 
-    One carries every optional field an operator can set — a non-default port,
-    an explicit key, a non-default user — because those are exactly what a real
-    installation had in its hand-edited inventory. The other carries none of
-    them and separate public addresses, so the defaults and the NAT case are
-    both covered.
+    One sets every optional field (port, key, user); the other none, with
+    separate public addresses, so defaults and NAT are both covered.
     """
     database = tmp_path / "control-plane.db"
     edges = [
@@ -137,11 +117,7 @@ def fleet(tmp_path: Path) -> tuple[Path, list[Edge]]:
 def test_the_plugin_publishes_what_the_model_renders(fleet):
     """The seam: two implementations of "an edge, as Ansible sees it".
 
-    `edge_to_inventory` is what the control plane believes it is publishing;
-    the plugin's `_host_variables` is what Ansible is actually given. They
-    cannot share code — one imports pydantic, the other must import nothing —
-    so this asserts they agree on real output rather than trusting that whoever
-    edits one remembers the other.
+    They cannot share code, so this asserts they agree on real output.
     """
     database, edges = fleet
 
@@ -157,10 +133,8 @@ def test_the_plugin_publishes_what_the_model_renders(fleet):
 def test_an_absent_optional_field_is_absent_rather_than_null(fleet):
     """`ansible_ssh_private_key_file: null` is not the same as omitting it.
 
-    Emitted as null, Ansible hands SSH an empty identity file instead of
-    letting it resolve a key the usual way — an agent, `~/.ssh/config`, the
-    default identities — and the connection fails for a reason that appears
-    nowhere in the inventory an operator would go and read.
+    As null, Ansible hands SSH an empty identity file instead of resolving a key
+    the usual way.
     """
     database, _ = fleet
 
@@ -185,12 +159,10 @@ def test_database_settings_override_shipped_group_vars(fleet):
 def test_the_plugin_refuses_to_publish_a_reserved_setting(fleet):
     """The last line of defence on a variable that can strand the whole fleet.
 
-    The store refuses to write these names, so the row is inserted by hand here
-    — which is exactly how one would arrive in practice: a backup taken before
-    the rule existed, or a database edited directly. Published at host
-    precedence it would beat the port the plugin derives from the edge record,
-    the firewall would close the port the next converge arrives on, and no
-    later deploy could reach the host.
+    The store refuses these names, so the row is inserted by hand, as a restored
+    or hand-edited database would carry it. At host precedence it would beat the
+    derived SSH port and the firewall would close the port the next converge
+    needs.
     """
     database, _ = fleet
     connection = sqlite3.connect(database)
@@ -210,12 +182,8 @@ def test_the_plugin_refuses_to_publish_a_reserved_setting(fleet):
 def test_the_plugins_reserved_names_match_the_domains():
     """Two copies of one list, in files that cannot import each other.
 
-    The plugin runs under whatever interpreter `ansible-playbook` is, with no
-    `blitzecdn` on its path, so it has to carry its own copy — the same reason
-    it carries its own `EDGE_GROUP`. Loaded by
-    path here, from where Ansible loads it, so a name added on one side and not
-    the other fails rather than silently publishing a variable that can close
-    the SSH port on every edge.
+    The plugin is loaded by path, from where Ansible loads it, so a name added on
+    one side only fails here.
     """
     pytest.importorskip("ansible.plugins.inventory")
     plugin = ANSIBLE_DIR / "plugins/inventory/blitzecdn.py"
@@ -239,11 +207,7 @@ def _plugin_module():
 
 
 def test_the_default_database_is_the_checkouts_own():
-    """A hand-run `ansible-inventory` in a checkout finds the controller's file.
-
-    The inventory source sits deep inside the package; counting directories up
-    from it pointed inside `src/` once the tree moved there.
-    """
+    """A hand-run `ansible-inventory` in a checkout finds the controller's file."""
     source = ANSIBLE_DIR / "inventory/blitzecdn.yml"
 
     default = _plugin_module()._default_database(str(source))
@@ -272,13 +236,10 @@ def test_the_default_database_follows_the_nearest_project_marker(tmp_path, monke
 
 
 def test_management_networks_reach_every_edge_and_outrank_group_vars(fleet):
-    """The union, as a host variable, which is the whole point of it being one.
+    """The union, as a host variable, so it outranks group variables.
 
-    `inventory/group_vars/blitzecdn_edges/` is loaded for this group and
-    outranks any *group* variable an inventory declares. Published per group,
-    these CIDRs would lose to that file — which is what happened while the
-    fleet lived in a static inventory, and why `edge add --ssh-source` recorded
-    a value the firewall never applied. A host variable outranks both.
+    `inventory/group_vars/blitzecdn_edges/` outranks any group variable an
+    inventory declares; a host variable outranks both.
     """
     database, edges = fleet
     expected = firewall_sources(edges)
@@ -293,10 +254,8 @@ def test_management_networks_reach_every_edge_and_outrank_group_vars(fleet):
 def test_the_firewall_port_follows_the_port_ansible_connects_on(fleet):
     """One field, published twice, so the two can never disagree.
 
-    A firewall opening a different port from the one Ansible connects on
-    strands the host: the next converge closes the door behind itself and no
-    later deploy can reach it to undo that. They used to be two settings in two
-    files maintained by hand.
+    A firewall opening a different port from the one Ansible connects on strands
+    the host.
     """
     database, _ = fleet
 
@@ -309,9 +268,8 @@ def test_the_firewall_port_follows_the_port_ansible_connects_on(fleet):
 def test_an_empty_fleet_still_declares_the_group(tmp_path: Path):
     """A play limited to the group must skip, not fail on an unknown pattern.
 
-    Those read very differently at three in the morning: "no hosts matched" is
-    a fleet with nothing in it, while an unknown pattern looks like the
-    inventory itself is broken.
+    "No hosts matched" says the fleet is empty; an unknown pattern looks like a
+    broken inventory.
     """
     database = tmp_path / "control-plane.db"
     DatabaseSchema.migrate(database)
@@ -319,8 +277,6 @@ def test_an_empty_fleet_still_declares_the_group(tmp_path: Path):
     document = _ansible_inventory(database)
 
     # An empty group is serialised as membership of `all` with no `hosts` key,
-    # rather than as an entry of its own — so this is what "the group exists"
-    # looks like in `--list`, and it is enough for `--limit blitzecdn_edges` to
-    # resolve to nothing instead of raising on an unknown pattern.
+    # which is enough for `--limit blitzecdn_edges` to resolve to nothing.
     assert EDGE_GROUP in document["all"]["children"]
     assert document.get(EDGE_GROUP, {}).get("hosts", []) == []

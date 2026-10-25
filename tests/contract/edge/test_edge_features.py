@@ -6,10 +6,6 @@ from typing import Any
 
 import pytest
 import yaml
-
-# The nginx role renders from its own defaults *and* the shared edge runtime
-# contract, so the loader that builds that namespace is shared with the other
-# contract-test modules rather than reimplemented here.
 from support.contracts import (
     _role_defaults,
     _runtime_defaults,
@@ -53,11 +49,9 @@ REQUIRES_CAPABILITIES = {
 def test_websocket_upgrade_is_forwarded_and_never_cached():
     """The handshake is forwarded, and neither stored nor served from cache.
 
-    The two cache directives name `$http_upgrade` first and `$http_authorization`
-    after it — a shared cache must not store a response to an authorized
-    request either, and nginx applies no such rule of its own. Asserted as a
-    prefix rather than as the whole line so this stays a test about WebSocket
-    upgrades; `blitzecdn-cache`'s own suite holds the complete exclusion list.
+    The cache directives name `$http_upgrade` first and `$http_authorization`
+    after it. Asserted as a prefix so this stays about WebSocket upgrades; the
+    cache capability's suite holds the full exclusion list.
     """
     site = site_from_settings(
         {
@@ -148,9 +142,8 @@ def test_brotli_uses_the_managed_filter_and_keeps_gzip_fallback():
 
 
 def test_compression_off_says_so_rather_than_staying_silent():
-    """Debian's nginx.conf carries `gzip on` in the http context.
-
-    Omitting the directive therefore does not mean off — it means inherited.
+    """Debian's nginx.conf carries `gzip on`, so omitting the directive means
+    inherited, not off.
     """
     rendered = _render(_compressed(CompressionMode.OFF))
 
@@ -169,9 +162,7 @@ def test_gzip_only_turns_the_managed_brotli_filter_off():
 def test_compression_never_lists_text_html():
     """Both modules always compress it, and gzip warns about the duplicate.
 
-    A warning on every `nginx -t` is how operators learn to read a noisy config
-    test as normal, which is the failure this prevents rather than the
-    duplicate itself.
+    A warning on every `nginx -t` teaches operators to ignore the config test.
     """
     compression_role = (
         REPO_ROOT
@@ -188,9 +179,7 @@ def test_compression_never_lists_text_html():
 def test_compression_leaves_the_cache_key_and_origin_request_alone():
     """The edge compresses on egress; the cache still stores what the origin sent.
 
-    If this ever stopped holding, a cache entry would carry an encoding that
-    the key does not distinguish, and a client would be handed a body it cannot
-    decode — the exact failure the Accept-Encoding map exists to prevent.
+    Otherwise a cache entry would carry an encoding the key does not distinguish.
     """
     rendered = _render(_compressed(CompressionMode.BROTLI))
 
@@ -206,15 +195,10 @@ def test_compression_leaves_the_cache_key_and_origin_request_alone():
 
 
 def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
-    """The stack is one ABI unit, now as an image rather than an apt transaction.
+    """The binary and its dynamic modules ship as one image.
 
-    Which makes the unit stronger rather than weaker: the binary and its three
-    dynamic modules are resolved together at build time, published together,
-    and pulled together as one immutable object. Nothing on an edge can pair
-    one version's binary with another version's modules, because nothing on an
-    edge installs either. tests/test_ansible_role_contracts.py holds the
-    Dockerfile end of this; here the point is that the *edge* no longer names
-    the packages at all.
+    They are resolved, published and pulled together, so nothing on an edge can
+    mismatch them; the edge names no packages at all.
     """
     assert "blitzecdn_nginx_packages" not in _role_defaults()
     assert (
@@ -224,22 +208,12 @@ def test_managed_nginx_stack_uses_ubuntu_abi_matched_modules():
 
 
 def test_the_pinned_edge_image_names_this_release():
-    """The wheel and the edge image it deploys are one release, or neither is.
+    """The package and the edge image it deploys are one release.
 
-    `.github/workflows/edge-image.yml` tags what it publishes with
-    `type=semver,pattern={{version}}`, so the published tag *is* the version in
-    `pyproject.toml` — the two numbers were already the same fact written in
-    three places, kept together by nothing but memory. They drifted: the pin sat
-    at 2.7.0 for four releases after 1b89823 rebuilt the runtime on Alpine, so
-    every edge validated its configuration against Ubuntu's Nginx while the
-    contract beside it declared `worker_uid: 101`. That mismatch reached an
-    operator as a chown failure on /var/lib/nginx/body.
-
-    Asserted rather than derived, because a pin an operator can read and grep is
-    worth more than one the controller computes — and because deriving it would
-    name an image the registry does not have yet in the window between bumping
-    the version and pushing the tag. `just release-version` moves all three
-    together; this is what fails when something else moves one of them.
+    `.github/workflows/edge-image.yml` tags images with the `pyproject.toml`
+    version, and a stale pin once left edges validating against the wrong Nginx
+    build. Asserted rather than derived, so the pin is greppable and never names
+    an unpublished image. `just release-version` moves them together.
     """
     version = blitzecdn.__version__
     assert _runtime_defaults()["blitzecdn_edge_runtime_image_default"].endswith(
@@ -259,12 +233,7 @@ def test_the_pinned_edge_image_names_this_release():
 
 
 def test_missing_compression_preserves_pre_upgrade_behavior():
-    """A running older control plane may deploy through an updated role.
-
-    Unlike always_use_https, the safe default here is on: the role's default
-    and the domain's agree on brotli, so an edge upgraded ahead of its
-    controller compresses exactly as it will once both have moved.
-    """
+    """With the setting absent, the role's default matches the domain's: brotli on."""
     site = _compressed(CompressionMode.BROTLI)
     del site["compression"]
 
@@ -300,10 +269,8 @@ def _uploads(size: MaxUploadSize | None) -> dict[str, Any]:
 def test_the_upload_limit_covers_every_listener_a_site_serves(size):
     """Server level, not location level.
 
-    A limit inside `location /` alone would leave the ACME challenge, the
-    reserved `/.blitzecdn` paths and every feature fragment on nginx's 1m
-    default, so a site set to 200m would still refuse a 2m upload down some
-    paths and not others.
+    Inside `location /` alone, the ACME challenge, reserved `/.blitzecdn` paths
+    and feature fragments would keep nginx's 1m default.
     """
     rendered = _render(_uploads(size))
     blocks = rendered.split("server {")[1:]
@@ -318,11 +285,7 @@ def test_the_upload_limit_covers_every_listener_a_site_serves(size):
 
 
 def test_missing_max_upload_size_preserves_pre_upgrade_behavior():
-    """A running older control plane may deploy through an updated role.
-
-    The role's default has to be the domain's, or an edge upgraded ahead of its
-    controller would serve a different limit than the one the API reports.
-    """
+    """With the setting absent, the role's default matches the domain's."""
     option = _role_spec()["blitzecdn_nginx_sites"]["options"]["max_upload_size"]
     assert option["default"] == MaxUploadSize.SMALL.value
     assert option.get("required", False) is False

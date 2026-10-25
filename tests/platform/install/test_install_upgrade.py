@@ -16,10 +16,8 @@ from support.install import (
 def test_upgrade_targets_the_next_major_line_and_only_the_next(tmp_path: Path):
     """A v3 host goes to the newest v4, never straight to v5.
 
-    Each major's deprecations are announced in the line before it, so the only
-    release where a v3 host can still read what v4 took away is a v3 one. Two
-    steps is what makes that readable; the stub offers a v5 line here that must
-    be ignored.
+    Each major announces its deprecations in the line before it, so upgrades go
+    one major at a time. The stub offers a v5 line that must be ignored.
     """
     script, stubs, _ = _update_sandbox(tmp_path)
     log = tmp_path / "order.log"
@@ -122,10 +120,8 @@ def test_upgrade_backs_up_everything_not_just_the_database(tmp_path: Path):
 def test_upgrade_does_not_ask_the_commit_graph_whether_it_may_cross(tmp_path: Path):
     """A major line branches and then moves on its own.
 
-    `update` refuses a checkout that is not an ancestor of its target, which is
-    right inside one line. Across two it would refuse every upgrade the moment
-    the old line took a fix the new one did not, so the guarantee here is the
-    version arithmetic instead.
+    Ancestry is right within one line, but across two it would refuse once the old
+    line took a fix; the guarantee here is version arithmetic.
     """
     script, stubs, _ = _update_sandbox(tmp_path)
 

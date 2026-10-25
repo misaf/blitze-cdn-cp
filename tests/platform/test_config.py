@@ -82,13 +82,8 @@ def test_runtime_validation_reports_missing_files(tmp_path):
 def test_the_platform_ansible_is_not_a_function_of_the_project_directory(tmp_path):
     """An empty project directory still has roles, plays and an inventory.
 
-    These three used to be `project_dir / "ansible/..."`, so a controller whose
-    project directory was not a checkout — which is every controller — had none
-    of them, and `validate_runtime` said so. That report was the symptom: the
-    repository was an undeclared runtime dependency of the wheel. They come
-    from `importlib.resources` now, so the answer is the same in a checkout and
-    on an installed controller, and the only thing an empty project directory
-    is missing is the API key above.
+    They come from `importlib.resources`, so a controller whose project directory
+    is not a checkout has them too; only the API key is missing.
     """
     settings = Settings.from_environment({}, project_dir=tmp_path)
 
@@ -100,16 +95,11 @@ def test_the_platform_ansible_is_not_a_function_of_the_project_directory(tmp_pat
 
 
 def test_a_capabilitys_settings_are_kept_environment_only_and_masked(tmp_path):
-    """Core holds an optional capability's configuration without knowing it.
+    """Core holds a capability's configuration without knowing it.
 
-    `BLITZE_UNDER_ATTACK_SECRET` used to be a field on this model, which meant
-    every installation loaded a setting named for a distribution most of them
-    do not have — and a capability nobody here had heard of could not be
-    configured at all. Now core keeps whatever `BLITZE_*` it was given and does
-    not consume, and the owning package reads it.
-
-    Masked, because core cannot tell a credential from a tuning value, and the
-    safe assumption for a value it cannot interpret is that it is one.
+    Core keeps whatever `BLITZE_*` it was given and does not consume, and the
+    owning capability reads it. Masked, because core cannot tell a credential from
+    a tuning value.
     """
     settings = Settings.from_environment(
         {
@@ -126,20 +116,12 @@ def test_a_capabilitys_settings_are_kept_environment_only_and_masked(tmp_path):
 
 
 def test_a_capabilitys_settings_may_come_from_the_committed_toml(tmp_path):
-    """A capability's *non-secret* settings belong in the non-secret file.
+    """A capability's non-secret settings belong in the non-secret file.
 
-    This reverses an earlier rule, and the reversal is the point. The TOML
-    reader used to refuse every key core did not recognise, which kept
-    credentials out of a committed file — and also made a renewal interval, a
-    certbot path and a backup directory unconfigurable anywhere but the
-    environment, because a capability could declare nothing else.
-
-    So an unrecognised key is staged rather than refused, under the `BLITZE_`
-    name it corresponds to, and ownership is decided later by the feature that
-    claims it. Secrets stay out by a narrower route than before: the file's
-    keys are staged *separately* from the environment's, only a
-    `CapabilitySetting` is ever satisfied from them, and a name a package
-    declared as an `EnvironmentKey` is refused outright when it appears here.
+    An unrecognised TOML key is staged under its `BLITZE_` name and claimed later
+    by a feature. Secrets stay out: file keys are staged separately, only a
+    `CapabilitySetting` is satisfied from them, and a declared `EnvironmentKey`
+    appearing there is refused.
     """
     (tmp_path / "blitzecdn.toml").write_text(
         "[blitzecdn]\ncertificate_renewal_interval_seconds = 3600\n", encoding="utf-8"
@@ -173,13 +155,8 @@ def test_the_controllers_own_names_are_not_handed_to_a_capability(tmp_path):
 def test_the_shipped_example_configuration_is_accepted_as_written(tmp_path):
     """`blitzecdn.example.toml`, copied unedited, must start a control plane.
 
-    It is the file an operator copies, so a key in it that nothing claims is a
-    refusal every new installation meets first. It shipped `redis_url` for a
-    release after the broker was removed, and every command then failed with
-    `unknown capability configuration: BLITZE_REDIS_URL`.
-
-    Resolved against the shipped features, which declare every capability's
-    settings. Every built-in is mandatory, so none can be absent here.
+    An unclaimed key in it would be a refusal every new installation meets first.
+    Resolved against the shipped features, which declare every setting.
     """
     features = load_registry()
     shutil.copy(REPO_ROOT / "blitzecdn.example.toml", tmp_path / "blitzecdn.toml")
@@ -272,9 +249,8 @@ def test_invalid_allowed_ips_fail_configuration(tmp_path, value):
 def test_an_entry_with_host_bits_offers_both_readings(tmp_path):
     """The one error where guessing would admit people nobody named.
 
-    `203.0.113.8/24` is one host or two hundred and fifty six of them, and the
-    silent reading is the wide one. Neither is assumed, and the operator is not
-    left to work out which spelling the loader wanted.
+    `203.0.113.8/24` is one host or 256; neither is assumed, and both spellings
+    are offered.
     """
     with pytest.raises(ConfigurationError) as failure:
         Settings.from_environment(

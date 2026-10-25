@@ -1,18 +1,12 @@
 """Helpers shared by the install.sh suite.
 
-The script refuses to run privileged subcommands as a normal user, so what the
-tests can drive is everything that decides *whether* to provision — dispatch,
-argument parsing, and the validators the script shells out to Python for. The
-first group of helpers extracts and runs those directly from the source.
+The script refuses privileged subcommands as a normal user, so the first group
+of helpers drives what decides whether to provision: dispatch, argument
+parsing, and the validators the script runs through Python.
 
-The second group builds the sandbox the lifecycle paths need: the script copied
-with every path it touches redirected under a temp directory, the root check
-neutralised, and the privileged commands (systemctl, userdel, nginx, git)
-stubbed on ``PATH``. That is what lets a test verify what is actually removed,
-and that a reinstall takes the same path as a brand-new server, without
-touching the host.
-
-Helpers used by one module only stay beside its tests.
+The second group builds a sandbox for the lifecycle paths: the script copied
+with every path redirected under a temp directory, the root check neutralised,
+and privileged commands (systemctl, userdel, nginx, git) stubbed on ``PATH``.
 """
 
 import os
@@ -50,11 +44,8 @@ def _script() -> str:
 def _query(expression: str) -> str:
     """Source install.sh and evaluate one expression against its functions.
 
-    The script guards its dispatch on ``BASH_SOURCE[0] == $0``, so sourcing it
-    defines everything and provisions nothing. That is what lets a pure helper
-    be tested by calling it, instead of by asserting that some literal string
-    appears in the file — assertions of that shape broke on every refactor that
-    changed no behaviour at all.
+    Dispatch is guarded on ``BASH_SOURCE[0] == $0``, so sourcing defines
+    everything and provisions nothing, and a helper can be tested by calling it.
     """
     result = subprocess.run(  # noqa: S603 - fixed executable and repository script
         [BASH, "-c", f'source "{SCRIPT}"\n{expression}'],
@@ -69,9 +60,8 @@ def _query(expression: str) -> str:
 def _section(name: str) -> str:
     """Return one subcommand's body.
 
-    Assertions about what a subcommand must never do have to be scoped to it:
-    the three installers share a file now, and `standalone` legitimately runs a
-    deployment that destructive lifecycle commands must never run.
+    Scoped so assertions about what one subcommand must never do do not trip on
+    another's legitimate code.
     """
     remainder = _script()[_script().index(f"cmd_{name}() {{") :]
     banner = re.search(r"\n# -{10,}", remainder)
@@ -81,10 +71,7 @@ def _section(name: str) -> str:
 def _function(name: str) -> str:
     """Return one named function's body, braces stripped.
 
-    `_section` only reaches the cmd_* entry points. The cleanup and
-    confirmation helpers that sit between them need their own extractor, and
-    its body is bounded the same way the script bounds it: by a closing brace
-    at column zero.
+    Bounded as the script bounds it: by a closing brace at column zero.
     """
     script = _script()
     start = script.index(f"{name}() {{") + len(f"{name}() {{")
@@ -95,8 +82,8 @@ def _function(name: str) -> str:
 def _embedded_python(marker: str) -> str:
     """Return the `python3 - <<'PY'` heredoc containing `marker`.
 
-    Selected by content rather than position: adding a heredoc earlier in the
-    script must not silently repoint these tests at different code.
+    Selected by content, so a new heredoc earlier in the script cannot repoint
+    these tests.
     """
     blocks = [
         block
@@ -119,27 +106,23 @@ def _run_embedded(source: str, *arguments: str) -> subprocess.CompletedProcess[s
 
 # --- sandbox for the destructive paths ---------------------------------------
 #
-# `--uninstall` and `--fresh` need root and touch absolute system paths. The
-# tests below run them for real inside a redirected copy of the script, with
-# every privileged command stubbed, so the assertions are about what actually
-# happens on a fake installation rather than the text that implements it.
+# `--uninstall` and `--fresh` run for real inside a redirected copy of the
+# script with every privileged command stubbed.
 
 
 def _instrument(sandbox: Path) -> tuple[Path, Path]:
     """Copy install.sh with every path redirected under ``sandbox/root``.
 
-    The root check is replaced with a tautology so a normal test user can
-    exercise the destructive paths; the stubbed commands below never touch the
-    real system. Returns the script and the redirect root.
+    The root check becomes a tautology so a normal user can exercise the
+    destructive paths against stubs. Returns the script and the redirect root.
     """
     sandbox.mkdir(parents=True, exist_ok=True)
     root = sandbox / "root"
     script = sandbox / "install.sh"
     text = SCRIPT.read_text(encoding="utf-8")
     for real, redirected in (
-        # The standalone platform gate reads this, and `--fresh` runs the gate
-        # before it tears anything down. Redirected like every other absolute
-        # path so the sandbox can say what host it is pretending to be.
+        # Read by the standalone platform gate, which `--fresh` runs before tearing
+        # down; redirected so the sandbox can choose the host it pretends to be.
         ("/etc/os-release", root / "etc/os-release"),
         ("/etc/blitzecdn", root / "etc/blitzecdn"),
         ("/etc/sudoers.d", root / "etc/sudoers.d"),
@@ -353,26 +336,19 @@ def _run_sandboxed(
 def _stub_update_git(sandbox: Path) -> None:
     """Answer the questions cmd_update asks, driven by environment variables.
 
-    Written over the fresh-rebuild stub because the two commands ask disjoint
-    questions and a single stub answering both would be harder to read than
-    either.
+    The arm order is load-bearing, and every mistake fails as a silently wrong
+    answer:
 
-    The arm order is load-bearing, and every trap here fails as a silently
-    wrong answer rather than an error:
-
-    * `*fetch*` stays above the tag arm, and the tag arm matches
-      ``tag --list`` rather than ``tag``, because the real call is
-      ``fetch --tags --prune origin``.
+    * `*fetch*` stays above the tag arm, and the tag arm matches ``tag --list``,
+      because the real call is ``fetch --tags --prune origin``.
     * ``--exact-match`` precedes ``--abbrev=0``: both contain
-      ``describe --tags``, so a looser arm above them would pin
-      `describe_installed_release` to its first branch forever.
-    * Two different ``rev-list --count`` questions exist now — the commits
-      ahead of the target, and the drift past the nearest tag — so the
-      ``HEAD..`` form has to be matched before the general one.
-    * Patterns are substring matches with a leading ``*`` because ``$*``
-      carries `repo_git`'s ``-c safe.directory=... -C <path>`` prefix.
-    * The unset-only default form (``${VAR-x}``, not ``${VAR:-x}``) is what
-      lets a test pass ``""`` to mean "this question has no answer".
+      ``describe --tags``.
+    * The ``HEAD..`` form of ``rev-list --count`` is matched before the general
+      one.
+    * Patterns start with ``*`` because ``$*`` carries `repo_git`'s
+      ``-c safe.directory=... -C <path>`` prefix.
+    * The unset-only default (``${VAR-x}``) lets a test pass ``""`` to mean "this
+      question has no answer".
     """
     (sandbox / "bin" / "git").write_text(
         "#!/usr/bin/env bash\n"
@@ -388,14 +364,10 @@ def _stub_update_git(sandbox: Path) -> None:
         '    printf \'version = "%s"\\n\' "${UPDATE_PROJECT_VERSION-3.0.0}"\n'
         "    exit 0 ;;\n"
         '  *"tag --list"*)\n'
-        # %b, not %s: the default carries escaped newlines that must become
-        # real ones, or the whole list arrives as one unparsable line.
+        # %b, not %s: the default carries escaped newlines that must become real ones.
         #
-        # Filtered by the glob the caller passed, because `latest_release_tag`
-        # is asked about one major at a time and an upgrade asks about two —
-        # its own line and the next. A stub that answered both questions with
-        # one list could not tell them apart, and the test that matters most
-        # here is precisely that a v3 host is offered v4 and not v3.
+        # Filtered by the caller's glob, because `latest_release_tag` is asked about one
+        # major at a time and an upgrade asks about two.
         '    for pattern in "$@"; do case "${pattern}" in v*.\\*) break ;; esac; done\n'
         '    printf "%b" "${UPDATE_GIT_TAGS-v3.1.0\\nv3.0.0\\n}" |\n'
         "      while IFS= read -r line; do\n"
@@ -432,9 +404,8 @@ def _stub_update_git(sandbox: Path) -> None:
 def _stub_update_services(sandbox: Path, root: Path) -> None:
     """Docker, which answers nothing, and the CLI wrapper, which records.
 
-    The installer itself never stops a service any more — the role does, after
-    the image is built — so a `stop` reaching this stub would be a regression
-    the order log makes visible.
+    The installer never stops a service (the role does), so a `stop` reaching this
+    stub shows up in the order log.
     """
     (sandbox / "bin" / "docker").write_text(
         "#!/usr/bin/env bash\n"
@@ -448,9 +419,7 @@ def _stub_update_services(sandbox: Path, root: Path) -> None:
     wrapper.write_text(
         "#!/usr/bin/env bash\n"
         'printf "%s\\n" "backup" >> "${UPDATE_ORDER_LOG:-/dev/null}"\n'
-        # Separately, and only when asked: the order log is compared by exact
-        # line elsewhere, and what `update` and `upgrade` differ in is not
-        # whether a backup happened but which one.
+        # Only when asked: `update` and `upgrade` differ in which backup they take.
         'printf "%s\\n" "$*" >> "${UPDATE_BACKUP_ARGS_LOG:-/dev/null}"\n'
         'exit "${UPDATE_BACKUP_STATUS:-0}"\n',
         encoding="utf-8",
@@ -463,9 +432,8 @@ def _update_sandbox(
 ) -> tuple[Path, Path, Path]:
     """Build an installation whose install.sh *is* the instrumented script.
 
-    `update` requires that: it refuses to run from anywhere but the
-    installation directory, because the checkout it updates is the one it is
-    running from. Returns the script to run, the stub directory, and the root.
+    `update` only runs from the installation directory it updates. Returns the
+    script, the stub directory, and the root.
     """
     sandbox = tmp_path / "sandbox"
     script, root = _instrument(sandbox)

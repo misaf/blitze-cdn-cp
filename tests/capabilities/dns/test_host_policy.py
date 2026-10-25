@@ -71,10 +71,8 @@ def test_a_disabled_site_requires_no_optional_implementation(site_payload):
 def test_release_inputs_fail_closed_on_incomplete_or_unknown_shapes(document):
     """A stored document that is not this shape is refused, never guessed at.
 
-    ``sites`` is the one worth naming: an input document that carried virtual
-    hosts would be a second, older answer beside the state they are derived
-    from, and a rollback restoring both would restore a document free to
-    disagree with itself.
+    ``sites`` especially: inputs carrying virtual hosts would be a second answer
+    beside the state they derive from.
     """
     with pytest.raises(ValueError):
         ReleaseInputs.decode(document)
@@ -92,15 +90,9 @@ def test_release_inputs_fail_closed_on_unknown_schema_versions():
 def test_site_rejects_a_wildcard_on_an_ip_address(site_payload, value):
     """nginx accepts `server_name *.192.0.2.1` and then matches nothing.
 
-    Every label of an IPv4 literal is a valid DNS label, so the fallback that
-    accepts ordinary hostnames used to accept this one too — the refusal was
-    raised inside a `try` whose own `except ValueError` swallowed it. The result
-    rendered, converged, and silently matched no request ever sent.
-
-    All four now fail on the wildcard guard itself. The v6 pair used to be
-    turned away one step later, as malformed hostnames, because ':' fails the
-    label check — right answer, wrong reason, and it said nothing about the
-    wildcard being the actual problem.
+    Every label of an IPv4 literal is a valid DNS label, so the wildcard guard
+    itself must refuse all four, rather than the hostname check turning the v6
+    pair away for the wrong reason.
     """
     site_payload["server_names"] = [value]
     with pytest.raises(
@@ -188,15 +180,11 @@ def test_off_keeps_an_installed_certificate_available(site_payload):
     assert site.serves_tls is False
 
 
-#: The whole SSL-mode x visitor-protocol x listener-port matrix, in one table.
-#: Off has no HTTPS listener, so its HTTPS rows cannot arise in practice; the
-#: method still answers for them, and the answer is HTTP, because Off never
-#: encrypts anything.
+#: The whole SSL-mode x visitor-protocol x listener-port matrix. Off has no HTTPS
+#: listener; its HTTPS rows answer HTTP because Off never encrypts.
 #:
-#: Flexible is the only mode whose answer varies with the port, and it is the
-#: reason the port is a parameter at all: Cloudflare supports Flexible for HTTPS
-#: on 443 only, and falls back to Full-like transport on the five alternate
-#: HTTPS proxy ports.
+#: Flexible alone varies with the port: Flexible on 443, Full-like on the five
+#: alternate HTTPS proxy ports.
 _ORIGIN_SCHEMES = [
     (SslMode.OFF, HttpScheme.HTTP, 80, HttpScheme.HTTP),
     (SslMode.OFF, HttpScheme.HTTP, 8080, HttpScheme.HTTP),
@@ -233,9 +221,8 @@ def test_origin_scheme_follows_the_mode_the_visitor_and_the_port(
 def test_flexible_is_flexible_on_443_and_full_like_everywhere_else(port):
     """The Cloudflare compatibility rule this parameter exists for.
 
-    Treating Flexible as one global origin protocol sent an HTTPS visitor on
-    8443 to a plaintext ``http://origin:8443``. Cloudflare supports Flexible on
-    443 only; every other HTTPS proxy port falls back to Full.
+    Flexible applies on 443 only; every other HTTPS proxy port falls back to
+    Full.
     """
     expected = HttpScheme.HTTP if port == 443 else HttpScheme.HTTPS
     assert SslMode.FLEXIBLE.origin_scheme_for(HttpScheme.HTTPS, port) is expected
@@ -244,9 +231,7 @@ def test_flexible_is_flexible_on_443_and_full_like_everywhere_else(port):
 def test_the_flexible_fallback_is_full_and_never_full_strict():
     """Only the transport falls back. Verification is a separate question.
 
-    An origin serving Flexible was never asked for a certificate the edge could
-    validate, so turning on verification along with TLS would break every one of
-    them the moment a visitor used an alternate port.
+    A Flexible origin was never asked for a verifiable certificate.
     """
     assert (
         SslMode.FLEXIBLE.origin_scheme_for(HttpScheme.HTTPS, 8443) is HttpScheme.HTTPS
@@ -257,12 +242,7 @@ def test_the_flexible_fallback_is_full_and_never_full_strict():
 @pytest.mark.parametrize("mode", [SslMode.FULL, SslMode.FULL_STRICT])
 @pytest.mark.parametrize("port", HTTP_PROXY_PORTS)
 def test_full_modes_do_not_re_originate_http_as_https(mode, port):
-    """The regression this method exists to prevent.
-
-    A property keyed on the mode alone answered HTTPS for every request, so a
-    visitor arriving on a plaintext listener was proxied to a TLS origin port
-    that, for most origins, is not listening at all.
-    """
+    """A plaintext visitor under Full is proxied to the origin over HTTP."""
     assert mode.origin_scheme_for(HttpScheme.HTTP, port) is HttpScheme.HTTP
 
 
@@ -340,11 +320,9 @@ def test_always_use_https_redirects_once_the_site_serves_tls(site_payload, mode)
 def test_always_use_https_is_inert_under_ssl_off(site_payload):
     """Cloudflare hides the Always Use HTTPS control while the mode is Off.
 
-    Off serves no HTTPS listener, so a redirect to HTTPS would send every
-    visitor to a port the edge does not answer on — a dead end, and with a
-    permanent 301 a cached one. The stored preference is kept rather than
-    rejected or erased, exactly as Cloudflare keeps the zone setting: it takes
-    effect the moment a secure mode is selected, in either order.
+    Off serves no HTTPS listener, so the redirect would be a dead end. The stored
+    preference is kept and takes effect once a secure mode is selected, in either
+    order.
     """
     site = site_from_settings(site_payload | {"always_use_https": True})
 
@@ -405,9 +383,8 @@ def test_certificate_paths_stay_inside_certificate_directories(site_payload, pat
 def test_certificate_paths_cannot_carry_nginx_directives(site_payload, path):
     """A path that stays inside the roots can still escape its own directive.
 
-    ``site.conf.j2`` writes ``ssl_certificate {{ path }};`` unquoted, so the
-    root and traversal checks alone leave a path free to close the directive
-    and open whichever ones its author wants — on every edge the site reaches.
+    ``site.conf.j2`` writes ``ssl_certificate {{ path }};`` unquoted, so a path
+    could close the directive and open others on every edge.
     """
     site_payload["certificate_mode"] = "existing"
     site_payload["certificate_path"] = path
@@ -417,11 +394,7 @@ def test_certificate_paths_cannot_carry_nginx_directives(site_payload, path):
 
 
 def test_zone_and_site_share_one_certificate_path_rule(site_payload):
-    """The rule belongs to the contained TLS contract used by both carriers.
-
-    Written out on each of them once, which made tightening one and not the
-    other a silent way to leave the other open.
-    """
+    """The rule belongs to the contained TLS contract used by both carriers."""
     assert Domain.model_fields["policy"].annotation is SitePolicy
     assert CdnSite.model_fields["policy"].annotation is SitePolicy
     assert SitePolicy.model_fields["tls"].annotation is TlsPolicy
@@ -465,8 +438,7 @@ def _managed_site(**overrides: object) -> dict[str, object]:
 def test_site_patch_cannot_redirect_a_managed_certificate():
     """The escalation path: aim a managed site's cert at an arbitrary file.
 
-    A deploy writes these paths as root, so the site has to be refused before
-    it reaches the desired state.
+    A deploy writes these paths as root, so it is refused before desired state.
     """
     site = site_from_settings(_managed_site())
     patch = DomainPatch(certificate_path="/etc/cron.d/blitzecdn")
@@ -489,13 +461,10 @@ def test_site_patch_revalidates_the_whole_site():
 
 
 def test_site_patch_covers_every_shared_policy_field():
-    """`DomainPatch` cannot inherit `SitePolicy`, so nothing else keeps it honest.
+    """`DomainPatch` cannot inherit `SitePolicy`, so this keeps it complete.
 
-    Every policy field has to be patchable. One missing is not an error anyone
-    sees: the API accepts the request, silently drops the unknown key under
-    `extra="forbid"`... or worse, rejects a field an operator can set on
-    creation but never change. Adding a field to `SitePolicy` should fail here
-    until it is added below it too.
+    A missing field would be settable on creation and never changeable. A new
+    `SitePolicy` field fails here until it is added to the patch.
     """
     assert set(SitePolicy.setting_fields()) <= set(DomainPatch.model_fields), (
         "DomainPatch is missing "
@@ -505,9 +474,9 @@ def test_site_patch_covers_every_shared_policy_field():
 
 
 def test_the_patch_cannot_reach_the_field_dns_owns():
-    """`server_names` and `origin_host` are both maintained from the records, so
-    a patch has no word for them. Everything else about a site is patchable;
-    these two things are not."""
+    """`server_names` and `origin_host` are maintained from the records, so a patch
+    has no word for them.
+    """
     assert "server_names" not in DomainPatch.model_fields
     assert "origin_host" not in DomainPatch.model_fields
 
@@ -536,10 +505,8 @@ def test_under_attack_mode_defaults_off_and_is_patchable():
 def test_visitor_headers_default_to_the_address_and_not_the_country(site_payload):
     """The default has to be deployable on an edge with GeoIP off.
 
-    `connecting_ip` costs nothing and answers a question the origin cannot
-    answer for itself, so it is on. `ip_country` needs a database the edge role
-    does not install by default, and defaulting it on would fail the next
-    converge of every existing site.
+    `connecting_ip` costs nothing, so it is on. `ip_country` needs a database the
+    edge does not install by default.
     """
     site = site_from_settings(site_payload)
 
@@ -559,9 +526,7 @@ def test_visitor_headers_reject_a_field_they_do_not_declare(site_payload):
 def test_ip_country_requires_geoip_on_its_own(site_payload):
     """The header needs $blitzecdn_country whether or not a rule also does.
 
-    Composed in one property rather than asked twice: the edge role's
-    validation mirrors exactly this question, and a third consumer that added
-    its own condition there would leave this one silently incomplete.
+    Composed in one property that mirrors the edge role's validation.
     """
     site = site_from_settings(site_payload | {"visitor_headers": {"ip_country": True}})
     assert site.policy.headers.visitor_headers.requires_geoip is True
@@ -579,11 +544,10 @@ def test_country_firewall_rules_still_require_geoip_by_themselves(site_payload):
 
 
 def test_every_country_setting_requests_the_geoip_capability(site_payload):
-    """The token a detached `blitzecdn-geoip` makes missing, derived here.
+    """Every country setting derives the `geoip` token.
 
-    Core owns the derivation because core owns the fields: a controller with
-    the capability detached still reads the site back and then refuses to
-    deploy it. What the package owns is whether anything answers for the token.
+    Core owns the derivation because it owns the fields; a controller without the
+    capability reads the site back and refuses to deploy it.
     """
     plain = site_payload | {"compression": "off", "cache_enabled": False}
     header = site_from_settings(plain | {"visitor_headers": {"ip_country": True}})
@@ -598,11 +562,7 @@ def test_every_country_setting_requests_the_geoip_capability(site_payload):
 
 
 def test_an_ordinary_site_requests_no_geoip_capability(site_payload):
-    """Every firewall rule that is not geographical leaves the lookup out.
-
-    This is the case that must keep working with nothing optional installed
-    beyond the firewall itself, so it is asserted rather than assumed.
-    """
+    """Every firewall rule that is not geographical leaves the lookup out."""
     site = site_from_settings(
         site_payload
         | {
@@ -623,9 +583,7 @@ def test_an_ordinary_site_requests_no_geoip_capability(site_payload):
 def test_capability_requirements_name_the_settings_that_asked(site_payload):
     """Which setting, not only which token.
 
-    "capability 'geoip' is not installed" leaves an operator hunting across
-    two unrelated policy blocks. The names are the schema's own, so what the
-    message says to change is what a patch would set.
+    The names are the schema's own, so the message says what a patch would set.
     """
     site = site_from_settings(
         site_payload
@@ -680,10 +638,8 @@ def test_a_patch_replaces_the_whole_visitor_header_block():
 def _inputs_of(**policy: object) -> ReleaseInputs:
     """Release inputs holding one zone with one proxied hostname in it.
 
-    Sites are not in the inputs — they are derived from them — so a round trip
-    has to go through the zone and the record that produce one. The policy
-    lives on the zone and the origin on the record; what survives JSON on the
-    way to a run and back from a rollback is, between them, the site.
+    Sites are derived, so a round trip goes through the zone (policy) and the
+    record (origin).
     """
     zone = domain_from_settings({"name": "example.com", **policy})
     record = DnsRecord(
@@ -745,34 +701,19 @@ def test_the_firewall_and_the_visitor_headers_stay_separate_blocks():
 #: Site settings an operator cannot reach from `blitzecdn site`, and why.
 #:
 #: The three certificate fields move together under
-#: `CdnSite.validate_certificate_pair`, and two of the four modes —
-#: `uploaded` and `requested` — are refused to anything but the upload and
-#: request endpoints, which own the paths under the managed TLS root. A CLI
-#: command that set them would be rejected by the model it was writing to.
+#: `CdnSite.validate_certificate_pair`, and `uploaded` and `requested` are owned
+#: by the upload and request endpoints.
 _SET_ELSEWHERE = frozenset(
     {"certificate_mode", "certificate_path", "certificate_key_path"}
 )
 
 
 def test_every_patchable_field_can_be_reached_from_the_command_line():
-    """The fourth register of the site document, and the one nothing checked.
+    """Every patchable site field has a CLI command.
 
-    A site setting exists in the domain model, in `DomainPatch`, in the API model
-    and in `blitzecdn_nginx`'s argument spec, and all four are held in step —
-    `_assert_patch_covers_policy` at import, the Ansible spec in
-    `tests/contract/`. The CLI was the fifth and had no such check, so a
-    setting could reach every one of those and still have no verb: `site
-    cache-query-string` set the mode of a cache the command line could not turn
-    on, and neither TTL nor either origin-identity field was reachable at all.
-
-    `_HELP_ORDER` guards the other direction — a command with nowhere to sit is
-    an import error — which is why the gap was invisible: nothing was missing
-    from a list, a list was missing from nothing.
-
-    Matching on the field *name* anywhere in the group is deliberately loose.
-    A command that names a field and edits a different one is a bug this cannot
-    see; a field no command mentions at all is the failure that actually
-    happened, and it is worth one cheap assertion.
+    The model, `DomainPatch`, the API model and the Ansible spec are held in step
+    elsewhere; this holds the CLI. Matching the field name anywhere in the group is
+    deliberately loose: it catches a field no command mentions.
     """
     # The group as assembled, because its commands ship in five capabilities
     # and a sixth that joins it is covered without being listed here.

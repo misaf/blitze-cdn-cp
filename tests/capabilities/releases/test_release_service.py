@@ -1,10 +1,8 @@
 """Recording a release, and what a deployment does with the one it named.
 
-The compiler's own tests use no database. These use the real one, because what
-is under test here is the part the compiler refuses to do: that recording is
-idempotent by digest, that pruning cannot remove a release the fleet can still
-be sent back to, and that a deployment converges the exact document its release
-carries rather than re-deriving one from state that has moved on.
+Against the real database: recording is idempotent by digest, pruning cannot
+remove a release the fleet can be sent back to, and a deployment converges
+its release's exact document.
 """
 
 from __future__ import annotations
@@ -40,11 +38,8 @@ def control(settings):
 
 
 def test_compiling_records_nothing(control):
-    """`blitzecdn validate` compiles on every invocation.
-
-    An operator fixing a fleet runs it repeatedly, and a compiler that recorded
-    each attempt would turn a habit into a history of who asked rather than of
-    what the fleet was asked to serve.
+    """`blitzecdn validate` compiles on every invocation, so compiling records
+    nothing.
     """
     plane, _ = control
     seed_record(plane)
@@ -132,10 +127,8 @@ def test_a_release_can_be_read_back_by_its_short_id_or_its_full_digest(control):
 def test_the_inputs_a_release_was_compiled_from_survive_beside_it(control):
     """What a rollback restores. The artifact is not enough.
 
-    Converging an old artifact would put the edges back and leave the control
-    plane still asserting the newer state, so the next reconciliation would
-    quietly undo the rollback. Adopting the inputs is what makes it a change of
-    desired target.
+    Converging an old artifact alone would leave the control plane asserting the
+    newer state, so the next reconciliation would undo the rollback.
     """
     plane, _ = control
     seed_record(plane)
@@ -186,11 +179,7 @@ def test_a_deployment_converges_the_document_its_release_carries(control, settin
 
 
 def test_a_second_deploy_of_unchanged_state_names_the_same_release(control):
-    """ "Has anything changed" becomes a string comparison.
-
-    It used to be a full serialised document per deployment row, with nothing
-    saying two of them were the same.
-    """
+    """ "Has anything changed" becomes a string comparison."""
     plane, _ = control
     seed_record(plane)
 
@@ -203,11 +192,9 @@ def test_a_second_deploy_of_unchanged_state_names_the_same_release(control):
 def test_a_release_a_capability_objected_to_carries_no_artifact(control):
     """A capability that objected to a site must not then be asked to render it.
 
-    That is not squeamishness: the objection is usually the reason asking would
-    fail. `blitzecdn-certificates` objects to a site in a controller-managed
-    TLS mode whose material was never issued, and asking it for that site's
-    certificate paths raises about exactly the material it just objected about
-    — so an operator would meet the exception instead of the objection.
+    The objection is usually why rendering would fail: TLS objects to a managed
+    mode with unissued material, and asking it for those paths would raise
+    instead.
     """
     plane, _ = control
     seed_record(plane)
@@ -226,11 +213,8 @@ def test_a_release_a_capability_objected_to_carries_no_artifact(control):
 
 
 def test_a_release_missing_a_capability_still_shows_what_would_be_sent(control):
-    """The wheel is not there to be asked, so it contributes nothing.
-
-    Nothing converges the release — `servable` says so — but an operator
-    deciding what to install wants to see the document this installation would
-    actually produce.
+    """A missing capability contributes nothing, but the release still shows the
+    document this installation would produce.
     """
     plane, _ = control
     plane.edges.add_edge(
@@ -242,9 +226,8 @@ def test_a_release_missing_a_capability_still_shows_what_would_be_sent(control):
         ),
         "alice",
     )
-    # Compression named rather than left to the seed: it is the capability this
-    # edge is declared not to have, and the seed would switch it off in a
-    # workspace where the wheel is detached.
+    # Compression named explicitly: it is the capability this edge declares it
+    # lacks.
     seed_site(plane, compression="gzip")
 
     release = plane.releases.compile()
@@ -290,8 +273,7 @@ def test_the_edges_a_release_is_aimed_at_are_the_ones_a_limit_names(control):
 def test_a_site_an_edge_cannot_serve_is_refused_before_the_run_starts(control):
     """The check the edge role can only make halfway through a converge.
 
-    An nginx that never loaded the Brotli module reads `brotli on` as a syntax
-    error, and by then the run is already touching hosts.
+    An nginx without the Brotli module reads `brotli on` as a syntax error.
     """
     plane, _ = control
     plane.edges.add_edge(

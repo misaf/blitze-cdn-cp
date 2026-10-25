@@ -19,9 +19,8 @@ def _run_contract(
 ):
     """Execute the contract role, which is where its invariants live.
 
-    Reading the assertions as data would prove they are written, not that they
-    fire: a `when:` or an expression that raises at run time passes
-    --syntax-check and ansible-lint alike.
+    A `when:` that raises at run time passes --syntax-check and ansible-lint
+    alike.
     """
     ansible = shutil.which("ansible-playbook") or str(
         PROJECT_DIR / ".venv/bin/ansible-playbook"
@@ -62,11 +61,9 @@ def _run_contract(
             "ANSIBLE_LOCALHOST_WARNING": "False",
             "ANSIBLE_LOCAL_TEMP": str(ansible_local),
             "ANSIBLE_ROLES_PATH": str(ROLES_DIR),
-            # The role carries the fleet's Nginx reload handler now, and the
-            # handler runs `community.docker` modules. Nothing here notifies
-            # it, but Ansible resolves a role's handlers when it loads the
-            # role, so the collection has to be reachable or the play fails
-            # before an assertion is reached.
+            # The role carries the Nginx reload handler, which uses `community.docker`.
+            # Ansible resolves handlers when it loads the role, so the collection must
+            # be reachable.
             "ANSIBLE_COLLECTIONS_PATH": str(PROJECT_DIR / ".state/collections"),
         },
         check=False,
@@ -128,8 +125,7 @@ def test_the_shipped_contract_converges_with_http3_on(tmp_path):
 def test_the_contract_refuses_an_edge_that_could_not_serve(tmp_path, change, message):
     """Each of these is well-typed, passes the argument spec, and cannot serve.
 
-    Which is why they are assertions rather than spec entries: the argument
-    spec checks shape, and these are relationships between values.
+    The spec checks shape; these are relationships between values.
     """
     contract = _runtime_defaults()["blitzecdn_edge_runtime"]
     contract = {
@@ -148,11 +144,8 @@ def test_the_contract_refuses_an_edge_that_could_not_serve(tmp_path, change, mes
 def test_the_firewall_opens_exactly_the_listeners_the_contract_declares(tmp_path):
     """Executed, not read: this is the rule set ufw is actually handed.
 
-    A listener with no rule is an unreachable port and a rule with no listener
-    is an open port that can never serve. Both roles read one contract member
-    now, so the failure this guards is a rendering mistake rather than a
-    disagreement — the port list reaching ufw has to be the contract's, in full,
-    with UDP/443 present exactly when HTTP/3 is on.
+    The port list reaching ufw is the contract's in full, with UDP/443 present
+    exactly when HTTP/3 is on.
     """
     ansible = shutil.which("ansible-playbook") or str(
         PROJECT_DIR / ".venv/bin/ansible-playbook"

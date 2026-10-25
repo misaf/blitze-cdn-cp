@@ -88,9 +88,8 @@ def test_durable_queue_receives_only_the_deployment_id(settings):
         repository.deployments.get_deployment(queued.id).status
         is DeploymentStatus.QUEUED
     )
-    # Startup republishes queued identifiers. Not for a crash between commit
-    # and publish — those are one commit now — but for a QUEUED deployment
-    # whose job ran out of attempts finding the lock busy.
+    # Startup republishes queued identifiers for a QUEUED deployment whose job ran
+    # out of attempts finding the lock busy.
     assert control.deployments.initialize() == 0
     assert queue.ids == [queued.id, queued.id]
 
@@ -118,9 +117,8 @@ def test_durable_queue_delivery_is_idempotent(settings):
 
     assert first.status is DeploymentStatus.SUCCEEDED
     assert duplicate.status is DeploymentStatus.SUCCEEDED
-    # One rollout, not two: the second delivery finds the deployment is no
-    # longer QUEUED and converges nothing. The four runs are preview, stage,
-    # activation and the externally verified commit.
+    # One rollout: the second delivery finds the deployment no longer QUEUED. The
+    # four runs are preview, stage, activation and the verified commit.
     assert runner.check_modes == [True, False, False, False]
     assert runner.tag_selections == [(), ("stage",), ("activate",), ("commit",)]
 
@@ -128,10 +126,8 @@ def test_durable_queue_delivery_is_idempotent(settings):
 def test_a_queued_deployment_leaves_a_workflow_record(settings):
     """The queued path is the one that most needs a durable trace.
 
-    It answers before the convergence happens, so the run outlives the call
-    that started it and a restart in between is exactly what the workflow
-    journal exists to make legible. The synchronous path recorded one and this
-    one did not, which had it backwards.
+    The run outlives the call that started it, so a restart in between is what the
+    journal exists to make legible.
     """
     repository = Repository(settings.database_path)
     queue = RecordingBackgroundQueue()
@@ -440,16 +436,9 @@ def test_a_queued_deployment_converges_when_its_identifier_is_delivered(settings
 def test_a_worker_that_cannot_start_does_not_strand_the_lock(settings):
     """A transient failure must not become a permanent outage.
 
-    The lock is released by whoever owns the deployment, and until the worker is
-    running that is still `submit`. Work that never starts used to leave it held
-    by a worker that did not exist, and every later deploy, rollback, upload and
-    issuance failed with DeploymentBusyError until someone restarted the
-    process.
-
-    Driven through the durable queue port: a refused enqueue is part of that
-    adapter's contract. Since the deployment and its job commit together, the
-    refusal rolls the deployment back with it — there is no QUEUED row nothing
-    will deliver, and no FAILED row to explain one.
+    Until the worker runs, `submit` owns the lock. The deployment and its job
+    commit together, so a refused enqueue rolls the deployment back: no QUEUED row
+    nothing will deliver, and the lock is free.
     """
     repository = Repository(settings.database_path)
     refusing = RefusingBackgroundQueue()
@@ -498,9 +487,8 @@ def test_runner_errors_are_recorded_and_reraised(settings):
     (target,) = repository.deployment_targets.targets(recorded.id)
     assert target.status is TargetStatus.FAILED
     assert "validate failed" in (target.last_error or "")
-    # The runner raised before Ansible reported anything, so the deployment
-    # carries a synthesised result rather than none: every reader looks in the
-    # same place for why a deployment ended.
+    # The runner raised before Ansible reported anything, so the result is
+    # synthesised: every reader looks in one place for why a deployment ended.
     assert recorded.result is not None
     assert recorded.result.status is RunStatus.UNSTARTED
     assert "unable to execute Ansible" in (recorded.result.error or "")
@@ -624,10 +612,8 @@ def test_a_deployment_and_its_job_commit_together_or_not_at_all(
 ):
     """The real job queue, failing after its own row was written.
 
-    The Redis-era shape committed the deployment and then published its job,
-    so a crash between the two stranded a QUEUED row. With the job a row in the
-    same database the pair is one commit, and this holds it at the worst
-    moment: the job is in the session when the failure comes.
+    The deployment and its job are one commit; this holds that with the job
+    already in the session when the failure comes.
     """
     repository = Repository(settings.database_path)
     control = build_application(

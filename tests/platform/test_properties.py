@@ -21,9 +21,8 @@ def test_hostname_normalization_is_idempotent(name: str) -> None:
     assert hostname(normalized) == normalized
 
 
-#: Everything `ipaddress` accepts after the `%`: any character but `%` itself.
-#: Whitespace is left out only because `hostname` strips the ends first, which
-#: would change the input rather than the answer.
+#: Everything `ipaddress` accepts after the `%`. Whitespace is left out because
+#: `hostname` strips the ends first.
 _ZONE = st.text(
     alphabet=st.characters(
         min_codepoint=0x21, max_codepoint=0x7E, exclude_characters="%"
@@ -39,11 +38,8 @@ def test_an_ipv6_zone_index_is_refused_whatever_it_contains(
 ) -> None:
     """The one suffix `ip_address` does not constrain, so it is never let in.
 
-    `fe80::1%x;return 200 x` parsed as an address and came back unchanged, and
-    every caller of `hostname` renders into nginx unquoted.
-
-    Refusal is the property, not which message gives it: `ipaddress` turns a
-    few zones away itself (`::%/`), and those fail as not-a-hostname instead.
+    `hostname` values render into nginx unquoted. Refusal is the property;
+    `ipaddress` rejects a few zones itself, which fail as not-a-hostname.
     """
     assert hostname(str(address)) == str(address)
     with pytest.raises(ValueError):

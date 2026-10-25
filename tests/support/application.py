@@ -1,14 +1,7 @@
 """Builders shared by the application-service tests.
 
-Only helpers, deliberately. This module used to re-export the domain types,
-the fakes and the standard library alongside them, and every consumer said
-``from support.application import *`` to get the lot — which meant a reader
-could not tell where ``ApplicationServices`` came from, ruff could not check an
-undefined name in any of those files, and five helpers had quietly become
-duplicates: three that a consumer redefined identically and so never used from
-here at all, and two more copied into a module that then used neither. The
-consumers import what they use from where it is defined now, and what is left
-here is what nowhere else owns.
+Only helpers: consumers import domain types and fakes from where they are
+defined.
 """
 
 import time
@@ -43,10 +36,8 @@ def _await_workflow(
 ) -> WorkflowStatus:
     """Wait for the workflow covering a queued run to close.
 
-    A separate wait from `_await_terminal`: the deployment reaches a terminal
-    status inside the convergence, and the workflow closes around it, so the
-    two finish in that order and asserting on the second right after the first
-    is a race.
+    The deployment turns terminal inside the convergence and the workflow closes
+    around it, so asserting on the workflow right after `_await_terminal` races.
     """
     deadline = time.monotonic() + timeout
     pending = {WorkflowStatus.PENDING, WorkflowStatus.RUNNING}

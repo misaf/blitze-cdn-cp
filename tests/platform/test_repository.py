@@ -59,17 +59,10 @@ def test_repository_close_disposes_the_engine(settings, monkeypatch):
 
 
 def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
-    """There is no site table left to rewrite, and that is the whole point.
+    """Virtual hosts are derived from zones, rules and records on every read.
 
-    This test used to hold ``replace_all_sites`` to being the store's entire
-    write side, because a projection with per-row create, update and delete
-    invites a caller to edit a site the next record change would silently
-    re-derive over. The projection is gone: what an edge serves is computed
-    from the zones, their rules and their records on every read.
-
-    So the round trip worth holding is the one the derivation performs — change
-    a row and the hosts change with it, and stop producing a name and it stops
-    existing — with no call anywhere that could write one directly.
+    Change a row and the hosts change; stop producing a name and it stops
+    existing. Nothing can write a host directly.
     """
     repository = Repository(settings.database_path)
     control = build_application(settings=settings, repository=repository)
@@ -110,11 +103,9 @@ def test_audit_events_are_read_back_in_the_order_they_happened(settings, site_pa
 
 
 def test_the_audit_log_keeps_only_its_retention(settings):
-    """The one table written on every mutation, and now the one with a bound.
+    """The one table written on every mutation, and bounded.
 
-    Small numbers because the mechanism is the subject: what matters is that
-    the count stops climbing and that what survives is the *newest*, since a
-    trail pruned from the wrong end answers no question anyone asks of it.
+    The count stops climbing and the newest entries survive.
     """
     repository = Repository(settings.database_path, audit_retention=5)
 
@@ -154,15 +145,12 @@ def test_an_audit_log_under_its_retention_loses_nothing(settings):
 def _release(repository):
     """Compile and record a release from whatever these rows currently say.
 
-    Store-level, like the rest of this module: the compiler is a pure function
-    and takes its feature contributions as an argument, so a release can be made
-    here without wiring a control plane. What is being exercised is the foreign
-    key — a deployment names a release, and the release has to exist first.
+    The compiler is pure, so no control plane is needed. Exercises the foreign
+    key: a deployment names a release that must exist.
     """
     inputs = repository.release_inputs()
-    # Whatever these rows happen to ask for. A store-level test is not about
-    # which wheels are installed, and pinning a list here would make it fail
-    # the day a policy default started requesting a different one.
+    # Whatever these rows happen to ask for; store tests are not about installed
+    # capabilities.
     release = compile_release(
         prepare_compilation(
             inputs,
@@ -182,11 +170,7 @@ def _release(repository):
 
 
 class _NoContributions:
-    """An installation whose capabilities contribute nothing to the document.
-
-    Enough to compile: the artifact is then the frame alone, which is all these
-    tests read it for.
-    """
+    """An installation whose capabilities contribute nothing to the document."""
 
     def site_variables(self, site):
         return {"blitzecdn_site_name": site.name}
@@ -196,12 +180,10 @@ class _NoContributions:
 
 
 def _seed(repository, domain_payload, record_payload, site_payload, **policy):
-    """Zone and record — the two rows release inputs are made of.
+    """Zone and record: the two rows release inputs are made of.
 
-    Store-level, so it deliberately goes through the stores rather than the
-    services: the point of these tests is what survives a round trip through
-    SQLite, not what the services do on the way. The origin lives on the record
-    now, in its ``value``; there is no site row to create.
+    Through the stores, since these tests are about the SQLite round trip. The
+    origin is the record's ``value``.
     """
     repository.zones.create_domain(domain_from_settings({**domain_payload, **policy}))
     repository.zones.create_record(DnsRecord.model_validate(record_payload))
@@ -222,9 +204,7 @@ def test_visitor_headers_survive_persistence_and_compilation(
 ):
     """The block lives in the `policy` JSON column, not in a column of its own.
 
-    Nothing queries inside it, so the only way it can be lost is a round trip
-    that drops what it does not recognise. This is that round trip: site in,
-    site out, and the release the deployment actually converges.
+    So it can only be lost by a round trip that drops unknown keys.
     """
     repository = Repository(settings.database_path)
     _seed(
@@ -386,12 +366,7 @@ def test_deployment_requirements_are_durable_and_idempotent(settings):
 
 
 def test_a_requirement_is_stored_under_its_enum_value(settings):
-    """The enum is the in-process type; the column keeps the string it always had.
-
-    Typing the kind was a refactor of the callers, not of the schema. A row
-    written before that change has to still be found by the enum, so the stored
-    representation is asserted directly rather than only round-tripped.
-    """
+    """The column stores the enum's string value, asserted directly."""
     repository = Repository(settings.database_path)
     repository.deployment_requirements.require(DeploymentRequirementKind.CERTIFICATES)
     connection = sqlite3.connect(settings.database_path)
@@ -441,19 +416,11 @@ def test_record_updates_detect_a_stale_expected_version(settings):
 
 
 def test_edge_updates_detect_a_stale_expected_version(settings):
-    """The fleet's half of the compare-and-swap the records store already holds.
+    """The edge store's compare-and-swap.
 
-    `EdgeOperationsService.update_edge` reads the edge, merges the patch and
-    writes back with `expected=` the copy it read, so an operator whose edit
-    raced another's is told rather than silently overwriting them. Nothing
-    reached this branch before: the in-memory `FakeEdgeStore` did not take
-    `expected` at all, so no test could ask the question, and the real store's
-    refusal had never once been executed.
-
-    Written against the real store on purpose. What is being asserted is the
-    compare-and-swap itself — the read, the comparison and the write happening
-    inside one `BEGIN IMMEDIATE` — and a list standing in for a table cannot
-    demonstrate that.
+    `EdgeOperationsService.update_edge` writes back with `expected=` the copy it
+    read, so a racing edit is refused. Against the real store, since the read,
+    comparison and write must happen inside one `BEGIN IMMEDIATE`.
     """
     repository = Repository(settings.database_path)
     original = repository.edges.create_edge(
@@ -491,10 +458,9 @@ def test_the_store_refuses_a_setting_name_the_fleet_should_not_carry(
 ):
     """The rule belongs to the setting, not to the command that types it.
 
-    These rows are published to every host at inventory precedence, so an
-    unprefixed name could reach a connection variable and a reserved one could
-    override what the feature derives per edge. Enforced here so the CLI is not
-    the only thing standing between a caller and the fleet.
+    These rows reach every host at inventory precedence, so an unprefixed name
+    could reach a connection variable and a reserved one could override a derived
+    value.
     """
     repository = Repository(settings.database_path)
 
@@ -518,9 +484,7 @@ def test_history_retention_drops_drift_runs_and_keeps_rollback_targets(
 ):
     """The drift timer writes a row an hour whether or not anything changed.
 
-    Only check-mode rows are prunable: a real deployment is what
-    `successful_rollback_target` chooses from, so removing one could take away
-    the last thing naming the release the fleet needs to go back to.
+    Only check-mode rows are pruned; real deployments are rollback targets.
     """
     repository = Repository(settings.database_path)
     release = _release(repository)
@@ -592,12 +556,8 @@ def test_workflow_retention_never_drops_an_unfinished_one(settings):
 
 
 def test_a_compare_and_swap_outside_a_transaction_is_refused(settings):
-    """The obligation the comparison rests on, enforced rather than documented.
-
-    Outside a Unit of Work the surrounding transaction is deferred, so the read
-    and the write are not one atomic step and a lost update becomes possible in
-    the window between them. Refused up front, because the alternative failure
-    is a SQLite snapshot-busy error surfacing somewhere unrelated.
+    """Outside a Unit of Work the read and write are not atomic, so the store
+    refuses rather than risk a lost update or a snapshot-busy error.
     """
     repository = Repository(settings.database_path)
     repository.zones.create_domain(Domain(name="example.com"))

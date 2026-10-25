@@ -1,7 +1,7 @@
 """The `blitzecdn_controlplane` role, which owns the host state.
 
-Host state lives in the role under ``src/blitzecdn/assets/ansible/roles/`` rather than
-in bash, so the properties are asserted against the role's tasks.
+Properties are asserted against the role's tasks under
+``src/blitzecdn/assets/ansible/roles/``.
 """
 
 from __future__ import annotations
@@ -25,11 +25,8 @@ from support.paths import CORE_ANSIBLE
 
 # --- the control-plane role --------------------------------------------------
 #
-# Host state moved out of this script and into the blitzecdn_controlplane
-# role under src/blitzecdn/assets/ansible/roles/, so the properties that used to be
-# asserted against bash are asserted against the role's tasks. What the role
-# *does* is covered by running it on a real Debian/Ubuntu host; these pin the
-# invariants that a reader cannot see from one successful run.
+# What the role does is covered by running it on a real host; these pin the
+# invariants one successful run cannot show.
 
 
 def test_host_key_scan_is_stable_across_runs():
@@ -66,8 +63,7 @@ def test_controlplane_initializes_schema_before_starting_services():
 def test_controlplane_fails_the_play_unless_both_services_become_healthy():
     """`state: started` alone would leave a play green with a service down.
 
-    The installer reports nothing of its own after converging, so this wait is
-    the whole of "the update worked".
+    This wait is the whole of "the update worked".
     """
     tasks = _role_tasks()
     services = _role_task("Recreate and start the control-plane services")
@@ -94,8 +90,7 @@ def test_standalone_bootstraps_only_what_ansible_needs():
 def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
     """Bootstrap precedes the database, and teardown must not depend on it.
 
-    Both convergences run through one function now, so the inventory is stated
-    once — which is also what stops the two from drifting apart.
+    Both run through one function, so the inventory is stated once.
     """
     assert "-i localhost," in _function("run_playbook")
     for helper in ("converge_control_plane", "converge_uninstall"):
@@ -107,19 +102,10 @@ def test_local_lifecycle_playbooks_do_not_load_fleet_inventory():
 def test_every_installer_playbook_can_resolve_the_collections_it_needs():
     """The teardown plays need third-party collections as much as the setup ones.
 
-    `ansible.cfg` deliberately does not name a collections path — a relative
-    one there resolves inside the wheel the roles ship in — so an exported
-    ANSIBLE_COLLECTIONS_PATH is the whole of it. It used to be exported only by
-    `bootstrap_runtime`, which builds the virtualenv and fetches the
-    collections, and which `--uninstall` has no reason to call.
-
-    So the teardown ran with no collections and stopped at the first
-    `community.docker` task. That task is the one that removes the edge's
-    containers, which left the host running an edge with an installer that had
-    just told the operator it could not continue.
-
-    Absolute, too: relative to the working directory it is only correct when
-    the caller happens to be standing in the installation.
+    `ansible.cfg` names no collections path, so the exported, absolute
+    ANSIBLE_COLLECTIONS_PATH is the whole of it, and every playbook invocation
+    must export it. Without it teardown stops at the first `community.docker`
+    task, leaving the edge running.
     """
     body = _function("run_playbook")
     assert 'ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections"' in body, (
@@ -127,9 +113,7 @@ def test_every_installer_playbook_can_resolve_the_collections_it_needs():
         "so any play the bootstrap did not precede resolves none of them"
     )
 
-    # The requirement is real rather than defensive: teardown reaches for a
-    # collection ansible-core does not carry, and reads it from the roles
-    # rather than restating the name.
+    # Teardown needs a collection ansible-core does not carry, read from the roles.
     teardown = ""
     for role in ("blitzecdn_uninstall", "blitzecdn_edge_teardown"):
         for tasks in (CORE_ANSIBLE / f"roles/{role}").rglob("*.yml"):
@@ -165,11 +149,7 @@ def test_edge_platform_is_pinned_to_ubuntu_26_04():
 
 
 def test_no_upper_bound_on_the_python_version():
-    """A ceiling is discovered on somebody's fresh server, never in CI.
-
-    An interpreter that genuinely breaks the control plane should fail the test
-    suite, not be refused at install time on a host nobody has tried yet.
-    """
+    """A ceiling is discovered on somebody's fresh server, never in CI."""
     script = (PROJECT_DIR / "install.sh").read_text(encoding="utf-8")
     assert "sys.version_info[:2] < (3, 12)" in script
     assert "(3, 15)" not in script, "install.sh still refuses a future Python"

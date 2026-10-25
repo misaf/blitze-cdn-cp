@@ -42,11 +42,7 @@ def test_the_shipped_registry_includes_it() -> None:
 
 
 def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None:
-    """The command reads `blitzecdn origin check`, exactly as it did in core.
-
-    The command tree is an interface decision, not a consequence of packaging:
-    an operator upgrading past the extraction types what they typed before.
-    """
+    """The command reads `blitzecdn origin check`."""
     routes = {route.path for router in FEATURE.api_routers for route in router.routes}
     assert routes == {"/v1/origins/check"}
 
@@ -61,9 +57,8 @@ def test_it_contributes_both_api_versions_and_the_origin_command_group() -> None
 def test_the_role_is_shipped_but_asked_of_neither_slot_of_the_edge_play() -> None:
     """An operation converges nothing, and must not be able to.
 
-    The role is reached only by this package's own play, on demand. A
-    contribution that also named a slot would run a probe on every deploy —
-    slower, and a deploy that failed because an origin was briefly down.
+    The role runs only from this capability's own play; in a slot it would probe
+    on every deploy.
     """
     contributions = FEATURE.ansible
 
@@ -85,8 +80,7 @@ def test_the_wheel_carries_the_role_and_the_play_it_runs() -> None:
 def test_the_capability_claims_no_environment_and_no_desired_state() -> None:
     """No credential and no variable in the deployment document.
 
-    Which is what makes attaching and detaching it invisible to every site: the
-    document a rollback converges months from now is byte-identical either way.
+    So attaching or detaching it leaves every site's desired state identical.
     """
     # Configuration is its own contribution, and this capability makes none.
     assert FEATURE.configuration == ()

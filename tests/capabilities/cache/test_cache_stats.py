@@ -10,9 +10,7 @@ from blitzecdn.composition import Repository
 def _stats_control(settings, *hosts):
     """A control plane whose next stats run returns these per-host results.
 
-    Counters now arrive on the run itself, published by the role as the
-    `blitzecdn_report` fact. There is no controller-side directory in the
-    picture, so the roster and the numbers cannot disagree.
+    Counters arrive on the run itself, as the role's `blitzecdn_report` fact.
     """
     fake = FakeRunner([ansible_run(*hosts)])
     return build_application(
@@ -59,9 +57,7 @@ def test_statistics_are_aggregated_across_the_fleet(settings):
 def test_an_edge_that_published_nothing_is_silent_rather_than_missing(settings):
     """The run is the roster; a vanished edge would understate the fleet.
 
-    An edge whose tasks ran but which published no report is a real state — the
-    role failed part way, or a future role simply has nothing to say — and it
-    has to read as silence rather than as absence.
+    An edge that ran but published no report reads as silence.
     """
     control, _ = _stats_control(
         settings,
@@ -104,9 +100,8 @@ def test_an_edge_whose_stats_role_failed_is_not_counted(settings):
 def test_a_malformed_edge_report_degrades_instead_of_raising(settings):
     """One bad payload must not take the whole fleet's numbers with it.
 
-    The shape is ours, but it crossed a machine boundary, so every field is
-    read defensively: rows that are not objects, counts that are not numbers
-    and a timestamp that will not parse are dropped rather than raised on.
+    The payload crossed a machine boundary, so malformed rows, counts and
+    timestamps are dropped rather than raised on.
     """
     control, _ = _stats_control(
         settings,
@@ -149,11 +144,7 @@ def test_statistics_are_recorded_in_the_audit_trail(settings):
 def test_a_collection_reads_only_its_own_run(settings):
     """Two overlapping collections cannot answer each other's questions.
 
-    They used to share one controller-side directory that each emptied before
-    collecting, so a run could wipe the other's reports and read the whole fleet
-    as silent. Counters now arrive attached to the run that asked for them, so
-    the failure has no way to occur — this pins that property rather than the
-    directory bookkeeping that used to approximate it.
+    Counters are attached to the run that asked for them.
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner(

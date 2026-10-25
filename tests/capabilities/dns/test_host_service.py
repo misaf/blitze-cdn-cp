@@ -89,10 +89,9 @@ def test_automatic_ssl_writeback_is_rule_scoped_and_monotonic(control):
 def _bypass_the_editor(control, **changes):
     """Write a zone straight to the store, the way a rollback or restore does.
 
-    The entry-point guards live on the services. A snapshot adopted wholesale,
-    a restored backup, and the certificates capability's own writeback all
-    reach `replace_domain` without passing them, so this is the state the
-    derivation actually has to survive — not a state an operator can type.
+    Snapshots, restored backups and the certificate writeback reach
+    `replace_domain` without the service guards, so the derivation must survive
+    this state.
     """
     zone = control.dns.get_domain("example.com")
     # `model_copy` runs no validators, which is the point: it produces the row
@@ -111,12 +110,9 @@ def _bypass_the_editor(control, **changes):
 def test_a_zone_the_derivation_refuses_drops_its_host_and_not_the_fleet(control):
     """One inconsistent zone darkens its own hostnames, and nobody else's.
 
-    `CdnSite` refuses a controller-managed mode whose paths were derived from
-    some other host's name — which is exactly what a rollback leaves behind
-    when it restores a zone without the rule that named the paths. Raising
-    would take `list_sites` with it: the fleet is derived in one pass, and the
-    API reports a `ValidationError` as a 422, so a corrupt stored row would
-    reach an operator as though their own request were malformed.
+    A rollback can restore a zone without the rule that named its managed
+    certificate paths, which `CdnSite` refuses. Raising would fail `list_sites` for
+    the whole fleet, reported as a 422.
     """
     seed_site(control)
     seed_site(control, domain="other.test", record="cdn", name="other-test")
@@ -134,11 +130,7 @@ def test_a_zone_the_derivation_refuses_drops_its_host_and_not_the_fleet(control)
 
 
 def test_the_refused_host_is_named_by_validation_rather_than_left_silent(control):
-    """A drop nobody can see is worse than the raise it replaced.
-
-    `validate` runs before a deploy converges anything, and this is where the
-    hostnames that stopped being served are said out loud.
-    """
+    """A dropped host is named by `validate`, which runs before a deploy."""
     seed_site(control)
     _bypass_the_editor(
         control,
@@ -159,12 +151,9 @@ def test_the_refused_host_is_named_by_validation_rather_than_left_silent(control
 def test_a_rule_that_contradicts_its_zone_darkens_only_its_own_hostnames(control):
     """The other failure point: resolution, before any group has a name.
 
-    A rule's overrides are validated field by field — by handing them to
-    `DomainPatch`, which asks nothing across two of them — so a combination
-    that only contradicts the *zone* is storable through the ordinary rule
-    editor, and is refused the first time the two are merged. This is that
-    state surviving: the rule's hostname goes dark and is named, the zone's
-    own hostnames keep serving.
+    Rule overrides are validated field by field, so a combination contradicting
+    only the zone is storable and refused when merged. The rule's hostname goes
+    dark and is named; the zone's keep serving.
     """
     seed_site(control)
     seed_record(control, name="api")
@@ -187,12 +176,9 @@ def test_a_rule_that_contradicts_its_zone_darkens_only_its_own_hostnames(control
 class _InterferingUnitOfWork:
     """A Unit of Work that lets one operator write land as the lock is taken.
 
-    A stand-in for the race, not a simulation of SQLite: what it reproduces is
-    the one ordering that matters — a competing write committed after the scan
-    formed its opinion and before this transaction writes. The real boundary
-    keeps that window shut by reading inside `BEGIN IMMEDIATE`; this asserts
-    the code reads there at all, which is the part a race cannot be trusted to
-    demonstrate on a schedule.
+    Reproduces the ordering that matters: a competing write after the scan formed
+    its opinion and before this transaction writes. This asserts the code reads
+    inside the transaction.
     """
 
     def __init__(self, inner, on_enter):
@@ -209,11 +195,8 @@ class _InterferingUnitOfWork:
 def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
     """The guard is asked inside the transaction, so the later write wins.
 
-    `SslAutomaticReconciliation` probes origins over the network before it
-    proposes anything, so its opinion is always somewhat stale. An operator who
-    leaves Auto during that window must not have a stronger mode written onto
-    their zone afterwards — and the only place that can be decided is under the
-    same lock as the write.
+    `SslAutomaticReconciliation` probes over the network first, so its opinion is
+    stale; an operator leaving Auto meanwhile must not get a stronger mode.
     """
     site = seed_site(control)
     control.site_editor.activate_managed_certificate(
@@ -249,10 +232,8 @@ def test_an_operator_opting_out_mid_scan_beats_the_upgrade(control):
 def test_rule_writeback_validates_what_it_stores(control):
     """The rule branch is checked the way the zone branch always was.
 
-    Called directly because there is no caller that can reach it with a bad
-    value — which is the whole reason the missing validation survived. What is
-    under test is the guarantee the method makes, not the values today's two
-    callers happen to send.
+    Called directly: no current caller can pass a bad value, and the guarantee is
+    the method's.
     """
     site = seed_site(control, name="rule-host", record="api")
     with pytest.raises(ValidationError):
