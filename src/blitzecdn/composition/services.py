@@ -7,12 +7,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 
 from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.capabilities.cache.service import CacheService
+from blitzecdn.capabilities.cache.service import operations as cache_operations
 from blitzecdn.capabilities.cache.wiring import build_cache_service
 from blitzecdn.capabilities.deployments.ports import (
     DeploymentLocker,
@@ -29,11 +30,18 @@ from blitzecdn.capabilities.dns.wiring import (
     build_rule_service,
 )
 from blitzecdn.capabilities.edges import EdgeOperationsService
+from blitzecdn.capabilities.edges.service import operations as edge_operations
 from blitzecdn.capabilities.edges.wiring import build_edge_operations_service
-from blitzecdn.capabilities.jobs.service import JobQueue, JobRunner, JobScheduler
+from blitzecdn.capabilities.jobs.service import (
+    JobQueue,
+    JobRunner,
+    JobScheduler,
+    OperationService,
+)
 from blitzecdn.capabilities.maintenance import MaintenanceService
 from blitzecdn.capabilities.maintenance.wiring import build_maintenance_service
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
+from blitzecdn.capabilities.origins.service import operations as origin_operations
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
 from blitzecdn.capabilities.origins.wiring import build_origin_check_service
 from blitzecdn.capabilities.releases.service import ReleaseService
@@ -77,7 +85,10 @@ from blitzecdn.core.ports.operations import (
     PlaybookRunner,
 )
 
-__all__ = ["ApplicationServices", "build_services"]
+__all__ = ["ApplicationServices", "OperationRun", "build_services"]
+
+#: One edge operation's run: its JSON payload in, its JSON report out.
+OperationRun = Callable[[Mapping[str, Any]], dict[str, Any]]
 
 
 @dataclass(frozen=True, slots=True, weakref_slot=True)
@@ -111,6 +122,9 @@ class ApplicationServices:
     operations: Operations
     maintenance: MaintenanceService
     job_runner: JobRunner
+    #: Edge operations the API queues, and each kind's run in the worker.
+    queued_operations: OperationService
+    operation_runs: Mapping[str, OperationRun]
 
     # -- what entry layers read from the infrastructure ------------------
 
@@ -296,6 +310,11 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
         jobs=operations.scheduled_jobs,
         deployments=deployments,
     )
+    operation_runs: dict[str, OperationRun] = {
+        **cache_operations.operation_handlers(cache),
+        **origin_operations.operation_handlers(origins),
+        **edge_operations.operation_handlers(edges),
+    }
     return ApplicationServices(
         infrastructure=infra,
         audit=store.audit_log,
@@ -327,4 +346,6 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
             poll_seconds=settings.worker_poll_seconds,
             clock=clock,
         ),
+        queued_operations=OperationService(queue=infra.job_queue, kinds=operation_runs),
+        operation_runs=operation_runs,
     )

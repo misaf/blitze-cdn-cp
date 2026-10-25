@@ -58,16 +58,7 @@ class CacheService:
 
         A purge that silently matches nothing looks the same as one that worked.
         """
-        if purge_all and entries:
-            raise ConflictError(
-                "purge everything and purge named entries are different "
-                "operations; ask for one or the other"
-            )
-        if not purge_all and not entries:
-            raise ConflictError(
-                "nothing to purge: give at least one entry or purge all"
-            )
-        resolved_entries = self._resolve_purge_entries(entries) if entries else ()
+        resolved_entries = self.check_purge(entries=entries, purge_all=purge_all)
         run = self.runner.run_cache_purge(
             entries=resolved_entries,
             purge_all=purge_all,
@@ -100,6 +91,25 @@ class CacheService:
         if not report.hosts:
             raise ExecutionError(run.unreported("purge"))
         return report
+
+    def check_purge(
+        self, *, entries: Sequence[PurgeEntry] = (), purge_all: bool = False
+    ) -> tuple[PurgeEntry, ...]:
+        """Refuse a purge that could only report success having removed nothing.
+
+        Returns the entries as the edges will key them. Run before queueing a
+        purge, so a bad request fails when it is made.
+        """
+        if purge_all and entries:
+            raise ConflictError(
+                "purge everything and purge named entries are different "
+                "operations; ask for one or the other"
+            )
+        if not purge_all and not entries:
+            raise ConflictError(
+                "nothing to purge: give at least one entry or purge all"
+            )
+        return self._resolve_purge_entries(entries) if entries else ()
 
     def _resolve_purge_entries(
         self, entries: Sequence[PurgeEntry]

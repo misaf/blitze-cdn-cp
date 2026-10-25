@@ -83,6 +83,7 @@ def upgrade() -> None:
             nullable=True,
         ),
         sa.Column("last_error", sa.String(), nullable=True),
+        sa.Column("result", sqlite.JSON(), nullable=True),
         sa.CheckConstraint(
             "status IN ('pending', 'running', 'succeeded', 'failed')",
             name="jobs_status_check",

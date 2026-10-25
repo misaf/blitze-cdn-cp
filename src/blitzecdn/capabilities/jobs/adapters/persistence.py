@@ -156,7 +156,14 @@ class JobStore:
             )
         )
 
-    def complete(self, job_id: str, fence: int, *, now: datetime) -> bool:
+    def complete(
+        self,
+        job_id: str,
+        fence: int,
+        *,
+        now: datetime,
+        result: Mapping[str, Any] | None = None,
+    ) -> bool:
         with self._db.session() as session:
             return bool(
                 _rows_affected(
@@ -170,6 +177,7 @@ class JobStore:
                         .values(
                             status=JobStatus.SUCCEEDED.value,
                             finished_at=now,
+                            result=None if result is None else dict(result),
                             leased_until=None,
                             leased_by=None,
                             # Cleared so the partial unique index frees the next firing.
@@ -396,6 +404,7 @@ def _job(row: JobRow) -> Job:
             "created_at": row.created_at,
             "finished_at": row.finished_at,
             "last_error": row.last_error,
+            "result": row.result,
         }
     )
 

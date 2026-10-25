@@ -55,6 +55,8 @@ class JobRow(Base, table=True):
     )
     finished_at: datetime | None = Field(default=None, sa_type=UtcDateTime)
     last_error: str | None = None
+    #: What a succeeded job's handler reported, for whoever polls for it.
+    result: dict[str, Any] | None = Field(default=None, sa_type=JSON)
 
 
 class ScheduleRow(Base, table=True):

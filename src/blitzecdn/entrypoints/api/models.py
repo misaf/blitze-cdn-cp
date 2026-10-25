@@ -1,15 +1,15 @@
 """The representation frame every HTTP model uses, and core's own shapes.
 
-:class:`Model` and :func:`as_operation` are the frame; ``HostRun`` and the
-audit entry are core's. Every other representation lives in its capability's
-``api.models``, and a capability's shape stays its own even when another
-returns it.
+:class:`Model` and :func:`as_operation` are the frame; ``HostRun``, the audit
+entry and the queued ``Operation`` are core's. Every other representation
+lives in its capability's ``api.models``, and a capability's shape stays its
+own even when another returns it.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -67,6 +67,36 @@ class AuditEvent(Model):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class Operation(Model):
+    """Work queued for the worker; poll ``GET /v1/operations/{id}`` for it.
+
+    ``succeeded`` means the operation ran; ``result`` is the report the
+    synchronous command prints, per edge, and may itself record a partial
+    outcome. ``failed`` carries ``error`` and no result.
+    """
+
+    id: str
+    kind: str
+    status: Literal["pending", "running", "succeeded", "failed"]
+    created_at: datetime
+    finished_at: datetime | None = None
+    error: str | None = None
+    result: dict[str, Any] | None = None
+
+
+def as_queued(job: Any) -> Operation:
+    """Represent a queued job as the operation a client polls."""
+    return Operation(
+        id=job.id,
+        kind=job.kind,
+        status=job.status,
+        created_at=job.created_at,
+        finished_at=job.finished_at,
+        error=job.last_error,
+        result=job.result,
+    )
+
+
 def as_operation[T: BaseModel](model: object, target: type[T]) -> T:
     """Map a domain model to its explicit HTTP representation."""
     if hasattr(model, "model_dump"):
@@ -79,6 +109,8 @@ __all__ = [
     "AuditEvent",
     "HostRun",
     "Model",
+    "Operation",
     "TaskResult",
     "as_operation",
+    "as_queued",
 ]
