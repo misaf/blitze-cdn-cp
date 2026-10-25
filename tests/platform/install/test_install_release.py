@@ -19,15 +19,19 @@ from blitzecdn.host.install_release import (
     NOTHING_TO_DO,
     Plan,
     RefusedError,
+    Source,
+    fresh_source,
     installed_release,
     main,
     newest_release,
     plan_update,
     plan_upgrade,
+    prepare,
     project_version,
 )
 
 REPOSITORY = "/opt/blitzecdn"
+ORIGIN = "https://github.com/misaf/blitze-cdn-cp.git"
 
 
 def fake_git(
@@ -40,28 +44,39 @@ def fake_git(
     commits: str | None = "12",
     drift: str = "4",
     sha: str = "abc1234",
+    origin: str | None = "https://github.com/misaf/blitze-cdn-cp.git",
+    dirty: str = "",
+    fetched: bool = True,
+    branch: str | None = None,
 ):
     """A Git that answers the questions the selector asks, and nothing else."""
+    fixed: dict[tuple[str, ...], str | None] = {
+        ("show", "HEAD:pyproject.toml"): (
+            None if version is None else f'name = "x"\nversion = "{version}"'
+        ),
+        ("describe", "--tags", "--exact-match", "HEAD"): exact,
+        ("describe", "--tags", "--abbrev=0", "HEAD"): nearest,
+        ("rev-parse", "--short", "HEAD"): sha,
+        ("rev-parse", "HEAD"): f"{sha}def0123456789",
+        ("remote", "get-url", "origin"): origin,
+        ("status", "--porcelain"): dirty,
+        ("fetch", "--tags", "--prune", "origin"): "" if fetched else None,
+        ("symbolic-ref", "--quiet", "--short", "HEAD"): branch,
+    }
 
     def git(*arguments: str) -> str | None:
+        if arguments in fixed:
+            return fixed[arguments]
         match arguments:
-            case ("show", "HEAD:pyproject.toml"):
-                return None if version is None else f'name = "x"\nversion = "{version}"'
             case ("tag", "--list", pattern, "--sort=-v:refname"):
                 prefix = pattern.removesuffix("*")
                 return "\n".join(t for t in tags.splitlines() if t.startswith(prefix))
-            case ("describe", "--tags", "--exact-match", "HEAD"):
-                return exact
-            case ("describe", "--tags", "--abbrev=0", "HEAD"):
-                return nearest
             case ("merge-base", "--is-ancestor", "HEAD", _):
                 return "" if ancestor else None
             case ("rev-list", "--count", range_) if range_.startswith("HEAD.."):
                 return commits
             case ("rev-list", "--count", _):
                 return drift
-            case ("rev-parse", "--short", "HEAD"):
-                return sha
         raise AssertionError(f"unexpected git {arguments}")
 
     return git
@@ -166,9 +181,42 @@ def test_the_plan_reaches_the_script_as_key_value_lines(monkeypatch, capsys):
     assert "Already on v3.1.0; nothing to update." in capsys.readouterr().out
 
 
-def test_the_selector_runs_on_a_bare_interpreter():
-    """The host's python3 runs it before the release it belongs to is installed."""
-    tree = ast.parse((SOURCE / "host/install_release.py").read_text(encoding="utf-8"))
+@pytest.mark.parametrize(
+    ("git", "message"),
+    [
+        (fake_git(origin=None), "has no origin remote"),
+        (fake_git(origin="https://example.com/fork.git"), "unexpected origin URL"),
+        (fake_git(dirty=" M install.sh"), "has local modifications"),
+        (fake_git(fetched=False), "could not fetch from origin"),
+    ],
+)
+def test_a_move_refuses_a_checkout_it_would_damage(git, message: str):
+    """Code fetched from origin runs as root, and local edits would be lost."""
+    with pytest.raises(RefusedError) as refused:
+        prepare(git, REPOSITORY, "update")
+    assert message in refused.value.args[0]
+
+
+@pytest.mark.parametrize(
+    ("git", "expected"),
+    [
+        (fake_git(exact="v3.1.0"), Source(ORIGIN, "v3.1.0", named=True)),
+        (fake_git(exact=None, branch="3.x"), Source(ORIGIN, "3.x", named=True)),
+        (
+            fake_git(exact=None, branch="feature"),
+            Source(ORIGIN, "abc1234def0123456789", named=False),
+        ),
+    ],
+)
+def test_fresh_reinstalls_the_running_release_line_or_commit(git, expected: Source):
+    """A tag or the current major's branch by name; anything else by commit."""
+    assert fresh_source(git, REPOSITORY) == expected
+
+
+@pytest.mark.parametrize("helper", ["install_release.py", "install_inputs.py"])
+def test_the_host_helpers_run_on_a_bare_interpreter(helper: str):
+    """The host's python3 runs them before the release they belong to is installed."""
+    tree = ast.parse((SOURCE / "host" / helper).read_text(encoding="utf-8"))
     imported = {
         alias.name.split(".")[0]
         for node in ast.walk(tree)

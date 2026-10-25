@@ -15,10 +15,9 @@ import pytest
 from support.install import (
     BASH,
     SCRIPT,
-    _embedded_python,
     _evaluate_os_gate,
+    _host_helper,
     _run,
-    _run_embedded,
 )
 
 from blitzecdn.core.config.settings import Settings
@@ -170,9 +169,7 @@ def test_operating_system_gate(distribution: str, version: str, accepted: bool):
     ],
 )
 def test_admin_cidr_validation(cidr: str, accepted: bool):
-    result = _run_embedded(
-        _embedded_python("--admin-cidr"), cidr, "operator@example.com"
-    )
+    result = _host_helper("install_inputs", "standalone", cidr, "operator@example.com")
     assert (result.returncode == 0) is accepted
 
 
@@ -187,12 +184,12 @@ def test_admin_cidr_validation(cidr: str, accepted: bool):
     ],
 )
 def test_acme_email_validation(email: str, accepted: bool):
-    result = _run_embedded(_embedded_python("--admin-cidr"), "203.0.113.8/32", email)
+    result = _host_helper("install_inputs", "standalone", "203.0.113.8/32", email)
     assert (result.returncode == 0) is accepted
 
 
 def _validate_allowed_ips(value: str) -> subprocess.CompletedProcess[str]:
-    return _run_embedded(_embedded_python("--allowed-ips"), value)
+    return _host_helper("install_inputs", "allowed-ips", value)
 
 
 @pytest.mark.parametrize(

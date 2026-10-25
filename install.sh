@@ -1,21 +1,19 @@
 #!/usr/bin/env bash
-# BlitzeCDN installer.
-#
-# Four jobs live here behind subcommands:
+# BlitzeCDN installer: the bootstrap that gets a host to where Ansible and the
+# stdlib helpers under src/blitzecdn/host/ can do the rest.
 #
 #   (no arguments)  build the virtualenv and install the pinned collections
 #   standalone      provision this whole server as control plane and edge
-#   update          move an installed host onto a newer release
-#
-# The no-argument form installs the current checkout for controller-only use.
+#   update/upgrade  move an installed host onto a newer release
+#   --uninstall     remove every BlitzeCDN artifact
+#   --fresh         uninstall, then reinstall the running release
 set -Eeuo pipefail
 
 readonly INSTALL_DIR=/opt/blitzecdn
 readonly CONFIG_DIR=/etc/blitzecdn
 readonly CLI_WRAPPER=/usr/local/bin/blitzecdn
 readonly CONTROL_PLANE_COMPOSE_FILE=/etc/blitzecdn/control-plane.compose.yml
-# Captured before dispatch strips the subcommand so destructive modes can
-# re-exec a private copy after deleting the checkout that contained this file.
+# Captured before dispatch, so the removal paths can re-exec a private copy.
 original_args=("$@")
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
@@ -55,9 +53,8 @@ EOF
 # Shared helpers
 # ---------------------------------------------------------------------------
 
-# Fail with one or more stderr lines. The first argument is the exit status,
-# because the CLI's documented codes matter here: 2 is invalid input and 1 is a
-# host or environment that cannot be installed onto.
+# Fail with one or more stderr lines. The first argument is the exit status:
+# 2 is invalid input, 1 a host that cannot be installed onto.
 die() {
   local status=$1
   shift
@@ -65,25 +62,16 @@ die() {
   exit "${status}"
 }
 
-# Temporary paths this run is responsible for, removed however it ends.
-#
-# Registering a path is what makes the many `die` paths below safe: each one
-# used to have to remember its own `rm`, and any exit that nobody had thought
-# of — a `set -e` abort between a clone and the rename that consumes it — left
-# the work behind. The emptiness guard is for Bash 3.2, where expanding an
-# empty array under `set -u` is an error rather than nothing.
+# Temporary paths this run removes however it ends. The emptiness guard is for
+# Bash 3.2, where expanding an empty array under `set -u` is an error.
 cleanup_paths=()
 on_exit() {
   [[ ${#cleanup_paths[@]} -eq 0 ]] || rm -rf -- "${cleanup_paths[@]}"
 }
 trap on_exit EXIT
 
-# mktemp, with the result registered for cleanup. Takes mktemp's arguments.
-#
-# Only for callers that run in this shell. A function whose output is taken
-# with `$(...)` runs in a subshell, and neither the array push nor this trap
-# survives it — such a caller has to clean up after itself, which is why
-# `ensure_uv` still does.
+# mktemp, registered for cleanup. Only for callers in this shell: a `$(...)`
+# caller runs in a subshell the registration does not survive.
 temp_path() {
   local path
   path=$(mktemp "$@")
@@ -91,12 +79,7 @@ temp_path() {
   printf '%s\n' "${path}"
 }
 
-# Stop treating a path as this run's to delete.
-#
-# For the moment a temporary thing becomes the real one. `--fresh` stages a
-# clone that is disposable right up until teardown succeeds; past that point it
-# is the only copy of the release on the host, and the recovery advice for a
-# failed rename depends on it still being there.
+# Stop treating a path as this run's to delete, once it becomes the real thing.
 unregister_path() {
   local keep=$1 path remaining=()
   for path in ${cleanup_paths[@]+"${cleanup_paths[@]}"}; do
@@ -105,18 +88,9 @@ unregister_path() {
   cleanup_paths=(${remaining[@]+"${remaining[@]}"})
 }
 
-# The uv release this installer pins, and the checksum of each build of it.
-#
-# Pinned rather than "latest", and verified against a hash that lives in this
-# repository rather than one fetched beside the download. A checksum served
-# from the same place as the artifact only proves the bytes arrived intact; it
-# says nothing about whether the artifact is the one this release was tested
-# against. Refresh both together with `just uv-pin VERSION`.
-#
-# One pin per release target. The Linux builds are what a server installs; the
-# macOS builds exist because a controller-only checkout is a developer machine
-# as often as a server, and a Linux binary unpacked onto a Mac fails with
-# "cannot execute binary file" long after the checksum said the bytes were fine.
+# The pinned uv release and each build's checksum, kept in this repository so
+# the download is checked against what this release was tested with. Refresh
+# with `just uv-pin VERSION`. macOS builds exist for controller-only checkouts.
 UV_VERSION="0.12.3"
 # shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
 UV_SHA256_x86_64_unknown_linux_gnu="600cf9a742aca00d292673b16b5acffaa7b8c269a364ad0c2e79498dcb1fe101"
@@ -127,12 +101,7 @@ UV_SHA256_x86_64_apple_darwin="4c9f52262a14da336e4a42ed24992d12d0c956acde87619e4
 # shellcheck disable=SC2034 # read by indirect expansion in ensure_uv
 UV_SHA256_aarch64_apple_darwin="546f7f8a6c70ff13a3a9d2bc958db3427298cebf3e0cb756f9177133b7068843"
 
-# Print the SHA-256 of a file.
-#
-# `sha256sum` is coreutils and ships on every server this installs onto; macOS
-# has `shasum` instead and only grows `sha256sum` if somebody installed GNU
-# coreutils. Checking both means the verification below cannot be skipped for
-# want of a tool name.
+# Print the SHA-256 of a file: `sha256sum` on servers, `shasum` on macOS.
 sha256_of() {
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "$1" | awk '{print $1}'
@@ -143,13 +112,8 @@ sha256_of() {
   fi
 }
 
-# Print the path to a usable uv, downloading the pinned build if necessary.
-#
-# An operator's own uv is used when it is at least the pinned version: a server
-# that already manages uv through its package manager should not grow a second
-# copy. Anything older, or nothing at all, gets the pinned build unpacked into
-# .state/bin — inside the installation rather than on the system, so uninstall
-# removes it and no other software on the host is affected by our choice.
+# Print the path to a usable uv: the operator's own if at least the pinned
+# version, otherwise the pinned build unpacked into .state/bin.
 ensure_uv() {
   local existing
   if existing="$(command -v uv 2>/dev/null)" && [[ -x "${existing}" ]]; then
@@ -169,8 +133,7 @@ ensure_uv() {
     return 0
   fi
 
-  # Both halves of the target triple are detected. Deriving only the
-  # architecture and assuming Linux is what put a Linux binary on a Mac.
+  # Both halves of the target triple: the OS as well as the architecture.
   local system machine platform architecture target pin expected
   system="$(uname -s)"
   machine="$(uname -m)"
@@ -197,17 +160,12 @@ ensure_uv() {
   command -v curl >/dev/null 2>&1 ||
     die 1 "error: curl is required to download uv; install it and rerun"
 
-  # Its own cleanup, not the shared stack: this function's output is read with
-  # `$(...)`, so it runs in a subshell that the stack cannot reach.
+  # Cleaned up here: this runs in a `$(...)` subshell.
   local archive
   archive="$(mktemp)"
 
-  # stderr, not stdout: this function returns the uv path on stdout, and a
-  # progress line there ends up substituted into the caller's variable.
+  # stderr: stdout is this function's return value.
   echo "Downloading uv ${UV_VERSION} (${target})..." >&2
-  # --retry covers the 5xx and connection resets the release CDN serves now and
-  # then; without it a single bad second fails a whole provisioning run. The
-  # checksum below is what makes a retried download safe to trust.
   if ! curl -fsSL --proto '=https' --tlsv1.2 \
     --retry 3 --retry-connrefused --retry-all-errors --retry-delay 2 \
     -o "${archive}" \
@@ -238,15 +196,13 @@ ensure_uv() {
   printf '%s\n' "${PWD}/${vendored}"
 }
 
-# Guard a privileged subcommand. Every caller reports the same thing, so the
-# EUID test exists once — the test harness neutralises this single line to
-# exercise the destructive paths as an unprivileged user.
+# Guard a privileged subcommand. One line, which the test sandbox neutralises.
 require_root() {
   [[ ${EUID} -eq 0 ]] || die 1 "error: run this ${1:-installer} with sudo"
 }
 
-# Every command uses this one parser. Parsed values are globals because Bash
-# 3.2 (still shipped by macOS) has neither associative arrays nor namerefs.
+# Parsed options are globals: Bash 3.2 (macOS) has no associative arrays or
+# namerefs.
 parsed_yes=0
 parsed_admin_cidr=''
 parsed_email=''
@@ -257,17 +213,8 @@ parsed_public_addresses=()
 parsed_allowed_ips=()
 parsed_forward_args=()
 
-# Every subcommand, in one table: name, its usage function, what to call it in
-# the sudo error (empty when it does not need root), and the options it takes.
-#
-# These four facts used to live in four hand-maintained lists — an
-# `option_allowed` case, the two dispatch cases, and a `require_root` call in
-# each cmd_* — so adding a subcommand meant editing all four and noticing if
-# you missed one. A row is the whole declaration now.
-#
-# A string rather than an associative array on purpose: macOS still ships Bash
-# 3.2, which has neither associative arrays nor namerefs, and the default
-# install form runs on developer machines.
+# Every subcommand: name, usage function, the sudo label (empty when root is
+# not needed), and the options it takes.
 readonly COMMAND_TABLE='
 install|usage_root||
 standalone|usage_standalone|installer|--admin-cidr --email --deploy --allow-empty-sites --public-address --allowed-ips
@@ -320,9 +267,6 @@ parse_options() {
         ;;
       --yes|--deploy|--allow-empty-sites|--no-backup)
         option_allowed "${command}" "${option}" || reject_option "${option}" "${usage}"
-        # A case, not a chain of `[[ ... ]] && assign`: under `set -e` the last
-        # such test to evaluate false is the function's exit status, so that
-        # shape only worked because `shift` happened to follow it.
         case "${option}" in
           --yes) parsed_yes=1 ;;
           --deploy) parsed_deploy=1 ;;
@@ -353,52 +297,33 @@ parse_options() {
   done
 }
 
-# Re-exec this script from a private copy in /tmp, once.
-#
-# The two removal paths delete the directory this file lives in. A shell reads
-# its script lazily, so it would otherwise continue from a path that no longer
-# exists. The guard variable is passed
-# by name and re-exported, so the copy knows not to copy itself again; that
-# second pass is also where the copy arranges to delete itself on exit.
+# Re-exec this script from a private copy in /tmp, once. The removal paths
+# delete the directory this file lives in, and a shell reads its script lazily.
 reexec_from_private_copy() {
   local guard=$1 label=$2
   if [[ ${!guard:-0} == 1 ]]; then
-    # Registered rather than trapped: a second `trap ... EXIT` here would
-    # replace the shared handler, and with it every other path this run has
-    # asked to have cleaned up. $0 is already the copy in this pass.
+    # Registered rather than trapped, so the shared EXIT handler stays.
     cleanup_paths+=("$0")
     return 0
   fi
-  # Deliberately not temp_path: this copy has to outlive the current process
-  # image, because the exec below is what it exists for.
   local copy
   copy=$(mktemp "/tmp/blitzecdn-${label}.XXXXXX")
   install -m 0700 -- "$0" "${copy}"
   exec env "${guard}=1" "${copy}" "${original_args[@]}"
 }
 
-# Git against the installation checkout. `safe.directory` is needed because the
-# working tree belongs to blitzecdn while `--fresh` runs as root.
+# Git against the installation checkout, which root does not own.
 repo_git() {
   git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" "$@"
 }
 
-# `--fresh` fetches code from origin and then runs it as root, so it accepts
-# only the upstream repository rather than trusting an arbitrary remote.
-require_upstream_origin() {
-  local remote_url
-  remote_url=$(repo_git remote get-url origin) ||
-    die 1 "error: ${INSTALL_DIR} has no origin remote"
-  case "${remote_url}" in
-    https://github.com/misaf/blitze-cdn-cp|https://github.com/misaf/blitze-cdn-cp.git|\
-    git@github.com:misaf/blitze-cdn-cp.git) ;;
-    *) die 1 "error: refusing unexpected origin URL: ${remote_url}" ;;
-  esac
-  printf '%s\n' "${remote_url}"
+# Validate operator input with the stdlib helper, run by the host's own
+# interpreter before the virtualenv exists.
+check_inputs() {
+  python3 -I "${script_dir}/src/blitzecdn/host/install_inputs.py" "$@" || exit 2
 }
 
-# Run the private post-bootstrap entry point in the same immutable image as the
-# API and worker. It is a one-off operation, so Compose removes the container.
+# Run the post-bootstrap entry point in the control-plane image.
 run_install_handoff() {
   docker compose --file "${CONTROL_PLANE_COMPOSE_FILE}" run --rm \
     --entrypoint python \
@@ -406,32 +331,17 @@ run_install_handoff() {
     blitzecdn-cli -m blitzecdn.entrypoints.install_handoff "$@"
 }
 
-# Converge this host through the control-plane role.
+# Run one playbook against this host.
 #
-# Ansible owns the Linux state here exactly as it owns an edge's: the deployment
-# account, explicit container-state ownership, sudo, loopback SSH trust, CLI
-# wrapper, environment, runtime image, and Compose project. The installer only
-# makes this call possible.
-# Run one playbook against this host. The invariant half of both convergences.
-#
-# Ansible's temporary files must not land in .state. These plays run as root and
-# give the persistent state bind mount to the image's non-root account; a
-# root-owned leftover there would break the next container invocation. The
-# directory is registered rather than removed here, so a play that aborts the
-# script still has its scratch space cleaned up.
+# Ansible's temporary files go to a registered scratch directory, never .state,
+# where a root-owned leftover would break the next container run. The
+# collections path is exported here, absolute, because ansible.cfg cannot name
+# one and teardown never runs the bootstrap.
 run_playbook() {
   local playbook=$1
   shift
   local ansible_tmp
   ansible_tmp=$(temp_path -d)
-  # ANSIBLE_COLLECTIONS_PATH here and not only in bootstrap_runtime, and
-  # absolute rather than relative to the working directory. ansible.cfg cannot
-  # name it — a relative path there resolves inside the wheel — so an export is
-  # the whole of it, and --uninstall never calls the bootstrap that used to be
-  # the only place it happened. The teardown play therefore ran with no
-  # collections at all and stopped at the first `community.docker` task, which
-  # is the one that removes the edge's containers: the host was left with a
-  # running edge and an installer that had reported it could not continue.
   ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/assets/ansible/ansible.cfg" \
     ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections" \
     ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
@@ -439,29 +349,16 @@ run_playbook() {
 }
 
 # Whether this host can be the edge half of a standalone installation.
-#
-# A pure predicate so it can be exercised directly: the caller below is the one
-# that reads /etc/os-release, and this is the rule it reads it for.
 edge_platform_supported() {
   local id=$1 version=$2
   [[ ${id} == ubuntu && ${version} == 26.04 ]]
 }
 
-# Refuse a standalone installation this host cannot finish.
+# Refuse a standalone installation this host cannot finish, before apt.
 #
-# A standalone server is a control plane and an edge on one machine, and the
-# two have different platform contracts: the control-plane role accepts Debian
-# 13+ and Ubuntu 24.04+, while the edge play accepts Ubuntu 26.04 and nothing
-# else. The narrower one is what this command promises, so it is checked here
-# -- before apt, for the same reason --admin-cidr is checked before apt. The
-# alternative is what a Debian host got until now: packages, a virtualenv, an
-# image build and a converged control plane, and then a refusal from a play it
-# had no way to know was coming.
-#
-# `update` and `upgrade` deliberately do not call this. They converge the
-# control plane alone and never reach the edge assert, so refusing to move a
-# host onto a newer release because of the platform it already runs would
-# strand it on the release it is on rather than protect it from anything.
+# The control-plane role accepts Debian 13+ and Ubuntu 24.04+, the edge play
+# only Ubuntu 26.04, and a standalone host is both. `update` and `upgrade`
+# converge the control plane alone, so they do not call this.
 # shellcheck disable=SC1091 # /etc/os-release is the host's, not this repository's
 require_edge_platform() {
   [[ -r /etc/os-release ]] ||
@@ -476,50 +373,14 @@ require_edge_platform() {
 }
 
 # Validate `--allowed-ips` and print the single comma-separated value the role
-# takes, whether the flag was repeated, given a list, or never given at all.
-#
-# Every subcommand that converges the control plane calls this before it
-# changes anything, because the alternative is a host whose services are
-# already stopped discovering the typo. The rules are the three
-# `Settings.validate_allowed_ips` enforces -- IPv4 only, host bits clear, no
-# empty entry -- restated here rather than imported: `update` runs this before
-# it rebuilds the virtualenv the control plane lives in, and `standalone` runs
-# it before that virtualenv exists at all. A test drives the same entries
-# through both and asserts they agree.
+# takes; empty when the flag was not given. Called before anything changes.
 allowed_ips_value() {
-  # `${array[@]+"${array[@]}"}` rather than the plain expansion: under `set -u`
-  # macOS's Bash 3.2 calls an empty array unbound, and this runs on every
-  # `update` whether the flag was given or not.
   local joined='' entry
   for entry in ${parsed_allowed_ips[@]+"${parsed_allowed_ips[@]}"}; do
     joined="${joined:+${joined},}${entry}"
   done
   if [[ -n ${joined} ]]; then
-    python3 - "${joined}" <<'PY'
-import ipaddress
-import sys
-
-for entry in (part.strip() for part in sys.argv[1].split(",")):
-    if not entry:
-        raise SystemExit("error: --allowed-ips entries must be non-empty IPs/CIDRs")
-    try:
-        network = ipaddress.ip_network(entry, strict=False)
-    except ValueError as error:
-        raise SystemExit(f"error: invalid --allowed-ips entry {entry!r}: {error}") from error
-    if network.version != 4:
-        raise SystemExit(
-            f"error: --allowed-ips entry {entry!r} is IPv6; the API "
-            "listens on IPv4 and cannot admit it"
-        )
-    try:
-        ipaddress.ip_network(entry, strict=True)
-    except ValueError:
-        raise SystemExit(
-            f"error: --allowed-ips entry {entry!r} has host bits set. Write "
-            f"'{network}' to admit that whole range, or "
-            f"'{entry.split('/', 1)[0]}/32' to admit only that address"
-        ) from None
-PY
+    check_inputs allowed-ips "${joined}"
   fi
   printf '%s' "${joined}"
 }
@@ -529,8 +390,8 @@ converge_control_plane() {
     "${INSTALL_DIR}/src/blitzecdn/assets/ansible/playbooks/control-plane.yml" "$@"
 }
 
-# Ansible is the only implementation of system teardown. This must finish
-# successfully before the installer removes the checkout containing Ansible.
+# Ansible performs all system teardown, and must succeed before the installer
+# removes the checkout containing it.
 converge_uninstall() {
   local playbook="${INSTALL_DIR}/src/blitzecdn/assets/ansible/playbooks/uninstall.yml"
   local executable="${INSTALL_DIR}/.venv/bin/ansible-playbook"
@@ -541,16 +402,12 @@ converge_uninstall() {
     "error: cannot uninstall: playbook is missing at ${playbook}" \
     "Repair the installation first, then rerun --uninstall."
 
-  # The preconditions are what differ; the run itself is the shared one. Both
-  # callers test the status, so the failure must reach them as a return value
-  # rather than aborting under `set -e`.
+  # Returned rather than aborting under `set -e`: both callers test it.
   local status=0
   run_playbook "${playbook}" || status=$?
   return "${status}"
 }
 
-# The play above owns every system operation. Bash removes only the checkout
-# that contains the now-finished Ansible runtime and its application state.
 remove_installation_directory() {
   rm -rf -- "${INSTALL_DIR}"
 }
@@ -582,7 +439,9 @@ handoff_user_wrapper() {
 # (no arguments) — virtualenv and collections
 # ---------------------------------------------------------------------------
 
-# Build only the runtime that every later handoff needs.
+# Build the runtime every later step needs. `ansible-only` installs Ansible
+# and its dependencies without the BlitzeCDN project, for servers whose
+# application runs in the image.
 bootstrap_runtime() {
   cd -- "${script_dir}"
 
@@ -610,19 +469,8 @@ if sys.version_info[:2] < (3, 12):
     mv -- .venv "${invalid_venv}"
   fi
 
-  # `uv sync` builds exactly the environment uv.lock describes, which is what
-  # makes two servers installed a month apart identical. It also *removes*
-  # anything else in .venv, so every runtime requirement has to be a real
-  # dependency in pyproject.toml — ansible-core included.
-  #
-  # --frozen refuses to re-resolve: a lockfile that does not match pyproject
-  # fails the install rather than quietly installing something nobody tested.
-  #
-  # BLITZECDN_DEV=1 adds the test and lint tooling and makes src/ edits take
-  # effect without reinstalling. Production standalone/update calls use
-  # ansible-only: dependencies still include ansible-core, but the BlitzeCDN
-  # project and its CLI are not installed on the host.
-  #
+  # Exactly what uv.lock describes; --frozen refuses a lockfile that does not
+  # match pyproject.toml. BLITZECDN_DEV=1 adds the dev tooling, editable.
   local -a sync_flags=(--frozen --python "${python_command}")
   if [[ "${BLITZECDN_DEV:-0}" == "1" ]]; then
     "${uv}" sync "${sync_flags[@]}"
@@ -638,27 +486,13 @@ if sys.version_info[:2] < (3, 12):
     die 1 "error: uv did not install the local BlitzeCDN CLI"
   fi
 
-  # Collections go inside the repository rather than ~/.ansible/collections:
-  # src/blitzecdn/assets/ansible/ansible.cfg no longer names it — it can only point inside the wheel
-  # the platform roles ship in — so ANSIBLE_COLLECTIONS_PATH below is the whole
-  # of it. tests/test_contract.py reads whatever
-  # lands here, and a lab machine can hold several checkouts without them
-  # fighting over one global collection path.
+  # Third-party collections, inside the checkout. Exported because ansible.cfg
+  # cannot name a path outside the package; deploys set the same variable.
   local collections_path=.state/collections
-
-  # Exported rather than left to the config file: since the platform's Ansible
-  # moved into the wheel, a relative `collections_path` in src/blitzecdn/assets/ansible/ansible.cfg
-  # would resolve inside site-packages. PlaybookExecutor sets the same variable
-  # from Settings.state_dir on every run, so galaxy installs where deploys look.
   export ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg
   export ANSIBLE_COLLECTIONS_PATH="${collections_path}"
-
-  # Only third-party dependencies now: the BlitzeCDN roles live in
-  # src/blitzecdn/assets/ansible/roles/ and ship inside the wheel, so there is nothing to pin, to
-  # build, or to keep in step with the desired-state contract.
   .venv/bin/ansible-galaxy collection install \
     -r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"
-
 }
 
 cmd_install() {
@@ -707,52 +541,23 @@ cmd_standalone() {
     die 1 "error: clone or copy this release to ${INSTALL_DIR}, then run the installer there"
   cd -- "${script_dir}"
 
-  # Everything up to `converge_control_plane` is bootstrap: the least this host
-  # needs before Ansible can run on it. The operating-system check, the rest of
-  # the packages, accounts, SSH trust, image, Compose project and environment
-  # all belong to the role, which converges them the same way the edge
-  # roles converge an edge.
-  # python3 is the interpreter uv builds the virtualenv around — uv creates the
-  # environment itself, so python3-venv is no longer needed. curl fetches the
-  # pinned uv build when the host has no uv of its own; ca-certificates is what
-  # makes that fetch verifiable at all, and a minimal image can lack it. git is
-  # here because src/blitzecdn/assets/ansible/requirements.yml fetches the edge collection from a Git
-  # ref, and that happens in the default install form below — before the role runs.
+  # The least this host needs before Ansible can run: an interpreter, curl and
+  # CA certificates to fetch uv, and git for the release checkout. Everything
+  # else belongs to the control-plane role.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update
   apt-get install -y ca-certificates curl git python3
 
-  # Validated as soon as there is an interpreter to validate with, and before
-  # the host is converged: a typo then costs a package install rather than a
-  # provisioned server that has to be corrected afterwards. A minimal image may
-  # genuinely have no python3 until the line above installs it.
-  python3 - "${parsed_admin_cidr}" "${parsed_email}" <<'PY'
-import ipaddress
-import sys
-
-try:
-    ipaddress.ip_network(sys.argv[1], strict=False)
-except ValueError as error:
-    raise SystemExit(f"error: invalid --admin-cidr: {error}") from error
-email = sys.argv[2]
-if email.count("@") != 1 or any(char.isspace() for char in email):
-    raise SystemExit("error: --email must be a valid email address")
-PY
-
-  # Same moment and the same reason, now that three subcommands share the
-  # check: before the host is converged, and after the line above has
-  # guaranteed an interpreter to run it with.
+  # Validated as soon as there is an interpreter, before the host converges.
+  check_inputs standalone "${parsed_admin_cidr}" "${parsed_email}"
   local allowed_ips
   allowed_ips=$(allowed_ips_value)
 
-  # This virtualenv supplies Ansible and the host Docker SDK runner. Application
-  # processes are installed into the image built by the role, never the host.
+  # Ansible and its Docker SDK only; the application runs in the role's image.
   bootstrap_runtime ansible-only
 
-  # The role writes the access list into the environment file the API and the
-  # firewall convergence both read, so a first boot is already public and port
-  # 8000 is already open for exactly those sources — no second pass, and no
-  # window in which one half of that agreement is in force without the other.
+  # The access list lands in the environment file the API and the firewall
+  # convergence both read, so they agree from the first boot.
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_acme_email=${parsed_email}" \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
@@ -782,7 +587,7 @@ PY
 }
 
 # ---------------------------------------------------------------------------
-# update — move an installed host onto a newer release
+# update / upgrade — move an installed host onto a newer release
 # ---------------------------------------------------------------------------
 
 usage_update() {
@@ -796,14 +601,11 @@ image, migrate state, and recreate the Compose services on the new release.
 There is nothing to choose. The release line comes from the installed version,
 the target is the newest vMAJOR.MINOR.PATCH tag in that line, and the update
 never crosses a major version and never moves backwards. It leaves the checkout
-detached at that tag, which is what a release installation looks like: a host
-installed from the 6.x branch follows tags from its first update onwards, and a
-later --fresh reinstalls the exact release that was running rather than the
-branch tip. Crossing to the next major is `./install.sh upgrade`.
+detached at that tag, so a later --fresh reinstalls the exact release that was
+running. Crossing to the next major is `./install.sh upgrade`.
 
-Nothing is rewritten that an operator owns. The database, the certificates, the
-inventory, and the API credentials in /etc/blitzecdn all survive — this is the
-non-destructive counterpart to --fresh, which destroys all four.
+The database, the certificates, the inventory, and the API credentials in
+/etc/blitzecdn all survive; --fresh is the destructive counterpart.
 
 Options:
   --yes        Do not ask for confirmation
@@ -819,20 +621,38 @@ schema and immutable image are replaced.
 EOF
 }
 
-# Ask `install_release.py` where this host is going, before anything changes.
-#
-# Release selection is Python, run by the host's own interpreter from the
-# checkout being left: which line the host follows, the newest complete release
-# tag in it, how the installed release is described, and the rules for moving
-# forward or across one major line. Bash keeps only what has to happen around
-# it. Prints the plan as key=value lines; status 1 is a refusal it has already
+usage_upgrade() {
+  cat <<'EOF'
+Usage: ./install.sh upgrade [OPTIONS]
+
+Cross this server onto the next major release line, one line at a time: a v3
+host upgrades to the newest v4, never straight to v5.
+
+It refuses unless the host is already on the newest release of its own line,
+where that line's deprecation notices were published. Run `update` first, and
+check inventories, playbooks and scripts against the target's release notes.
+
+Everything `update` preserves, this preserves. It takes a full backup rather
+than the database alone, and asks you to type the target version.
+
+Options:
+  --yes        Do not ask for confirmation
+  --no-backup  Skip the backup taken before anything changes
+  --allowed-ips LIST
+               Repoint the API access list while upgrading; comma-separated or
+               repeated. Omitted, this upgrade does not touch it.
+EOF
+}
+
+# Check the checkout, fetch, and choose the target with `install_release.py`.
+# Prints the plan as key=value lines; status 1 is a refusal it has already
 # explained, and 3 an update with nothing to do.
 release_plan() {
   python3 -I "${INSTALL_DIR}/src/blitzecdn/host/install_release.py" "$1" \
     --repository "${INSTALL_DIR}"
 }
 
-# Print one value of a release plan.
+# Print one value of a key=value plan.
 plan_field() {
   local key=$1 plan=$2 line
   while IFS= read -r line; do
@@ -844,9 +664,12 @@ plan_field() {
   return 1
 }
 
-confirm_update() {
-  local assume_yes="$1" current="$2" target="$3" commits="$4"
-  cat >&2 <<EOF
+# An update inside a line asks y/N. An upgrade crosses a compatibility boundary
+# and wants the target typed, so the operator has read where they are going.
+confirm_release_move() {
+  local mode="$1" assume_yes="$2" current="$3" target="$4" commits="$5"
+  if [[ ${mode} == update ]]; then
+    cat >&2 <<EOF
 
 Updating the BlitzeCDN control plane on this host:
 
@@ -856,56 +679,8 @@ Updating the BlitzeCDN control plane on this host:
 The containers are stopped, the schema is migrated, and they are recreated on
 the new image. State is preserved; a migration is not reversible.
 EOF
-  [[ ${assume_yes} == 1 ]] && return 0
-  local answer
-  read -r -p "Continue? [y/N]: " answer
-  [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
-}
-
-usage_upgrade() {
-  cat <<'EOF'
-Usage: ./install.sh upgrade [OPTIONS]
-
-Cross this server onto the next major release line.
-
-`update` deliberately never does this: it follows tags inside the line a host
-is already on, so a major arrives only when somebody asks for it. This is that
-asking, and it is one step at a time — a v3 host upgrades to the newest v4 and
-never straight to v5, because each major's deprecations are the release in
-which they can still be read.
-
-It refuses unless the host is already on the newest release of its own line.
-That is not bookkeeping: a deprecation window is the releases between a thing
-being announced and being removed, and a host that jumps out of the middle of
-one has skipped the notices written for it. Run `update` first.
-
-Every name a major took away was in the previous line's release notes, and inventories,
-playbooks, scripts and any third-party wheel are the things to check before
-answering the prompt.
-
-Everything `update` preserves, this preserves. The difference is a full backup
-rather than the database alone — a major may move more than the schema — and a
-confirmation you type the target version into rather than answer y/N.
-
-Options:
-  --yes        Do not ask for confirmation
-  --no-backup  Skip the backup taken before anything changes
-  --allowed-ips LIST
-               Repoint the API access list while upgrading; comma-separated or
-               repeated. Omitted, this upgrade does not touch it.
-EOF
-}
-
-# Ask for the target by name, not for a keystroke.
-#
-# `confirm_update` asks y/N because an update inside a line is the ordinary
-# thing a host does and the answer is usually yes. This is the other kind: it
-# crosses a compatibility boundary, it is not reversible, and the operator
-# should have had to read which version they are going to before agreeing to
-# go there. Typing it is that reading.
-confirm_upgrade() {
-  local assume_yes="$1" current="$2" target="$3" commits="$4"
-  cat >&2 <<EOF
+  else
+    cat >&2 <<EOF
 
 Upgrading the BlitzeCDN control plane across a major release line:
 
@@ -913,124 +688,43 @@ Upgrading the BlitzeCDN control plane across a major release line:
   to    ${target}   (${commits} commits)
 
 A major release is allowed to remove things this host may depend on: Ansible
-variables and role names an inventory sets, CLI commands a script runs, API
-routes a client calls, and names a third-party capability wheel imports. What
-changed is in ${target}'s release notes.
+variables and role names an inventory sets, CLI commands a script runs, and API
+routes a client calls. What changed is in ${target}'s release notes.
 
 The containers are stopped, a full backup is taken, the schema is migrated,
 and they are recreated on the new image. A migration is not reversible: going
 back means restoring the backup.
 EOF
+  fi
   [[ ${assume_yes} == 1 ]] && return 0
   local answer
-  read -r -p "Type ${target} to continue: " answer
-  [[ ${answer} == "${target}" ]] || { echo "Cancelled."; exit 0; }
-}
-
-cmd_upgrade() {
-  [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
-    die 1 "error: run the upgrader from the installation at ${INSTALL_DIR}"
-  [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
-    "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to upgrade from" \
-    "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
-  cd -- "${script_dir}"
-
-  # Checked here, before the fetch and long before the services are stopped: a
-  # typo in the access list has to cost a refused command, not a host left with
-  # its containers down. Empty when the flag was not given, which is the role's
-  # default and means this run leaves the installed list alone.
-  local allowed_ips
-  allowed_ips=$(allowed_ips_value)
-
-  require_upstream_origin >/dev/null
-
-  [[ -z $(repo_git status --porcelain) ]] || die 1 \
-    "error: ${INSTALL_DIR} has local modifications; the upgrade would discard them" \
-    "Commit or discard them, or use --fresh to rebuild from origin."
-
-  echo "Fetching from origin..."
-  repo_git fetch --tags --prune origin ||
-    die 1 "error: could not fetch from origin; nothing was changed"
-
-  # One line at a time, and only from the newest release of this one: the
-  # releases between a deprecation and its removal are the only place the
-  # notice exists. `install_release.py` refuses anything else.
-  local plan target current commits
-  plan=$(release_plan upgrade) || exit 1
-  target=$(plan_field target "${plan}")
-  current=$(plan_field current "${plan}")
-  commits=$(plan_field commits "${plan}")
-
-  confirm_upgrade "${parsed_yes}" "${current}" "${target}" "${commits}"
-
-  # Everything, not just the database. `update` backs up the one thing a
-  # migration can damage; a major is allowed to move more than the schema, and
-  # the restore an operator reaches for after one should not be missing the
-  # certificates because the upgrade was cheaper without them.
-  if [[ ${parsed_no_backup} -eq 1 ]]; then
-    echo "Skipping the backup (--no-backup)."
-  elif [[ -x ${CLI_WRAPPER} ]]; then
-    echo "Backing up the control plane..."
-    "${CLI_WRAPPER}" backup create ||
-      die 1 "error: the backup failed; nothing was changed" \
-        "Fix the failure, or rerun with --no-backup if the data is expendable."
+  if [[ ${mode} == update ]]; then
+    read -r -p "Continue? [y/N]: " answer
+    [[ ${answer} =~ ^[Yy]$ ]] || { echo "Cancelled."; exit 0; }
   else
-    echo "warning: ${CLI_WRAPPER} is missing; skipping the backup" >&2
+    read -r -p "Type ${target} to continue: " answer
+    [[ ${answer} == "${target}" ]] || { echo "Cancelled."; exit 0; }
   fi
-
-  echo "Checking out ${target}..."
-  # The services keep running until the role stops them, immediately before
-  # the schema migration: they run an image, not this checkout.
-  repo_git checkout --quiet "${target}" ||
-    die 1 "error: could not check out ${target}; the services were not stopped —" \
-      "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
-
-  bootstrap_runtime ansible-only
-  converge_control_plane \
-    --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
-
-  echo
-  echo "Upgraded to ${target}; the API and worker are healthy."
 }
 
-cmd_update() {
-
+# The shared body of `update` and `upgrade`. Every refusal happens before the
+# backup; the services keep running until the role stops them, after the image
+# is built.
+move_release() {
+  local mode=$1
   [[ ${script_dir} == "${INSTALL_DIR}" ]] ||
-    die 1 "error: run the updater from the installation at ${INSTALL_DIR}"
+    die 1 "error: run the ${mode}r from the installation at ${INSTALL_DIR}"
   [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
-    "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to update from" \
+    "error: ${INSTALL_DIR} is not a Git checkout; there is nothing to ${mode} from" \
     "Clone the release to ${INSTALL_DIR} and run 'standalone' instead."
   cd -- "${script_dir}"
 
-  # Checked here, before the fetch and long before the services are stopped: a
-  # typo in the access list has to cost a refused command, not a host left with
-  # its containers down. Empty when the flag was not given, which is the role's
-  # default and means this run leaves the installed list alone.
+  # Empty when the flag was not given, which leaves the installed list alone.
   local allowed_ips
   allowed_ips=$(allowed_ips_value)
 
-  # An update fetches code and then runs it as root, exactly as --fresh does,
-  # so it accepts only the upstream repository.
-  require_upstream_origin >/dev/null
-
-  # Local edits would be silently destroyed by the checkout below, and an
-  # operator who has patched a server is the one person who most needs to be
-  # told before that happens.
-  [[ -z $(repo_git status --porcelain) ]] || die 1 \
-    "error: ${INSTALL_DIR} has local modifications; the update would discard them" \
-    "Commit or discard them, or use --fresh to rebuild from origin."
-
-  echo "Fetching from origin..."
-  repo_git fetch --tags --prune origin ||
-    die 1 "error: could not fetch from origin; nothing was changed"
-
-  # There is nothing for an operator to choose here. A host follows its own
-  # release line and the newest tag in it, forward only: crossing a major line
-  # is a migration somebody opts into deliberately, and following a branch tip
-  # would install commits no release was ever cut from. Decided before the
-  # backup, so every refusal about *which* release costs no downtime.
   local plan status=0 target current commits
-  plan=$(release_plan update) || status=$?
+  plan=$(release_plan "${mode}") || status=$?
   if [[ ${status} -eq 3 ]]; then
     printf '%s\n' "${plan}"
     return 0
@@ -1040,58 +734,61 @@ cmd_update() {
   current=$(plan_field current "${plan}")
   commits=$(plan_field commits "${plan}")
 
-  confirm_update "${parsed_yes}" "${current}" "${target}" "${commits}"
+  confirm_release_move "${mode}" "${parsed_yes}" "${current}" "${target}" "${commits}"
 
-  # Before anything is touched, and through the wrapper so it runs as the
-  # image's non-root account against the service environment. The database component
-  # uses VACUUM INTO, so this is safe against a controller that is still
-  # serving. Only the database: an update replaces code, never certificates or
-  # credentials, so a full backup here would cost minutes and protect nothing
-  # this operation can damage.
+  # An update backs up the database, the one thing it can damage; a major may
+  # move more, so an upgrade backs up everything. Through the wrapper, as the
+  # image's account; VACUUM INTO is safe against a serving controller.
+  local backup_label="the database backup" backup_args=(backup create --only database)
+  if [[ ${mode} == upgrade ]]; then
+    backup_label="the backup"
+    backup_args=(backup create)
+  fi
   if [[ ${parsed_no_backup} -eq 1 ]]; then
-    echo "Skipping the database backup (--no-backup)."
+    echo "Skipping ${backup_label} (--no-backup)."
   elif [[ -x ${CLI_WRAPPER} ]]; then
-    echo "Backing up the database..."
-    "${CLI_WRAPPER}" backup create --only database ||
-      die 1 "error: the database backup failed; nothing was changed" \
+    echo "Taking ${backup_label}..."
+    "${CLI_WRAPPER}" "${backup_args[@]}" ||
+      die 1 "error: ${backup_label} failed; nothing was changed" \
         "Fix the failure, or rerun with --no-backup if the data is expendable."
   else
-    echo "warning: ${CLI_WRAPPER} is missing; skipping the database backup" >&2
+    echo "warning: ${CLI_WRAPPER} is missing; skipping ${backup_label}" >&2
   fi
 
+  # Detached at the tag: never a merge, pull, reset or force.
   echo "Checking out ${target}..."
-  # A tag checks out detached, which is what a release installation looks like
-  # and what --fresh reads back to reinstall the same release. Never a merge, a
-  # pull, a reset or a force: an update moves a server forward onto a release it
-  # has already been shown to be behind, or it refuses above.
   repo_git checkout --quiet "${target}" ||
     die 1 "error: could not check out ${target}; the services were not stopped —" \
       "restore with 'git -C ${INSTALL_DIR} checkout ${current}' and rerun"
 
-  # Same two steps a standalone install runs, in the same order and through the
-  # same functions: bootstrap tooling from the new lockfile, then the role,
-  # which owns image build, stopping the services, schema migration, Compose
-  # service recreation, and waiting until both services are healthy. Downtime
-  # starts inside the role, after the image is built.
+  # The same two steps as standalone. The role builds the image, stops the
+  # services, migrates, recreates them and waits until both are healthy.
   bootstrap_runtime ansible-only
   converge_control_plane \
     --extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"
 
   echo
-  echo "Updated to ${target}; the API and worker are healthy."
+  if [[ ${mode} == update ]]; then
+    echo "Updated to ${target}; the API and worker are healthy."
+  else
+    echo "Upgraded to ${target}; the API and worker are healthy."
+  fi
+}
+
+cmd_update() {
+  move_release update
+}
+
+cmd_upgrade() {
+  move_release upgrade
 }
 
 # ---------------------------------------------------------------------------
 # uninstall / fresh — remove every artifact, or wipe and rebuild clean
 # ---------------------------------------------------------------------------
 
-# Everything the two removal paths delete, spelled once.
-#
-# This list is read twice: in `--uninstall --help`, and in the confirmation an
-# operator answers before an irreversible action. Those two drifted while they
-# were separate copies — the help grew the cache and the nginx drop-ins, and
-# the confirmation, the one that actually guards the action, did not. One
-# function means the prompt cannot again understate what is about to happen.
+# Everything the two removal paths delete, read by the help and by the
+# confirmation, so the prompt cannot understate what is about to happen.
 removal_manifest() {
   cat <<'EOF'
   - the installation directory /opt/blitzecdn and everything in it: source,
@@ -1170,8 +867,6 @@ confirm_destructive() {
 }
 
 cmd_uninstall() {
-
-  # The cleanup deletes the directory this file lives in.
   reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC uninstall
 
   confirm_destructive "${parsed_yes}" uninstall
@@ -1184,49 +879,27 @@ cmd_uninstall() {
 }
 
 cmd_fresh() {
-
-  # Same reason as --uninstall, and it shares the guard: --fresh runs that
-  # cleanup before it re-clones.
   reexec_from_private_copy BLITZECDN_UNINSTALL_REEXEC fresh
 
-  # The re-clone needs the origin and the running release, so read them from
-  # the checkout before the cleanup removes it.
   [[ -d ${INSTALL_DIR}/.git ]] || die 1 \
     "error: ${INSTALL_DIR} is not a Git checkout; nothing to reinstall from" \
     "Run --uninstall instead, or clone the release to ${INSTALL_DIR} first."
 
-  local remote_url
-  remote_url=$(require_upstream_origin)
+  # The origin and the running release, read before the teardown deletes the
+  # checkout: a tag or the release branch by name, anything else by commit.
+  local source remote_url revision named_revision
+  source=$(release_plan source) || exit 1
+  remote_url=$(plan_field origin "${source}")
+  revision=$(plan_field revision "${source}")
+  named_revision=$(plan_field named "${source}")
 
-  # Preserve the source identity of the running checkout. An exact release tag
-  # stays on that release, the supported 6.x line stays attached to that branch,
-  # and any other development checkout is pinned to its exact commit. All of
-  # this is read before the cleanup, because the cleanup deletes the checkout.
-  local revision
-  revision=$(repo_git describe --tags --exact-match HEAD 2>/dev/null || true)
-  local named_revision=1
-  if [[ -z ${revision} ]]; then
-    revision=$(repo_git symbolic-ref --quiet --short HEAD 2>/dev/null || true)
-    if [[ ${revision} != "6.x" ]]; then
-      revision=$(repo_git rev-parse HEAD)
-      named_revision=0
-    fi
-  fi
-
-  # Before the confirmation, not after it: a rebuild that cannot reinstall is
-  # a destroyed installation, and this host's platform is knowable now.
+  # Before the confirmation: a rebuild that cannot reinstall is a deletion.
   require_edge_platform
 
   confirm_destructive "${parsed_yes}" fresh
 
-  # Fetch and verify the replacement before destroying the working controller.
-  # A network outage or missing ref must leave the current installation wholly
-  # usable, not turn `--fresh` into a successful uninstall followed by a failed
-  # clone. The staging directory shares /opt with the final checkout, so the
-  # handoff after teardown is a same-filesystem rename.
-  # Registered, so every refusal below simply reports: the staged clone is
-  # removed on the way out whether it was this run's own `die` that ended
-  # things or an abort nobody wrote a handler for.
+  # Stage the replacement before destroying anything, beside the final path so
+  # the handoff is a rename. Registered, so every refusal removes it.
   local staging
   staging=$(temp_path -d "${INSTALL_DIR%/*}/.blitzecdn-fresh.XXXXXX")
   if [[ ${named_revision} -eq 1 ]]; then
@@ -1244,16 +917,13 @@ cmd_fresh() {
   converge_uninstall ||
     die 1 "error: teardown failed; the current checkout remains, but inspect and repair any partially removed host state before retrying"
   remove_installation_directory
-  # The host has no installation from here until the rename lands, so the
-  # staged clone is no longer disposable.
+  # From here the staged clone is the only copy of the release.
   unregister_path "${staging}"
   mv -- "${staging}" "${INSTALL_DIR}" ||
     die 1 "error: teardown succeeded but the staged release remains at ${staging}; move it to ${INSTALL_DIR} and rerun standalone"
 
   echo
   echo "Reinstalling the running release from a clean state..."
-  # `${parsed_forward_args[@]+...}` keeps this legal on bash 3.2 (macOS), where an empty
-  # array expands to an unbound-variable error under `set -u`.
   "${INSTALL_DIR}/install.sh" standalone \
     ${parsed_forward_args[@]+"${parsed_forward_args[@]}"}
 }
@@ -1289,19 +959,15 @@ main() {
   usage=$(command_field "${subcommand}" 2)
   root_label=$(command_field "${subcommand}" 3)
 
-  # Parsing first, so `--help` still answers without sudo. The privileged
-  # commands used to open with their own require_root call; the table says it
-  # once, and says it for a command that forgets to.
+  # Parsing first, so `--help` answers without sudo.
   parse_options "${subcommand}" "${usage}" "$@"
   [[ -z ${root_label} ]] || require_root "${root_label}"
 
-  # No arguments: every cmd_* reads the parsed globals, and passing the
-  # leftovers implied a contract none of them had.
   "cmd_${subcommand}"
 }
 
-# Sourcing this file defines its functions and runs nothing, so the helpers can
-# be exercised directly instead of through a subprocess that provisions a host.
+# Sourcing this file defines its functions and runs nothing, so tests can call
+# the helpers directly.
 if [[ ${BASH_SOURCE[0]} == "$0" ]]; then
   main "$@"
 fi

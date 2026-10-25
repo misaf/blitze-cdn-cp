@@ -156,12 +156,9 @@ def _release_branch() -> str:
 
 
 def test_fresh_preserves_the_running_source_line_like_a_new_server():
+    """Which revision is `install_release.fresh_source`'s; this is how it is used."""
     fresh = _section("fresh")
-    assert "require_upstream_origin" in fresh
-    assert "remote get-url origin" in _function("require_upstream_origin")
-    assert "describe --tags --exact-match HEAD" in fresh
-    assert "symbolic-ref --quiet --short HEAD" in fresh
-    assert f'[[ ${{revision}} != "{_release_branch()}" ]]' in fresh
+    assert fresh.index("release_plan source") < fresh.index("converge_uninstall")
     assert 'git clone --branch "${revision}"' in fresh
     assert "git clone --depth 1" not in fresh
     assert 'git -C "${staging}" checkout --detach "${revision}"' in fresh
