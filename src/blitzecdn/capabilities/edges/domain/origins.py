@@ -1,11 +1,10 @@
 """One edge's answer about one site's origin.
 
-Only the row. The *fleet report* — every edge's answer, read per site — left
-with the play that produces it, into ``blitzecdn-origins``. This shape stayed
-because it has a second producer that runs no play at all: the controller's own
-advisory probe inside certificate preflight, which has to answer in
-milliseconds during issuance. A row type that travelled with the wheel would
-take that probe's return type away from a controller that had detached it.
+Only the row. The *fleet report* — every edge's answer, read per site — belongs
+to ``origins`` with the play that produces it. The row lives here because it
+has a second producer that runs no play at all: the controller's own advisory
+probe inside certificate preflight, which has to answer in milliseconds during
+issuance.
 """
 
 from __future__ import annotations

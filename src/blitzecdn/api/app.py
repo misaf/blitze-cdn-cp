@@ -94,8 +94,7 @@ def create_app(
 
 #: How a failure reaches a client. The projection of core's `FailureKind` onto
 #: this delivery layer; `blitzecdn.cli.main` projects the same kinds onto exit
-#: codes. Both used to classify exceptions themselves and disagreed about the
-#: unmapped case — see `FailureKind`.
+#: codes, so the two cannot disagree about a failure — see `FailureKind`.
 #:
 #: Total over `FailureKind` by construction: `_failure_response` subscripts it,
 #: so a kind added to core without a line here is a `KeyError` the parity test

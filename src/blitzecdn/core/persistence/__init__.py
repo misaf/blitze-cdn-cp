@@ -12,7 +12,7 @@ it lives in `blitzecdn.composition.repository`. Core supplies the database; it
 does not decide who is on it.
 
 Private by construction. An entry layer reaches a store through the port its
-service declared, never through this package, and an installed distribution may
-name exactly one module in here: `persistence.schema`, because a backup records
-the revision it was taken at. Both rules are held in `tests/architecture`.
+service declared, never through this package, and a capability may name
+exactly one module in here: `persistence.schema`, because a backup records the
+revision it was taken at.
 """

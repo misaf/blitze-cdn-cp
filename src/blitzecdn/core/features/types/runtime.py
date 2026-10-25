@@ -32,7 +32,7 @@ class CliCommandGroup:
 
     #: The contributing feature's `FeatureMetadata.name`. Declared rather than
     #: inferred from the callback's `__module__`, which answers where a function
-    #: was *written* and not which wheel ships it — a group whose commands
+    #: was *written* and not which feature ships it — a group whose commands
     #: delegate to a shared helper, or whose callbacks are wrapped, would be
     #: attributed to whoever defined the wrapper. A group belongs to exactly one
     #: feature and so does every command in it, so the group is the honest place

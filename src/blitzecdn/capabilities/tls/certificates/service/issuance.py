@@ -268,7 +268,7 @@ class CertificateService:
         only the record still points at the old mode, which the next issuance
         corrects for free.
 
-        Without them an interrupted issuance left one undifferentiated
+        Without them an interrupted issuance would be one undifferentiated
         NEEDS_REVIEW workflow, which is the same thing recovery says about an
         upload that had already finished.
         """

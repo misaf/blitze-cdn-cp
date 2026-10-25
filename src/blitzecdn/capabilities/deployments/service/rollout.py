@@ -1,14 +1,8 @@
 """Converging a fleet one edge at a time, with the progress written down.
 
-The rollout used to be a single Ansible run with ``serial`` batching and
-``any_errors_fatal`` inside the play. That is a correct policy — canary first,
-stop on the first failure — implemented in a place where it could not be
-resumed: the record of which edges had already converged lived in the run's
-event stream, so a controller that died halfway through came back knowing only
-that a deployment had been abandoned.
-
-The policy is unchanged and has moved out here, where each edge's progress is a
-row. What that buys is in
+The policy is canary first and stop on the first failure, applied here rather
+than by ``serial`` batching inside the play, so each edge's progress is a row
+and a rollout can be resumed. What that buys is in
 :mod:`~blitzecdn.capabilities.deployments.domain.target`; what this module owns
 is the ordering, the fence, and the decision about what a failure means.
 
@@ -145,10 +139,10 @@ class Rollout:
         phases = self._phases(check)
         # The artifact is published once, here, and not once per edge: it is a
         # fact about the deployment rather than about any host, and every edge
-        # in a rollout converges the same bytes. Doing it before the loop is
-        # also what keeps a fleet with no edges registered behaving as it
-        # always did — the desired state for this release still reaches disk,
-        # and an operator can look at what would have been sent.
+        # in a rollout converges the same bytes. Doing it before the loop also
+        # means a fleet with no edges registered still gets this release's
+        # desired state on disk, so an operator can look at what would have
+        # been sent.
         self.publish(release)
 
         last_run: AnsibleRun | None = None

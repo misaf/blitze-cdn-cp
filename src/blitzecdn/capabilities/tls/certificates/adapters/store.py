@@ -91,11 +91,11 @@ class CertificateStore:
             private_key_digest=hashlib.sha256(private_key_pem).hexdigest(),
             email=email,
         )
-        # The chain and key are one logical value. Fixed filenames made two
-        # otherwise-atomic replaces unsafe as a pair: a crash between them left
-        # a new chain beside the old key. Immutable fingerprinted files plus a
-        # metadata commit written last give readers either the complete old
-        # pair or the complete new pair.
+        # The chain and key are one logical value. Fixed filenames would make
+        # two otherwise-atomic replaces unsafe as a pair: a crash between them
+        # would leave a new chain beside the old key. Immutable fingerprinted
+        # files plus a metadata commit written last give readers either the
+        # complete old pair or the complete new pair.
         self._write_version(
             directory / f"fullchain-{info.certificate_digest}.pem", certificate_pem
         )

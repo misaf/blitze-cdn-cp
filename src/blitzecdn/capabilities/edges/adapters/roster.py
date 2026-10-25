@@ -21,8 +21,8 @@ class EdgeRoster:
     Reads the store on every call rather than caching. The whole reason a
     limit is expanded against the database instead of handed to Ansible as a
     pattern is that the answer must come from the rows the inventory plugin is
-    about to read; a roster that remembered an earlier answer would reintroduce
-    exactly the drift the static inventory file had.
+    about to read; a roster that remembered an earlier answer would drift from
+    them.
     """
 
     def __init__(self, edges: EdgeStore) -> None:

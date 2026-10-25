@@ -4,11 +4,11 @@ DeploymentService owns convergence locking, workflow records, and finalization.
 Rollback policy, validation, and reporting live in their respective service
 modules. Validation uses a scratch file without taking the deployment lock.
 
-What this service does *not* do any more is decide what the fleet should serve.
-It asks the releases capability to compile the current state, records the
-identifier it gets back, and publishes that release's artifact — so the
-document Ansible reads is the one the release says it is, and stays readable
-after the run for anyone asking what a deployment actually sent.
+What this service does *not* do is decide what the fleet should serve. It asks
+the releases capability to compile the current state, records the identifier it
+gets back, and publishes that release's artifact — so the document Ansible
+reads is the one the release says it is, and stays readable after the run for
+anyone asking what a deployment actually sent.
 
 Rollback converges an older release and restores the canonical zones, records
 and rules it was compiled from, so reconciliation cannot quietly undo it. See
@@ -242,11 +242,10 @@ class DeploymentService:
     ) -> Deployment:
         """Converge inside a workflow record, whoever asked for the convergence.
 
-        Every path that runs Ansible goes through here, so the durable trace no
-        longer depends on which transport was used. It did: the synchronous
-        path took a workflow and the queued path did not, which left the run
-        that outlives the call that started it — and therefore the one that most
-        needs a record surviving a restart — as the one without a record at all.
+        Every path that runs Ansible goes through here, so the durable trace
+        does not depend on which transport was used — the queued run, which
+        outlives the call that started it, needs a record surviving a restart
+        most of all.
         """
         with self.workflows.run(kind, operator, resource_id) as progress:
             deployment = work()
@@ -586,9 +585,8 @@ class DeploymentService:
         # stories, and they must not be told the same way. Either it failed
         # before running anything — the error says which edge and which phase —
         # or the fleet is empty, and there was genuinely nothing to converge.
-        # The second is a success with an explanation rather than a silent one:
-        # the fleet-wide run this replaced answered "skipping: no hosts
-        # matched" with a zero return code and told nobody.
+        # The second is a success with an explanation rather than a silent
+        # "skipping: no hosts matched" and a zero return code.
         run = outcome.run or aborted_run(
             RuntimeError(
                 outcome.error

@@ -28,10 +28,9 @@ class MaintenanceService:
         """Run one named job, then converge if it left a requirement pending.
 
         The name arrived in a queue message, so it may name a job that no
-        longer exists — a feature uninstalled while its last message was still
-        in flight. That is a `NotFoundError` naming what is installed rather
-        than a `KeyError`, because the operator reading the worker log is the
-        person who uninstalled it.
+        longer exists — a feature removed while its last message was still in
+        flight. That is a `NotFoundError` naming what is installed rather than
+        a `KeyError`, because an operator reads the worker log.
         """
         table = self._jobs
         if job not in table:

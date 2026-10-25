@@ -14,8 +14,8 @@ Loading the features builds no services. The tree has to exist before an
 argument is parsed, and a command resolves its services when it runs — otherwise
 `blitzecdn --help` would require an initialized database.
 
-Importing this module assembles the command tree, exactly as it did when the
-tree was a list of imports: discovery is cheap, and a `blitzecdn.cli.main` that
+Importing this module assembles the command tree: discovery is cheap, and a
+`blitzecdn.cli.main` that
 had been imported but had no commands on it would be a trap for every caller
 that reaches for `app` — the console script, the tests, and `--help`.
 
@@ -72,7 +72,7 @@ __all__ = [
 
 #: How a failure reaches a script. The projection of core's `FailureKind` onto
 #: this delivery layer; `blitzecdn.api.app` projects the same kinds onto status
-#: codes, and neither table classifies exceptions itself any more.
+#: codes, and neither table classifies exceptions itself.
 #:
 #: The distinctions are kept apart deliberately — a conflict is not a bad
 #: request, and a dependency that misbehaved is not a controller that is down.

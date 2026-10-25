@@ -49,9 +49,8 @@ def domain_visitor_headers(
     so the BZ- namespace never carries client input. Trust them at the origin
     only where the origin accepts traffic from BlitzeCDN edges alone.
 
-    BZ-IPCountry needs the 'geoip' capability on this controller — the
-    blitzecdn-geoip distribution — and blitzecdn_geoip_enabled with a
-    country database on the edge. A deploy refuses rather than send an origin a
+    BZ-IPCountry needs the 'geoip' capability, and blitzecdn_geoip_enabled
+    with a country database on the edge. A deploy refuses rather than send an origin a
     header that is silently absent.
 
     Options you do not name are left as they are.

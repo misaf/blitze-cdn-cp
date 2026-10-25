@@ -94,7 +94,7 @@ class Settings(BaseSettings):
     required_capabilities: tuple[str, ...] = ()
     #: Candidate `BLITZE_*` variables that core itself does not consume.
     #:
-    #: The generic answer to "an optional capability needs a credential", and
+    #: The generic answer to "a capability needs a credential", and
     #: the reason core carries no capability's name. Installed features claim
     #: names during composition through `ConfigurationContribution`; unclaimed
     #: and multiply claimed names are errors, and only the resolved *secrets*
@@ -131,8 +131,8 @@ class Settings(BaseSettings):
     #: origin that needs longer than this to answer a bare TCP connect is one
     #: the edges will struggle with too.
     #: The controller's *own* advisory probe budget, inside certificate
-    #: preflight. Not the fleet check's: that one is ``blitzecdn-origins``'
-    #: role default, in that package's wheel.
+    #: preflight. Not the fleet check's: that one is the ``origins`` role's
+    #: default.
     origin_check_timeout_seconds: int = Field(default=5, ge=1, le=60)
     #: How much of a run log to read back when showing an operator why a run
     #: failed. The log itself is never truncated — it is the full account — but
@@ -167,10 +167,10 @@ class Settings(BaseSettings):
     #:
     #: A poll rather than a push, and the interval is what that trade costs: an
     #: idle tick is one indexed SELECT against a local SQLite file, and a queued
-    #: deployment waits at most this long before a worker picks it up. The push
-    #: alternative was a Redis broker — a second network service to run,
-    #: supervise, back up and firewall for a workload of one convergence at a
-    #: time. See docs/decisions/0008-durable-work-on-the-primary-database.md.
+    #: deployment waits at most this long before a worker picks it up. Pushing
+    #: would need a broker — a second network service — for a workload of one
+    #: convergence at a time. See
+    #: docs/decisions/0008-durable-work-on-the-primary-database.md.
     worker_poll_seconds: float = Field(default=1.0, ge=0.05, le=60.0)
     #: How many route handlers may occupy the API's offload pool at once.
     #:
@@ -181,10 +181,8 @@ class Settings(BaseSettings):
     #: balancer while working perfectly.
     #:
     #: Core's, despite a certificate sweep being the standing example of what
-    #: fills it. The pool is API infrastructure rather than one capability's
-    #: setting: a package cannot create an application-scoped resource from a
-    #: registration hook, and an installation with no `blitzecdn-certificates`
-    #: still has the pool and still wants it bounded.
+    #: fills it: the pool is API infrastructure rather than one capability's
+    #: setting.
     #:
     #: Small on purpose: the work it carries serialises on the deployment lock
     #: anyway, so more workers would only queue deeper.

@@ -42,8 +42,8 @@ class OriginCheckService:
         routes, resolver and egress rules are not the ones that carry traffic:
         an origin allow-listing the edges' addresses refuses the controller
         while working perfectly, and one reachable only from the controller's
-        subnet passes and then 502s on every edge. Both were this check
-        reporting confidently on a question nobody asked.
+        subnet passes and then 502s on every edge. Asked from the controller,
+        the check would answer a question nobody asked.
 
         Per edge *and* per site for the same reason. An origin no edge can
         reach is down; one some edges can reach is a routing or allow-list

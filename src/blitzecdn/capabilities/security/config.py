@@ -2,9 +2,7 @@
 
 A capability that needs a setting has to get it from somewhere, and the two
 obvious answers are both wrong. A field on core's ``Settings`` would put the
-name of an optional capability in the model every installation loads, whether
-or not the distribution is attached — which is how ``under_attack_secret`` and
-the MaxMind credentials came to live there. Reading ``os.environ`` directly
+name of one capability in the model core owns. Reading ``os.environ`` directly
 would miss the controller's ``.env``, which core merges and the process never
 exports.
 

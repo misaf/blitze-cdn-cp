@@ -1,6 +1,6 @@
 """Convergence history, and the drift reading of a check-mode run.
 
-A ``Deployment`` is the record: who asked, what snapshot, and — once it has
+A ``Deployment`` is the record: who asked, which release, and — once it has
 finished — the :class:`~blitzecdn.core.domain.runs.AnsibleRun` it produced. A
 ``DriftReport`` is the same run read as a question rather than an instruction.
 """
@@ -49,16 +49,14 @@ class DeploymentStatus(StrEnum):
         return cls.SUCCEEDED if run.status is RunStatus.SUCCEEDED else cls.FAILED
 
 
-#: The states a deployment can finish in. A terminal deployment is a record of
-#: what happened; nothing about it changes again.
 #: The two kinds of journal entry this capability opens, named here because
-#: this is the capability that does the work. They were members of a
-#: `WorkflowKind` enum in the journal itself, beside `certificate` — which is
-#: an optional wheel's work, and the reason the enum could not stay closed
-#: without the journal knowing every capability that might ever keep one.
+#: this is the capability that does the work: the journal keeps no closed list
+#: of every capability that might open an entry.
 DEPLOYMENT_WORKFLOW: WorkflowKind = "deployment"
 ROLLBACK_WORKFLOW: WorkflowKind = "rollback"
 
+#: The states a deployment can finish in. A terminal deployment is a record of
+#: what happened; nothing about it changes again.
 TERMINAL_STATUSES = frozenset(
     {
         DeploymentStatus.SUCCEEDED,
@@ -160,12 +158,10 @@ class Deployment(BaseModel):
     check_mode: bool
     #: The compiled release this run converges, by its short digest.
     #:
-    #: A reference rather than a copy. Every deployment used to carry its own
-    #: serialised desired state, so an hourly drift check wrote a full copy of
-    #: every zone and record whether or not anything had changed, and two runs
-    #: of identical state were two documents nothing said were the same. A
-    #: release is content-addressed, so the same state is the same id — and
-    #: "did anything change since the last deploy" is a string comparison.
+    #: A reference rather than a copy. A release is content-addressed, so the
+    #: same state is the same id — an hourly drift check writes no copy of
+    #: unchanged state, and "did anything change since the last deploy" is a
+    #: string comparison.
     release_id: str
     #: Host pattern this run was narrowed to, or ``None`` for every edge.
     #:
@@ -285,7 +281,7 @@ class DriftReport(BaseModel):
         """Read a recorded check-mode deployment as a drift report.
 
         ``unattempted`` is supplied by the caller rather than taken from the
-        run, because the run no longer knows. A rollout walks the fleet edge by
+        run, because the run does not know. A rollout walks the fleet edge by
         edge and stops at the first failure, so "which edges did this check
         never reach" is a set of rows rather than an inference from one
         result's host list — and a caller reading a stored deployment back has

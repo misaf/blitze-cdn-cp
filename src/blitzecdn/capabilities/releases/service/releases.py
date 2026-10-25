@@ -62,10 +62,10 @@ class ReleaseService:
         self.releases = releases
         self.contributors = contributors
         self.site_checks = site_checks
-        #: What is installed beside this control plane. A sequence captured at
-        #: composition rather than a registry: which wheels are installed
-        #: cannot change inside a process, and a service that could ask again
-        #: would invite a compilation whose inputs moved underneath it.
+        #: What this control plane ships. A sequence captured at composition
+        #: rather than a registry: the features cannot change inside a process,
+        #: and a service that could ask again would invite a compilation whose
+        #: inputs moved underneath it.
         self.capabilities = tuple(capabilities)
         self.allow_empty_sites = allow_empty_sites
         self.uow = uow

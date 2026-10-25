@@ -9,18 +9,11 @@ instead. One field, because that is the Cloudflare shape: the record's
 ``content`` is the origin while the orange cloud is on and the public answer
 the moment it goes off.
 
-The three shapes this has had are worth keeping straight, because each fixed
-the one before it. First a record *was* a site: it carried the whole of
-``SitePolicy``, and a hostname with an A and an AAAA record therefore had two
-policies and two origins for one virtual host, with the deriving code keeping
-whichever it saw first. Then it named a canonical site, which fixed that but
-made publishing a hostname a two-object job. Then it said ``proxied`` and
-carried no address at all, with the origin living on the zone or a rule —
-which split a hostname's origin from its address and forced one shared origin
-per zone. Now it carries its own address again, and ``proxied`` is the on/off
-switch and nothing more. A proxied A and AAAA still cannot disagree about
-policy — neither holds any — but they must agree about where the edge fetches
-from, and validation says so.
+A record holding policy would give a hostname with an A and an AAAA record two
+policies for one virtual host; an origin held only on the zone would force one
+shared origin per zone. So ``proxied`` is the on/off switch and nothing more. A
+proxied A and AAAA cannot disagree about policy — neither holds any — but they
+must agree about where the edge fetches from, and validation says so.
 """
 
 from __future__ import annotations

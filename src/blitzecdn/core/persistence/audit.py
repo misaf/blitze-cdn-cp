@@ -24,8 +24,7 @@ class AuditLog:
     only rows that ever leave are the oldest, dropped to keep the table from
     being the one that fills the disk. Every other table here is bounded by
     something — a deployment prunes its check-mode history, a workflow journal
-    its finished entries — and this one was written on every mutation and never
-    read for removal.
+    its finished entries — and this one is written on every mutation.
     """
 
     def __init__(self, database: Database, retention: int = _DEFAULT_RETENTION) -> None:

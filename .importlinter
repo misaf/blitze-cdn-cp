@@ -76,7 +76,6 @@ forbidden_modules =
     blitzecdn.composition
     blitzecdn.core.ansible
     blitzecdn.core.persistence
-    blitzecdn.core.runtime.broker
     blitzecdn.**.adapters
 allow_indirect_imports = True
 

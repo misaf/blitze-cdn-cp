@@ -1,10 +1,8 @@
 """The material we hold for a site, and the requests that change it.
 
-`preflight.py` beside this is the other half of the docstring this module used
-to carry: what is checked *before* asking a CA for anything. The two never
-reference each other — a preflight report is about DNS and reachability, and a
-certificate is about what came back — which is what made the split obvious once
-the layer became a directory.
+`preflight.py` beside this is what is checked *before* asking a CA for
+anything. The two never reference each other: a preflight report is about DNS
+and reachability, and a certificate is about what came back.
 """
 
 from __future__ import annotations

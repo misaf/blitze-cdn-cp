@@ -8,21 +8,16 @@ layer-first — and it is the only package in this workspace that is:
   naming an implementation;
 * :mod:`~blitzecdn.core.persistence` — the SQLite engine, the physical schema
   and the stores on it, private but for `persistence.schema`;
-* :mod:`~blitzecdn.core.runtime` — subprocesses, files, logging, the broker,
-  and where an installed distribution landed;
+* :mod:`~blitzecdn.core.runtime` — subprocesses, files, logging,
+  and where the installed distribution landed;
 * :mod:`~blitzecdn.core.ansible`, :mod:`~blitzecdn.core.config`,
-  :mod:`~blitzecdn.core.features` — already packages, unchanged;
+  :mod:`~blitzecdn.core.features` — configuration, Ansible execution, and
+  the feature mechanism;
 * :mod:`~blitzecdn.core.exceptions` — the one module every layer may name,
   which is why it is still a file here.
 
-These were nineteen modules in one directory. Nothing was wrong with any of
-them individually; what was wrong is that the architecture tests had to
-enumerate the infrastructure by name — `core.database`, `core.database_engine`,
-`core.database_models`, `core.filesystem`, `core.process`, `core.broker` — to
-say "a capability's domain may not import these". A rule written as a list of
-module names covers the modules somebody remembered, and a new one is
-unguarded until a reviewer notices. The same rules now read
-`blitzecdn.core.persistence` and `blitzecdn.core.runtime`, so a module lands
-inside the rule the moment it is created, and the directory a file goes in is
-the same decision as who may depend on it.
+The import rules name `blitzecdn.core.persistence` and
+`blitzecdn.core.runtime` as packages, so a module lands inside a rule the moment
+it is created, and the directory a file goes in is the same decision as who may
+depend on it.
 """

@@ -289,11 +289,10 @@ def _host_variables(edge):
         "ansible_user": edge["user"],
         "ansible_port": port,
         # The same port the firewall must leave open, published from the one
-        # place that knows it. These were two independently edited settings —
-        # `ansible_port` in the inventory and `blitzecdn_firewall_ssh_port` in
-        # group_vars — and a disagreement between them strands the host: the
-        # firewall closes the port the next converge arrives on, and no later
-        # deploy can reach it to put things back.
+        # place that knows it. Edited separately, `ansible_port` and
+        # `blitzecdn_firewall_ssh_port` could disagree, and that strands the
+        # host: the firewall closes the port the next converge arrives on, and
+        # no later deploy can reach it to put things back.
         "blitzecdn_firewall_ssh_port": port,
     }
     private_key_file = edge["private_key_file"]

@@ -255,13 +255,9 @@ class WorkflowRun(Protocol):
 class Workflows(Protocol):
     """Opening a journal entry, and recovering the ones a restart abandoned.
 
-    Declared rather than imported. `convergence.py` named
-    `core.application.workflows.WorkflowCoordinator` outright, which was legal
-    only while the journal was core's; the moment it became a capability, a
+    Declared rather than imported: the journal is another capability, and a
     service importing another capability's service is the edge the layering
-    rules exist to refuse. `blitzecdn-certificates` has always declared its own
-    — it is on the other side of the packaging boundary and had no choice — so
-    this is the shape the one out-of-tree consumer already proved.
+    rules refuse.
     """
 
     def run(

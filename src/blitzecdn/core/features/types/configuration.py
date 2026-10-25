@@ -31,8 +31,8 @@ class EnvironmentKey:
     a play could start.
 
     `required` is presence, and not the same question as whether the capability
-    is useful — a required key is one whose absence makes the installed package
-    *wrong* rather than idle, and almost every key should leave it alone.
+    is useful — a required key is one whose absence makes the feature *wrong*
+    rather than idle, and almost every key should leave it alone.
     `minimum_bytes` is checked only when a value is present, and is for a value
     whose length is the whole of its validity. Anything richer stays the
     package's to validate.
@@ -71,7 +71,7 @@ class CapabilitySetting:
 
     :class:`EnvironmentKey`'s counterpart. Together they are the whole of what a
     capability may ask an operator to configure, and having both is what keeps
-    an optional capability's configuration off core's ``Settings``.
+    a capability's configuration off core's ``Settings``.
 
     `default` carries the type as well as the value, so a declaration cannot say
     ``int`` and mean ``"2"`` — which is why there is no ``kind`` beside it. A
@@ -99,7 +99,7 @@ class CapabilitySetting:
     #: Almost everything does: an interval, an executable name and a CA
     #: identity are decisions an operator made, and losing them on recovery is
     #: losing configuration. What must not travel is a value describing the
-    #: machine — ``blitzecdn-backup``'s own archive directory is the standing
+    #: machine — ``backup``'s own archive directory is the standing
     #: case, and restoring it would point a rebuilt controller's backups at a
     #: path belonging to the host that died.
     #:

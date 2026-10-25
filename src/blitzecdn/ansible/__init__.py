@@ -2,16 +2,10 @@
 
 The roles that converge an edge, the plays that run them, the dynamic
 inventory plugin that finds the fleet and the shipped non-secret defaults all
-ship *inside this wheel*, beside the Python that asks for them — the same
-contract every optional capability under ``packages/`` already keeps, and for
-the same reason. Installing the distribution brings the deployment
-implementation with it.
-
-Before this module existed, core resolved all of it from ``Settings.project_dir``,
-which made the repository checkout an undeclared runtime dependency of the root
-distribution: ``pip install blitzecdn`` produced a control plane that could
-converge nothing, and the only reason a real controller worked was that
-``install.sh`` and the container image copied the tree in behind it.
+ship *inside this wheel*, beside the Python that asks for them. Installing
+the distribution brings the deployment implementation with it; resolving the
+tree from a repository checkout would make the checkout an undeclared runtime
+dependency, and an installed control plane could converge nothing.
 
 Located through :func:`blitzecdn.core.runtime.resources.package_directory` rather than
 by counting ``..`` from ``__file__``. The difference matters in exactly the
@@ -55,8 +49,8 @@ DECOMMISSION_PLAYBOOK = _DIRECTORY / "playbooks" / "decommission.yml"
 
 #: Not run by the control plane. ``install.sh`` converges the controller's own
 #: host with these two, which is why they are named here rather than left for a
-#: caller to spell: the installer works from an installed distribution, and
-#: after the move there is no checkout for it to find them in.
+#: caller to spell: the installer works from an installed distribution, with
+#: no checkout to find them in.
 CONTROL_PLANE_PLAYBOOK = _DIRECTORY / "playbooks" / "control-plane.yml"
 UNINSTALL_PLAYBOOK = _DIRECTORY / "playbooks" / "uninstall.yml"
 

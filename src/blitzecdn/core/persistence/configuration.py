@@ -1,10 +1,4 @@
-"""Persistence for the fleet-wide Ansible settings core itself owns.
-
-``DeploymentRequirementStore`` was here too, and with it an import of
-``blitzecdn.capabilities.deployments`` — the last thing under ``core`` that
-named a capability at runtime. Both the store and the table it reads are
-``deployments``' own now.
-"""
+"""Persistence for the fleet-wide Ansible settings core itself owns."""
 
 from collections.abc import Mapping
 from typing import Any, cast

@@ -158,12 +158,9 @@ class HostService:
             return
         rule = self.rules.get_rule(domain, rule_name)
         # `model_validate` and not `model_copy`: the latter runs no validators,
-        # so this branch was writing overrides that `Rule` had never agreed to
-        # while the zone branch three lines up was fully checked. One method,
-        # two guarantees, and the unchecked one is the branch an issuer takes
-        # unattended. What it now has to satisfy is `_validate_overrides` —
-        # every key a zone setting, every value one the zone would accept —
-        # which the issuer's own mode and paths do.
+        # and this is the branch an issuer takes unattended. It has to satisfy
+        # `_validate_overrides` — every key a zone setting, every value one the
+        # zone would accept — which the issuer's own mode and paths do.
         self.rules.replace_rule(
             Rule.model_validate(
                 {**rule.model_dump(), "overrides": {**rule.overrides, **changes}}

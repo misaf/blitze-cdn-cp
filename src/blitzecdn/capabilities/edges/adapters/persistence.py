@@ -70,7 +70,7 @@ class EdgeStore:
         row.public_addresses = list(edge.public_addresses)
         row.ssh_sources = list(edge.ssh_sources)
         # `None` survives as NULL rather than becoming `[]`: an edge that has
-        # declared nothing and an edge that declares no optional capability are
+        # declared nothing and an edge that declares no capability are
         # different statements, and only the second should refuse a site.
         row.capabilities = (
             None if edge.capabilities is None else list(edge.capabilities)

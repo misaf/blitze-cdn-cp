@@ -1,9 +1,9 @@
 """The `security` contract\'s switches: the request filter and Under Attack Mode.
 
 Edits fields declared by :mod:`blitzecdn.capabilities.security.policy`. Both
-need an implementation on the fleet — `blitzecdn-security`, and
-`blitzecdn-geoip` for the country rules — and a deploy refuses rather than
-silently serve traffic a rule here was meant to block.
+need an implementation on the edges — the `security` capability, and `geoip`
+for the country rules — and a deploy refuses rather than silently serve
+traffic a rule here was meant to block.
 """
 
 from __future__ import annotations
@@ -99,10 +99,9 @@ def domain_firewall(
 
     Each option replaces its own list; the lists you do not name are kept. That
     differs from the equivalent PATCH on the HTTP API, which replaces the whole
-    block. Country rules need the 'geoip' capability on this controller — the
-    blitzecdn-geoip distribution — and blitzecdn_geoip_enabled with a
-    country database on the edge. A deploy will refuse rather than silently
-    serve the traffic they were meant to block.
+    block. Country rules need the 'geoip' capability, and
+    blitzecdn_geoip_enabled with a country database on the edge. A deploy will
+    refuse rather than silently serve the traffic they were meant to block.
     """
     control = common.services()
     supplied = {

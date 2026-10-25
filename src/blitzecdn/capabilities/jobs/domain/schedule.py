@@ -1,13 +1,8 @@
 """When recurring work is next due, kept where a restart cannot forget it.
 
-The scheduler this replaces was an APScheduler timer in the API process. It
-worked, and it had one property that only shows up on a bad day: the schedule
-lived in memory. A controller that was down over the hour a certificate renewal
-was due came back with the timer reset and simply never ran that firing — the
-job's next chance was a whole interval later, and nothing anywhere recorded
-that one had been missed.
-
-A row fixes that by making "when is this next due" durable. A controller that
+A schedule kept in memory forgets a firing that fell while the controller was
+down: the job's next chance is a whole interval later, and nothing records that
+one was missed. A row makes "when is this next due" durable. A controller that
 starts up and finds a due schedule enqueues it immediately, which is the
 behaviour an operator already assumes they have.
 

@@ -25,11 +25,11 @@ class AuditTrail(Protocol):
 class PlaybookRunner(Protocol):
     """Run one named play across the edges in scope, and report structurally.
 
-    Published as ``CliServices.fleet``, and the only fleet capability an
-    installed distribution is given. Generic on purpose: core stages the
+    Published as ``CliServices.fleet``, and the only fleet primitive a
+    capability is given. Generic on purpose: core stages the
     variables file, expands a host limit against the fleet it records, applies
     the timeout, and learns nothing about what the play is for. A capability
-    that this repository has never heard of runs its own play through exactly
+    runs its own play through exactly
     this method, and one that ships inside it — `cache` — is not privileged.
 
     Takes no deployment lock. Everything reached this way is an operation

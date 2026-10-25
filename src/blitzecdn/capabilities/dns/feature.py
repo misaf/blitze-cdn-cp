@@ -1,10 +1,8 @@
 """Declare zones, their policy, their rules, their records — and what edges get.
 
 The flat site document every edge role reads is rendered by
-:mod:`blitzecdn.capabilities.dns.runtime`. It
-was `sites`' contribution when a site was a thing an operator authored; the
-capability that composes a virtual host is the one that projects it, and that
-is this one.
+:mod:`blitzecdn.capabilities.dns.runtime`: the capability that composes a
+virtual host is the one that projects it.
 """
 
 from __future__ import annotations

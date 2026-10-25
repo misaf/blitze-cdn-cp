@@ -1,9 +1,7 @@
 """`ssl` — run Cloudflare-style Automatic SSL/TLS scans.
 
-Beside the scan it drives, not beside the certificate commands. It was
-`certificates/tls_cli.py`: an Automatic SSL/TLS entry point in the package that
-issues material, reaching `platform.automatic_ssl` from a module that owns
-none of it.
+Beside the scan it drives, not beside the certificate commands: the package
+that issues material owns none of the scan.
 """
 
 from __future__ import annotations

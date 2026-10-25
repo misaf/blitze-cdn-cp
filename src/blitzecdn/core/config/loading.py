@@ -85,7 +85,7 @@ MACHINE_SPECIFIC_ENVIRONMENT_KEYS = frozenset(
     }
 )
 #: Every `BLITZE_*` name core reads for itself. A name here can never be claimed
-#: by an optional package or forwarded as capability configuration.
+#: by a feature or forwarded as capability configuration.
 _CORE_ENVIRONMENT_KEYS = frozenset(
     {
         *(
@@ -108,12 +108,11 @@ _CORE_ENVIRONMENT_KEYS = frozenset(
 def is_portable_config_key(name: str) -> bool:
     """Whether this `blitzecdn.toml` key survives a restore onto a fresh host.
 
-    A predicate rather than the allow-list it replaces, and for exactly the
-    reason :func:`is_portable_environment_key` became one: the list can no
-    longer be written down. An optional capability owns keys in this file now,
-    and a controller may have capabilities installed that this repository has
-    never heard of — so "is it one of ours" is unanswerable, while "does it
-    describe *this machine*" is answerable for every key core owns.
+    A predicate rather than an allow-list, for the reason
+    :func:`is_portable_environment_key` is one: a capability owns its own keys
+    in this file, and core must not name them — so "is it one of ours" is not
+    core's question, while "does it describe *this machine*" is answerable for
+    every key core owns.
 
     A capability's own machine-specific setting is not visible here, because
     core does not know which of them are. It is declared on the setting, as
@@ -126,13 +125,11 @@ def is_portable_config_key(name: str) -> bool:
 def is_portable_environment_key(name: str) -> bool:
     """Whether this environment setting survives a restore onto a fresh host.
 
-    A predicate rather than the allow-list it replaces, because the list can no
-    longer be written down: an optional capability owns its own `BLITZE_*`
-    names, and a controller may have capabilities installed that this
-    repository has never heard of. Naming `BLITZE_MAXMIND_LICENSE_KEY` here to
-    keep it portable would put a capability's name back in core to answer a
-    question core can answer generically — everything but the handful of
-    settings that describe *this machine* is portable.
+    A predicate rather than an allow-list, because a capability owns its own
+    `BLITZE_*` names. Naming `BLITZE_MAXMIND_LICENSE_KEY` here to keep it
+    portable would put a capability's name in core to answer a question core
+    can answer generically — everything but the handful of settings that
+    describe *this machine* is portable.
     """
     return name.startswith("BLITZE_") and name not in MACHINE_SPECIFIC_ENVIRONMENT_KEYS
 
@@ -340,8 +337,8 @@ def _read_capability_environment(env: Mapping[str, str]) -> dict[str, SecretStr]
     than left to `os.environ` in the executor.
 
     The feature resolver interprets ownership, not values. It accepts only
-    names explicitly declared by one installed package and rejects typos,
-    detached-package settings and ownership collisions before a runner is
+    names explicitly declared by one feature and rejects typos, unclaimed
+    settings and ownership collisions before a runner is
     built. Thus collecting candidates here is not a forwarding policy.
 
     Staged as `SecretStr` — including values that will turn out to be ordinary

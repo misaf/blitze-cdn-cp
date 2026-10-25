@@ -63,9 +63,8 @@ def distribution_version(anchor: str) -> str:
 
     Asked of the environment rather than written down in the source, so the
     version a feature reports is the version that was actually installed. There
-    is deliberately no fallback: a distribution that is not installed cannot
-    have been discovered — an optional capability is found through the entry
-    point in its own metadata, which is the same metadata read here — so
+    is deliberately no fallback: the code asking is running from the installed
+    distribution, so
     :exc:`importlib.metadata.PackageNotFoundError` is unreachable in a running
     control plane, and a default would only let a wrong number through in the
     one situation where nobody could tell.

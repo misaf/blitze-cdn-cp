@@ -6,11 +6,8 @@ query reaches, no invariants here that the domain model does not own — and
 Alembic still compares against `Base.metadata`, which these rows register
 themselves in by importing that base.
 
-They sat in `core.persistence.tables` with every other capability's tables,
-which meant the capability that owned the store did not own the table under
-it: adding a column here was an edit to a shared module no slice owned and
-every slice had to change. A table belongs beside the store that reads it, for
-the same reason the wire shapes moved beside the routes that publish them.
+A table belongs beside the store that reads it, so the capability that owns
+a store owns the table under it and adding a column edits no shared module.
 """
 
 from __future__ import annotations

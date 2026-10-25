@@ -40,12 +40,10 @@ class FailureKind(StrEnum):
     """What a failure *is*, named once so every delivery layer agrees.
 
     The CLI and the HTTP API both have to turn an exception into a number an
-    unattended caller can branch on, and both used to carry their own ordered
-    list of exception types to do it. The lists drifted, as two copies of one
-    decision do: an unmapped `BlitzeError` exited 2 — `INVALID_INPUT`, "you
-    typed it wrong" — on the command line while the same error answered 503 —
-    "the service is down, retry" — over HTTP. Both cannot be right, and nothing
-    failed when they disagreed because neither list knew the other existed.
+    unattended caller can branch on. Two lists of exception types would drift,
+    as two copies of one decision do — the same error "you typed it wrong" on
+    the command line and "the service is down, retry" over HTTP — so the kind
+    is decided once, here, and each layer only projects it.
 
     So the taxonomy lives here and the projections live in the delivery layers.
     Core names *what happened*; `blitzecdn.cli.main` decides what exit code says

@@ -14,11 +14,11 @@ they stay the same. Contributions are ordered by feature name, never by the
 order they were registered in, so two controllers with the same features
 installed resolve the same value. A conflict is refused with *both* owners
 named rather than resolved by first-wins, because first-wins here means a
-package silently replacing `blitzecdn_nginx` or an edge loading whichever
-`geoip2` was emitted first. A contribution that names something its own wheel
-does not carry is refused now, with the distribution named, rather than much
-later by Ansible with only the role named — and in the decommission slot, later
-means after the play has begun taking a host apart.
+feature silently replacing `blitzecdn_nginx` or an edge loading whichever
+`geoip2` was emitted first. A contribution that names something its feature
+does not carry is refused now, with the feature named, rather than much later
+by Ansible with only the role named — and in the decommission slot, later means
+after the play has begun taking a host apart.
 
 The package is named after the job rather than after any consumer of it: a
 module called `ansible/roles.py` or `nginx.py` is a name that stops being true
@@ -40,9 +40,8 @@ contribution types in :mod:`blitzecdn.core.features.types`:
 * :mod:`~blitzecdn.core.features.resolution.configuration` — the `BLITZE_*`
   namespace, scoped back to the capability that claimed each name.
 
-The consumers are still Ansible and Nginx; the job is feature composition, so it
-stays with the feature mechanism. Importers see no change: this package's public
-surface is what the module's was, and `blitzecdn.core.features` re-exports it.
+The consumers are Ansible and Nginx; the job is feature composition, so it
+stays with the feature mechanism, and `blitzecdn.core.features` re-exports it.
 
 What none of this does is copy anything. A staging directory would mean the
 roles that actually run are a snapshot of the roles the packages installed,

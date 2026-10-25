@@ -42,11 +42,10 @@ def _rows_affected(result: Result[Any]) -> int:
 class DeploymentStore:
     """Deployment history, and which release each run converged.
 
-    Holds no desired state of its own any more. A deployment names a release,
-    the release is immutable and content-addressed, and the release capability
-    owns both it and the canonical inputs behind it — so this table went from
-    carrying a full copy of every zone and record per row to carrying a
-    sixteen-character reference.
+    Holds no desired state of its own. A deployment names a release, the
+    release is immutable and content-addressed, and the release capability
+    owns both it and the canonical inputs behind it, so a row carries a
+    sixteen-character reference rather than a copy of every zone and record.
     """
 
     def __init__(self, database: Database) -> None:
@@ -90,9 +89,9 @@ class DeploymentStore:
             session.add(row)
             session.flush()
             # Built from the row this call wrote, inside the transaction that
-            # wrote it. Re-reading afterwards was a second transaction, so the
-            # object returned described whatever the table said by then rather
-            # than what was just created.
+            # wrote it. Re-reading afterwards would be a second transaction,
+            # describing whatever the table said by then rather than what was
+            # just created.
             return self._deployment(row)
 
     def save(self, before: Deployment, after: Deployment) -> Deployment:
@@ -213,8 +212,8 @@ class DeploymentStore:
         can still be waiting to execute or resume them.
 
         They are also the ones that accumulate. The drift timer fires hourly
-        and each firing writes a row. They are cheap now that a row names a
-        release rather than embedding one — but they are still a row an hour
+        and each firing writes a row. A row is cheap — it names a release
+        rather than embedding one — but it is still a row an hour
         that says nothing an operator will read. Run-log retention exists for
         the same reason on the same schedule; this is that policy applied to
         the rows.

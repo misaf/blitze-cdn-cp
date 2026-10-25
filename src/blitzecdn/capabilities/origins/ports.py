@@ -19,8 +19,8 @@ from blitzecdn.core.domain.runs import AnsibleRun
 class FleetPlaybooks(Protocol):
     """Run one named play across the edges in scope.
 
-    The single primitive an optional capability borrows from the control
-    plane's Ansible adapter, published as ``ApplicationServices.fleet``. It is
+    The single primitive a capability borrows from the control plane's
+    Ansible adapter, published as ``ApplicationServices.fleet``. It is
     deliberately generic: core stages the variables, expands the host limit
     against the fleet it records, and applies the timeout, and it learns
     nothing about what any particular play is for.

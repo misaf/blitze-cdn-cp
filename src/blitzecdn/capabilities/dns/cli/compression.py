@@ -1,7 +1,7 @@
 """The `compression` contract\'s switch on one zone.
 
 Edits the field declared by :mod:`blitzecdn.capabilities.compression.policy`.
-Whether an edge can actually produce Brotli is `blitzecdn-compression`\'s
+Whether an edge can actually produce Brotli is the `compression` capability\'s
 question, asked at deploy time.
 """
 

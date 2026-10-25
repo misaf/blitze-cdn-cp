@@ -9,9 +9,9 @@ The two QUIC variables are contributed here at their *baseline* — no listener,
 no owner — rather than left out. They are `required: true` in the
 ``blitzecdn_edge`` and ``blitzecdn_nginx`` argument specs, and the desired-state
 document an operator reads should say what the fleet's listener stance is in
-every installation rather than only in the ones that happen to have HTTP/3
-attached. ``blitzecdn-http3`` declares both in its ``overrides`` and replaces
-them when it is installed, which is the same mechanism ``certificates`` uses
+every installation, not only where HTTP/3 is served. The ``http3`` provider
+declares both in its ``overrides`` and replaces them, which is the same
+mechanism ``certificates`` uses
 for the certificate paths ``dns`` projects.
 
 So the document has one shape whichever distributions are present, and the
