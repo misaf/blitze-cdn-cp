@@ -21,7 +21,12 @@ FEATURES = (
         ),
         api_routers=(routes.router,),
         cli_commands=(
-            CliCommandGroup(feature="dns", name="domain", app=cli.domain_app),
+            CliCommandGroup(
+                feature="dns",
+                name="domain",
+                app=cli.domain_app,
+                order=cli.DOMAIN_ORDER,
+            ),
             CliCommandGroup(feature="dns", name="record", app=cli.record_app),
             CliCommandGroup(feature="dns", name="rule", app=cli.rule_app),
             CliCommandGroup(feature="dns", name="dns", app=cli.dns_app),

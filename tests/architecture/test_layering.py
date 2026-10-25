@@ -225,10 +225,10 @@ def test_cross_capability_imports_use_contract_modules():
                 continue
             # HTTP representation reuse belongs to delivery. Concrete
             # runtime implementations are wired only in the composition root.
-            published_response = parts[1:] == ["api", "models"] and _is_entry(path)
-            if (
-                parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES
-                and not published_response
+            # And a command editing a zone's policy changes it through dns.
+            published = parts[1:] in (["api", "models"], ["cli", "editing"])
+            if parts[1] not in _PUBLIC_CROSS_CAPABILITY_MODULES and not (
+                published and _is_entry(path)
             ):
                 offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
     assert offenders == []
@@ -469,21 +469,23 @@ def test_domain_models_do_not_render_adapter_documents():
 #: a declared edge nothing uses any more.
 #:
 # DNS owns zones, records, rules, and their projection. Shared serving values
-# belong to serving; execution modules consume those values directly.
+# belong to serving; execution modules consume those values directly. A
+# capability whose contract a zone carries depends on dns for the commands
+# that edit it under `blitzecdn domain`.
 ALLOWED_CAPABILITY_DEPENDENCIES = {
     "backup": set(),
     "origins": {"edges", "serving"},
     "cache": {"dns", "serving"},
-    "compression": set(),
+    "compression": {"dns"},
     "deployments": {"dns", "edges", "releases", "serving", "workflows"},
     "diagnostics": set(),
     "dns": {"serving"},
     "edges": {"serving"},
-    "http": {"serving"},
+    "http": {"dns", "serving"},
     "jobs": set(),
     "maintenance": {"deployments"},
     "releases": {"dns", "edges", "serving"},
-    "security": {"serving"},
+    "security": {"dns", "serving"},
     "serving": set(),
     # `releases` because certificate collection keeps every version a retained
     # release still names.

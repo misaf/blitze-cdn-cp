@@ -12,13 +12,17 @@ from typing import Annotated
 
 import typer
 
-from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
+from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch, EditFirewall
 from blitzecdn.capabilities.security.contract import SiteFirewall
 from blitzecdn.entrypoints.cli import common
 
+#: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
+#: security settings, so they ship with the capability that owns them.
+domain_commands = typer.Typer()
 
-@domain_app.command("under-attack")
+
+@domain_commands.command("under-attack")
 def domain_under_attack(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     on: Annotated[
@@ -36,15 +40,15 @@ def domain_under_attack(
     capability and a signing secret. A deploy fails rather than ignoring a
     zone whose edge cannot enforce it.
     """
-    zone = _update(name, DomainPatch(under_attack_mode=on))
-    _report(
+    zone = update(name, DomainPatch(under_attack_mode=on))
+    report(
         zone,
         f"Under Attack Mode is now {'enabled' if on else 'disabled'} for {zone.name}.",
         json_output=json_output,
     )
 
 
-@domain_app.command("firewall")
+@domain_commands.command("firewall")
 def domain_firewall(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     allow_source: Annotated[
@@ -126,7 +130,7 @@ def domain_firewall(
         len(getattr(zone.policy.security.firewall, f))
         for f in SiteFirewall.model_fields
     )
-    _report(
+    report(
         zone,
         f"{zone.name} now carries {rules} firewall rule(s)."
         if rules

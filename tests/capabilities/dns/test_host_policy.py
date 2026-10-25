@@ -1,8 +1,9 @@
 import ast
+import inspect
 import re
+from pathlib import Path
 
 import pytest
-from paths import SOURCE
 from policy_support import (
     TEST_CERTIFICATE_VERSION,
     domain_from_settings,
@@ -11,6 +12,7 @@ from policy_support import (
 from pydantic import ValidationError
 
 from blitzecdn.capabilities.cache.contract import CacheQueryStringMode
+from blitzecdn.capabilities.dns.cli import domain_app
 from blitzecdn.capabilities.dns.domain import (
     DnsRecord,
     Domain,
@@ -772,8 +774,17 @@ def test_every_patchable_field_can_be_reached_from_the_command_line():
     see; a field no command mentions at all is the failure that actually
     happened, and it is worth one cheap assertion.
     """
+    # The group as assembled, because its commands ship in five capabilities
+    # and a sixth that joins it is covered without being listed here.
+    from blitzecdn.entrypoints.cli import main  # noqa: F401 - assembles the group
+
+    paths = {
+        Path(inspect.getfile(command.callback))
+        for command in domain_app.registered_commands
+        if command.callback is not None
+    }
     named: set[str] = set()
-    for path in (SOURCE / "capabilities/dns/cli").glob("*.py"):
+    for path in sorted(paths):
         for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
             if isinstance(node, ast.keyword) and node.arg:
                 named.add(node.arg)

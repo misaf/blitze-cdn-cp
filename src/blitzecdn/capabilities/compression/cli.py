@@ -12,12 +12,16 @@ from typing import Annotated
 import typer
 
 from blitzecdn.capabilities.compression.contract import CompressionMode
-from blitzecdn.capabilities.dns.cli.app import _report, _update, domain_app
+from blitzecdn.capabilities.dns.cli.editing import report, update
 from blitzecdn.capabilities.dns.domain import DomainPatch
 from blitzecdn.entrypoints.cli import common
 
+#: Joined to `blitzecdn domain`, which dns founds: these edit the zone's
+#: compression settings, so they ship with the capability that owns them.
+domain_commands = typer.Typer()
 
-@domain_app.command("compression")
+
+@domain_commands.command("compression")
 def domain_compression(
     name: Annotated[str, typer.Argument(help="Zone, e.g. example.com.")],
     mode: Annotated[
@@ -36,8 +40,8 @@ def domain_compression(
     edge compressing; a response the origin already compressed is still passed
     through, because nginx never re-encodes an encoded body.
     """
-    zone = _update(name, DomainPatch(compression=mode))
-    _report(
+    zone = update(name, DomainPatch(compression=mode))
+    report(
         zone,
         f"{zone.name} edge compression is now "
         f"{zone.policy.compression.compression.value!r}.",

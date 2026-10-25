@@ -79,10 +79,9 @@ def test_core_knows_no_kind_of_firewall_rule():
 #: * `api/models.py` holds the published *resource* shapes, which restate the
 #:   fields rather than re-export the contract, because what a client is
 #:   shown is a decision separate from what a policy happens to hold;
-#: * `dns/cli/security.py` carries `blitzecdn domain firewall`, and is only the
-#:   commands for that one contract — it was the whole 572-line `sites/cli.py`,
-#:   which meant every unrelated command shared an exemption written for two of
-#:   them;
+#: * `security/cli.py` carries `blitzecdn domain firewall` beside the contract
+#:   it edits. It was the whole 572-line `sites/cli.py` once, which meant every
+#:   unrelated command shared an exemption written for two of them;
 #: * `dns/domain/commands.py` names the editable lists to express selective
 #:   firewall intent. Validation vocabulary stays in the security contract;
 #: `sites/domain.py` used to be a fourth entry, permitted to name the two
@@ -93,7 +92,7 @@ def test_core_knows_no_kind_of_firewall_rule():
 _FIREWALL_AWARE_MODULES: dict[str, frozenset[str] | None] = {
     "capabilities/security/contract.py": None,
     "capabilities/dns/api/models.py": None,
-    "capabilities/dns/cli/security.py": None,
+    "capabilities/security/cli.py": None,
     "capabilities/dns/domain/commands.py": _firewall_rule_kinds(),
 }
 

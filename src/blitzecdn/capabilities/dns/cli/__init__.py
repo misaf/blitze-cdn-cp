@@ -1,27 +1,22 @@
 """`domain`, `record`, `rule` and `dns` — the zone editor's command groups.
 
-A directory rather than a file because the `domain` group is nineteen commands
-across seven capabilities' contracts. In one module they share every exemption
-written for any of them — a firewall exemption written for two commands
-covering seventeen that never needed it — so the split is by the contract each
-command edits, which is what keeps an exemption specific to the commands that
-earned it.
+dns founds the `domain` group but ships only the commands about the zone
+itself and the visitor headers serving owns. A command that edits another
+capability's contract — `domain cache`, `domain ssl`, `domain firewall` — is
+contributed by that capability and joins the group at registration, so an
+exemption written for one contract's commands covers those and no others.
 
-`_HELP_ORDER` below is the reading order of the `domain` group, and a command
-missing from it is an import error rather than a command sorted quietly to the
-end. The failure it prevents is a command that works but that nobody reading
-`--help` finds in the group it belongs to.
+`DOMAIN_ORDER` below is the reading order of the whole group, contributed
+commands included. A command missing from it refuses to start the command
+line rather than being sorted quietly to the end, because a command that works
+but that nobody reading `--help` finds where it belongs is the failure it
+prevents.
 """
 
 from blitzecdn.capabilities.dns.cli import (  # noqa: F401 - registration
-    cache,
-    compression,
     headers,
-    http,
     record,
     rule,
-    security,
-    tls,
     zone,
 )
 from blitzecdn.capabilities.dns.cli.app import (
@@ -31,11 +26,11 @@ from blitzecdn.capabilities.dns.cli.app import (
     rule_app,
 )
 
-__all__ = ["dns_app", "domain_app", "record_app", "rule_app"]
+__all__ = ["DOMAIN_ORDER", "dns_app", "domain_app", "record_app", "rule_app"]
 
 #: The zone itself first, then the contracts, roughly outermost to innermost:
 #: how it is reached, how it is secured, what it caches, what it sends on.
-_HELP_ORDER = (
+DOMAIN_ORDER = (
     "add",
     "list",
     "hosts",
@@ -56,26 +51,3 @@ _HELP_ORDER = (
     "visitor-headers",
     "firewall",
 )
-
-
-def _order_commands() -> None:
-    """Put the group in reading order, and refuse to import if one is missing."""
-    registered = {
-        # `name` is optional to typer — a command that omits it is published
-        # under its function name — so an unnamed one has to be reported as
-        # something rather than skipped past.
-        command.name or getattr(command.callback, "__name__", "<unnamed>"): command
-        for command in domain_app.registered_commands
-    }
-    unlisted = sorted(name for name in registered if name not in _HELP_ORDER)
-    if unlisted:
-        raise RuntimeError(
-            "every `domain` command must be placed in _HELP_ORDER; these are "
-            "not: " + ", ".join(unlisted)
-        )
-    domain_app.registered_commands = [
-        registered[name] for name in _HELP_ORDER if name in registered
-    ]
-
-
-_order_commands()

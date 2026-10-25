@@ -28,6 +28,13 @@ class CliCommandGroup:
     commands are root commands — `deploy`, `plan`, `rollback`, `drift` are
     verbs an operator types directly, and nesting them under a noun to satisfy
     the registration mechanism would be the mechanism dictating the interface.
+
+    `extends` joins the commands to a group another feature founded under the
+    same name, rather than founding it. `blitzecdn domain` is one noun an
+    operator types, but `domain cache` edits the cache contract and belongs to
+    the capability that owns it; the founding group sets the help text and,
+    through `order`, the reading order every contributed command must take a
+    place in.
     """
 
     #: The contributing feature's `FeatureMetadata.name`. Declared rather than
@@ -40,6 +47,20 @@ class CliCommandGroup:
     feature: str
     name: str | None
     app: Typer
+    extends: bool = False
+    #: The founding group's commands by name, in `--help` order. Empty means
+    #: registration order; otherwise a command missing from it is a startup
+    #: failure rather than one sorted quietly to the end of the group.
+    order: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.extends and self.name is None:
+            raise ValueError("a group that extends another has to name it")
+        if self.extends and self.order:
+            raise ValueError(
+                f"{self.feature} extends {self.name!r}; only the group that "
+                "founded it sets its order"
+            )
 
 
 @dataclass(frozen=True, slots=True)

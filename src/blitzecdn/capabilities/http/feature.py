@@ -25,7 +25,8 @@ before any of this is rendered.
 from __future__ import annotations
 
 from blitzecdn import __version__
-from blitzecdn.core.features import Feature, FeatureMetadata
+from blitzecdn.capabilities.http import cli
+from blitzecdn.core.features import CliCommandGroup, Feature, FeatureMetadata
 
 FEATURES = (
     Feature(
@@ -33,6 +34,14 @@ FEATURES = (
             name="http",
             version=__version__,
             summary="Baseline visitor HTTP/1.1 and HTTP/2, and the listener contract.",
+        ),
+        cli_commands=(
+            CliCommandGroup(
+                feature="http",
+                name="domain",
+                app=cli.domain_commands,
+                extends=True,
+            ),
         ),
     ),
 )

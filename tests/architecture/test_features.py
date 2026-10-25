@@ -38,6 +38,7 @@ from blitzecdn.core.features import (
     AnsibleContribution,
     CapabilityConfig,
     CliCommandGroup,
+    Feature,
     FeatureMetadata,
     FeatureOperations,
     FeatureRegistry,
@@ -52,6 +53,7 @@ from blitzecdn.core.features import (
     load_features,
     merge_variables,
 )
+from blitzecdn.entrypoints.cli.main import register_commands
 from blitzecdn.providers.http3.wiring import RENDERING as HTTP3_RENDERING
 
 #: The capability features, without the focused providers. A registry missing
@@ -570,6 +572,82 @@ def test_a_command_group_names_the_subcommand_it_appears_under():
     group = CliCommandGroup(feature="waf", name="waf", app=Typer())
 
     assert group.name == "waf"
+
+
+def _registry(*groups: CliCommandGroup) -> FeatureRegistry:
+    return FeatureRegistry(
+        [
+            Feature(
+                metadata=FeatureMetadata(name=f"f{index}", version="1.0"),
+                cli_commands=(group,),
+            )
+            for index, group in enumerate(groups)
+        ]
+    )
+
+
+def _verbs(*names: str) -> Typer:
+    app = Typer()
+    for name in names:
+        app.command(name)(lambda: None)
+    return app
+
+
+def test_an_extending_group_joins_the_founder_in_its_declared_order():
+    founder = _verbs("add", "show")
+    root = Typer()
+    registry = _registry(
+        CliCommandGroup(feature="waf", name="zone", app=_verbs("cache"), extends=True),
+        CliCommandGroup(
+            feature="dns", name="zone", app=founder, order=("add", "cache", "show")
+        ),
+    )
+
+    register_commands(registry, root)
+    register_commands(registry, root)
+
+    assert [command.name for command in founder.registered_commands] == [
+        "add",
+        "cache",
+        "show",
+    ]
+    assert len(root.registered_groups) == 2
+
+
+def test_a_command_the_founder_did_not_place_refuses_to_start():
+    registry = _registry(
+        CliCommandGroup(feature="dns", name="zone", app=_verbs("add"), order=("add",)),
+        CliCommandGroup(feature="waf", name="zone", app=_verbs("waf"), extends=True),
+    )
+
+    with pytest.raises(FeatureError, match="waf"):
+        register_commands(registry, Typer())
+
+
+def test_extending_a_group_nobody_founds_is_refused():
+    registry = _registry(
+        CliCommandGroup(feature="waf", name="zone", app=_verbs("waf"), extends=True)
+    )
+
+    with pytest.raises(FeatureError, match="no installed feature founds"):
+        register_commands(registry, Typer())
+
+
+def test_two_features_cannot_found_one_group():
+    registry = _registry(
+        CliCommandGroup(feature="dns", name="zone", app=Typer()),
+        CliCommandGroup(feature="waf", name="zone", app=Typer()),
+    )
+
+    with pytest.raises(FeatureError, match="both found"):
+        register_commands(registry, Typer())
+
+
+def test_only_the_founding_group_sets_the_order():
+    with pytest.raises(ValueError, match="only the group that founded it"):
+        CliCommandGroup(
+            feature="waf", name="zone", app=Typer(), extends=True, order=("a",)
+        )
 
 
 def test_a_contribution_into_a_shared_namespace_says_who_contributed_it():

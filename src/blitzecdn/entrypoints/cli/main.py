@@ -24,12 +24,14 @@ that reaches for `app` — the console script, the tests, and `--help`.
 
 from __future__ import annotations
 
+from typing import cast
+
 import typer
 from pydantic import ValidationError
 
 from blitzecdn.core.config import Settings
-from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
-from blitzecdn.core.features import FeatureRegistry
+from blitzecdn.core.exceptions import BlitzeError, FailureKind, FeatureError, classify
+from blitzecdn.core.features import CliCommandGroup, FeatureRegistry
 from blitzecdn.entrypoints.cli import common, configuration, setup
 from blitzecdn.entrypoints.cli.common import ExitCode, emit, services, settings
 from blitzecdn.entrypoints.cli.root import app, main
@@ -43,12 +45,67 @@ def register_commands(registry: FeatureRegistry, root: typer.Typer = app) -> Non
     A group with no name contributes root-level verbs — `deploy`, `plan`,
     `status` — by handing over its commands rather than nesting them under a
     noun invented to satisfy the registration mechanism.
+
+    A group that `extends` another hands its commands to the group founded
+    under that name, whichever feature registered first.
     """
-    for group in registry.cli_commands():
+    groups = registry.cli_commands()
+    founders: dict[str, CliCommandGroup] = {}
+    for group in groups:
         if group.name is None:
             root.registered_commands.extend(group.app.registered_commands)
-        else:
+        elif not group.extends:
+            if group.name in founders:
+                raise FeatureError(
+                    f"{founders[group.name].feature} and {group.feature} both "
+                    f"found the command group {group.name!r}"
+                )
+            founders[group.name] = group
             root.add_typer(group.app, name=group.name)
+    for group in groups:
+        if not group.extends:
+            continue
+        founder = founders.get(cast(str, group.name))
+        if founder is None:
+            raise FeatureError(
+                f"{group.feature} extends the command group {group.name!r}, "
+                "which no installed feature founds"
+            )
+        # Idempotent, because the groups are module-level Typer instances and
+        # a second registry over the same features must not double them.
+        commands = founder.app.registered_commands
+        commands.extend(
+            command
+            for command in group.app.registered_commands
+            if command not in commands
+        )
+    for founder in founders.values():
+        if founder.order:
+            _order_commands(founder)
+
+
+def _order_commands(group: CliCommandGroup) -> None:
+    """Put a group in its declared order, and refuse one with a command unplaced.
+
+    The failure it prevents is a command that works but that nobody reading
+    `--help` finds where it belongs.
+    """
+    registered = {
+        # `name` is optional to typer — a command that omits it is published
+        # under its function name — so an unnamed one has to be reported as
+        # something rather than skipped past.
+        command.name or getattr(command.callback, "__name__", "<unnamed>"): command
+        for command in group.app.registered_commands
+    }
+    unlisted = sorted(name for name in registered if name not in group.order)
+    if unlisted:
+        raise FeatureError(
+            f"every {group.name!r} command must be placed in the order "
+            f"{group.feature} declares for it; these are not: {', '.join(unlisted)}"
+        )
+    group.app.registered_commands = [
+        registered[name] for name in group.order if name in registered
+    ]
 
 
 register_commands(common.installed_features())
