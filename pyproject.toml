@@ -164,7 +164,7 @@ files = ["src", "tests/*.py", "tests/capabilities/cache/cache_support.py", "test
 # contract test runs the real `ansible-inventory` against a real database and
 # compares it to what the model renders.
 [[tool.mypy.overrides]]
-module = "blitzecdn.ansible.plugins.inventory.*"
+module = "blitzecdn.assets.ansible.plugins.inventory.*"
 ignore_errors = true
 
 # ansible-core publishes no type information. The edge renderer drives its

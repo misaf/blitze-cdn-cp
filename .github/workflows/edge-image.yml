@@ -16,7 +16,7 @@ name: Edge image
 "on":
   pull_request:
     paths:
-      - src/blitzecdn/docker/edge/**
+      - src/blitzecdn/assets/docker/edge/**
       # A capability declares the dynamic modules it needs in its plugin
       # module, and the image is built from that declaration — so a package
       # that adds one changes this image without touching the build context.
@@ -30,7 +30,7 @@ name: Edge image
     # that opens its branch, not on the first deploy that cannot pull.
     branches: [3.x, 4.x, 5.x]
     paths:
-      - src/blitzecdn/docker/edge/**
+      - src/blitzecdn/assets/docker/edge/**
       - src/blitzecdn/**/provider.py
       - .github/workflows/edge-image.yml
     tags: ['v*.*.*']
@@ -96,7 +96,7 @@ jobs:
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
-          context: src/blitzecdn/docker/edge
+          context: src/blitzecdn/assets/docker/edge
           # amd64 and arm64, because an edge fleet is rarely one architecture
           # and the official Alpine image and module builds support both.
           platforms: linux/amd64,linux/arm64

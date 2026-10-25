@@ -251,7 +251,7 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         root / "opt/blitzecdn/.state/ansible-local",
         root / "opt/blitzecdn/.venv/bin/python",
         root / "opt/blitzecdn/.venv/bin/ansible-playbook",
-        root / "opt/blitzecdn/src/blitzecdn/ansible/playbooks/uninstall.yml",
+        root / "opt/blitzecdn/src/blitzecdn/assets/ansible/playbooks/uninstall.yml",
         root / "opt/blitzecdn/log/run.log",
         root / "etc/blitzecdn/firewall-rules",
         root / "etc/blitzecdn/control-plane.compose.yml",

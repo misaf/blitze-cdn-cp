@@ -15,7 +15,7 @@ import dns.resolver
 import typer
 import uvicorn
 
-from blitzecdn import ansible as core_ansible
+from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.core.features import (
     CapabilitySetting,
     EnvironmentKey,

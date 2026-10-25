@@ -398,7 +398,7 @@ def test_every_command_uses_the_shared_option_parser():
 
 def test_the_control_plane_image_installs_the_single_application():
     dockerfile = (
-        REPO_ROOT / "src/blitzecdn/docker/control-plane/Dockerfile"
+        REPO_ROOT / "src/blitzecdn/assets/docker/control-plane/Dockerfile"
     ).read_text()
     code = "\n".join(
         line for line in dockerfile.splitlines() if not line.lstrip().startswith("#")

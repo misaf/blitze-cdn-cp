@@ -58,7 +58,7 @@ def test_a_roles_variables_carry_its_name():
     list should be a decision: it is the interface between roles, and every
     name on it is one more thing two roles have to agree about.
     """
-    roots = [(SOURCE / "ansible" / "roles", "blitzecdn")]
+    roots = [(CORE_ANSIBLE / "roles", "blitzecdn")]
     roots += [
         (roles, "")
         for roles in SOURCE.rglob("ansible/roles")
@@ -94,7 +94,7 @@ def test_a_roles_variables_carry_its_name():
 #: The repository-level Ansible tree, which is the platform's and nobody
 #: else's: the base host, the container engine, the firewall, the edge runtime
 #: contract, `blitzecdn_nginx`, and the slot the installed capabilities fill.
-CORE_ANSIBLE = REPO_ROOT / "src/blitzecdn/ansible"
+CORE_ANSIBLE = REPO_ROOT / "src/blitzecdn/assets/ansible"
 
 
 #: Words that name an optional capability's *implementation* rather than a

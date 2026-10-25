@@ -432,7 +432,7 @@ run_playbook() {
   # collections at all and stopped at the first `community.docker` task, which
   # is the one that removes the edge's containers: the host was left with a
   # running edge and an installer that had reported it could not continue.
-  ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/ansible/ansible.cfg" \
+  ANSIBLE_CONFIG="${INSTALL_DIR}/src/blitzecdn/assets/ansible/ansible.cfg" \
     ANSIBLE_COLLECTIONS_PATH="${INSTALL_DIR}/.state/collections" \
     ANSIBLE_LOCAL_TEMP="${ansible_tmp}" \
     "${INSTALL_DIR}/.venv/bin/ansible-playbook" -i localhost, "${playbook}" "$@"
@@ -526,13 +526,13 @@ PY
 
 converge_control_plane() {
   run_playbook \
-    "${INSTALL_DIR}/src/blitzecdn/ansible/playbooks/control-plane.yml" "$@"
+    "${INSTALL_DIR}/src/blitzecdn/assets/ansible/playbooks/control-plane.yml" "$@"
 }
 
 # Ansible is the only implementation of system teardown. This must finish
 # successfully before the installer removes the checkout containing Ansible.
 converge_uninstall() {
-  local playbook="${INSTALL_DIR}/src/blitzecdn/ansible/playbooks/uninstall.yml"
+  local playbook="${INSTALL_DIR}/src/blitzecdn/assets/ansible/playbooks/uninstall.yml"
   local executable="${INSTALL_DIR}/.venv/bin/ansible-playbook"
   [[ -x ${executable} ]] || die 1 \
     "error: cannot uninstall: Ansible is missing at ${executable}" \
@@ -639,7 +639,7 @@ if sys.version_info[:2] < (3, 12):
   fi
 
   # Collections go inside the repository rather than ~/.ansible/collections:
-  # src/blitzecdn/ansible/ansible.cfg no longer names it — it can only point inside the wheel
+  # src/blitzecdn/assets/ansible/ansible.cfg no longer names it — it can only point inside the wheel
   # the platform roles ship in — so ANSIBLE_COLLECTIONS_PATH below is the whole
   # of it. tests/test_contract.py reads whatever
   # lands here, and a lab machine can hold several checkouts without them
@@ -647,17 +647,17 @@ if sys.version_info[:2] < (3, 12):
   local collections_path=.state/collections
 
   # Exported rather than left to the config file: since the platform's Ansible
-  # moved into the wheel, a relative `collections_path` in src/blitzecdn/ansible/ansible.cfg
+  # moved into the wheel, a relative `collections_path` in src/blitzecdn/assets/ansible/ansible.cfg
   # would resolve inside site-packages. PlaybookExecutor sets the same variable
   # from Settings.state_dir on every run, so galaxy installs where deploys look.
-  export ANSIBLE_CONFIG=src/blitzecdn/ansible/ansible.cfg
+  export ANSIBLE_CONFIG=src/blitzecdn/assets/ansible/ansible.cfg
   export ANSIBLE_COLLECTIONS_PATH="${collections_path}"
 
   # Only third-party dependencies now: the BlitzeCDN roles live in
-  # src/blitzecdn/ansible/roles/ and ship inside the wheel, so there is nothing to pin, to
+  # src/blitzecdn/assets/ansible/roles/ and ship inside the wheel, so there is nothing to pin, to
   # build, or to keep in step with the desired-state contract.
   .venv/bin/ansible-galaxy collection install \
-    -r src/blitzecdn/ansible/requirements.yml -p "${collections_path}"
+    -r src/blitzecdn/assets/ansible/requirements.yml -p "${collections_path}"
 
 }
 
@@ -716,7 +716,7 @@ cmd_standalone() {
   # environment itself, so python3-venv is no longer needed. curl fetches the
   # pinned uv build when the host has no uv of its own; ca-certificates is what
   # makes that fetch verifiable at all, and a minimal image can lack it. git is
-  # here because src/blitzecdn/ansible/requirements.yml fetches the edge collection from a Git
+  # here because src/blitzecdn/assets/ansible/requirements.yml fetches the edge collection from a Git
   # ref, and that happens in the default install form below — before the role runs.
   export DEBIAN_FRONTEND=noninteractive
   apt-get update

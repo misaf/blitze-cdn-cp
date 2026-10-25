@@ -5,7 +5,7 @@
   become: true
   gather_facts: true
   vars:
-    # Built from src/blitzecdn/docker/edge/ by the integration script and loaded into this
+    # Built from src/blitzecdn/assets/docker/edge/ by the integration script and loaded into this
     # host's engine, so the test proves the image this repository produces
     # rather than whatever the registry currently publishes.
     blitzecdn_edge_image: blitzecdn-edge:integration

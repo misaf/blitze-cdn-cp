@@ -1,7 +1,7 @@
 # Edge contract tests
 
 What the control plane emits, checked against what the edge roles under
-`src/blitzecdn/ansible/roles/` declare and render. Every assertion here is
+`src/blitzecdn/assets/ansible/roles/` declare and render. Every assertion here is
 about the boundary between the two, not either side alone.
 
 | Module | Boundary |

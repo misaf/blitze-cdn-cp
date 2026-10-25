@@ -249,7 +249,8 @@ def test_the_pinned_edge_image_names_this_release():
     fleet = yaml.safe_load(
         (
             REPO_ROOT
-            / "src/blitzecdn/ansible/inventory/group_vars/blitzecdn_edges/defaults.yml"
+            / "src/blitzecdn/assets/ansible"
+            / "inventory/group_vars/blitzecdn_edges/defaults.yml"
         ).read_text()
     )
     assert fleet["blitzecdn_edge_image_tag"] == version, (

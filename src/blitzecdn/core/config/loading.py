@@ -29,7 +29,7 @@ from pydantic_settings import (
     TomlConfigSettingsSource,
 )
 
-from blitzecdn import ansible as core_ansible
+from blitzecdn.assets import ansible as core_ansible
 from blitzecdn.core.exceptions import ConfigurationError
 
 if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime

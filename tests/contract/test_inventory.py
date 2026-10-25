@@ -5,7 +5,7 @@ inventory plugin, which reads that table directly at the start of every run —
 so there is no file to keep in step, and nothing here writes one.
 
 What is left to check is the seam the plugin sits on, and it is a real seam:
-the plugin ships in `src/blitzecdn/ansible/plugins/inventory/`, runs inside
+the plugin ships in `src/blitzecdn/assets/ansible/plugins/inventory/`, runs inside
 `ansible-playbook` under whatever interpreter that is, and cannot import
 `blitzecdn` to validate what it reads. Two independent pieces of code therefore
 know the shape of an edge — `capabilities.edges.adapters.ansible.edge_to_inventory`

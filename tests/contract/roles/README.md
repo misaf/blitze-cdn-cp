@@ -1,6 +1,6 @@
 # Edge role contracts
 
-What the roles under `src/blitzecdn/ansible/roles/` guarantee about a converged
+What the roles under `src/blitzecdn/assets/ansible/roles/` guarantee about a converged
 edge, asserted against the role files and — where it matters — against a real
 `ansible-playbook` run.
 

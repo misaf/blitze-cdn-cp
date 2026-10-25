@@ -508,7 +508,7 @@ def _alembic_head() -> str:
     from alembic.script import ScriptDirectory
 
     config = Config()
-    config.set_main_option("script_location", str(SOURCE / "migrations"))
+    config.set_main_option("script_location", str(SOURCE / "assets/migrations"))
     return ScriptDirectory.from_config(config).get_current_head() or "-"
 
 

@@ -31,7 +31,7 @@ from role_contract_support import (
     _render_compose,
 )
 
-from blitzecdn.docker import (
+from blitzecdn.assets.docker import (
     EDGE_DOCKERFILE,
     EDGE_MODULE_PROBE_CONF,
 )

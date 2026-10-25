@@ -18,7 +18,7 @@ COPY . /opt/blitzecdn
 # One application distribution carries all capability code and runtime resources.
 RUN uv sync --frozen --no-dev --no-editable --python /usr/local/bin/python \
     && .venv/bin/ansible-galaxy collection install \
-        --requirements-file src/blitzecdn/ansible/requirements.yml \
+        --requirements-file src/blitzecdn/assets/ansible/requirements.yml \
         --collections-path /usr/share/ansible/collections
 
 # python:slim is root by default but already supplies Debian's unprivileged
