@@ -40,13 +40,12 @@ from __future__ import annotations
 
 import ast
 import importlib
-import importlib.util
 import re
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 
-import pytest
-from paths import SOURCE
+from paths import REPO_ROOT, SOURCE
 
 #: A Sphinx cross-reference role and the target inside it. The leading ``~`` is
 #: display sugar — it shortens the rendered label to the last component and says
@@ -61,26 +60,8 @@ _XREF = re.compile(r":(?:mod|class|func|attr|meth|data|exc):`~?([A-Za-z_][\w.]*)
 _MINIMUM_PARTS = 2
 
 
-def _source_roots() -> list[Path]:
-    """Every runtime module ships in the application source tree."""
-    return [SOURCE]
-
-
-def _import_root(root: Path) -> str:
-    """The import package a source root ships.
-
-    ``src/blitzecdn`` is core's own and is the root itself; a wheel's ``src/``
-    holds exactly one package, which the workspace layout rules already hold.
-    Derived from the directory rather than spelled, so this stays out of the way
-    of the rule that the control-plane suite names no optional package.
-    """
-    if root == SOURCE:
-        return root.name
-    return next(child.name for child in sorted(root.iterdir()) if child.is_dir())
-
-
-def _cross_references(root: Path) -> dict[str, set[Path]]:
-    """Every dotted Sphinx target under ``root``, with the files that claim it.
+def _cross_references() -> dict[str, set[Path]]:
+    """Every dotted Sphinx target in the source tree, with the files that claim it.
 
     Docstrings only, and only the four node types that carry one. A role
     written in a ``#:`` comment is not read: comments are not addressable by
@@ -89,7 +70,7 @@ def _cross_references(root: Path) -> dict[str, set[Path]]:
     downstream either.
     """
     found: dict[str, set[Path]] = defaultdict(set)
-    for path in sorted(root.rglob("*.py")):
+    for path in sorted(SOURCE.rglob("*.py")):
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
             if not isinstance(
@@ -132,28 +113,51 @@ def _resolves(target: str) -> bool:
     return False
 
 
-@pytest.mark.parametrize("root", _source_roots(), ids=lambda root: _import_root(root))
-def test_every_docstring_cross_reference_resolves(root: Path):
+def test_every_docstring_cross_reference_resolves():
     """A role names something that is here, or the prose is wrong.
-
-    One case per source root, so a detached capability's prose is a visible skip
-    in the core-only run rather than a hundred failures about imports that were
-    never going to succeed. Core's own root is always installed, so the case
-    that matters most cannot skip.
 
     Failing with the file that makes the claim rather than with the target
     alone, because a stale reference is fixed by rewriting the sentence around
     it — and the same dead name is usually written in several places at once,
     which is the shape this reports.
     """
-    if importlib.util.find_spec(_import_root(root)) is None:
-        pytest.skip(f"{root.parent.name} is not installed")
-
     offenders = [
         f"{target} — named in " + ", ".join(sorted(str(path) for path in paths))
-        for target, paths in sorted(_cross_references(root).items())
+        for target, paths in sorted(_cross_references().items())
         if not _resolves(target)
     ]
     assert offenders == [], "docstring cross-references that no longer resolve:\n" + (
+        "\n".join(offenders)
+    )
+
+
+#: An inline Markdown link and its target, up to any fragment.
+_MARKDOWN_LINK = re.compile(r"\]\(([^)#\s]+)(?:#[^)]*)?\)")
+
+
+def test_every_relative_markdown_link_resolves():
+    """A link in a tracked document points at a file that is in the checkout.
+
+    The decision records end in lists of the code they describe, and a move
+    breaks those links without failing anything else. External links are not
+    followed: whether a site is up is not a property of this tree.
+    """
+    tracked = subprocess.run(  # noqa: S603 - fixed argument list
+        ["git", "-C", str(REPO_ROOT), "ls-files", "*.md"],  # noqa: S607 - git from PATH
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.split()
+    offenders = [
+        f"{document} -> {target}"
+        for document in tracked
+        if (REPO_ROOT / document).exists()
+        for target in _MARKDOWN_LINK.findall(
+            (REPO_ROOT / document).read_text(encoding="utf-8")
+        )
+        if not target.startswith(("http://", "https://", "mailto:"))
+        and not (REPO_ROOT / document).parent.joinpath(target).exists()
+    ]
+    assert offenders == [], "Markdown links to files that are not here:\n" + (
         "\n".join(offenders)
     )
