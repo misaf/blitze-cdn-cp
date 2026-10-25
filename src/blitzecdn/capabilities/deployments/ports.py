@@ -104,8 +104,8 @@ class DeploymentGateway(Protocol):
     """What the certificate service needs from the deployment service.
 
     Issuance asks whether a site is actually on the edges (HTTP-01 cannot
-    validate a vhost nothing serves), and reconciliation installs what it
-    issued. Nothing else.
+    validate a vhost nothing serves). Reconciliation queues a deployment for
+    what it issued; Automatic SSL/TLS still converges inline.
     """
 
     def site_is_deployed(self, site_name: str) -> bool: ...
@@ -113,6 +113,8 @@ class DeploymentGateway(Protocol):
     def deploy(
         self, operator: str, *, check: bool = False, host_limit: str | None = None
     ) -> Deployment: ...
+
+    def converge_requirements(self, operator: str) -> Deployment | None: ...
 
 
 class QueueBackgroundRunner(Protocol):

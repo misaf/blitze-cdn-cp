@@ -10,8 +10,7 @@ database until an operator happens to deploy for another reason.
 
 from __future__ import annotations
 
-from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
-from blitzecdn.capabilities.maintenance.ports import Deployments, JobTable, Requirements
+from blitzecdn.capabilities.maintenance.ports import Deployments, JobTable
 from blitzecdn.core.exceptions import NotFoundError
 
 
@@ -21,11 +20,9 @@ class MaintenanceService:
         *,
         jobs: JobTable,
         deployments: Deployments,
-        requirements: Requirements,
     ) -> None:
         self._jobs = jobs
         self._deployments = deployments
-        self._requirements = requirements
 
     def run(self, job: str, operator: str = "scheduler") -> None:
         """Run one named job, then converge if it left a requirement pending.
@@ -43,5 +40,4 @@ class MaintenanceService:
                 f"no scheduled job named {job!r} is registered; installed: {known}"
             )
         table[job].run(operator)
-        if self._requirements.pending(DeploymentRequirementKind.CERTIFICATES):
-            self._deployments.submit_deployment(operator)
+        self._deployments.converge_requirements(operator)

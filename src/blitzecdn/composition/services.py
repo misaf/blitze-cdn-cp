@@ -307,7 +307,6 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
     maintenance = build_maintenance_service(
         jobs=operations.scheduled_jobs,
         deployments=deployments,
-        requirements=store.deployment_requirements,
     )
     return ApplicationServices(
         infrastructure=infra,

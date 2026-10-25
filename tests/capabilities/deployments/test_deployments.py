@@ -261,3 +261,32 @@ def test_a_transition_is_a_new_value_and_keeps_what_it_did_not_change():
     assert failed.started_at == running.started_at
     assert failed.finished_at == created + timedelta(seconds=9)
     assert failed.detail == "edge-b did not answer"
+
+
+def test_converging_requirements_queues_one_deployment_and_only_when_owed(
+    settings,
+):
+    from control_plane_fixtures import FakeRunner, build_application, seed_site
+
+    from blitzecdn.capabilities.deployments.domain import DeploymentRequirementKind
+    from blitzecdn.composition import Repository
+
+    repository = Repository(settings.database_path)
+    control = build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
+    seed_site(control)
+    try:
+        assert control.deployments.converge_requirements("timer") is None
+
+        repository.deployment_requirements.require(
+            DeploymentRequirementKind.CERTIFICATES
+        )
+        queued = control.deployments.converge_requirements("timer")
+        assert queued is not None
+        assert queued.status is DeploymentStatus.QUEUED
+        # Still owed until a deployment succeeds, but already being paid off.
+        assert control.deployments.converge_requirements("timer").id == queued.id
+        assert len(repository.deployments.queued_deployments()) == 1
+    finally:
+        control.close()

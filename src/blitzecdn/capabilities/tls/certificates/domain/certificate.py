@@ -159,9 +159,9 @@ class RenewalResult(BaseModel):
 class ReconciliationResult(BaseModel):
     """First certificates issued for sites that were ready, and the deploy.
 
-    ``deployment`` is ``None`` when nothing was issued: reconciliation only
-    converges the fleet after it has something new to install, so a run that
-    found no eligible site changes nothing at all.
+    ``deployment`` is the queued deployment that will install them, or
+    ``None`` when nothing was issued: a run that found no eligible site
+    changes nothing at all. The worker converges it; poll it by its id.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
