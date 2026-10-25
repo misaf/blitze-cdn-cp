@@ -6,7 +6,7 @@ shared fixtures would skip them once this wheel was detached. They are not
 deployments tests: what they assert is what this capability does *to* a
 deployment, which is this capability's behaviour.
 
-They also built their control plane as ``ControlPlane(..., issuer=...,
+They also built their control plane as ``build_application(..., issuer=...,
 preflight=...)``, keyword arguments core's constructor does not take — the
 shared fixtures monkeypatched ``__init__`` to accept them. Here they go through
 ``certificate_control_plane``, which builds the same services this
@@ -374,7 +374,6 @@ def test_renewal_reissues_only_what_is_due(settings, certificate_pair):
         issuer=issuer,
         preflight=FakePreflight(),
     )
-    control.settings = settings
 
     for label, days in (("due", 5), ("healthy", 80)):
         site = seed_site(control, name=f"{label}-example-com", record=label)

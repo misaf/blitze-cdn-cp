@@ -31,8 +31,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="resolver",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"resolver"}),
             summary="Host DNS resolution an edge can trust, and its removal.",
         ),

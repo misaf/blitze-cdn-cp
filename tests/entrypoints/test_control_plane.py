@@ -9,6 +9,7 @@ from control_plane_fixtures import (
     FakeRunner,
     RecordingBackgroundQueue,
     ansible_run,
+    build_application,
     host_run,
     seed_edge,
     seed_site,
@@ -26,7 +27,7 @@ from blitzecdn.capabilities.dns.domain import (
 )
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import WorkflowStatus
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import ApplicationServices, Repository
 from blitzecdn.core.domain.runs import RunStatus
 from blitzecdn.core.exceptions import (
     ConflictError,
@@ -34,7 +35,7 @@ from blitzecdn.core.exceptions import (
 )
 
 
-def _seed_proxied_record(control: ControlPlane) -> CdnSite:
+def _seed_proxied_record(control: ApplicationServices) -> CdnSite:
     """The zone, site and record most tests need: `example-com`."""
     return seed_site(control)
 
@@ -73,7 +74,9 @@ def test_the_audit_retention_setting_reaches_the_log_that_enforces_it(settings):
     control plane would keep a hundred thousand events whatever an operator
     configured, and nothing would say so.
     """
-    control = ControlPlane(settings=settings.model_copy(update={"audit_retention": 4}))
+    control = build_application(
+        settings=settings.model_copy(update={"audit_retention": 4})
+    )
     try:
         for index in range(12):
             control.events.audit("alice", f"a{index}", "site", "s")
@@ -90,12 +93,12 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
         Repository, "close", lambda repository: closed.append(repository)
     )
 
-    owned = ControlPlane(settings=settings)
+    owned = build_application(settings=settings)
     owned.close()
     owned.close()
 
     injected_repository = Repository(settings.database_path)
-    injected = ControlPlane(settings=settings, repository=injected_repository)
+    injected = build_application(settings=settings, repository=injected_repository)
     injected.close()
 
     assert len(closed) == 1
@@ -103,7 +106,7 @@ def test_control_plane_closes_only_the_repository_it_owns(settings, monkeypatch)
 
 def test_dns_write_projection_and_audit_are_one_transaction(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner(),
@@ -143,7 +146,7 @@ def test_the_hostnames_an_edge_serves_cannot_drift_from_the_records(settings):
     written behind the service's back still shows up.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     _seed_proxied_record(control)
@@ -171,7 +174,7 @@ def test_external_deployment_run_never_holds_a_database_transaction(settings):
             assert getattr(repository.database._local, "connection", None) is None
             return super().run(check=check, host_limit=host_limit, tags=tags)
 
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=TransactionAwareRunner()
     )
     control.deployments.deploy("alice")
@@ -180,7 +183,7 @@ def test_external_deployment_run_never_holds_a_database_transaction(settings):
 def test_crud_validate_and_successful_deploy(settings):
     repository = Repository(settings.database_path)
     runner = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control)
     site = seed_site(control, name="example-com", record="cdn")
     control.dns.update_domain(
@@ -199,7 +202,7 @@ def test_crud_validate_and_successful_deploy(settings):
 
 def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
 
@@ -207,7 +210,7 @@ def test_desired_state_requires_explicit_approval_to_remove_all_sites(settings):
     desired = settings.generated_vars_path.read_text(encoding="utf-8")
     assert "blitzecdn_nginx_allow_empty_sites: false" in desired
 
-    approved = ControlPlane(
+    approved = build_application(
         settings=settings.model_copy(update={"allow_empty_sites": True}),
         repository=repository,
         runner=FakeRunner(),
@@ -223,7 +226,7 @@ def test_interrupted_deployment_is_recorded_as_abandoned(settings):
             raise KeyboardInterrupt
 
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=InterruptedRunner()
     )
     seed_edge(control)
@@ -246,7 +249,7 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
     here it takes the hostname off a site that is still configured and waiting.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     seed_site(control, name="example-com", record="cdn")
@@ -274,7 +277,7 @@ def test_routing_adds_and_removes_the_hostname_the_edge_serves(settings):
 
 def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner()
     )
     seed_site(control, name="example-com", record="cdn")
@@ -285,7 +288,9 @@ def test_removing_a_domain_takes_its_hostnames_off_the_edge(settings):
 
 
 def _plane(settings, repository):
-    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())
+    return build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
 
 
 def test_a_hostname_cannot_reach_two_origins_at_once(settings):
@@ -415,7 +420,7 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
             ansible_run(status=RunStatus.TIMED_OUT, return_code=124),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=runner)
+    control = build_application(settings=settings, repository=repository, runner=runner)
     seed_edge(control)
     assert control.deployments.deploy("alice").status is DeploymentStatus.FAILED
     assert (
@@ -430,7 +435,7 @@ def test_failed_and_timed_out_deployments_are_recorded(settings):
 
 def test_rollback_updates_canonical_state_only_after_success(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
@@ -456,7 +461,7 @@ def test_rollback_updates_canonical_state_only_after_success(settings):
 
 def test_rollback_restoration_failure_is_atomic_and_never_reports_success(settings):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
@@ -498,7 +503,7 @@ def test_rollback_holds_the_lock_across_the_canonical_state_swap(settings):
             finally:
                 events.append("unlocked")
 
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=LockingRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
@@ -551,7 +556,7 @@ def test_a_stopped_fleet_deploy_names_the_edges_it_never_reached(settings):
         status=RunStatus.FAILED,
         return_code=2,
     )
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=FakeRunner([stopped])
     )
     for name in ("edge-a", "edge-b", "edge-c"):
@@ -583,7 +588,7 @@ def test_a_drift_check_that_stopped_early_is_not_in_sync(settings):
     answering a narrower question than the one asked.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner(
@@ -611,7 +616,7 @@ def test_startup_recovery_requeues_what_a_dead_process_left_behind(settings):
     """The case startup recovery exists for: nobody is deploying."""
     repository = Repository(settings.database_path)
     queue = RecordingBackgroundQueue()
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner(),
@@ -654,7 +659,7 @@ def test_startup_recovery_leaves_a_live_deployment_alone(settings):
         def lock(self):
             raise DeploymentBusyError("another deployment is already running")
 
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=repository, runner=BusyRunner()
     )
     live = repository.deployments.create_deployment(
@@ -682,7 +687,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
     inside the runner here because that is exactly when the window is open.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)]),
@@ -706,14 +711,14 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
                 control.dns.create_record(concurrent, "bob")
             return super().run(check=check, host_limit=host_limit, tags=tags)
 
-    control._runner = WritingRunner([ansible_run(host_run("edge-a"))])
+    writing = WritingRunner([ansible_run(host_run("edge-a"))])
     control.deployments.execution = replace(
-        control.deployments.execution, runner=control._runner
+        control.deployments.execution, runner=writing
     )
     # The rollout holds its own reference to the runner, because it is the
     # thing that actually calls it. Swapping only the service's would leave the
     # per-edge phases running against the original.
-    control.deployments.execution.rollout.runner = control._runner
+    control.deployments.execution.rollout.runner = writing
 
     rolled_back = control.deployments.rollback("alice", successful.id)
 
@@ -728,7 +733,7 @@ def test_a_rollback_refuses_to_adopt_over_a_concurrent_record_write(settings):
 def test_a_rollback_adopts_when_nothing_moved_under_it(settings):
     """The guard must not refuse the ordinary case."""
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner([ansible_run(host_run("edge-a")) for _ in range(3)]),
@@ -764,7 +769,7 @@ def test_failed_composition_closes_only_owned_persistence(
     from blitzecdn.core.exceptions import PluginError
 
     with pytest.raises(PluginError, match="absent-provider"):
-        ControlPlane(settings=invalid, repository=repository)
+        build_application(settings=invalid, repository=repository)
     assert len(closed) == (0 if injected else 1)
     if repository is not None:
         assert repository.zones.list_domains() == []
@@ -775,9 +780,7 @@ def test_tls_services_share_application_ownership_and_are_garbage_collectable(se
     import gc
     import weakref
 
-    from blitzecdn.core.plugins import ProcessKind
-
-    control = ControlPlane(settings=settings, process=ProcessKind.WORKER)
+    control = build_application(settings=settings)
     assert control.certificates is control.certificates
     assert control.automatic_ssl is control.automatic_ssl
     # Scheduled closures and certificate material references point back into

@@ -9,7 +9,7 @@ out of the teardown slot leaves a decommissioned host public-key-only against a
 control plane that has forgotten it exists.
 """
 
-from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
@@ -30,7 +30,6 @@ def test_plugin_provides_hardening_as_a_required_provider() -> None:
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "hardening"
     assert metadata.capabilities == frozenset({"hardening"})
-    assert metadata.required
     assert metadata.version == __version__
 
 
@@ -43,8 +42,8 @@ def test_hardening_is_a_built_in() -> None:
     assert any("hardening" in module for module in BUILTIN_FEATURES)
 
 
-def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
-    registry = load_control_plane_plugins()
+def test_the_shipped_registry_includes_it() -> None:
+    registry = load_registry()
 
     assert "hardening" in {plugin.name for plugin in registry.plugins}
 
@@ -59,7 +58,7 @@ def test_no_site_can_ask_for_this_capability() -> None:
     that made a site depend on `hardening` would turn detaching from a
     supported choice into a fleet-wide validation failure.
     """
-    registry = load_control_plane_plugins()
+    registry = load_registry()
     hardening = next(p for p in registry.plugins if p.name == "hardening")
 
     assert hardening.capabilities == frozenset({"hardening"})

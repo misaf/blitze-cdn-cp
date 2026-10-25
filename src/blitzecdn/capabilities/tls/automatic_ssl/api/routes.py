@@ -3,8 +3,8 @@
 from fastapi import APIRouter, Depends
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     require_operator,
 )
 from blitzecdn.api.models import as_operation
@@ -18,7 +18,7 @@ router = APIRouter(dependencies=[Depends(require_operator)])
     response_model=SslAutomaticReconciliation,
 )
 def reconcile_automatic_ssl(
-    operator: OperatorDependency, control: ControlPlaneDependency
+    operator: OperatorDependency, control: ServicesDependency
 ) -> SslAutomaticReconciliation:
     """Probe origins from every edge and apply upgrade-only recommendations."""
     return as_operation(

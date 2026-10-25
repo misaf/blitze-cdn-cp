@@ -16,14 +16,13 @@ as diffs, and committed with the implementation.
 | --- | --- | --- |
 | Command line | `cli.txt` | assembled command tree |
 | HTTP API | `http.txt` | routes and request/response schemas |
-| Extension ABI | `plugin_abi.txt` | registration hooks and contribution values |
-| Extension SDK | `sdk.txt` | public values and ports |
 | Ansible | `ansible.txt` | role argument specifications |
 | Database | `schema.txt` | schema and Alembic revision |
 
-All shipped surface rows belong to `blitzecdn`. Third-party extensions can still
-register through `blitzecdn.plugins`; application assembly never depends on
-entry-point discovery or on sibling packages being installed.
+All shipped surface rows belong to `blitzecdn`. There is no third-party
+extension mechanism, and therefore no published extension ABI or SDK: the
+conditions for adding one, and the order it would arrive in, are in
+[ADR 0021](docs/decisions/0021-capability-roster-and-process-composition.md).
 
 The generators are exercised by `test_the_command_line_is_what_it_was`,
 `test_the_http_api_is_what_it_was`, `test_the_ansible_interface_is_what_it_was`

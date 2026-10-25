@@ -13,13 +13,13 @@ from cli_support import (
 from click.utils import strip_ansi
 from control_plane_fixtures import (
     FakeRunner,
+    build_application,
     seed_site,
 )
 
 from blitzecdn.capabilities.diagnostics import cli as diagnostics_cli
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
-from blitzecdn.core.plugins import PluginRejection
+from blitzecdn.composition import Repository
 
 REQUIRES_CAPABILITIES = {
     "test_plugins_shows_a_settings_value_and_only_a_secrets_presence": (
@@ -34,12 +34,12 @@ REQUIRES_CAPABILITIES = {
 
 
 def test_cli_domain_record_status_audit_and_doctor(settings, monkeypatch, tmp_path):
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     assert runner.invoke(cli.app, ["domain", "add", "example.com"]).exit_code == 0
     _seed_site(control, "cdn", "198.51.100.10")
@@ -186,57 +186,20 @@ def test_group_help_mentions_the_derived_site_model():
     assert "You do not create virtual hosts" in strip_ansi(result.output)
 
 
-def test_plugins_lists_what_is_installed_and_why_something_is_not(
+def test_plugins_lists_every_feature_and_the_tokens_it_answers_for(
     settings, monkeypatch
 ):
-    """The command an operator runs after `pip install` and sees no new routes.
-
-    A required capability that failed would have stopped the process, so the
-    interesting half is the other one: an optional package that was installed,
-    did not load, and was skipped by design. The reason is kept on the registry
-    precisely so it can be answered here rather than only in a startup log line
-    that has scrolled away.
-    """
-    control = _control(settings, monkeypatch)
-    control.plugins.rejected = (
-        PluginRejection("waf (blitzecdn_waf.plugin)", "import failed: no module"),
-    )
+    """The table an operator reads to see what this controller has."""
+    _control(settings, monkeypatch)
 
     result = runner.invoke(cli.app, ["plugins", "--json"])
     document = json.loads(result.stdout)
 
     assert {"dns", "deployments"} <= {plugin["name"] for plugin in document["plugins"]}
-    # `required` is what separates a capability this distribution ships from
-    # one installed beside it, which is the first thing an operator wants to
-    # read off this table.
     by_name = {plugin["name"]: plugin for plugin in document["plugins"]}
-    assert by_name["dns"]["required"] is True
     assert by_name["dns"]["capabilities"] == ["dns"]
     assert "dns" in document["capabilities"]
-    assert document["rejected"] == [
-        {
-            "source": "waf (blitzecdn_waf.plugin)",
-            "reason": "import failed: no module",
-        }
-    ]
-
-
-def test_plugins_names_a_skipped_package_on_stderr(settings, monkeypatch):
-    """Not only in `--json`: the human output has to say it too.
-
-    The whole reason a rejection is kept is that a warning at startup is not
-    somewhere an operator can look afterwards. Printing the table and staying
-    silent about the package that did not load would recreate that.
-    """
-    control = _control(settings, monkeypatch)
-    control.plugins.rejected = (
-        PluginRejection("waf (blitzecdn_waf.plugin)", "import failed: no module"),
-    )
-
-    result = runner.invoke(cli.app, ["plugins"])
-
-    assert "waf (blitzecdn_waf.plugin) was not registered" in result.output
-    assert "import failed: no module" in result.output
+    assert "rejected" not in document
 
 
 def test_plugins_shows_a_settings_value_and_only_a_secrets_presence(
@@ -286,9 +249,9 @@ def test_ansible_roles_path_is_what_a_deployment_would_resolve():
     assert all(Path(entry).is_dir() for entry in entries)
     # Ordered by plugin name after core's, which is what makes two controllers
     # with the same packages installed resolve every role identically.
-    from blitzecdn.composition import load_control_plane_plugins
+    from blitzecdn.composition import load_registry
 
-    contributions = load_control_plane_plugins().ansible_contributions()
+    contributions = load_registry().ansible_contributions()
     expected = [
         str(item.roles_path)
         for item in sorted(contributions, key=lambda item: item.plugin)

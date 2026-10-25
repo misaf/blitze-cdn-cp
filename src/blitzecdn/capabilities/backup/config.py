@@ -3,7 +3,7 @@
 One setting, and the interesting part is where it is read from. Backup's
 commands are built from ``Settings`` alone and open no repository — that is
 deliberate, since a controller whose database will not open is exactly when a
-restore is wanted — so there is no ``ControlPlane`` on this path and no
+restore is wanted — so no application services are built on this path and no
 ``platform.capability_config`` to ask.
 
 :func:`~blitzecdn.core.plugins.resolve_plugin_configuration` is core's answer

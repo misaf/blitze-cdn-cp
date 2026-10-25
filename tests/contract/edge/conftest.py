@@ -12,11 +12,12 @@ from typing import Any
 
 import pytest
 import yaml
+from control_plane_fixtures import build_application
 from edge_render_support import _seed_site
 
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 @pytest.fixture
@@ -28,7 +29,7 @@ def desired_state(settings, tmp_path) -> dict[str, Any]:
     proves the three of them render into what the edge roles read.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings=settings, repository=repository)
+    control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     _seed_site(
         repository,

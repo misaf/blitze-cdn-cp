@@ -12,8 +12,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="backup",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"backup"}),
             summary="Archive and restore the control plane's own state.",
         ),

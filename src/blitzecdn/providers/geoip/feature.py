@@ -32,8 +32,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="geoip",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"geoip"}),
             summary="Visitor IP-to-country lookup for country headers and rules.",
         ),

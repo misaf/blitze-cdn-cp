@@ -23,8 +23,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="releases",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Compile desired state into immutable, addressable releases.",
         ),
         api_routers=(routes.router,),

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from control_plane_fixtures import FakeRunner, seed_record
+from control_plane_fixtures import FakeRunner, build_application, seed_record
 from policy_support import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import (
@@ -14,12 +14,14 @@ from blitzecdn.capabilities.dns.domain import (
     derive_hosts,
 )
 from blitzecdn.capabilities.releases.domain import ReleaseInputs
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
 def _control(settings, repository):
-    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())
+    return build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
 
 
 def _zone(control, **policy):

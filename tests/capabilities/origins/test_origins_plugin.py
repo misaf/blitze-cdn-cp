@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from blitzecdn.capabilities.origins import __version__, ansible
 from blitzecdn.capabilities.origins.feature import FEATURES
-from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
@@ -24,17 +24,16 @@ def test_plugin_provides_origins_as_a_required_provider() -> None:
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "origins"
     assert metadata.capabilities == frozenset({"origins"})
-    assert metadata.required
     assert metadata.version == __version__
 
 
 def test_origins_is_a_built_in() -> None:
-    """One registration path: the entry point in this distribution's metadata."""
+    """One registration path: the composition root's roster."""
     assert any("origins" in module for module in BUILTIN_FEATURES)
 
 
-def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
-    registry = load_control_plane_plugins()
+def test_the_shipped_registry_includes_it() -> None:
+    registry = load_registry()
 
     assert "origins" in {plugin.name for plugin in registry.plugins}
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 
 import pytest
-from control_plane_fixtures import FakeRunner, seed_site
+from control_plane_fixtures import FakeRunner, build_application, seed_site
 from policy_support import TEST_CERTIFICATE_VERSION
 
 from blitzecdn.capabilities.compression.policy import CompressionMode
@@ -20,12 +20,14 @@ from blitzecdn.capabilities.dns.domain import (
 from blitzecdn.capabilities.dns.service import DnsService, RuleService
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 
 
 def _control(settings, repository):
-    return ControlPlane(settings=settings, repository=repository, runner=FakeRunner())
+    return build_application(
+        settings=settings, repository=repository, runner=FakeRunner()
+    )
 
 
 # -- The zone carries the policy ------------------------------------------

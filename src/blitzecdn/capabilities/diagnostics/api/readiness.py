@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, Response, status
 from fastapi.responses import PlainTextResponse
 
-from blitzecdn.api.dependencies import ControlPlaneDependency, require_operator
+from blitzecdn.api.dependencies import ServicesDependency, require_operator
 
 router = APIRouter()
 _LOGGER = logging.getLogger(__name__)
@@ -11,17 +11,17 @@ _METRICS_WINDOW = 100
 
 
 @router.get("/health")
-def health(response: Response, control: ControlPlaneDependency) -> dict[str, str]:
+def health(response: Response, control: ServicesDependency) -> dict[str, str]:
     """Whether this controller can actually answer, not merely respond.
 
-    Every check is a plugin's contribution, this capability's two included, so a
+    Every check is a feature's contribution, this capability's two included, so a
     capability with its own liveness question adds it without editing this
     endpoint. The first failure decides: an unhealthy node is unhealthy, and
     running the rest would only delay the answer a load balancer is waiting on.
     The failing check is named in the body, because "unavailable" without it
     sends an operator to the logs of whichever replica happened to answer.
     """
-    for check in control.health_checks():
+    for check in control.health_checks:
         try:
             check.check()
         except Exception as exc:
@@ -40,7 +40,7 @@ def health(response: Response, control: ControlPlaneDependency) -> dict[str, str
     response_class=PlainTextResponse,
     dependencies=[Depends(require_operator)],
 )
-def metrics(control: ControlPlaneDependency) -> str:
+def metrics(control: ServicesDependency) -> str:
     """Prometheus gauges derived from persisted control-plane state."""
     recent = control.deployments.list_deployments(_METRICS_WINDOW)
     by_status: dict[str, int] = {}

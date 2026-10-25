@@ -3,7 +3,7 @@
 from contextlib import contextmanager
 
 import pytest
-from control_plane_fixtures import FakeRunner, seed_record, seed_site
+from control_plane_fixtures import FakeRunner, build_application, seed_record, seed_site
 from policy_support import TEST_CERTIFICATE_VERSION
 from pydantic import ValidationError
 
@@ -14,13 +14,12 @@ from blitzecdn.capabilities.tls.policy import (
     SslAutomaticMode,
     SslMode,
 )
-from blitzecdn.composition import ControlPlane
 from blitzecdn.core.exceptions import NotFoundError
 
 
 @pytest.fixture
 def control(settings):
-    platform = ControlPlane(settings=settings, runner=FakeRunner())
+    platform = build_application(settings=settings, runner=FakeRunner())
     try:
         yield platform
     finally:

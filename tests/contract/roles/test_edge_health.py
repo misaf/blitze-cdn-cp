@@ -18,6 +18,7 @@ from contract_support import (
     _role,
     _role_defaults,
 )
+from control_plane_fixtures import build_application
 from paths import CORE_ANSIBLE
 from role_contract_support import (
     COMPOSE_TEMPLATE,
@@ -26,7 +27,6 @@ from role_contract_support import (
     _render_compose,
 )
 
-from blitzecdn.composition import ControlPlane
 from blitzecdn.docker import (
     EDGE_DOCKERFILE,
 )
@@ -113,7 +113,7 @@ def test_the_status_endpoint_and_the_health_check_are_not_optional(settings):
     the Compose template has no conditional around `healthcheck`, and a missing
     Docker verdict fails health.yml instead of being tolerated.
     """
-    control = ControlPlane(settings=settings)
+    control = build_application(settings=settings)
     status_conf = (ROLE_DIR / "templates/status.conf.j2").read_text(encoding="utf-8")
     fixture = yaml.safe_load(
         (PROJECT_DIR / "tests/fixtures/desired-state.yml").read_text(encoding="utf-8")

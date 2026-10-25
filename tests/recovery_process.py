@@ -18,15 +18,14 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from control_plane_fixtures import FakeRunner
+from control_plane_fixtures import FakeRunner, build_application
 
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
 from blitzecdn.capabilities.http.policy import HttpScheme
-from blitzecdn.composition import ControlPlane
+from blitzecdn.composition import ApplicationServices, build_worker
 from blitzecdn.core.ansible.lock import DeploymentLock
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import AnsibleRun
-from blitzecdn.core.plugins import ProcessKind
 
 
 class LoopbackProbe(ServingProbe):
@@ -94,7 +93,7 @@ class LocalRunner:
         return self.delegate.run_decommission(host_limit=host_limit)
 
 
-def snapshot(control: ControlPlane, runner: LocalRunner) -> dict[str, Any]:
+def snapshot(control: ApplicationServices, runner: LocalRunner) -> dict[str, Any]:
     release = control.releases.compile()
     return {
         "pid": os.getpid(),
@@ -147,15 +146,15 @@ def main() -> None:
     settings = Settings.from_environment()
     runner = LocalRunner(settings, args.served, pause=args.mode == "crash")
     worker = args.mode in {"crash", "work"}
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         runner=runner,
         serving_probe=LoopbackProbe(args.port),
-        process=ProcessKind.WORKER if worker else ProcessKind.CLI,
     )
+    process = build_worker(control) if worker else None
     try:
-        if worker:
-            control.start()
+        if process is not None:
+            process.start()
             # Actual wall-clock expiry; production's default is 900 seconds.
             control.job_queue.run_one(lease_seconds=2)
         elif args.mode == "submit":
@@ -167,8 +166,8 @@ def main() -> None:
         print(json.dumps(snapshot(control, runner)), flush=True)
     finally:
         try:
-            if worker:
-                control.stop()
+            if process is not None:
+                process.stop()
         finally:
             control.close()
 

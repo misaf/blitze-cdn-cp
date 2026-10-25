@@ -12,10 +12,9 @@ dependencies exist at three different times:
 * :class:`FeatureOperations` runs inside a process: health checks, scheduled
   jobs and lifecycle work, bound once every service has been built.
 
-A built-in declares its :class:`Feature` in ``feature.py`` and builds the other
-two in ``runtime.py`` from explicitly named collaborators; the composition root
-calls those builders. An external plugin implements hooks instead, and those
-hooks are handed an :class:`ExtensionContext` rather than the composition root.
+A feature declares its :class:`Feature` in ``feature.py`` and builds the other
+two in ``runtime.py`` from explicitly named collaborators. The composition
+root's roster names each feature module and the builders it binds.
 """
 
 from __future__ import annotations
@@ -31,7 +30,6 @@ from blitzecdn.core.plugins.types.nginx import NginxContribution
 from blitzecdn.core.plugins.types.runtime import (
     CliCommandGroup,
     HealthCheck,
-    ProcessKind,
     ScheduledJob,
 )
 from blitzecdn.core.plugins.types.state import (
@@ -44,14 +42,8 @@ if TYPE_CHECKING:  # pragma: no cover - typing only, never imported at runtime
     from fastapi import APIRouter
 
     from blitzecdn.capabilities.serving.domain import CdnSite
-    from blitzecdn.core.config import Settings
-    from blitzecdn.core.plugins.resolution.configuration import (
-        ResolvedCapabilityEnvironment,
-    )
-    from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 
 __all__ = [
-    "ExtensionContext",
     "Feature",
     "FeatureOperations",
     "FeatureRendering",
@@ -96,16 +88,18 @@ class FeatureRendering:
 class FeatureOperations:
     """What a feature does inside a running process.
 
-    ``startup`` and ``shutdown`` are told which process they run in, because
-    the answer differs: only the API republishes interrupted deployments.
+    ``startup`` runs once per node, when the API process starts: it is the one
+    process that lives as long as the node does, so recovery work such as
+    republishing interrupted deployments belongs there. ``shutdown`` runs when
+    the API or the worker stops.
     """
 
     #: The contributing feature's `PluginMetadata.name`.
     plugin: str
     health_checks: tuple[HealthCheck, ...] = ()
     scheduled_jobs: tuple[ScheduledJob, ...] = ()
-    startup: Callable[[ProcessKind], None] | None = None
-    shutdown: Callable[[ProcessKind], None] | None = None
+    startup: Callable[[], None] | None = None
+    shutdown: Callable[[], None] | None = None
 
 
 class SiteReader(Protocol):
@@ -114,22 +108,3 @@ class SiteReader(Protocol):
     def list_sites(self) -> list[CdnSite]: ...
 
     def get_site(self, name: str) -> CdnSite: ...
-
-
-@dataclass(frozen=True, slots=True)
-class ExtensionContext:
-    """What an external plugin's hooks may use, and nothing else.
-
-    Ports and configuration rather than services: an extension runs its own
-    plays through ``fleet``, reads hosts through ``sites`` and records what it
-    did through ``events``. A plugin reads its own configuration with
-    ``capability_config.for_plugin(<its name>)``.
-    """
-
-    process: ProcessKind
-    settings: Settings
-    capability_config: ResolvedCapabilityEnvironment
-    sites: SiteReader
-    fleet: PlaybookRunner
-    events: EventRecorder
-    queue_ready: Callable[[], bool]

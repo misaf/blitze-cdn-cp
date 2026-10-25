@@ -6,12 +6,13 @@ asserted here is this distribution: the token it answers for, and the fact that
 attaching it is the only thing that makes a country-aware site deployable.
 """
 
+from control_plane_fixtures import build_application
+
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.serving.policy import SitePolicy
 from blitzecdn.composition import (
     BUILTIN_FEATURES,
-    ControlPlane,
-    load_control_plane_plugins,
+    load_registry,
 )
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.providers.geoip import __version__
@@ -38,7 +39,6 @@ def test_plugin_provides_geoip_as_a_required_provider() -> None:
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "geoip"
     assert metadata.capabilities == frozenset({"geoip"})
-    assert metadata.required
     assert metadata.version == __version__
 
 
@@ -62,17 +62,16 @@ def test_geoip_is_a_built_in() -> None:
     message would blame the entry point rather than the leftover line.
     """
     assert any("geoip" in module for module in BUILTIN_FEATURES)
-    builtins = load_control_plane_plugins(entry_point_group=None)
+    builtins = load_registry()
     assert "geoip" in builtins.capabilities
 
 
 def test_application_assembly_supplies_the_capability() -> None:
     """Discovery over the real installed metadata, as a control plane does it."""
-    registry = load_control_plane_plugins()
+    registry = load_registry()
 
     assert "geoip" in registry.capabilities
     assert "geoip" in {plugin.name for plugin in registry.plugins}
-    assert registry.rejected == ()
 
 
 # --- what installing it changes for a deployment ----------------------------
@@ -84,7 +83,7 @@ def test_an_installed_geoip_capability_clears_the_site_validation() -> None:
     Same site, same token, opposite answer — which is the whole of what
     attaching this distribution changes for a deployment.
     """
-    registry = load_control_plane_plugins()
+    registry = load_registry()
 
     for policy in (
         {"visitor_headers": {"ip_country": True}},
@@ -117,7 +116,7 @@ def test_the_capability_contributes_no_desired_state(settings) -> None:
     distribution installed. A contribution added here later would silently
     override what an operator set in group vars.
     """
-    control = ControlPlane(settings=settings)
+    control = build_application(settings=settings)
     sites = (_site(visitor_headers={"ip_country": True}),)
 
     try:

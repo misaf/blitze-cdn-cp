@@ -9,6 +9,7 @@ from cli_support import (
 from control_plane_fixtures import (
     FakeRunner,
     ansible_run,
+    build_application,
     host_run,
     seed_edge,
     seed_site,
@@ -16,7 +17,7 @@ from control_plane_fixtures import (
 
 from blitzecdn.capabilities.dns.domain import Domain
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.domain.runs import RunStatus
 
 
@@ -43,10 +44,10 @@ def test_cli_plan_deploy_status_and_rollback(settings, monkeypatch):
             ansible_run(host_run("edge-a")),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
     seed_site(control)
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     planned = runner.invoke(cli.app, ["plan", "--json"])
     assert planned.exit_code == 0
     # --skip-preflight, so this stays the straight-through path it was written
@@ -73,13 +74,13 @@ def test_interactive_deploy_validates_previews_and_applies(settings, monkeypatch
             ansible_run(host_run("edge-a", changes=("Render managed sites",))),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
     # Nothing optional: this is about the interactive flow, and a site left on
     # its defaults asks for `cache` and `compression`, which the core-only
     # workspace does not have and would refuse the deploy over.
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     result = runner.invoke(cli.app, ["deploy"], input="y\n")
     assert result.exit_code == 0
     assert "Configuration is valid" in result.stdout
@@ -158,7 +159,7 @@ def test_validate_exits_three_and_lists_what_is_wrong(settings, monkeypatch):
 
 def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=FakeRunner(
@@ -172,7 +173,7 @@ def test_plan_exits_five_when_check_mode_fails(settings, monkeypatch):
         ),
     )
     seed_edge(control)
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
 
     assert runner.invoke(cli.app, ["plan"]).exit_code == cli.ExitCode.DEPLOYMENT_FAILED
 
@@ -198,10 +199,10 @@ def test_interactive_deploy_applies_nothing_when_the_operator_declines(
 ):
     repository = Repository(settings.database_path)
     fake = FakeRunner([ansible_run(host_run("edge-a")) for _ in range(2)])
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy"], input="n\n")
 
@@ -252,12 +253,12 @@ def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkey
             ansible_run(host_run("edge-a", changes=("Render managed sites",))),
         ]
     )
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=Repository(settings.database_path), runner=fake
     )
     seed_edge(control)
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
 
     # No `input=`: a prompt here would fail the test rather than hang it, which
     # is the point — --yes still answers the confirmation.
@@ -271,11 +272,11 @@ def test_yes_answers_the_prompt_without_giving_up_the_preflight(settings, monkey
 def test_skip_preflight_is_what_gives_up_the_checks(settings, monkeypatch):
     """The escape hatch still exists; it just has to be asked for by name."""
     fake = FakeRunner([ansible_run(host_run("edge-a"))])
-    control = ControlPlane(
+    control = build_application(
         settings=settings, repository=Repository(settings.database_path), runner=fake
     )
     seed_site(control, cache_enabled=False, compression="off")
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
 
     result = runner.invoke(cli.app, ["deploy", "--yes", "--skip-preflight"])
 

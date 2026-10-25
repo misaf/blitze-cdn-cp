@@ -34,7 +34,7 @@ from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
-from blitzecdn.composition import load_control_plane_plugins
+from blitzecdn.composition import load_registry
 from blitzecdn.core.exceptions import ConflictError
 from blitzecdn.core.plugins.resolution import resolve_nginx_resources
 
@@ -68,7 +68,7 @@ def _nginx_resources() -> dict[str, list[dict[str, str]]]:
             for resource in resources
         ]
         for context, resources in resolve_nginx_resources(
-            load_control_plane_plugins().nginx_contributions()
+            load_registry().nginx_contributions()
         ).items()
     }
 
@@ -121,7 +121,7 @@ def _capability_defaults() -> dict[str, Any]:
     edit every time a capability is attached or detached.
     """
     defaults: dict[str, Any] = {}
-    for contribution in load_control_plane_plugins().ansible_contributions():
+    for contribution in load_registry().ansible_contributions():
         for role in sorted(contribution.roles_path.iterdir()):
             if (role / "defaults/main.yml").is_file():
                 defaults |= _defaults_of(role)

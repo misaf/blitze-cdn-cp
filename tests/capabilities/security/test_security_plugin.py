@@ -67,7 +67,6 @@ def test_metadata_provides_required_security_capability() -> None:
     metadata = FEATURE.metadata
     assert metadata.name == "security"
     assert metadata.capabilities == frozenset({"security"})
-    assert metadata.required
 
 
 def test_under_attack_without_a_controller_secret_is_a_blocking_issue() -> None:

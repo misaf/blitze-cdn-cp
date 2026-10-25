@@ -2,7 +2,7 @@
 
 The control plane's shared fixtures used to carry an
 ``attach_certificate_test_services`` fixture that monkeypatched
-``ControlPlane.__init__`` so that ``control.certificates`` existed and could be
+``ApplicationServices.__init__`` so that ``control.certificates`` existed and could be
 handed a fake store, issuer or preflight. Its own docstring called it legacy,
 and it was: production core never constructs these services, and every test
 that relied on it was a certificates test living in ``tests/``.
@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING
 import pytest
 from control_plane_fixtures import (
     FakeRunner,
+    build_application,
     cli_control_plane,
     host_run,
     seed_site,
@@ -48,7 +49,8 @@ from blitzecdn.capabilities.tls.certificates.ports import (
 )
 from blitzecdn.capabilities.tls.certificates.service import CertificateService
 from blitzecdn.capabilities.tls.policy import SslAutomaticMode, SslMode
-from blitzecdn.composition import ControlPlane, FleetRunner, Repository
+from blitzecdn.cli import common as cli_common
+from blitzecdn.composition import ApplicationServices, FleetRunner, Repository
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
 from blitzecdn.core.exceptions import ExecutionError
@@ -100,10 +102,11 @@ def _with_seams(
     )
 
 
-def _attach(control: ControlPlane, service: CertificateService) -> ControlPlane:
-    """Replace the application-owned service with the named test seams."""
-    control.certificates = service
-    return control
+def _attach(
+    control: ApplicationServices, service: CertificateService
+) -> ApplicationServices:
+    """The same graph, with the certificate service's seams replaced."""
+    return replace(control, certificates=service)
 
 
 def certificate_control_plane(
@@ -113,7 +116,7 @@ def certificate_control_plane(
     certificate_store: CertificateStore | None = None,
     issuer: Issuer | None = None,
     preflight: Preflight | None = None,
-) -> ControlPlane:
+) -> ApplicationServices:
     """A control plane with this capability's services built onto it.
 
     Returns the control plane. ``control.certificates`` and
@@ -122,7 +125,7 @@ def certificate_control_plane(
     the named seams replaced.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=repository,
         runner=runner if runner is not None else FakeRunner(),
@@ -144,7 +147,7 @@ def certificate_cli_control_plane(
     monkeypatch: pytest.MonkeyPatch,
     runner_double: FleetRunner | None = None,
     preflight: Preflight | None = None,
-) -> ControlPlane:
+) -> ApplicationServices:
     """`cli_control_plane`, with this capability's services built onto it.
 
     The command tree an operator sees is assembled from every installed plugin,
@@ -152,11 +155,10 @@ def certificate_cli_control_plane(
     additional services; `cert list`, `cert renew` and `cert preflight` all read
     `control.certificates`.
     """
-    control = cli_control_plane(settings, monkeypatch, runner_double)
-    return _attach(
-        control,
-        _with_seams(control.certificates, preflight=preflight),
-    )
+    built = cli_control_plane(settings, monkeypatch, runner_double)
+    control = _attach(built, _with_seams(built.certificates, preflight=preflight))
+    monkeypatch.setattr(cli_common, "services", lambda: control)
+    return control
 
 
 class FakePreflight:
@@ -236,7 +238,7 @@ def _automatic_origin_report(
 
 
 def _seed_automatic_ssl_record(
-    control: ControlPlane,
+    control: ApplicationServices,
     *,
     mode: SslMode = SslMode.OFF,
     automatic: SslAutomaticMode = SslAutomaticMode.AUTO,
@@ -269,7 +271,7 @@ class _RecordingIssuer:
 
 
 def _proxied_site_with_certificate(
-    control: ControlPlane,
+    control: ApplicationServices,
     repository: Repository,
     certificate_pair: CertificatePair,
     *,

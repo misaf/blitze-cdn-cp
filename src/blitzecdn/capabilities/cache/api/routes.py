@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, Response, status
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     require_operator,
 )
 from blitzecdn.api.models import as_operation
@@ -33,7 +33,7 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 def purge_cache(
     request: PurgeRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
     response: Response,
 ) -> PurgeResult:
     """Remove cached responses from the edges and report partial failure."""
@@ -52,7 +52,7 @@ def purge_cache(
 def cache_stats(
     request: StatsRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> CacheStatsReport:
     """Collect cache effectiveness from the edges."""
     return as_operation(

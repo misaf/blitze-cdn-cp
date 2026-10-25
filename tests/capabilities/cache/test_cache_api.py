@@ -7,7 +7,7 @@ makes them a check on the packaging and not only on the handlers — a route tha
 stopped being contributed would 404 here.
 """
 
-from control_plane_fixtures import FakeRunner, ansible_run, host_run
+from control_plane_fixtures import FakeRunner, ansible_run, host_run, serve
 from fastapi.testclient import TestClient
 
 from blitzecdn.api import create_app
@@ -90,9 +90,7 @@ def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
             [ansible_run(host_run("edge-a"), host_run("edge-b", failure="rm failed"))]
         )
     )
-    monkeypatch.setattr(
-        "blitzecdn.api.app.build_control_plane", lambda _settings, **_kwargs: control
-    )
+    serve(monkeypatch, control)
 
     with TestClient(create_app(settings)) as client:
         response = client.post(
@@ -116,9 +114,7 @@ def test_a_partial_purge_is_a_409_that_still_carries_the_whole_result(
 
 def test_a_complete_purge_is_a_200_saying_so(settings, seeded, monkeypatch):
     control, _ = seeded(FakeRunner([ansible_run(host_run("edge-a"))]))
-    monkeypatch.setattr(
-        "blitzecdn.api.app.build_control_plane", lambda _settings, **_kwargs: control
-    )
+    serve(monkeypatch, control)
 
     with TestClient(create_app(settings)) as client:
         response = client.post(

@@ -1,17 +1,16 @@
 """The values plugins hand back, and the identity they hand back with them.
 
-Everything here is a frozen dataclass rather than a dictionary. A contribution
-crosses a package boundary — often one shipped as a separate distribution — so
-"which keys does this have" has to be answerable by reading a type rather than
-by reading whichever plugin happened to produce the value.
+Everything here is a frozen dataclass rather than a dictionary, so "which keys
+does this have" is answerable by reading a type rather than by reading
+whichever feature happened to produce the value.
 
 Nothing in this module imports a capability. `core` is what a capability builds
 on; behaviour that needs collaborators is bound by the composition root through
 `FeatureRendering` and `FeatureOperations`, which keeps the arrow pointing one way.
 
-One module per hook family, and this façade over all of them. The split is by
-*which hook answers with it*, so a change to what a capability may put on an
-edge host touches `ansible` and nothing beside it. Import from
+One module per contribution family, and this façade over all of them, so a
+change to what a capability may put on an edge host touches `ansible` and
+nothing beside it. Import from
 `blitzecdn.core.plugins` — the submodules here publish nothing that façade does
 not, which `tests/published_surface.py` derives rather than asserts.
 """
@@ -26,24 +25,16 @@ from blitzecdn.core.plugins.types.configuration import (
     SettingValue,
 )
 from blitzecdn.core.plugins.types.feature import (
-    ExtensionContext,
     Feature,
     FeatureOperations,
     FeatureRendering,
     SiteReader,
 )
-from blitzecdn.core.plugins.types.identity import (
-    ENTRY_POINT_GROUP,
-    HOOK_API_VERSION,
-    PROJECT_NAME,
-    SUPPORTED_HOOK_API_VERSIONS,
-    PluginMetadata,
-)
+from blitzecdn.core.plugins.types.identity import PluginMetadata
 from blitzecdn.core.plugins.types.nginx import NginxContribution
 from blitzecdn.core.plugins.types.runtime import (
     CliCommandGroup,
     HealthCheck,
-    ProcessKind,
     ScheduledJob,
 )
 from blitzecdn.core.plugins.types.state import (
@@ -58,17 +49,12 @@ from blitzecdn.core.plugins.types.validation import (
 )
 
 __all__ = [
-    "ENTRY_POINT_GROUP",
-    "HOOK_API_VERSION",
-    "PROJECT_NAME",
-    "SUPPORTED_HOOK_API_VERSIONS",
     "AnsibleContribution",
     "CapabilitySetting",
     "CliCommandGroup",
     "ConfigurationContribution",
     "EdgeModule",
     "EnvironmentKey",
-    "ExtensionContext",
     "Feature",
     "FeatureOperations",
     "FeatureRendering",
@@ -76,7 +62,6 @@ __all__ = [
     "HealthCheck",
     "NginxContribution",
     "PluginMetadata",
-    "ProcessKind",
     "ScheduledJob",
     "SettingValue",
     "Severity",

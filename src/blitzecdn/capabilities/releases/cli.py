@@ -52,10 +52,7 @@ def release_list(
 ) -> None:
     """Recorded releases, newest first."""
     common.emit(
-        [
-            _summary(item)
-            for item in common.control_plane().releases.list_releases(limit)
-        ],
+        [_summary(item) for item in common.services().releases.list_releases(limit)],
         json_output=json_output,
     )
 
@@ -74,7 +71,7 @@ def release_show(
     Compiling records nothing, so this is safe to run as often as it takes to
     get a configuration right.
     """
-    releases = common.control_plane().releases
+    releases = common.services().releases
     release = (
         releases.get(release_id)
         if release_id is not None
@@ -99,7 +96,7 @@ def release_explain(
     overriding nothing relevant leaves the zone's value in place — so an
     operator told only the rule's name goes and edits the wrong object.
     """
-    releases = common.control_plane().releases
+    releases = common.services().releases
     release = releases.get(release_id) if release_id else releases.compile()
     explanations = [
         {
@@ -131,7 +128,7 @@ def release_artifact(
     json_output: common.JsonOutput = False,
 ) -> None:
     """The exact document the edges are converged from, and its digest."""
-    releases = common.control_plane().releases
+    releases = common.services().releases
     release = releases.get(release_id) if release_id else releases.compile()
     artifact = release.artifact(name)
     common.emit(
@@ -161,7 +158,7 @@ def release_render(
     """
     if output.exists() and any(output.iterdir()):
         raise typer.BadParameter(f"{output} is not empty", param_hint="--output")
-    releases = common.control_plane().releases
+    releases = common.services().releases
     release = releases.get(release_id) if release_id else releases.compile()
     bundle = releases.render(release)
     for name, content in bundle.files.items():

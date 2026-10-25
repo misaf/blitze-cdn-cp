@@ -1,9 +1,9 @@
 import os
 import subprocess
 
-from control_plane_fixtures import FakeRunner
+from control_plane_fixtures import FakeRunner, build_application
 
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.install_handoff import finalize_standalone, install_wrapper
 
 
@@ -50,7 +50,7 @@ def test_install_wrapper_quotes_a_checkout_with_spaces(tmp_path):
 
 
 def test_finalize_standalone_registers_and_updates_the_local_edge(settings):
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),

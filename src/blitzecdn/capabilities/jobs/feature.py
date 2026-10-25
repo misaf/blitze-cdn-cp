@@ -25,8 +25,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="jobs",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Durable background work, on the control plane's own database.",
         ),
         cli_commands=(CliCommandGroup(plugin="jobs", name="job", app=cli.job_app),),

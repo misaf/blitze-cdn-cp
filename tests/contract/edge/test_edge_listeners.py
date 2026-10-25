@@ -12,6 +12,7 @@ import yaml
 from contract_support import (
     _role_defaults,
 )
+from control_plane_fixtures import build_application
 from edge_render_support import (
     _contract,
     _defaults_of,
@@ -33,7 +34,7 @@ from blitzecdn.capabilities.http.policy import (
 from blitzecdn.capabilities.tls.policy import (
     SslMode,
 )
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 REQUIRES_CAPABILITIES = {
     "test_http3_is_additive_and_limited_to_udp_443": ("http3",),
@@ -172,7 +173,7 @@ def test_desired_state_states_http3_once_for_the_firewall_and_the_listener(
     what core owns is that these two names, and no others, carry the answer.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings=settings, repository=repository)
+    control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     for name in ("zeta", "alpha"):
         _seed_site(

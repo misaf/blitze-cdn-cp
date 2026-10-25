@@ -20,7 +20,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import frozen_surfaces as surfaces
 from control_plane_fixtures import settings as _settings_fixture
-from published_surface import _PUBLIC_SDK_PREFIXES
 
 
 def _settings() -> Settings:
@@ -38,8 +37,6 @@ def main() -> int:
     generated = {
         "cli": surfaces.cli_surface(),
         "http": surfaces.http_surface(settings),
-        "plugin_abi": surfaces.plugin_abi_surface(),
-        "sdk": surfaces.sdk_surface(_PUBLIC_SDK_PREFIXES),
         "ansible": surfaces.ansible_surface(),
         "schema": surfaces.schema_surface(),
     }

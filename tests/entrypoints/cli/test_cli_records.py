@@ -10,11 +10,12 @@ from cli_support import (
 )
 from control_plane_fixtures import (
     FakeRunner,
+    build_application,
 )
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
@@ -27,12 +28,12 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
     the policy; here it takes the hostname on and off a site whose settings
     stay configured.
     """
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     added = runner.invoke(
         cli.app,
@@ -72,12 +73,12 @@ def test_cli_proxy_and_unproxy_move_a_hostname_on_and_off_the_edge(
 
 
 def test_cli_dns_export_hides_addresses_for_proxied_records(settings, monkeypatch):
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
     exported = json.loads(runner.invoke(cli.app, ["dns", "export", "--json"]).stdout)

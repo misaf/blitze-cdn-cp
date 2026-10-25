@@ -1,6 +1,6 @@
-from control_plane_fixtures import FakeRunner, ansible_run, host_run
+from control_plane_fixtures import FakeRunner, ansible_run, build_application, host_run
 
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 # ----------------------------------------------------------------------
 # Cache statistics
@@ -15,7 +15,7 @@ def _stats_control(settings, *hosts):
     picture, so the roster and the numbers cannot disagree.
     """
     fake = FakeRunner([ansible_run(*hosts)])
-    return ControlPlane(
+    return build_application(
         settings=settings, repository=Repository(settings.database_path), runner=fake
     ), fake
 
@@ -167,7 +167,7 @@ def test_a_collection_reads_only_its_own_run(settings):
             ),
         ]
     )
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
 
     first = control.cache.cache_stats("alice")
     second = control.cache.cache_stats("alice")

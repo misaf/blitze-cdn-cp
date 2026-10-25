@@ -12,16 +12,20 @@ from __future__ import annotations
 from pathlib import Path
 
 from certificate_support import certificate_control_plane
-from control_plane_fixtures import seed_site, with_capability_settings
+from control_plane_fixtures import (
+    build_application,
+    seed_site,
+    with_capability_settings,
+)
 
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import ApplicationServices, Repository
 from blitzecdn.core.domain.configuration import ConfigurationBundle
 
 _SECRET = "parity-test-signing-key-" + "x" * 32
 
 
-def _assert_parity(control: ControlPlane, tmp_path: Path) -> ConfigurationBundle:
+def _assert_parity(control: ApplicationServices, tmp_path: Path) -> ConfigurationBundle:
     """Prepare a release; its stored configuration is its rendering."""
     release = control.releases.prepare()
     assert release.servable, release.findings
@@ -35,7 +39,7 @@ def _assert_parity(control: ControlPlane, tmp_path: Path) -> ConfigurationBundle
 
 def test_a_plain_and_a_disabled_tls_site_are_rendered_and_kept(settings, tmp_path):
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings=settings, repository=repository)
+    control = build_application(settings=settings, repository=repository)
     seed_site(control, origin_request_host="origin.example.com", ssl_mode="off")
     seed_site(
         control,
@@ -88,7 +92,7 @@ def test_an_uploaded_certificate_is_rendered_and_kept(
 def test_fleet_settings_and_under_attack_are_rendered_and_kept(settings, tmp_path):
     configured = with_capability_settings(settings, under_attack_secret=_SECRET)
     repository = Repository(configured.database_path)
-    control = ControlPlane(settings=configured, repository=repository)
+    control = build_application(settings=configured, repository=repository)
     for name, value in {
         "blitzecdn_security_under_attack_enabled": True,
         "blitzecdn_nginx_hsts_enabled": True,

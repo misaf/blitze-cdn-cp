@@ -36,9 +36,6 @@ dependencies = [
   # dependency that is really required has to say so here.
   "ansible-core>=2.21,<2.22",
   "pydantic-settings>=2.12,<3",
-  # The extension mechanism. Capabilities register through it; business calls never
-  # go through it. See src/blitzecdn/core/plugins/__init__.py.
-  "pluggy>=1.6,<2",
   "sqlmodel>=0.0.31,<0.1",
   "ansible-runner>=2.4,<3",
 ]
@@ -148,17 +145,6 @@ max-statements = 60
 # always should have, and the exemption is stated where they are rather than
 # being an accident of how the name arrived.
 "tests/contract_support.py" = ["S603"]
-# Expanding the published SDK means importing every module behind a published
-# prefix, and a module that cannot be imported in this environment is a fact
-# about the environment rather than a failure of the surface — one needs a live
-# control plane, and an optional distribution is absent in a core-only run. The
-# import is the thing being probed, so what it raises is not knowable in
-# advance and catching a narrower type would only turn a skipped module into a
-# broken suite.
-"tests/frozen_surfaces.py" = ["BLE001", "S112"]
-# `facade_private_modules` walks and imports the published prefixes for the
-# same reason and with the same unknowable failures.
-"tests/published_surface.py" = ["BLE001", "S112"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -187,13 +173,6 @@ ignore_errors = true
 [[tool.mypy.overrides]]
 module = ["ansible", "ansible.*"]
 ignore_missing_imports = true
-
-# Hook specifications are declarations, not implementations: pluggy never calls
-# the spec, only the implementations registered against it. A body would be
-# unreachable code that looked like a default.
-[[tool.mypy.overrides]]
-module = "blitzecdn.core.plugins.hooks"
-disable_error_code = ["empty-body"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]

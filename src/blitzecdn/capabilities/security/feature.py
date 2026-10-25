@@ -42,8 +42,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="security",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"security"}),
             summary="Per-site request filtering and Under Attack Mode.",
         ),

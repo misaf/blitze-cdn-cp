@@ -398,8 +398,12 @@ def test_cross_capability_imports_use_contract_modules():
     assert offenders == []
 
 
-def test_control_plane_is_the_only_production_composition_root():
-    imports = _imports(_SOURCE / "composition/control_plane.py")
+def test_the_composition_package_is_the_only_production_composition_root():
+    imports = {
+        name
+        for module in ("roster", "infrastructure", "services", "processes")
+        for name in _imports(_SOURCE / f"composition/{module}.py")
+    }
     assert any(name.startswith("blitzecdn.capabilities") for name in imports)
     assert any(name.startswith("blitzecdn.core") for name in imports)
     assert not any(name.startswith("blitzecdn.worker") for name in imports)
@@ -1090,13 +1094,12 @@ def test_no_capability_or_provider_names_the_composition_root():
     """Nothing the composition root builds may reach back for it.
 
     Not a service, an adapter, a builder or a feature: each receives its
-    collaborators as named arguments, or as an `ExtensionContext` across the
-    external extension boundary. A module that reached for the root would be
+    collaborators as named arguments. A module that reached for the root would be
     resolving its collaborators at call time instead of receiving them, which
     is the service-locator shape this design refuses. Not even for typing.
 
     A capability's *entry* modules are outside the rule for the same reason
-    `cli/common.py` is: a command has to get a control plane from somewhere.
+    `cli/common.py` is: a command has to get its services from somewhere.
     """
     entry = set(_entry_files())
     offenders = [
@@ -1256,3 +1259,71 @@ def test_the_compiler_accepts_only_captured_values():
     parameters = inspect.signature(compile_release).parameters
     assert tuple(parameters) == ("compilation",)
     assert parameters["compilation"].annotation == "Compilation"
+
+
+#: The modules that start a process, and the one container each may build.
+_PROCESS_ENTRY_POINTS = {
+    "api/app.py": "build_api",
+    "cli/common.py": "build_cli",
+    "worker.py": "build_worker",
+    "install_handoff.py": "build_install_handoff",
+}
+
+#: What of composition each delivery layer may name: its own container, and for
+#: the CLI the schema maintenance that runs before any service exists.
+_DELIVERY_CONTAINERS = {
+    "api": {"ApiServices"},
+    "cli": {"CliServices", "migrate_database"},
+}
+
+
+def _names_from_composition(path: Path) -> set[str]:
+    """Every name a module imports from the composition package, deferred too."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return {
+        alias.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ImportFrom)
+        and (node.module or "").startswith(_COMPOSITION_ROOT)
+        for alias in node.names
+    }
+
+
+def _delivery_layer(path: Path) -> str | None:
+    relative = path.relative_to(_SOURCE).parts
+    if relative[0] in _DELIVERY_CONTAINERS:
+        return relative[0]
+    if "api" in relative[:-1]:
+        return "api"
+    if "cli" in relative[:-1] or relative[-1] == "cli.py":
+        return "cli"
+    return None
+
+
+def test_each_process_builds_only_its_own_container():
+    """A process's differences are which container it builds, not a flag."""
+    offenders = []
+    builders = set(_PROCESS_ENTRY_POINTS.values())
+    for module, builder in _PROCESS_ENTRY_POINTS.items():
+        built = _names_from_composition(_SOURCE / module) & builders
+        if built != {builder}:
+            offenders.append(f"{module} builds {sorted(built)}, not {builder}")
+    assert offenders == []
+
+
+def test_delivery_code_reaches_only_its_own_process_container():
+    """A route cannot reach a service the API was not given, nor a command one
+    the CLI was not given: neither may name the service graph or another
+    process's container."""
+    offenders = []
+    for path in sorted(_SOURCE.rglob("*.py")):
+        layer = _delivery_layer(path)
+        if layer is None:
+            continue
+        relative = str(path.relative_to(_SOURCE))
+        if relative in _PROCESS_ENTRY_POINTS:
+            continue
+        named = _names_from_composition(path) - _DELIVERY_CONTAINERS[layer]
+        if named:
+            offenders.append(f"{relative} names {sorted(named)}")
+    assert offenders == []

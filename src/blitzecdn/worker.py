@@ -2,7 +2,7 @@
 
 This module is what ``blitzecdn worker`` and the container's worker service
 run. It is an entry point in exactly the sense the CLI and the API are: it
-builds a control plane and calls a service on it, and it is allowed to know
+builds its services and calls one, and it is allowed to know
 both halves because nothing imports it back.
 
 There are no actors here and no broker to connect to. Work is rows in the
@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 
 from blitzecdn.core.config import Settings
-from blitzecdn.core.plugins import ProcessKind
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -31,29 +30,27 @@ __all__ = ["main", "run_worker"]
 def run_worker(settings: Settings | None = None) -> None:
     """Run the worker until it is asked to stop.
 
-    What the worker owes when it starts — every feature's startup, then this
-    installation's schedules — is
-    :meth:`~blitzecdn.composition.ControlPlane.start`'s business, which
-    knows the process it was built for.
+    What the worker owes when it starts — this installation's schedules — is
+    :meth:`~blitzecdn.composition.WorkerServices.start`'s business.
     """
-    from blitzecdn.composition import build_control_plane
+    from blitzecdn.composition import Infrastructure, build_services, build_worker
 
     resolved = settings or Settings.from_environment()
-    control = build_control_plane(resolved, process=ProcessKind.WORKER)
+    worker = build_worker(build_services(Infrastructure.build(resolved)))
     try:
-        control.start()
+        worker.start()
         _LOGGER.info(
             "worker ready: %d scheduled job(s) registered",
-            len(control.job_scheduler.schedules.list_schedules()),
+            len(worker.job_scheduler.schedules.list_schedules()),
         )
-        runner = control.job_runner
+        runner = worker.job_runner
         runner.install_signal_handlers()
         runner.run_forever()
     finally:
         try:
-            control.stop()
+            worker.stop()
         finally:
-            control.close()
+            worker.close()
 
 
 def main() -> None:  # pragma: no cover - the process entry point

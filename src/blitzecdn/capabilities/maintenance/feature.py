@@ -10,8 +10,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="maintenance",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Execute and converge scheduled capability jobs.",
         ),
     ),

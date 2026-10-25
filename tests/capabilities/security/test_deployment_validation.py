@@ -13,7 +13,13 @@ validator has an opinion about.
 import json
 
 import pytest
-from control_plane_fixtures import FakeRunner, ansible_run, host_run, seed_site
+from control_plane_fixtures import (
+    FakeRunner,
+    ansible_run,
+    build_application,
+    host_run,
+    seed_site,
+)
 from pydantic import SecretStr
 from typer.testing import CliRunner
 
@@ -21,7 +27,7 @@ from blitzecdn.capabilities.deployments.domain import DeploymentStatus
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.security.config import SECRET_VARIABLE
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 runner = CliRunner()
 
@@ -37,7 +43,7 @@ _REFUSAL = (
 
 def _control_serving(settings, runner_stub, **patch):
     """A control plane serving one site, patched with `patch`."""
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner_stub,
@@ -119,7 +125,7 @@ def test_cli_error_semantics_are_unchanged_by_the_new_refusal(
     refusal adds a reason to fail, not a new way of failing.
     """
     control = _control_serving(unprovisioned, FakeRunner(), under_attack_mode=True)
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: unprovisioned)
 
     result = runner.invoke(cli.app, ["validate", "--json"])

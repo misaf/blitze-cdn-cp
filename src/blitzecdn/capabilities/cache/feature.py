@@ -32,8 +32,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="cache",
             version=__version__,
-            api_version=2,
-            required=True,
             provides=frozenset({"cache"}),
             summary="Purge cached responses and read cache effectiveness.",
         ),

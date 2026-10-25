@@ -369,11 +369,10 @@ immutable artifacts; deployment verifies the release served by each edge.
 Services receive focused ports, while the application composition root chooses
 the adapters and owns their lifetime.
 
-The application registers its mandatory built-ins explicitly. Third-party
-integrations may contribute commands, routes, scheduled jobs, checks and runtime
-resources through the `blitzecdn.plugins` entry-point group. See
-[PLUGINS.md](PLUGINS.md) for ownership and extension conventions, and
-[COMPATIBILITY.md](COMPATIBILITY.md) for published contracts.
+The application registers its mandatory built-ins explicitly in one roster;
+there is no third-party plugin mechanism. See [PLUGINS.md](PLUGINS.md) for
+ownership and assembly conventions, and [COMPATIBILITY.md](COMPATIBILITY.md) for
+published contracts.
 
 ## Development
 

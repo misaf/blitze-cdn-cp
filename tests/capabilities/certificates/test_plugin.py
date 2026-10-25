@@ -11,7 +11,6 @@ def test_metadata_provides_required_certificates_capability() -> None:
 
     assert metadata.name == "certificates"
     assert metadata.capabilities == frozenset({"certificates"})
-    assert metadata.required
 
 
 def test_jobs_are_owned_by_the_certificate_capability() -> None:

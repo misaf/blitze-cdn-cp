@@ -16,8 +16,6 @@ FEATURES = (
         metadata=PluginMetadata(
             name="diagnostics",
             version=__version__,
-            api_version=2,
-            required=True,
             summary="Health, metrics, the audit trail, and the API server itself.",
         ),
         api_routers=(readiness.router, routes.router),

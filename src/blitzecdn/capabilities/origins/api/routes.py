@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends
 
 from blitzecdn.api.dependencies import (
-    ControlPlaneDependency,
     OperatorDependency,
+    ServicesDependency,
     require_operator,
 )
 from blitzecdn.api.models import as_operation
@@ -18,7 +18,7 @@ router = APIRouter(dependencies=[Depends(require_operator)])
 def check_origins(
     request: OriginCheckRequest,
     operator: OperatorDependency,
-    control: ControlPlaneDependency,
+    control: ServicesDependency,
 ) -> OriginReport:
     """Ask the edges to connect to the origins they proxy to."""
     return as_operation(

@@ -32,9 +32,7 @@ def domain_add(
     at anything.
     """
     common.emit(
-        serving_document(
-            common.control_plane().dns.create_domain(Domain(name=name), "cli")
-        ),
+        serving_document(common.services().dns.create_domain(Domain(name=name), "cli")),
         json_output=json_output,
     )
 
@@ -54,7 +52,7 @@ def domain_hosts(
     been deployed is already here. Use 'drift' for the fleet's view.
     """
     common.emit(
-        [serving_document(site) for site in common.control_plane().sites.list_sites()],
+        [serving_document(site) for site in common.services().sites.list_sites()],
         json_output=json_output,
     )
 
@@ -66,7 +64,7 @@ def domain_show(
 ) -> None:
     """Show a zone and the policy every hostname in it is served by."""
     common.emit(
-        serving_document(common.control_plane().dns.get_domain(name)),
+        serving_document(common.services().dns.get_domain(name)),
         json_output=json_output,
     )
 
@@ -183,7 +181,7 @@ def domain_enable(
 def domain_list(json_output: common.JsonOutput = False) -> None:
     """List the DNS zones delegated to BlitzeCDN."""
     common.emit(
-        [serving_document(zone) for zone in common.control_plane().dns.list_domains()],
+        [serving_document(zone) for zone in common.services().dns.list_domains()],
         json_output=json_output,
     )
 
@@ -201,5 +199,5 @@ def domain_remove(
     """
     if not yes and not typer.confirm(f"Delete {name!r} and all of its records?"):
         raise typer.Abort()
-    common.control_plane().dns.delete_domain(name, "cli")
+    common.services().dns.delete_domain(name, "cli")
     typer.echo(f"Deleted {name}")

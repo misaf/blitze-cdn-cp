@@ -436,3 +436,26 @@ those cases failed against the original handler. Formatting, lint and strict
 types across 38 source files passed. Schema and frozen surfaces are unchanged.
 Ansible execution was simulated; no live edge was changed and no tests ran on
 the workstation.
+
+## Capability roster and per-process composition
+
+ADR 0021 is implemented. `composition/roster.py` holds one row per feature
+module with the rendering and operations builders it binds, replacing the
+module list plus two hand-written binding tuples. The pluggy hook path, hook
+ABI, `ExtensionContext`, `ProcessKind`, external discovery and the frozen
+`plugin_abi.txt` and `sdk.txt` snapshots are removed; `pluggy` is no longer a
+runtime dependency. `ControlPlane` is replaced by `Infrastructure` (adapters,
+the only test seam), `ApplicationServices` (the service graph, built once) and
+API, worker, CLI and installer-handoff containers. Delivery code reaches only
+its own container, which two new layering tests hold. CLI, HTTP, Ansible and
+schema snapshots are unchanged.
+
+Workstation verification on 2026-10-25 (macOS, Python 3.14.7): `just
+check-quick` ran lint, strict types, shell lint and Ansible checks clean, and
+the fast suite passed **1,850 tests** with one failure,
+`test_every_command_is_classified` (`backup commit-restore` and `backup
+recover` have no delivery-parity row), which fails identically on the
+unchanged baseline. The suite shrank from 1,871 because tests of external hook
+loading were deleted with the mechanism. `just test-installation` built and
+installed the wheel outside the checkout and passed both cases. No edge or
+controller deployment was changed.

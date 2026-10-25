@@ -32,6 +32,7 @@ import yaml
 from control_plane_fixtures import (
     FakeRunner,
     ansible_run,
+    build_application,
     host_run,
     seed_edge,
     seed_site,
@@ -46,7 +47,7 @@ from blitzecdn.capabilities.deployments.domain import (
 from blitzecdn.capabilities.dns.domain import DomainPatch, PatchPolicy
 from blitzecdn.capabilities.releases.domain import DESIRED_STATE_ARTIFACT
 from blitzecdn.capabilities.tls.policy import SslMode
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import ApplicationServices, Repository
 from blitzecdn.core.domain.runs import RunStatus
 
 _SERVERS: dict[int, http.server.HTTPServer] = {}
@@ -125,7 +126,7 @@ def probe_on(port: int) -> ServingProbe:
     return LoopbackProbe(timeout=5.0)
 
 
-def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
+def control_plane(settings, port: int, runner: FakeRunner) -> ApplicationServices:
     # Simulate the runner's activation effect, separately from the real probe.
     # Merely publishing or validating a release must not update the listener.
     original_run = runner.run
@@ -144,7 +145,7 @@ def control_plane(settings, port: int, runner: FakeRunner) -> ControlPlane:
         return result
 
     runner.run = run
-    return ControlPlane(
+    return build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=runner,

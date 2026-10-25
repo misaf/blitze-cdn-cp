@@ -1,8 +1,8 @@
 """Helpers every command group shares.
 
-Commands call ``common.control_plane()`` through this module rather than
-importing the function by name, so a test that swaps it out has one place to
-patch and every command group sees the change.
+Commands call ``common.services()`` through this module rather than importing
+the function by name, so a test that swaps it out has one place to patch and
+every command group sees the change.
 """
 
 from __future__ import annotations
@@ -16,9 +16,11 @@ import typer
 import yaml
 
 from blitzecdn.composition import (
-    ControlPlane,
-    build_control_plane,
-    load_control_plane_plugins,
+    CliServices,
+    Infrastructure,
+    build_cli,
+    build_services,
+    load_registry,
 )
 from blitzecdn.core.config import Settings
 from blitzecdn.core.domain.runs import HostRun
@@ -47,21 +49,22 @@ def settings() -> Settings:
     return Settings.from_environment()
 
 
-def control_plane() -> ControlPlane:
-    return build_control_plane(settings())
+def services() -> CliServices:
+    """What a command calls. Built per invocation; a command starts nothing."""
+    return build_cli(build_services(Infrastructure.build(settings())))
 
 
 def installed_plugins() -> PluginRegistry:
-    """What is installed, for the commands whose answer needs nothing else.
+    """What is shipped, for the commands whose answer needs nothing else.
 
     `blitzecdn ansible search-path` and `blitzecdn edges modules` run where
     there is no database to open and no fleet to read — a lint step, an image
-    build — so they ask the registry rather than build a control plane to get
-    at its. They come through here for the same reason every command comes
-    through `control_plane()`: the composition root is named in one module of
-    the command line, not in each command group that happens to need it.
+    build — so they ask the registry rather than build services to get at it.
+    They come through here for the same reason every command comes through
+    `services()`: the composition root is named in one module of the command
+    line, not in each command group that happens to need it.
     """
-    return load_control_plane_plugins()
+    return load_registry()
 
 
 #: The ``--json`` switch every command that prints a result carries. One

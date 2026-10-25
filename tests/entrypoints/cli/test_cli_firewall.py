@@ -8,10 +8,11 @@ from cli_support import (
 )
 from control_plane_fixtures import (
     FakeRunner,
+    build_application,
 )
 
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
@@ -21,12 +22,12 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
     that replaces the whole block. Getting this wrong would silently drop the
     rules a second invocation did not repeat.
     """
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
 
@@ -67,12 +68,12 @@ def test_cli_firewall_replaces_only_the_lists_it_names(settings, monkeypatch):
 
 def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch):
     """203.0.113.5/24 means one address to the operator and 256 to nginx."""
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app,
@@ -92,12 +93,12 @@ def test_cli_firewall_refuses_a_network_with_host_bits_set(settings, monkeypatch
 
 
 def test_cli_firewall_requires_a_rule_or_clear(settings, monkeypatch):
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     runner.invoke(
         cli.app, ["record", "add", "example.com", "api", "--value", "198.51.100.20"]

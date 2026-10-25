@@ -10,23 +10,23 @@ from __future__ import annotations
 
 import json
 
-from control_plane_fixtures import FakeRunner, seed_record
+from control_plane_fixtures import FakeRunner, build_application, seed_record
 from typer.testing import CliRunner
 
 from blitzecdn.capabilities.dns.domain import PUBLICATION, PublicationMode, RecordType
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import ApplicationServices, Repository
 
 runner = CliRunner()
 
 
-def control_for(settings, monkeypatch) -> ControlPlane:
-    control = ControlPlane(
+def control_for(settings, monkeypatch) -> ApplicationServices:
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     monkeypatch.setattr(cli.common, "settings", lambda: settings)
     return control
 

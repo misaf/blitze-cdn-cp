@@ -8,7 +8,7 @@ a capability that puts a file on a host must be able to take it off again
 without core knowing the path.
 """
 
-from blitzecdn.composition import BUILTIN_FEATURES, load_control_plane_plugins
+from blitzecdn.composition import BUILTIN_FEATURES, load_registry
 from blitzecdn.core.plugins import PluginMetadata
 from blitzecdn.core.plugins.resolution import (
     resolve_edge_capability_roles,
@@ -29,7 +29,6 @@ def test_plugin_provides_resolver_as_a_required_provider() -> None:
     assert isinstance(metadata, PluginMetadata)
     assert metadata.name == "resolver"
     assert metadata.capabilities == frozenset({"resolver"})
-    assert metadata.required
     assert metadata.version == __version__
 
 
@@ -42,8 +41,8 @@ def test_resolver_is_a_built_in() -> None:
     assert any("resolver" in module for module in BUILTIN_FEATURES)
 
 
-def test_an_installed_controller_discovers_it_through_its_entry_point() -> None:
-    registry = load_control_plane_plugins()
+def test_the_shipped_registry_includes_it() -> None:
+    registry = load_registry()
 
     assert "resolver" in {plugin.name for plugin in registry.plugins}
 
@@ -58,7 +57,7 @@ def test_no_site_can_ask_for_this_capability() -> None:
     that made a site depend on `resolver` would turn detaching from a supported
     choice into a fleet-wide validation failure.
     """
-    registry = load_control_plane_plugins()
+    registry = load_registry()
     resolver = next(p for p in registry.plugins if p.name == "resolver")
 
     assert resolver.capabilities == frozenset({"resolver"})

@@ -70,7 +70,7 @@ def rule_add(
 ) -> None:
     """Override some of a zone's policy for the hostnames a rule matches."""
     common.emit(
-        common.control_plane().rules.create_rule(
+        common.services().rules.create_rule(
             Rule(
                 domain=domain,
                 name=name,
@@ -90,9 +90,7 @@ def rule_list(
     json_output: common.JsonOutput = False,
 ) -> None:
     """List a zone's rules in the order a hostname is matched against them."""
-    common.emit(
-        common.control_plane().rules.list_rules(domain), json_output=json_output
-    )
+    common.emit(common.services().rules.list_rules(domain), json_output=json_output)
 
 
 @rule_app.command("show")
@@ -102,9 +100,7 @@ def rule_show(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Show one rule: what it matches, and what it changes."""
-    common.emit(
-        common.control_plane().rules.get_rule(domain, name), json_output=json_output
-    )
+    common.emit(common.services().rules.get_rule(domain, name), json_output=json_output)
 
 
 @rule_app.command("set")
@@ -136,7 +132,7 @@ def rule_set(
             "nothing to change; pass --set, --match, or --priority"
         )
     common.emit(
-        common.control_plane().rules.update_rule(
+        common.services().rules.update_rule(
             domain, name, RulePatch.model_validate(changes), "cli"
         ),
         json_output=json_output,
@@ -152,5 +148,5 @@ def rule_remove(
     """Remove a rule. The hostnames it covered fall back to the zone's policy."""
     if not yes and not typer.confirm(f"Delete rule {name!r} in {domain!r}?"):
         raise typer.Abort()
-    common.control_plane().rules.delete_rule(domain, name, "cli")
+    common.services().rules.delete_rule(domain, name, "cli")
     typer.echo(f"Deleted rule {name} in {domain}")

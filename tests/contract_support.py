@@ -21,13 +21,14 @@ from typing import Any
 
 import pytest
 import yaml
+from control_plane_fixtures import build_application
 from paths import CORE_ANSIBLE, FIXTURES, REPO_ROOT
 from policy_support import domain_from_settings
 
 from blitzecdn.capabilities.dns.domain import DnsRecord, Domain, Rule
 from blitzecdn.capabilities.dns.domain.hosts import host_name
 from blitzecdn.capabilities.tls.policy import CertificateMode, SslMode
-from blitzecdn.composition import ControlPlane, Repository, load_control_plane_plugins
+from blitzecdn.composition import Repository, load_registry
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConflictError
 
@@ -55,7 +56,7 @@ def contributed_roles() -> dict[str, Path]:
     moved to another owner is still found, and a test cannot quietly check
     fewer roles than a deployment runs.
     """
-    plugins = load_control_plane_plugins(entry_point_group=None)
+    plugins = load_registry()
     roles = {
         f"{contribution.plugin}:{directory.name}": directory
         for contribution in plugins.ansible_contributions()
@@ -335,7 +336,7 @@ def _seed_site(
 @pytest.fixture
 def desired_state(settings: Settings, tmp_path: Path) -> dict[str, Any]:
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings=settings, repository=repository)
+    control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     _seed_site(
         repository,

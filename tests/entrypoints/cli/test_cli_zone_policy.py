@@ -9,20 +9,21 @@ from cli_support import (
 )
 from control_plane_fixtures import (
     FakeRunner,
+    build_application,
     seed_site,
 )
 
 from blitzecdn.cli import main as cli
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 
 
 def test_cli_always_use_https_toggle_drives_the_derived_site(settings, monkeypatch):
-    control = ControlPlane(
+    control = build_application(
         settings=settings,
         repository=Repository(settings.database_path),
         runner=FakeRunner(),
     )
-    monkeypatch.setattr(cli.common, "control_plane", lambda: control)
+    monkeypatch.setattr(cli.common, "services", lambda: control)
     runner.invoke(cli.app, ["domain", "add", "example.com"])
     _seed_site(control, "api", "198.51.100.20")
 

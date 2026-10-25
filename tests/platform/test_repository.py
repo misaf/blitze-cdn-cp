@@ -2,6 +2,7 @@ import sqlite3
 from datetime import UTC, datetime
 
 import pytest
+from control_plane_fixtures import build_application
 from policy_support import domain_from_settings, site_from_settings
 from sqlalchemy.pool import NullPool, QueuePool
 
@@ -22,7 +23,7 @@ from blitzecdn.capabilities.workflows.domain import (
     WorkflowStatus,
     WorkflowStep,
 )
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError, NotFoundError
 from blitzecdn.core.persistence.schema import DatabaseSchema
 
@@ -71,7 +72,7 @@ def test_the_virtual_hosts_are_a_function_of_the_rows_behind_them(settings):
     existing — with no call anywhere that could write one directly.
     """
     repository = Repository(settings.database_path)
-    control = ControlPlane(settings=settings, repository=repository)
+    control = build_application(settings=settings, repository=repository)
     repository.zones.create_domain(Domain(name="example.com"))
     repository.zones.create_record(
         DnsRecord(domain="example.com", name="cdn", value="192.0.2.1")

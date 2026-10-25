@@ -25,7 +25,7 @@ def reconcile(
     json_output: common.JsonOutput = False,
 ) -> None:
     """Run the same Automatic SSL/TLS scan as the monthly scheduler."""
-    result = common.control_plane().automatic_ssl.reconcile("cli")
+    result = common.services().automatic_ssl.reconcile("cli")
     common.emit(result, json_output=json_output)
     if not json_output:
         if result.upgraded:

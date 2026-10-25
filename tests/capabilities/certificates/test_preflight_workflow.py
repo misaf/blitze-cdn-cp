@@ -11,12 +11,13 @@ from control_plane_fixtures import (
     FakeEdgeStore,
     FakeRunner,
     ansible_run,
+    build_application,
     host_run,
     seed_site,
 )
 
 from blitzecdn.capabilities.edges.adapters.roster import EdgeRoster
-from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.composition import Repository
 from blitzecdn.core.exceptions import ConflictError
 
 # ----------------------------------------------------------------------
@@ -129,7 +130,7 @@ def test_a_check_mode_run_does_not_count_as_deployed(settings, certificate_pair)
     _seed_proxied_record(control)
 
     # Two runs, so the fake runner needs a result for each.
-    control._runner.results.append(ansible_run(host_run("edge-a")))
+    control.infrastructure.runner.results.append(ansible_run(host_run("edge-a")))
 
     control.deployments.deploy("alice", check=True)
     assert control.deployments.site_is_deployed("example-com") is False
@@ -173,7 +174,7 @@ def test_validate_never_writes_the_file_a_deploy_is_converging(settings):
     """
     repository = Repository(settings.database_path)
     fake = FakeRunner()
-    control = ControlPlane(settings=settings, repository=repository, runner=fake)
+    control = build_application(settings=settings, repository=repository, runner=fake)
     _seed_proxied_record(control)
 
     settings.generated_vars_path.parent.mkdir(parents=True, exist_ok=True)

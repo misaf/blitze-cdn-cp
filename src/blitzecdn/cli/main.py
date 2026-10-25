@@ -1,9 +1,8 @@
 """The `blitzecdn` command line.
 
-The command tree is assembled from what the installed plugins contribute, not
-from a list of imports here. A capability's commands appear because its plugin
-returns a :class:`~blitzecdn.core.plugins.CliCommandGroup`, so a separately
-installed package adds `blitzecdn waf ...` without this module changing.
+The command tree is assembled from what the features contribute, not from a
+list of imports here. A capability's commands appear because its feature
+declares a :class:`~blitzecdn.core.plugins.CliCommandGroup`.
 
 Two things stay here because they are the command line itself rather than a
 capability: the root callback in :mod:`blitzecdn.cli.root` with the global
@@ -11,7 +10,7 @@ options, and `config`, `init`, `migrate` and `setup` — in :mod:`blitzecdn.cli.
 :mod:`blitzecdn.cli.configuration` — which configure the control plane that
 capabilities are then loaded into.
 
-Discovery does not build a control plane. The tree has to exist before an
+Loading the features builds no services. The tree has to exist before an
 argument is parsed, and a command resolves its services when it runs — otherwise
 `blitzecdn --help` would require an initialized database.
 
@@ -29,7 +28,7 @@ import typer
 from pydantic import ValidationError
 
 from blitzecdn.cli import common, configuration, setup
-from blitzecdn.cli.common import ExitCode, control_plane, emit, settings
+from blitzecdn.cli.common import ExitCode, emit, services, settings
 from blitzecdn.cli.root import app, main
 from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import BlitzeError, FailureKind, classify
@@ -61,11 +60,11 @@ __all__ = [
     "app",
     "common",
     "configuration",
-    "control_plane",
     "emit",
     "main",
     "register_commands",
     "run",
+    "services",
     "settings",
     "setup",
 ]

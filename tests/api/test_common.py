@@ -13,7 +13,7 @@ def test_create_app_defers_control_plane_io_until_lifespan(settings, monkeypatch
         built.append(True)
         raise AssertionError("construction must happen in lifespan")
 
-    monkeypatch.setattr("blitzecdn.api.app.build_control_plane", build)
+    monkeypatch.setattr("blitzecdn.api.app.Infrastructure.build", build)
     control_plane_app(settings)
     assert built == []
 
@@ -39,7 +39,7 @@ def test_health_reports_an_unreadable_job_queue(settings, monkeypatch):
     fail differently and are fixed differently.
     """
     monkeypatch.setattr(
-        "blitzecdn.composition.control_plane._queue_reachable", lambda _queue: False
+        "blitzecdn.composition.infrastructure._queue_reachable", lambda _queue: False
     )
     with TestClient(control_plane_app(settings)) as client:
         response = client.get("/health")
@@ -152,9 +152,9 @@ def test_api_lifespan_releases_resources_when_lifecycle_operations_fail(
         operation("pool")
         return SimpleNamespace(shutdown=lambda **kwargs: operation("drain"))
 
-    monkeypatch.setattr(
-        "blitzecdn.api.app.build_control_plane", lambda *a, **k: control
-    )
+    monkeypatch.setattr("blitzecdn.api.app.Infrastructure.build", lambda *a, **k: None)
+    monkeypatch.setattr("blitzecdn.api.app.build_services", lambda _infra: None)
+    monkeypatch.setattr("blitzecdn.api.app.build_api", lambda _services: control)
     monkeypatch.setattr("blitzecdn.api.app.ThreadPoolExecutor", pool)
     with (
         pytest.raises(RuntimeError, match=f"failed {failure}"),
