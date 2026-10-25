@@ -109,6 +109,13 @@ attempt limits and lock contention. Do not edit queue rows, delete lock files or
 submit duplicates to bypass waiting. Resume/retry is bounded; a terminal failure
 needs investigation rather than a claim that recovery succeeded.
 
+A queued deployment waiting for another deployment's lock remains a pending
+job. Inspect its `available_at` and `last_error`: the worker tries again after
+five seconds without spending an execution attempt. It resumes the same job
+when the lock becomes available; no API restart or duplicate submission is
+needed. Failures after execution starts, and expired claims left by dead
+workers, still use the bounded retry budget.
+
 ## Rebuild from an archive
 
 The following is the demonstrated **source-checkout CLI** restore path. Use a

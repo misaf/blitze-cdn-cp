@@ -30,6 +30,7 @@ from typing import Any
 
 from blitzecdn.capabilities.jobs.domain import (
     DEFAULT_LEASE_SECONDS,
+    DeferredJobError,
     Job,
     JobClaim,
     JobStatus,
@@ -42,6 +43,7 @@ from blitzecdn.capabilities.jobs.ports import JobHandler, JobStore
 __all__ = ["DEPLOYMENT_JOB", "SCHEDULED_JOB", "JobQueue"]
 
 _LOGGER = logging.getLogger(__name__)
+_DEFERRAL_SECONDS = 5
 
 #: The two kinds of work this control plane queues, and the payload key each
 #: carries. Named constants because they are a durable wire contract between
@@ -151,7 +153,9 @@ class JobQueue:
     def run(self, claim: JobClaim) -> None:
         """Run a claimed job under its fence, recording success or failure.
 
-        A handler that raises is a failure; a kind with no handler is a failure
+        A handler that raises is a failure, except ``DeferredJobError``: work
+        that could not start is put back without spending an execution attempt.
+        A kind with no handler is a failure
         too, and a permanent one — retrying it would produce the same missing
         handler at each attempt. That happens when a plugin is uninstalled
         while one of its jobs is still queued, which is why the message names
@@ -171,6 +175,20 @@ class JobQueue:
             return
         try:
             handler(job.payload)
+        except DeferredJobError as exc:
+            deferred = self.jobs.defer(
+                job.id,
+                claim.fence,
+                retry_at=self.clock() + timedelta(seconds=_DEFERRAL_SECONDS),
+                reason=str(exc),
+            )
+            if deferred:
+                _LOGGER.info(
+                    "job %s deferred without an execution attempt: %s", job.id, exc
+                )
+            else:
+                _LOGGER.warning("job %s deferral refused: its claim is stale", job.id)
+            return
         except PermanentJobError as exc:
             # Logged without a traceback: the handler raised this to report an
             # outcome it understood, not because something went wrong in it.

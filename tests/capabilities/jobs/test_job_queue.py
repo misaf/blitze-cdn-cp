@@ -15,7 +15,12 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from sqlalchemy import event
 
-from blitzecdn.capabilities.jobs.domain import JobStatus, PermanentJobError, backoff_for
+from blitzecdn.capabilities.jobs.domain import (
+    DeferredJobError,
+    JobStatus,
+    PermanentJobError,
+    backoff_for,
+)
 from blitzecdn.capabilities.jobs.service import JobQueue
 from blitzecdn.composition import Repository
 
@@ -339,6 +344,68 @@ def test_an_abandoned_job_keeps_the_error_an_earlier_attempt_raised(repository):
 
 
 # -- Failure and retry -----------------------------------------------------
+
+
+def test_deferring_work_preserves_the_budget_for_real_failures(repository):
+    clock = Clock()
+    calls = []
+
+    def blocked_between_failures(_payload):
+        calls.append(1)
+        if len(calls) in (1, 7):
+            raise RuntimeError("execution failed")
+        raise DeferredJobError("waiting for a resource")
+
+    queue = queue_for(
+        repository, clock=clock, handlers={"work": blocked_between_failures}
+    )
+    job = queue.jobs.enqueue(
+        kind="work", payload={}, available_at=clock(), max_attempts=2, dedupe_key="one"
+    )
+    queue.run_one()
+    assert queue.get(job.id).attempts == 1
+    for _ in range(5):
+        waiting = queue.get(job.id)
+        clock.advance((waiting.available_at - clock()).total_seconds())
+        queue.run_one()
+        deferred = queue.get(job.id)
+        assert deferred.status is JobStatus.PENDING
+        assert deferred.attempts == 1
+        assert deferred.dedupe_key == "one"
+        assert deferred.leased_by is None and deferred.leased_until is None
+        assert deferred.available_at > clock()
+        assert queue.run_one() is None
+    clock.advance((deferred.available_at - clock()).total_seconds())
+    queue.run_one()
+    failed = queue.get(job.id)
+    assert failed.status is JobStatus.FAILED
+    assert failed.attempts == 2
+    assert "execution failed" in failed.last_error
+
+
+def test_a_stale_claim_cannot_defer_work_or_refund_a_new_attempt(repository):
+    clock = Clock()
+    queue = queue_for(repository, clock=clock, handlers={})
+    job = queue.jobs.enqueue(kind="work", payload={}, available_at=clock())
+    stale = queue.claim(lease_seconds=1)
+    clock.advance(2)
+    current = queue.claim()
+    before = queue.get(job.id)
+
+    assert not queue.jobs.defer(
+        job.id, stale.fence, retry_at=clock() + timedelta(seconds=5), reason="waiting"
+    )
+    assert queue.get(job.id) == before
+    assert queue.jobs.defer(
+        job.id, current.fence, retry_at=clock() + timedelta(seconds=5), reason="waiting"
+    )
+    deferred = queue.get(job.id)
+    assert deferred.attempts == before.attempts - 1
+    assert not queue.jobs.defer(
+        job.id, current.fence, retry_at=clock() + timedelta(seconds=5), reason="again"
+    )
+    assert not queue.jobs.complete(job.id, current.fence, now=clock())
+    assert queue.get(job.id) == deferred
 
 
 def test_a_failing_job_retries_with_bounded_backoff(repository):

@@ -43,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, Field
 __all__ = [
     "DEFAULT_LEASE_SECONDS",
     "MAX_BACKOFF_SECONDS",
+    "DeferredJobError",
     "Job",
     "JobClaim",
     "JobStatus",
@@ -121,6 +122,8 @@ class Job(BaseModel):
     #: and unlike that key it cannot outlive the job it guards, because it *is*
     #: a column on the job.
     dedupe_key: str | None = None
+    #: Claims that executed or disappeared without recording an outcome.
+    #: Explicit deferral before execution refunds its claim's increment.
     attempts: int = 0
     max_attempts: int = 3
     available_at: datetime
@@ -172,6 +175,10 @@ class JobClaim(BaseModel):
     @classmethod
     def of(cls, job: Job) -> Self:
         return cls(job=job, fence=job.fence)
+
+
+class DeferredJobError(Exception):
+    """Work could not start; defer it without spending an execution attempt."""
 
 
 class PermanentJobError(Exception):
