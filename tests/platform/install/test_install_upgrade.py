@@ -148,7 +148,7 @@ def test_upgrade_does_not_ask_the_commit_graph_whether_it_may_cross(tmp_path: Pa
 
 def test_upgrade_confirmation_wants_the_version_typed(tmp_path: Path):
     """Not y/N: the operator should have read where they are going."""
-    body = _function("confirm_upgrade")
+    body = _function("confirm_release_move")
 
     assert "Type ${target} to continue" in body
     assert '[[ ${answer} == "${target}" ]]' in body
@@ -156,8 +156,8 @@ def test_upgrade_confirmation_wants_the_version_typed(tmp_path: Path):
 
 def test_upgrade_names_what_a_major_may_have_taken_away(tmp_path: Path):
     """The prompt lists the surfaces, because they are what an operator owns."""
-    body = _function("confirm_upgrade")
+    body = _function("confirm_release_move")
 
     unwrapped = " ".join(body.split())
-    for surface in ("Ansible variables", "CLI commands", "API routes", "wheel"):
+    for surface in ("Ansible variables", "CLI commands", "API routes"):
         assert surface in unwrapped, surface

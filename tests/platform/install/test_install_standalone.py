@@ -11,6 +11,7 @@ from pathlib import Path
 
 import pytest
 from support.install import (
+    _function,
     _query,
     _role_task,
     _script,
@@ -135,7 +136,8 @@ def test_a_release_move_can_repoint_the_access_list(subcommand: str):
 
     Omitting the flag, the common case, leaves the installed list untouched.
     """
-    section = _section(subcommand)
+    assert f"move_release {subcommand}" in _section(subcommand)
+    section = _function("move_release")
     assert '--extra-vars "blitzecdn_controlplane_allowed_ips=${allowed_ips}"' in section
     # Before the point of no return, not after it. A rejected access list must
     # cost a refused command, never a host sitting with its services stopped.
@@ -209,7 +211,7 @@ def test_installer_installs_only_third_party_collections():
 def test_production_bootstrap_does_not_install_the_application_on_the_host():
     script = _script()
     assert "bootstrap_runtime ansible-only" in _section("standalone")
-    assert "bootstrap_runtime ansible-only" in _section("update")
+    assert "bootstrap_runtime ansible-only" in _function("move_release")
     assert "--no-dev --no-install-project" in script
 
 

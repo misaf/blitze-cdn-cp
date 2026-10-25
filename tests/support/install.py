@@ -79,25 +79,10 @@ def _function(name: str) -> str:
     return script[start:closing]
 
 
-def _embedded_python(marker: str) -> str:
-    """Return the `python3 - <<'PY'` heredoc containing `marker`.
-
-    Selected by content, so a new heredoc earlier in the script cannot repoint
-    these tests.
-    """
-    blocks = [
-        block
-        for block in re.findall(r"<<'PY'\n(.*?)\nPY\n", _script(), re.DOTALL)
-        if marker in block
-    ]
-    assert len(blocks) == 1, f"expected exactly one heredoc containing {marker!r}"
-    return str(blocks[0])
-
-
-def _run_embedded(source: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+def _host_helper(helper: str, *arguments: str) -> subprocess.CompletedProcess[str]:
+    """Run one of the stdlib host helpers the way the script does: ``python3 -I``."""
     return subprocess.run(  # noqa: S603 - interpreter is sys.executable
-        [sys.executable, "-", *arguments],
-        input=source,
+        [sys.executable, "-I", str(SOURCE / "host" / f"{helper}.py"), *arguments],
         check=False,
         capture_output=True,
         text=True,
@@ -197,6 +182,8 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
         '    echo "${FRESH_GIT_BRANCH}"; exit 0 ;;\n'
         '  *"rev-parse HEAD"*)\n'
         '    echo "0123456789abcdef0123456789abcdef01234567"; exit 0 ;;\n'
+        '  *"show HEAD:pyproject.toml"*)\n'
+        f"    echo 'version = \"{_workspace_version()}\"'; exit 0 ;;\n"
         "  clone*)\n"
         '    [[ -z "${FRESH_GIT_CLONE_FAIL:-}" ]] || exit 1\n'
         '    if [[ -n "${FRESH_GIT_CLONE_MARKER:-}" ]]; then\n'
@@ -218,6 +205,13 @@ def _stub_bin(sandbox: Path, root: Path) -> None:
     )
     for path in bindir.iterdir():
         path.chmod(0o700)
+
+
+def _workspace_version() -> str:
+    text = (REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+    match = re.search(r'^version = "([^"]+)"', text, re.MULTILINE)
+    assert match is not None
+    return match.group(1)
 
 
 def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
@@ -284,6 +278,12 @@ def _fake_installation(root: Path, *, with_git: bool = True) -> list[Path]:
         encoding="utf-8",
     )
     ansible.chmod(0o700)
+    # The real host helpers, where the script runs them from, answering
+    # through the git stub.
+    helpers = root / "opt/blitzecdn/src/blitzecdn/host"
+    helpers.mkdir(parents=True, exist_ok=True)
+    for helper in ("install_release.py", "install_inputs.py"):
+        shutil.copyfile(SOURCE / "host" / helper, helpers / helper)
     return owned
 
 
@@ -334,7 +334,7 @@ def _run_sandboxed(
 
 
 def _stub_update_git(sandbox: Path) -> None:
-    """Answer the questions cmd_update asks, driven by environment variables.
+    """Answer the questions a release move asks, driven by environment variables.
 
     The arm order is load-bearing, and every mistake fails as a silently wrong
     answer:
@@ -441,11 +441,6 @@ def _update_sandbox(
     _stub_update_git(sandbox)
     _fake_installation(root, with_git=with_git)
     _stub_update_services(sandbox, root)
-    # The real release selector, where `release_plan` runs it from: the plan is
-    # the behaviour these tests are about, answered through the git stub.
-    selector = root / "opt/blitzecdn/src/blitzecdn/host/install_release.py"
-    selector.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(SOURCE / "host/install_release.py", selector)
     installed = root / "opt/blitzecdn/install.sh"
     shutil.copyfile(script, installed)
     installed.chmod(0o700)

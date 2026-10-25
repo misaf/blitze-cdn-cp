@@ -27,7 +27,7 @@ from support.paths import REPO_ROOT
 
 def test_update_preserves_state_rather_than_removing_it():
     """The whole point of the command: --fresh destroys, update does not."""
-    update = _section("update")
+    update = _function("move_release")
     for destructive in (
         "converge_uninstall",
         "remove_installation_directory",
@@ -38,7 +38,7 @@ def test_update_preserves_state_rather_than_removing_it():
 
 
 def test_update_takes_a_backup_before_it_changes_anything():
-    update = _section("update")
+    update = _function("move_release")
     assert "backup create --only database" in update
     # Ordering is the guarantee. A backup taken after the checkout, or after the
     # migration, is a backup of the thing it was supposed to protect against.
@@ -54,15 +54,16 @@ def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str
     `test_controlplane_initializes_schema_before_starting_services` holds that
     order; a stop here would only lengthen the downtime.
     """
-    section = _section(subcommand)
+    assert f"move_release {subcommand}" in _section(subcommand)
+    section = _function("move_release")
     assert "docker" not in section
     assert section.index("bootstrap_runtime") < section.index("converge_control_plane")
 
 
 def test_update_only_ever_moves_forward_onto_a_release_tag():
     """A merge or a rewrite on a server is never what an operator meant."""
-    update = _section("update")
-    assert "release_plan update" in update
+    update = _function("move_release")
+    assert 'release_plan "${mode}"' in update
     assert 'repo_git checkout --quiet "${target}"' in update
     # `merge --ff-only`, not a bare "merge": `merge-base` contains that word.
     forbidden = ("git pull", "merge --ff-only", "--force", "reset --hard", "rebase")
@@ -72,17 +73,19 @@ def test_update_only_ever_moves_forward_onto_a_release_tag():
 
 def test_update_decides_where_it_is_going_before_it_changes_anything():
     """Every refusal about *which* release must cost no downtime."""
-    update = _section("update")
-    assert update.index("release_plan update") < update.index(
+    update = _function("move_release")
+    assert update.index('release_plan "${mode}"') < update.index(
         "backup create --only database"
     )
 
 
 def test_update_verifies_the_code_it_is_about_to_run_as_root():
-    update = _section("update")
-    assert "require_upstream_origin" in update
-    assert "status --porcelain" in update
-    assert "${INSTALL_DIR} is not a Git checkout" in update
+    """The origin and clean-tree checks are `install_release.prepare`'s, which
+    `release_plan` runs before anything is fetched or changed."""
+    update = _function("move_release")
+    assert update.index("${INSTALL_DIR} is not a Git checkout") < update.index(
+        'release_plan "${mode}"'
+    )
 
 
 # --- update: sandboxed behaviour ---------------------------------------------
