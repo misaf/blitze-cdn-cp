@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import shutil
 import subprocess
 import sys
 from collections.abc import Callable, Sequence
@@ -52,12 +53,18 @@ def git_in(repository: str) -> Git:
     """Git against the installation checkout.
 
     ``safe.directory`` because the working tree belongs to the installation's
-    account while the installer runs as root.
+    account while the installer runs as root. Git is found on ``PATH`` once,
+    as the installer finds it, and run by that absolute path; a host without
+    it answers every question with ``None``, the same as a failed command.
     """
+    executable = shutil.which("git")
 
     def run(*arguments: str) -> str | None:
+        if executable is None:
+            return None
+        command = [executable, "-c", f"safe.directory={repository}", "-C", repository]
         result = subprocess.run(  # noqa: S603 - fixed executable, argument list
-            ["git", "-c", f"safe.directory={repository}", "-C", repository, *arguments],  # noqa: S607 - git from PATH, as the installer runs it
+            [*command, *arguments],
             check=False,
             capture_output=True,
             text=True,
