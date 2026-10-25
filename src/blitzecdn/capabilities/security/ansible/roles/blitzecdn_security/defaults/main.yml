@@ -38,3 +38,6 @@ blitzecdn_security_under_attack_secret: "{{ lookup('env', 'BLITZE_UNDER_ATTACK_S
 # root-owned and 0750 and mounts read-only into the edge container.
 blitzecdn_security_under_attack_js_file: >-
   {{ blitzecdn_edge_runtime.paths.modules }}/under-attack.js
+# The signing key, as an Nginx include outside every configuration release.
+blitzecdn_security_under_attack_key_file: >-
+  {{ blitzecdn_edge_runtime.paths.secrets }}/under-attack.conf

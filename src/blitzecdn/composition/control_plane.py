@@ -94,6 +94,7 @@ from blitzecdn.capabilities.workflows.service import WorkflowCoordinator
 from blitzecdn.composition.repository import Repository
 from blitzecdn.core.ansible import AnsibleRunner
 from blitzecdn.core.ansible.contributions import EdgeContributions
+from blitzecdn.core.ansible.rendering import EdgeRenderer
 from blitzecdn.core.config import Settings
 from blitzecdn.core.plugins import (
     ExtensionContext,
@@ -293,6 +294,7 @@ class ControlPlane:
             edge_modules=edge_modules,
             environment=self.capability_config.environment,
         )
+        self.edge_contributions = edge_contributions
         self._runner = runner or AnsibleRunner(
             self.settings,
             # The fleet as core reads it: host names and the group they form.
@@ -409,6 +411,10 @@ class ControlPlane:
             allow_empty_sites=self.settings.allow_empty_sites,
             retention=self.settings.history_retention,
             uow=store,
+            renderer=EdgeRenderer(
+                ansible_dir=self.settings.ansible_dir,
+                contributions=self.edge_contributions,
+            ),
         )
         self._wire_capability_services(store)
 

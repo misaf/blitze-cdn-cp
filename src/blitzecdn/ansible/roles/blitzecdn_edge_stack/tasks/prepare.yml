@@ -25,9 +25,11 @@
             {{ blitzecdn_config_release_root | default(blitzecdn_edge_runtime.paths.state ~ '/releases') }}
           mode: "0755"
         # Read-only in the container and root-only on the host: this is where
-        # the njs implementation of Under Attack Mode lives, and it is signed
-        # with a fleet secret.
+        # the njs implementation of Under Attack Mode lives.
         - {path: "{{ blitzecdn_edge_runtime.paths.modules }}", group: www-data, mode: "0750"}
+        # Credentials a capability provisions for the running edge. Root-only:
+        # the Nginx master reads them as root while loading the configuration.
+        - {path: "{{ blitzecdn_edge_runtime.paths.secrets }}", mode: "0700"}
         - {path: "{{ blitzecdn_edge_runtime.paths.tls }}", mode: "0700"}
         - {path: "{{ blitzecdn_edge_stack_runtime_path }}", mode: "0700"}
         # The three configuration directories the container mounts. Created

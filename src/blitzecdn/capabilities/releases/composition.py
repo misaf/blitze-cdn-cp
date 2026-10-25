@@ -21,6 +21,7 @@ from blitzecdn.capabilities.edges.ports import EdgeStore
 from blitzecdn.capabilities.releases.domain import EdgeCapabilities, ReleaseFinding
 from blitzecdn.capabilities.releases.ports import (
     CanonicalState,
+    ConfigurationRenderer,
     ReleaseStore,
     StateContributors,
 )
@@ -105,6 +106,7 @@ def build_release_service(
     allow_empty_sites: bool,
     retention: int,
     uow: UnitOfWork,
+    renderer: ConfigurationRenderer,
 ) -> ReleaseService:
     """Wire the compiler's inputs to the installation they come from.
 
@@ -122,4 +124,5 @@ def build_release_service(
         allow_empty_sites=allow_empty_sites,
         uow=uow,
         retention=retention,
+        renderer=renderer,
     )

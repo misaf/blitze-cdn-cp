@@ -11,7 +11,7 @@
     blitzecdn_config_release_candidate: "{{ blitzecdn_config_release_root }}/{{ blitzecdn_release_digest }}"
     blitzecdn_config_release_enabled: true
 
-# Do not change state, TLS, cache, logs, ACME or external provider data paths.
+# Do not change state, TLS, cache, logs, ACME, secrets or external provider data paths.
 # Only rendered configuration and executable njs resources belong to the
 # release tree. Provider-maintained databases have their own lifecycle.
 # This orchestration role deliberately resolves the shared contract for all
@@ -58,6 +58,7 @@
       - "{{ blitzecdn_edge_runtime.paths.acme }}:{{ blitzecdn_edge_runtime.paths.acme }}:ro"
       - "{{ blitzecdn_edge_runtime.paths.empty }}:{{ blitzecdn_edge_runtime.paths.empty }}:ro"
       - "{{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro"
+      - "{{ blitzecdn_edge_runtime.paths.secrets }}:{{ blitzecdn_edge_runtime.paths.secrets }}:ro"
       - "{{ blitzecdn_edge_runtime.paths.cache }}:{{ blitzecdn_edge_runtime.paths.cache }}:rw"
       - "{{ blitzecdn_edge_runtime.paths.logs }}:{{ blitzecdn_edge_runtime.paths.logs }}:rw"
 

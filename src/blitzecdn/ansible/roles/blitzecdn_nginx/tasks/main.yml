@@ -162,6 +162,22 @@
     label: "{{ item.path }}"
   notify: Validate and reload Nginx
 
+# The modules directory is a runtime path, created with the rest by
+# blitzecdn_edge_stack's prepare step before anything renders into it.
+- name: Render installed capability njs modules
+  ansible.builtin.template:
+    src: "{{ item.template }}"
+    dest: >-
+      {{ blitzecdn_edge_runtime.paths.modules }}/{{
+        item.name | regex_replace('\.j2$', '') }}
+    owner: root
+    group: www-data
+    mode: "0640"
+  loop: "{{ blitzecdn_nginx_resources.module | default([]) }}"
+  loop_control:
+    label: "{{ item.plugin }}:{{ item.name }}"
+  notify: Validate and reload Nginx
+
 # Part of the edge runtime contract, so it is always rendered, and rendered
 # outside the site block below: a failed site render must not take the
 # endpoint the container healthcheck reads away with it.

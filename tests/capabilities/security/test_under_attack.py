@@ -6,13 +6,16 @@ lives. What core keeps — the `under_attack_mode` switch and the firewall rule
 contract that a detached controller must still be able to read back — is
 asserted beside the contract, in `tests/capabilities/security/test_security_policy.py`.
 
-The template belongs to the `blitzecdn_security` role, which ships inside this
-wheel beside the plugin that declares the capability — so the module under test
-here is read from the same path a deployment resolves it by.
+The template is a module resource of the security feature, which ships inside
+this wheel beside the fragments that import it — so the module under test here
+is read from the same path a release is rendered from. It carries no secret:
+the key arrives per request as `$blitzecdn_under_attack_key`, which this
+harness sets the way the edge-local include does.
 """
 
 from __future__ import annotations
 
+import base64
 import json
 import shutil
 import subprocess
@@ -20,9 +23,10 @@ from pathlib import Path
 
 import jinja2
 
-from blitzecdn.capabilities.security import ansible
+from blitzecdn.capabilities.security.feature import NGINX_TEMPLATES
 
-TEMPLATES = ansible.ROLES_PATH / ansible.EDGE_ROLE / "templates"
+TEMPLATES = NGINX_TEMPLATES
+SECRET = "edge-test-secret-" + "x" * 32
 
 
 def _render_module() -> str:
@@ -33,7 +37,6 @@ def _render_module() -> str:
     )
     environment.filters["to_json"] = json.dumps
     return environment.get_template("under-attack.js.j2").render(
-        blitzecdn_security_under_attack_secret="edge-test-secret-" + "x" * 32,
         blitzecdn_security_under_attack_passage_seconds=1800,
     )
 
@@ -64,6 +67,7 @@ function request(options = {}) {
             blitzecdn_under_attack_target: options.target || '/account?tab=2',
             cookie_blitzecdn_clearance: options.cookie || '',
             request_id: options.requestId || '0123456789abcdef0123456789abcdef',
+            blitzecdn_under_attack_key: 'key' in options ? options.key : '__KEY__',
         },
         args: {token: options.token || ''},
         requestText: options.body,
@@ -137,7 +141,15 @@ mitigation.guard(unsafeAbsolute);
 const unsafeControl = request({target: '/ok\\r\\nX-Evil: yes'});
 mitigation.guard(unsafeControl);
 
+let unkeyed = 'served';
+try {
+    mitigation.guard(request({key: ''}));
+} catch (error) {
+    unkeyed = error.message;
+}
+
 console.log(JSON.stringify({
+    unkeyed,
     challengeStatus: issued.r.status,
     mitigationHeader: issued.r.headersOut['X-BlitzeCDN-Mitigation'],
     invalidProof: invalidProof.status,
@@ -157,7 +169,7 @@ console.log(JSON.stringify({
     pageContainsHostileTarget: page.body.includes(hostileTarget),
     csp: page.headersOut['Content-Security-Policy'],
 }));
-""",
+""".replace("__KEY__", base64.b64encode(SECRET.encode()).decode()),
         encoding="utf-8",
     )
 
@@ -167,6 +179,9 @@ console.log(JSON.stringify({
     assert result.returncode == 0, result.stderr
     report = json.loads(result.stdout)
 
+    # Without the edge-local key the module refuses rather than signing with
+    # an empty secret anyone could reproduce.
+    assert report["unkeyed"] == "the Under Attack Mode signing key is not configured"
     assert report["challengeStatus"] == 401
     assert report["mitigationHeader"] == "challenge"
     assert report["invalidProof"] == 403

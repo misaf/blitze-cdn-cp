@@ -1,15 +1,37 @@
-// Managed by BlitzeCDN. Contains an edge secret; keep this file root-owned.
+// Managed by BlitzeCDN. Carries no secret: the signing key reaches each
+// request as $blitzecdn_under_attack_key, set by an edge-local include outside
+// the configuration release.
 import crypto from 'crypto';
 
-const SECRET = {{ blitzecdn_security_under_attack_secret | to_json }};
+const MINIMUM_KEY_BYTES = 32;
 const PASSAGE_SECONDS = {{ blitzecdn_security_under_attack_passage_seconds | int }};
 const CHALLENGE_SECONDS = 300;
 const MAX_TARGET_BYTES = 4096;
 const MAX_TOKEN_BYTES = 6144;
 const PROOF_LIMIT = 0xffffffff;
 
+// Per request: njs runs each request in its own VM, so this is set by the
+// entry point below and never outlives the request that set it.
+let KEY = null;
+
+function signingKey(r) {
+    const encoded = String(r.variables.blitzecdn_under_attack_key || '');
+    const key = Buffer.from(encoded, 'base64');
+    if (key.length < MINIMUM_KEY_BYTES) {
+        throw new Error('the Under Attack Mode signing key is not configured');
+    }
+    return key;
+}
+
+function keyed(handler) {
+    return function (r) {
+        KEY = signingKey(r);
+        return handler(r);
+    };
+}
+
 function hmac(value) {
-    return crypto.createHmac('sha256', SECRET).update(value).digest('base64url');
+    return crypto.createHmac('sha256', KEY).update(value).digest('base64url');
 }
 
 function sha256(value) {
@@ -214,4 +236,4 @@ function verify(r) {
     r.return(200, JSON.stringify({redirect: payload.u}));
 }
 
-export default {guard, challenge, verify};
+export default {guard: keyed(guard), challenge: keyed(challenge), verify: keyed(verify)};

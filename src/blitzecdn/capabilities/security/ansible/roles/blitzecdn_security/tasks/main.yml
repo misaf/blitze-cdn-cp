@@ -73,38 +73,26 @@
 - name: Provision the edge challenge capability
   when: blitzecdn_security_under_attack_enabled | bool
   block:
-    # The njs directory. Core creates the contract paths it *mounts* — the
-    # modules directory and the empty document root among them — because a
-    # missing bind source becomes an empty root-owned directory rather than an
-    # error; this makes sure the one this role writes into exists even when the
-    # role is run outside the edge play, and pins the mode it needs.
-    - name: Create the njs module directory
-      ansible.builtin.file:
-        path: "{{ blitzecdn_security_under_attack_js_file | dirname }}"
-        state: directory
-        owner: root
-        group: www-data
-        mode: "0750"
-
-    - name: Install the Under Attack Mode njs implementation
+    # Into the runtime contract's secrets directory, which core creates
+    # root-only before any role runs. The njs implementation itself is a
+    # configuration resource and ships in the configuration release.
+    - name: Install the Under Attack Mode signing key
       ansible.builtin.template:
-        src: under-attack.js.j2
-        dest: "{{ blitzecdn_security_under_attack_js_file }}"
+        src: under-attack-key.conf.j2
+        dest: "{{ blitzecdn_security_under_attack_key_file }}"
         owner: root
-        group: www-data
-        mode: "0640"
+        group: root
+        mode: "0600"
       no_log: true
       notify: Validate and reload Nginx
 
-# The module goes with the snippet that imports it: leaving a file signed with
-# a fleet secret on an edge that no longer serves challenges is a credential
-# kept for nothing. A site still asking for the mode cannot reach here — the
-# assertion above refuses the play first.
+# The key goes with the snippet that includes it: leaving a fleet secret on an
+# edge that no longer serves challenges is a credential kept for nothing. A
+# site still asking for the mode cannot reach here — the assertion above
+# refuses the play first.
 - name: Withdraw the edge challenge capability
   ansible.builtin.file:
-    path: "{{ item }}"
+    path: "{{ blitzecdn_security_under_attack_key_file }}"
     state: absent
-  loop:
-    - "{{ blitzecdn_security_under_attack_js_file }}"
   when: not (blitzecdn_security_under_attack_enabled | bool)
   notify: Validate and reload Nginx

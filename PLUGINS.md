@@ -21,6 +21,13 @@ deployment, and a `FeatureOperations` for health checks, scheduled jobs and
 startup or shutdown work. Each is a constant or a builder with named arguments
 that the composition root calls; `runtime.py` imports no delivery code.
 
+Nginx fragments are contributed per context (`http`, `server`, `access`,
+`upstream`); executable njs modules are `module_fragments`. Both are rendered
+into a release's configuration tree, which is content-addressed and stored, so
+neither may contain a secret. A capability credential the edge needs is
+written by the capability's role into the runtime contract's `paths.secrets`
+and included from there.
+
 Cache operations belong to `cache`; issuing and automatic SSL belong to `tls`;
 origin probing belongs to `origins`; archive recovery belongs to `backup`.
 Serving owns shared policy composition and virtual-host values. DNS owns policy

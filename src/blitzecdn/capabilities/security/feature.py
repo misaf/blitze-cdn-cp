@@ -94,6 +94,9 @@ FEATURES = (
                 server_fragments=("security-server.conf.j2",),
                 access_fragments=("security-access.conf.j2",),
                 upstream_fragments=("security-upstream.conf.j2",),
+                # The Under Attack Mode implementation. Carries no secret, so
+                # it ships in the configuration release with the fragments.
+                module_fragments=("under-attack.js.j2",),
             ),
         ),
     ),

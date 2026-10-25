@@ -180,6 +180,14 @@ files = ["src", "tests/*.py", "tests/capabilities/cache/cache_support.py", "test
 module = "blitzecdn.ansible.plugins.inventory.*"
 ignore_errors = true
 
+# ansible-core publishes no type information. The edge renderer drives its
+# templar in-process so controller-rendered configuration follows the edge
+# play's exact templating semantics; what it renders is held by the parity
+# test in tests/contract/test_configuration_rendering.py.
+[[tool.mypy.overrides]]
+module = ["ansible", "ansible.*"]
+ignore_missing_imports = true
+
 # Hook specifications are declarations, not implementations: pluggy never calls
 # the spec, only the implementations registered against it. A body would be
 # unreachable code that looked like a default.

@@ -28,6 +28,7 @@ rejected. Rationale local to one function stays in that function's docstring.
 | [0017](0017-explicit-schema-and-installation-lifecycle.md) | Explicit schema and installation lifecycle |
 | [0018](0018-application-service-ownership-and-cleanup.md) | Application service ownership and failure cleanup |
 | [0019](0019-typed-features-and-extension-context.md) | Typed features, two-stage binding, and the extension context |
+| [0020](0020-controller-rendered-configuration.md) | Controller-rendered edge configuration |
 
 Each record ends with a *Code and verification* section listing the modules it
 governs and the tests that hold it. When a decision changes, the record changes

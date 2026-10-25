@@ -54,6 +54,7 @@ blitzecdn	contribution	HealthCheck.name: str
 blitzecdn	contribution	HealthCheck.plugin: str
 blitzecdn	contribution	NginxContribution.access_fragments: tuple[str, ...] = ()
 blitzecdn	contribution	NginxContribution.http_fragments: tuple[str, ...] = ()
+blitzecdn	contribution	NginxContribution.module_fragments: tuple[str, ...] = ()
 blitzecdn	contribution	NginxContribution.plugin: str
 blitzecdn	contribution	NginxContribution.server_fragments: tuple[str, ...] = ()
 blitzecdn	contribution	NginxContribution.templates_path: Path

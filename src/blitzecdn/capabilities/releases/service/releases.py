@@ -24,6 +24,7 @@ from blitzecdn.capabilities.releases.domain import (
 from blitzecdn.capabilities.releases.domain.compilation import Compilation
 from blitzecdn.capabilities.releases.ports import (
     CanonicalState,
+    ConfigurationRenderer,
     ReleaseStore,
     SiteChecks,
     StateContributors,
@@ -32,6 +33,7 @@ from blitzecdn.capabilities.releases.ports import (
 from blitzecdn.capabilities.releases.service.compiler import compile_release
 from blitzecdn.capabilities.releases.service.preparation import prepare_compilation
 from blitzecdn.capabilities.serving.domain import CdnSite
+from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.ports import UnitOfWork
 
 __all__ = ["ReleaseService"]
@@ -52,6 +54,7 @@ class ReleaseService:
         allow_empty_sites: bool,
         uow: UnitOfWork,
         retention: int,
+        renderer: ConfigurationRenderer,
     ) -> None:
         self.state = state
         self.targets = targets
@@ -66,6 +69,7 @@ class ReleaseService:
         self.allow_empty_sites = allow_empty_sites
         self.uow = uow
         self.retention = retention
+        self.renderer = renderer
 
     def inputs(self) -> ReleaseInputs:
         """Canonical desired state as it stands right now."""
@@ -116,6 +120,14 @@ class ReleaseService:
             stored = self.releases.save(release, inputs)
             self.releases.prune(self.retention)
         return stored
+
+    def render(self, release: Release) -> ConfigurationBundle:
+        """The edge configuration tree this release's document renders to.
+
+        Refused, as its artifact is, for a release an installed capability
+        objected to: there is no document to render.
+        """
+        return self.renderer.render(release.execution_document())
 
     def get(self, release_id: str) -> Release:
         return self.releases.get(release_id)

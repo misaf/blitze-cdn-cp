@@ -82,6 +82,9 @@ services:
       # that maintains such a file is the capability's, on the host, never the
       # edge. Empty when nothing contributed anything.
       - {{ blitzecdn_edge_runtime.paths.data }}:{{ blitzecdn_edge_runtime.paths.data }}:ro
+      # Capability credentials, outside every configuration release. Read-only:
+      # the host's role writes them, the edge only reads them.
+      - {{ blitzecdn_edge_runtime.paths.secrets }}:{{ blitzecdn_edge_runtime.paths.secrets }}:ro
       # The two writable mounts, and the only two. Both hold data that must
       # outlive the container: the cache because refilling it from origins after
       # every upgrade is an outage in slow motion, the logs because they are the
