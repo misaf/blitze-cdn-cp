@@ -180,3 +180,13 @@ def test_the_selector_runs_on_a_bare_interpreter():
         if isinstance(node, ast.ImportFrom) and node.level == 0
     }
     assert imported <= set(sys.stdlib_module_names) | {"__future__"}
+
+
+def test_a_host_without_git_answers_nothing_rather_than_raising(monkeypatch, tmp_path):
+    """No git on PATH is a refusal the plan already handles, not a traceback."""
+    module = sys.modules["blitzecdn.host.install_release"]
+    monkeypatch.setattr(module.shutil, "which", lambda _name: None)
+
+    git = module.git_in(str(tmp_path))
+
+    assert git("rev-parse", "HEAD") is None
