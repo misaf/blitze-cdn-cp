@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
+from contextvars import ContextVar
 from enum import IntEnum
 from typing import Annotated, Any
 
@@ -49,9 +50,44 @@ def settings() -> Settings:
     return Settings.from_environment()
 
 
+#: The services the current invocation has built, once it has asked for them.
+#: ``None`` outside an invocation scope.
+_invocation: ContextVar[list[CliServices] | None] = ContextVar(
+    "blitzecdn_cli_services", default=None
+)
+
+
+def scope_services(context: typer.Context) -> None:
+    """Hold one invocation's services until the command line exits.
+
+    Called from the root callback, so every command shares the scope: a
+    command that asks several times gets the same services, and the database
+    they opened is released when the invocation closes.
+    """
+    held: list[CliServices] = []
+    _invocation.set(held)
+
+    def release() -> None:
+        _invocation.set(None)
+        while held:
+            held.pop().close()
+
+    context.call_on_close(release)
+
+
 def services() -> CliServices:
-    """What a command calls. Built per invocation; a command starts nothing."""
-    return build_cli(build_services(Infrastructure.build(settings())))
+    """What a command calls. A command starts nothing.
+
+    Inside an invocation, built once and closed on exit. Outside one — the
+    ACME hook runs as its own script — each call builds afresh and the caller
+    closes what it got.
+    """
+    held = _invocation.get()
+    if held is None:
+        return build_cli(build_services(Infrastructure.build(settings())))
+    if not held:
+        held.append(build_cli(build_services(Infrastructure.build(settings()))))
+    return held[0]
 
 
 def installed_plugins() -> PluginRegistry:
