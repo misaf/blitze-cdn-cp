@@ -27,7 +27,7 @@ STATS_ROLE_DIR = ansible.ROLES_PATH / "blitzecdn_cache_stats"
 NGINX_DIR = ansible.ROLES_PATH.parent.parent / "nginx"
 
 
-def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
+def test_the_roles_this_capability_ships_are_where_it_says_they_are():
     """The contribution is only true if the directory really carries the roles."""
     assert ansible.ROLES_PATH.is_dir()
     assert sorted(path.name for path in ansible.ROLES_PATH.iterdir()) == [
@@ -39,7 +39,7 @@ def test_the_roles_this_distribution_ships_are_where_it_says_they_are():
     assert (STATS_ROLE_DIR / "files/collect-cache-stats.sh").is_file()
 
 
-def test_the_plays_this_distribution_runs_ship_with_it():
+def test_the_plays_this_capability_runs_ship_with_it():
     assert ansible.CACHE_PURGE_PLAYBOOK.is_file()
     assert ansible.STATS_PLAYBOOK.is_file()
 
@@ -76,7 +76,7 @@ def test_purge_role_agrees_with_the_runtime_contract(cache_key, expected):
     )
 
 
-def test_purge_role_agrees_with_the_package_owned_nginx_resource():
+def test_purge_role_agrees_with_the_capability_owned_nginx_resource():
     """The cache package owns both normalization and every consumer of it."""
     template = (NGINX_DIR / "cache-http.conf.j2").read_text(encoding="utf-8")
     assert _defaults_of(CACHE_ROLE_DIR)[

@@ -18,7 +18,7 @@ from blitzecdn.core.features.resolution import (
 # --- registration -----------------------------------------------------------
 
 
-def test_plugin_provides_origins_as_a_required_provider() -> None:
+def test_feature_provides_origins_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
     assert isinstance(metadata, FeatureMetadata)
@@ -71,7 +71,7 @@ def test_the_role_is_shipped_but_asked_of_neither_slot_of_the_edge_play() -> Non
     assert resolve_host_capability_roles(contributions) == ()
 
 
-def test_the_wheel_carries_the_role_and_the_play_it_runs() -> None:
+def test_the_package_carries_the_role_and_the_play_it_runs() -> None:
     """The paths a deployment resolves by, not directories in the checkout."""
     assert (ansible.ROLES_PATH / "blitzecdn_origins" / "tasks/main.yml").is_file()
     assert ansible.ORIGIN_CHECK_PLAYBOOK.is_file()

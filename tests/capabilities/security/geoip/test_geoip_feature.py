@@ -32,7 +32,7 @@ def _site(**policy: object) -> CdnSite:
 # --- registration -----------------------------------------------------------
 
 
-def test_plugin_provides_geoip_as_a_required_provider() -> None:
+def test_feature_provides_geoip_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
     assert isinstance(metadata, FeatureMetadata)
@@ -84,7 +84,7 @@ def test_an_installed_geoip_capability_clears_the_site_validation() -> None:
         assert registry.missing(_site(**policy).policy.required_capabilities) == ()
 
 
-def test_a_site_that_asks_for_no_country_needs_this_package_for_nothing() -> None:
+def test_a_site_that_asks_for_no_country_needs_geoip_for_nothing() -> None:
     """Installed is not enabled: it changes no ordinary site.
 
     Every non-geographical firewall rule requires `security` and nothing here.

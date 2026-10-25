@@ -43,7 +43,7 @@ def test_a_maintenance_run_converges_what_it_left_owing():
     assert calls == ["renewed by scheduler", "converged by scheduler"]
 
 
-def test_a_job_no_installed_plugin_contributes_is_refused_by_name():
+def test_a_job_no_registered_feature_contributes_is_refused_by_name():
     """A message can outlive the feature that published it."""
     service = MaintenanceService(
         jobs={},

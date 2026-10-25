@@ -208,7 +208,7 @@ def test_the_decommission_play_names_no_capability_and_fills_its_slot():
     )
 
 
-def test_core_s_teardown_removes_no_path_that_belongs_to_a_wheel():
+def test_core_s_teardown_removes_no_path_that_belongs_to_a_capability():
     """Core's teardown role names no capability's paths.
 
     It runs on every decommission, so it may remove only core's trees, the shared

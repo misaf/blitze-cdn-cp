@@ -231,7 +231,7 @@ def test_a_site_requesting_an_uninstalled_capability_is_a_finding():
     assert finding.host == "example-com"
 
 
-def test_the_capability_is_satisfied_once_the_distribution_is_installed():
+def test_the_capability_is_satisfied_once_its_feature_is_registered():
     release = compile_for(
         inputs_for(compression="gzip"), capabilities=("cache", "compression")
     )
@@ -274,7 +274,7 @@ def test_every_finding_is_reported_rather_than_the_first():
     assert len({finding.host for finding in release.findings}) == 2
 
 
-def test_a_capability_check_contributed_by_a_plugin_reaches_the_release():
+def test_a_capability_check_contributed_by_a_feature_reaches_the_release():
     from blitzecdn.capabilities.releases.domain import ReleaseFinding
 
     def refuse(site: CdnSite) -> tuple[ReleaseFinding, ...]:

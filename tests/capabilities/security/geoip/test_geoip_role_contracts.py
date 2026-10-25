@@ -52,7 +52,7 @@ def _defaults(**overrides: Any) -> dict[str, Any]:
     return context
 
 
-def test_the_role_this_distribution_ships_is_where_it_says_it_is():
+def test_the_role_this_capability_ships_is_where_it_says_it_is():
     """The contribution is only true if the directory really carries the role."""
     assert ansible.ROLES_PATH.is_dir()
     assert [path.name for path in ansible.ROLES_PATH.iterdir()] == [ansible.EDGE_ROLE]

@@ -49,7 +49,7 @@ def test_core_roles_come_first_and_contributed_roles_follow(tmp_path):
     assert search == (core, cache)
 
 
-def test_the_order_follows_the_plugins_not_the_order_they_registered(tmp_path):
+def test_the_order_follows_the_features_not_the_order_they_registered(tmp_path):
     """Two installations with the same features resolve every role alike.
 
     The search path is ordered by feature, not by registration order.
@@ -70,14 +70,14 @@ def test_the_order_follows_the_plugins_not_the_order_they_registered(tmp_path):
     )
 
 
-def test_an_absent_package_contributes_nothing(tmp_path):
+def test_an_absent_feature_contributes_nothing(tmp_path):
     """Detachment is not a special case: there is simply nothing to add."""
     core = _roles(tmp_path / "core", "blitzecdn_nginx")
 
     assert resolve_role_search_path(core, []) == (core,)
 
 
-def test_a_role_two_packages_both_ship_is_refused_by_name(tmp_path):
+def test_a_role_two_features_both_ship_is_refused_by_name(tmp_path):
     core = _roles(tmp_path / "core")
     first = _roles(tmp_path / "first", "blitzecdn_purge")
     second = _roles(tmp_path / "second", "blitzecdn_purge")
@@ -96,7 +96,7 @@ def test_a_role_two_packages_both_ship_is_refused_by_name(tmp_path):
     assert "'zulu'" in str(error.value)
 
 
-def test_a_package_may_not_shadow_a_role_the_control_plane_owns(tmp_path):
+def test_a_feature_may_not_shadow_a_role_the_control_plane_owns(tmp_path):
     """The dangerous direction, and the reason this is not merely a warning.
 
     Ansible takes the first directory with the name, so a contributed
@@ -229,7 +229,7 @@ def test_a_play_is_given_only_the_blitze_names_it_is_owed(
 # --- the capability slots ---------------------------------------------------
 
 
-def test_a_slot_refuses_a_role_the_package_does_not_ship(tmp_path):
+def test_a_slot_refuses_a_role_the_feature_does_not_ship(tmp_path):
     """Refused at composition, naming the owner that asked.
 
     Ansible would refuse it only on reaching the include, possibly mid-teardown,
@@ -274,7 +274,7 @@ def test_the_three_slots_are_composed_independently(tmp_path):
     assert resolve_teardown_capability_roles(contributions) == ("withdraw_role",)
 
 
-def test_a_package_declaring_no_slot_contributes_to_none(tmp_path):
+def test_a_feature_declaring_no_slot_contributes_to_none(tmp_path):
     """Shipping a role its own plays reach is not a contribution to a slot."""
     roles = _roles(tmp_path / "cache", "blitzecdn_cache_stats")
     contributions = [AnsibleContribution(feature="cache", roles_path=roles)]
@@ -337,7 +337,7 @@ def test_every_slot_reaches_ansible_on_the_command_line(
 # --- the dynamic modules an installed capability loads -----------------------
 
 
-def test_the_module_list_is_ordered_by_plugin_and_carries_who_asked():
+def test_the_module_list_is_ordered_by_feature_and_carries_who_asked():
     """`load_module` is one list per process, so core composes it.
 
     Ordered by feature name, so the same features always render the same file.

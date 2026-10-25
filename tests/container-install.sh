@@ -3,14 +3,9 @@
 #
 #   tests/container-install.sh ubuntu:26.04
 #
-# This is the only test that exercises what `install.sh standalone` actually
-# does. Everything else asserts on the script's shape or runs it in a sandbox
-# with the privileged commands stubbed, because provisioning needs root and a
-# real init. Here it gets both: systemd as PID 1, a real apt, real accounts.
-#
-# It also checks the supported fresh-edge platform contract against a real OS,
-# which is why the example above names Ubuntu and CI runs nothing else: a
-# standalone host is an edge too, and the edge platform is the narrower one.
+# The only test that runs `install.sh standalone` for real: systemd as PID 1,
+# real apt, real accounts. A standalone host is also an edge, so it must meet
+# the narrower edge platform; CI runs Ubuntu only.
 #
 # Requires Docker and about five minutes per image.
 set -Eeuo pipefail
@@ -19,21 +14,15 @@ readonly IMAGE=${1:?usage: container-install.sh IMAGE}
 readonly ADMIN_CIDR=203.0.113.8/32
 readonly ACME_EMAIL=ops@example.com
 # The API access list, and the one a later run repoints it to. Neither contains
-# this container's own address on purpose: the gate has to refuse a peer that
-# is not on the list, and a list that happened to include the only address the
-# harness can call from would prove nothing.
+# this container's address, so the gate must refuse the harness.
 readonly ALLOWED_IPS=203.0.113.8/32,198.51.100.0/24
 readonly REPOINTED_IPS=198.51.100.0/24
-# A CA that speaks ACME, for the issuance stage. Pinned rather than :latest —
-# a harness that silently follows someone else's release is one that fails on a
-# commit that did not touch it.
+# A CA that speaks ACME, for the issuance stage. Pinned, not :latest.
 readonly PEBBLE_IMAGE=ghcr.io/letsencrypt/pebble:2.10.1
 readonly CHALLTESTSRV_IMAGE=ghcr.io/letsencrypt/pebble-challtestsrv:2.10.1
-# The site the record below routes to, and the hostname that record publishes —
-# the label and the zone, joined. Spelled once because the issuance stage has to
-# ask a CA for exactly the name the deploy told the edge to serve.
-# The virtual host a zone derives is named after the zone, with its dots
-# turned into hyphens. Nothing names it; it follows from `${ACME_DOMAIN}`.
+# The ACME hostname: the record label joined to the zone, so issuance asks for
+# exactly the name the deploy serves. The derived virtual host is the zone with
+# dots turned into hyphens.
 readonly ACME_SITE=example-test
 readonly ACME_DOMAIN=cdn.example.test
 
@@ -57,25 +46,17 @@ in_container() { docker exec "${container}" bash -c "$1"; }
 # Same, but with stdin attached, for streaming an image into the host's engine.
 into_container() { docker exec -i "${container}" bash -c "$1"; }
 
-# Whatever the edge presents for the ACME hostname, through whichever `x509`
-# fields the caller asks for. Every certificate assertion below reads the wire
-# rather than the store: what the control plane believes it installed and what
-# an edge answers with are two facts, and only the second one is the product.
+# Whatever the edge presents for the ACME hostname, through the requested `x509`
+# fields. Certificate assertions read the wire, not the store.
 served_certificate() {
   in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
     </dev/null 2>/dev/null | openssl x509 -noout $*"
 }
 
 say "Starting ${IMAGE} with systemd"
-# `-v /var/lib/docker -v /var/lib/containerd`: anonymous volumes, and the only
-# reason this host can run a container at all. The engine installed inside it
-# assembles every image as an overlay mount whose upper and lower directories
-# live under those paths, and those paths are the *outer* container's rootfs,
-# which is itself overlay. Stacking one on the other is refused with a bare
-# `invalid argument` about a mount, naming no image and no layer. A volume is
-# backed by the outer daemon's own filesystem rather than by that rootfs, which
-# is what `docker:dind` does with `VOLUME /var/lib/docker` and for this reason.
-# Both paths: this engine keeps its snapshots under containerd's.
+# Anonymous volumes for /var/lib/docker and /var/lib/containerd: the nested
+# engine's overlay mounts cannot sit on the outer container's overlay rootfs
+# (they fail with a bare `invalid argument`), as with `docker:dind`.
 docker run -d --name "${container}" \
   --privileged --cgroupns=host \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
@@ -85,11 +66,8 @@ docker run -d --name "${container}" \
   bash -c 'apt-get update -qq && apt-get install -y -qq systemd systemd-sysv >/dev/null && exec /sbin/init' \
   >/dev/null
 
-# systemd needs a moment, and how long depends on the image and the runner.
-# Poll rather than sleep so a fast host is not punished and a slow one is not
-# flaky. "degraded" is accepted: units unrelated to BlitzeCDN routinely fail in
-# a container, and refusing to continue would test Docker rather than the
-# installer.
+# Poll for systemd. "degraded" is accepted: unrelated units routinely fail in a
+# container.
 for _ in $(seq 60); do
   state=$(in_container 'systemctl is-system-running' 2>/dev/null || true)
   [[ ${state} == running || ${state} == degraded ]] && break
@@ -99,11 +77,9 @@ done
   fail "systemd never came up in ${IMAGE} (last state: ${state:-unknown})"
 
 say "Copying the working tree to /opt/blitzecdn"
-# The working tree, not a clone: CI must test the commit under review. Runtime
-# state, caches, local configuration and host metadata must not cross this
-# boundary. In particular, macOS tar otherwise emits AppleDouble `._*.py`
-# sidecars for extended attributes; Alembic treats those binary files as
-# revisions and a clean Linux installation fails with a null-byte SyntaxError.
+# The working tree, not a clone, so CI tests the commit under review, without
+# runtime state, caches, local configuration or host metadata. macOS tar would
+# otherwise add AppleDouble `._*.py` files, which Alembic reads as revisions.
 COPYFILE_DISABLE=1 tar \
   --exclude=.venv --exclude='.venv.invalid.*' \
   --exclude=.state --exclude=.git --exclude=.ansible --exclude=.cache \
@@ -115,8 +91,7 @@ COPYFILE_DISABLE=1 tar \
   --exclude='*.pyc' --exclude=__pycache__ \
   -czf "${archive}" -C "${project_dir}" . 2>/dev/null
 in_container 'mkdir -p /opt/blitzecdn'
-# Not /tmp: systemd mounts a tmpfs over it on newer images, which hides
-# anything docker cp put there first.
+# Not /tmp: newer images mount a tmpfs over it, hiding what docker cp put there.
 docker cp "${archive}" "${container}:/root/source.tgz" >/dev/null
 in_container 'tar -xzf /root/source.tgz -C /opt/blitzecdn' 2>/dev/null
 
@@ -168,50 +143,34 @@ in_container 'cd / && blitzecdn --version >/dev/null' || fail "CLI unusable outs
 in_container 'cd / && blitzecdn doctor --json >/dev/null' || fail "doctor failed"
 
 say "Checking the API access list the installer was given"
-# The one place this is asserted by running it. Everywhere else the feature is
-# checked on shape -- the flag parses, the role has the task, the rule set
-# composes -- and none of that executes the template branch, the listener's
-# binding decision, or the gate. Here all four are one chain: the flag reached
-# the role, the role wrote the file, the API read it, and the gate is deciding.
+# The one place the access list is exercised end to end: the flag reached the
+# role, the role wrote the file, the API read it, and the gate decides.
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${ALLOWED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
   fail "the installer did not seed the API access list"
 in_container "cd / && blitzecdn doctor --json | grep -q '203.0.113.8/32'" ||
   fail "doctor does not report the API access list"
-# A non-empty list binds the listener publicly, so a request to this host's own
-# address connects -- and is then refused by the gate, because that address is
-# not on the list. The two failures are different and only one of them is this
-# assertion passing: a listener still on loopback would fail to connect, which
-# is why the code is compared rather than the exit status.
+# A non-empty list binds publicly, so a request from this host's own address
+# connects and is refused by the gate. The code is compared because a listener
+# still on loopback would fail to connect instead.
 # shellcheck disable=SC2016
 in_container 'test "$(curl -s -o /dev/null -w "%{http_code}" "http://$(hostname):8000/health")" = 403' ||
   fail "the API did not refuse an unlisted client on its public address"
-# And the exemption the gate makes for itself, which is what keeps the health
-# check and an SSH tunnel working after the list changes.
+# The gate's own exemption, which keeps the health check and SSH tunnels
+# working.
 in_container 'curl -sf http://127.0.0.1:8000/health >/dev/null' ||
   fail "the API stopped answering on loopback"
 
 say "Seeding the edge runtime image this host will run"
-# The edge is a container now, so converging one needs an image before the
-# first deploy — and CI must test the commit under review rather than a
-# published image that lags it by definition. So: build it here, and load it
-# into the disposable host's own engine.
-#
-# Which needs an engine, before the converge that installs one. The repository
-# is therefore seeded exactly as blitzecdn_docker seeds it, into the same
-# deb822 file the role writes, so the converge that follows still finds
-# everything as it expects and reports no change on its second run. This is the
-# only step in this script that pre-empts a role, and it does so with that
-# role's own configuration.
+# The edge runs from an image built from the commit under review and loaded into
+# the disposable host's engine. That needs the engine first, so its repository
+# is seeded exactly as blitzecdn_docker seeds it (same deb822 file), and the
+# converge still reports no change on its second run.
 docker build --quiet --tag blitzecdn-edge:standalone "${project_dir}/src/blitzecdn/assets/docker/edge" >/dev/null
 
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg >/dev/null' ||
   fail "could not install the Docker repository prerequisites"
-# Both URLs carry the running distribution, exactly as the play composes them
-# from `ansible_distribution | lower`. They were spelled `linux/ubuntu` here,
-# so the Debian image this script's own usage line names asked Docker's Ubuntu
-# repository for a suite named `trixie` and got no Release file -- a harness
-# that could only ever have reached this stage on Ubuntu, while claiming to
-# seed the repository the way the role does.
+# Both URLs carry the running distribution, as the play composes them from
+# `ansible_distribution | lower`.
 # shellcheck disable=SC2016
 in_container 'install -d -m 0755 /etc/apt/keyrings && curl -fsSL --proto "=https" --tlsv1.2 "https://download.docker.com/linux/$(. /etc/os-release && printf %s "${ID}")/gpg" -o /etc/apt/keyrings/docker.asc && chmod 0644 /etc/apt/keyrings/docker.asc' ||
   fail "could not fetch the Docker signing key"
@@ -224,15 +183,9 @@ in_container 'systemctl enable --now docker' || fail "Docker did not start"
 docker save blitzecdn-edge:standalone | into_container 'docker load' >/dev/null ||
   fail "could not load the edge runtime image into the disposable host"
 
-# The raw Ansible output for the last run, which is where a check-mode diff
-# lands: the runner invokes `--check --diff`, so the log says which line of
-# which file the fleet disagrees about.
-#
-# On the *host*, not in the container. `/opt/blitzecdn/.state` is where the
-# control plane sees its state from inside the CLI container; the bind mount
-# behind it is `/var/lib/blitzecdn`, and that is the only path a `docker exec`
-# into the systemd host can read. Looking in the container's path printed "no
-# such file" and nothing else on the one failure it exists for.
+# The raw Ansible output for the last run, where a check-mode diff lands. Read
+# on the host at `/var/lib/blitzecdn`, the bind mount behind the CLI
+# container's `/opt/blitzecdn/.state`.
 dump_ansible_log() {
   # shellcheck disable=SC2016
   in_container 'set -- /var/lib/blitzecdn/logs/*.log
@@ -262,36 +215,26 @@ dump_ansible_log() {
 }
 
 say "Converging this host as an edge"
-# The one place an edge role is ever executed. Everything else about the roles
-# is checked by shape — ansible-lint, --syntax-check, the argument-spec
-# contract test — and none of that runs a task. So the nginx block/rescue, the
-# managed-site registry that drives stale removal, the `not ansible_check_mode`
-# gates and the package retries were all unexercised: a role could be rewritten
-# into something that cannot converge and every gate would stay green.
-#
-# The post-bootstrap CLI handoff records edge-local; this verifies that handoff
-# rather than creating a second inventory row for the same machine.
+# The one place an edge role is executed rather than checked by shape. The
+# post-bootstrap CLI handoff records edge-local; this verifies it instead of
+# adding a second row for the same machine.
 in_container 'cd / && blitzecdn edge list --json | grep -q '"'"'"name": "edge-local"'"'"'' ||
   fail "the installer did not register the local edge"
-# Fleet policy, set the way an operator sets it: the image an edge runs is a
-# database-backed setting the inventory plugin publishes, not desired state.
+# Fleet policy, set the way an operator sets it: the edge image is a database
+# setting the inventory plugin publishes.
 in_container 'cd / && blitzecdn config set blitzecdn_edge_image blitzecdn-edge:standalone' ||
   fail "could not pin the edge runtime image"
 in_container 'cd / && blitzecdn config set blitzecdn_edge_stack_image_pull false' ||
   fail "could not disable the registry pull"
 
-# The zone carries the policy; the record carries the origin and the switch.
-# The record's value is where the edge fetches from, and the record is proxied
-# by default. There is no site to create in between. The virtual host the edge
-# writes is named after the zone — `example-test` for `example.test` — which is
-# why the assertions below look for `${ACME_SITE}`.
+# The zone carries the policy; the proxied record carries the origin. The
+# virtual host is named after the zone (`example-test`), hence `${ACME_SITE}`.
 in_container 'cd / && blitzecdn domain add example.test' ||
   fail "could not add a zone"
 in_container 'cd / && blitzecdn record add example.test cdn --value 127.0.0.1' ||
   fail "could not put the hostname on the edge"
 
-# Check mode first: it must survive a host that has never converged, which is
-# the case the `not ansible_check_mode` gates exist for.
+# Check mode first: it must survive a host that has never converged.
 in_container 'cd / && blitzecdn plan --json >/dev/null' || {
   # shellcheck disable=SC2016
   dump_ansible_log
@@ -307,8 +250,8 @@ in_container "grep -q '^${ACME_SITE}\$' /etc/nginx/blitzecdn-managed-sites" ||
   fail "the managed-site registry was not written"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-edge | grep -qx healthy' ||
   fail "the edge container is not healthy"
-# The host must be left with no traffic-serving BlitzeCDN runtime packages of
-# its own: a host process would compete with the container for public ports.
+# No traffic-serving BlitzeCDN packages on the host: a host process would
+# compete with the container for public ports.
 in_container '! command -v nginx' || fail "nginx was installed on the host"
 
 # Converging twice must change nothing: the drift check is the assertion.
@@ -327,46 +270,31 @@ in_container 'cd / && blitzecdn drift --json' || {
 }
 
 say "Issuing a certificate from a real ACME server"
-# The control plane's half of ACME, which nothing else runs. The edge's half —
-# serving a challenge something else wrote — belongs to the HTTP/3 harness;
-# this is certbot, the manual hooks, the playbook those hooks drive, and the
-# chain the store validates and installs, end to end against a CA that speaks
-# the protocol.
-#
-# Pebble rather than Let's Encrypt: issuance has to run against something that
-# implements ACME rather than a stub, and it must need no public domain, no
-# public IP and nobody's rate limit. Pebble mints a throwaway CA per run and
-# validates over HTTP-01 like the real thing.
-#
-# Preflight is the one part deliberately not exercised: it asks public DNS
-# whether the name points at this edge, and example.test is not public. The
-# request below skips it, and preflight has its own tests against its own
-# resolver.
+# The control plane's half of ACME: certbot, the manual hooks, the playbook they
+# drive, and the chain the store validates and installs, against Pebble, a
+# throwaway CA that validates HTTP-01 for real. Serving a challenge alone is the
+# HTTP/3 harness's job. Preflight is skipped by the request (example.test is not
+# public) and runs during renewal below.
 
-# Asserted rather than assumed. Everything below would otherwise fail as an
-# opaque ACME timeout if the record and the site stopped agreeing on the
-# hostname this expects.
+# Asserted, so a hostname mismatch fails here rather than as an ACME timeout.
 in_container "grep -q 'server_name ${ACME_DOMAIN};' /etc/nginx/sites-enabled/${ACME_SITE}.conf" ||
   fail "the deployed site does not serve ${ACME_DOMAIN}"
 
-# Pulled out here and streamed in, the way the edge image is: the disposable
-# host has an engine but no reason to hold registry credentials, and the runner
-# has already paid for the pull.
+# Pulled here and streamed in, like the edge image: the host needs no registry
+# credentials.
 docker pull --quiet "${PEBBLE_IMAGE}" >/dev/null || fail "could not pull ${PEBBLE_IMAGE}"
 docker pull --quiet "${CHALLTESTSRV_IMAGE}" >/dev/null ||
   fail "could not pull ${CHALLTESTSRV_IMAGE}"
 docker save "${PEBBLE_IMAGE}" "${CHALLTESTSRV_IMAGE}" | into_container 'docker load' >/dev/null ||
   fail "could not load the ACME server images into the disposable host"
 
-# Pebble's own API certificate. Its image ships a binary and nothing else — no
-# config and no test certificates — so both are supplied here, which also means
-# this stage depends on no path inside somebody else's image.
+# Pebble's API certificate: the image ships only a binary, so config and
+# certificates are supplied here.
 in_container 'mkdir -p /root/pebble && openssl req -x509 -newkey rsa:2048 -sha256 -nodes \
   -days 1 -keyout /root/pebble/key.pem -out /root/pebble/cert.pem -subj /CN=localhost \
   -addext subjectAltName=IP:127.0.0.1,DNS:localhost 2>/dev/null' ||
   fail "could not generate the ACME server certificate"
-# `httpPort` 80 is the point of the stage: Pebble validates against the edge's
-# real listener rather than a side channel a test controls.
+# `httpPort` 80: Pebble validates against the edge's real listener.
 cat > "${pebble_config}" <<'JSON'
 {
   "pebble": {
@@ -384,21 +312,14 @@ JSON
 docker cp "${pebble_config}" "${container}:/root/pebble/config.json" >/dev/null ||
   fail "could not install the ACME server configuration"
 
-# Every name resolves here, so Pebble looks for the challenge where the edge is
-# actually serving. Its own challenge responders are switched off: answering
-# HTTP-01 is the edge's job and the thing under test.
-# On 127.0.0.1:53, not the default :8053, because the control plane's
-# `preflight_dns_servers` is a list of addresses and dnspython gives them all
-# one port. The loopback address specifically: systemd-resolved holds
-# 127.0.0.53:53 in this host, and binding the wildcard would collide with it.
+# Every name resolves here, so Pebble validates where the edge serves; its own
+# challenge responders are off. On 127.0.0.1:53 because `preflight_dns_servers`
+# takes addresses on one port, and systemd-resolved holds 127.0.0.53:53.
 in_container "docker run -d --name pebble-dns --network host ${CHALLTESTSRV_IMAGE} \
   -dnsserver 127.0.0.1:53 -http01 '' -https01 '' -tlsalpn01 ''" >/dev/null ||
   fail "could not start the challenge DNS server"
-# `docker run -d` succeeds for a container that starts and immediately dies, so
-# it says nothing about whether the server is answering — an unknown flag or a
-# taken port both look like a clean start from here, and the next thing to
-# notice would be a challenge that fails for no stated reason. Ask it the
-# question the CA and preflight will both ask.
+# `docker run -d` succeeds for a container that dies at once, so ask the server
+# the question the CA and preflight will ask.
 in_container 'DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsutils >/dev/null' ||
   fail "could not install a DNS client"
 resolved=$(in_container "dig +short +time=2 +tries=2 @127.0.0.1 ${ACME_DOMAIN}") ||
@@ -408,12 +329,8 @@ resolved=$(in_container "dig +short +time=2 +tries=2 @127.0.0.1 ${ACME_DOMAIN}")
   in_container 'docker inspect -f "{{.State.Running}} {{.State.ExitCode}}" pebble-dns' || true
   fail "the challenge DNS server answered '${resolved}' for ${ACME_DOMAIN}"
 }
-# NOSLEEP and NONCEREJECT: Pebble's defaults inject a random validation delay
-# and reject one nonce in twenty on purpose, to shake out client bugs. Neither
-# is what this stage is asking about, and both make it slower and flakier.
-# AUTHZREUSE, because the default reuses an authorization half the time: the
-# renewal below would then revalidate over HTTP-01 on some runs and skip
-# straight to issuance on others, which is coverage decided by a coin toss.
+# NOSLEEP and NONCEREJECT disable Pebble's random delays and nonce rejections.
+# AUTHZREUSE, so renewal always revalidates over HTTP-01.
 in_container "docker run -d --name pebble --network host -v /root/pebble:/pebble:ro \
   -e PEBBLE_VA_NOSLEEP=1 -e PEBBLE_WFE_NONCEREJECT=0 -e PEBBLE_AUTHZREUSE=0 \
   ${PEBBLE_IMAGE} -config /pebble/config.json -dnsserver 127.0.0.1:53" >/dev/null ||
@@ -428,47 +345,35 @@ in_container 'curl -sSk --max-time 5 https://127.0.0.1:14000/dir >/dev/null' || 
   fail "the ACME server never answered"
 }
 
-# `certbot` is this capability's own setting and it names an executable, so
-# pointing it at a wrapper is all it takes to reach a different CA. The file is
-# in the image because the control-plane image is built from the checkout.
+# `certbot` is this capability's setting naming an executable, so a wrapper
+# reaches a different CA. The wrapper is in the image, built from the checkout.
 in_container 'printf "certbot = \"/opt/blitzecdn/tests/integration/certbot-pebble\"\n" \
   >> /opt/blitzecdn/blitzecdn.toml' ||
   fail "could not point the control plane at the test certbot"
-# And preflight asks *public* DNS whether the hostname points at an edge, which
-# for example.test it does not. Pointing it at the same server the CA uses is
-# what lets renewal run at all: renewal goes through preflight and, unlike the
-# request endpoint, has no override — an unattended timer must not be able to
-# force past a failed check. Replaced rather than appended: this key is already
-# in the file, and a second one is a TOML parse error, not an override.
+# Preflight asks public DNS, which knows nothing of example.test, and renewal
+# has no override, so preflight is pointed at the CA's DNS server. Replaced
+# rather than appended: a duplicate TOML key is a parse error.
 in_container 'sed -i "s|^preflight_dns_servers = .*|preflight_dns_servers = [\"127.0.0.1\"]|" \
   /opt/blitzecdn/blitzecdn.toml' ||
   fail "could not point preflight at the challenge DNS server"
 in_container 'grep -q "^preflight_dns_servers = \[\"127.0.0.1\"\]$" /opt/blitzecdn/blitzecdn.toml' ||
   fail "the preflight resolver was not rewritten"
-# Configuration is read once at start, so the running processes have to be
-# replaced to see it. `--force-recreate` because nothing in the Compose file
-# changed: without it `up` finds both services already up-to-date, reports
-# `Running`, and leaves the old processes — and their old configuration — in
-# place. That is not hypothetical. It is what this stage did on its first run,
-# and the certificate request went to the real Let's Encrypt, which refused the
-# harness's example.com address; a rejected email was the only sign that the
-# CA under test had never been consulted.
+# Configuration is read at start, and nothing in the Compose file changed, so
+# `--force-recreate` is needed; plain `up` would leave the old processes on the
+# old configuration (the real Let's Encrypt).
 started_before=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn-api')
 in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml \
   up --detach --force-recreate --wait --wait-timeout 180 blitzecdn-api blitzecdn-worker' >/dev/null || {
   in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml logs blitzecdn-api' || true
   fail "the control plane did not come back with the test certbot configured"
 }
-# The assertion the comment above is making. A restart that silently did
-# nothing is invisible here otherwise: everything downstream still runs, just
-# against the wrong CA.
+# Check the restart took effect, or everything below runs against the wrong CA.
 started_after=$(in_container 'docker inspect -f "{{.State.StartedAt}}" blitzecdn-api')
 [[ ${started_before} != "${started_after}" ]] ||
   fail "the API was not replaced, so it is still running the old configuration"
 
-# Issuance is an API operation; there is no CLI command for it. The key is read
-# inside the container and never crosses into this shell, where it would end up
-# in a log the moment anything printed a command.
+# Issuance is an API operation. The key is read inside the container and never
+# crosses into this shell.
 # shellcheck disable=SC2016
 issued=$(in_container 'key=$(sed -n "s/^BLITZE_API_KEYS=operator://p" /etc/blitzecdn/blitzecdn.env)
   [ -n "${key}" ] || { printf "no operator API key in blitzecdn.env\n" >&2; exit 1; }
@@ -493,29 +398,20 @@ printf '%s' "${issued}" | grep -Eq '"source": ?"acme"' || {
 printf '%s' "${issued}" | grep -q "${ACME_DOMAIN}" ||
   fail "the issued certificate does not cover ${ACME_DOMAIN}"
 
-# Having a certificate is not the same as serving on 443. `ssl_mode` is the
-# switch, it defaults to off, and the site invariant refuses to turn it on
-# without an active certificate — so this is the operator's real order, and
-# doing it the other way round is refused rather than half-applied. Flexible
-# because this site's origin speaks plain HTTP; the modes above it would have
-# the edge open TLS to an origin that has none.
+# `ssl_mode` defaults to off and needs an active certificate, so it is set now,
+# in the operator's real order. Flexible because the origin speaks plain HTTP.
 in_container "cd / && blitzecdn domain ssl example.test --mode flexible --json >/dev/null" ||
   fail "could not turn on TLS for the site that now has a certificate"
 
-# The certificate exists in the control plane; a deploy is what puts it on the
-# edge. Until this runs the site is still being served over HTTP only.
+# A deploy puts the certificate on the edge; until then the site is HTTP only.
 in_container 'cd / && blitzecdn deploy --yes --json >/dev/null' ||
   fail "the deploy that installs the certificate failed"
 
 in_container 'curl -sSk --max-time 5 https://127.0.0.1:15000/roots/0 -o /root/pebble/root.pem' ||
   fail "could not fetch the ACME root"
-# The whole chain, checked the way a client checks it: the certificate the edge
-# presents for this name has to verify to the root Pebble issued it from, and
-# has to be valid *for that name*.
-#
-# The handshake and not a request, deliberately. This site's origin is the same
-# host, so an HTTPS request would proxy to the edge's own HTTP listener and be
-# redirected back to itself; what that would measure is a loop, not a chain.
+# The chain, checked as a client would: it verifies to Pebble's root and is
+# valid for this name. A handshake rather than a request, since the origin is
+# this host and a request would loop.
 in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN} \
   -CAfile /root/pebble/root.pem -verify_return_error -verify_hostname ${ACME_DOMAIN} \
   </dev/null >/dev/null 2>&1" || {
@@ -529,40 +425,24 @@ in_container "openssl s_client -connect 127.0.0.1:443 -servername ${ACME_DOMAIN}
   in_container 'docker logs --tail 40 pebble' || true
   fail "the edge is not serving a certificate that validates against the ACME root"
 }
-# What was actually served, in the log. This stage is otherwise silent when it
-# passes, which leaves a reader with two banners and an elapsed time as the
-# only evidence that a CA was ever involved.
-#
-# The SAN and not the subject: Pebble issues with `promote CN=false`, so the
-# leaf carries no common name at all and the hostname is only in the extension.
-# Printing the subject showed an empty line, which reads like a fault and is
-# not one — `-verify_hostname` above is what actually holds the name to
-# account.
+# Print what was served. The SAN, not the subject: Pebble issues without a
+# common name. `-verify_hostname` above is what checks the name.
 served_certificate -issuer -ext subjectAltName -enddate ||
   fail "could not read back the certificate that just verified"
 
 
 say "Renewing that certificate the way the timer does"
-# Renewal is the unattended half of ACME, and it is not issuance with a flag on
-# it: it chooses its own candidates, goes through preflight with no override —
-# a timer must not be able to force past a failed check — and has to leave the
-# edge serving something other than what it served a moment ago.
-#
-# Preflight first, and asserted rather than assumed. It is the gate renewal
-# cannot bypass, so a failure there arrives as a renewal that reports the site
-# as skipped, exits zero, and proves nothing. This is also the only place
-# preflight runs for real: the request above skipped it, because until the
-# resolver was pointed at the challenge server there was no public DNS in which
-# example.test pointed anywhere.
+# Renewal picks its own candidates, goes through preflight with no override, and
+# must leave the edge serving a different certificate. Preflight is asserted
+# first: failing there would show as a skipped site and exit zero.
 in_container "cd / && blitzecdn cert preflight ${ACME_SITE}" ||
   fail "preflight blocks issuance for a site the edge is already serving"
 
 renewed_from=$(served_certificate -fingerprint -sha256) ||
   fail "could not read the certificate the edge is serving"
 
-# --force because the certificate was issued minutes ago and nothing is due.
-# --deploy because reaching the edge is the half the timer owns, and a renewal
-# that stops in the store is a certificate that expires anyway.
+# --force because nothing is due yet; --deploy because a renewal must reach the
+# edge.
 in_container "cd / && blitzecdn cert renew --force --site ${ACME_SITE} --deploy --json >/dev/null" || {
   in_container 'tail -40 /var/lib/blitzecdn/letsencrypt/logs/letsencrypt.log' || true
   in_container 'docker logs --tail 40 pebble' || true
@@ -611,20 +491,16 @@ in_container 'cd / && blitzecdn backup create' ||
   fail "backup create failed"
 in_container 'ls /var/backups/blitzecdn/blitzecdn-backup-*Z.tar.gz >/dev/null' ||
   fail "no backup landed in /var/backups/blitzecdn"
-# The expansions belong to the container shell: the archive is named for the
-# moment it was taken, so the test cannot know its name in advance.
+# The expansions belong to the container shell: the archive name is a
+# timestamp.
 # shellcheck disable=SC2016
 in_container 'test "$(stat -c %a "$(ls -t /var/backups/blitzecdn/*.tar.gz | head -1)")" = 600' ||
   fail "the backup archive is not 0600"
 # shellcheck disable=SC2016
 in_container 'cd / && blitzecdn backup inspect "$(ls -t /var/backups/blitzecdn/*.tar.gz | head -1)" | grep -q "^  database$"' ||
   fail "the backup does not declare a database component"
-# /var/backups/blitzecdn, and not the state directory, because the CLI runs
-# inside the control plane's container and the two do not agree on a name for
-# the state directory: the host calls it /var/lib/blitzecdn and the container
-# mounts it at /opt/blitzecdn/.state. The backup directory is mounted at the
-# path it already has, so it is the one place an operator can name an archive
-# and have both halves of this test mean the same file.
+# /var/backups/blitzecdn is mounted at the same path on host and in the CLI
+# container, unlike the state directory, so both halves name the same file.
 in_container 'cd / && blitzecdn backup create --only database -o /var/backups/blitzecdn/database-only.tar.gz' ||
   fail "a database-only backup failed"
 in_container 'test -s /var/backups/blitzecdn/database-only.tar.gz' || fail "the backup is empty"
@@ -664,10 +540,8 @@ in_container 'docker compose --file /etc/blitzecdn/control-plane.compose.yml ps 
   fail "Compose cannot discover the worker recreated through the Docker SDK"
 
 say "Repointing the API access list"
-# The environment file is written once and never rewritten, so this is the
-# other half of the flag: on a host that already has one, the access list is
-# converged rather than seeded. Without it --allowed-ips would work on a first
-# installation and silently do nothing ever after.
+# The environment file is written once, so on an existing host the access list
+# is converged rather than seeded.
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL} --allowed-ips ${REPOINTED_IPS}" ||
   fail "the installer could not repoint the API access list"
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
@@ -681,18 +555,14 @@ in_container 'grep -q "^BLITZE_API_KEYS=operator:" /etc/blitzecdn/blitzecdn.env'
 say "Re-running the installer"
 in_container "cd /opt/blitzecdn && ./install.sh standalone --admin-cidr ${ADMIN_CIDR} --email ${ACME_EMAIL}" ||
   fail "the installer is not re-runnable on ${IMAGE}"
-# Omitting the flag is not the same as clearing the list. A routine re-run must
-# leave who may reach the API exactly as the operator left it.
+# Omitting the flag leaves the access list exactly as the operator left it.
 in_container "grep -qx 'BLITZE_ALLOWED_IPS=${REPOINTED_IPS}' /etc/blitzecdn/blitzecdn.env" ||
   fail "a run without --allowed-ips changed the access list"
 
 say "Checking the updater refuses a checkout it cannot verify"
-# The working tree is copied in here rather than cloned, so this host has no
-# .git and `update` must refuse rather than run against an unknown source. The
-# happy path needs a real clone and a network fetch, which would test origin
-# rather than the commit under review; what this pins is that the refusal is
-# clean — a host that was serving before a refused update is still serving
-# after it, because nothing was stopped on the way to the refusal.
+# The working tree has no .git, so `update` must refuse, and a host serving
+# before the refusal still serves after it. The happy path needs a real clone
+# and fetch.
 in_container 'cd /opt/blitzecdn && ./install.sh update --yes' &&
   fail "update ran against a checkout with no origin"
 in_container 'docker inspect -f "{{.State.Health.Status}}" blitzecdn-api | grep -qx healthy' ||

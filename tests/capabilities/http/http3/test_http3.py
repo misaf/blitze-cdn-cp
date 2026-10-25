@@ -57,7 +57,7 @@ def _merged(*sites: CdnSite) -> dict[str, object]:
 # --- registration -----------------------------------------------------------
 
 
-def test_plugin_provides_http3_as_a_required_provider() -> None:
+def test_feature_provides_http3_as_a_required_provider() -> None:
     metadata = FEATURE.metadata
 
     assert isinstance(metadata, FeatureMetadata)
@@ -130,14 +130,14 @@ def test_installed_http3_overrides_the_baseline_core_contributes() -> None:
     }
 
 
-def test_the_two_plugins_agree_when_no_site_asks_for_http3() -> None:
+def test_the_two_features_agree_when_no_site_asks_for_http3() -> None:
     """Attached-but-unused converges exactly what detached converges."""
     sites = (_site("alpha", http3=False),)
 
     assert _merged(*sites) == baseline_listeners(sites).variables
 
 
-def test_the_two_plugins_never_collide_on_the_variables_they_share() -> None:
+def test_the_two_features_never_collide_on_the_variables_they_share() -> None:
     """Without the `overrides` claim this raises, which is the point of it."""
     document = _merged(_site("alpha"))
 

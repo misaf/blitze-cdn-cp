@@ -51,7 +51,7 @@ def test_nginx_resources_are_deterministic_and_keep_contexts_stable(tmp_path):
     assert [resource.feature for resource in first["upstream"]] == ["zulu"]
 
 
-def test_two_plugins_cannot_own_one_nginx_resource(tmp_path):
+def test_two_features_cannot_own_one_nginx_resource(tmp_path):
     first = tmp_path / "first"
     second = tmp_path / "second"
     _template(first, "shared.conf.j2")
@@ -68,7 +68,7 @@ def test_two_plugins_cannot_own_one_nginx_resource(tmp_path):
         )
 
 
-def test_a_declared_nginx_resource_must_ship_in_the_package(tmp_path):
+def test_a_declared_nginx_resource_must_ship_with_its_feature(tmp_path):
     with pytest.raises(FeatureError, match=r"missing.conf.j2.*is not a file"):
         resolve_nginx_resources(
             [
@@ -79,7 +79,7 @@ def test_a_declared_nginx_resource_must_ship_in_the_package(tmp_path):
         )
 
 
-def test_installed_packages_supply_only_package_owned_templates():
+def test_every_nginx_template_is_owned_by_a_feature():
     """Every Nginx fragment comes from the capability that owns it.
 
     Derived from what is installed rather than a list of names: core contributes
@@ -111,7 +111,7 @@ def test_only_explicitly_claimed_environment_reaches_ansible(tmp_path):
     assert resolved.environment == configured
 
 
-def test_a_package_reads_its_own_configuration_and_no_other_package_s(tmp_path):
+def test_a_feature_reads_its_own_configuration_and_no_other_feature_s(tmp_path):
     """The scoped half of the same resolution, which is what a capability reads.
 
     `geoip` cannot reach the token beside it, and a key it did not declare is
@@ -162,7 +162,7 @@ def test_a_declared_key_is_present_and_empty_rather_than_absent(tmp_path):
     assert not config.is_set("BLITZE_TOKEN")
 
 
-def test_a_plugin_that_declares_nothing_gets_an_empty_configuration(tmp_path):
+def test_a_feature_that_declares_nothing_gets_an_empty_configuration(tmp_path):
     roles = tmp_path / "roles"
     roles.mkdir()
     contribution = ConfigurationContribution("resolver")
@@ -236,7 +236,7 @@ def test_a_minimum_length_says_nothing_about_whether_a_key_is_required(tmp_path)
     assert not resolved.for_feature("security").is_set("BLITZE_TOKEN")
 
 
-def test_duplicate_environment_ownership_names_both_plugins(tmp_path):
+def test_duplicate_environment_ownership_names_both_features(tmp_path):
     roles = tmp_path / "roles"
     roles.mkdir()
     contributions = [
