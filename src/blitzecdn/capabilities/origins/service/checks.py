@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
-
 from blitzecdn.capabilities.origins.domain import OriginReport
 from blitzecdn.capabilities.origins.ports import (
     OriginCheckRunner,
@@ -13,6 +11,7 @@ from blitzecdn.capabilities.origins.ports import (
 from blitzecdn.capabilities.origins.reporting import edge_origins
 from blitzecdn.core.domain.events import domain_event
 from blitzecdn.core.exceptions import ExecutionError
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.ports.operations import EventRecorder
 
 
@@ -26,11 +25,13 @@ class OriginCheckService:
         events: EventRecorder,
         runner: OriginCheckRunner,
         origin_probe: OriginProbe,
+        clock: Clock = system_clock,
     ) -> None:
         self.sites = sites
         self.events = events
         self.runner = runner
         self.origin_probe = origin_probe
+        self.clock = clock
 
     def check_origins(
         self, operator: str, *, host_limit: str | None = None
@@ -63,7 +64,7 @@ class OriginCheckService:
             host_limit=host_limit,
         )
         report = OriginReport(
-            checked_at=datetime.now(UTC),
+            checked_at=self.clock(),
             host_limit=host_limit,
             edges=tuple(edge_origins(host) for host in run.hosts),
         )

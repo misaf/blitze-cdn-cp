@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -27,6 +26,7 @@ from blitzecdn.capabilities.workflows.domain import (
 )
 from blitzecdn.capabilities.workflows.ports import WorkflowJournal
 from blitzecdn.core.ports import UnitOfWork
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = ["WorkflowCoordinator", "WorkflowProgress"]
 
@@ -53,8 +53,10 @@ class WorkflowCoordinator:
         journal: WorkflowJournal,
         uow: UnitOfWork,
         retention: int = 1000,
+        clock: Clock = system_clock,
     ) -> None:
         self.journal = journal
+        self.clock = clock
         self.uow = uow
         #: How many finished workflows to keep. Applied when one closes, so the
         #: policy runs whenever the thing it bounds happens rather than needing
@@ -77,7 +79,7 @@ class WorkflowCoordinator:
                     WorkflowStatus.RUNNING,
                     step=WorkflowStep(
                         name=name,
-                        completed_at=datetime.now(UTC),
+                        completed_at=self.clock(),
                         details=details or {},
                     ),
                 )

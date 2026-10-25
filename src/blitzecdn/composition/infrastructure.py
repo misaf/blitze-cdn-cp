@@ -53,6 +53,7 @@ from blitzecdn.core.plugins import (
     resolve_teardown_capability_roles,
 )
 from blitzecdn.core.plugins.resolution import ResolvedCapabilityEnvironment
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.ports.operations import PlaybookRunner
 
 __all__ = ["FleetRunner", "Infrastructure"]
@@ -75,6 +76,8 @@ class Infrastructure:
     """The adapters, and the resolved contributions they were built from."""
 
     settings: Settings
+    #: The one clock every service and store in this process reads.
+    clock: Clock
     repository: Repository
     plugins: PluginRegistry
     capability_config: ResolvedCapabilityEnvironment
@@ -105,6 +108,7 @@ class Infrastructure:
         edges: EdgeStorePort | None = None,
         background: QueueBackgroundRunner | None = None,
         queue_ready: Callable[[], bool] | None = None,
+        clock: Clock = system_clock,
         pool_connections: bool = False,
     ) -> Infrastructure:
         """The real adapters, with any of them replaced by the caller's."""
@@ -112,6 +116,7 @@ class Infrastructure:
             settings.database_path,
             pool_connections=pool_connections,
             audit_retention=settings.audit_retention,
+            clock=clock,
         )
         try:
             registry = plugins if plugins is not None else load_registry()
@@ -145,10 +150,11 @@ class Infrastructure:
                 environment=capability_config.environment,
             )
             job_queue = build_job_queue(
-                jobs=store.jobs, retention=settings.history_retention
+                jobs=store.jobs, retention=settings.history_retention, clock=clock
             )
             return cls(
                 settings=settings,
+                clock=clock,
                 repository=store,
                 plugins=registry,
                 capability_config=capability_config,
@@ -161,10 +167,10 @@ class Infrastructure:
                 or AnsibleRunner(settings, EdgeRoster(fleet), edge_contributions),
                 origin_probe=origin_probe or OriginProbe(settings),
                 serving_probe=serving_probe or ServingProbe(),
-                certificate_store=CertificateStore(settings),
+                certificate_store=CertificateStore(settings, clock=clock),
                 job_queue=job_queue,
                 job_scheduler=build_job_scheduler(
-                    schedules=store.schedules, queue=job_queue, uow=store
+                    schedules=store.schedules, queue=job_queue, uow=store, clock=clock
                 ),
                 background=background or _QueuePublisher(job_queue),
                 queue_ready=queue_ready or (lambda: _queue_reachable(job_queue)),

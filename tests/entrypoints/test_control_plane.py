@@ -791,3 +791,20 @@ def test_tls_services_share_application_ownership_and_are_garbage_collectable(se
     del control
     gc.collect()
     assert reference() is None
+
+
+def test_the_composition_root_s_clock_stamps_what_services_write(settings):
+    """One clock, chosen once: the stores and the services agree on the time."""
+    from datetime import UTC, datetime
+
+    frozen = datetime(2030, 1, 2, 3, 4, 5, tzinfo=UTC)
+    control = build_application(settings=settings, clock=lambda: frozen)
+    try:
+        assert control.infrastructure.repository.database.now() == frozen
+        assert control.deployments.clock() == frozen
+        assert control.job_queue.clock() == frozen
+        job = control.job_queue.enqueue_deployment("deployment-1")
+        assert job is not None
+        assert job.available_at == frozen
+    finally:
+        control.close()

@@ -12,7 +12,7 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +22,7 @@ from sqlalchemy.pool import NullPool, QueuePool
 from sqlmodel import Session, create_engine
 
 from blitzecdn.core.persistence.schema import DatabaseSchema
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 
 def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
@@ -65,8 +66,16 @@ def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
 class Database:
     """The database file: engine, schema, sessions, and the write lock."""
 
-    def __init__(self, path: Path, *, pool_connections: bool = False) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        pool_connections: bool = False,
+        clock: Clock = system_clock,
+    ) -> None:
         DatabaseSchema.validate(path)
+        #: Every timestamp a store writes comes from here.
+        self._clock = clock
         # Ambient state belongs to this database instance. A module-global
         # session lets repository B accidentally join repository A's
         # transaction when two control planes share one process.
@@ -193,6 +202,5 @@ class Database:
         with self.lock:
             self.engine.dispose()
 
-    @staticmethod
-    def now() -> datetime:
-        return datetime.now(UTC)
+    def now(self) -> datetime:
+        return self._clock()

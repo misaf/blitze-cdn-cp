@@ -33,7 +33,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 
 from blitzecdn.capabilities.deployments.domain import (
     DeploymentTarget,
@@ -49,6 +48,7 @@ from blitzecdn.capabilities.deployments.ports import (
 from blitzecdn.capabilities.releases.domain import Release
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.exceptions import ExecutionError
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = ["Rollout", "RolloutOutcome"]
 
@@ -111,7 +111,7 @@ class Rollout:
         addresses: EdgeAddresses,
         verifier: ServingVerifier,
         publish: Callable[[Release], None],
-        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        clock: Clock = system_clock,
     ) -> None:
         self.targets = targets
         self.runner = runner

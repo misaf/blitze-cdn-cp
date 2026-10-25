@@ -11,7 +11,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 from time import monotonic
 from typing import Literal
@@ -52,6 +51,7 @@ from blitzecdn.core.exceptions import (
     DeploymentBusyError,
     NotFoundError,
 )
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -97,7 +97,9 @@ class CertificateService:
         site_editor: SiteEditor,
         deployments: DeploymentGateway,
         workflows: WorkflowCoordinator,
+        clock: Clock = system_clock,
     ) -> None:
+        self.clock = clock
         self.material_references = material_references
         self.policy = policy
         self.persistence = persistence
@@ -408,7 +410,7 @@ class CertificateService:
 
     def certificate_statuses(self) -> list[CertificateStatus]:
         """Every managed certificate against the clock, soonest expiry first."""
-        now = datetime.now(UTC)
+        now = self.clock()
         return [
             CertificateStatus.of(info, now=now)
             for info in self.persistence.certificates.list_all()
@@ -539,7 +541,7 @@ class CertificateService:
 
         candidates: list[tuple[CertificateInfo, CertificateStatus]] = []
         skipped: list[str] = []
-        now = datetime.now(UTC)
+        now = self.clock()
         for current in stored:
             if selected is not None and current.site not in selected:
                 continue

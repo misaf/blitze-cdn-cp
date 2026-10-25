@@ -14,7 +14,6 @@ subscriber needs to describe the event without reaching back into the store.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -30,7 +29,6 @@ class DomainEvent(BaseModel):
     resource_type: str
     resource_id: str | None = None
     details: dict[str, Any] = Field(default_factory=dict)
-    occurred_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 def domain_event(

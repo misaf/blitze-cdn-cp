@@ -179,8 +179,12 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
     settings = infra.settings
     store = infra.repository
     events = store.audit_log
+    clock = infra.clock
     workflows = WorkflowCoordinator(
-        journal=store.workflows, uow=store, retention=settings.history_retention
+        journal=store.workflows,
+        uow=store,
+        retention=settings.history_retention,
+        clock=clock,
     )
 
     # DNS owns canonical zones, rules, records, and their host projection.
@@ -239,16 +243,20 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
         workflows=workflows,
         events=events,
         uow=store,
+        clock=clock,
     )
     edges = build_edge_operations_service(
         edges=infra.edges, runner=infra.runner, events=events, uow=store
     )
-    cache = build_cache_service(sites=site_editor, events=events, fleet=infra.runner)
+    cache = build_cache_service(
+        sites=site_editor, events=events, fleet=infra.runner, clock=clock
+    )
     origins = build_origin_check_service(
         sites=site_editor,
         events=events,
         fleet=infra.runner,
         origin_probe=infra.origin_probe,
+        clock=clock,
     )
     certificate_config = CertificateConfig.from_capability_config(
         infra.capability_config.for_plugin("certificates")
@@ -271,6 +279,7 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
         # type to mypy. The behavior is the narrow protocol TLS declares.
         workflows=cast(CertificateWorkflows, workflows),
         uow=store,
+        clock=clock,
     )
     automatic_ssl = build_automatic_ssl_service(
         sites=site_editor,
@@ -329,5 +338,6 @@ def build_services(infrastructure: Infrastructure) -> ApplicationServices:
             queue=infra.job_queue,
             scheduler=infra.job_scheduler,
             poll_seconds=settings.worker_poll_seconds,
+            clock=clock,
         ),
     )

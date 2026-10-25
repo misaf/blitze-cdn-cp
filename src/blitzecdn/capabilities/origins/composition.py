@@ -9,6 +9,7 @@ from __future__ import annotations
 from blitzecdn.capabilities.origins.adapters import OriginCheckPlaybook
 from blitzecdn.capabilities.origins.ports import OriginProbe, SiteReader
 from blitzecdn.capabilities.origins.service.checks import OriginCheckService
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.ports.operations import EventRecorder, PlaybookRunner
 
 
@@ -18,6 +19,7 @@ def build_origin_check_service(
     events: EventRecorder,
     fleet: PlaybookRunner,
     origin_probe: OriginProbe,
+    clock: Clock = system_clock,
 ) -> OriginCheckService:
     """Wire the origin-check capability to the fleet and the derived hosts."""
     return OriginCheckService(
@@ -27,6 +29,7 @@ def build_origin_check_service(
         events=events,
         runner=OriginCheckPlaybook(fleet),
         origin_probe=origin_probe,
+        clock=clock,
     )
 
 

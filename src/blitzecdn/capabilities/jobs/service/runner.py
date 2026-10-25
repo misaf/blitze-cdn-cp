@@ -19,11 +19,11 @@ import signal
 import threading
 from collections.abc import Callable
 from types import FrameType
-from typing import Any
 
-from blitzecdn.capabilities.jobs.domain import JobClaim, utcnow
+from blitzecdn.capabilities.jobs.domain import JobClaim
 from blitzecdn.capabilities.jobs.service.queue import SCHEDULED_JOB, JobQueue
 from blitzecdn.capabilities.jobs.service.scheduling import JobScheduler
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = ["JobRunner"]
 
@@ -39,7 +39,7 @@ class JobRunner:
         queue: JobQueue,
         scheduler: JobScheduler,
         poll_seconds: float = 1.0,
-        clock: Any = utcnow,
+        clock: Clock = system_clock,
     ) -> None:
         self.queue = queue
         self.scheduler = scheduler

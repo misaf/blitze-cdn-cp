@@ -41,6 +41,7 @@ from blitzecdn.capabilities.workflows.adapters.persistence import WorkflowStore
 from blitzecdn.core.persistence.audit import AuditLog
 from blitzecdn.core.persistence.configuration import AnsibleSettingStore
 from blitzecdn.core.persistence.engine import Database
+from blitzecdn.core.ports.clock import Clock, system_clock
 
 __all__ = [
     "AuditLog",
@@ -70,8 +71,9 @@ class Repository:
         *,
         pool_connections: bool = False,
         audit_retention: int | None = None,
+        clock: Clock = system_clock,
     ) -> None:
-        self.database = Database(path, pool_connections=pool_connections)
+        self.database = Database(path, pool_connections=pool_connections, clock=clock)
         self.zones = ZoneStore(self.database)
         self.rules = RuleStore(self.database)
         self.edges = EdgeStore(self.database)

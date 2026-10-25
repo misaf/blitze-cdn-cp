@@ -30,6 +30,7 @@ from blitzecdn.capabilities.tls.certificates.service import (
 )
 from blitzecdn.capabilities.tls.config import CertificateConfig
 from blitzecdn.core.config import Settings
+from blitzecdn.core.ports.clock import Clock, system_clock
 from blitzecdn.core.runtime.resources import distribution_version
 
 #: This distribution's version, asked of the environment rather than
@@ -87,6 +88,7 @@ def build_certificate_service(
     deployments: DeploymentGateway,
     workflows: WorkflowCoordinator,
     uow: UnitOfWork,
+    clock: Clock = system_clock,
 ) -> CertificateService:
     """Wire issuance, collection and reconciliation of managed certificates."""
     return CertificateService(
@@ -113,6 +115,7 @@ def build_certificate_service(
         site_editor=site_editor,
         deployments=deployments,
         workflows=workflows,
+        clock=clock,
     )
 
 
