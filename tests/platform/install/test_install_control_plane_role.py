@@ -63,6 +63,22 @@ def test_controlplane_initializes_schema_before_starting_services():
     assert command[-3:] == ["--no-deps", "blitzecdn-cli", "migrate"]
 
 
+def test_controlplane_fails_the_play_unless_both_services_become_healthy():
+    """`state: started` alone would leave a play green with a service down.
+
+    The installer reports nothing of its own after converging, so this wait is
+    the whole of "the update worked".
+    """
+    tasks = _role_tasks()
+    services = _role_task("Recreate and start the control-plane services")
+    wait = _role_task("Wait for the API and worker containers to become healthy")
+
+    assert tasks.index(services) < tasks.index(wait)
+    assert wait["loop"] == ["blitzecdn-api", "blitzecdn-worker"]
+    assert wait["until"] == "blitzecdn_controlplane_health.stdout == 'healthy'"
+    assert wait["retries"] * wait["delay"] >= 60
+
+
 def test_standalone_bootstraps_only_what_ansible_needs():
     """Everything else is the role's job; this list is the bootstrap contract."""
     standalone = _section("standalone")

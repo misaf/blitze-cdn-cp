@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
 from install_support import (
     _function,
     _query,
@@ -42,17 +43,21 @@ def test_update_takes_a_backup_before_it_changes_anything():
     # Ordering is the guarantee. A backup taken after the checkout, or after the
     # migration, is a backup of the thing it was supposed to protect against.
     marker = "backup create --only database"
-    assert update.index(marker) < update.index("stop_control_plane_services")
+    assert update.index(marker) < update.index('repo_git checkout --quiet "${target}"')
     assert update.index(marker) < update.index("bootstrap_runtime")
 
 
-def test_update_stops_the_services_before_migrating_the_schema():
-    """The converge runs `blitzecdn migrate` against a live host."""
-    update = _section("update")
-    assert update.index("stop_control_plane_services") < update.index(
-        "converge_control_plane"
-    )
-    assert update.index("bootstrap_runtime") < update.index("converge_control_plane")
+@pytest.mark.parametrize("subcommand", ["update", "upgrade"])
+def test_a_release_move_leaves_stopping_the_services_to_the_role(subcommand: str):
+    """The role stops them before it migrates, after the image is built.
+
+    Its ordering is held by
+    `test_controlplane_initializes_schema_before_starting_services`; a second
+    stop here would only start the downtime before the checkout and rebuild.
+    """
+    section = _section(subcommand)
+    assert "docker" not in section
+    assert section.index("bootstrap_runtime") < section.index("converge_control_plane")
 
 
 def test_update_only_ever_moves_forward_onto_a_release_tag():
@@ -62,7 +67,7 @@ def test_update_only_ever_moves_forward_onto_a_release_tag():
     a fast-forward merge failing, so the assertion names the check itself.
     """
     update = _section("update")
-    assert 'repo_git merge-base --is-ancestor HEAD "${target}^{commit}"' in update
+    assert "release_plan update" in update
     assert 'repo_git checkout --quiet "${target}"' in update
     # `merge --ff-only`, not a bare "merge": `merge-base` contains that word.
     forbidden = ("git pull", "merge --ff-only", "--force", "reset --hard", "rebase")
@@ -70,23 +75,11 @@ def test_update_only_ever_moves_forward_onto_a_release_tag():
         assert operation not in update
 
 
-def test_update_never_crosses_a_major_line():
-    """The one property that keeps an unattended updater from a major upgrade."""
-    resolve = _function("latest_release_tag")
-    assert 'repo_git tag --list "v${major}.*" --sort=-v:refname' in resolve
-    # A pre-release or a branch-shaped tag is not an installable release.
-    assert "^v[0-9]+\\.[0-9]+\\.[0-9]+$" in resolve
-    assert 'latest_release_tag "${major}"' in _section("update")
-
-
-def test_update_decides_where_it_is_going_before_it_stops_anything():
+def test_update_decides_where_it_is_going_before_it_changes_anything():
     """Every refusal about *which* release must cost no downtime."""
     update = _section("update")
-    assert update.index("latest_release_tag") < update.index(
+    assert update.index("release_plan update") < update.index(
         "backup create --only database"
-    )
-    assert update.index("merge-base --is-ancestor") < update.index(
-        "stop_control_plane_services"
     )
 
 
@@ -95,14 +88,6 @@ def test_update_verifies_the_code_it_is_about_to_run_as_root():
     assert "require_upstream_origin" in update
     assert "status --porcelain" in update
     assert "${INSTALL_DIR} is not a Git checkout" in update
-
-
-def test_update_stops_both_persistent_compose_services():
-    declared = re.search(
-        r"readonly CONTROL_PLANE_SERVICES=\((.*?)\)", _script(), re.DOTALL
-    )
-    assert declared is not None, "install.sh no longer declares CONTROL_PLANE_SERVICES"
-    assert declared.group(1).split() == ["blitzecdn-api", "blitzecdn-worker"]
 
 
 # --- update: sandboxed behaviour ---------------------------------------------
@@ -179,8 +164,8 @@ def test_update_moves_a_detached_release_onto_the_newest_tag_in_its_line(
 
     assert "Checking out v3.1.0" in result.stdout
     assert result.returncode == 1
-    assert "the containers are stopped" in result.stderr, (
-        "past the point of no return, the refusal must say how to recover"
+    assert "the services were not stopped" in result.stderr, (
+        "a failed checkout must say the host is still serving"
     )
     assert "checkout v3.0.0" in result.stderr, "and name the release to restore"
 
@@ -357,7 +342,7 @@ def test_update_stops_nothing_when_the_backup_fails(tmp_path: Path):
     assert log.read_text(encoding="utf-8").split() == ["backup"]
 
 
-def test_update_backs_up_and_stops_services_in_that_order(tmp_path: Path):
+def test_update_backs_up_and_stops_nothing_itself(tmp_path: Path):
     """Driven into the checkout failure so it stops before the heavy rebuild."""
     script, stubs, _ = _update_sandbox(tmp_path)
     log = tmp_path / "order.log"
@@ -371,10 +356,7 @@ def test_update_backs_up_and_stops_services_in_that_order(tmp_path: Path):
     )
 
     assert result.returncode == 1
-    recorded = log.read_text(encoding="utf-8").splitlines()
-    assert recorded[0] == "backup"
-    assert "stop blitzecdn-api blitzecdn-worker" in recorded
-    assert "checkout" not in recorded
+    assert log.read_text(encoding="utf-8").splitlines() == ["backup"]
 
 
 def test_update_can_skip_the_backup_but_says_so(tmp_path: Path):
@@ -391,7 +373,7 @@ def test_update_can_skip_the_backup_but_says_so(tmp_path: Path):
     )
 
     assert "Skipping the database backup" in result.stdout
-    assert "backup" not in log.read_text(encoding="utf-8").splitlines()
+    assert not log.exists(), "no backup was taken and nothing was stopped"
 
 
 def test_the_default_install_ends_by_installing_the_wrapper():

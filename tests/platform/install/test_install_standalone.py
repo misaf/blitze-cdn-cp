@@ -154,7 +154,7 @@ def test_a_release_move_can_repoint_the_access_list(subcommand: str):
     # Before the point of no return, not after it. A rejected access list must
     # cost a refused command, never a host sitting with its services stopped.
     assert section.index("allowed_ips_value") < section.index(
-        "stop_control_plane_services"
+        'repo_git checkout --quiet "${target}"'
     )
     assert section.index("allowed_ips_value") < section.index("backup")
 

@@ -109,12 +109,9 @@ def test_upgrade_backs_up_everything_not_just_the_database(tmp_path: Path):
         bin_dir=stubs,
     )
 
-    recorded = log.read_text(encoding="utf-8").splitlines()
-    stopped = "stop blitzecdn-api blitzecdn-worker"
-    assert recorded.index("backup") < recorded.index(stopped), (
-        "back up before anything is stopped"
+    assert log.read_text(encoding="utf-8").splitlines() == ["backup"], (
+        "a backup, nothing stopped, and the checkout driven into failure"
     )
-    assert "checkout" not in recorded, "the checkout was driven into failure"
 
     asked = (tmp_path / "backup-args.log").read_text(encoding="utf-8")
     assert asked.strip() == "backup create", (
