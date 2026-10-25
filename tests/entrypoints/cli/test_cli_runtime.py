@@ -71,3 +71,41 @@ def test_serve_refuses_to_start_unauthenticated(settings, monkeypatch):
 
     assert result.exit_code != 0
     assert started == []
+
+
+def test_one_invocation_builds_its_services_once_and_closes_them(settings, monkeypatch):
+    """Asking twice inside a command reuses one graph; exiting releases it."""
+    import typer
+
+    built = []
+
+    class Built:
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    def build(_services):
+        built.append(Built())
+        return built[-1]
+
+    monkeypatch.setattr(cli.common, "settings", lambda: settings)
+    monkeypatch.setattr(cli.common.Infrastructure, "build", lambda *_a, **_k: None)
+    monkeypatch.setattr(cli.common, "build_services", lambda _infra: None)
+    monkeypatch.setattr(cli.common, "build_cli", build)
+    seen = []
+    app = typer.Typer()
+
+    @app.callback()
+    def root(context: typer.Context) -> None:
+        cli.common.scope_services(context)
+
+    @app.command()
+    def twice() -> None:
+        seen.append(cli.common.services() is cli.common.services())
+        seen.append(built[0].closed)
+
+    assert runner.invoke(app, ["twice"]).exit_code == 0
+    assert seen == [True, False]
+    assert len(built) == 1
+    assert built[0].closed

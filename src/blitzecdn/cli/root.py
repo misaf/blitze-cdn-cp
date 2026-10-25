@@ -11,6 +11,7 @@ from typing import Annotated
 import typer
 
 from blitzecdn import __version__
+from blitzecdn.cli import common
 from blitzecdn.core.runtime.logging import configure_logging
 
 app = typer.Typer(
@@ -41,6 +42,7 @@ def _version_callback(value: bool) -> None:
 
 @app.callback()
 def main(
+    context: typer.Context,
     verbose: Annotated[
         bool, typer.Option("--verbose", "-v", help="Enable diagnostic logging.")
     ] = False,
@@ -56,3 +58,4 @@ def main(
     ] = False,
 ) -> None:
     configure_logging(verbose=verbose, json_output=log_json)
+    common.scope_services(context)
