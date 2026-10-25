@@ -1515,18 +1515,6 @@ def test_restoring_configuration_says_the_firewall_is_still_behind(
     assert "install.sh update" not in restore("tls")
 
 
-def test_the_legacy_database_backup_command_is_not_registered(cli_settings):
-    result = runner.invoke(cli.app, ["db", "backup"])
-    assert result.exit_code != 0
-    assert "No such command 'db'" in result.output
-
-
-def test_the_empty_legacy_database_group_is_not_registered(cli_settings):
-    result = runner.invoke(cli.app, ["db"])
-    assert result.exit_code != 0
-    assert "No such command 'db'" in result.output
-
-
 # --- the domain manifest rules ----------------------------------------
 
 

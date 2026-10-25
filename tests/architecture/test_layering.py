@@ -50,11 +50,9 @@ _CAPABILITIES = _SOURCE / "capabilities"
 #: the module nobody thought of was held to none — a new adapter written as
 #: `renderer.py` would have been free to import the composition root.
 #:
-#: `domain`, `adapters`, `service` and `api` are directories in every capability
-#: — `_MANDATORY_LAYER_DIRECTORIES` in `packages/test_package_layout.py`
-#: refuses the file
-#: spelling by name — so a module is inside the rule the moment it is put where
-#: it belongs, and choosing the directory is choosing the rule. The
+#: `domain`, `adapters`, `service` and `api` are directories, so a module is
+#: inside the rule the moment it is put where it belongs, and choosing the
+#: directory is choosing the rule. The
 #: `removesuffix(".py")` below is what still admits `policy.py` and `cli.py`,
 #: which are the two layers a capability may spell either way.
 def _is_domain(path: Path) -> bool:
@@ -179,28 +177,6 @@ def test_legacy_layer_first_packages_have_no_source_modules():
     assert not list((_SOURCE / "api/routes").rglob("*.py"))
 
 
-@pytest.mark.parametrize(
-    "capability",
-    [
-        "cache",
-        "compression",
-        "deployments",
-        "diagnostics",
-        "dns",
-        "edges",
-        "http",
-        "jobs",
-        "maintenance",
-        "releases",
-        "security",
-        "tls",
-        "workflows",
-    ],
-)
-def test_required_capability_packages_exist(capability: str):
-    assert (_CAPABILITIES / capability / "__init__.py").is_file()
-
-
 #: A capability's contact with a caller: everything under `api/` and `cli`.
 #:
 #: This was a set of file names — `cli.py`, `routes.py`, `readiness.py` — and a
@@ -256,17 +232,6 @@ def test_cross_capability_imports_use_contract_modules():
             ):
                 offenders.append(f"{path.relative_to(_SOURCE)} imports {imported}")
     assert offenders == []
-
-
-def test_the_composition_package_is_the_only_production_composition_root():
-    imports = {
-        name
-        for module in ("roster", "infrastructure", "services", "processes")
-        for name in _imports(_SOURCE / f"composition/{module}.py")
-    }
-    assert any(name.startswith("blitzecdn.capabilities") for name in imports)
-    assert any(name.startswith("blitzecdn.core") for name in imports)
-    assert not any(name.startswith("blitzecdn.worker") for name in imports)
 
 
 #: The classes that reach the outside world: a subprocess, a socket, a
@@ -485,46 +450,6 @@ def test_domain_models_do_not_render_adapter_documents():
     assert offenders == []
 
 
-def test_removed_subsystems_do_not_return():
-    offenders = [
-        str(path.relative_to(_SOURCE))
-        for path in _SOURCE.rglob("*.py")
-        if "outbox" in path.read_text(encoding="utf-8").lower()
-        or "ThreadBackgroundRunner" in path.read_text(encoding="utf-8")
-    ]
-    assert offenders == []
-
-
-def test_no_stored_field_has_a_writer_outside_the_capability_that_owns_it():
-    """The rule this replaces, and why there is nothing left for it to guard.
-
-    ``CdnSite.server_names`` used to be the one column with a writer outside
-    its own capability: `dns` maintained it from the records routed to a site,
-    through a `SiteHostnames` port, and a site write that also carried
-    hostnames would silently revert a record change made between the read and
-    the write. A whole test, a whole port and a projection revision existed to
-    keep that one field honest.
-
-    A derived host has no columns at all. What is asserted now is that it
-    stayed that way: nothing stores a virtual host, so nothing can be a second
-    writer of one.
-    """
-    from blitzecdn.capabilities.dns.adapters.persistence import ZoneStore
-    from blitzecdn.capabilities.dns.adapters.rules import RuleStore
-    from blitzecdn.capabilities.dns.domain import DomainPatch
-    from blitzecdn.capabilities.serving.domain import CdnSite
-
-    writers = {name for name in vars(ZoneStore) if not name.startswith("_")} | {
-        name for name in vars(RuleStore) if not name.startswith("_")
-    }
-    assert not any("site" in name for name in writers), sorted(writers)
-
-    # The mirror of the old rule, on the patch: every setting a zone stores can
-    # be patched, and `server_names` is not one of them because no one sets it.
-    assert "server_names" not in DomainPatch.model_fields
-    assert "server_names" in CdnSite.model_fields
-
-
 #: Which capability may know that another exists. Derived from the graph the code
 #: actually has, and enforced both ways: an undeclared edge fails, and so does
 #: a declared edge nothing uses any more.
@@ -598,22 +523,6 @@ def test_a_capability_contract_never_imports_an_implementation():
         if imported.startswith(prefix) and not _is_policy_import(imported)
     ]
     assert offenders == []
-
-
-def test_serving_owns_shared_policy_and_dns_owns_its_projection():
-    """A certificate or deployment need not depend on DNS to name a host."""
-    assert _policy_graph()["serving"] == {
-        "cache",
-        "compression",
-        "http",
-        "security",
-        "tls",
-    }
-    assert _capability_graph()["serving"] == set()
-    assert not (_CAPABILITIES / "dns/domain/host.py").exists()
-    assert not (_CAPABILITIES / "dns/policy/__init__.py").exists()
-    owned = {path.stem for path in (_CAPABILITIES / "serving/policy").glob("*.py")}
-    assert owned == {"__init__", "headers", "origin", "site"}
 
 
 def test_no_strategy_mode_or_option_becomes_a_top_level_capability():

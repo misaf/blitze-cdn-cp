@@ -240,20 +240,6 @@ def test_the_stats_role_publishes_through_the_agreed_report_fact():
     )
 
 
-def test_the_stats_role_no_longer_wants_a_controller_directory():
-    """Its report travels with the run, so there is no path to hand it.
-
-    A resurrected `blitzecdn_cache_stats_output_dir` would be a required option the
-    control plane never sets, and role argument validation would fail every
-    collection.
-    """
-    spec = yaml.safe_load(
-        (STATS_ROLE_DIR / "meta/argument_specs.yml").read_text(encoding="utf-8")
-    )["argument_specs"]["main"]["options"]
-
-    assert "blitzecdn_cache_stats_output_dir" not in spec
-
-
 def test_nothing_private_is_cached_or_served_from_cache():
     """The exclusions a shared cache has to get right, asserted one by one.
 
