@@ -28,28 +28,19 @@ class ExecutionError(BlitzeError):
 
 
 class FeatureError(BlitzeError):
-    """A feature could not be discovered, registered, or used.
+    """A feature could not be loaded, registered, or used.
 
-    Distinct from `ConfigurationError` because the two are fixed in different
-    places: a configuration error is a value an operator can change, while this
-    one is a package that is installed, broken, or incompatible.
+    Unlike `ConfigurationError`, the fix is in the code, not in a value an
+    operator can change.
     """
 
 
 class FailureKind(StrEnum):
-    """What a failure *is*, named once so every delivery layer agrees.
+    """What a failure is, decided once so the CLI and the API agree.
 
-    The CLI and the HTTP API both have to turn an exception into a number an
-    unattended caller can branch on. Two lists of exception types would drift,
-    as two copies of one decision do — the same error "you typed it wrong" on
-    the command line and "the service is down, retry" over HTTP — so the kind
-    is decided once, here, and each layer only projects it.
-
-    So the taxonomy lives here and the projections live in the delivery layers. Core
-    names *what happened*; `blitzecdn.entrypoints.cli.main` decides what exit code says
-    that to a shell and `blitzecdn.entrypoints.api.app` decides what status code says it
-    to a client. Neither may invent a kind, and `tests/contract/test_delivery_parity.py`
-    fails if either stops covering one.
+    Each delivery layer projects a kind onto its own number — an exit code in
+    `blitzecdn.entrypoints.cli.main`, a status code in `blitzecdn.entrypoints.api.app`
+    — and `tests/contract/test_delivery_parity.py` fails if either misses one.
     """
 
     #: Another deployment holds the lock. The one failure that clears on its
@@ -64,15 +55,12 @@ class FailureKind(StrEnum):
     EXECUTION = "execution"
     #: A value an operator can change is missing, malformed, or unsafe.
     CONFIGURATION = "configuration"
-    #: The installation itself is wrong — a feature that will not load, or a
-    #: `BlitzeError` no layer anticipated. Distinct from CONFIGURATION because
-    #: retrying cannot help and the fix is a package, not a setting.
+    #: The installation is wrong — a feature that will not load, or an
+    #: unanticipated `BlitzeError`. Retrying cannot help.
     INTERNAL = "internal"
 
 
-#: Exception type to kind, walked most-specific first because
-#: `DeploymentBusyError` is a `ConflictError` and would otherwise be matched by
-#: its parent. Order is load-bearing; keep subclasses above their bases.
+#: Exception type to kind, most specific first: keep subclasses above their bases.
 _CLASSIFICATION: tuple[tuple[type[BlitzeError], FailureKind], ...] = (
     (DeploymentBusyError, FailureKind.BUSY),
     (ConflictError, FailureKind.CONFLICT),

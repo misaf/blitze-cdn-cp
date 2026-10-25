@@ -16,19 +16,10 @@ __all__ = ["run_variables"]
 def run_variables(
     directory: Path, prefix: str, values: dict[str, object]
 ) -> Iterator[Path]:
-    """Write this run's variables to a path no other run can reach.
+    """Write this run's variables to a path no other run can reach, removed after.
 
-    A fixed filename per playbook made the file shared mutable state between
-    overlapping runs, and overlap is ordinary here rather than exceptional:
-    purge, stats and decommission all deliberately skip the deployment lock,
-    the API serves them from a thread pool, and the worker's jobs run in
-    a separate process over one state directory. Whoever wrote last won — so
-    a purge of two URLs could find ``purge_all: true`` in the file by the
-    time its own playbook read it, empty the cache on every edge, and still
-    return, and audit, a two-URL purge.
-
-    Removed when the run ends: these carry one caller's request, not state
-    anything reads afterwards.
+    Runs that skip the deployment lock overlap routinely; with a shared file a two-URL
+    purge could read another run's ``purge_all: true`` and empty every cache.
     """
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     path = directory / f"{prefix}-{uuid4().hex}.yml"

@@ -1,9 +1,7 @@
 """Where "now" comes from.
 
-A service that needs the time is handed a :data:`Clock` rather than reading the
-system clock, so every timestamp a process writes comes from one place the
-composition root chooses, and a test can say what time it is. Domain code takes
-``now`` as an argument and never reads a clock at all.
+Services are handed a :data:`Clock` so the composition root and tests decide
+the time; domain code takes ``now`` as an argument.
 """
 
 from __future__ import annotations

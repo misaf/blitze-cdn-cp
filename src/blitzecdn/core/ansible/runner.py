@@ -26,22 +26,10 @@ _PARSE_TIMEOUT = 120
 class AnsibleRunner:
     """Runs Ansible against the fleet the control plane records.
 
-    ``fleet`` is the same rows the ``blitzecdn`` inventory plugin reads, seen
-    through the two-member port this needs them for: expanding a ``--limit``
-    into explicit host names. It is injected rather than opened here because
-    that expansion must be answered from the identical rows Ansible is about to
-    be given — reading a separate copy would drift from them — and it is a
-    roster rather than
-    ``EdgeStore`` because core does not import the capability that records an
-    edge.
-
-    One adapter, several playbooks. Each capability declares the slice of this it
-    actually needs as its own port — ``DeploymentRunner``, ``EdgeRunner``,
-    ``DeploymentLocker`` — and the composition root is the only place that
-    knows one object satisfies all of them. A capability's own operations are
-    not among them: ``cache``'s purge and ``origins``' probe reach the fleet
-    through the generic ``run_playbook`` below, so this class carries no
-    method for another capability's play.
+    ``fleet`` is the same rows the inventory plugin reads, so a ``--limit`` expands
+    against exactly what Ansible will be given. Capabilities each declare the
+    slice they need as their own port; their own plays go through
+    :meth:`run_playbook`.
     """
 
     def __init__(
@@ -68,14 +56,9 @@ class AnsibleRunner:
     def validate(self, variables: Path) -> AnsibleRun:
         """Parse the playbook against ``variables``, changing nothing.
 
-        The only run whose answer is the return code alone: ``--syntax-check``
-        executes no play, so there is no host event to report.
-        ``AnsibleRun.reported`` is false here by design, and the log file holds
-        whatever Ansible said about the parse failure.
-
-        The caller supplies the path rather than this reaching for
-        ``generated_vars_path``: that file belongs to whichever deploy currently
-        holds the lock, and validation must not write over it.
+        ``--syntax-check`` reports no host events, so ``AnsibleRun.reported`` is
+        false. The caller supplies the path: ``generated_vars_path`` belongs to
+        whichever deploy holds the lock.
         """
         self._validate_paths()
         return self._executor.execute(
@@ -112,11 +95,8 @@ class AnsibleRunner:
     def run_decommission(self, *, host_limit: str) -> AnsibleRun:
         """Strip BlitzeCDN configuration and TLS material from one edge.
 
-        ``host_limit`` is required and never defaulted to the whole group: the
-        other run methods treat an absent limit as "every edge", which for a
-        teardown would empty the fleet. The caller names the host it is
-        removing, and the playbook is fail-closed so a partial teardown keeps
-        the inventory entry rather than stranding keys on a forgotten host.
+        ``host_limit`` is required: an absent limit means every edge, which for a
+        teardown would empty the fleet.
         """
         with run_variables(self._settings.run_dir, "decommission", {}) as variables:
             return self._playbook_run(
@@ -131,17 +111,10 @@ class AnsibleRunner:
         variables: Mapping[str, object],
         host_limit: str | None = None,
     ) -> AnsibleRun:
-        """Run one named play with variables the caller supplies.
+        """Run one capability play with the caller's variables, staged and time-limited.
 
-        The primitive a capability reaches for to run its own play. What core
-        owns is the part that is genuinely its own: which hosts a limit expands
-        to, where the variables file is staged, and the timeout. What a purge
-        or a statistics run means is the capability's business.
-
-        Deliberately does not take the deployment lock. Everything reached this
-        way is an *operation* rather than a convergence — it writes no desired
-        state — and the moment an operation is most needed is the moment a
-        deploy is most likely to already be running.
+        Takes no deployment lock: these are operations that write no desired state,
+        and they are most needed exactly when a deploy is running.
         """
         with run_variables(self._settings.run_dir, name, dict(variables)) as staged:
             return self._playbook_run(playbook, staged, host_limit)

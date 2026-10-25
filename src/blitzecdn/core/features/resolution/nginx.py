@@ -1,14 +1,7 @@
 """The fragments an edge's Nginx configuration is assembled from.
 
-One question: which contributed templates does the renderer include, in which
-context, and in what order? The rules the package docstring states are applied
-here to a *name* — a fragment name is claimed once across the whole
-installation, because two packages contributing ``security-server.conf.j2``
-would have one of them rendered and the other silently dropped.
-
-The other half of what Nginx needs from the features — the ``load_module`` set —
-is next door in :mod:`~blitzecdn.core.features.resolution.modules`, because it is
-composed from a different contribution and obeys a different conflict rule.
+A fragment name is claimed once: two features contributing the same file
+would have one rendered and the other silently dropped.
 """
 
 from __future__ import annotations

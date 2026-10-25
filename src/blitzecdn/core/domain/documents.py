@@ -1,9 +1,8 @@
 """Canonical JSON for content-addressed values.
 
-The stored string is authoritative. Consumers decode their own working copy;
-editing it cannot change the identity of an artifact already admitted to a
-deployment. Unsupported objects are refused instead of converted with `str`,
-which could hide a path, a process-specific representation, or a missing encoder.
+The stored string is authoritative; readers decode a working copy that cannot
+change an admitted artifact's identity. Unsupported objects are refused rather
+than passed through `str`.
 """
 
 from __future__ import annotations

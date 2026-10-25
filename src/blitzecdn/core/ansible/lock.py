@@ -1,9 +1,7 @@
 """The cross-process lock that serialises convergence.
 
-One deployment at a time, fleet-wide, enforced by an advisory lock on a file
-under the state directory rather than by anything in-process: the API, a CLI
-``blitzecdn deploy`` and ``blitzecdn.entrypoints.worker`` are three processes over one
-state directory, so a mutex would serialise nothing.
+An advisory file lock under the state directory, because the API, the CLI and
+the worker are separate processes over one state directory.
 """
 
 from __future__ import annotations

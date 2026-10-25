@@ -1,26 +1,15 @@
 """Render a release's edge configuration on the controller, with Ansible's templar.
 
-The templates stay the shipped role and capability templates, and they are
-rendered by ansible-core's own templar, so filters, lookups and trust follow
-exactly the semantics of the edge play. Variables are assembled in the play's
-precedence order: role defaults in the order the edge play loads them, then the
-edge group's shipped variables, then what `blitzecdn_config_release` binds when
-it selects the candidate tree, then the extra-vars — the release's execution
-document and the installed contributions.
+Using ansible-core's own templar keeps filters, lookups and trust identical to
+the edge play. Variables follow the play's precedence: role defaults in load
+order, the edge group's variables, what `blitzecdn_config_release` binds, then
+the extra-vars. A release is rendered once, when prepared; the edge stages
+those bytes and renders nothing.
 
-This is the only renderer of edge configuration. A release is rendered once,
-when it is prepared, and the rendering is stored with it; the edge stages those
-bytes and renders nothing.
-
-The release document and the contributions are rendered as *data*, never as
-trusted templates, so an operator-authored value containing ``{{ ... }}`` is
-written literally. Only the configuration tree is rendered here. Host state —
-certificates, the ACME webroot, capability credentials, provider data — stays
-with the edge play.
-
-What is rendered where is the recipe in
-:meth:`~blitzecdn.core.ansible.rendering.EdgeRenderer.render`, laid out as the
-edge's candidate directory.
+The release document and contributions are rendered as data, never trusted
+templates, so an operator value containing ``{{ ... }}`` is written literally.
+Host state — certificates, the ACME webroot, credentials — stays with the edge
+play.
 """
 
 from __future__ import annotations

@@ -11,21 +11,12 @@ from blitzecdn.core.exceptions import NotFoundError
 from blitzecdn.core.persistence.engine import Database
 from blitzecdn.core.persistence.tables import AuditEventRow
 
-#: Used when nothing supplies one — every real control plane passes
-#: `Settings.audit_retention`. A default here keeps `AuditLog(database)`
-#: constructible in a test that has no opinion about retention.
+#: For tests; a control plane passes `Settings.audit_retention`.
 _DEFAULT_RETENTION = 100_000
 
 
 class AuditLog:
-    """Append-only record of who did what, kept to a bound.
-
-    Append-only from a caller's point of view: nothing edits an event, and the
-    only rows that ever leave are the oldest, dropped to keep the table from
-    being the one that fills the disk. Every other table here is bounded by
-    something — a deployment prunes its check-mode history, a workflow journal
-    its finished entries — and this one is written on every mutation.
-    """
+    """Append-only record of who did what, trimmed to a bound from the oldest end."""
 
     def __init__(self, database: Database, retention: int = _DEFAULT_RETENTION) -> None:
         self._db = database
@@ -60,15 +51,9 @@ class AuditLog:
             )
             session.add(row)
             session.flush()
-            # Inline rather than on a timer, because it costs nothing to be
-            # here. `id` is the rowid, so this is a range seek that finds the
-            # first row below the bound or stops immediately — on the common
-            # append, where nothing has aged out, it does no work at all.
-            # Ids are monotonic and only ever removed from the bottom, so no
-            # gap forms inside the retained window and "id below the newest
-            # minus the bound" keeps exactly `retention` events. The bound is
-            # read off the validated event rather than the row, whose `id` is
-            # optional until the flush that has just assigned it.
+            # Inline: a rowid range seek that does nothing on a normal append.
+            # Ids only ever leave from the bottom, so "below newest minus the
+            # bound" keeps exactly `retention` events.
             event = self._audit_event(row)
             session.execute(
                 delete(AuditEventRow).where(

@@ -1,8 +1,7 @@
-"""What an installed capability asks an operator to configure.
+"""What a capability asks an operator to configure.
 
-The two halves of that question — a secret core forwards without looking at
-it, and a setting core resolves and hands back typed — and the contract that
-carries both. Answered by ``blitzecdn_capability_configuration``.
+Secrets core forwards without reading, settings core resolves and hands back
+typed, and the contribution that carries both.
 """
 
 from __future__ import annotations
@@ -20,22 +19,12 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentKey:
-    """One `BLITZE_*` name an installed capability claims, and its shape.
+    """One secret `BLITZE_*` name a capability claims, and its shape.
 
-    A secret: core never looks at the value. The shape is declared here so that
-    presence and length are checked at composition, before an adapter exists or
-    a play could start.
-
-    `required` is presence, and not the same question as whether the capability
-    is useful — a required key is one whose absence makes the feature *wrong*
-    rather than idle, and almost every key should leave it alone.
-    `minimum_bytes` is checked only when a value is present, and is for a value
-    whose length is the whole of its validity. Anything richer stays the
-    package's to validate.
-
-    `summary` is what an operator is shown by the refusal that names a missing
-    key and by ``blitzecdn plugins``, so write it as the sentence that would
-    tell somebody where to get the value.
+    Core never reads the value; presence and length are checked at composition,
+    before any adapter exists. `required` is for a key whose absence makes the
+    feature wrong rather than idle. `summary` is shown when the key is missing
+    and by ``blitzecdn plugins``: say where to get the value.
     """
 
     name: str
@@ -50,35 +39,20 @@ class EnvironmentKey:
             )
 
 
-#: What a capability's non-secret setting is allowed to be. Four types, because
-#: four is what the settings that exist actually need — a count, a flag, a name
-#: and a location — and because each one has an unambiguous spelling as the
-#: string an environment variable or a TOML scalar arrives as. A capability
-#: wanting something richer is describing a structure, and a structure belongs
-#: in that capability's own file rather than in a `BLITZE_*` name.
+#: What a non-secret setting may be: each type has one unambiguous spelling as
+#: an environment variable or TOML scalar. Anything richer is a structure, and
+#: belongs in the capability's own file rather than a `BLITZE_*` name.
 type SettingValue = str | int | bool | Path
 
 
 @dataclass(frozen=True, slots=True)
 class CapabilitySetting:
-    """One non-secret `BLITZE_*` name an installed capability claims.
+    """One non-secret `BLITZE_*` name a capability claims.
 
-    :class:`EnvironmentKey`'s counterpart. Together they are the whole of what a
-    capability may ask an operator to configure, and having both is what keeps
-    a capability's configuration off core's ``Settings``.
-
-    `default` carries the type as well as the value, so a declaration cannot say
-    ``int`` and mean ``"2"`` — which is why there is no ``kind`` beside it. A
-    relative `Path` default resolves against the controller's state directory,
-    the only sensible reading of a location a capability names before it knows
-    where this controller keeps its state; an absolute one is taken as written.
-
-    `minimum` and `maximum` apply to an ``int`` only, and are the bounds core
-    can enforce without knowing what the value means. Anything richer stays the
-    package's.
-
-    `summary` is what an operator is shown by ``blitzecdn plugins``, so write it
-    as the sentence that explains what changing the value would do.
+    `default` carries the type as well as the value. A relative `Path` default
+    resolves against the controller's state directory. `minimum` and `maximum`
+    apply to an ``int`` only. `summary` is shown by ``blitzecdn plugins``: say
+    what changing the value does.
     """
 
     name: str
@@ -86,19 +60,10 @@ class CapabilitySetting:
     summary: str = ""
     minimum: int | None = None
     maximum: int | None = None
-    #: Whether this setting survives a restore onto a *different* host.
-    #:
-    #: Almost everything does: an interval, an executable name and a CA
-    #: identity are decisions an operator made, and losing them on recovery is
-    #: losing configuration. What must not travel is a value describing the
-    #: machine — ``backup``'s own archive directory is the standing
-    #: case, and restoring it would point a rebuilt controller's backups at a
-    #: path belonging to the host that died.
-    #:
-    #: Declared here because core cannot tell. It knows which of *its own*
-    #: settings describe a machine; a capability's are the capability's to
-    #: classify, and a controller may have capabilities installed that this
-    #: repository has never heard of.
+    #: Whether this setting survives a restore onto a different host. False only
+    #: for a value describing the machine, such as ``backup``'s archive
+    #: directory, which would otherwise point a rebuilt controller at a path
+    #: belonging to the host that died.
     portable: bool = True
 
     def __post_init__(self) -> None:
@@ -126,13 +91,10 @@ class CapabilitySetting:
 
 @dataclass(frozen=True, slots=True)
 class ConfigurationContribution:
-    """Everything one installed capability asks an operator to configure.
+    """Everything one capability asks an operator to configure.
 
-    One contract for both halves, because an operator asking "what does this
-    capability need set up" is asking one question.
-
-    Both lists are claims, and a claim is what makes ownership decidable: core
-    refuses a configured ``BLITZE_*`` name that no installed capability claims.
+    Both lists are claims: core refuses a configured ``BLITZE_*`` name that no
+    capability claims.
     """
 
     feature: str

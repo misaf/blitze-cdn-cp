@@ -1,16 +1,7 @@
-"""The fleet, as core needs to see it.
+"""The fleet, as core needs to see it: host names and their inventory group.
 
-Core runs Ansible against the hosts the control plane records, and for that it
-needs two facts and no more: what the hosts are called, and which inventory
-group they form. Taking `EdgeStore` instead — a capability's full read/write
-port, four methods of which core would never call — drags
-`blitzecdn.capabilities.edges.domain.Edge` in with it, and `core.ansible` becomes
-a module that cannot be imported without importing a capability.
-
-A roster is what an adapter for that store looks like from below.
-`blitzecdn.capabilities.edges.adapters.roster.EdgeRoster` is the only
-implementation, and the direction of the arrow is the whole point of the
-separation: `edges` knows about core, core does not know about `edges`.
+A narrow port so `core.ansible` does not import the `edges` capability;
+`blitzecdn.capabilities.edges.adapters.roster.EdgeRoster` implements it.
 """
 
 from __future__ import annotations
@@ -21,13 +12,7 @@ __all__ = ["FleetRoster"]
 
 
 class FleetRoster(Protocol):
-    """The hosts a run may target, and the group they form.
-
-    ``group`` is here rather than as a constant in core because the name is
-    the roster's to give: it is what the inventory publishing these hosts
-    calls them collectively, and core only has to pass it to ``--limit`` when
-    an operator named no host at all.
-    """
+    """The hosts a run may target, and the group they form."""
 
     @property
     def group(self) -> str:

@@ -1,9 +1,4 @@
-"""Ansible resources owned by cache.
-
-Resolved through importlib resources so the installed application works without
-a repository or a particular working directory. Role and playbook names remain
-stable; their files travel beside their owning implementation in the one wheel.
-"""
+"""The cache capability's Ansible roles and plays, located inside the package."""
 
 from __future__ import annotations
 
@@ -18,13 +13,12 @@ _DIRECTORY = package_directory(
 )
 
 
-#: Handed to the control plane through ``blitzecdn_ansible_contributions``.
-#: Everything under it is a role Ansible may resolve by name.
+#: Declared in this feature's `AnsibleContribution`; every directory under it
+#: is a role Ansible may resolve by name.
 ROLES_PATH = _DIRECTORY / "roles"
 EDGE_ROLE = "blitzecdn_cache_config"
 
-#: Passed straight to ``PlaybookRunner.run_playbook``. Core stages the
-#: variables, expands the host limit and applies the timeout; which play runs
-#: is this package's business and travels with it.
+#: Passed to ``PlaybookRunner.run_playbook``, which stages the variables and
+#: applies the host limit and timeout.
 CACHE_PURGE_PLAYBOOK = _DIRECTORY / "playbooks" / "cache-purge.yml"
 STATS_PLAYBOOK = _DIRECTORY / "playbooks" / "stats.yml"

@@ -24,25 +24,13 @@ from blitzecdn.core.ports.clock import Clock, system_clock
 
 
 def _configure_sqlite(engine: Engine, immediate: ContextVar[bool]) -> None:
-    """Make pysqlite behave the way this control plane needs it to.
+    """Make pysqlite behave as this control plane needs.
 
-    Three separate corrections, none of them optional:
-
-    ``PRAGMA foreign_keys`` — SQLite ignores foreign keys unless asked, per
-    connection. Without this the ``ON DELETE CASCADE`` from a zone to its
-    records is decoration, and deleting a domain leaves records deriving
-    virtual hosts for a zone we no longer serve.
-
-    Disabling the driver's implicit BEGIN — pysqlite opens a *deferred*
-    transaction on the first write and, worse, commits behind SQLAlchemy's back
-    around DDL. Setting ``isolation_level=None`` on connect hands transaction
-    control to us. This is the documented pysqlite workaround, not a trick.
-
-    Emitting ``BEGIN IMMEDIATE`` ourselves — a deferred transaction takes the
-    write lock at the first write, which means a multi-store use case can get
-    halfway through and *then* discover a competing writer. IMMEDIATE reserves
-    the writer at the boundary, so a busy database fails where it can still be
-    retried cleanly rather than partway through the work.
+    ``PRAGMA foreign_keys``, which SQLite ignores per connection unless asked, so
+    cascades actually fire. ``isolation_level=None``, so the driver stops opening
+    deferred transactions and committing around DDL behind SQLAlchemy. And
+    ``BEGIN IMMEDIATE``, so a use case reserves the writer at its boundary and a
+    busy database fails before any work, not halfway through it.
     """
 
     @event.listens_for(engine, "connect")
@@ -74,25 +62,19 @@ class Database:
         DatabaseSchema.validate(path)
         #: Every timestamp a store writes comes from here.
         self._clock = clock
-        # Ambient state belongs to this database instance. A module-global
-        # session lets repository B accidentally join repository A's
-        # transaction when two control planes share one process.
+        # Per instance, so two databases in one process never share a session.
         self._session: ContextVar[Session | None] = ContextVar(
             f"blitzecdn_session_{id(self)}", default=None
         )
         self._immediate: ContextVar[bool] = ContextVar(
             f"blitzecdn_begin_immediate_{id(self)}", default=False
         )
-        # Kept from the sqlite3 implementation. SQLite admits one writer, and
-        # serialising them here means a concurrent use case waits on a lock
-        # instead of racing to `BEGIN IMMEDIATE` and failing on a busy
-        # database. Reentrant because nested use cases join their caller.
+        # SQLite admits one writer: wait here rather than race to `BEGIN
+        # IMMEDIATE` and fail. Reentrant because nested use cases join.
         self.lock = threading.RLock()
         pool_options: dict[str, Any]
         if pool_connections:
-            # The API is long-lived and repeatedly reads local state. A small,
-            # bounded pool avoids reconnecting for every request while keeping
-            # the maximum SQLite footprint explicit.
+            # A small bounded pool for the long-lived API.
             pool_options = {
                 "poolclass": QueuePool,
                 "pool_size": 5,
@@ -100,10 +82,7 @@ class Database:
                 "pool_timeout": 30,
             }
         else:
-            # A CLI invocation is short-lived and currently builds its own
-            # repository. Retaining a connection there only defers its cleanup
-            # until process exit; the server opts into pooling and closes it in
-            # its lifespan handler.
+            # No pool for short-lived CLI processes.
             pool_options = {"poolclass": NullPool}
         self.engine = create_engine(
             URL.create(
@@ -121,13 +100,7 @@ class Database:
 
     @contextmanager
     def session(self) -> Iterator[Session]:
-        """The ambient session if a Unit of Work is open, else a scoped one.
-
-        A store calls this for every operation without caring which it gets.
-        Inside :meth:`transaction` all stores see the same session and one
-        commit; outside it, a single-statement store call is its own
-        transaction.
-        """
+        """The ambient session inside a Unit of Work, else a single-statement one."""
         ambient = self._session.get()
         if ambient is not None:
             yield ambient
@@ -137,23 +110,15 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[None]:
-        """Open the Unit of Work shared by this database's stores.
-
-        Nested use cases join the ambient transaction rather than committing a
-        portion of their caller's work early — the reason this yields nothing
-        and stores reach for :meth:`session` instead of being handed one.
-        """
+        """Open the Unit of Work this database's stores share; nested calls join it."""
         if self._session.get() is not None:
             yield
             return
         immediate = self._immediate.set(True)
         try:
             with self.lock, self._new_session() as session, session.begin():
-                # `session.begin()` is lazy: without this the transaction —
-                # and so the writer reservation — would not start until the
-                # first statement, which is the deferred behaviour BEGIN
-                # IMMEDIATE exists to avoid. Asking for the connection is what
-                # makes the boundary the boundary.
+                # `session.begin()` is lazy; asking for the connection starts
+                # BEGIN IMMEDIATE at the boundary, not at the first statement.
                 session.connection()
                 token = self._session.set(session)
                 try:
@@ -164,20 +129,11 @@ class Database:
             self._immediate.reset(immediate)
 
     def require_transaction(self, operation: str) -> None:
-        """Refuse an operation whose atomicity depends on an open Unit of Work.
+        """Refuse a compare-and-swap outside a Unit of Work.
 
-        A compare-and-swap — read the row, compare it to what the caller
-        expected, write — is only safe because :meth:`transaction` reserves the
-        SQLite writer with ``BEGIN IMMEDIATE`` *before* the read, so no other
-        writer can interleave between the comparison and the update. Outside
-        one, :meth:`session` opens a deferred transaction instead: the read
-        takes a snapshot and the write then tries to upgrade, which SQLite
-        answers with a snapshot-busy error that no ``busy_timeout`` will wait
-        out and that reaches the caller as something other than a conflict.
-
-        Checked here rather than left as an obligation on every caller,
-        because the failure it prevents is invisible in review and rare enough
-        in testing to reach production first.
+        Only ``BEGIN IMMEDIATE`` makes read-compare-write atomic; outside one, the
+        deferred upgrade fails with a snapshot-busy error no timeout waits out, and
+        rarely enough to reach production first.
         """
         if self.current_session() is None:
             raise ValueError(
@@ -187,12 +143,7 @@ class Database:
             )
 
     def current_session(self) -> Session | None:
-        """The open Unit of Work, or ``None`` outside one.
-
-        For asserting that a use case really did join one transaction rather
-        than committing its way through several. Stores do not need it — they
-        call :meth:`session` and get the right answer either way.
-        """
+        """The open Unit of Work, or ``None``; for asserting a use case joined one."""
         return self._session.get()
 
     def close(self) -> None:

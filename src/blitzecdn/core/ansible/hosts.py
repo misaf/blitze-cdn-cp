@@ -12,18 +12,10 @@ __all__ = ["resolve_limit", "targeted_hosts"]
 def resolve_limit(fleet: FleetRoster, host_limit: str | None) -> str:
     """Resolve a host limit to explicit edge names, or the whole group.
 
-    The limit is expanded here against the recorded fleet rather than
-    handed to Ansible as a pattern. Ansible's own syntax cannot express "this group,
-    restricted to any of these names": ``:`` and ``,`` are both union
-    separators and ``&`` binds only to the term beside it, so
-    ``blitzecdn_edges:&a,b`` means "(edges also matching a) or b" and would
-    happily reach a host outside the group. Expanding to a literal list of
-    names taken *from* the group removes the question — a limit cannot name
-    a host the control plane does not already manage as an edge.
-
-    The second benefit is diagnostic: a typo fails here, naming the edges
-    that do exist, instead of becoming Ansible's "skipping: no hosts
-    matched" and a deploy that reports success having converged nothing.
+    Expanded here rather than passed as an Ansible pattern, which cannot express
+    "this group, restricted to these names" — ``blitzecdn_edges:&a,b`` can reach a
+    host outside the group. A literal list taken from the group cannot, and a typo
+    fails here naming the real edges instead of matching nothing.
     """
     validated = validate_edge_limit(host_limit)
     if validated is None:
@@ -42,12 +34,7 @@ def resolve_limit(fleet: FleetRoster, host_limit: str | None) -> str:
 
 
 def targeted_hosts(fleet: FleetRoster, resolved: str) -> tuple[str, ...]:
-    """The edges a resolved limit names, for the run record.
-
-    Derived from what :func:`resolve_limit` already produced, and therefore
-    from the same rows Ansible is about to be given, so "what did this run aim
-    at" cannot disagree with what it actually targeted.
-    """
+    """The edges a resolved limit names, derived from what Ansible will be given."""
     if resolved == fleet.group:
         return fleet.host_names()
     return tuple(resolved.split(","))

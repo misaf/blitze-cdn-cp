@@ -16,13 +16,11 @@ def terminate_process_group(
     *,
     grace_seconds: float = 5.0,
 ) -> None:
-    """Stop a ``start_new_session`` child *and* every worker it forked.
+    """Stop a ``start_new_session`` child and every worker it forked.
 
-    Killing only the direct child leaves tools such as certbot with orphaned
-    workers that keep mutating remote state after we have already recorded the
-    run as timed out. ``drain`` reaps
-    the child; pass ``process.communicate`` when its output is piped and
-    ``process.wait`` when it is not.
+    Otherwise tools such as certbot leave workers mutating remote state after the
+    run is recorded as timed out. ``drain`` reaps the child: pass
+    ``process.communicate`` when output is piped, ``process.wait`` when not.
     """
     with suppress(*_LOOKUP_ERRORS):
         os.killpg(process.pid, signal.SIGTERM)

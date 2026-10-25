@@ -1,11 +1,8 @@
 """One invocation: launch it, keep its output, and say what it did.
 
-Everything about *how* Ansible is run lives here — the environment, the
-artifact tree, the operator log and its retention, and the mapping from
-Runner's result to a :class:`~blitzecdn.core.domain.runs.AnsibleRun`. What to run and
-against which edges is :mod:`blitzecdn.core.ansible.runner`'s decision; by the
-time it reaches this module the playbook, the variables file and the resolved
-limit are all settled.
+How Ansible runs — environment, artifact tree, operator log and retention, and
+the mapping to :class:`~blitzecdn.core.domain.runs.AnsibleRun`. What runs and
+against which edges is settled by :mod:`blitzecdn.core.ansible.runner`.
 """
 
 from __future__ import annotations
@@ -38,12 +35,7 @@ __all__ = ["PlaybookExecutor", "PlaybookRun"]
 
 @dataclass(frozen=True, slots=True)
 class PlaybookRun:
-    """One play to run, and the bounds to run it under.
-
-    The caller's whole request, so that `execute` and the Runner call beneath
-    it pass one object rather than restating six parameters each — which is
-    how a `check` run came to be describable in two places that could disagree.
-    """
+    """One play to run, and the bounds to run it under."""
 
     playbook: Path
     variables: Path
@@ -51,21 +43,14 @@ class PlaybookRun:
     timeout: int
     #: Ansible's `--check --diff`: report what would change, change nothing.
     check: bool = False
-    #: `--syntax-check`: parse the play and execute nothing. Mutually
-    #: exclusive with `check`, and it wins — a parse is the cheaper answer and
-    #: a run that cannot parse has nothing to report about hosts.
+    #: `--syntax-check`: parse and execute nothing. Wins over `check`.
     syntax_check: bool = False
     #: The hosts `limit` expands to, recorded on the result so a partial
     #: rollout says which edges it reached.
     targeted: tuple[str, ...] = ()
-    #: `--tags`: which slices of the play to run. Empty runs all of it.
-    #:
-    #: This is what makes staging separable from activating. Tasks tagged
-    #: `always` run under any selection, and the play's preparation — the
-    #: container engine, the persistent directories, pulling and digest-pinning
-    #: the runtime image, and proving that image can serve — is exactly the set
-    #: tagged that way. A selection naming a tag no role declares therefore runs
-    #: precisely the preparation and nothing that changes what the edge serves.
+    #: `--tags`: which slices of the play to run; empty runs all of it. The
+    #: play's preparation (engine, directories, pinned image, serve probe) is
+    #: tagged `always`, so a tag no role declares stages without activating.
     tags: tuple[str, ...] = ()
 
 
@@ -81,11 +66,7 @@ class PlaybookExecutor:
         self, settings: Settings, contributions: EdgeContributions | None = None
     ) -> None:
         self._settings = settings
-        #: What the installed capabilities add to a run: the role search path,
-        #: the three play slots, the Nginx fragments and modules, and the
-        #: secrets forwarded into Ansible's environment. Passed in rather than
-        #: resolved here because it is a fact about what is *installed*, which
-        #: only the composition root knows.
+        #: Resolved by the composition root; see `EdgeContributions`.
         self._contributions = contributions or EdgeContributions()
 
     def execute(self, request: PlaybookRun) -> AnsibleRun:
@@ -210,26 +191,17 @@ class PlaybookExecutor:
             log_path.touch(mode=0o600, exist_ok=True)
 
     def _environment(self) -> dict[str, str]:
-        # The controller's environment minus every `BLITZE_*` name in it. In
-        # the container that environment is the managed `.env`, so a plain copy
-        # handed every play — and every role a capability ships — the
-        # operators' `BLITZE_API_KEYS`, one `lookup('env')` away, and wrote it
-        # into Runner's artifact tree for the length of the run. What a play
-        # is owed is added back by name below: the database path, and the
-        # secrets a feature declared. Nothing else on the Ansible
-        # side reads a `BLITZE_*` name, and nothing should start to by
-        # inheriting it.
+        # The controller's environment minus every `BLITZE_*` name, so no role
+        # can `lookup('env')` the operators' API keys. What a play needs is
+        # added back by name below: the database path and declared secrets.
         environment = {
             name: value
             for name, value in os.environ.items()
             if not name.startswith("BLITZE_")
         }
         environment["ANSIBLE_CONFIG"] = str(self._settings.ansible_dir / "ansible.cfg")
-        # Overrides `roles_path` in ansible.cfg, which can only name directories
-        # relative to itself and therefore cannot reach a role that lives inside
-        # the installed wheel. Absolute, in the order the composition root
-        # resolved, and set even when it holds only core's directory so a run
-        # never depends on the cfg value and the env value agreeing.
+        # Overrides ansible.cfg's `roles_path`, which can only name directories
+        # relative to itself and so cannot reach roles inside the package.
         environment["ANSIBLE_ROLES_PATH"] = os.pathsep.join(
             str(path) for path in self._contributions.roles_path
         )
@@ -239,44 +211,25 @@ class PlaybookExecutor:
         Path(environment["ANSIBLE_LOCAL_TEMP"]).mkdir(
             parents=True, exist_ok=True, mode=0o700
         )
-        # The third-party collections the platform roles depend on, for the
-        # same reason as the two above: ansible.cfg can only name a directory
-        # relative to itself, and the platform's Ansible ships in the wheel, so
-        # that would put a controller's collections inside its own
-        # site-packages. Not created here — `install.sh` and the container image
-        # fetch into it, and a run that finds it empty must fail loudly rather
-        # than proceed against a directory this made look valid.
+        # Collections, for the same reason. Not created here: the installer and
+        # image fetch into it, and an empty directory must fail loudly.
         environment.setdefault(
             "ANSIBLE_COLLECTIONS_PATH", str(self._settings.state_dir / "collections")
         )
-        # Where the `blitzecdn` inventory plugin reads the fleet from. Absolute,
-        # because Ansible runs with cwd set to `ansible_dir` and the configured
-        # path may well be relative to the project root instead. This is the
-        # whole of the coupling between the control plane and its inventory:
-        # one environment variable naming one database.
+        # Where the inventory plugin reads the fleet; absolute, because Ansible
+        # runs from `ansible_dir`.
         environment["BLITZE_DATABASE_PATH"] = str(
             self._settings.database_path.resolve()
         )
-        # Optional capability configuration after feature ownership has been
-        # resolved. The composition root rejects unclaimed and multiply
-        # claimed keys, so this contains only names explicitly owned by one
-        # feature.
-        #
-        # The environment, and not `--extra-vars`, because these are usually
-        # credentials: an extra-var is in the process table for every user on
-        # the controller, and in any file the run writes.
+        # Declared capability secrets, through the environment rather than
+        # `--extra-vars`, which every user on the controller can read in the
+        # process table.
         for name, value in self._contributions.environment.items():
             environment[name] = value.get_secret_value()
         return environment
 
     def _prune_logs(self) -> None:
-        """Keep the newest ``run_log_retention`` logs and drop the rest.
-
-        One file per invocation, and the drift timer alone produces one on
-        every firing, so this directory only ever grows. Pruning here rather
-        than on a timer of its own means retention cannot silently stop being
-        applied because a unit was never installed.
-        """
+        """Keep the newest ``run_log_retention`` logs, pruned on every run."""
         try:
             logs = sorted(
                 self._settings.log_dir.glob("*.log"),
@@ -295,13 +248,7 @@ class PlaybookExecutor:
     def _unreported_detail(
         status: RunStatus, hosts: tuple[HostRun, ...], log_path: Path
     ) -> str | None:
-        """Explain a run that finished badly without saying which host failed.
-
-        Ansible refusing an inventory, a playbook that will not parse, a
-        connection plugin that died — all end the process before any host is
-        reported. Point at the log rather than leaving the caller with a bare
-        exit code.
-        """
+        """Point at the log for a run that failed before any host was reported."""
         if hosts or status is RunStatus.SUCCEEDED:
             return None
         return f"Ansible reported no per-host result. The full output is at {log_path}."

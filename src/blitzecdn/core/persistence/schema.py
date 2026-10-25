@@ -1,14 +1,7 @@
 """Schema identity, read-only validation and explicit migrations.
 
-Core owns this because core owns the schema. A backup records the Alembic
-revision it was taken at and a restore refuses a revision this installation has
-never heard of, but "which revision is this file stamped with" is a question
-about the engine beside it, not about tar files — and asking it must never migrate
-the file being asked about, which is why it is read over `sqlite3` in read-only
-mode rather than through the engine.
-
-:data:`MIGRATIONS_PATH` locates the migration tree. Migration and read-only
-validation share it; consumers never compute their own resource paths.
+Reading a file's revision goes over read-only `sqlite3`, never the engine, so
+inspecting a file — a backup's, say — can never migrate it.
 """
 
 from __future__ import annotations
@@ -31,9 +24,7 @@ from blitzecdn.core.config import Settings
 from blitzecdn.core.exceptions import ConfigurationError
 from blitzecdn.core.runtime.resources import package_directory
 
-#: The Alembic tree this installation migrates with. Located through the same
-#: helper the Ansible tree uses rather than by counting ``..`` from
-#: ``__file__``, a count that is silently wrong the moment a module moves.
+#: The Alembic tree this installation migrates with.
 MIGRATIONS_PATH = (
     package_directory(
         "blitzecdn.assets", resolves="Alembic reads its migration tree by path"
@@ -50,11 +41,7 @@ _alembic_lock = threading.RLock()
 
 @cache
 def _revisions() -> frozenset[str]:
-    """Every revision this installation's migration tree defines.
-
-    Cached because it is the same answer for the life of the process and
-    reading it walks a directory of Python modules.
-    """
+    """Every revision the migration tree defines, cached for the process."""
     config = Config(stdout=StringIO())
     config.set_main_option("script_location", str(MIGRATIONS_PATH))
     return frozenset(
@@ -74,12 +61,7 @@ class DatabaseSchema:
 
     @staticmethod
     def of(path: Path) -> str | None:
-        """The revision stamped on a database file, or ``None``.
-
-        Read-only and over `sqlite3` rather than the engine on purpose: this is
-        asked *about* a file, sometimes one that is not the running database
-        and must not be migrated by the act of being inspected.
-        """
+        """The revision stamped on a database file, or ``None``; never migrates it."""
         if not path.is_file():
             return None
         try:
@@ -102,11 +84,7 @@ class DatabaseSchema:
 
     @staticmethod
     def validate(path: Path) -> None:
-        """Refuse absent, stale or damaged schemas without changing the file.
-
-        Revision and metadata checks use a read-only connection. Startup never
-        creates directories, acquires migration locks or upgrades a schema.
-        """
+        """Refuse absent, stale or damaged schemas without changing anything."""
         if not path.is_file():
             raise ConfigurationError(
                 f"{path} does not exist. Run `blitzecdn setup` for a new controller "
@@ -121,12 +99,7 @@ class DatabaseSchema:
 
     @staticmethod
     def migrate(path: Path) -> None:
-        """Explicitly initialize or upgrade a stopped controller's database.
-
-        The installer stops application services first; restore migrates its
-        staged copy before publication. The stable sidecar serializes separate
-        migration processes, including their final metadata verification.
-        """
+        """Initialize or upgrade a stopped controller's database, under a file lock."""
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         migration_lock = path.with_name(f".{path.name}.migration.lock")
         with _alembic_lock, migration_lock.open("a+b") as lock_file:

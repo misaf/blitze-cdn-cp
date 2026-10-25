@@ -5,26 +5,17 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-#: Attributes every ``LogRecord`` carries. Anything outside this set was put
-#: there by a caller passing ``extra=``, which is the only way structured
-#: context reaches a log line — so it is exactly what must survive formatting.
+#: Attributes every ``LogRecord`` carries; anything else came from ``extra=``.
 _STANDARD_FIELDS = frozenset(
     logging.LogRecord("", 0, "", 0, "", None, None).__dict__
 ) | {"message", "asctime", "taskName"}
 
 
 class JsonFormatter(logging.Formatter):
-    """One JSON object per line, carrying whatever context the caller attached.
+    """One JSON object per line, keeping whatever ``extra=`` context the caller gave.
 
-    The fixed four fields are not enough on their own: during an incident the
-    questions are "what happened to *this* deployment" and "what did we do to
-    *that* site", and a formatter that drops ``extra=`` leaves nothing to
-    filter on but prose. Anything a caller attaches is merged in beside the
-    message rather than being discarded.
-
-    The timestamp is the record's own creation time, not the moment it reached
-    the formatter. Those differ under any queueing or slow handler, and a log
-    whose ordering is formatting order is worse than no timestamp at all.
+    The timestamp is the record's creation time, not formatting time, so ordering
+    survives queued or slow handlers.
     """
 
     def format(self, record: logging.LogRecord) -> str:
@@ -56,10 +47,8 @@ def configure_logging(*, verbose: bool = False, json_output: bool = False) -> No
     logging.basicConfig(
         level=logging.DEBUG if verbose else logging.INFO, handlers=[handler], force=True
     )
-    # Repository construction runs Alembic's upgrade and schema-drift check on
-    # every process start. Its routine INFO messages otherwise precede every
-    # CLI response, including machine-readable output, even when nothing was
-    # migrated. Keep warnings visible and restore the full stream for -v.
+    # Alembic logs routine INFO on every start, ahead of even `--json` output.
+    # Keep warnings; -v restores the full stream.
     logging.getLogger("alembic").setLevel(
         logging.NOTSET if verbose else logging.WARNING
     )

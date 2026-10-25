@@ -1,13 +1,6 @@
-"""Validation primitives the rest of the domain is built from.
+"""Validation primitives shared by two or more parts of the domain.
 
-Everything here is shared by two or more of the sibling modules — hostnames by
-sites, DNS and certificates. Nothing here knows what a site or a record is,
-which is what keeps this module free of imports from its own package.
-
-That first sentence is the rule rather than a description of the contents: a
-shape with one consumer, such as the country codes in
-:mod:`blitzecdn.capabilities.security.contract`, lives with the contract that
-validates against it.
+A shape with one consumer lives with that consumer's contract instead.
 """
 
 from __future__ import annotations
@@ -25,10 +18,7 @@ DNS_LABEL = re.compile(r"^(?!-)[a-z0-9-]{1,63}(?<!-)$")
 #: Neither dots nor ``*``, because it ends up naming a file.
 SITE_NAME = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 
-#: A *derived* virtual host name. The same shape, except that it may start with
-#: a digit: it is built from a zone's labels, and `9lives.example` is a
-#: perfectly ordinary domain. Nobody types one of these, so the leading-letter
-#: rule buys nothing here and would make a legal zone underivable.
+#: A derived virtual host name: may start with a digit, as `9lives.example` can.
 HOST_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,126}$")
 
 #: An nginx time value: ``10m``, ``500ms``, ``0s``.
@@ -38,18 +28,9 @@ DURATION = re.compile(r"^(?:0|[1-9]\d*)(?:ms|[smhdw])$")
 class OmittedWhenEmpty(BaseModel):
     """A nested policy block the edge document leaves out when it holds nothing.
 
-    Opting in by subclassing, rather than core inspecting every nested model,
-    is the point. Naming a block — ``firewall``, say — inside ``dns``' own
-    :func:`~blitzecdn.capabilities.dns.adapters.ansible.site_to_ansible` would
-    put one capability's vocabulary into a generic adapter, and
-    make a second such block a second branch there. So a capability declares
-    that its block is absent rather than empty in the document, and core prunes
-    whatever declares it without knowing what any of them contain.
-
-    It is deliberately not every nested block. ``visitor_headers`` carries
-    switches whose *default* is meaningful to the role, so a block that has
-    never been configured is not the same as one that is off, and pruning it
-    would change what a release renders.
+    A capability opts in by subclassing, so core prunes such blocks without naming
+    any. Not every block: ``visitor_headers`` has meaningful defaults, so pruning
+    it would change what renders.
     """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -75,23 +56,13 @@ def hostname(value: str, *, wildcard: bool = False) -> str:
         if all(DNS_LABEL.fullmatch(label) for label in candidate.split(".")):
             return prefix + candidate
         raise ValueError(f"invalid DNS hostname: {value!r}") from ip_error
-    # Deliberately outside the `try`. Raising this inside it would have the
-    # `except` above catch our own refusal, and the label check there accepts an
-    # IPv4 literal — every label of `192.0.2.1` is a valid DNS label — so
-    # `*.192.0.2.1` came back normalised rather than rejected. nginx takes such
-    # a `server_name` without complaint and it then matches no request ever
-    # sent, which is the same silent-no-op failure that the security
-    # capability's assigned-country-code check exists to prevent.
+    # Outside the `try`, or the `except` above would catch this refusal and
+    # accept `*.192.0.2.1` — a `server_name` nginx takes that matches nothing.
     if prefix:
         raise ValueError("wildcards cannot be used with IP addresses")
-    # An IPv6 zone index is the one part of an address `ip_address` does not
-    # constrain: everything after the `%` is accepted, `;`, `{` and `$`
-    # included. Every caller here is a name that is rendered into nginx
-    # unquoted — `server_name`, `proxy_pass`, the origin `Host` header and SNI —
-    # so `fe80::1%x;return 200 x` validated as an origin and became a directive
-    # on every edge. Refused outright rather than its characters vetted: a zone
-    # names an interface on the machine doing the connecting, which is never
-    # this one, so no value of it is meaningful in anything validated here.
+    # `ip_address` accepts anything after an IPv6 `%` zone index, and these
+    # values reach nginx unquoted: `fe80::1%x;return 200 x` would become a
+    # directive. A zone names a local interface, never meaningful here.
     if isinstance(address, ipaddress.IPv6Address) and address.scope_id is not None:
         raise ValueError(f"IPv6 zone indexes are not accepted: {value!r}")
     return candidate
@@ -105,14 +76,8 @@ def unique(values: tuple[str, ...], label: str) -> tuple[str, ...]:
     return deduplicated
 
 
-#: Host patterns a deploy may narrow itself to, as a comma-separated list.
-#:
-#: Deliberately narrower than Ansible's own pattern syntax. ``:`` (union),
-#: ``&`` (intersection), ``!`` (exclusion) and ``@`` (read hosts from a file)
-#: are all absent, because a limit must only ever be able to *narrow* a
-#: deploy. ``AnsibleRunner._limit`` then expands whatever passes this against
-#: the edges the inventory actually declares, so the two together mean a limit
-#: can never reach a host a full deploy would not have reached.
+#: Host patterns a deploy may narrow itself to, comma-separated. Ansible's
+#: ``:``, ``&``, ``!`` and ``@`` are absent so a limit can only narrow.
 EDGE_LIMIT = re.compile(r"^[A-Za-z0-9_.*-]+(?:,[A-Za-z0-9_.*-]+)*$")
 _MAX_LIMIT_LENGTH = 512
 
@@ -139,27 +104,15 @@ def validate_edge_limit(value: str | None) -> str | None:
 def matches_edge_limit(name: str, host_limit: str) -> bool:
     """Whether one edge name is inside a validated host limit.
 
-    The matcher itself, as a value question over two strings, so that "which
-    edges will this run reach" has one answer whoever asks. Two callers do:
-    ``core.ansible.hosts`` expands a limit into the explicit names it hands
-    Ansible, and the release compiler validates a site's requested capabilities
-    against exactly the edges the run will touch. Two implementations of a glob
-    would be two definitions of what a canary is.
-
-    Comma-separated terms are a union, matched with :mod:`fnmatch` — the same
-    globbing ``EDGE_LIMIT`` admits and nothing more.
+    The one matcher, so Ansible's targets and the release compiler's capability
+    check agree on what a canary is. Terms are a union matched with :mod:`fnmatch`.
     """
     return any(fnmatch(name, pattern) for pattern in host_limit.split(","))
 
 
-#: Variables the fleet-wide settings table may never set.
-#:
-#: Each is derived per host from the edge record or from desired state, and the
-#: inventory plugin publishes settings at *host* precedence — so a row named
-#: like one of these would win over the derived value for every edge at once.
-#: ``blitzecdn_firewall_ssh_port`` is the dangerous one: the firewall would
-#: close the port the next converge arrives on, and no later deploy could reach
-#: the host to put it back.
+#: Variables the fleet-wide settings may never set: each is derived per host,
+#: and settings are published at host precedence, so one would override every
+#: edge — ``blitzecdn_firewall_ssh_port`` could lock the controller out.
 RESERVED_ANSIBLE_SETTINGS = frozenset(
     {
         "blitzecdn_firewall_ssh_port",
@@ -172,21 +125,12 @@ RESERVED_ANSIBLE_SETTINGS = frozenset(
 #: Substrings that mark a name as carrying a credential rather than policy.
 _SECRET_WORDS = ("password", "secret", "token", "key")
 
-#: The prefix every role variable this control plane owns already carries.
-#: Requiring it is what keeps a setting from reaching `ansible_host`,
-#: `ansible_user` or any other connection variable the inventory derives.
+#: Required, so a setting cannot reach `ansible_host` or other connection vars.
 _SETTING_PREFIX = "blitzecdn_"
 
 
 def validate_setting_name(value: str) -> str:
-    """Normalise a fleet-wide Ansible setting name, or raise ``ValueError``.
-
-    A property of the setting, not of one entry point. Left in the Typer
-    callback behind ``blitzecdn config set``, they would be bypassed silently
-    by any second writer: everything downstream — the store, and the inventory
-    feature that publishes these rows to every host — behaves as though they had
-    been applied.
-    """
+    """Normalise a fleet-wide Ansible setting name, or raise ``ValueError``."""
     candidate = value.strip()
     if not candidate.startswith(_SETTING_PREFIX):
         raise ValueError(f"setting names must start with {_SETTING_PREFIX!r}")

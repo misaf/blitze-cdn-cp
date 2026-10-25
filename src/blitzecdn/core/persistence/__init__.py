@@ -1,18 +1,8 @@
-"""The one SQLite database: its engine, its schema, and the stores on it.
+"""The one SQLite database: its engine, its schema, and core's own stores.
 
-`engine` owns the connection, the write lock and the Unit of Work; `tables`
-carries the base every table in the database is declared on, and core's own
-three rows; `schema` answers which revision a file is stamped with. The two
-modules below it are persistence for concerns no single capability owns — the
-audit log and the configuration tables.
-
-What is deliberately *not* here is the bundle. `Repository` puts a capability
-store on this engine for each slice, and choosing that set is composition, so
-it lives in `blitzecdn.composition.repository`. Core supplies the database; it
-does not decide who is on it.
-
-Private by construction. An entry layer reaches a store through the port its
-service declared, never through this package, and a capability may name
-exactly one module in here: `persistence.schema`, because a backup records the
-revision it was taken at.
+`engine` owns the connection, write lock and Unit of Work; `tables` the
+declarative base and core's tables; `schema` the stamped revision; `audit` and
+`configuration` the stores no capability owns. Which capability stores sit on
+the engine is composition, in `blitzecdn.composition.repository`. Private: a
+capability may name only `persistence.schema`.
 """
