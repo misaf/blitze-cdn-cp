@@ -87,8 +87,11 @@ and neither can override one member of a dictionary:
 ## What is in this tree, and what is not
 
 This tree is the *platform*: the base host, the kernel, Docker, the firewall,
-the edge runtime contract, the edge stack, and `blitzecdn_nginx`, which renders
-a site's whole configuration from the merged desired-state document.
+the edge runtime contract, the edge stack, `blitzecdn_nginx`, which installs
+the host state a site's configuration depends on, and `blitzecdn_config_release`,
+which stages the configuration the control plane rendered for a release. The
+Nginx templates and their defaults live in `blitzecdn_nginx` because they are
+the controller renderer's source; no edge renders them.
 
 An optional capability's roles are not here. They ship inside that
 capability's wheel — `blitzecdn_geoip` in `blitzecdn-geoip`, `blitzecdn_cache`

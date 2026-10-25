@@ -17,11 +17,13 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlmodel import col
 
 from blitzecdn.capabilities.releases.adapters.tables import (
+    ReleaseConfigurationRow,
     ReleaseInputsRow,
     ReleaseRow,
 )
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.releases.ports import ReleaseReferences
+from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import ConfigurationError, NotFoundError
 from blitzecdn.core.persistence.engine import Database
 
@@ -77,6 +79,51 @@ class ReleaseStore:
                 .on_conflict_do_nothing(index_elements=[ReleaseRow.digest])
             )
         return release
+
+    def save_configuration(self, release: Release, bundle: ConfigurationBundle) -> None:
+        """Record what a stored release rendered to, once.
+
+        Insert-if-absent like everything here: a release renders to one tree,
+        and a second render of the same release is either identical or a
+        template change — in which case the first rendering is the one the
+        release was prepared with, and the one a rollback must ship.
+        """
+        with self._db.session() as session:
+            session.execute(
+                sqlite_insert(ReleaseConfigurationRow)
+                .values(
+                    release_digest=release.digest,
+                    digest=bundle.digest,
+                    created_at=self._db.now(),
+                    document=bundle.encode(),
+                )
+                .on_conflict_do_nothing(
+                    index_elements=[ReleaseConfigurationRow.release_digest]
+                )
+            )
+
+    def configuration(self, release_id: str) -> ConfigurationBundle:
+        """The configuration tree a stored release rendered to, verified."""
+        with self._db.session() as session:
+            row = self._row(session, release_id)
+            stored = session.get(ReleaseConfigurationRow, row.digest)
+            if stored is None:
+                raise NotFoundError(
+                    f"release {release_id!r} has no rendered configuration on record"
+                )
+            try:
+                bundle = ConfigurationBundle.decode(stored.document)
+            except ValueError as exc:
+                raise ConfigurationError(
+                    f"release {release_id!r} configuration failed integrity "
+                    f"verification: {exc}"
+                ) from exc
+            if bundle.digest != stored.digest:
+                raise ConfigurationError(
+                    f"release {release_id!r} configuration failed integrity "
+                    "verification"
+                )
+            return bundle
 
     def get(self, release_id: str) -> Release:
         with self._db.session() as session:

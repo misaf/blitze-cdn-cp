@@ -21,6 +21,7 @@ from typing import Any, Protocol, cast
 
 from sqlalchemy.exc import SQLAlchemyError
 
+from blitzecdn import ansible as core_ansible
 from blitzecdn.capabilities.cache.composition import build_cache_service
 from blitzecdn.capabilities.cache.service import CacheService
 from blitzecdn.capabilities.deployments.adapters.serving import ServingProbe
@@ -411,8 +412,11 @@ class ControlPlane:
             allow_empty_sites=self.settings.allow_empty_sites,
             retention=self.settings.history_retention,
             uow=store,
+            # The shipped templates and defaults, from the package itself:
+            # they are package data, and a release renders against what this
+            # installation ships whatever directory its playbooks run from.
             renderer=EdgeRenderer(
-                ansible_dir=self.settings.ansible_dir,
+                ansible_dir=core_ansible.ROLES_PATH.parent,
                 contributions=self.edge_contributions,
             ),
         )

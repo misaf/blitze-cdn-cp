@@ -1,6 +1,9 @@
 """Edge-local durable configuration transaction; Python's standard library only.
 
-The journal is written before switching the pointer. Replaying activation after
+The controller renders a release's configuration and ships it as a bundle;
+`stage` writes it as the candidate tree and refuses it unless the tree on disk
+matches the manifest the controller computed. The journal is written before
+switching the pointer. Replaying activation after
 a controller crash therefore preserves the original rollback target, including
 the Compose definition and image record. The parent directory is mounted into
 Nginx, so replacing a link is visible to an already running container.
@@ -10,13 +13,18 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import hashlib
 import json
 import os
 import re
+import shutil
 import tempfile
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
+
+#: Written beside the staged tree by the edge, never shipped in a bundle.
+RUNTIME_IMAGE = "runtime-image"
 
 
 def atomic_write(path: Path, content: bytes) -> None:
@@ -87,6 +95,36 @@ class ConfigurationRelease:
     def verify(self) -> None:
         if json.loads(self.seal.read_text()) != self.inventory():
             raise ValueError("sealed configuration content changed")
+
+    def stage(self, bundle: Path) -> None:
+        """Write the controller's bundle as this release's candidate tree.
+
+        An unsealed candidate is a partial earlier attempt and is replaced. A
+        sealed one is verified and must be this bundle. Either way the tree on
+        disk has to match the controller's manifest exactly before the bundle
+        file is removed.
+        """
+        files, links, manifest = read_bundle(bundle)
+        if self.seal.exists():
+            self.verify()
+        else:
+            if self.candidate.exists() or self.candidate.is_symlink():
+                shutil.rmtree(self.candidate)
+            self.candidate.mkdir(mode=0o755)
+            for name, content in files.items():
+                path = self.candidate / name
+                path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                path.write_bytes(content)
+                path.chmod(0o644)
+            for name, target in links.items():
+                path = self.candidate / name
+                path.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
+                os.symlink(target, path)
+        staged = self.inventory()
+        staged.pop(RUNTIME_IMAGE, None)
+        if staged != manifest:
+            raise ValueError("staged configuration does not match the release bundle")
+        bundle.unlink()
 
     def seal_candidate(self) -> None:
         if self.seal.exists():
@@ -203,15 +241,52 @@ class ConfigurationRelease:
         self.save_journal(data)
 
 
+def read_bundle(
+    path: Path,
+) -> tuple[dict[str, bytes], dict[str, str], dict[str, str]]:
+    """The bundle's files, links and manifest, checked against each other."""
+    try:
+        data = json.loads(path.read_text())
+        files = {
+            name: base64.b64decode(content, validate=True)
+            for name, content in data["files"].items()
+        }
+        links = {name: str(target) for name, target in data["links"].items()}
+        manifest = {name: str(value) for name, value in data["manifest"].items()}
+    except (ValueError, KeyError, TypeError, AttributeError, binascii.Error) as exc:
+        raise ValueError(f"configuration bundle is malformed: {exc}") from exc
+    for name in (*files, *links):
+        relative = PurePosixPath(name)
+        if (
+            relative.is_absolute()
+            or ".." in relative.parts
+            or not relative.parts
+            or name in ("manifest.json", RUNTIME_IMAGE)
+        ):
+            raise ValueError(f"bundle path {name!r} is not a candidate entry")
+    computed = {
+        name: hashlib.sha256(content).hexdigest() for name, content in files.items()
+    }
+    computed.update({name: "link:" + target for name, target in links.items()})
+    if computed != manifest:
+        raise ValueError("configuration bundle content does not match its manifest")
+    return files, links, manifest
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "operation", choices=("seal", "verify", "activate", "rollback", "commit")
+        "operation",
+        choices=("stage", "seal", "verify", "activate", "rollback", "commit"),
     )
     parser.add_argument("root", type=Path)
     parser.add_argument("digest")
     parser.add_argument("records", nargs="*", type=Path)
     args = parser.parse_args()
+    if args.operation == "stage":
+        (bundle,) = args.records
+        ConfigurationRelease(args.root, args.digest, ()).stage(bundle)
+        return
     release = ConfigurationRelease(args.root, args.digest, tuple(args.records))
     operations = {
         "seal": release.seal_candidate,

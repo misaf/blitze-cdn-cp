@@ -87,8 +87,9 @@ blitzecdn_geoip_env_file: >-
   {{ blitzecdn_edge_runtime.paths.state }}/geoip/geoipupdate.env
 
 # The `conf.d` snippet defining $blitzecdn_country, which core's site template
-# reads. Written before blitzecdn_nginx renders and validates the tree, which
-# is what the capability role slot in the edge play guarantees.
+# reads. Rendered into each release's configuration; the database it opens is
+# on disk before that configuration is validated, which is what the
+# capability role slot in the edge play guarantees.
 blitzecdn_geoip_reload: 5m
 
 # Systemd units this role installs. Named with the `blitzecdn-` prefix every

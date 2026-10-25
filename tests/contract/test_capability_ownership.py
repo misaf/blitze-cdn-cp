@@ -45,6 +45,9 @@ _ROLE_TEXT = "".join(
 _PACKAGE_NGINX_TEXT = "".join(
     path.read_text(encoding="utf-8") for path in sorted(SOURCE.rglob("nginx/*.j2"))
 )
+#: The controller renderer reads a site's switches too — whether it is linked
+#: into `sites-enabled` is decided there, not in a template.
+_RENDERER_TEXT = (SOURCE / "core/ansible/rendering.py").read_text(encoding="utf-8")
 _NGINX_IMPLEMENTATION_TEXT = _ROLE_TEXT + _PACKAGE_NGINX_TEXT
 
 #: Which capability's policy class declares which slice of the flat site
@@ -127,7 +130,7 @@ def test_every_edge_visible_setting_reaches_the_nginx_template():
     document = set(site_to_ansible(site)) | {"firewall"}
     referenced = set(
         re.findall(r"(?:item|site)\.([a-z_0-9]+)", _NGINX_IMPLEMENTATION_TEXT)
-    )
+    ) | set(re.findall(r"site\.get\(\"([a-z_0-9]+)\"", _RENDERER_TEXT))
 
     assert document - referenced == {"ssl_automatic_mode"}
 

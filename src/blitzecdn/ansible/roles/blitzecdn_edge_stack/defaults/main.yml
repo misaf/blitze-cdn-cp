@@ -39,8 +39,8 @@ blitzecdn_edge_stack_image_reference: >-
 #
 # The container name and every host directory the container mounts are
 # blitzecdn_edge_runtime's — they describe the environment rather than this
-# role's behaviour, and blitzecdn_nginx renders into the same directories and
-# signals the same container. What is left below is state only this role reads
+# role's behaviour, and blitzecdn_config_release stages into the same
+# directories and signals the same container. What is left below is state only this role reads
 # or writes.
 
 # The Compose project. Only this role creates, inspects or removes it, and a
@@ -61,7 +61,7 @@ blitzecdn_edge_stack_deployed_image_file: /var/lib/blitzecdn/edge/image
 #
 # Where the status endpoint lives, which ports must be open and whether QUIC is
 # expected are all blitzecdn_edge_runtime's: this role probes exactly what
-# blitzecdn_nginx rendered and blitzecdn_firewall opened. What is left here is
+# the release configured and blitzecdn_firewall opened. What is left here is
 # how long this role waits.
 #
 # How long a recreated edge is given to become healthy and open every listener.

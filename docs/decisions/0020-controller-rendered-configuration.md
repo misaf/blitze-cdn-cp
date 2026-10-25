@@ -43,25 +43,44 @@ signed before the change still verify, because the key bytes are unchanged.
 `blitzecdn release render --output DIR` writes a release's tree and manifest
 for review.
 
-## Status
+## Shipping the rendering
 
-Deployments still render on the edge. Shipping the bundle as the sealed
-candidate — the edge copying it, checking the manifest, validating and
-activating it — is the next step and is not implemented yet.
+`ReleaseService.prepare` renders a release once and stores the bundle in
+`release_configurations`, verified against its digest on every read. Rendering
+happens outside the write transaction and only when nothing is on record, so
+unchanged state prepared on every drift check is not rendered again. A
+deployment's PREPARE phase writes the stored bundle beside the execution
+document and names it there, outside the artifact hash, so a rollback ships the
+bytes the release first produced whatever the templates have since become.
+
+On the edge, `blitzecdn_config_release` ships the bundle and its stdlib helper
+stages it: an unsealed candidate is replaced, file and link entries are
+checked against the bundle's own manifest, and the tree on disk must equal the
+controller's manifest before the bundle is removed. A sealed candidate is
+verified and must be the same bundle. The candidate is then tested with
+`nginx -t` under the selected image, sealed with its runtime image, and
+activated as before. `blitzecdn_nginx` renders nothing; it installs host state.
+
+Drift detection remains a check-mode run: an edge whose candidate for this
+release is not staged reports the staging as a change.
 
 ## Consequences
 
-`tests/contract/test_configuration_rendering.py` runs the real edge roles in
-check mode and compares their output with the controller's bundle byte for
-byte, in both directions: every predicted path is pre-created so check mode
-names it, and a template rendered to a path the controller did not predict
-fails the test. Plain, disabled, existing-certificate, uploaded-certificate,
-fleet-setting, Under Attack and HTTP/3 configurations are covered. A change to
-a template, a default or the recipe that breaks parity fails there.
+Before the edge stopped rendering, a test ran the real edge roles in check mode
+and matched the controller's bundle byte for byte, in both directions, across
+plain, disabled, existing-certificate, uploaded-certificate, fleet-setting,
+Under Attack and HTTP/3 configurations (commit `4c69908`). The controller is now
+the only renderer. What an edge serves is the stored bundle, verified on the
+controller, on the edge before staging, after staging, at sealing and at
+activation; `nginx -t` under the serving image still gates every candidate.
 
-The renderer depends on ansible-core internals that are not a public API;
-ansible-core is pinned to one minor version, and the parity test is what a
-version bump has to pass.
+The template-injection path through `-e @file` is closed: no edge templates the
+release document any more.
+
+The renderer depends on ansible-core internals that are not a public API, and
+ansible-core is pinned to one minor version. A bump can change rendered bytes:
+releases already prepared keep theirs, and a new one should be compared with
+`blitzecdn release render` before it is deployed.
 
 ## Code and verification
 
@@ -73,6 +92,12 @@ version bump has to pass.
   `under-attack-key.conf.j2`; `paths.secrets` in `blitzecdn_edge`, its
   mounts in `blitzecdn_edge_stack`, `blitzecdn_nginx` and
   `blitzecdn_config_release`.
-- `tests/contract/test_configuration_rendering.py`: parity.
+- `capabilities/releases/adapters`: the `release_configurations` record.
+- `capabilities/deployments/composition.py`: `publish_release`.
+- `ansible/roles/blitzecdn_config_release/tasks/stage.yml` and the helper's
+  `stage`; `blitzecdn_nginx` reduced to host state.
+- `tests/contract/test_configuration_rendering.py`: prepared releases keep
+  their rendering; `tests/contract/roles/test_configuration_transactions.py`:
+  staging, tampering, retries and drift reporting with real Ansible.
 - `tests/capabilities/security/test_under_attack.py`: the module under Node,
   including failing closed without a key.

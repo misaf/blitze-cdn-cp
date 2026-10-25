@@ -42,7 +42,7 @@ preferences.
 
 **`edge_roles`** run after the host has an engine, a runtime image and its
 persistent directories, and *before* the firewall opens a port or
-`blitzecdn_nginx` renders and validates the configuration tree. This is where a
+the release's configuration is staged and validated. This is where a
 capability contributing something the configuration then depends on has to be —
 a lookup database, an njs module, a snippet in `conf.d` — because all of it must
 exist before `nginx -t` decides whether the tree may be served.
@@ -85,7 +85,7 @@ and pinned by digest, so an edge with no `blitzecdn-geoip` would still load the
 GeoIP2 module.
 
 `EdgeModule` answers both from one place. Core composes the resolved set into the
-`load_module` list `blitzecdn_nginx` renders onto the host, so an edge loads
+`load_module` list each release renders, so an edge loads
 exactly what is installed; and `blitzecdn edge image spec` emits the same set as
 the build arguments the image is built from, so the Dockerfile enumerates
 nothing.

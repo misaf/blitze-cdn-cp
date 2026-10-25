@@ -14,6 +14,8 @@ of its manifest, which uses the format the edge seals a candidate with.
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 from collections.abc import Mapping
@@ -57,3 +59,42 @@ class ConfigurationBundle:
         """The bundle's identity: the digest of its canonical manifest."""
         encoded = json.dumps(self.manifest(), sort_keys=True).encode("utf-8")
         return hashlib.sha256(encoded).hexdigest()
+
+    def encode(self) -> str:
+        """The bundle as one JSON document, for storage and for the edge.
+
+        The manifest travels with the content, so whoever decodes it — the
+        controller reading its own record, or the edge staging a candidate —
+        verifies the bytes against the identity they were shipped under.
+        """
+        return json.dumps(
+            {
+                "files": {
+                    path: base64.b64encode(content).decode("ascii")
+                    for path, content in sorted(self.files.items())
+                },
+                "links": dict(sorted(self.links.items())),
+                "manifest": self.manifest(),
+            },
+            sort_keys=True,
+        )
+
+    @classmethod
+    def decode(cls, document: str) -> ConfigurationBundle:
+        """Read an encoded bundle, refusing one whose content fails its manifest."""
+        try:
+            data = json.loads(document)
+            bundle = cls(
+                files={
+                    str(path): base64.b64decode(content, validate=True)
+                    for path, content in data["files"].items()
+                },
+                links={
+                    str(path): str(target) for path, target in data["links"].items()
+                },
+            )
+        except (ValueError, KeyError, TypeError, AttributeError, binascii.Error) as exc:
+            raise ValueError(f"configuration bundle is malformed: {exc}") from exc
+        if bundle.manifest() != data["manifest"]:
+            raise ValueError("configuration bundle content does not match its manifest")
+        return bundle

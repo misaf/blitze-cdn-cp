@@ -9,6 +9,8 @@ carries rather than re-deriving one from state that has moved on.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 import yaml
 from control_plane_fixtures import FakeRunner, seed_record, seed_site
@@ -25,6 +27,7 @@ from blitzecdn.capabilities.releases.domain import (
     UnservableReleaseError,
 )
 from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.exceptions import NotFoundError
 
 
@@ -170,6 +173,11 @@ def test_a_deployment_converges_the_document_its_release_carries(control, settin
     published = settings.generated_vars_path.read_text(encoding="utf-8")
     envelope = yaml.safe_load(published)
     assert envelope.pop("blitzecdn_release_digest") == release.digest
+    # The bundle the edge stages is the one stored with the release.
+    bundle = Path(envelope.pop("blitzecdn_config_release_bundle"))
+    assert ConfigurationBundle.decode(
+        bundle.read_text()
+    ) == plane.releases.configuration(release.id)
     assert envelope == release.artifact(DESIRED_STATE_ARTIFACT).document
     for site in release.artifact(DESIRED_STATE_ARTIFACT).document[
         "blitzecdn_nginx_sites"

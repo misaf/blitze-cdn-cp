@@ -24,8 +24,8 @@ ROLES_PATH = _DIRECTORY / "roles"
 #: The role core's edge play runs for this capability, in its *edge* slot.
 #:
 #: The edge slot rather than the host one, because everything that resolves a
-#: name afterwards depends on it: ``blitzecdn_nginx`` renders origin hostnames
-#: that the runtime will look up, and ``nginx -t`` runs before the host slot
+#: name afterwards depends on it: a release's configuration names origin
+#: hostnames that the runtime will look up, and ``nginx -t`` runs before the host slot
 #: exists. The slot's position also settles what this role may assume — the
 #: container engine, the runtime image and the persistent directories are
 #: already there, all of them fetched by name through whatever resolver the

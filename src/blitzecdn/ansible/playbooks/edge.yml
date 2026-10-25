@@ -96,8 +96,8 @@
       tags: [base, activate]
     # Host DNS resolution is no longer named here. It ships as
     # `blitzecdn-resolver` and asks for the capability slot below, which is
-    # still before blitzecdn_nginx renders the origin hostnames the runtime
-    # will look up — so a fleet whose DNS belongs to its network detaches the
+    # still before the staged configuration's origin hostnames are looked up
+    # by the runtime — so a fleet whose DNS belongs to its network detaches the
     # distribution instead of setting a variable in a role it never wanted.
     - role: blitzecdn_kernel
       tags: [kernel, activate]
@@ -111,9 +111,9 @@
     # The position is the contract. After the pre-tasks above, because a
     # capability role may need the container engine, the runtime image or the
     # persistent directories they establish; and before blitzecdn_firewall and
-    # blitzecdn_nginx, because what a capability puts on an edge is something
-    # the rendered configuration then depends on, and blitzecdn_nginx proves
-    # the whole tree loads before the edge serves from it.
+    # the staged configuration, because what a capability puts on an edge is
+    # something that configuration then depends on, and the configuration test
+    # proves the whole tree loads before the edge serves from it.
     - role: blitzecdn_capabilities
       vars:
         blitzecdn_capabilities_roles: "{{ blitzecdn_capability_roles | default([]) }}"
@@ -123,14 +123,16 @@
       tags: [capabilities, nginx, stage]
     - role: blitzecdn_firewall
       tags: [firewall, activate]
-    # Renders the whole configuration tree onto the host filesystem and proves
-    # it loads, under the very image the container will run. Candidate writers
-    # cannot reload the active container; activation below owns that switch.
+    # The host state the configuration depends on: certificate material, the
+    # ACME webroot. The configuration itself was rendered on the controller
+    # and is staged, validated under the very image the container will run,
+    # sealed and activated by blitzecdn_config_release below.
     - role: blitzecdn_nginx
       when: not blitzecdn_config_release_seal.stat.exists
       tags: [nginx, stage]
-    # Starts the edge, or leaves a running one alone, or replaces it for a
-    # runtime upgrade — and then proves it is serving. Strictly after the
+    # Stages the controller-rendered configuration and checks it against the
+    # release's manifest, then starts the edge, leaves a running one alone, or
+    # replaces it for a runtime upgrade — and proves it is serving. Strictly after the
     # configuration exists: a container started against an incomplete tree is
     # an edge answering 444 for every customer.
     - role: blitzecdn_config_release

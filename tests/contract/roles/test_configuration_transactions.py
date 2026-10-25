@@ -252,3 +252,211 @@ def test_real_ansible_selects_candidate_paths_and_matching_parent_mounts(
     assert volumes == compose["services"]["edge"]["volumes"]
     assert compose["services"]["edge"]["command"][-1] == root + "/current/nginx.conf"
     assert not (tmp_path / "helper.py").exists(), "check mode must not install anything"
+
+
+# -- Staging the controller's bundle ---------------------------------------
+
+
+def _bundle(root: Path, digest: str, **files: bytes):
+    from blitzecdn.core.domain.configuration import ConfigurationBundle
+
+    candidate_dir = root / digest
+    bundle = ConfigurationBundle(
+        files={"nginx.conf": b"include nginx/sites-enabled/*;\n", **files},
+        links={
+            "nginx/sites-enabled/a.conf": str(
+                candidate_dir / "nginx/sites-available/a.conf"
+            )
+        },
+    )
+    shipped = root / f".{digest}.bundle.json"
+    root.mkdir(parents=True, exist_ok=True)
+    shipped.write_text(bundle.encode())
+    return bundle, shipped
+
+
+def test_a_bundle_is_staged_exactly_and_then_sealed(tmp_path):
+    root = tmp_path / "releases"
+    digest = "a" * 64
+    bundle, shipped = _bundle(
+        root, digest, **{"nginx/sites-available/a.conf": b"server {}\n"}
+    )
+    release = ConfigurationRelease(root, digest, ())
+
+    release.stage(shipped)
+
+    assert not shipped.exists()
+    assert release.inventory() == bundle.manifest()
+    (release.candidate / "runtime-image").write_text("image@sha256:1\n")
+    release.seal_candidate()
+    release.verify()
+
+
+def test_a_bundle_whose_content_fails_its_manifest_is_refused(tmp_path):
+    import json
+
+    root = tmp_path / "releases"
+    digest = "a" * 64
+    _, shipped = _bundle(root, digest, **{"nginx/sites-available/a.conf": b"x"})
+    document = json.loads(shipped.read_text())
+    document["files"]["nginx.conf"] = "dGFtcGVyZWQ="
+    shipped.write_text(json.dumps(document))
+
+    with pytest.raises(ValueError, match="does not match its manifest"):
+        ConfigurationRelease(root, digest, ()).stage(shipped)
+    assert not (root / digest).exists()
+
+
+@pytest.mark.parametrize("name", ["../escape", "/etc/passwd", "manifest.json"])
+def test_a_bundle_cannot_write_outside_or_over_the_seal(tmp_path, name):
+    import base64
+    import hashlib
+    import json
+
+    root = tmp_path / "releases"
+    root.mkdir()
+    shipped = root / "bundle.json"
+    shipped.write_text(
+        json.dumps(
+            {
+                "files": {name: base64.b64encode(b"x").decode()},
+                "links": {},
+                "manifest": {name: hashlib.sha256(b"x").hexdigest()},
+            }
+        )
+    )
+
+    with pytest.raises(ValueError, match="not a candidate entry"):
+        ConfigurationRelease(root, "a" * 64, ()).stage(shipped)
+
+
+def test_a_partial_unsealed_candidate_is_replaced(tmp_path):
+    root = tmp_path / "releases"
+    digest = "a" * 64
+    bundle, shipped = _bundle(
+        root, digest, **{"nginx/sites-available/a.conf": b"server {}\n"}
+    )
+    (root / digest / "nginx").mkdir(parents=True)
+    (root / digest / "nginx/leftover.conf").write_text("from an interrupted run")
+
+    ConfigurationRelease(root, digest, ()).stage(shipped)
+
+    assert not (root / digest / "nginx/leftover.conf").exists()
+    assert ConfigurationRelease(root, digest, ()).inventory() == bundle.manifest()
+
+
+def test_a_sealed_candidate_is_verified_against_a_retried_bundle(tmp_path):
+    root = tmp_path / "releases"
+    digest = "a" * 64
+    _, shipped = _bundle(root, digest, **{"nginx/sites-available/a.conf": b"one\n"})
+    release = ConfigurationRelease(root, digest, ())
+    release.stage(shipped)
+    (release.candidate / "runtime-image").write_text("image@sha256:1\n")
+    release.seal_candidate()
+
+    _, again = _bundle(root, digest, **{"nginx/sites-available/a.conf": b"one\n"})
+    release.stage(again)
+
+    _, other = _bundle(root, digest, **{"nginx/sites-available/a.conf": b"two\n"})
+    with pytest.raises(ValueError, match="does not match the release bundle"):
+        release.stage(other)
+
+
+def test_a_tree_changed_on_disk_after_staging_fails_the_manifest(tmp_path, monkeypatch):
+    root = tmp_path / "releases"
+    digest = "a" * 64
+    _, shipped = _bundle(root, digest, **{"nginx/sites-available/a.conf": b"one\n"})
+    release = ConfigurationRelease(root, digest, ())
+    write_bytes = Path.write_bytes
+
+    def corrupting(self, data):
+        return write_bytes(self, b"corrupted" if self.name == "a.conf" else data)
+
+    monkeypatch.setattr(Path, "write_bytes", corrupting)
+    with pytest.raises(ValueError, match="does not match the release bundle"):
+        release.stage(shipped)
+    assert shipped.exists()
+
+
+@pytest.mark.parametrize("sealed", [False, True])
+def test_a_check_run_reports_an_unstaged_release_as_drift(tmp_path, sealed):
+    """Drift detection is a check-mode run; an edge not on this release differs."""
+    import json
+    import subprocess
+    import sys
+
+    import yaml
+
+    root = tmp_path / "releases"
+    digest = "a" * 64
+    if sealed:
+        _, shipped = _bundle(root, digest, **{"nginx/sites-available/a.conf": b"x"})
+        release = ConfigurationRelease(root, digest, ())
+        release.stage(shipped)
+        (release.candidate / "runtime-image").write_text("image@sha256:1\n")
+        release.seal_candidate()
+    play = tmp_path / "stage.yml"
+    play.write_text(
+        yaml.safe_dump(
+            [
+                {
+                    "hosts": "localhost",
+                    "gather_facts": False,
+                    "vars": {
+                        "blitzecdn_release_digest": digest,
+                        "blitzecdn_config_release_root": str(root),
+                        "blitzecdn_config_release_helper": str(_HELPER),
+                        "blitzecdn_config_release_bundle": str(tmp_path / "b.json"),
+                    },
+                    "tasks": [
+                        {"ansible.builtin.import_role": {"name": "blitzecdn_edge"}},
+                        {
+                            "ansible.builtin.import_role": {
+                                "name": "blitzecdn_config_release",
+                                "tasks_from": "select.yml",
+                            }
+                        },
+                        {
+                            "ansible.builtin.import_role": {
+                                "name": "blitzecdn_config_release",
+                                "tasks_from": "stage.yml",
+                            }
+                        },
+                    ],
+                }
+            ]
+        )
+    )
+    result = subprocess.run(  # noqa: S603 - fixed local playbook argv
+        [
+            str(Path(sys.executable).with_name("ansible-playbook")),
+            "-i",
+            "localhost,",
+            "-c",
+            "local",
+            "--check",
+            str(play),
+        ],
+        env={
+            k: v
+            for k, v in os.environ.items()
+            if not k.startswith(("COV_CORE", "COVERAGE"))
+        }
+        | {
+            "ANSIBLE_ROLES_PATH": str(CORE_ANSIBLE / "roles"),
+            "ANSIBLE_LOCAL_TEMP": str(tmp_path / "ansible-temp"),
+            "ANSIBLE_STDOUT_CALLBACK": "json",
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    report = json.loads(result.stdout)
+    failed = [
+        f"{task['task']['name']}: {task['hosts']['localhost'].get('msg')}"
+        for task in report["plays"][0]["tasks"]
+        if task["hosts"].get("localhost", {}).get("failed")
+    ]
+    assert result.returncode == 0, failed or result.stderr
+    stats = report["stats"]["localhost"]
+    assert stats["changed"] == (0 if sealed else 1)

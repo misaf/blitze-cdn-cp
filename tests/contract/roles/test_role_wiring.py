@@ -76,7 +76,7 @@ def test_docker_daemon_configuration_uses_only_supported_directives():
     )
 
 
-def test_staging_renders_a_candidate_and_cannot_start_the_runtime():
+def test_staging_writes_a_candidate_and_cannot_start_the_runtime():
     play = yaml.safe_load(
         (CORE_ANSIBLE / "playbooks/edge.yml").read_text(encoding="utf-8")
     )[0]
@@ -88,7 +88,12 @@ def test_staging_renders_a_candidate_and_cannot_start_the_runtime():
     transaction = yaml.safe_load(
         (_role("blitzecdn_config_release") / "tasks/main.yml").read_text()
     )
-    assert transaction[0]["tags"] == ["stage"]
-    assert transaction[1]["tags"] == ["activate"]
-    assert transaction[2]["tags"] == ["never", "rollback"]
-    assert transaction[3]["tags"] == ["never", "commit"]
+    assert [
+        (task["ansible.builtin.import_tasks"], task["tags"]) for task in transaction
+    ] == [
+        ("stage.yml", ["stage"]),
+        ("seal.yml", ["stage"]),
+        ("activate.yml", ["activate"]),
+        ("rollback.yml", ["never", "rollback"]),
+        ("commit.yml", ["never", "commit"]),
+    ]

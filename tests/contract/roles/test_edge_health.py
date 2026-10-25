@@ -26,6 +26,7 @@ from role_contract_support import (
     _render_compose,
 )
 
+from blitzecdn.composition import ControlPlane
 from blitzecdn.docker import (
     EDGE_DOCKERFILE,
 )
@@ -102,21 +103,33 @@ def test_the_container_health_check_asks_nothing_ansible_asks_better():
     assert tasks.index("docker_compose_v2") < tasks.index("import_tasks: health.yml")
 
 
-def test_the_status_endpoint_and_the_health_check_are_not_optional():
+def test_the_status_endpoint_and_the_health_check_are_not_optional(settings):
     """Every edge serves stub_status, and every edge carries a probe of it.
 
     The alternative to the loopback endpoint would be probing a managed virtual
     host, which writes a request into that site's access log and its cache
     every thirty seconds. Rather than make either side switchable, both are part
-    of the runtime contract: the nginx role renders the server unconditionally,
+    of the runtime contract: every release renders the server unconditionally,
     the Compose template has no conditional around `healthcheck`, and a missing
     Docker verdict fails health.yml instead of being tolerated.
     """
-    nginx_tasks = (ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
+    control = ControlPlane(settings=settings)
     status_conf = (ROLE_DIR / "templates/status.conf.j2").read_text(encoding="utf-8")
-    assert "Configure the status endpoint" in nginx_tasks
-    assert "Withdraw the status endpoint" not in nginx_tasks
-    # Rendered from a template with no enable/disable branch of its own.
+    fixture = yaml.safe_load(
+        (PROJECT_DIR / "tests/fixtures/desired-state.yml").read_text(encoding="utf-8")
+    )
+    try:
+        for sites in (fixture["blitzecdn_nginx_sites"], []):
+            bundle = control.releases.renderer.render(
+                {
+                    **fixture,
+                    "blitzecdn_nginx_sites": sites,
+                    "blitzecdn_release_digest": "a" * 64,
+                }
+            )
+            assert "nginx/conf.d/blitzecdn-status.conf" in bundle.files
+    finally:
+        control.close()
     assert "{% if" not in status_conf
 
     assert "healthcheck" in _render_compose()["services"]["edge"]
@@ -221,11 +234,21 @@ def test_every_configuration_activation_is_guarded_by_nginx_t():
     assert "when" not in config_test[0]
     assert "failed_when" in config_test[0]
 
-    # Every task that writes into the live tree hands the handler its cue.
+    # Nothing on the edge writes the configuration tree except staging, and
+    # every staged candidate is tested before it can be activated.
     nginx_tasks = (ROLE_DIR / "tasks/main.yml").read_text(encoding="utf-8")
-    for writer in ("template:", "state: link", "state: absent"):
-        assert writer in nginx_tasks
-    assert nginx_tasks.count("notify: Validate and reload Nginx") >= 10
+    assert "ansible.builtin.template" not in nginx_tasks
+    release_role = CORE_ANSIBLE / "roles/blitzecdn_config_release/tasks"
+    phases = [
+        task["ansible.builtin.import_tasks"]
+        for task in yaml.safe_load((release_role / "main.yml").read_text())
+    ]
+    assert (
+        phases.index("stage.yml")
+        < phases.index("seal.yml")
+        < phases.index("activate.yml")
+    )
+    assert "tasks_from: config-test.yml" in (release_role / "seal.yml").read_text()
 
     # And an upgrade validates against the image it is moving to, before the
     # container running the old one is replaced.

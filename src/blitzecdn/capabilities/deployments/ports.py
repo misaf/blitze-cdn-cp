@@ -20,6 +20,7 @@ from blitzecdn.capabilities.dns.ports import ZoneEditor, ZoneStore
 from blitzecdn.capabilities.releases.domain import Release, ReleaseInputs
 from blitzecdn.capabilities.serving.domain import CdnSite
 from blitzecdn.capabilities.workflows.domain import Workflow, WorkflowKind
+from blitzecdn.core.domain.configuration import ConfigurationBundle
 from blitzecdn.core.domain.runs import AnsibleRun
 from blitzecdn.core.ports import UnitOfWork
 from blitzecdn.core.ports.operations import EventRecorder
@@ -221,6 +222,8 @@ class Releases(Protocol):
     def get(self, release_id: str) -> Release: ...
 
     def inputs_for(self, release_id: str) -> ReleaseInputs: ...
+
+    def configuration(self, release_id: str) -> ConfigurationBundle: ...
 
 
 class WorkflowProgress(Protocol):

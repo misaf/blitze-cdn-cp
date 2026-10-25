@@ -28,7 +28,7 @@ class EdgeModule:
     Declared rather than written into the image's build context, so that the
     two halves — the module being *in* the image and being *loaded* by the
     running configuration — have one answer. Core composes the resolved set
-    into the `load_module` list `blitzecdn_nginx` renders, and `blitzecdn edge
+    into the `load_module` list each release renders, and `blitzecdn edge
     image spec` emits the same set as build arguments.
 
     `name` is the module as Nginx's own pkg-oss tooling names it, because that

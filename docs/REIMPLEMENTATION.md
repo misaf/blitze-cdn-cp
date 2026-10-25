@@ -255,8 +255,19 @@ Each step is committed separately and needs its own confirmation.
      strict types pass; 1,793 passed including parity, with the same 5
      environmental failures (one is the Node-based module test: no Node.js).
      Deployments still render on the edge until 3c.
-   - 3c pending: the bundle becomes the sealed candidate; Ansible copies it,
-     checks its manifest, validates and activates.
+   - 3c complete: `prepare` renders a release once, outside the write
+     transaction, and stores the bundle in `release_configurations`, verified
+     on read; rollbacks ship those stored bytes. The rollout publishes the
+     bundle beside the execution document. The edge stages it with the stdlib
+     helper (manifest checked before and after writing, sealed retries
+     verified), tests it with `nginx -t`, seals and activates it.
+     `blitzecdn_nginx` renders nothing and installs host state only; a
+     check-mode run reports an unstaged release as drift. Local: strict
+     types, ansible-lint (production profile), 1,810 tests and the
+     installed-wheel tests pass. Remote Ubuntu 26.04 as root: format, lint and
+     strict types pass; 1,805 passed with the same 5 environmental failures.
+     No edge was touched. Real-edge verification is still outstanding and
+     needs its own confirmation.
 
 ## Per-step authorization
 

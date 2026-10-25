@@ -1,4 +1,8 @@
 ---
+- name: Stage the controller-rendered candidate
+  ansible.builtin.import_tasks: stage.yml
+  tags: [stage]
+
 - name: Validate and seal the candidate
   ansible.builtin.import_tasks: seal.yml
   tags: [stage]

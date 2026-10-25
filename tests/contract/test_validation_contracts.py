@@ -2,6 +2,7 @@ import hashlib
 import os
 import shutil
 import subprocess
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -14,9 +15,11 @@ from contract_support import (
     _seed_site,
     _split_runtime,
 )
+from paths import CORE_ANSIBLE
 
 from blitzecdn.capabilities.dns.domain import Rule
 from blitzecdn.composition import ControlPlane, Repository
+from blitzecdn.core.ansible.rendering import EdgeRenderer
 
 # ----------------------------------------------------------------------
 # Executing the role's validation tasks
@@ -335,161 +338,56 @@ def test_role_rejects_an_ipv6_zone_index_on_the_origin(desired_state, tmp_path, 
 
 
 # ----------------------------------------------------------------------
-# Executing a converge task, not a validation one
-#
-# The three tasks below render the capability HTTP fragments, list what is on
-# disk, and delete whatever is no longer wanted. Their correctness is entirely
-# in the set arithmetic between the second and the third, which is invisible
-# to everything that reads the role rather than running it: the task names are
-# right, the filter chain parses, ansible-lint is happy, and the expression
-# still produced a list of paths that matched nothing on disk — so the prune
-# deleted every fragment the render had just written, on every converge, and
-# `js_import` with them.
+# Every installed capability's HTTP fragment is in a release's tree, and a
+# detached one's is not. The edge used to render the fragments and then prune
+# whatever was no longer wanted, and that prune once deleted every fragment it
+# had just written — `js_import` with them. A release's tree is now rendered on
+# the controller and staged as a fresh candidate, so there is nothing to prune;
+# what is held here is what the tree contains.
 # ----------------------------------------------------------------------
 
 
-def _run_capability_http_resources(
-    tmp_path: Path, declared: list[str], present: list[str]
-):
-    """Run the render-then-prune tasks over a real directory.
-
-    Extracted from the role's own `main.yml` by name rather than copied, so
-    this executes the tasks that ship. `declared` is what the control plane
-    says is installed; `present` is what an earlier converge left behind.
-    """
-    ansible = shutil.which("ansible-playbook") or str(
-        PROJECT_DIR / ".venv/bin/ansible-playbook"
+def _http_fragments(renderer: EdgeRenderer, settings) -> set[str]:
+    fixture = yaml.safe_load(
+        (PROJECT_DIR / "tests/fixtures/desired-state.yml").read_text(encoding="utf-8")
     )
-    if not Path(ansible).exists():
-        pytest.skip("ansible-playbook is not installed")
-
-    nginx_dir = tmp_path / "nginx"
-    (nginx_dir / "conf.d").mkdir(parents=True)
-    for name in present:
-        (nginx_dir / "conf.d" / name).write_text("# stale\n", encoding="utf-8")
-
-    resources = []
-    for name in declared:
-        template = tmp_path / f"{name}.j2"
-        template.write_text(f"# rendered from {name}\n", encoding="utf-8")
-        resources.append(
-            {
-                "plugin": name.split("-")[0],
-                "name": f"{name}.j2",
-                "template": str(template),
-            }
-        )
-
-    wanted = {
-        "Render installed capability HTTP resources",
-        "Find previously rendered capability HTTP resources",
-        "Remove detached capability HTTP resources",
+    bundle = renderer.render({**fixture, "blitzecdn_release_digest": "a" * 64})
+    prefix = "nginx/conf.d/blitzecdn-plugin-"
+    return {
+        name.removeprefix(prefix) for name in bundle.files if name.startswith(prefix)
     }
-    tasks = [
-        task
-        for task in yaml.safe_load(CONVERGE_TASKS.read_text(encoding="utf-8"))
-        if task.get("name") in wanted
-    ]
-    assert len(tasks) == len(wanted), (
-        f"the role no longer has all of {sorted(wanted)}; this test executes "
-        "them by name and cannot silently stop covering them"
-    )
-    for task in tasks:
-        # The render writes root:root, which a test process is not. Dropped
-        # here and nowhere else: what has to be exercised verbatim is the
-        # `dest` expression, because the prune's job is to agree with it, and
-        # ownership has no bearing on which paths the two compute.
-        task.get("ansible.builtin.template", {}).pop("owner", None)
-        task.get("ansible.builtin.template", {}).pop("group", None)
 
-    ansible_local = tmp_path / "ansible-local"
-    ansible_local.mkdir()
-    playbook = tmp_path / "capability-http-resources.yml"
-    playbook.write_text(
-        yaml.safe_dump(
-            [
-                {
-                    "hosts": "localhost",
-                    "gather_facts": False,
-                    "vars": {
-                        "blitzecdn_edge_runtime": {"paths": {"nginx": str(nginx_dir)}},
-                        "blitzecdn_nginx_resources": {"http": resources},
-                    },
-                    "tasks": tasks,
-                    # The tasks notify a handler that lives in the role. Named
-                    # here so they can run verbatim rather than being edited.
-                    "handlers": [
-                        {
-                            "name": "Validate and reload Nginx",
-                            "ansible.builtin.debug": {"msg": "noop"},
-                        }
-                    ],
-                }
-            ]
-        ),
-        encoding="utf-8",
-    )
-    result = subprocess.run(  # noqa: S603 - fixed ansible-playbook argv over tmp_path
-        [ansible, "-i", "localhost,", "-c", "local", str(playbook)],
-        capture_output=True,
-        text=True,
-        cwd=tmp_path,
-        env={
-            key: value
-            for key, value in os.environ.items()
-            if not key.startswith(("COV_CORE", "COVERAGE"))
+
+def test_a_release_carries_every_installed_capability_fragment(settings):
+    control = ControlPlane(settings=settings)
+    try:
+        installed = {
+            resource.name.removesuffix(".j2")
+            for resource in control.edge_contributions.nginx_resources["http"]
         }
-        | {
-            "ANSIBLE_LOCALHOST_WARNING": "False",
-            "ANSIBLE_LOCAL_TEMP": str(ansible_local),
-        },
-        check=False,
-    )
-    assert result.returncode == 0, result.stdout + result.stderr
-    return sorted(path.name for path in (nginx_dir / "conf.d").iterdir())
+        assert installed
+        assert _http_fragments(control.releases.renderer, settings) == installed
+    finally:
+        control.close()
 
 
-def test_the_converge_keeps_the_capability_fragments_it_just_rendered(tmp_path):
-    """The prune removed all of them, which nginx reported as a missing import.
-
-    A detached capability's fragment has to go, or its directives outlive the
-    distribution that owns them. Everything still installed has to stay, and
-    that half was broken: the desired-path list was built with a backreference
-    that arrives at `re.sub` escaped, so every entry was the literal
-    `blitzecdn-plugin-\\1`, nothing on disk matched, and `rejectattr` rejected
-    nothing. The edge lost the `js_import` for Under Attack Mode on every
-    converge and refused its own configuration.
-    """
-    remaining = _run_capability_http_resources(
-        tmp_path,
-        declared=["cache-http.conf", "security-http.conf"],
-        present=["blitzecdn-plugin-detached-http.conf"],
-    )
-
-    assert remaining == [
-        "blitzecdn-plugin-cache-http.conf",
-        "blitzecdn-plugin-security-http.conf",
-    ], (
-        "the converge did not leave exactly the fragments the installed "
-        f"capabilities declare; conf.d holds {remaining}"
-    )
-
-
-def test_the_converge_removes_a_detached_capabilitys_fragment(tmp_path):
-    """The other half, and the reason the prune exists at all."""
-    remaining = _run_capability_http_resources(
-        tmp_path,
-        declared=[],
-        present=[
-            "blitzecdn-plugin-geoip-http.conf",
-            "blitzecdn-plugin-security-http.conf",
-        ],
-    )
-
-    assert remaining == [], (
-        "a capability that is no longer installed kept its http fragment, so "
-        f"its directives outlive it; conf.d holds {remaining}"
-    )
+def test_a_detached_capabilitys_fragment_is_not_in_the_release(settings):
+    control = ControlPlane(settings=settings)
+    try:
+        contributions = control.edge_contributions
+        resources = {
+            context: tuple(item for item in items if item.plugin != "security")
+            for context, items in contributions.nginx_resources.items()
+        }
+        detached = EdgeRenderer(
+            ansible_dir=CORE_ANSIBLE,
+            contributions=replace(contributions, nginx_resources=resources),
+        )
+        fragments = _http_fragments(detached, settings)
+        assert "security-http.conf" not in fragments
+        assert fragments
+    finally:
+        control.close()
 
 
 def test_a_policy_no_hostname_uses_never_reaches_the_edge(settings, tmp_path):

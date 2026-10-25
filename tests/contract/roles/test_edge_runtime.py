@@ -23,6 +23,7 @@ from contract_support import (
     _role,
     _role_defaults,
 )
+from paths import SOURCE
 from role_contract_support import (
     COMPOSE_TEMPLATE,
     _defaults_of,
@@ -90,13 +91,27 @@ def test_every_mounted_path_is_created_before_the_container_starts():
     Which means a path nothing creates does not fail: it silently becomes an
     empty directory, and the edge starts with no configuration and answers 444
     for every customer.
+
+    The configuration files themselves are created by staging the release's
+    bundle, at the paths the controller renderer's recipe names; that recipe
+    is read in the same contract-variable spelling the tasks use.
     """
+    recipe = re.sub(
+        r'paths\["([a-z_]+)"\]',
+        r"{{ blitzecdn_edge_runtime.paths.\1 }}",
+        (SOURCE / "core/ansible/rendering.py").read_text(encoding="utf-8"),
+    )
     created = "\n".join(
-        source.read_text(encoding="utf-8")
-        for source in (
-            STACK_ROLE_DIR / "tasks/prepare.yml",
-            ROLE_DIR / "tasks/main.yml",
-        )
+        [
+            *(
+                source.read_text(encoding="utf-8")
+                for source in (
+                    STACK_ROLE_DIR / "tasks/prepare.yml",
+                    ROLE_DIR / "tasks/main.yml",
+                )
+            ),
+            recipe,
+        ]
     )
     context = _edge_context()
     # Paths are almost never written out in a task: they are composed from the

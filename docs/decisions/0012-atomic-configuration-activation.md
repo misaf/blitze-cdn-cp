@@ -11,8 +11,11 @@ verification without returning the edge to its previous configuration.
 ## Decision
 
 Each edge retains `/etc/blitzecdn/releases/<full-release-digest>/`. Staging writes
-its Nginx entrypoint, HTTP fragments, sites, module list and executable njs
-resources, then seals a manifest of file hashes and link targets. Links must stay
+the configuration the controller rendered for the release — its Nginx
+entrypoint, HTTP fragments, sites, module list and executable njs resources —
+checks it against the controller's manifest (see
+[decision 0020](0020-controller-rendered-configuration.md)), then seals a
+manifest of file hashes and link targets. Links must stay
 inside the candidate. Files and directories are flushed before publishing the
 seal. A sealed tree is verified and reused without rerendering on retry. The
 exact resolved runtime image is captured inside the seal; locally loaded images

@@ -8,19 +8,20 @@ edge group's shipped variables, then what `blitzecdn_config_release` binds when
 it selects the candidate tree, then the extra-vars — the release's execution
 document and the installed contributions.
 
-Two departures from the edge play, both deliberate:
+This is the only renderer of edge configuration. A release is rendered once,
+when it is prepared, and the rendering is stored with it; the edge stages those
+bytes and renders nothing. It was held byte for byte against the edge play's
+own rendering while both existed.
 
-* The release document and the contributions are *data*. The edge play loads
-  the document with ``-e @file``, which Ansible trusts as templates, so an
-  operator-authored value containing ``{{ ... }}`` would be evaluated there.
-  Here it is rendered literally.
-* Only the configuration tree is rendered. Host state — certificates, the ACME
-  webroot, capability credentials, provider data — stays with the edge play.
+The release document and the contributions are rendered as *data*, never as
+trusted templates, so an operator-authored value containing ``{{ ... }}`` is
+written literally. Only the configuration tree is rendered here. Host state —
+certificates, the ACME webroot, capability credentials, provider data — stays
+with the edge play.
 
 What is rendered where is the recipe in
-:meth:`~blitzecdn.core.ansible.rendering.EdgeRenderer.render`; it mirrors the
-tasks of `blitzecdn_nginx` that write the candidate, and the parity test in
-`tests/contract/test_configuration_rendering.py` holds the two together.
+:meth:`~blitzecdn.core.ansible.rendering.EdgeRenderer.render`, laid out as the
+edge's candidate directory.
 """
 
 from __future__ import annotations
